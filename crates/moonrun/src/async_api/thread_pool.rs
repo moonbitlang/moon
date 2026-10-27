@@ -39,7 +39,12 @@ pub(super) fn free_job(context: &mut ImportContext<'_>, job: u64) -> AsyncHostRe
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn job_get_ret(context: &mut ImportContext<'_>, job: u64) -> AsyncHostResult<i32> {
-    context.host.with_job(job, thread_pool::job_get_ret).map(|value| value as i32)
+    context.host.with_job_mut(job, |job| {
+        if job.err() == 0 && let Ok(process) = job.process_mut() {
+            process.consume_wait_result();
+        }
+        thread_pool::job_get_ret(job) as i32
+    })
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -48,6 +53,14 @@ pub(super) fn job_get_err(context: &mut ImportContext<'_>, job: u64) -> AsyncHos
 }
 
 pub(super) fn run_job(context: &mut ImportContext<'_>, job: u64) -> AsyncHostResult<()> {
+    let cancellation = context.host.with_job(job, |job| job.cancellation_override())?;
+    let _wait = if let Some(cancellation) = cancellation {
+        context.termination_request.bind_host_wake(|| Ok::<_, AsyncHostError>(move || {
+            let _ = cancellation.cancel();
+        }))?
+    } else {
+        None
+    };
     context.host.run_job(job)
 }
 

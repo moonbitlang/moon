@@ -51,6 +51,7 @@ pub(crate) struct Job {
 // Keep it inline: this extraction does not need to add a per-Job allocation.
 #[allow(clippy::large_enum_variant)]
 enum Kind {
+    WaitForVirtualProcess(crate::process_tree::ProcessWait),
     #[cfg(unix)]
     SpawnUnix {
         path: OsString,
@@ -85,6 +86,27 @@ enum Kind {
 }
 
 impl Job {
+    pub(crate) fn wait_for_virtual_process(wait: crate::process_tree::ProcessWait) -> Self {
+        Self {
+            kind: Kind::WaitForVirtualProcess(wait),
+        }
+    }
+
+    pub(crate) fn cancellation_override(
+        &self,
+    ) -> Option<crate::async_sys::internal::event_loop::thread_pool::JobCancellation> {
+        match &self.kind {
+            Kind::WaitForVirtualProcess(wait) => Some(wait.cancellation()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn consume_wait_result(&mut self) {
+        if let Kind::WaitForVirtualProcess(wait) = &mut self.kind {
+            wait.consume();
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[cfg(unix)]
     pub(crate) fn spawn_unix(
@@ -166,7 +188,9 @@ impl Job {
                 *job_cwd = Some(cwd);
                 Ok(())
             }
-            Kind::WaitForProcess { .. } => Err(AsyncHostError::Badf),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
+                Err(AsyncHostError::Badf)
+            }
         }
     }
 
@@ -177,7 +201,9 @@ impl Job {
                 options.no_console_window = true;
                 Ok(())
             }
-            Kind::WaitForProcess { .. } => Err(AsyncHostError::Badf),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
+                Err(AsyncHostError::Badf)
+            }
         }
     }
 
@@ -187,7 +213,9 @@ impl Job {
             Kind::SpawnUnix { result, .. } => Ok(result.take()),
             #[cfg(windows)]
             Kind::SpawnWindows { result, .. } => Ok(result.take()),
-            Kind::WaitForProcess { .. } => Err(AsyncHostError::Badf),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
+                Err(AsyncHostError::Badf)
+            }
         }
     }
 
@@ -206,7 +234,9 @@ impl Job {
                 *result = Some(resource);
                 Ok(())
             }
-            Kind::WaitForProcess { .. } => Err(AsyncHostError::Badf),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
+                Err(AsyncHostError::Badf)
+            }
         }
     }
 
@@ -228,7 +258,9 @@ impl Job {
             Kind::SpawnUnix { cwd, .. } => Ok(cwd.as_deref()),
             #[cfg(windows)]
             Kind::SpawnWindows { cwd, .. } => Ok(cwd.as_deref()),
-            Kind::WaitForProcess { .. } => Err(AsyncHostError::Badf),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
+                Err(AsyncHostError::Badf)
+            }
         }
     }
 
@@ -236,13 +268,16 @@ impl Job {
     pub(crate) fn no_console_window(&self) -> AsyncHostResult<bool> {
         match &self.kind {
             Kind::SpawnWindows { options, .. } => Ok(options.no_console_window),
-            Kind::WaitForProcess { .. } => Err(AsyncHostError::Badf),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
+                Err(AsyncHostError::Badf)
+            }
         }
     }
 
     pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
         let invokes_moonx = self.invokes_moonx();
         match &mut self.kind {
+            Kind::WaitForVirtualProcess(wait) => wait.run(),
             #[cfg(unix)]
             Kind::SpawnUnix {
                 path,
@@ -314,7 +349,7 @@ impl Job {
             Kind::SpawnUnix { cwd, .. } => working_directory.configure_child_cwd(cwd),
             #[cfg(windows)]
             Kind::SpawnWindows { cwd, .. } => working_directory.configure_child_cwd(cwd),
-            Kind::WaitForProcess { .. } => {}
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {}
         }
     }
 
@@ -345,7 +380,7 @@ impl Job {
                 }
                 Ok(())
             }
-            Kind::WaitForProcess { .. } => Ok(()),
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => Ok(()),
         }
     }
 
@@ -359,7 +394,7 @@ impl Job {
                     &moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy()),
                 ))
             }
-            Kind::WaitForProcess { .. } => false,
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => false,
         }
     }
 
@@ -376,7 +411,7 @@ impl Job {
             Kind::SpawnWindows {
                 policy_inheritance, ..
             } => Some(policy_inheritance),
-            Kind::WaitForProcess { .. } => None,
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => None,
         };
         if let Some(slot) = slot {
             *slot = inheritance;
@@ -385,6 +420,7 @@ impl Job {
 
     pub(super) fn check_policy(&self, process: &HostProcess) -> AsyncHostResult<()> {
         match &self.kind {
+            Kind::WaitForVirtualProcess(_) => Ok(()),
             #[cfg(unix)]
             Kind::SpawnUnix { path, args, .. } => process.check_spawn_unix(path.as_os_str(), args),
             #[cfg(windows)]
@@ -405,6 +441,7 @@ impl Job {
             return Ok(());
         }
         match &self.kind {
+            Kind::WaitForVirtualProcess(_) => {}
             #[cfg(unix)]
             Kind::SpawnUnix { .. } => {
                 if ret >= 0 {
@@ -446,7 +483,7 @@ impl Job {
             Kind::SpawnWindows { result, .. } => {
                 !matches!(result, Some(ResourcePublication::Published(_)))
             }
-            Kind::WaitForProcess { .. } => false,
+            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => false,
         };
         if unclaimed {
             process.revoke_child_if_unreferenced(ret as i32);

@@ -27,7 +27,6 @@ use crate::resource::ResourceRef;
 use std::os::unix::thread::JoinHandleExt;
 
 use super::super::PipeCompletionNotifier;
-#[cfg(unix)]
 use super::JobCancellation;
 use super::cancellation::WorkerCancellation;
 use super::{CancellationOutcome, Job};
@@ -92,7 +91,6 @@ struct WorkerState {
     job: Option<WorkerJob>,
     // The running Job lives on the worker thread's stack, so retain its hook
     // here for cancellation. A queued Job supplies its own hook when needed.
-    #[cfg(unix)]
     active_cancel: Option<JobCancellation>,
     #[cfg(windows)]
     running_cancel: RunningCancellation,
@@ -170,7 +168,6 @@ impl Worker {
             cancellation: WorkerCancellation::new(),
             state: Mutex::new(WorkerState {
                 job: Some(first_job),
-                #[cfg(unix)]
                 active_cancel: None,
                 #[cfg(windows)]
                 running_cancel: RunningCancellation::Idle,
@@ -196,11 +193,11 @@ impl Worker {
                         state = worker_shared.wakeup.wait(state).unwrap();
                     }
                     let job = (!state.terminating).then(|| state.job.take()).flatten();
+                    state.active_cancel =
+                        job.as_ref().and_then(|job| job.job.cancellation_override());
                     #[cfg(unix)]
                     {
                         state.running = job.is_some();
-                        state.active_cancel =
-                            job.as_ref().and_then(|job| job.job.cancellation_override());
                     }
                     #[cfg(windows)]
                     {
@@ -227,10 +224,10 @@ impl Worker {
 
                 let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
+                    state.active_cancel = None;
                     #[cfg(unix)]
                     {
                         state.running = false;
-                        state.active_cancel = None;
                     }
                     #[cfg(windows)]
                     {
@@ -376,22 +373,26 @@ impl Worker {
         if !self.shared.cancellation.request() {
             return Ok(CancellationOutcome::NeedWait);
         }
+        let cancel = {
+            let state = self.shared.state.lock().unwrap();
+            #[cfg(unix)]
+            let running = state.running;
+            #[cfg(windows)]
+            let running = matches!(state.running_cancel, RunningCancellation::Active(_));
+            if running {
+                state.active_cancel.clone()
+            } else {
+                state
+                    .job
+                    .as_ref()
+                    .and_then(|job| job.job.cancellation_override())
+            }
+        };
+        if let Some(cancel) = cancel {
+            return cancel.cancel();
+        }
         #[cfg(unix)]
         {
-            let cancel = {
-                let state = self.shared.state.lock().unwrap();
-                if state.running {
-                    state.active_cancel.clone()
-                } else {
-                    state
-                        .job
-                        .as_ref()
-                        .and_then(|job| job.job.cancellation_override())
-                }
-            };
-            if let Some(cancel) = cancel {
-                return cancel.cancel();
-            }
             unsafe {
                 libc::pthread_kill(self.thread.as_pthread_t(), libc::SIGUSR2);
             }

@@ -174,11 +174,13 @@ See `run_termination.rs` for the control contract and
 
 ## Virtual process supervision
 
-`VirtualProcessTree` supervises concurrent Runs through typed virtual PIDs,
-parent links, termination and single-consumer `wait`. It joins before reaping;
-`Terminating` does not promise bounded teardown. Exiting parents leave children
-with the embedding supervisor. This opt-in API currently manages host-launched
-Runs; guest process imports remain ambient. See `tests/process_tree.rs`.
+`VirtualProcessTree` gives Runs virtual PIDs. Guests can kill themselves or
+children and wait for direct children; spawning, soft signals and native process
+handles are not yet supported. Ordinary Runs remain ambient. A supervisor thread
+joins exited Runs; guest wait Jobs are cancellable and only consume the result
+when the guest reads it. Dropping an unread Job preserves that result. Exiting
+parents leave children with the supervisor. `Terminating` does not promise
+bounded teardown. See `tests/process_tree.rs` and `tests/guest_process_control.rs`.
 
 ## Worker cancellation
 

@@ -104,6 +104,7 @@ mod tests {
             crate::runtime::Stdio::Ambient,
             Executable::unavailable(),
             crate::signal_channel().1,
+            None,
             #[cfg(unix)]
             mask,
         )

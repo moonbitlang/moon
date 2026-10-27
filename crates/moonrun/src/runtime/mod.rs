@@ -146,6 +146,7 @@ impl Runtime {
         stdio: Stdio,
         executable: Executable,
         signals: SignalReceiver,
+        process_context: Option<crate::process_tree::ProcessContext>,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
         let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
@@ -197,6 +198,7 @@ impl Runtime {
             policy_inheritance,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
+            process_context,
         );
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
@@ -324,6 +326,7 @@ mod tests {
             Stdio::Ambient,
             Executable::from_file(&path),
             crate::signal_channel().1,
+            None,
             #[cfg(unix)]
             mask,
         )
