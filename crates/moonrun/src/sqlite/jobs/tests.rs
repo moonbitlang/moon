@@ -219,7 +219,7 @@ fn detached_preparing_jobs_destroy_unclaimed_results_before_releasing_the_databa
         .insert_job(crate::async_sys::internal::event_loop::thread_pool::make_sleep_job(0))
         .unwrap();
     drop(guard);
-    assert_eq!(pool.poll_wait(poll, 10_000), Ok(1));
+    assert_eq!(pool.poll_wait(poll, 10_000, &Default::default()), Ok(1));
     pool.free_worker(worker).unwrap();
     assert_eq!(
         pool.with_job(job, |job| job.ret()),
@@ -279,7 +279,7 @@ fn idle_async_workers_can_run_sqlite_and_existing_jobs() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while pool.with_job(sleep, |job| job.ret()) != Ok(0) {
         assert!(std::time::Instant::now() < deadline);
-        pool.poll_wait(poll, 10).unwrap();
+        pool.poll_wait(poll, 10, &Default::default()).unwrap();
     }
     pool.free_job(sleep).unwrap();
     pool.worker_enter_idle(worker).unwrap();
@@ -301,7 +301,7 @@ fn idle_async_workers_can_run_sqlite_and_existing_jobs() {
             std::time::Instant::now() < deadline,
             "reused worker did not complete SQLite job"
         );
-        pool.poll_wait(poll, 10).unwrap();
+        pool.poll_wait(poll, 10, &Default::default()).unwrap();
         std::thread::yield_now();
     }
     pool.free_worker(worker).unwrap();
