@@ -223,15 +223,24 @@ pub(crate) fn add_cli(
 
     let registry = RegistryClient::configured();
     let allow_remote = !cmd.no_update;
-    let module =
-        registry_queries::resolve_module(&registry, path.module_request()?, allow_remote, user_log)
-            .map_err(|error| {
-                if !allow_remote && error.is::<ModuleNotFound>() {
-                    error.context("Please consider running `moon update` to update the index.")
-                } else {
-                    error
-                }
-            })?;
+    let module = registry_queries::resolve_module(
+        &registry,
+        path.module_request()?,
+        allow_remote,
+        user_log,
+    )
+    .map_err(|error| {
+        if !allow_remote && error.is::<ModuleNotFound>() {
+            let hint = if registry.uses_http_metadata() {
+                "No cached latest version; retry without `--no-update` to query the registry."
+            } else {
+                "Please consider running `moon update` to update the index."
+            };
+            error.context(hint)
+        } else {
+            error
+        }
+    })?;
     mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.upgrade, user_log)
 }
 

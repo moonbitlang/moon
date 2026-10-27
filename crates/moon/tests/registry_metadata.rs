@@ -126,7 +126,15 @@ fn moon(project: &Path, home: &Path, api: bool) -> snapbox::cmd::Command {
         .env("MOON_REGISTRY_API", if api { "1" } else { "0" })
         .env("MOON_DEP_CACHE", "off")
         .env("NO_PROXY", "*")
+        .env("no_proxy", "*")
+        .env("HTTP_PROXY", "none://")
+        .env("HTTPS_PROXY", "none://")
+        .env("ALL_PROXY", "none://")
+        .env("http_proxy", "none://")
+        .env("https_proxy", "none://")
+        .env("all_proxy", "none://")
         .env_remove("MOONCAKES_REGISTRY")
+        .env_remove("MOON_REGISTRY_CACHE")
         .env_remove("MOON_WORK")
 }
 
@@ -178,14 +186,6 @@ fn api_mode_preserves_exact_mvs_traversal_and_offline_resolution() {
             .iter()
             .any(|module| module["name"] == "alice/shared" && module["version"] == "0.1.5")
     );
-    moon(project.path(), home.path(), true)
-        .args(["update"])
-        .assert()
-        .failure()
-        .stderr_eq(snapbox::str![[r#"
-Error: registry API metadata refresh is not implemented yet; `moon update` cannot be used with `MOON_REGISTRY_API=1`
-
-"#]]);
     server.stop();
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 4);
@@ -333,7 +333,11 @@ fn http_commands_distinguish_refresh_from_cached_metadata() {
     moon(project.path(), home.path(), true)
         .args(["add", "--upgrade", "--no-update", "alice/shared"])
         .assert()
-        .failure();
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: No cached latest version; retry without `--no-update` to query the registry.
+...
+"#]]);
     assert_eq!(server.requests.lock().unwrap().len(), 2);
 
     let response = server.responses.lock().unwrap().get(exact).unwrap().clone();
@@ -439,4 +443,390 @@ fn no_update_allows_acquiring_missing_exact_metadata() {
         };
         assert!(source.is_file());
     }
+}
+
+#[test]
+fn update_refreshes_selected_status_and_latest_without_changing_the_project() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[("alice/shared", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    let manifest = "name = \"test/app\"\nimport { \"alice/shared@0.1.0\" }\n";
+    std::fs::write(project.path().join("moon.mod"), manifest).unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    let exact = "/api/v0/registry/modules/alice/shared?version=0.1.0";
+    let latest = "/api/v0/registry/modules/alice/shared";
+    let release = serde_json::json!({
+        "module": "alice/shared", "visibility": "PUBLIC", "version": "0.1.0",
+        "deps": {}, "checksum": "a".repeat(64), "yanked": true,
+        "yanked_reason": "use the new release",
+    });
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert(exact.into(), (200, release.to_string()));
+    server.responses.lock().unwrap().insert(
+        latest.into(),
+        (
+            200,
+            serde_json::json!({
+                "module": "alice/shared", "visibility": "PUBLIC", "version": "0.2.0",
+                "deps": {}, "checksum": "b".repeat(64),
+            })
+            .to_string(),
+        ),
+    );
+    moon(project.path(), home.path(), true)
+        .args(["update", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("alice/shared@0.1.0: latest 0.2.0 (update available); deprecated: use the new release\n")
+        .stderr_eq("");
+    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("Warning: Dependency `alice/shared@0.1.0` is deprecated: use the new release\n");
+    let mut restored = release;
+    restored["yanked"] = false.into();
+    restored["yanked_reason"] = serde_json::Value::Null;
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert(exact.into(), (200, restored.to_string()));
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .success()
+        .stdout_eq("alice/shared@0.1.0: latest 0.2.0 (update available)\n")
+        .stderr_eq("");
+    server.stop();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("");
+    assert_eq!(
+        std::fs::read_to_string(project.path().join("moon.mod")).unwrap(),
+        manifest
+    );
+    assert!(!project.path().join(".mooncakes").exists());
+    assert!(!home.path().join("registry/cache").exists());
+}
+
+#[test]
+fn update_reports_partial_failure_and_keeps_successful_refreshes() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[
+        ("alice/a", "0.1.0", serde_json::json!({})),
+        ("alice/b", "0.1.0", serde_json::json!({})),
+    ]);
+    configure(home.path(), &server.api);
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/a@0.1.0\", \"alice/b@0.1.0\" }\n",
+    )
+    .unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    for name in ["alice/a", "alice/b"] {
+        server.responses.lock().unwrap().insert(
+            format!("/api/v0/registry/modules/{name}"),
+            (
+                200,
+                serde_json::json!({
+                    "module": name, "visibility": "PUBLIC", "version": "0.2.0",
+                    "deps": {}, "checksum": "b".repeat(64),
+                })
+                .to_string(),
+            ),
+        );
+    }
+    server.responses.lock().unwrap().insert(
+        "/api/v0/registry/modules/alice/a?version=0.1.0".into(),
+        (503, "{}".into()),
+    );
+    server.responses.lock().unwrap().insert(
+        "/api/v0/registry/modules/alice/b?version=0.1.0".into(),
+        (
+            200,
+            serde_json::json!({
+                "module": "alice/b", "visibility": "PUBLIC", "version": "0.1.0",
+                "deps": {}, "checksum": "a".repeat(64), "yanked": true,
+            })
+            .to_string(),
+        ),
+    );
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .failure()
+        .stdout_eq("alice/a@0.1.0: latest 0.2.0 (update available); status refresh failed\nalice/b@0.1.0: latest 0.2.0 (update available); deprecated\n")
+        .stderr_eq(snapbox::str![[r#"
+Error: registry refresh incomplete:
+  alice/a@0.1.0: [..]503[..]
+
+"#]]);
+    server.stop();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("Warning: Dependency `alice/b@0.1.0` is deprecated.\n");
+}
+
+#[test]
+fn metadata_cache_can_be_reused_and_cleaned_independently() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[("alice/shared", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    let latest =
+        server.responses.lock().unwrap()["/api/v0/registry/modules/alice/shared?version=0.1.0"]
+            .clone();
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert("/api/v0/registry/modules/alice/shared".into(), latest);
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/shared@0.1.0\" }\n",
+    )
+    .unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .success();
+    let metadata = home.path().join("cache/registry/metadata");
+    assert!(metadata.join(".moon-cache").is_file());
+    server.stop();
+    // A new process can reuse exact metadata without contacting the server.
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    assert!(metadata.join("v1").is_dir());
+    // The persisted latest observation remains usable too. The existing
+    // dependency makes this an add no-op, without source acquisition.
+    moon(project.path(), home.path(), true)
+        .args(["add", "--no-update", "alice/shared"])
+        .assert()
+        .success();
+    for name in ["index", "cache"] {
+        let path = home.path().join("registry").join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("must-survive"), "other registry state").unwrap();
+    }
+    moon(project.path(), home.path(), true)
+        .args(["clean"])
+        .assert()
+        .success();
+    assert!(metadata.join("v1").is_dir());
+    moon(home.path(), home.path(), true)
+        .args(["clean", "--registry-cache"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+    assert!(!metadata.exists());
+    for name in ["index", "cache"] {
+        assert!(
+            home.path()
+                .join("registry")
+                .join(name)
+                .join("must-survive")
+                .is_file()
+        );
+    }
+}
+
+#[test]
+fn update_refreshes_only_selected_workspace_versions_once() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let server = Server::new(&[
+        ("alice/shared", "0.1.0", serde_json::json!({})),
+        ("alice/shared", "0.2.0", serde_json::json!({})),
+    ]);
+    configure(home.path(), &server.api);
+    let workspace = "members = [\"./a\", \"./b\"]\n";
+    std::fs::write(project.path().join("moon.work"), workspace).unwrap();
+    for (member, imports) in [
+        ("a", "\"test/b@0.1.0\", \"alice/shared@0.1.0\""),
+        ("b", "\"alice/shared@0.2.0\""),
+    ] {
+        let path = project.path().join(member);
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(
+            path.join("moon.mod"),
+            format!("name = \"test/{member}\"\nversion = \"0.1.0\"\nimport {{ {imports} }}\n"),
+        )
+        .unwrap();
+    }
+    moon(&project.path().join("a"), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    server.responses.lock().unwrap().insert(
+        "/api/v0/registry/modules/alice/shared".into(),
+        (
+            200,
+            serde_json::json!({
+                "module": "alice/shared", "visibility": "PUBLIC", "version": "0.3.0",
+                "deps": {}, "checksum": "b".repeat(64),
+            })
+            .to_string(),
+        ),
+    );
+    // Both root and member invocations refresh the entire selected workspace.
+    for directory in [project.path().to_owned(), project.path().join("a")] {
+        server.requests.lock().unwrap().clear();
+        moon(&directory, home.path(), true)
+            .args(["update"])
+            .assert()
+            .success()
+            .stdout_eq("alice/shared@0.2.0: latest 0.3.0 (update available)\n")
+            .stderr_eq("");
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[0].starts_with("GET /api/v0/registry/modules/alice/shared?version=0.2.0 ")
+        );
+        assert!(requests[1].starts_with("GET /api/v0/registry/modules/alice/shared "));
+    }
+    assert_eq!(
+        std::fs::read_to_string(project.path().join("moon.work")).unwrap(),
+        workspace
+    );
+    assert!(!project.path().join(".mooncakes").exists());
+}
+
+#[test]
+fn update_rejects_immutable_changes_and_does_not_fall_back_to_cached_latest() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[("alice/shared", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/shared@0.1.0\" }\n",
+    )
+    .unwrap();
+    let exact = "/api/v0/registry/modules/alice/shared?version=0.1.0";
+    let latest = "/api/v0/registry/modules/alice/shared";
+    let release = server.responses.lock().unwrap()[exact].clone();
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert(latest.into(), release);
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .success();
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert(latest.into(), (503, "{}".into()));
+    server.responses.lock().unwrap().insert(
+        exact.into(),
+        (
+            200,
+            serde_json::json!({
+                "module": "alice/shared", "visibility": "PUBLIC", "version": "0.1.0",
+                "deps": {}, "checksum": "b".repeat(64), "yanked": true,
+            })
+            .to_string(),
+        ),
+    );
+    moon(project.path(), home.path(), true)
+        .args(["update"]).assert().failure()
+        .stdout_eq("alice/shared@0.1.0: latest refresh failed; status refresh failed\n")
+        .stderr_eq(snapbox::str![[r#"
+Error: registry refresh incomplete:
+  alice/shared latest: [..]503[..]
+  alice/shared@0.1.0: registry changed immutable metadata for alice/shared@0.1.0; cached release preserved
+
+"#]]);
+    server.stop();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("");
+}
+
+#[test]
+fn metadata_cache_supports_custom_roots_and_disabling_persistence() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let custom = tempfile::tempdir().unwrap();
+    let server = Server::new(&[("alice/shared", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/shared@0.1.0\" }\n",
+    )
+    .unwrap();
+    for _ in 0..2 {
+        moon(project.path(), home.path(), true)
+            .env("MOON_REGISTRY_CACHE", "off")
+            .args(["tree"])
+            .assert()
+            .success();
+    }
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    assert!(!home.path().join("cache/registry").exists());
+    // The custom root is reused across processes and cleaned independently.
+    for _ in 0..2 {
+        moon(project.path(), home.path(), true)
+            .env("MOON_REGISTRY_CACHE", custom.path())
+            .args(["tree"])
+            .assert()
+            .success();
+    }
+    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    assert!(custom.path().join(".moon-cache").is_file());
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    moon(project.path(), home.path(), true)
+        .env("MOON_REGISTRY_CACHE", custom.path())
+        .args(["clean", "--registry-cache"])
+        .assert()
+        .success();
+    assert!(!custom.path().exists());
+    assert!(home.path().join("cache/registry/metadata/v1").is_dir());
+}
+
+#[test]
+fn update_requires_a_project_but_allows_no_registry_dependencies() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let server = Server::new(&[]);
+    configure(home.path(), &server.api);
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .failure();
+    std::fs::write(project.path().join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["update"])
+        .assert()
+        .success()
+        .stdout_eq("No registry dependencies to refresh.\n")
+        .stderr_eq("");
+    assert!(server.requests.lock().unwrap().is_empty());
 }

@@ -26,6 +26,12 @@ $MOON_HOME/
       v1/sources/<username>/<encoded-module>/<version>/
         .moon-source-archive-checksum
         ...
+    registry/metadata/
+      .moon-cache
+      v1/<api-hash>/<module-hash>/
+        releases/<version-hash>.json
+        releases/<version-hash>.json.lock
+        latest.json
   registry/
     .moon-lock
     .registry-update-state.json
@@ -35,9 +41,6 @@ $MOON_HOME/
       ...
     symbols/
       ...
-    metadata/v1/<api-hash>/<module-hash>/
-      releases/<version-hash>.json
-      latest.json
     cache/
       <username>/<module>/<version>.zip
       <username>/<module>/<version>.zip.lock
@@ -82,14 +85,30 @@ $MOON_HOME/
   checksum. Conflicting responses fail without replacing the cache; only
   deprecation status may change.
 - API release records are keyed by normalized API URL, module and exact version
-  beneath `registry/metadata/v1`. The optional `latest.json` contains only a version
+  beneath `cache/registry/metadata/v1`. The optional `latest.json` contains only a version
   pointer. Exact requests share release records directly; no generation or
   range-selection cache is needed. Every current latest query contacts the server,
   including repeated queries on the same client. Reading a persisted latest
   pointer cannot suppress a current query.
   Locally-known-latest executable selectors deliberately prefer a cached pointer.
-- In API mode, `moon update` reports that registry metadata refresh is not yet
-  implemented. Exact release records remain usable. Frozen module
+- `MOON_REGISTRY_CACHE` selects an absolute HTTP metadata cache root, or `off`
+  to disable persistence while retaining in-process reuse. A relative path is
+  rejected. The default root has a `.moon-cache` ownership marker, as do custom
+  roots. Initialization rejects unrecognized non-empty roots.
+- `moon clean --registry-cache` removes the selected HTTP metadata cache.
+  Git indexes, source archives, downloaded executables and credentials
+  remain untouched. Ordinary `moon clean` leaves this cache alone. As with the
+  other global caches, explicit cleanup is not coordinated with active users.
+- In API mode, `moon update` resolves the selected module or entire workspace,
+  refreshes advisory status for each selected exact registry version, and queries
+  each module identity's current latest version. It reports available updates
+  without changing manifests, downloading sources, or running hooks. Shared
+  dependencies are refreshed once. Partial refresh failures preserve successful
+  writes and return a nonzero status instead of reporting stale cached answers
+  as current. A failure to resolve the graph stops the operation before refresh.
+  Git mode retains whole-index and symbols synchronization, including outside
+  a project.
+- Ordinary resolution keeps reusing cached exact records. Frozen module
   synchronization reads only cached metadata and verified sources; a missing
   exact release or source fails without HTTP or guessing another version.
 - Metadata is atomically written through owner-only temporary files; Unix
@@ -164,7 +183,9 @@ separate:
   owns Git synchronization, JSONL compatibility, and the parsed index cache;
   `registry::http::HttpMetadata` owns HTTP queries and response validation. Its
   internal `MetadataCache` owns disk layout, memory reuse, atomic writes and
-  immutable-content checks. Cached latest reads and current latest queries are
+  immutable-content checks. Memory entries use module/version keys within one
+  API namespace; filesystem hashes are only computed for disk access.
+  Cached latest reads and current latest queries are
   separate operations; there is no latest query deduplication or TTL. Only the
   Git backend enumerates all versions.
 - `moonutil::registry::RegistryCredentials` owns saved credential loading and

@@ -63,6 +63,7 @@ pub fn remove(
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: false, // no need to inject
+        warn_deprecated: true,
     };
     resolve_modules(&module_resolution_config, roots, user_log)?;
 

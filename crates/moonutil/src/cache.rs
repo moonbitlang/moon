@@ -34,6 +34,7 @@ const OWNERSHIP_MARKER: &str = ".moon-cache";
 pub enum CacheKind {
     DependencySources,
     BuildArtifacts,
+    RegistryMetadata,
 }
 
 impl CacheKind {
@@ -41,6 +42,7 @@ impl CacheKind {
         match self {
             Self::DependencySources => "MOON_DEP_CACHE",
             Self::BuildArtifacts => "MOON_BUILD_CACHE",
+            Self::RegistryMetadata => "MOON_REGISTRY_CACHE",
         }
     }
 
@@ -48,6 +50,7 @@ impl CacheKind {
         match self {
             Self::DependencySources => b"dependency-sources\n",
             Self::BuildArtifacts => b"build-artifacts\n",
+            Self::RegistryMetadata => b"registry-metadata\n",
         }
     }
 }
@@ -94,6 +97,13 @@ impl CacheRoot {
 }
 
 pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
+    resolve_cache_root_for_home(kind, &crate::MOON_HOME)
+}
+
+pub fn resolve_cache_root_for_home(
+    kind: CacheKind,
+    home: &crate::MoonHomeLayout,
+) -> anyhow::Result<CacheRoot> {
     let environment = kind.environment_variable();
     match std::env::var_os(environment) {
         Some(value) if value == "off" => Ok(CacheRoot::Disabled),
@@ -107,8 +117,9 @@ pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
         None => Ok(CacheRoot::Path {
             kind,
             path: match kind {
-                CacheKind::DependencySources => crate::MOON_HOME.dependency_cache_dir(),
-                CacheKind::BuildArtifacts => crate::MOON_HOME.build_cache_dir(),
+                CacheKind::DependencySources => home.dependency_cache_dir(),
+                CacheKind::BuildArtifacts => home.build_cache_dir(),
+                CacheKind::RegistryMetadata => home.registry_metadata_cache_dir(),
             },
         }),
     }
@@ -134,6 +145,8 @@ fn initialize_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::Result<(
     // Build the complete marker next to the root, then publish it without
     // replacing an existing claim. Keeping the temporary file outside `root`
     // means another initializer never mistakes our staging file for user data.
+    // Keep Windows' extended-length prefix for tempfile's direct Win32 calls.
+    let root = std::fs::canonicalize(root)?;
     let parent = root.parent().ok_or_else(|| {
         anyhow::anyhow!(
             "Moon cache root `{}` must have a parent directory",
@@ -146,7 +159,7 @@ fn initialize_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::Result<(
     match marker.persist_noclobber(root.join(OWNERSHIP_MARKER)) {
         Ok(_) => Ok(()),
         Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if !validate_existing_ownership_marker(root, kind)? {
+            if !validate_existing_ownership_marker(&root, kind)? {
                 bail!(
                     "Moon cache ownership marker disappeared while initializing `{}`",
                     root.display()
@@ -277,6 +290,25 @@ mod tests {
             "unrelated lock contents"
         );
         assert!(!root.path().join(OWNERSHIP_MARKER).exists());
+    }
+
+    #[test]
+    fn initializes_ownership_with_long_paths() {
+        let parent = tempfile::TempDir::new().unwrap();
+        let path = parent.path().join("cache-directory/".repeat(20));
+        assert!(path.to_string_lossy().len() > 260);
+        let root = CacheRoot::Path {
+            kind: CacheKind::RegistryMetadata,
+            path: path.clone(),
+        };
+
+        root.initialize().unwrap();
+        root.initialize().unwrap();
+
+        assert_eq!(
+            std::fs::read(path.join(OWNERSHIP_MARKER)).unwrap(),
+            CacheKind::RegistryMetadata.ownership()
+        );
     }
 
     #[test]

@@ -78,7 +78,7 @@ This document contains the help content for the `moon` command-line program.
 * `publish` — Publish the current module
 * `package` — Package the current module
 * `deprecate` — Deprecate or restore all existing versions of a published module
-* `update` — Update the package registry index
+* `update` — Refresh registry metadata and report dependency updates
 * `coverage` — Code coverage utilities
 * `generate-build-matrix` — Generate build matrix for benchmarking (legacy feature)
 * `upgrade` — Upgrade toolchains
@@ -378,6 +378,7 @@ Remove local build outputs or configured global caches
 
 * `--dep-cache` — Remove the global dependency-source cache instead of `_build`
 * `--build-cache` — Remove the global build-artifact cache instead of `_build`
+* `--registry-cache` — Remove cached HTTP registry metadata instead of `_build`. Uses MOON_REGISTRY_CACHE when set; leaves the Git index, source archives, and credentials intact. This also works outside a project
 
 
 
@@ -804,7 +805,11 @@ With `--dry-run`, fetch the module's currently published versions and print the 
 
 ## `moon update`
 
-Update the package registry index
+Refresh registry metadata and report dependency updates
+
+With MOON_REGISTRY_API=1, refresh the selected module or workspace's exact dependency versions and query each module's current latest version. Report available updates and deprecation status without changing declarations, downloading sources, or running build hooks. Partial refresh failures return a nonzero exit status; successful refreshes remain cached.
+
+Otherwise, synchronize the Git registry index and symbols as before. This mode also works outside a project.
 
 **Usage:** `moon update`
 

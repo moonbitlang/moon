@@ -74,6 +74,10 @@ Ordinary projects and workspaces retain their project-local dependency
 directories.
 `MOON_BUILD_CACHE` still configures and cleans its future root only.
 
+HTTP registry metadata uses the same cache-root ownership and cleanup rules,
+with `MOON_REGISTRY_CACHE` and `moon clean --registry-cache`. Its separate
+layout is described in [Moon home layout](../reference/moon-home-layout.md).
+
 Canonical action identity is also implemented as a pure consumer of the Rupes
 Recta `ExecutionPlan`. It is not connected to build execution or either cache
 root yet.

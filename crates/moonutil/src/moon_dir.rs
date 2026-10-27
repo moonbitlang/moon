@@ -63,6 +63,11 @@ impl MoonHomeLayout {
         self.cache_dir().join("build")
     }
 
+    /// HTTP registry metadata, separate from downloaded source archives.
+    pub fn registry_metadata_cache_dir(&self) -> PathBuf {
+        self.cache_dir().join("registry").join("metadata")
+    }
+
     /// Registry metadata and downloaded content.
     pub fn registry_dir(&self) -> PathBuf {
         self.root.join("registry")

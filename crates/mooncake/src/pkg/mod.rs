@@ -30,6 +30,7 @@ pub mod legacy_postadd;
 pub mod remove;
 pub mod sync;
 pub mod tree;
+pub mod update;
 mod work;
 
 pub use work::{init_workspace, sync_workspace, use_workspace};

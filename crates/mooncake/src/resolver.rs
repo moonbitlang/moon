@@ -269,6 +269,8 @@ fn format_module_resolution_errors(errors: &[ModuleResolutionError]) -> String {
 pub(crate) struct ModuleResolutionConfig<'a> {
     pub(crate) registry: &'a dyn Registry,
     pub(crate) inject_std: bool,
+    /// Explicit refresh reports fresh status after resolution.
+    pub(crate) warn_deprecated: bool,
 }
 
 pub(crate) fn resolve_modules_with_solver(
@@ -312,7 +314,9 @@ pub(crate) fn resolve_modules_with_solver(
             panic!("The resolver should not return `false` when no errors are found");
         }
         assert_no_duplicate_module_names(&module_graph)?;
-        warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+        if config.warn_deprecated {
+            warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+        }
         Ok(module_graph)
     }
 }

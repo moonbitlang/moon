@@ -115,6 +115,7 @@ pub(crate) fn install_impl(
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: !includes_core && !no_std,
+        warn_deprecated: true,
     };
 
     let res = resolve_modules(&module_resolution_config, roots, user_log)?;
