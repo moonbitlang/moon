@@ -172,6 +172,14 @@ is detached before the wait returns; it is never delivered as a guest signal.
 See `run_termination.rs` for the control contract and
 `tests/run_termination.rs` for timeout-bounded lifecycle tests.
 
+## Virtual process supervision
+
+`VirtualProcessTree` supervises concurrent Runs through typed virtual PIDs,
+parent links, termination and single-consumer `wait`. It joins before reaping;
+`Terminating` does not promise bounded teardown. Exiting parents leave children
+with the embedding supervisor. This opt-in API currently manages host-launched
+Runs; guest process imports remain ambient. See `tests/process_tree.rs`.
+
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a

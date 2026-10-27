@@ -63,6 +63,9 @@ impl RunTerminator {
     /// This provides no grace period and cannot forcibly unwind a synchronous
     /// host operation. Such an operation must return before the Run can finish.
     pub fn terminate(&self, outcome: RunTermination) -> bool {
+        // FIXME: Add operation-specific cancellation for synchronous host I/O.
+        // A blocked call can delay teardown indefinitely; never forcibly unwind
+        // Rust/V8 or report completion before the call and teardown finish.
         let mut state = self.request.0.lock().unwrap();
         if !state.connected || state.outcome.is_some() {
             return false;
