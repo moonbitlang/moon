@@ -60,12 +60,14 @@ fn classify_exception<'s>(
     exception: v8::Local<'s, v8::Value>,
     classifier: ExceptionClassifier<'s, '_>,
 ) -> anyhow::Result<BackendCallOutcome> {
+    // `instanceof` can itself throw under a tiny guest stack limit. If type
+    // inspection fails, report the original exception without panicking.
     let guest_failure = exception
         .instance_of(scope, classifier.runtime_error)
-        .unwrap()
+        .unwrap_or(false)
         || exception
             .instance_of(scope, classifier.wasm_exception)
-            .unwrap();
+            .unwrap_or(false);
     let formatted = format_exception(scope, exception, classifier)?;
     if guest_failure {
         Ok(BackendCallOutcome::GuestFailure(formatted))

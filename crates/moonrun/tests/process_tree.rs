@@ -46,6 +46,7 @@ mod v8 {
                 "environment",
                 "stack",
                 "default_stack",
+                "tiny_stack",
             ] {
                 snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                     .args(["--exact", "v8::lifecycle", "--nocapture"])
@@ -57,12 +58,38 @@ mod v8 {
             return;
         };
         eprintln!("virtual process case: {case}");
-        let engine = if case == "stack" {
-            Engine::new(moonrun::EngineConfig::default().with_stack_size(4096))
-        } else {
-            Engine::default()
+        let engine = match case.as_str() {
+            "stack" => Engine::new(moonrun::EngineConfig::default().with_stack_size(4096)),
+            "tiny_stack" => Engine::new(moonrun::EngineConfig::default().with_stack_size(1)),
+            _ => Engine::default(),
         };
         let tree = Arc::new(VirtualProcessTree::new(engine.clone()).unwrap());
+        if case == "tiny_stack" {
+            // Both execution placements must return an ordinary error. Repeat
+            // to check that exception handling leaves the Engine usable.
+            for _ in 0..2 {
+                let result = engine
+                    .compile(
+                        "recursive.wasm",
+                        wat::parse_str(
+                            r#"(module
+                            (func $recurse (result i32) call $recurse i32.const 1 i32.add)
+                            (func (export "_start") call $recurse drop))"#,
+                        )
+                        .unwrap(),
+                    )
+                    .and_then(|module| {
+                        let error = engine.run(&module, RunOptions::default()).unwrap_err();
+                        assert!(format!("{error:#}").contains("Maximum call stack size exceeded"));
+                        let pid = tree.spawn(None, &module, RunOptions::default())?;
+                        Ok(tree.wait(pid)?)
+                    });
+                let error = result.unwrap_err();
+                assert!(format!("{error:#}").contains("Maximum call stack size exceeded"));
+                assert!(tree.snapshot().is_empty());
+            }
+            return;
+        }
         let module = engine
             .compile(
                 "loop.wasm",
