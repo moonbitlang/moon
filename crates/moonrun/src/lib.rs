@@ -44,12 +44,14 @@ mod guest_memory;
 mod host_imports;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
+mod native_stack;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod network;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod policy;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod process;
+mod process_tree;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod resource;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
@@ -76,6 +78,7 @@ mod wasmtime;
 mod wee8;
 
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
+pub use process_tree::{ProcessError, ProcessInfo, ProcessState, VirtualPid, VirtualProcessTree};
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use run_termination::{
     RunTermination, RunTerminationReceiver, RunTerminator, termination_channel,

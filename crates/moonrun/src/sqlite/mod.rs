@@ -141,6 +141,7 @@ pub(super) mod tests {
             None,
             None,
             None,
+            None,
             crate::WorkingDirectory::Ambient,
             crate::runtime::Stdio::Ambient,
             crate::runtime::Executable::unavailable(),

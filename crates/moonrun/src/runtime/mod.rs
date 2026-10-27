@@ -26,6 +26,7 @@ mod stdio;
 mod working_directory;
 
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -140,6 +141,7 @@ impl Runtime {
         policy_file: Option<&Path>,
         policy_source_dir: Option<&Path>,
         inherited_policy: Option<&[u8]>,
+        default_environment: Option<Vec<(OsString, OsString)>>,
         working_directory: WorkingDirectory,
         stdio: Stdio,
         executable: Executable,
@@ -162,9 +164,12 @@ impl Runtime {
             (None, None) => (Policy::allow_all(), None),
         };
         let environment = Arc::new(
-            env_provisioning
-                .map_or_else(|| Ok(Env::ambient()), EnvProvisioning::realize)
-                .context("failed to construct the Runtime environment")?,
+            match (env_provisioning, default_environment) {
+                (Some(provisioning), _) => provisioning.realize(),
+                (None, Some(entries)) => Env::owned(entries).map_err(Into::into),
+                (None, None) => Ok(Env::ambient()),
+            }
+            .context("failed to construct the Runtime environment")?,
         );
         let filesystem_policy = policy.take_filesystem_policy();
         let network_policy = policy.take_network_policy();
@@ -311,6 +316,7 @@ mod tests {
             mask
         };
         let runtime = Runtime::new(
+            None,
             None,
             None,
             None,

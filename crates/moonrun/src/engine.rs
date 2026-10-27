@@ -27,10 +27,13 @@ use crate::wasmtime as backend;
 #[cfg(all(feature = "wee8", not(feature = "v8")))]
 use crate::wee8 as backend;
 use anyhow::Context;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+pub(crate) use backend::SUPPORTS_RUN_TERMINATION;
 
 /// Process-wide configuration for the selected Engine Backend.
 ///
@@ -61,7 +64,13 @@ pub struct RunOptions {
     pub(crate) inherited_policy: Option<Vec<u8>>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
-    termination_receiver: Option<RunTerminationReceiver>,
+    // A supervisor supplies an owned fallback; explicit policy provisioning
+    // still determines the environment when present.
+    pub(crate) default_environment: Option<Vec<(OsString, OsString)>>,
+    // Required guest headroom in bytes for a supervisor-owned execution thread.
+    // Ordinary Runs leave native stack placement and sizing to the caller.
+    pub(crate) native_stack_budget: Option<usize>,
+    pub(crate) termination_receiver: Option<RunTerminationReceiver>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -324,22 +333,23 @@ impl fmt::Debug for Module {
 /// on the calling thread. It does not create threads or retain run lifecycle
 /// state; callers choose execution placement and manage lifecycle.
 ///
-/// The current implementation still uses process stdio. Environment and
-/// working-directory behavior are selected per run, but unrestricted
-/// environment access and the only current working-directory mode remain
-/// process-scoped. Operating-system signal capture is left to the caller; a
-/// signal channel can direct cooperative delivery to one Run. In particular,
-/// unrestricted guest environment mutations write through to the process and
-/// must not race other process-environment access.
+/// Environment, cwd and stdio default to ambient process state; callers can
+/// bind owned streams and a fixed cwd. Ambient guest environment mutations
+/// must not race other process-environment access. [`crate::VirtualProcessTree`]
+/// supplies an owned environment and manages concurrent Run lifecycles.
+/// OS signal capture is left to the caller; a signal channel can direct
+/// cooperative delivery to one Run.
 #[derive(Clone, Debug)]
 pub struct Engine {
     backend: Arc<backend::Engine>,
+    pub(crate) config: EngineConfig,
 }
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         Self {
             backend: Arc::new(backend::Engine::new(config)),
+            config,
         }
     }
 
@@ -417,6 +427,9 @@ impl Engine {
             if let Some(outcome) = termination.get() {
                 return Ok(BackendRunOutcome::Terminated(outcome));
             }
+            if let Some(bytes) = options.native_stack_budget {
+                crate::native_stack::checked_limit(bytes)?;
+            }
             let test_args = options.parsed_test_args()?;
             #[cfg(unix)]
             let child_signal_mask = match options.preserved_child_signal_mask {
@@ -427,6 +440,7 @@ impl Engine {
                 options.policy_file.as_deref(),
                 options.policy_source_dir.as_deref(),
                 options.inherited_policy.as_deref(),
+                options.default_environment,
                 options.working_directory,
                 options.stdio,
                 module.executable().clone(),

@@ -99,6 +99,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             crate::WorkingDirectory::Ambient,
             crate::runtime::Stdio::Ambient,
             Executable::unavailable(),
