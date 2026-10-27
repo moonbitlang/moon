@@ -419,11 +419,6 @@ impl RegistryClient {
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        if let MetadataBackend::Http(metadata) = &self.metadata
-            && metadata.is_restricted(module.name(), module.version(), self.frozen_dependencies)?
-        {
-            bail!("Prebuilt artifacts are not available for restricted modules");
-        }
         let mut http = None;
         self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
             // Already materialized artifacts remain usable offline. Only a
@@ -460,6 +455,14 @@ impl RegistryClient {
         );
 
         ensure_cached_wasm(&cache_path, user_log, |staged| {
+            // Private prebuilt downloads are not implemented yet, so existing
+            // artifacts came from public downloads. Check visibility on misses;
+            // cache hits must survive disabled or cleared metadata persistence.
+            if let MetadataBackend::Http(metadata) = &self.metadata
+                && metadata.is_restricted(name, version, self.frozen_dependencies)?
+            {
+                bail!("Prebuilt artifacts are not available for restricted modules");
+            }
             let checksum_bytes = download(&checksum_url)?;
             let expected_checksum = parse_sha256_checksum(&checksum_bytes)
                 .with_context(|| format!("invalid SHA-256 checksum from {checksum_url}"))?;
@@ -2359,6 +2362,91 @@ mod tests {
 
         assert_eq!(path, cache_path);
         assert!(!cache_path.parent().unwrap().join(MOON_LOCK).exists());
+
+        // Existing public artifacts also remain usable when switching to HTTP.
+        let registry =
+            http_test_registry(sandbox.path(), "https://mooncakes.io").for_frozen_dependencies();
+        assert_eq!(
+            registry
+                .acquire_executable_wasm("moonbitlang/parser/cmd/moonfmt@0.3.3", &quiet_user_log())
+                .unwrap(),
+            cache_path
+        );
+    }
+
+    #[test]
+    fn public_wasm_cache_survives_removing_http_metadata() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let wasm = b"\0asmtest";
+        let server = api_test_server(
+            listener,
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/tool", "PUBLIC", "0.1.0").into_bytes(),
+                ),
+                (200, String::new(), sha256_hex(wasm).into_bytes()),
+                (200, String::new(), wasm.to_vec()),
+            ],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        let path = registry
+            .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), wasm);
+        assert_eq!(server.join().unwrap().len(), 3);
+        let metadata = registry.home.registry_metadata_cache_dir();
+        if metadata.exists() {
+            std::fs::remove_dir_all(metadata).unwrap();
+        }
+        // A new invocation must not query the now-unavailable registry, whether
+        // metadata was cleared or persistence was disabled from the start.
+        let fresh = http_test_registry(home.path(), &api);
+        assert_eq!(
+            fresh
+                .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+                .unwrap(),
+            path
+        );
+    }
+
+    #[test]
+    fn private_prebuilt_wasm_download_remains_unsupported() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "owner-token");
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/tool", "PRIVATE", "0.1.0"),
+            )],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        let error = registry
+            .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Prebuilt artifacts are not available for restricted modules"
+        );
+        assert!(
+            !registry
+                .home
+                .registry_executable_artifact_path(
+                    &"alice/tool".into(),
+                    &Version::new(0, 1, 0),
+                    "",
+                    "tool.wasm",
+                )
+                .exists()
+        );
+        assert_eq!(server.join().unwrap().len(), 1);
     }
 
     #[test]
