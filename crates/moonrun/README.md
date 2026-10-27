@@ -59,7 +59,7 @@ cargo build -p moonrun --no-default-features --features wee8
 ```
 
 The upstream crate's build script downloads the target's archive and paired headers from the
-pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.5),
+pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.6),
 checks SHA-256 before extraction, and caches the downloads in Cargo's build
 output directory. It uses Cargo's target, including for cross-compilation.
 Only the five published Linux/macOS/Windows targets have automatic downloads.
@@ -133,12 +133,12 @@ The default backend supports Moonrun’s compiler and runtime interfaces:
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
   host call, using its current allocation after any guest memory growth.
 
-SIMD values and directly GC-typed references remain internal to guest code.
-Externalized GC references, including i31 values, can cross the host boundary
-through rooted externrefs. Unsupported imported/exported function, global and
-table types are rejected by the upstream crate before C API introspection.
-Shared memories cannot cross the host boundary because host calls borrow
-exclusive, non-atomic memory slices.
+V8 validates modules and supplies their import/export metadata. SIMD values,
+GC-typed exports and shared-memory atomics are accepted during compilation;
+Moonrun checks supported host signatures when linking imports or calling an
+entry point. Externalized GC references, including i31 values, can cross the
+host boundary through rooted externrefs. Shared memories cannot be borrowed
+by host calls because those calls require exclusive, non-atomic memory slices.
 
 Arbitrary host memory/global/table imports, callable funcref values, guest
 re-entry from host callbacks and debugger access remain outside this adapter.

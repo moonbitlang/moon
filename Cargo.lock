@@ -4139,7 +4139,7 @@ dependencies = [
 [[package]]
 name = "wee8"
 version = "0.1.0"
-source = "git+https://github.com/moonbitlang/v8-custom-builds.git?rev=dd6ba715f511fb28060098f4e8d9aff0f18155c8#dd6ba715f511fb28060098f4e8d9aff0f18155c8"
+source = "git+https://github.com/moonbitlang/v8-custom-builds.git?rev=30ce7c3dd9d688753bce2bfdcbd02ef0a2a178f1#30ce7c3dd9d688753bce2bfdcbd02ef0a2a178f1"
 dependencies = [
  "bindgen 0.72.1",
  "dunce",
@@ -4147,7 +4147,6 @@ dependencies = [
  "reqwest",
  "sha2",
  "thiserror 1.0.63",
- "wasmparser 0.258.0",
 ]
 
 [[package]]
