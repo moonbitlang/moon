@@ -101,9 +101,6 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
             args.push("-single-file".to_string());
         }
 
-        // Standard library
-        self.defaults.add_stdlib_path(args);
-
         // MI dependencies
         self.required.add_mi_dependencies(args);
 

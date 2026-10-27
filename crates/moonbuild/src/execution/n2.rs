@@ -25,9 +25,7 @@
 use std::{collections::HashMap, path::Path, rc::Rc, sync::mpsc};
 
 use anyhow::Context;
-use moonbuild_rupes_recta::execution_plan::{
-    ActionOutputKind, InputObservation, LoweredCommandExecution,
-};
+use moonbuild_rupes_recta::execution_plan::{ActionOutputKind, LoweredCommandExecution};
 
 use super::resolve_parallelism;
 use super::{BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution, ResultCatcher};
@@ -50,15 +48,9 @@ pub(super) fn execute<'a>(
     let mut context_by_build = HashMap::with_capacity(input.action_backends.len());
     for id in input.execution_plan.action_ids() {
         let action = input.execution_plan.action(id);
-        // Recursive interface observations participate in content identity.
-        // n2 supports only concrete file observations.
         let inputs = action
             .inputs()
             .iter()
-            .filter_map(|input| match input {
-                InputObservation::File(path) => Some(path),
-                InputObservation::StandardLibraryInterfaces(_) => None,
-            })
             .map(|path| {
                 graph
                     .files

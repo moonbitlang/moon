@@ -17,7 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use log::{debug, trace};
-use moonutil::constants::MOONBITLANG_COVERAGE;
+use moonutil::constants::{
+    MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE, MOONBITLANG_COVERAGE,
+};
 use moonutil::resolution::{ModuleDependencyGraph, ModuleId};
 use moonutil::target::TargetBackend;
 use tracing::info;
@@ -181,7 +183,7 @@ fn solve_one_package(
     // Black box tests also add the source package as an import
     insert_black_box_dep(builder, pid, pkg_data);
 
-    inject_prelude_usage(builder, pid);
+    inject_implicit_stdlib_usage(builder, pid);
     if builder.inject_coverage {
         inject_core_coverage_usage(builder, pid);
     }
@@ -528,14 +530,16 @@ fn inject_core_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: Packag
     }
 }
 
-/// Inject the dependency to `moonbitlang/core/prelude` for every non-stdlib package.
+/// Inject the dependencies to `moonbitlang/core/prelude` and
+/// `moonbitlang/core/builtin` for every non-stdlib package.
 ///
 /// The prelude package provides common definitions that should be available to all
-/// user packages without explicit import.
-fn inject_prelude_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
+/// user packages without explicit import. `builtin` is injected as well because
+/// of how prelude re-exports types; see the comment on its entry below.
+fn inject_implicit_stdlib_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
     let pkg = builder.packages.get_package(pid);
 
-    // Skip stdlib packages - they don't need prelude injected
+    // Skip stdlib packages - they import what they need explicitly
     if pkg.is_stdlib {
         return;
     }
@@ -545,30 +549,47 @@ fn inject_prelude_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
         return;
     }
 
-    // Resolve prelude package id
-    let Some(prelude_pid) = builder
-        .packages
-        .get_package_id_by_name("moonbitlang/core/prelude")
-    else {
-        return; // no-std scenario
-    };
+    trace!("Injecting implicit stdlib usage for package {:?}", pid);
 
-    trace!("Injecting prelude usage for package {:?}", pid);
-
-    for &kind in &[
-        TargetKind::Source,
-        TargetKind::InlineTest,
-        TargetKind::WhiteboxTest,
-        TargetKind::BlackboxTest,
+    // User code never refers to these imports by alias, so both use the full
+    // package name. A short alias such as `builtin` would collide with a user
+    // package or import of the same name, and would let `@builtin.xxx` compile
+    // without importing `builtin` like any other core package.
+    for name in [
+        MOONBITLANG_CORE_PRELUDE,
+        // Prelude re-exports types defined in `builtin` (e.g.
+        // `pub using @builtin {type Failure}`), but a type's constructors
+        // stay with its definition. Without `-std-path`, `moonc` only sees
+        // `builtin.mi` through an explicit `-i`, so constructors such as
+        // `Failure(..)` would be unresolved unless `builtin` is imported too.
+        MOONBITLANG_CORE_BUILTIN,
     ] {
-        builder.relations.dep_graph.add_edge(
-            pid.build_target(kind),
-            prelude_pid.build_target(TargetKind::Source),
-            DepEdge {
-                short_alias: "prelude".into(),
-                import_all: false,
-                kind,
-            },
-        );
+        let Some(implicit_pid) = builder.packages.get_package_id_by_name(name) else {
+            continue; // no-std scenario
+        };
+        for &kind in &[
+            TargetKind::Source,
+            TargetKind::InlineTest,
+            TargetKind::WhiteboxTest,
+            TargetKind::BlackboxTest,
+        ] {
+            let (from, to) = (
+                pid.build_target(kind),
+                implicit_pid.build_target(TargetKind::Source),
+            );
+            // An explicit import keeps the alias the user chose.
+            if builder.relations.dep_graph.contains_edge(from, to) {
+                continue;
+            }
+            builder.relations.dep_graph.add_edge(
+                from,
+                to,
+                DepEdge {
+                    short_alias: name.into(),
+                    import_all: false,
+                    kind,
+                },
+            );
+        }
     }
 }

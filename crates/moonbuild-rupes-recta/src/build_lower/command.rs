@@ -24,7 +24,7 @@ use moonutil::{
 };
 
 use super::compiler::{CmdlineAbstraction, MoonArchive};
-use crate::execution_plan::{InputObservation, LoweredCommand};
+use crate::execution_plan::LoweredCommand;
 
 /// Command data produced by action-specific lowering before common execution
 /// metadata and declared outputs are attached.
@@ -111,7 +111,7 @@ impl BuildCommand {
     pub(super) fn into_lowered_parts<'a>(
         self,
         dependency_paths: impl IntoIterator<Item = &'a Path>,
-    ) -> (LoweredCommand, Vec<InputObservation>) {
+    ) -> (LoweredCommand, Vec<PathBuf>) {
         let Self {
             mut extra_inputs,
             commandline,
@@ -129,13 +129,7 @@ impl BuildCommand {
             extra_inputs.windows(2).all(|pair| pair[0] != pair[1]),
             "lowered command inputs must be declared once"
         );
-        (
-            commandline,
-            extra_inputs
-                .into_iter()
-                .map(InputObservation::File)
-                .collect(),
-        )
+        (commandline, extra_inputs)
     }
 
     pub(super) fn with_cwd(mut self, cwd: PathBuf) -> Self {
@@ -189,13 +183,7 @@ mod tests {
             [vec![wrapper.display().to_string()], args].concat()
         );
         assert_eq!(command.env(), [("INCLUDE".into(), "SDK/include".into())]);
-        assert_eq!(
-            inputs,
-            [
-                InputObservation::File(wrapper),
-                InputObservation::File(compiler)
-            ]
-        );
+        assert_eq!(inputs, [wrapper, compiler]);
         assert_eq!(
             command.inline_command(),
             moonutil::shlex::join_native(command.args().iter().map(String::as_str))
@@ -296,11 +284,7 @@ mod tests {
 
         assert_eq!(
             inputs,
-            vec![
-                InputObservation::File(PathBuf::from("a.mbt")),
-                InputObservation::File(executable),
-                InputObservation::File(PathBuf::from("z.mbt")),
-            ]
+            vec![PathBuf::from("a.mbt"), executable, PathBuf::from("z.mbt"),]
         );
         assert!(matches!(
             commandline.execution(),

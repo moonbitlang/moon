@@ -25,9 +25,9 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap, HashSet},
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fs::File,
-    io::{ErrorKind, Read},
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -35,7 +35,7 @@ use anyhow::{Context, bail};
 use blake3::Hasher;
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey,
-    execution_plan::{ExecutionPlan, InputObservation, LoweredCommandExecution},
+    execution_plan::{ExecutionPlan, LoweredCommandExecution},
     model::TargetKind,
 };
 
@@ -121,11 +121,7 @@ pub fn compute_action_identities(
         let mut dependencies = Vec::new();
         let mut external_inputs = Vec::new();
         for input in action.inputs() {
-            let InputObservation::File(path) = input else {
-                external_inputs.push(input.clone());
-                continue;
-            };
-            let Some(output) = plan.declared_output(path) else {
+            let Some(output) = plan.declared_output(input) else {
                 external_inputs.push(input.clone());
                 continue;
             };
@@ -229,7 +225,7 @@ pub fn compute_action_identities(
 #[derive(Clone)]
 struct CanonicalAction {
     dependencies: Vec<CanonicalProduct>,
-    external_inputs: Vec<InputObservation>,
+    external_inputs: Vec<PathBuf>,
     outputs: Vec<CanonicalProduct>,
     command: CanonicalCommand,
     cache_eligible: bool,
@@ -353,7 +349,6 @@ fn compute_canonical_actions(
         context,
         identities: vec![None; actions.len()],
         visiting: HashSet::new(),
-        external_digests: HashMap::new(),
         file_digests: HashMap::new(),
     }
     .build()
@@ -364,7 +359,6 @@ struct ActionIdentityBuilder<'a> {
     context: &'a ActionIdentityContext,
     identities: Vec<Option<ActionIdentity>>,
     visiting: HashSet<usize>,
-    external_digests: HashMap<InputObservation, ActionDigest>,
     file_digests: HashMap<PathBuf, ActionDigest>,
 }
 
@@ -425,15 +419,8 @@ impl ActionIdentityBuilder<'_> {
 
         let mut external_input_digests = Vec::with_capacity(external_inputs.len());
         for input in external_inputs {
-            let mut input_fingerprint = FingerprintHasher::new(b"moon-lowered-external-input-v1");
-            input_fingerprint.field(
-                b"kind",
-                match input {
-                    InputObservation::File(_) => b"file",
-                    InputObservation::StandardLibraryInterfaces(_) => b"stdlib-interfaces",
-                },
-            );
-            input_fingerprint.field(b"path", path_bytes(input.path()));
+            let mut input_fingerprint = FingerprintHasher::new(b"moon-lowered-external-input-v2");
+            input_fingerprint.field(b"path", path_bytes(&input));
             // Ineligible actions can contain directory-shaped or otherwise
             // unmodeled observations. Their digest is diagnostic structure,
             // never a reusable cache key.
@@ -551,90 +538,13 @@ impl ActionIdentityBuilder<'_> {
         }
     }
 
-    fn external_digest(&mut self, input: &InputObservation) -> anyhow::Result<ActionDigest> {
-        if let Some(digest) = self.external_digests.get(input) {
-            return Ok(*digest);
-        }
-        let path = input.path();
+    fn external_digest(&mut self, path: &Path) -> anyhow::Result<ActionDigest> {
         let metadata = std::fs::metadata(path)
             .with_context(|| format!("failed to inspect action input {}", path.display()))?;
-        let digest = match input {
-            InputObservation::File(_) if metadata.is_file() => self.digest_file(path)?,
-            InputObservation::File(_) => {
-                bail!("action input is not a regular file: {}", path.display())
-            }
-            InputObservation::StandardLibraryInterfaces(_) if metadata.is_dir() => {
-                self.digest_stdlib_interfaces(path)?
-            }
-            InputObservation::StandardLibraryInterfaces(_) => bail!(
-                "standard-library interface input is not a directory: {}",
-                path.display()
-            ),
-        };
-        self.external_digests.insert(input.clone(), digest);
-        Ok(digest)
-    }
-
-    fn digest_stdlib_interfaces(&mut self, root: &Path) -> anyhow::Result<ActionDigest> {
-        let mut pending = vec![(PathBuf::new(), Vec::<PathBuf>::new())];
-        let mut interfaces = Vec::new();
-        while let Some((relative_dir, mut ancestors)) = pending.pop() {
-            let directory = root.join(&relative_dir);
-            let canonical = std::fs::canonicalize(&directory).with_context(|| {
-                format!(
-                    "failed to resolve standard-library directory {}",
-                    directory.display()
-                )
-            })?;
-            if ancestors.contains(&canonical) {
-                continue;
-            }
-            ancestors.push(canonical);
-
-            for entry in std::fs::read_dir(&directory).with_context(|| {
-                format!(
-                    "failed to read standard-library directory {}",
-                    directory.display()
-                )
-            })? {
-                let entry = entry?;
-                let relative_path = relative_dir.join(entry.file_name());
-                let file_type = entry.file_type()?;
-                let target_type = if file_type.is_symlink() {
-                    match std::fs::metadata(entry.path()) {
-                        Ok(metadata) => Some(metadata.file_type()),
-                        Err(error) if error.kind() == ErrorKind::NotFound => None,
-                        Err(error) => return Err(error.into()),
-                    }
-                } else {
-                    Some(file_type)
-                };
-                if target_type.as_ref().is_some_and(|kind| kind.is_dir()) {
-                    pending.push((relative_path, ancestors.clone()));
-                } else if target_type.as_ref().is_some_and(|kind| kind.is_file())
-                    && relative_path.extension() == Some(OsStr::new("mi"))
-                {
-                    interfaces.push(relative_path);
-                } else if !file_type.is_symlink() && !file_type.is_file() {
-                    bail!(
-                        "standard-library directory contains an unsupported entry: {}",
-                        entry.path().display()
-                    );
-                }
-            }
+        if !metadata.is_file() {
+            bail!("action input is not a regular file: {}", path.display());
         }
-
-        interfaces.sort();
-        let mut fingerprint = FingerprintHasher::new(b"moon-stdlib-interface-tree-v1");
-        fingerprint.sequence(b"interfaces", interfaces.len());
-        for relative_path in interfaces {
-            fingerprint.field(b"path", path_bytes(&relative_path));
-            fingerprint.field(
-                b"content",
-                self.digest_file(&root.join(relative_path))?.as_bytes(),
-            );
-        }
-        Ok(fingerprint.finish())
+        self.digest_file(path)
     }
 
     fn digest_file(&mut self, path: &Path) -> anyhow::Result<ActionDigest> {
@@ -758,7 +668,7 @@ mod tests {
 
     fn action(
         dependencies: Vec<CanonicalProduct>,
-        external_inputs: Vec<InputObservation>,
+        external_inputs: Vec<PathBuf>,
         output: impl Into<PathBuf>,
     ) -> CanonicalAction {
         let output = output.into();
@@ -798,7 +708,7 @@ mod tests {
         let make_action = |private_work_root: &Path| {
             let mut action = action(
                 Vec::new(),
-                vec![InputObservation::File(source_root.join("lib.mbt"))],
+                vec![source_root.join("lib.mbt")],
                 private_work_root.join("lib.mi"),
             );
             action.command.args = vec![
@@ -848,16 +758,8 @@ mod tests {
         fs::write(&second_source, "pub fn answer() -> Int { 42 }").unwrap();
 
         let output = root.path().join("_build/lib.mi");
-        let first = action(
-            Vec::new(),
-            vec![InputObservation::File(first_source)],
-            &output,
-        );
-        let second = action(
-            Vec::new(),
-            vec![InputObservation::File(second_source)],
-            output,
-        );
+        let first = action(Vec::new(), vec![first_source], &output);
+        let second = action(Vec::new(), vec![second_source], output);
 
         assert_ne!(
             compute_canonical_actions(&[first], &context(root.path())).unwrap(),
@@ -915,7 +817,7 @@ mod tests {
         fs::write(root.path().join("dep.mbt"), "let value = 1").unwrap();
         let producer = action(
             Vec::new(),
-            vec![InputObservation::File(root.path().join("dep.mbt"))],
+            vec![root.path().join("dep.mbt")],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -928,7 +830,7 @@ mod tests {
 
         let producer = action(
             Vec::new(),
-            vec![InputObservation::File(root.path().join("dep.mbt"))],
+            vec![root.path().join("dep.mbt")],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -945,7 +847,7 @@ mod tests {
         fs::write(root.path().join("dep.mbt"), "let value = 2").unwrap();
         let producer = action(
             Vec::new(),
-            vec![InputObservation::File(root.path().join("dep.mbt"))],
+            vec![root.path().join("dep.mbt")],
             root.path().join("_build/dep.mi"),
         );
         let consumer = action(
@@ -1013,12 +915,12 @@ mod tests {
 
         let first_producer = action(
             Vec::new(),
-            vec![InputObservation::File(first_input.clone())],
+            vec![first_input.clone()],
             root.path().join("_build/first.mi"),
         );
         let second_producer = action(
             Vec::new(),
-            vec![InputObservation::File(second_input.clone())],
+            vec![second_input.clone()],
             root.path().join("_build/second.mi"),
         );
         let mut consumer = action(
@@ -1026,10 +928,7 @@ mod tests {
                 product(Some(0), root.path().join("_build/first.mi")),
                 product(Some(1), root.path().join("_build/second.mi")),
             ],
-            vec![
-                InputObservation::File(first_input.clone()),
-                InputObservation::File(second_input.clone()),
-            ],
+            vec![first_input.clone(), second_input.clone()],
             root.path().join("_build/main.mi"),
         );
         consumer.command.args = vec!["tool".into(), "ab".into(), "c".into()];
@@ -1057,12 +956,12 @@ mod tests {
             &[
                 action(
                     Vec::new(),
-                    vec![InputObservation::File(first_input)],
+                    vec![first_input],
                     root.path().join("_build/first.mi"),
                 ),
                 action(
                     Vec::new(),
-                    vec![InputObservation::File(second_input)],
+                    vec![second_input],
                     root.path().join("_build/second.mi"),
                 ),
                 consumer,
@@ -1085,36 +984,6 @@ mod tests {
         let changed = compute_canonical_actions(&[action], &context(root.path())).unwrap();
 
         assert_ne!(original[0].digest(), changed[0].digest());
-    }
-
-    #[test]
-    fn standard_library_identity_observes_only_the_mi_tree() {
-        let root = TempDir::new().unwrap();
-        let stdlib = root.path().join("stdlib");
-        fs::create_dir_all(stdlib.join("pkg")).unwrap();
-        fs::write(stdlib.join("pkg/pkg.mi"), "interface one").unwrap();
-        fs::write(stdlib.join("README.md"), "one").unwrap();
-        let action = action(
-            Vec::new(),
-            vec![InputObservation::StandardLibraryInterfaces(stdlib.clone())],
-            root.path().join("_build/lib.mi"),
-        );
-        let original =
-            compute_canonical_actions(std::slice::from_ref(&action), &context(root.path()))
-                .unwrap();
-
-        fs::write(stdlib.join("README.md"), "two").unwrap();
-        assert_eq!(
-            original,
-            compute_canonical_actions(std::slice::from_ref(&action), &context(root.path()))
-                .unwrap()
-        );
-
-        fs::write(stdlib.join("pkg/pkg.mi"), "interface two").unwrap();
-        assert_ne!(
-            original,
-            compute_canonical_actions(&[action], &context(root.path())).unwrap()
-        );
     }
 
     #[test]
@@ -1144,7 +1013,7 @@ mod tests {
         fs::create_dir(&unmodeled_directory).unwrap();
         let mut producer = action(
             Vec::new(),
-            vec![InputObservation::File(unmodeled_directory)],
+            vec![unmodeled_directory],
             root.path().join("_build/generated.mbt"),
         );
         producer.cache_eligible = false;

@@ -93,9 +93,6 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
 
         self.defaults.add_use_async_io(args);
 
-        // Standard library
-        self.defaults.add_stdlib_path(args);
-
         // MI dependencies
         self.required.add_mi_dependencies(args);
 

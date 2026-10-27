@@ -118,11 +118,6 @@ impl<'a> LoweringContext<'a> {
         info: &'a BuildTargetInfo,
         is_main: bool,
     ) -> BuildCommonConfig<'a> {
-        // Standard library settings
-        let stdlib_core_file = self.opt.stdlib_path.as_ref().map(|x| {
-            moonutil::toolchain::core_bundle_in(x, self.opt.backend.target_backend()).into()
-        });
-
         // Warning and error settings
         let error_format = if self.opt.moonc_output_json {
             ErrorFormat::Json
@@ -213,7 +208,6 @@ impl<'a> LoweringContext<'a> {
         };
 
         BuildCommonConfig {
-            stdlib_core_file,
             error_format,
             deny_warn,
             warn_config,
@@ -233,12 +227,13 @@ impl<'a> LoweringContext<'a> {
         &self,
         info: &BuildTargetInfo,
         commons: &BuildCommonConfig<'a>,
+        mi_inputs: &MiInputs<'a>,
         extra_inputs: &mut Vec<PathBuf>,
     ) {
+        extra_inputs.extend(mi_inputs.installed_stdlib.iter().cloned());
         // Local virtual interfaces are already observed by their artifact
         // dependency. Installed stdlib contracts have no provider in this
-        // plan, so keep the exact `-check-mi`/`-impl-virtual` file as a regular
-        // execution input alongside the broader recursive stdlib observation.
+        // plan, so observe the exact `-check-mi`/`-impl-virtual` file.
         if let Some(target) = info.check_mi_against
             && self.opt.stdlib_path.is_some()
             && self.packages.is_stdlib_package(target.package)
@@ -248,7 +243,9 @@ impl<'a> LoweringContext<'a> {
                 (None, Some(implementation)) => implementation.mi_path.as_ref(),
                 _ => unreachable!("virtual validation should select exactly one interface path"),
             };
-            extra_inputs.push(path.to_path_buf());
+            if !extra_inputs.iter().any(|input| input == path) {
+                extra_inputs.push(path.to_path_buf());
+            }
         }
         if let Some(patch) = &commons.patch_file {
             extra_inputs.push(patch.as_ref().to_path_buf());
@@ -369,7 +366,7 @@ impl<'a> LoweringContext<'a> {
             required: BuildCommonInput::new(
                 &files_vec,
                 &info.doctest_files,
-                &mi_inputs,
+                &mi_inputs.deps,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
                 self.artifact_paths
@@ -392,7 +389,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs.push(package.config_path());
         }
 
-        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
         let commandline =
             moonc_command::lower(cmd.build_command(&*BINARIES.moonc), cmd.mi_out.as_ref())?;
@@ -429,7 +426,7 @@ impl<'a> LoweringContext<'a> {
             required: BuildCommonInput::new(
                 &files_vec,
                 &info.doctest_files,
-                &mi_inputs,
+                &mi_inputs.deps,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
                 self.artifact_paths
@@ -454,7 +451,7 @@ impl<'a> LoweringContext<'a> {
         if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
-        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
         let commandline = moonc_command::lower(
             cmd.build_command(compiler::ProveDriver::from_toolchain()),
@@ -509,7 +506,7 @@ impl<'a> LoweringContext<'a> {
             required: BuildCommonInput::new(
                 &files_vec,
                 &info.doctest_files,
-                &mi_inputs,
+                &mi_inputs.deps,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
                 self.artifact_paths
@@ -537,7 +534,7 @@ impl<'a> LoweringContext<'a> {
         if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
-        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
         let commandline = moonc_command::lower(
             cmd.build_command(compiler::ProveDriver::from_toolchain()),
@@ -617,7 +614,7 @@ impl<'a> LoweringContext<'a> {
             required: BuildCommonInput::new(
                 &files,
                 &info.doctest_files,
-                &mi_inputs,
+                &mi_inputs.deps,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
                 self.artifact_paths
@@ -647,7 +644,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs.push(package.config_path());
         }
 
-        self.extend_extra_inputs(info, &cmd.defaults, &mut extra_inputs);
+        self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &core_output)?;
 
@@ -1360,27 +1357,22 @@ impl<'a> LoweringContext<'a> {
         let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         // Construct `moonc build-interface` command
-        let mut cmd = compiler::MooncBuildInterface::new(
+        let cmd = compiler::MooncBuildInterface::new(
             mbti_path,
             mi_out.as_path(),
-            &mi_inputs,
+            &mi_inputs.deps,
             compiler::CompiledPackageName::new(&pkg.fqn, TargetKind::Source),
             &pkg.root_path,
         );
 
-        // Provide std path when stdlib is enabled
-        if let Some(stdlib_root) = &self.opt.stdlib_path {
-            cmd.stdlib_core_file = Some(
-                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.backend.target_backend())
-                    .into(),
-            );
-        }
-
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &mi_out)?;
 
+        // Track the user-written `.mbti` contract as an explicit input
+        let mut extra_inputs = vec![mbti_path.to_path_buf()];
+        extra_inputs.extend(mi_inputs.installed_stdlib);
+
         Ok(BuildCommand {
-            // Track the user-written `.mbti` contract as an explicit input
-            extra_inputs: vec![mbti_path.to_path_buf()],
+            extra_inputs,
             commandline,
         })
     }
@@ -1390,7 +1382,8 @@ impl<'a> LoweringContext<'a> {
         &self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
-    ) -> Vec<MiDependency<'a>> {
+    ) -> MiInputs<'a> {
+        let mut stdlib_deps = Vec::new();
         // The package graph retains compiler-facing aliases and ordering. The
         // selected artifact requirement supplies each dependency's path.
         let mut deps: Vec<MiDependency<'a>> = self
@@ -1403,6 +1396,7 @@ impl<'a> LoweringContext<'a> {
                 {
                     // Installed stdlib interfaces are selected by the known
                     // toolchain layout, outside this Build Plan's providers.
+                    stdlib_deps.push(dep);
                     self.artifact_paths.mi_of_build_target(
                         self.packages,
                         &dep,
@@ -1436,6 +1430,47 @@ impl<'a> LoweringContext<'a> {
             })
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
-        deps
+        MiInputs {
+            deps,
+            installed_stdlib: self.installed_stdlib_closure(stdlib_deps),
+        }
     }
+
+    /// Installed stdlib interfaces that `moonc` may read when importing `roots`.
+    ///
+    /// Besides each `-i` file, `moonc` loads the interfaces of indirect
+    /// dependencies through the paths listed in `all_pkgs.json`. Local
+    /// interfaces are covered by their producers, but installed stdlib
+    /// interfaces have none, so the whole reachable stdlib closure is observed.
+    fn installed_stdlib_closure(&self, roots: Vec<BuildTarget>) -> Vec<PathBuf> {
+        let mut visited = HashSet::new();
+        let mut pending = roots;
+        let mut paths = BTreeSet::new();
+        while let Some(current) = pending.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            paths.insert(self.artifact_paths.mi_of_build_target(
+                self.packages,
+                &current,
+                self.opt.backend.target_backend(),
+            ));
+            pending.extend(
+                self.rel
+                    .dep_graph
+                    .neighbors_directed(current, Direction::Outgoing)
+                    .filter(|dep| self.packages.is_stdlib_package(dep.package)),
+            );
+        }
+        paths.into_iter().collect()
+    }
+}
+
+/// Interface dependencies of one compiler action.
+pub(super) struct MiInputs<'a> {
+    /// `-i` arguments, sorted by alias.
+    pub(super) deps: Vec<MiDependency<'a>>,
+    /// Installed stdlib interfaces reachable from `deps`. No action in this
+    /// plan produces them, so the action observes them as explicit file inputs.
+    pub(super) installed_stdlib: Vec<PathBuf>,
 }

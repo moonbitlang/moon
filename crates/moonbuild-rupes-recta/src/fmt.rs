@@ -47,9 +47,7 @@ use crate::{
     discover::{
         DiscoveredLocalProject, DiscoveredPackage, discover_local_project, resolve_prebuild_path,
     },
-    execution_plan::{
-        ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, InputObservation, LoweredCommand,
-    },
+    execution_plan::{ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, LoweredCommand},
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
     resolve::ProjectPreparationError,
@@ -194,12 +192,8 @@ fn add_format_action<I, O>(
     let command = LoweredCommand::from(args);
     let inputs = external_files
         .into_iter()
-        .map(|path| InputObservation::File(path.into()))
-        .chain(
-            command
-                .executable()
-                .map(|path| InputObservation::File(path.to_path_buf())),
-        )
+        .map(Into::into)
+        .chain(command.executable().map(Path::to_path_buf))
         .collect::<Vec<_>>();
     let action = ExecutionAction::new(
         inputs,
@@ -805,12 +799,6 @@ mod tests {
 
         let plan = builder.finish([]);
         let action = plan.action(plan.action_ids().next().expect("one formatter action"));
-        assert_eq!(
-            action.inputs(),
-            &[
-                InputObservation::File(executable),
-                InputObservation::File(source),
-            ]
-        );
+        assert_eq!(action.inputs(), &[executable, source]);
     }
 }

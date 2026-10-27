@@ -31,14 +31,13 @@ contract available when no action will generate it.
 When Moon injects a prebuilt standard library, its virtual contracts are
 external compiler inputs rather than artifacts produced by the current Build
 Plan. For example, an implementation of `moonbitlang/core/abort` is checked
-against the `abort.mi` under the injected `-std-path`; planning does not create
-a local `BuildVirtual(abort)` action. Lowering retains that exact contract as
-an n2 file input because the recursive standard-library observation used for
-action identity is not an n2 file edge. Building the standard library itself
-does not inject those artifacts and therefore uses the ordinary local
-virtual-package pipeline. An implementation check may produce a local
-`.impl.mi`, but that file is not part of the installed `-std-path`: the
-installed contract remains the single package interface.
+against the `abort.mi` in the installed bundle; planning does not create a
+local `BuildVirtual(abort)` action. Lowering retains that exact contract as an
+ordinary file input, like the installed interfaces passed through `-i`.
+Building the standard library itself does not inject those artifacts and
+therefore uses the ordinary local virtual-package pipeline. An implementation
+check may produce a local `.impl.mi`, but that file is not part of the
+installed bundle: the installed contract remains the single package interface.
 
 ## Build pipeline
 

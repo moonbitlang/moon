@@ -43,8 +43,6 @@ pub(crate) struct MooncBuildInterface<'a> {
     pub package_name: CompiledPackageName<'a>,
     /// Absolute source directory for the package.
     pub package_source: Cow<'a, Path>,
-    /// Optional std path; omit to respect `--nostd`.
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
     /// Whether to emit structured diagnostics (`-error-format=json`).
     pub json_errors: bool,
 }
@@ -64,7 +62,6 @@ impl<'a> MooncBuildInterface<'a> {
             mi_deps,
             package_name,
             package_source: package_source.into(),
-            stdlib_core_file: None,
             json_errors: true,
         }
     }
@@ -99,13 +96,6 @@ impl CmdlineAbstraction for MooncBuildInterface<'_> {
 
         // Virtual packages always require this flag
         args.push("-virtual".to_string());
-
-        if let Some(stdlib) = &self.stdlib_core_file {
-            args.extend([
-                "-std-path".to_string(),
-                dunce::simplified(stdlib).display().to_string(),
-            ]);
-        }
 
         if self.json_errors {
             args.extend(["-error-format".to_string(), "json".to_string()]);
