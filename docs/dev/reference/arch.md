@@ -425,13 +425,27 @@ Current registry configuration behavior today is:
   failures instead of reporting them as missing modules or cache misses.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.
+- Command inputs become a `ModuleRequest::Versioned` or `Unversioned` request.
+  Commands separately decide whether remote access is allowed; an unversioned
+  request does not itself choose current or cached latest.
 - `moonx` and `moon runwasm` use cached latest for unpinned coordinates and
   query current latest on a cache miss or for explicit `@latest`. `moon add`,
-  `moon fetch`, and registry binary installation retain their existing Git
-  synchronization before cached version selection. `add/fetch --no-update`
-  skips that synchronization; `add --upgrade` with an explicit version skips
-  both synchronization and version selection. These command policies are
-  separate from the two latest-query contracts.
+  `moon fetch`, and registry binary installation query current latest when no
+  version is specified. If metadata cannot be refreshed, these three commands
+  warn and explicitly fall back to a cached latest answer, if any; authoritative
+  absence and invalid metadata do not permit fallback. This policy belongs to
+  the CLI, while the registry query itself remains strict. For Git, refresh
+  failures include local synchronization errors; errors reading or validating
+  module metadata records still propagate.
+  `add/fetch --no-update` disables remote metadata queries and uses cached latest
+  for unversioned requests. Pinned add/fetch/install retain their Git
+  synchronization for source/dependency acquisition but do not query latest.
+  `--no-update` does not prohibit source downloads; it is not an offline mode.
+- `moon add --upgrade` permits changing an existing dependency's version; a new
+  dependency can be added with or without the flag. It does not control metadata
+  queries or dependency installation. Both additions and version changes resolve
+  and acquire dependencies before writing the manifest. An existing dependency
+  without `--upgrade`, or one already at the requested version, is left unchanged.
 - `RegistryConfig.api` controls dynamic registry requests such as search.
   `RegistryConfig.index` controls how `moon update` populates the local
   registry index over Git. `RegistryConfig.download` controls immutable package

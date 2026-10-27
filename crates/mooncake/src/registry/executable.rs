@@ -154,12 +154,13 @@ fn parse_executable_package_coordinate(
         let version = if parsed.version.as_deref() == Some("latest") {
             ExecutablePackageVersionSelector::RefreshLatest
         } else {
-            ExecutablePackageVersionSelector::Exact(
-                parsed
-                    .exact_module()
-                    .with_context(|| format!("Invalid version in package coordinate `{input}`"))?
-                    .expect("versioned path has a version"),
-            )
+            let registry_path::ModuleRequest::Versioned(module) = parsed
+                .module_request()
+                .with_context(|| format!("Invalid version in package coordinate `{input}`"))?
+            else {
+                unreachable!("versioned path has a version");
+            };
+            ExecutablePackageVersionSelector::Exact(module)
         };
         return Ok((parsed.module, parsed.package, version));
     }

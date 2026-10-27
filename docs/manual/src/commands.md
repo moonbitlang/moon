@@ -528,7 +528,7 @@ Add a dependency
 
 ###### **Options:**
 
-* `-u`, `--upgrade` — Upgrade an existing dependency
+* `-u`, `--upgrade` — Allow changing the version of an existing dependency
 * `--no-update` — Do not update the registry index before adding the dependency
 
 

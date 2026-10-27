@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 use tracing::debug;
 
 use crate::{
-    cli::BuildFlags,
+    cli::{BuildFlags, registry_queries},
     rr_build::{self},
 };
 
@@ -247,23 +247,13 @@ pub(super) fn install_binary(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let registry = RegistryClient::configured();
-    let had_index = registry.has_cached_index();
-
-    match registry.sync(user_log) {
-        Ok(()) => {}
-        Err(e) => {
-            if had_index {
-                user_log.warn(format!(
-                    "Failed to update registry index, using cached index: {}",
-                    e
-                ));
-            } else {
-                return Err(e).context("Failed to update registry index");
-            }
-        }
-    }
-
-    let module = path.resolve(&registry)?;
+    let allow_remote = true;
+    let module = registry_queries::resolve_module(
+        &registry,
+        path.module_request()?,
+        allow_remote,
+        user_log,
+    )?;
     user_log.info(format!("Installing {}@{}", module.name(), module.version()));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;

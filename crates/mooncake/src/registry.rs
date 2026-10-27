@@ -49,6 +49,14 @@ pub struct RegistryVersionInfo {
 #[error("module `{0}` was not found in the registry")]
 pub struct RegistryModuleNotFound(pub ModuleName);
 
+/// A metadata refresh could not complete. Callers may explicitly use cached data.
+/// Git synchronization failures, including local Git and filesystem failures,
+/// belong here. Authoritative absence and failures to read or validate module
+/// metadata records do not: a cached answer cannot override those results.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct RegistryUnavailable(pub anyhow::Error);
+
 pub trait Registry {
     /// Read one exact published version. Never substitute another version.
     ///
@@ -71,6 +79,8 @@ pub trait Registry {
     /// Every call must contact or revalidate against the registry, even when a
     /// cached answer exists. Failure must not silently return a stale version.
     /// Git synchronizes its index; an HTTP backend queries its latest endpoint.
+    /// Return [`RegistryUnavailable`] when acquiring or refreshing metadata fails,
+    /// distinguishing that failure from reading or validating a module's answer.
     fn query_latest_version(
         &self,
         name: &ModuleName,

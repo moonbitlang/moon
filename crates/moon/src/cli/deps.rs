@@ -31,7 +31,7 @@ use moonutil::{
 };
 use std::path::{Path, PathBuf};
 
-use super::UniversalFlags;
+use super::{UniversalFlags, registry_queries};
 
 pub(crate) fn require_selected_module(
     project: &ProjectContext,
@@ -221,37 +221,17 @@ pub(crate) fn add_cli(
         return Ok(0);
     }
 
-    // Update registry index by default (issue #963).
-    // - `--no-update` keeps the previous behavior.
-    // - If an index already exists, update failures are treated as warnings so users can proceed
-    //   with the existing local index.
     let registry = RegistryClient::configured();
-    let index_updated = if !cmd.no_update && (!cmd.upgrade || path.version.is_none()) {
-        let had_index = registry.has_cached_index();
-        match registry.sync(user_log) {
-            Ok(()) => true,
-            Err(e) => {
-                if had_index {
-                    user_log.warn(format!(
-                        "failed to update registry index, continuing with existing index: {e}"
-                    ));
-                    false
+    let allow_remote = !cmd.no_update;
+    let module =
+        registry_queries::resolve_module(&registry, path.module_request()?, allow_remote, user_log)
+            .map_err(|error| {
+                if !allow_remote && error.is::<ModuleNotFound>() {
+                    error.context("Please consider running `moon update` to update the index.")
                 } else {
-                    return Err(e);
+                    error
                 }
-            }
-        }
-    } else {
-        false
-    };
-
-    let module = path.resolve(&registry).map_err(|error| {
-        if !index_updated && error.is::<ModuleNotFound>() {
-            error.context("Please consider running `moon update` to update the index.")
-        } else {
-            error
-        }
-    })?;
+            })?;
     mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.upgrade, user_log)
 }
 

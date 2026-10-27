@@ -39,7 +39,7 @@ pub struct AddSubcommand {
     #[clap(value_name = "MODULE")]
     pub package_path: String,
 
-    /// Upgrade an existing dependency
+    /// Allow changing the version of an existing dependency
     #[clap(short = 'u', long)]
     pub upgrade: bool,
 
@@ -60,12 +60,15 @@ pub fn add(
     let mut m = read_module_desc_file_in_dir(module_dir)?;
 
     let pkg_name_str = pkg_name.to_string();
-    if upgrade {
-        let Some(dep) = m.deps.get_mut(&pkg_name_str) else {
-            bail!(
-                "the dependency `{pkg_name_str}` could not be found; use `moon add {pkg_name_str}` to add it"
-            );
-        };
+    let patch = if let Some(dep) = m.deps.get_mut(&pkg_name_str) {
+        if !upgrade {
+            user_log.warn(format!(
+                "dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
+                 To update the dependency, run `moon add --upgrade {pkg_name_str}@<version>` or \
+                 `moon add --upgrade {pkg_name_str}` for the latest version."
+            ));
+            return Ok(0);
+        }
 
         if dep.path().is_some() {
             bail!("dependency `{pkg_name_str}` is not a registry dependency");
@@ -79,35 +82,20 @@ pub fn add(
         }
 
         dep.set_version(Some(version.clone()));
+        MoonModPatch::UpdateImportItems(IndexMap::from([(pkg_name_str, version.clone())]))
     } else {
-        if m.deps.contains_key(&pkg_name_str) {
-            user_log.warn(format!(
-                "dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
-                 To update the dependency, run `moon add --upgrade {pkg_name_str}@<version>` or \
-                 `moon add --upgrade {pkg_name_str}` for the latest version."
-            ));
-            return Ok(0);
-        }
-
         m.deps.insert(
             pkg_name_str.clone(),
             SourceDependencyInfo::Simple(version.clone()),
         );
-    }
-
-    if upgrade {
-        if module_dir.join(MOON_MOD).exists() {
-            patch_module_dsl_to_file(
-                module_dir,
-                MoonModPatch::UpdateImportItems(IndexMap::from([(pkg_name_str, version.clone())])),
-            )?;
-        } else {
-            let new_j = convert_module_to_mod_json(m);
-            write_module_json_to_file(&new_j, module_dir)?;
+        MoonModPatch::InsertImportItem {
+            name: pkg_name_str,
+            version: version.clone(),
         }
-        return Ok(0);
-    }
+    };
 
+    // Resolve and acquire dependencies before persisting either an addition or
+    // a version change, so failed resolution leaves the declaration untouched.
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest)?;
     install_impl(
@@ -121,13 +109,7 @@ pub fn add(
     )?;
 
     if module_dir.join(MOON_MOD).exists() {
-        patch_module_dsl_to_file(
-            module_dir,
-            MoonModPatch::InsertImportItem {
-                name: pkg_name_str,
-                version: version.clone(),
-            },
-        )?;
+        patch_module_dsl_to_file(module_dir, patch)?;
     } else {
         let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
         write_module_json_to_file(&new_j, module_dir)?;

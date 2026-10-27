@@ -79,6 +79,11 @@ Rules:
 
 - No wildcard: exact package path in the resolved registry module.
 - With wildcard: all executable packages under the wildcard prefix.
+- Without a version, query the registry's current latest version. An unavailable
+  registry permits an explicit warning and fallback to cached latest; a remote
+  missing-module result or invalid metadata remains an error.
+- An explicit version is kept exactly as written. Git metadata is still
+  synchronized for source and dependency acquisition, without a latest query.
 
 ### Local path mode
 

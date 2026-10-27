@@ -27,7 +27,7 @@ use moonutil::{
     user_log::UserLog,
 };
 
-use super::UniversalFlags;
+use super::{UniversalFlags, registry_queries};
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -52,23 +52,13 @@ pub(crate) fn fetch_cli(
     let path = parse_module_path(&cmd.package_path)?;
     let registry = RegistryClient::configured();
 
-    if !cmd.no_update {
-        let had_index = registry.has_cached_index();
-        match registry.sync(user_log) {
-            Ok(()) => {}
-            Err(e) => {
-                if had_index {
-                    user_log.warn(format!(
-                        "failed to update registry index, continuing with existing index: {e}"
-                    ));
-                } else {
-                    return Err(e);
-                }
-            }
-        }
-    }
-
-    let module = path.resolve(&registry)?;
+    let allow_remote = !cmd.no_update;
+    let module = registry_queries::resolve_module(
+        &registry,
+        path.module_request()?,
+        allow_remote,
+        user_log,
+    )?;
     let pkg_name = module.name();
     let version = module.version();
     if path.version.is_none() && !cli.quiet {

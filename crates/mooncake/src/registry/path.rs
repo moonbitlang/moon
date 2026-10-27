@@ -25,8 +25,8 @@ use semver::Version;
 use super::Registry;
 
 /// A parsed registry path, with its module and package already separated.
-/// Version text is retained for syntax-only consumers; `resolve` selects and
-/// checks an exact module version before source acquisition.
+/// Version text is retained for syntax-only consumers; `resolve_cached` selects
+/// and checks an exact module version using locally known metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryPath {
     pub module: ModuleName,
@@ -34,37 +34,42 @@ pub struct RegistryPath {
     pub package: String,
 }
 
-/// The current registry index has no version for the requested module.
+/// A module request after validating any explicit version. An unversioned
+/// request leaves freshness to the caller; it does not imply a remote query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModuleRequest {
+    Versioned(ModuleSource),
+    Unversioned(ModuleName),
+}
+
+/// There is no cached latest answer for the requested module.
 #[derive(Debug, thiserror::Error)]
 #[error("Module `{0}` not found in registry")]
-pub struct ModuleNotFound(ModuleName);
+pub struct ModuleNotFound(pub ModuleName);
 
 impl RegistryPath {
-    /// Resolve an explicit version to its checked module source.
-    /// An omitted version stays unresolved; symbolic selectors such as `latest`
-    /// must be handled by the command's version-selection policy.
-    pub fn exact_module(&self) -> anyhow::Result<Option<ModuleSource>> {
-        self.version
-            .as_deref()
-            .map(|version| {
-                Ok(ModuleSource::from_version(
-                    self.module.clone(),
-                    Version::parse(version)?,
-                )?)
-            })
-            .transpose()
+    /// Interpret the version request without consulting a registry. Symbolic
+    /// selectors such as `latest` must be handled by the command's policy.
+    pub fn module_request(&self) -> anyhow::Result<ModuleRequest> {
+        match self.version.as_deref() {
+            Some(version) => Ok(ModuleRequest::Versioned(ModuleSource::from_version(
+                self.module.clone(),
+                Version::parse(version)?,
+            )?)),
+            None => Ok(ModuleRequest::Unversioned(self.module.clone())),
+        }
     }
 
     /// Select an exact version using cached registry metadata, without refreshing it.
     /// An explicit version does not require a registry entry.
-    pub fn resolve(&self, registry: &impl Registry) -> anyhow::Result<ModuleSource> {
-        match self.exact_module()? {
-            Some(module) => Ok(module),
-            None => {
+    pub fn resolve_cached(&self, registry: &impl Registry) -> anyhow::Result<ModuleSource> {
+        match self.module_request()? {
+            ModuleRequest::Versioned(module) => Ok(module),
+            ModuleRequest::Unversioned(name) => {
                 let version = registry
-                    .cached_latest_version(&self.module)?
-                    .ok_or_else(|| ModuleNotFound(self.module.clone()))?;
-                Ok(ModuleSource::from_version(self.module.clone(), version)?)
+                    .cached_latest_version(&name)?
+                    .ok_or_else(|| ModuleNotFound(name.clone()))?;
+                Ok(ModuleSource::from_version(name, version)?)
             }
         }
     }
@@ -88,7 +93,7 @@ impl RegistryPath {
         // A /vN path fixes the version's major component even for syntax-only
         // consumers. Unsuffixed imports retain their existing version grammar.
         if self.module.major_version_suffix()?.is_some() && version != Some("latest") {
-            self.exact_module()?;
+            self.module_request()?;
         }
         Ok(self)
     }
@@ -153,7 +158,7 @@ pub fn parse_module_path(input: &str) -> anyhow::Result<RegistryPath> {
         package: String::new(),
     }
     .with_version(version)?;
-    parsed.exact_module()?;
+    parsed.module_request()?;
     Ok(parsed)
 }
 
@@ -161,7 +166,7 @@ pub fn parse_module_path(input: &str) -> anyhow::Result<RegistryPath> {
 ///
 /// A canonical major-version suffix (`vN`, N >= 2, without leading zeroes)
 /// belongs to the module. Later segments are the package path. Use
-/// `RegistryPath::resolve` to select and check the module's version.
+/// `RegistryPath::resolve_cached` to select and check the module's version.
 /// Components may not be empty, `.`, `..`, or contain `:` or `\\`.
 pub fn parse_install_style_path(input: &str) -> anyhow::Result<RegistryPath> {
     let components = parse_path_components(input)?;
@@ -204,7 +209,7 @@ pub fn parse_install_package_path(input: &str) -> anyhow::Result<(RegistryPath, 
         .strip_suffix("...")
         .map(|path| path.trim_end_matches('/'));
     let parsed = parse_install_style_path(prefix.unwrap_or(path))?.with_version(version)?;
-    parsed.exact_module()?;
+    parsed.module_request()?;
     Ok((parsed, prefix.is_some()))
 }
 
@@ -304,7 +309,7 @@ mod tests {
         ] {
             let selector = parse_module_path(input).unwrap();
             assert_eq!(selector.version.is_some(), pinned);
-            let module = selector.resolve(&registry).unwrap();
+            let module = selector.resolve_cached(&registry).unwrap();
             assert_eq!(module.name().to_string(), name);
             assert_eq!(module.version().to_string(), version);
         }
@@ -312,7 +317,7 @@ mod tests {
         // An explicit version needs no registry entry or latest-version lookup.
         let module = parse_module_path("a/b@2.0.0")
             .unwrap()
-            .resolve(&MockRegistry::new())
+            .resolve_cached(&MockRegistry::new())
             .unwrap();
         assert_eq!(module.version().to_string(), "2.0.0");
     }
@@ -336,7 +341,7 @@ mod tests {
             ("a/b/v2/tool@2.0.0", "a/b/v2", "2.0.0", "tool"),
         ] {
             let (path, wildcard) = parse_install_package_path(input).unwrap();
-            let module = path.resolve(&registry).unwrap();
+            let module = path.resolve_cached(&registry).unwrap();
             assert_eq!(module.name().to_string(), name);
             assert_eq!(module.version().to_string(), version);
             assert_eq!(path.package, package);
@@ -368,14 +373,14 @@ mod tests {
             );
         }
         let selector = parse_module_path("a/b").unwrap();
-        let error = selector.resolve(&MockRegistry::new()).unwrap_err();
+        let error = selector.resolve_cached(&MockRegistry::new()).unwrap_err();
         assert!(error.is::<super::ModuleNotFound>());
         assert_eq!(error.to_string(), "Module `a/b` not found in registry");
         let selector = parse_module_path("a/b/v2").unwrap();
         let mut registry = MockRegistry::new();
         registry.add_module_full("a/b/v2", "1.5.0", []);
         assert_eq!(
-            selector.resolve(&registry).unwrap_err().to_string(),
+            selector.resolve_cached(&registry).unwrap_err().to_string(),
             "module `a/b/v2` requires major version 2, but got 1.5.0"
         );
     }
@@ -399,7 +404,7 @@ mod tests {
             let (path, wildcard) = parse_install_package_path(input).unwrap();
             assert!(wildcard, "{input}");
             assert_eq!(path.package, package);
-            let module = path.resolve(&registry).unwrap();
+            let module = path.resolve_cached(&registry).unwrap();
             assert_eq!(module.name().to_string(), name);
             assert_eq!(module.version().to_string(), version);
         }
@@ -429,12 +434,15 @@ mod tests {
         ] {
             let path = parse_module_at_version_path(input).unwrap();
             assert_eq!(parse_front_matter_import_path(input).unwrap(), path);
-            assert_eq!(path.resolve(&registry).unwrap().name().to_string(), name);
+            assert_eq!(
+                path.resolve_cached(&registry).unwrap().name().to_string(),
+                name
+            );
             assert_eq!(path.package, package);
         }
         let path = parse_module_at_version_path("a/b@version/cmd").unwrap();
         assert_eq!(path.version.as_deref(), Some("version"));
-        assert!(path.resolve(&registry).is_err());
+        assert!(path.resolve_cached(&registry).is_err());
     }
 
     #[test]

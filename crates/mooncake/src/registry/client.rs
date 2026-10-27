@@ -686,8 +686,9 @@ impl super::Registry for RegistryClient {
         user_log: &UserLog,
     ) -> anyhow::Result<Version> {
         let had_index = self.has_cached_index();
-        self.sync(user_log)
-            .context("Failed to update registry index")?;
+        self.sync(user_log).map_err(|error| {
+            super::RegistryUnavailable(error.context("Failed to update registry index"))
+        })?;
         let versions = match self.all_versions_of(name) {
             Ok(versions) => versions,
             Err(error) if error.is::<super::RegistryModuleNotFound>() => {
@@ -2199,7 +2200,7 @@ mod tests {
             .unwrap_err();
         assert!(error.is::<std::io::Error>(), "{error:#}");
         let path = crate::registry::path::parse_install_style_path("test/module").unwrap();
-        let error = path.resolve(&registry).unwrap_err();
+        let error = path.resolve_cached(&registry).unwrap_err();
         assert!(error.is::<std::io::Error>(), "{error:#}");
         let error = registry
             .resolve_executable_package("test/module", &quiet_user_log())

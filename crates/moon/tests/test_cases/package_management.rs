@@ -200,14 +200,28 @@ fn dependency_commands_preserve_nested_module_names() {
     )
     .unwrap();
     let moon_home = tempfile::tempdir().unwrap();
+    cache_registry_package(
+        moon_home.path(),
+        "alice/nested/tools",
+        "1.2.3-beta.1+build",
+        &[(
+            "moon.mod",
+            b"name = \"alice/nested/tools\"\nversion = \"1.2.3-beta.1+build\"\n".to_vec(),
+        )],
+    );
 
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
-        .args(["add", "--upgrade", "alice/nested/tools@1.2.3-beta.1+build"])
+        .args([
+            "add",
+            "--upgrade",
+            "--no-update",
+            "alice/nested/tools@1.2.3-beta.1+build",
+        ])
         .assert()
         .success()
         .stdout_eq("")
-        .stderr_eq("");
+        .stderr_eq("Using cached alice/nested/tools@1.2.3-beta.1+build\n");
     assert_eq!(
         std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
         "name = \"test/main\"\nimport {\n  \"alice/nested/tools@1.2.3-beta.1+build\",\n}\n",
@@ -852,4 +866,247 @@ pkgtype(kind: "executable")
     assert!(bin_dir.join("tool").is_file());
     #[cfg(windows)]
     assert!(bin_dir.join("tool.exe").is_file());
+}
+
+/// A registry whose cached latest is 1.0.0 and remote latest is 1.1.0.
+/// Both source archives are cached, so only metadata freshness affects selection.
+struct RegistryQueryFixture {
+    project: TestDir,
+    home: tempfile::TempDir,
+    remote: tempfile::TempDir,
+}
+
+impl RegistryQueryFixture {
+    fn new() -> Self {
+        let project = TestDir::new_empty();
+        let home = tempfile::tempdir().unwrap();
+        let remote = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.join("moon.mod"),
+            "name = \"test/app\"\nimport { \"test/tool@0.1.0\" }\n",
+        )
+        .unwrap();
+        let records = ["1.0.0", "1.1.0"].map(|version| {
+            let (_, index) = cache_registry_package(
+                home.path(),
+                "test/tool",
+                version,
+                &[
+                    (
+                        "moon.mod",
+                        format!("name = \"test/tool\"\nversion = \"{version}\"\n").into_bytes(),
+                    ),
+                    ("moon.pkg", b"pkgtype(kind: \"executable\")\n".to_vec()),
+                    ("main.mbt", b"fn main { println(42) }\n".to_vec()),
+                ],
+            );
+            std::fs::read_to_string(index).unwrap()
+        });
+        let layout = moonutil::MoonHomeLayout::new(home.path().to_path_buf());
+        let local_index = layout.registry_index_file(&"test/tool".into());
+        std::fs::write(local_index, &records[0]).unwrap();
+        let remote_index = remote.path().join("index");
+        std::fs::create_dir_all(remote_index.join("user/test")).unwrap();
+        std::fs::write(remote_index.join("user/test/tool.index"), records.concat()).unwrap();
+        for args in [
+            vec!["init", "--quiet", "--initial-branch=main"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=Moon Test",
+                "-c",
+                "user.email=moon-test@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "publish versions",
+            ],
+        ] {
+            snapbox::cmd::Command::new("git")
+                .current_dir(&remote_index)
+                .args(args)
+                .assert()
+                .success();
+        }
+        std::fs::write(
+            home.path().join("config.json"),
+            serde_json::json!({
+                "api": "http://127.0.0.1:1",
+                "download": "http://127.0.0.1:1",
+                "symbols": "http://127.0.0.1:1/symbols.zip",
+                "index": remote_index,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        Self {
+            project,
+            home,
+            remote,
+        }
+    }
+
+    fn command(&self, args: &[&str]) -> snapbox::cmd::Command {
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&self.project)
+            .env("MOON_HOME", self.home.path())
+            .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+            .env("MOON_DEP_CACHE", "off")
+            .args(args)
+    }
+
+    fn assert_selected(&self, command: &str, version: &str) {
+        match command {
+            "add" => {
+                let manifest =
+                    moonutil::manifest::read_module_desc_file_in_dir(self.project.as_ref())
+                        .unwrap();
+                assert_eq!(
+                    manifest.deps["test/tool"].version().unwrap().to_string(),
+                    version
+                );
+                let installed = moonutil::manifest::read_module_desc_file_in_dir(
+                    &self.project.join(".mooncakes/test/tool"),
+                )
+                .unwrap();
+                assert_eq!(installed.version.unwrap().to_string(), version);
+            }
+            "fetch" => assert!(
+                self.project
+                    .join(format!(".repos/test/tool/{version}/moon.mod"))
+                    .is_file()
+            ),
+            // Installation runs in a temporary source tree; its selected version
+            // is asserted in the command's log rather than a persistent manifest.
+            "install" => {}
+            _ => unreachable!(),
+        }
+    }
+
+    fn disconnect(&self) {
+        std::fs::rename(
+            self.remote.path().join("index"),
+            self.remote.path().join("unavailable"),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn registry_commands_query_current_latest() {
+    for args in [
+        vec!["add", "test/tool"],
+        vec!["add", "--upgrade", "test/tool"],
+        vec!["fetch", "test/tool"],
+        vec!["install", "--dry-run", "-v", "test/tool"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        if args[0] == "add" && !args.contains(&"--upgrade") {
+            std::fs::write(fixture.project.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+        }
+        let result = fixture.command(&args).assert().success();
+        if args[0] == "install" {
+            result.stderr_eq("...\nInstalling test/tool@1.1.0\n...");
+        }
+        fixture.assert_selected(args[0], "1.1.0");
+    }
+}
+
+#[test]
+fn registry_commands_no_update_use_cached_latest() {
+    for args in [
+        vec!["add", "--upgrade", "--no-update", "test/tool"],
+        vec!["fetch", "--no-update", "test/tool"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        fixture.disconnect();
+        fixture
+            .command(&args)
+            .assert()
+            .success()
+            .stderr_eq("Using cached test/tool@1.0.0\n");
+        fixture.assert_selected(args[0], "1.0.0");
+    }
+}
+
+#[test]
+fn registry_commands_warn_before_using_cached_latest() {
+    for args in [
+        vec!["add", "--upgrade", "test/tool"],
+        vec!["fetch", "test/tool"],
+        vec!["install", "--dry-run", "-v", "test/tool"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        fixture.disconnect();
+        let result = fixture.command(&args).assert().success().stderr_eq(
+            "...\nWarning: failed to query latest version of test/tool, using cached version 1.0.0: [..]\n..."
+        );
+        if args[0] == "install" {
+            result.stderr_eq("...\nInstalling test/tool@1.0.0\n...");
+        }
+        fixture.assert_selected(args[0], "1.0.0");
+    }
+}
+
+#[test]
+fn pinned_registry_commands_do_not_select_latest() {
+    for args in [
+        vec!["add", "test/tool@1.0.0"],
+        vec!["add", "--upgrade", "test/tool@1.0.0"],
+        vec!["fetch", "test/tool@1.0.0"],
+        vec!["install", "--dry-run", "-v", "test/tool@1.0.0"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        if args[0] == "add" && !args.contains(&"--upgrade") {
+            std::fs::write(fixture.project.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+        }
+        let result = fixture.command(&args).assert().success();
+        if args[0] == "install" {
+            result.stderr_eq("...\nInstalling test/tool@1.0.0\n...");
+        }
+        fixture.assert_selected(args[0], "1.0.0");
+        let layout = moonutil::MoonHomeLayout::new(fixture.home.path().to_path_buf());
+        assert!(
+            std::fs::read_to_string(layout.registry_index_file(&"test/tool".into()))
+                .unwrap()
+                .contains("1.1.0")
+        );
+    }
+}
+
+#[test]
+fn add_upgrade_can_add_a_new_dependency() {
+    let fixture = RegistryQueryFixture::new();
+    std::fs::write(fixture.project.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    fixture
+        .command(&["add", "--upgrade", "test/tool@1.1.0"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    fixture.assert_selected("add", "1.1.0");
+}
+
+#[test]
+fn add_upgrade_resolves_before_writing_manifest() {
+    let fixture = RegistryQueryFixture::new();
+    let manifest = fixture.project.join("moon.mod");
+    let original = std::fs::read_to_string(&manifest).unwrap();
+
+    // The archive is cached, but the local index does not know this version.
+    // --no-update must still validate it and leave the declaration untouched.
+    fixture.command(&["add", "--upgrade", "--no-update", "test/tool@1.1.0"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("...\n[..]Failed to resolve registry dependency `test/tool` for module `test/app`: version `1.1.0` was not found in the registry\n...");
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), original);
+    assert!(!fixture.project.join(".mooncakes/test/tool").exists());
+
+    // Allowing a refresh discovers the release and installs it before writing.
+    fixture
+        .command(&["add", "--upgrade", "test/tool@1.1.0"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    fixture.assert_selected("add", "1.1.0");
 }

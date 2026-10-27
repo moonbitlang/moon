@@ -21,7 +21,7 @@ use std::{fs::File, io::Write, str::FromStr};
 use anyhow::{Context, bail};
 use mooncake::registry::{
     RegistryClient, RegistryModuleManifest, RegistryRelease, RegistryUserModules,
-    path::parse_module_path,
+    path::{ModuleRequest, parse_module_path},
 };
 use moonutil::{
     MOON_HOME,
@@ -94,7 +94,10 @@ impl FromStr for ViewTarget {
             return Ok(Self::User(input.to_owned()));
         }
         let path = parse_module_path(input)?;
-        let version = path.exact_module()?.map(|module| module.version().clone());
+        let version = match path.module_request()? {
+            ModuleRequest::Versioned(module) => Some(module.version().clone()),
+            ModuleRequest::Unversioned(_) => None,
+        };
         Ok(Self::Module {
             name: path.module,
             version,
