@@ -152,7 +152,13 @@ impl DependencySource for ImmutableDependencySource<'_> {
                             module.version()
                         );
                     }
-                    let directory = self.source_dir(module);
+                    let directory = match registry.source_cache_namespace(module)? {
+                        Some(namespace) => {
+                            ImmutableDependencySource::new(&self.root.join(namespace))
+                                .source_dir(module)
+                        }
+                        None => self.source_dir(module),
+                    };
                     self.prepare_source(registry, module, &checksum, &directory, frozen, user_log)?;
                     directory
                 }

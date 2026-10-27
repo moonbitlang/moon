@@ -29,7 +29,7 @@ pub use crate::mooncakes::{Credentials, RegistryConfig, validate_username};
 /// A saved login and the registry API that may receive its token.
 ///
 /// The flattened representation preserves existing `Credentials` readers.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RegistryCredentials {
     #[serde(flatten)]
     pub credentials: Credentials,
@@ -54,6 +54,24 @@ pub fn registry_api_url(api: &str) -> anyhow::Result<Url> {
 }
 
 impl RegistryCredentials {
+    /// Identity recorded by login, for local access checks. This does not verify
+    /// token expiry or revocation; remote requests remain subject to the server.
+    pub fn confirmed_username(&self, api: &str) -> anyhow::Result<&str> {
+        let username = self
+            .credentials
+            .username
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .context("Saved registry credentials have no identity; run `moon login` again")?;
+        if self.registry_api.is_none() {
+            bail!("Saved registry credentials are incomplete; run `moon login` again");
+        }
+        if !self.matches_registry(api)? || self.credentials.token.trim().is_empty() {
+            bail!("Saved registry credentials do not match this registry; run `moon login` again");
+        }
+        Ok(username)
+    }
+
     /// Read a saved login, returning `None` only when the file does not exist.
     pub fn load(path: &Path) -> anyhow::Result<Option<Self>> {
         let file = match File::open(path) {
@@ -93,6 +111,19 @@ impl RegistryCredentials {
             .unwrap_or("https://mooncakes.io");
         Ok(registry_api_url(saved_api)? == registry_api_url(api)?)
     }
+}
+
+/// One source acquisition delegated to the external mooncake executable.
+/// Sent through stdin only. Deliberately not Debug: it carries the login captured
+/// by the caller, so metadata, authorization and download renewal use one token.
+#[derive(Serialize, Deserialize)]
+pub struct RegistryDownloadRequest {
+    pub api: String,
+    pub module: String,
+    pub version: semver::Version,
+    pub checksum: String,
+    pub destination: std::path::PathBuf,
+    pub credentials: RegistryCredentials,
 }
 
 #[cfg(test)]

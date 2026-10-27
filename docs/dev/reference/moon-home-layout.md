@@ -26,6 +26,9 @@ $MOON_HOME/
       v1/sources/<username>/<encoded-module>/<version>/
         .moon-source-archive-checksum
         ...
+      private/<api-hash>/v1/sources/<username>/<encoded-module>/<version>/
+        .moon-source-archive-checksum
+        ...
     registry/metadata/
       .moon-cache
       v1/<api-hash>/<module-hash>/
@@ -44,6 +47,8 @@ $MOON_HOME/
     cache/
       <username>/<module>/<version>.zip
       <username>/<module>/<version>.zip.lock
+      private/<api-hash>/<module-hash>/<version-hash>.zip
+      private/<api-hash>/<module-hash>/<version-hash>.zip.lock
       assets/<username>/<module>/<version>/<package...>/
         .moon-lock
         <artifact>
@@ -73,17 +78,17 @@ $MOON_HOME/
   dependency map; a present `deps` field must be an object.
 - `MOON_REGISTRY_API=1` opts all resolver metadata queries into the configured
   HTTP API, even when a local Git entry exists. Otherwise the Git index remains
-  authoritative. This initial adapter reads public metadata anonymously; it
-  requires a server supporting public resolver metadata. Existing API commands
-  such as search retain their separate optional authentication.
+  authoritative. Metadata queries use the configured API's saved login when
+  available, supporting public and owner-only private modules through the same
+  endpoint. This mode does not fall back to a different registry or backend.
 - On a cache miss, API resolution requests
   `GET /api/v0/registry/modules/<owner>/<module>?version=<exact>` for the declared
   version. Unversioned commands may omit the query to ask for
   latest. Neither operation lists version history or performs a range lookup.
   Exact version identity, dependencies and SHA-256 are validated before caching.
-  A response for an already cached release must preserve its dependencies and
-  checksum. Conflicting responses fail without replacing the cache; only
-  deprecation status may change.
+  A response for an already cached release must preserve its dependencies,
+  checksum and visibility. Conflicting responses fail without replacing the
+  cache; only deprecation status may change.
 - API release records are keyed by normalized API URL, module and exact version
   beneath `cache/registry/metadata/v1`. The optional `latest.json` contains only a version
   pointer. Exact requests share release records directly; no generation or
@@ -144,13 +149,24 @@ $MOON_HOME/
   trailing slashes, but preserves scheme, port, and API base path. Authenticated
   requests require HTTPS except on loopback addresses. API redirects may stay
   within the same origin and API base path; redirects outside that boundary
-  are not followed. Git index, symbols, source archive and prebuilt artifact
+  are not followed. Git index, symbols, public source archive and prebuilt artifact
   requests do not load or send these API credentials.
 - Missing or empty credentials leave API reads anonymous. Malformed or
   unreadable credentials produce a local error without including token text.
   Token validity and public/private access decisions belong to the registry;
   the client neither validates a token ahead of the request nor retries a
   rejected authenticated request anonymously.
+- Private metadata also checks that the saved login has an explicit API binding
+  and identifies the module owner, including on cache hits. One command captures
+  its login once; replacing the credentials file affects later commands. These
+  local checks do not detect remote token expiry or revocation while offline.
+- Private archive misses delegate one download to the external `mooncake`
+  executable. The request carries the exact version, checksum, staging path and
+  captured login through stdin. Moon verifies the resulting archive before
+  publishing it to the cache. Warm cache reads start no child process. Private
+  archives and shared source trees use a separate namespace keyed by normalized
+  API URL; token rotation does not change their paths. Prebuilt private Wasm
+  artifacts are not supported.
 
 The layout deliberately records current behavior rather than claiming every
 choice is ideal. In particular, it makes three asymmetries visible for future
@@ -193,6 +209,10 @@ separate:
   API consumers share these operations; HTTP headers and redirect policy stay
   in the request layer. `registry_api_url` validates and normalizes their API
   base URLs without selecting the configured registry.
+- `registry::authentication::RegistryAuthentication` captures the login used by
+  API queries, private cache checks and delegated source downloads. The external
+  mooncake executable owns private source delivery; Moon owns archive verification
+  and cache publication.
 - `moonutil::cache` owns cache-root selection, ownership validation, and
   lifecycle rules.
 - `moonutil::toolchain` owns installed toolchain paths and must not be used to

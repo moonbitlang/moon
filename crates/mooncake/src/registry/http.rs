@@ -18,7 +18,10 @@
 
 //! On-demand HTTP release metadata and the cache policy for exact/latest queries.
 
-use super::{RegistryUnavailable, RegistryVersionInfo, encode_path_segment};
+use super::{
+    RegistryUnavailable, RegistryVersionInfo, authentication::RegistryAuthentication,
+    encode_path_segment,
+};
 
 mod cache;
 use anyhow::{Context, bail};
@@ -33,7 +36,7 @@ use moonutil::{
 use reqwest::StatusCode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::cell::OnceCell;
+use std::{cell::OnceCell, sync::Arc};
 
 /// Module visibility within one registry; it does not select a registry.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -74,13 +77,19 @@ where
 
 pub(super) struct HttpMetadata {
     api: String,
+    authentication: Arc<RegistryAuthentication>,
     cache: MetadataCache,
     client: OnceCell<reqwest::blocking::Client>,
 }
 
 impl HttpMetadata {
-    pub(super) fn new(api: String, home: MoonHomeLayout) -> Self {
+    pub(super) fn new(
+        api: String,
+        home: MoonHomeLayout,
+        authentication: Arc<RegistryAuthentication>,
+    ) -> Self {
         Self {
+            authentication,
             cache: MetadataCache::new(home, api.clone()),
             api,
             client: OnceCell::new(),
@@ -102,7 +111,7 @@ impl HttpMetadata {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-        Ok(self.cache.release(name, version)?.map(Into::into))
+        Ok(self.cached_release(name, version)?.map(Into::into))
     }
 
     pub(super) fn refresh_version_info(
@@ -133,7 +142,7 @@ impl HttpMetadata {
         frozen: bool,
     ) -> anyhow::Result<ModuleMetadata> {
         super::path::parse_module_path(&name.to_string())?;
-        if let Some(metadata) = self.cache.release(name, version)? {
+        if let Some(metadata) = self.cached_release(name, version)? {
             return Ok(metadata);
         }
         if frozen {
@@ -153,7 +162,39 @@ impl HttpMetadata {
         &self,
         name: &ModuleName,
     ) -> anyhow::Result<Option<Version>> {
-        self.cache.latest(name)
+        let version = self.cache.latest(name)?;
+        if let Some(version) = &version {
+            self.cached_release(name, version)?;
+        }
+        Ok(version)
+    }
+
+    fn cached_release(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<ModuleMetadata>> {
+        let metadata = self.cache.release(name, version)?;
+        if let Some(metadata) = &metadata {
+            self.check_access(name, metadata)?;
+        }
+        Ok(metadata)
+    }
+
+    fn check_access(&self, name: &ModuleName, metadata: &ModuleMetadata) -> anyhow::Result<()> {
+        if metadata.visibility == ModuleVisibility::Private {
+            self.authentication.check_owner(&self.api, name)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn is_restricted(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        frozen: bool,
+    ) -> anyhow::Result<bool> {
+        Ok(self.exact_release(name, version, frozen)?.visibility == ModuleVisibility::Private)
     }
 
     /// This endpoint returns latest when the version query parameter is absent.
@@ -220,6 +261,7 @@ impl HttpMetadata {
         let metadata: ModuleMetadata = serde_json::from_slice(&bytes)
             .with_context(|| format!("invalid registry metadata response for {name}"))?;
         metadata.validate(name, version)?;
+        self.check_access(name, &metadata)?;
         self.cache.store_release(name, metadata)
     }
 
@@ -227,20 +269,16 @@ impl HttpMetadata {
         if let Some(client) = self.client.get() {
             return Ok(client);
         }
-        // Resolver requests are anonymous; authenticated command APIs have their
-        // own client and credential policy. Cache-only reads need no client;
-        // retain successful initialization while allowing failures to be retried.
-        let client = reqwest::blocking::Client::builder()
-            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .context("failed to create metadata HTTP client")?;
+        // Successful initialization retains connections and the operation's login.
+        // Cache-only reads never need to construct a network client.
+        let client = self.authentication.client(&self.api)?;
         Ok(self.client.get_or_init(|| client))
     }
 }
 
 impl ModuleMetadata {
     fn validate(&self, name: &ModuleName, expected: Option<&Version>) -> anyhow::Result<()> {
-        if self.module != name.to_string() || self.visibility != ModuleVisibility::Public {
+        if self.module != name.to_string() {
             bail!("invalid registry metadata identity for {name}");
         }
         ModuleSource::from_version(name.clone(), self.version.clone())?;
