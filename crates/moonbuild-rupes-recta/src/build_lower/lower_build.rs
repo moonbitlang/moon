@@ -663,43 +663,50 @@ impl<'a> LoweringContext<'a> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
+        let backend = self.opt.backend.target_backend();
+        // Installed stdlib `.core` files are not produced by any action, so
+        // n2 must observe them as extra inputs.
         let mut stdlib_inputs = Vec::new();
-        // Add core for the standard library
-        if let Some(stdlib) = &self.opt.stdlib_path {
-            // When present, the abort default must precede core.core to
-            // preserve initialization order.
-            if info.link_stdlib_abort {
-                stdlib_inputs.push(moonutil::toolchain::abort_core_in(
-                    stdlib,
-                    self.opt.backend.target_backend(),
-                ));
-            }
-            stdlib_inputs.push(moonutil::toolchain::core_core_in(
-                stdlib,
-                self.opt.backend.target_backend(),
-            ));
+        let mut core_input_files = Vec::new();
+        // When present, the abort default must precede the other stdlib
+        // packages to preserve initialization order.
+        if let Some(stdlib) = &self.opt.stdlib_path
+            && info.link_stdlib_abort
+        {
+            let abort = moonutil::toolchain::abort_core_in(stdlib, backend);
+            stdlib_inputs.push(abort.clone());
+            core_input_files.push(abort);
         }
-        let mut core_input_files = stdlib_inputs.clone();
-        // Linked core targets
+        // Linked core targets, including the stdlib packages they reach
         for target in &info.linked_order {
-            let core_path = artifacts.single_dependency_path_matching(|artifact| {
-                matches!(
-                    artifact,
-                    ArtifactKey::CoreIr {
-                        package,
-                        target_kind,
-                    } if *package == target.package && *target_kind == target.kind
-                )
-            });
+            let core_path = if self.packages.is_stdlib_package(target.package) {
+                let path = self
+                    .artifact_paths
+                    .core_of_build_target(self.packages, target, backend);
+                stdlib_inputs.push(path.clone());
+                path
+            } else {
+                artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(
+                        artifact,
+                        ArtifactKey::CoreIr {
+                            package,
+                            target_kind,
+                        } if *package == target.package && *target_kind == target.kind
+                    )
+                })
+            };
             core_input_files.push(core_path);
         }
 
         let out_file = artifacts.single_output_path();
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
+        // The stdlib module is described by a single source entry below.
         let package_sources = info
             .linked_order
             .iter()
+            .filter(|target| !self.packages.is_stdlib_package(target.package))
             .map(|target| {
                 let pkg = self.packages.get_package(target.package);
                 PackageSource {
@@ -737,7 +744,6 @@ impl<'a> LoweringContext<'a> {
                 .is_some_and(|toolchain| toolchain.uses_msvc_abi()),
         };
 
-        // Ensure n2 sees stdlib core bundle changes as inputs
         let mut extra_inputs = stdlib_inputs;
         if !package.is_single_file() {
             extra_inputs.push(config_path);

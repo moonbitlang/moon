@@ -44,7 +44,6 @@ fn stdlib_abort_is_optional() {
     let bundle = core.path().join("_build/wasm-gc/release/bundle");
     std::fs::create_dir_all(bundle.join("prelude")).unwrap();
     std::fs::write(bundle.join("prelude/prelude.mi"), "").unwrap();
-    std::fs::write(bundle.join("core.core"), "").unwrap();
 
     for state in [
         "absent",
@@ -159,7 +158,20 @@ fn stdlib_abort_is_optional() {
             matches!(state, "present" | "missing_artifact"),
             "{state}: {inputs:?}"
         );
-        assert_eq!(command.contains("bundle/core.core"), state != "no_std");
+        // Reachable stdlib packages are linked from their own installed cores.
+        assert!(!command.contains("core.core"), "{state}: {command}");
+        assert_eq!(
+            command.contains("bundle/prelude/prelude.core"),
+            state != "no_std",
+            "{state}: {command}"
+        );
+        assert_eq!(
+            inputs
+                .iter()
+                .any(|input| input.as_str().unwrap().ends_with("prelude/prelude.core")),
+            state != "no_std",
+            "{state}: {inputs:?}"
+        );
         if state == "overridden" {
             assert!(command.contains("replacement/replacement.core"));
         }

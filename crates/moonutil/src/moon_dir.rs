@@ -290,10 +290,6 @@ pub fn abort_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
     core_package_core_in(core_root, backend, "abort", "abort")
 }
 
-pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    core_bundle_in(core_root, backend).join("core.core")
-}
-
 /// Path to the prebuilt `.mi` of one stdlib package.
 pub fn core_package_mi_in(
     core_root: &Path,
@@ -330,14 +326,6 @@ fn core_package_artifact_in(
     core_bundle_in(core_root, backend)
         .join(package_path)
         .join(format!("{package_last_segment}.{extension}"))
-}
-
-// core.core & abort.core(virtual pkg default impl)
-pub fn core_core(backend: TargetBackend) -> Vec<String> {
-    vec![
-        abort_core_in(&core(), backend).display().to_string(),
-        core_core_in(&core(), backend).display().to_string(),
-    ]
 }
 
 #[test]
