@@ -23,7 +23,7 @@ use crate::registry::{sha256_hex, stage_registry_cache_file};
 use anyhow::{Context, bail};
 use moonutil::{
     MoonHomeLayout,
-    cache::{CacheKind, CacheRoot, clean_cache_root, resolve_cache_root_for_home},
+    cache::{CacheKind, CacheRoot, resolve_cache_root_for_home},
     registry::registry_api_url,
     resolution::ModuleName,
 };
@@ -58,7 +58,11 @@ impl MetadataCache {
 
     fn metadata_cache_dir(&self, name: &ModuleName) -> anyhow::Result<Option<PathBuf>> {
         if self.directory.get().is_none() {
-            let root = prepare_cache_root(&self.home)?;
+            let root = resolve_cache_root_for_home(CacheKind::RegistryMetadata, &self.home)?;
+            if let CacheRoot::Path { path, .. } = &root {
+                create_cache_directory(path)?;
+            }
+            root.initialize()?;
             let directory = match root {
                 CacheRoot::Disabled => None,
                 CacheRoot::Path { path, .. } => Some(
@@ -247,60 +251,6 @@ impl MetadataCache {
     }
 }
 
-fn prepare_cache_root(home: &MoonHomeLayout) -> anyhow::Result<CacheRoot> {
-    let root = resolve_cache_root_for_home(CacheKind::RegistryMetadata, home)?;
-    let CacheRoot::Path { path, .. } = &root else {
-        return Ok(root);
-    };
-    create_cache_directory(path)?;
-    root.initialize()?;
-    // The old format has the same versioned contents. Move it atomically on
-    // first use of the default root; a custom cache starts independently.
-    let legacy = home.registry_dir().join("metadata").join("v1");
-    let destination = path.join("v1");
-    if path == &home.registry_metadata_cache_dir() && !destination.exists() {
-        let metadata = match std::fs::symlink_metadata(&legacy) {
-            Ok(metadata) => metadata,
-            // Another process may already have moved the legacy tree.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(root),
-            Err(error) => return Err(error.into()),
-        };
-        if metadata.file_type().is_symlink()
-            || std::fs::symlink_metadata(legacy.parent().unwrap())?
-                .file_type()
-                .is_symlink()
-        {
-            bail!("refusing to migrate symlinked registry metadata cache");
-        }
-        match std::fs::rename(&legacy, &destination) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && destination.is_dir() => {}
-            Err(error) => return Err(error).context("failed to migrate registry metadata cache"),
-        }
-    }
-    Ok(root)
-}
-
-/// Remove only HTTP metadata. Indexes, source archives and configuration remain
-/// separate. Old default metadata is also removed so it cannot reappear later.
-pub fn clean_metadata_cache(home: &MoonHomeLayout) -> anyhow::Result<()> {
-    let root = resolve_cache_root_for_home(CacheKind::RegistryMetadata, home)?;
-    clean_cache_root(&root)?;
-    if matches!(&root, CacheRoot::Path { path, .. } if path == &home.registry_metadata_cache_dir())
-    {
-        let legacy = home.registry_dir().join("metadata");
-        match std::fs::symlink_metadata(&legacy) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                bail!("refusing to clean symlinked registry metadata cache")
-            }
-            Ok(_) => std::fs::remove_dir_all(legacy)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(())
-}
-
 fn create_cache_directory(parent: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
@@ -423,50 +373,5 @@ mod tests {
             published.checksum,
             outcomes.into_iter().find_map(Result::ok).unwrap().checksum
         );
-    }
-
-    #[test]
-    fn concurrent_readers_migrate_the_legacy_tree() {
-        let sandbox = tempfile::tempdir().unwrap();
-        let home = MoonHomeLayout::new(sandbox.path().to_owned());
-        let name: ModuleName = "alice/example".into();
-        let version = Version::new(0, 1, 0);
-        let api = "https://example.com";
-        let cache = MetadataCache::new(home.clone(), api.to_owned());
-        cache
-            .store_release(
-                &name,
-                ModuleMetadata {
-                    module: name.to_string(),
-                    visibility: ModuleVisibility::Public,
-                    version: version.clone(),
-                    checksum: "a".repeat(64),
-                    deps: IndexMap::new(),
-                    yanked: false,
-                    yanked_reason: None,
-                },
-            )
-            .unwrap();
-        let legacy = home.registry_dir().join("metadata");
-        std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::rename(
-            home.registry_metadata_cache_dir().join("v1"),
-            legacy.join("v1"),
-        )
-        .unwrap();
-        let barrier = std::sync::Barrier::new(4);
-        std::thread::scope(|scope| {
-            for _ in 0..4 {
-                scope.spawn(|| {
-                    let cache = MetadataCache::new(home.clone(), api.to_owned());
-                    barrier.wait();
-                    assert_eq!(
-                        cache.release(&name, &version).unwrap().unwrap().checksum,
-                        "a".repeat(64)
-                    );
-                });
-            }
-        });
-        assert!(!legacy.join("v1").exists());
     }
 }

@@ -95,14 +95,8 @@ $MOON_HOME/
   to disable persistence while retaining in-process reuse. A relative path is
   rejected. The default root has a `.moon-cache` ownership marker, as do custom
   roots. Initialization rejects unrecognized non-empty roots.
-- First use of the default root moves the previous `registry/metadata/v1` tree
-  into it if no new `v1` tree exists. This preserves exact records and latest
-  pointers without fetching again. An existing new tree takes precedence;
-  custom roots do not import the default cache. Migration rejects symlinked
-  legacy metadata and requires the old and new directories on one filesystem.
-- `moon clean --registry-cache` removes the selected HTTP metadata cache. With
-  the default root it also removes legacy metadata, preventing its later
-  reimport. Git indexes, source archives, downloaded executables and credentials
+- `moon clean --registry-cache` removes the selected HTTP metadata cache.
+  Git indexes, source archives, downloaded executables and credentials
   remain untouched. Ordinary `moon clean` leaves this cache alone. As with the
   other global caches, explicit cleanup is not coordinated with active users.
 - In API mode, `moon update` resolves the selected module or entire workspace,

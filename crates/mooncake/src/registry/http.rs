@@ -20,7 +20,7 @@
 
 use super::{RegistryUnavailable, RegistryVersionInfo, encode_path_segment};
 
-pub(super) mod cache;
+mod cache;
 use anyhow::{Context, bail};
 use cache::MetadataCache;
 use indexmap::IndexMap;

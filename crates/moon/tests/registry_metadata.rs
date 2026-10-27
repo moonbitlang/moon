@@ -585,7 +585,7 @@ Error: registry refresh incomplete:
 }
 
 #[test]
-fn metadata_cache_migrates_and_can_be_cleaned_independently() {
+fn metadata_cache_can_be_reused_and_cleaned_independently() {
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
     let mut server = Server::new(&[("alice/shared", "0.1.0", serde_json::json!({}))]);
@@ -609,19 +609,14 @@ fn metadata_cache_migrates_and_can_be_cleaned_independently() {
         .success();
     let metadata = home.path().join("cache/registry/metadata");
     assert!(metadata.join(".moon-cache").is_file());
-    let legacy = home.path().join("registry/metadata");
-    std::fs::create_dir_all(&legacy).unwrap();
-    std::fs::rename(metadata.join("v1"), legacy.join("v1")).unwrap();
-    std::fs::remove_dir_all(&metadata).unwrap();
     server.stop();
-    // The previous layout remains usable without contacting the server.
+    // A new process can reuse exact metadata without contacting the server.
     moon(project.path(), home.path(), true)
         .args(["tree"])
         .assert()
         .success();
     assert!(metadata.join("v1").is_dir());
-    assert!(!legacy.join("v1").exists());
-    // Latest remains a usable observation after migration too. The existing
+    // The persisted latest observation remains usable too. The existing
     // dependency makes this an add no-op, without source acquisition.
     moon(project.path(), home.path(), true)
         .args(["add", "--no-update", "alice/shared"])
@@ -644,7 +639,6 @@ fn metadata_cache_migrates_and_can_be_cleaned_independently() {
         .stdout_eq("")
         .stderr_eq("");
     assert!(!metadata.exists());
-    assert!(!legacy.exists());
     for name in ["index", "cache"] {
         assert!(
             home.path()

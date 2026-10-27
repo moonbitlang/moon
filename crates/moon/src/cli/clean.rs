@@ -54,7 +54,7 @@ pub(crate) fn run_clean(
             moonutil::cache::clean_cache(moonutil::cache::CacheKind::BuildArtifacts)?;
         }
         if cmd.registry_cache {
-            mooncake::registry::clean_metadata_cache(&moonutil::MOON_HOME)?;
+            moonutil::cache::clean_cache(moonutil::cache::CacheKind::RegistryMetadata)?;
         }
         return Ok(0);
     }

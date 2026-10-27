@@ -145,6 +145,8 @@ fn initialize_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::Result<(
     // Build the complete marker next to the root, then publish it without
     // replacing an existing claim. Keeping the temporary file outside `root`
     // means another initializer never mistakes our staging file for user data.
+    // Keep Windows' extended-length prefix for tempfile's direct Win32 calls.
+    let root = std::fs::canonicalize(root)?;
     let parent = root.parent().ok_or_else(|| {
         anyhow::anyhow!(
             "Moon cache root `{}` must have a parent directory",
@@ -157,7 +159,7 @@ fn initialize_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::Result<(
     match marker.persist_noclobber(root.join(OWNERSHIP_MARKER)) {
         Ok(_) => Ok(()),
         Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if !validate_existing_ownership_marker(root, kind)? {
+            if !validate_existing_ownership_marker(&root, kind)? {
                 bail!(
                     "Moon cache ownership marker disappeared while initializing `{}`",
                     root.display()
@@ -194,15 +196,10 @@ fn validate_existing_ownership_marker(root: &Path, kind: CacheKind) -> anyhow::R
 }
 
 pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
-    clean_cache_root(&resolve_cache_root(kind)?)
-}
-
-/// Remove an explicitly selected cache after checking its ownership marker.
-pub fn clean_cache_root(cache: &CacheRoot) -> anyhow::Result<()> {
-    let CacheRoot::Path { path: root, kind } = cache else {
+    let CacheRoot::Path { path: root, .. } = resolve_cache_root(kind)? else {
         return Ok(());
     };
-    let metadata = match std::fs::symlink_metadata(root) {
+    let metadata = match std::fs::symlink_metadata(&root) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
@@ -213,11 +210,11 @@ pub fn clean_cache_root(cache: &CacheRoot) -> anyhow::Result<()> {
             root.display()
         );
     }
-    if metadata.is_dir() && std::fs::read_dir(root)?.next().transpose()?.is_none() {
+    if metadata.is_dir() && std::fs::read_dir(&root)?.next().transpose()?.is_none() {
         std::fs::remove_dir(root)?;
         return Ok(());
     }
-    if metadata.is_dir() && validate_existing_ownership_marker(root, *kind)? {
+    if metadata.is_dir() && validate_existing_ownership_marker(&root, kind)? {
         std::fs::remove_dir_all(root)?;
         return Ok(());
     }
@@ -293,6 +290,25 @@ mod tests {
             "unrelated lock contents"
         );
         assert!(!root.path().join(OWNERSHIP_MARKER).exists());
+    }
+
+    #[test]
+    fn initializes_ownership_with_long_paths() {
+        let parent = tempfile::TempDir::new().unwrap();
+        let path = parent.path().join("cache-directory/".repeat(20));
+        assert!(path.to_string_lossy().len() > 260);
+        let root = CacheRoot::Path {
+            kind: CacheKind::RegistryMetadata,
+            path: path.clone(),
+        };
+
+        root.initialize().unwrap();
+        root.initialize().unwrap();
+
+        assert_eq!(
+            std::fs::read(path.join(OWNERSHIP_MARKER)).unwrap(),
+            CacheKind::RegistryMetadata.ownership()
+        );
     }
 
     #[test]
