@@ -104,6 +104,27 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
             ),
         },
         Check {
+            label: "cargo clippy -p moonrun --all-targets --no-default-features --features v8 -- -D warnings",
+            command: Command {
+                program: "cargo",
+                args: &[
+                    "clippy",
+                    "-p",
+                    "moonrun",
+                    "--all-targets",
+                    "--no-default-features",
+                    "--features",
+                    "v8",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            },
+            fix_script: Some(
+                "cargo clippy --fix -p moonrun --all-targets --no-default-features --features v8 --allow-dirty --allow-staged",
+            ),
+        },
+        Check {
             label: "cargo clippy -p moonrun --all-targets --no-default-features --features wasmtime -- -D warnings",
             command: Command {
                 program: "cargo",

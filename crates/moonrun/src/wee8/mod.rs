@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Experimental Wasm backend using V8's C entry points. The public Moonrun
+//! Default Wasm backend using V8's C entry points. The public Moonrun
 //! Engine/Module/Run interface is shared with the other backends. The upstream
 //! Rust crate owns native lifetimes and the C ABI; this adapter wires Moonrun
 //! host services. GC objects remain internal to guest execution.

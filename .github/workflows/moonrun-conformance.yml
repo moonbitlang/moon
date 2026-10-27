@@ -25,6 +25,8 @@ on:
     paths:
       - 'crates/moonrun/**'
       - 'third_party/moonbitlang_async'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/moonrun-conformance.yml'
   pull_request:
     branches:
@@ -32,6 +34,8 @@ on:
     paths:
       - 'crates/moonrun/**'
       - 'third_party/moonbitlang_async'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/moonrun-conformance.yml'
 
 concurrency:
@@ -43,7 +47,7 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.os }}
+    name: rusty_v8 / ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +87,9 @@ jobs:
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Build Moon and Moonrun
-        run: cargo build -p moon -p moonrun
+        run: |
+          cargo build -p moon
+          cargo build -p moonrun --no-default-features --features v8
 
       - name: Bundle core (Unix)
         if: matrix.os != 'windows-latest'
@@ -94,7 +100,9 @@ jobs:
         run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
 
       - name: Test Moonrun against upstream async
-        run: cargo test -p moonrun --test test test_moonrun_against_upstream_async -- --ignored --exact
+        run: |
+          cargo test -p moonrun --no-default-features --features v8 --locked
+          cargo test -p moonrun --no-default-features --features v8 --locked --test test test_moonrun_against_upstream_async -- --ignored --exact
 
   wasmtime:
     name: wasmtime / ubuntu-latest

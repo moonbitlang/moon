@@ -2,8 +2,9 @@
 
 # moonrun
 
-Moonrun is the WebAssembly runtime for MoonBit. Shipping builds use V8, while a
-Wasmtime 48 backend is available as a compile-time development feature.
+Moonrun is the WebAssembly runtime for MoonBit. Default builds use wee8, the
+trimmed V8 backend. The upstream rusty_v8 and Wasmtime 48 backends remain
+available as explicit Cargo features.
 
 ## Platform Support
 
@@ -19,14 +20,22 @@ To build the project, ensure that Rust and Cargo are installed. Then execute:
 cargo build
 ```
 
-The default `moonrun` build selects V8. To build the Wasmtime backend:
+Building the default wee8 backend requires libclang and downloads the pinned
+native archive described below. To build the upstream rusty_v8 backend instead:
+
+```sh
+cargo build -p moonrun --no-default-features --features v8
+```
+
+To build the Wasmtime backend:
 
 ```sh
 cargo build -p moonrun --no-default-features --features wasmtime
 ```
 
-V8 remains selected when both engine features are enabled; select Wasmtime by
-disabling default features as shown above. Both engines use the same Moonrun
+Disable default features when selecting an alternative backend. wee8 and
+rusty_v8 cannot be linked together; wee8 takes precedence over Wasmtime when
+both are enabled. All three engines use the same Moonrun
 Host Domains for async operations, filesystem and environment access, SQLite,
 memory-sanitizer state, policy, and termination. Wasmtime supports both `wasm`
 and `wasm-gc`, including JS-string builtins with `_` imported string constants,
@@ -34,9 +43,9 @@ the MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface
 as V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy;
 both engine adapters invoke the same shared WASIp1 host operations.
 
-## Experimental wee8 backend
+## Default wee8 backend
 
-The opt-in `wee8` backend uses V8's Wasm C entry points and the same public
+The default `wee8` backend uses V8's Wasm C entry points and the same public
 Rust `Engine`, `Module`, and `RunOptions` interface. Wasmtime continues to use its
 native Rust interface. Moonrun depends on the upstream `wee8` Rust crate at a
 pinned Git revision, like `n2`. That crate owns the safe native handles, private C
@@ -50,16 +59,17 @@ cargo build -p moonrun --no-default-features --features wee8
 ```
 
 The upstream crate's build script downloads the target's archive and paired headers from the
-pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.5),
+pinned [V8 release](https://github.com/moonbitlang/v8-custom-builds/releases/tag/v0.106.0-moonbit.6),
 checks SHA-256 before extraction, and caches the downloads in Cargo's build
 output directory. It uses Cargo's target, including for cross-compilation.
 Only the five published Linux/macOS/Windows targets have automatic downloads.
 Set `WEE8_MIRROR` to an alternate release-download base URL if needed; the
 script appends the pinned release tag and asset names.
 
-CI exercises this download path and tests wee8 separately on Linux, macOS and
-Windows. The existing V8 backend and default build continue using upstream
-rusty_v8. Building wee8 requires libclang for generating its C declarations.
+CI exercises this download path and tests wee8 on Linux, macOS and Windows.
+The standard workspace tests use wee8, and separate conformance jobs retain
+coverage for the upstream rusty_v8 and Wasmtime alternatives. Building wee8
+requires libclang for generating its C declarations.
 
 For a source or offline build, use the [pinned recipe](https://github.com/moonbitlang/v8-custom-builds)
 and provide both its decompressed archive and matching header explicitly to
@@ -77,7 +87,7 @@ recipe. This backend cannot be linked alongside rusty_v8 in the same binary.
 Enabling both `wee8` and `wasmtime` is allowed and selects wee8; Wasmtime uses
 its native Rust API and does not introduce another V8 archive.
 
-This is a working integration MVP, not a replacement for either full backend:
+The default backend supports Moonrun’s compiler and runtime interfaces:
 
 - The core Wasm proposals enabled in the released V8: Wasm 2.0, tail calls,
   extended constants, relaxed SIMD, multiple memories, internal shared-memory
@@ -123,12 +133,12 @@ This is a working integration MVP, not a replacement for either full backend:
 - Host state remains in Rust. Guest memory is borrowed only during a synchronous
   host call, using its current allocation after any guest memory growth.
 
-SIMD values and directly GC-typed references remain internal to guest code.
-Externalized GC references, including i31 values, can cross the host boundary
-through rooted externrefs. Unsupported imported/exported function, global and
-table types are rejected by the upstream crate before C API introspection.
-Shared memories cannot cross the host boundary because host calls borrow
-exclusive, non-atomic memory slices.
+V8 validates modules and supplies their import/export metadata. SIMD values,
+GC-typed exports and shared-memory atomics are accepted during compilation;
+Moonrun checks supported host signatures when linking imports or calling an
+entry point. Externalized GC references, including i31 values, can cross the
+host boundary through rooted externrefs. Shared memories cannot be borrowed
+by host calls because those calls require exclusive, non-atomic memory slices.
 
 Arbitrary host memory/global/table imports, callable funcref values, guest
 re-entry from host callbacks and debugger access remain outside this adapter.
