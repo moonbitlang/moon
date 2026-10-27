@@ -126,15 +126,15 @@ impl RegistryClient {
 fn latest_version_from_registry(
     registry: &impl Registry,
     module_name: &ModuleName,
-) -> LatestVersionLookup {
-    let versions = match registry.all_versions_of(module_name) {
-        Ok(versions) => versions,
-        Err(_) => return LatestVersionLookup::NotFound,
-    };
-    versions
-        .last_key_value()
-        .map(|(version, _)| LatestVersionLookup::Found(version.clone()))
-        .unwrap_or(LatestVersionLookup::NoVersionInformation)
+) -> anyhow::Result<LatestVersionLookup> {
+    match registry.latest_version(module_name) {
+        Ok(Some(version)) => Ok(LatestVersionLookup::Found(version)),
+        Ok(None) => Ok(LatestVersionLookup::NoVersionInformation),
+        Err(error) if error.is::<super::RegistryModuleNotFound>() => {
+            Ok(LatestVersionLookup::NotFound)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn resolve_latest_module_with(
@@ -142,11 +142,11 @@ fn resolve_latest_module_with(
     user_log: &UserLog,
     had_index: bool,
     policy: LatestVersionResolutionPolicy,
-    mut lookup_latest_version: impl FnMut() -> LatestVersionLookup,
+    mut lookup_latest_version: impl FnMut() -> anyhow::Result<LatestVersionLookup>,
     mut update_registry: impl FnMut() -> anyhow::Result<()>,
 ) -> anyhow::Result<ModuleSource> {
     if policy == LatestVersionResolutionPolicy::PreferLocal
-        && let LatestVersionLookup::Found(version) = lookup_latest_version()
+        && let LatestVersionLookup::Found(version) = lookup_latest_version()?
     {
         let module = ModuleSource::from_version(module_name.clone(), version)?;
         user_log.info(format!(
@@ -172,7 +172,7 @@ fn resolve_latest_module_with(
         }
     }
 
-    let version = match lookup_latest_version() {
+    let version = match lookup_latest_version()? {
         LatestVersionLookup::Found(version) => version,
         LatestVersionLookup::NoVersionInformation => {
             bail!("Module `{module_name}` has no version information")
@@ -285,7 +285,7 @@ mod tests {
                 &UserLog::new(log::LevelFilter::Error),
                 true,
                 policy,
-                || LatestVersionLookup::Found(Version::new(1, 5, 0)),
+                || Ok(LatestVersionLookup::Found(Version::new(1, 5, 0))),
                 || Ok(()),
             )
             .unwrap_err();
@@ -352,7 +352,7 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
             true,
             LatestVersionResolutionPolicy::PreferLocal,
-            || LatestVersionLookup::Found("0.3.3".parse().unwrap()),
+            || Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap())),
             || {
                 update_called = true;
                 Ok(())
@@ -377,11 +377,11 @@ mod tests {
             LatestVersionResolutionPolicy::PreferLocal,
             || {
                 lookup_count += 1;
-                if lookup_count > 1 {
+                Ok(if lookup_count > 1 {
                     LatestVersionLookup::Found("0.3.3".parse().unwrap())
                 } else {
                     LatestVersionLookup::NotFound
-                }
+                })
             },
             || {
                 update_called = true;
@@ -408,7 +408,7 @@ mod tests {
             LatestVersionResolutionPolicy::Refresh,
             || {
                 lookup_count.set(lookup_count.get() + 1);
-                LatestVersionLookup::Found(
+                Ok(LatestVersionLookup::Found(
                     if registry_updated.get() {
                         "0.4.0"
                     } else {
@@ -416,7 +416,7 @@ mod tests {
                     }
                     .parse()
                     .unwrap(),
-                )
+                ))
             },
             || {
                 registry_updated.set(true);
@@ -442,7 +442,7 @@ mod tests {
             LatestVersionResolutionPolicy::Refresh,
             || {
                 lookup_called.set(true);
-                LatestVersionLookup::Found("0.3.3".parse().unwrap())
+                Ok(LatestVersionLookup::Found("0.3.3".parse().unwrap()))
             },
             || Err(anyhow::anyhow!("offline")),
         )
@@ -463,7 +463,7 @@ mod tests {
             &UserLog::new(log::LevelFilter::Warn),
             true,
             LatestVersionResolutionPolicy::PreferLocal,
-            || LatestVersionLookup::NoVersionInformation,
+            || Ok(LatestVersionLookup::NoVersionInformation),
             || {
                 update_called = true;
                 Ok(())

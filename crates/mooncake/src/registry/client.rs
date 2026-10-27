@@ -607,7 +607,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-impl super::Registry for RegistryClient {
+impl RegistryClient {
     fn all_versions_of(
         &self,
         name: &ModuleName,
@@ -658,6 +658,23 @@ impl super::Registry for RegistryClient {
             .insert(name.clone(), Arc::clone(&res));
 
         Ok(res)
+    }
+}
+
+impl super::Registry for RegistryClient {
+    fn version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        Ok(self.all_versions_of(name)?.get(version).cloned())
+    }
+
+    fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        Ok(self
+            .all_versions_of(name)?
+            .last_key_value()
+            .map(|(version, _)| version.clone()))
     }
 }
 
@@ -2149,23 +2166,140 @@ mod tests {
     }
 
     #[test]
-    fn all_versions_distinguishes_missing_modules_from_invalid_metadata() {
+    fn registry_path_resolution_preserves_index_io_errors() {
         let dir = tempfile::tempdir().unwrap();
         let registry = api_test_registry(dir.path(), "https://registry.example.test");
         let module: ModuleName = "test/module".into();
-        let error = registry.all_versions_of(&module).unwrap_err();
+        std::fs::create_dir_all(registry.home.registry_index_file(&module)).unwrap();
+
+        let error = registry
+            .resolve_unversioned_path("test/module/pkg")
+            .unwrap_err();
+        assert!(error.is::<std::io::Error>(), "{error:#}");
+        let path = crate::registry::path::parse_install_style_path("test/module").unwrap();
+        let error = path.resolve(&registry).unwrap_err();
+        assert!(error.is::<std::io::Error>(), "{error:#}");
+        let error = registry
+            .resolve_executable_package("test/module", &quiet_user_log())
+            .unwrap_err();
+        assert!(error.is::<std::io::Error>(), "{error:#}");
+    }
+
+    #[test]
+    fn registry_queries_distinguish_missing_modules_from_invalid_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = api_test_registry(dir.path(), "https://registry.example.test");
+        let module: ModuleName = "test/module".into();
+        let error = registry.latest_version(&module).unwrap_err();
         assert!(error.is::<crate::registry::RegistryModuleNotFound>());
 
         let index_file = registry.home.registry_index_file(&module);
         std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
         std::fs::write(index_file, r#"{"version":"invalid"}"#).unwrap();
-        let error = registry.all_versions_of(&module).unwrap_err();
+        let error = registry.latest_version(&module).unwrap_err();
         assert!(!error.is::<crate::registry::RegistryModuleNotFound>());
         assert!(error.is::<semver::Error>());
     }
 
     #[test]
-    fn all_versions_accepts_single_rule_object_from_index_jsonl() {
+    fn executable_latest_refreshes_after_a_missing_local_module_index() {
+        let run_git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        let base = tempfile::tempdir().unwrap();
+        let source = base.path().join("source");
+        run_git(&["init", "--quiet", source.to_str().unwrap()]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "checkout",
+            "--quiet",
+            "-b",
+            "main",
+        ]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "config",
+            "user.name",
+            "Moon Test",
+        ]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "config",
+            "user.email",
+            "moon-test@example.invalid",
+        ]);
+        let index_file = source.join("user/alice/tool.index");
+        std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &index_file,
+            serde_json::json!({"version": "1.2.3", "deps": {}, "checksum": "b".repeat(64)})
+                .to_string(),
+        )
+        .unwrap();
+        run_git(&["-C", source.to_str().unwrap(), "add", "."]);
+        run_git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "commit",
+            "--quiet",
+            "-m",
+            "add module",
+        ]);
+
+        let bare = base.path().join("index.git");
+        run_git(&[
+            "clone",
+            "--bare",
+            "--quiet",
+            source.to_str().unwrap(),
+            bare.to_str().unwrap(),
+        ]);
+        let bare = dunce::canonicalize(bare)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let index = if cfg!(windows) {
+            format!("file:///{bare}")
+        } else {
+            format!("file://{bare}")
+        };
+        for has_local_index in [false, true] {
+            let home = MoonHomeLayout::new(base.path().join(format!("home-{has_local_index}")));
+            if has_local_index {
+                std::fs::create_dir_all(home.registry_index_dir()).unwrap();
+            }
+            let registry = RegistryClient::with_home(
+                RegistryConfig {
+                    api: index.clone(),
+                    index: index.clone(),
+                    download: String::new(),
+                    symbols: None,
+                    legacy_asset_urls: false,
+                },
+                home,
+            );
+
+            let package = registry
+                .resolve_executable_package("alice/tool", &quiet_user_log())
+                .unwrap();
+            assert_eq!(package.module.name().to_string(), "alice/tool");
+            assert_eq!(package.module.version().to_string(), "1.2.3");
+        }
+    }
+
+    #[test]
+    fn registry_queries_accept_single_rule_object_from_index_jsonl() {
         let home = MoonHomeLayout::new(temp_index_dir());
         let module: ModuleName = "bobzhang/openseek".into();
         let index_file = home.registry_index_file(&module);
@@ -2187,27 +2321,10 @@ mod tests {
             },
             home.clone(),
         );
-        let versions = registry
-            .all_versions_of(&ModuleName {
-                username: "bobzhang".into(),
-                unqual: "openseek".into(),
-            })
-            .unwrap();
-
         let version = Version::parse("0.2.1").unwrap();
-        assert!(versions.contains_key(&version));
-        assert_eq!(
-            registry
-                .read_checksum_from_index_file(
-                    &ModuleName {
-                        username: "bobzhang".into(),
-                        unqual: "openseek".into(),
-                    },
-                    &version,
-                )
-                .unwrap(),
-            "abc123"
-        );
+        assert!(registry.version_info(&module, &version).unwrap().is_some());
+        let source = ModuleSource::from_version(module, version).unwrap();
+        assert_eq!(registry.source_archive_checksum(&source).unwrap(), "abc123");
 
         let _ = std::fs::remove_dir_all(home.root());
     }

@@ -413,7 +413,11 @@ Current registry configuration behavior today is:
   local index, and downloading and verifying HTTP package archives and
   prebuilt wasm assets. Resolver code sees only the narrower `Registry`
   capability.
-- The public `Registry` trait contains only metadata queries used by resolution.
+- The public `Registry` trait exposes separate exact-version and latest-version
+  queries. MVS and deprecation checks read exact releases; unversioned command
+  inputs query the latest known version. The Git client's complete version map
+  is an internal cache, not part of the trait. Queries preserve registry read
+  failures instead of reporting them as missing modules.
   Package source acquisition remains on `RegistryClient`; dependency-source
   tests replace it through a crate-private seam.
 - `RegistryConfig.api` controls dynamic registry requests such as search.
