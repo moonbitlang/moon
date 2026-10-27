@@ -27,7 +27,7 @@ use anyhow::{Context, bail};
 use moonutil::{
     MOON_HOME, MoonHomeLayout,
     locks::{lock_directory, lock_file},
-    registry::{RegistryConfig, RegistryDownloadRequest, registry_api_url},
+    registry::{RegistryConfig, RegistryDownloadRequest},
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
@@ -627,26 +627,6 @@ impl super::Registry for RegistryClient {
 }
 
 impl super::RegistrySource for RegistryClient {
-    fn source_cache_namespace(
-        &self,
-        module: &ModuleSource,
-    ) -> anyhow::Result<Option<std::path::PathBuf>> {
-        match &self.metadata {
-            MetadataBackend::Http(http)
-                if http.is_restricted(
-                    module.name(),
-                    module.version(),
-                    self.frozen_dependencies,
-                )? =>
-            {
-                Ok(Some(std::path::PathBuf::from("private").join(
-                    super::sha256_hex(registry_api_url(&self.endpoints.api)?.as_str().as_bytes()),
-                )))
-            }
-            _ => Ok(None),
-        }
-    }
-
     fn acquire_source_to(
         &self,
         module: &ModuleSource,
@@ -773,21 +753,7 @@ impl RegistryClient {
                 http.is_restricted(name, version, self.frozen_dependencies)?
             }
         };
-        let cache_file = if restricted {
-            self.home
-                .registry_cache_dir()
-                .join("private")
-                .join(super::sha256_hex(
-                    registry_api_url(&self.endpoints.api)?.as_str().as_bytes(),
-                ))
-                .join(super::sha256_hex(name.to_string().as_bytes()))
-                .join(format!(
-                    "{}.zip",
-                    super::sha256_hex(version.to_string().as_bytes())
-                ))
-        } else {
-            self.home.registry_source_archive_path(name, version)
-        };
+        let cache_file = self.home.registry_source_archive_path(name, version);
         if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
             user_log.status(format!("Using cached {name}@{version}"));
             return Ok(archive);
@@ -919,7 +885,7 @@ mod tests {
 
     use super::*;
     use crate::registry::{Registry, authentication::registry_authorization};
-    use moonutil::registry::RegistryCredentials;
+    use moonutil::registry::{RegistryCredentials, registry_api_url};
 
     fn quiet_user_log() -> UserLog {
         UserLog::new(log::LevelFilter::Error)
@@ -1234,14 +1200,16 @@ mod tests {
     }
 
     #[test]
-    fn private_metadata_reuses_one_login_and_checks_new_commands_on_cache_hits() {
+    fn private_cache_reuses_one_login_and_checks_new_commands_on_cache_hits() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
         save_test_login(home.path(), &api, "alice", "first-token");
+        let archive = b"cached source archive";
+        let checksum = sha256_hex(archive);
         let body = serde_json::json!({
             "module":"alice/secret", "visibility":"PRIVATE", "version":"0.1.0",
-            "deps":{}, "checksum":"a".repeat(64),
+            "deps":{}, "checksum":checksum,
         })
         .to_string();
         let server = api_test_server(
@@ -1268,16 +1236,45 @@ mod tests {
                 .contains("authorization: bearer first-token")
         }));
 
+        // Public and private sources use the same archive cache. A hit still
+        // requires the selected login and a matching checksum.
+        let archive_path = registry.home.registry_source_archive_path(&name, &version);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        std::fs::write(&archive_path, archive).unwrap();
+        let registry = registry.for_frozen_dependencies();
+        let cached = registry
+            .download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+            .unwrap();
+        assert_eq!(std::io::read_to_string(cached).unwrap().as_bytes(), archive);
+
         let bob = http_test_registry(home.path(), &api).for_frozen_dependencies();
         assert!(bob.version_info(&name, &version).is_err());
         assert!(bob.cached_latest_version(&name).is_err());
+        assert!(
+            bob.download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+                .is_err()
+        );
         std::fs::remove_file(home.path().join("credentials.json")).unwrap();
         let anonymous = http_test_registry(home.path(), &api).for_frozen_dependencies();
         assert!(anonymous.cached_version_info(&name, &version).is_err());
         save_test_login(home.path(), &api, "alice", "rotated-token");
         let alice = http_test_registry(home.path(), &api).for_frozen_dependencies();
         assert!(alice.version_info(&name, &version).unwrap().is_some());
-        assert_eq!(alice.cached_latest_version(&name).unwrap(), Some(version));
+        assert_eq!(
+            alice.cached_latest_version(&name).unwrap(),
+            Some(version.clone())
+        );
+        assert!(
+            alice
+                .download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+                .is_ok()
+        );
+        std::fs::write(&archive_path, b"different content").unwrap();
+        assert!(
+            alice
+                .download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+                .is_err()
+        );
     }
 
     #[test]

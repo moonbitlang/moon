@@ -121,15 +121,6 @@ pub trait Registry {
 }
 
 pub(crate) trait RegistrySource {
-    /// Separate restricted sources from public shared storage. Access is checked
-    /// before returning a namespace, even when an extracted tree already exists.
-    fn source_cache_namespace(
-        &self,
-        _module: &ModuleSource,
-    ) -> anyhow::Result<Option<std::path::PathBuf>> {
-        Ok(None)
-    }
-
     /// Materialize verified published source without executing package hooks.
     fn materialize_source_to(
         &self,

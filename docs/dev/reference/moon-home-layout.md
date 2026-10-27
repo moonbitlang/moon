@@ -26,9 +26,6 @@ $MOON_HOME/
       v1/sources/<username>/<encoded-module>/<version>/
         .moon-source-archive-checksum
         ...
-      private/<api-hash>/v1/sources/<username>/<encoded-module>/<version>/
-        .moon-source-archive-checksum
-        ...
     registry/metadata/
       .moon-cache
       v1/<api-hash>/<module-hash>/
@@ -47,8 +44,6 @@ $MOON_HOME/
     cache/
       <username>/<module>/<version>.zip
       <username>/<module>/<version>.zip.lock
-      private/<api-hash>/<module-hash>/<version-hash>.zip
-      private/<api-hash>/<module-hash>/<version-hash>.zip.lock
       assets/<username>/<module>/<version>/<package...>/
         .moon-lock
         <artifact>
@@ -163,10 +158,11 @@ $MOON_HOME/
 - Private archive misses delegate one download to the external `mooncake`
   executable. The request carries the exact version, checksum, staging path and
   captured login through stdin. Moon verifies the resulting archive before
-  publishing it to the cache. Warm cache reads start no child process. Private
-  archives and shared source trees use a separate namespace keyed by normalized
-  API URL; token rotation does not change their paths. Prebuilt private Wasm
-  artifacts are not supported.
+  publishing it to the cache. Warm cache reads start no child process. Public
+  and private modules share the existing archive and source-tree cache layouts;
+  visibility and credentials do not change their paths. Reuse requires the
+  checksum selected by metadata, with private access checked before reuse.
+  Prebuilt private Wasm artifacts are not supported.
 
 The layout deliberately records current behavior rather than claiming every
 choice is ideal. In particular, it makes three asymmetries visible for future
