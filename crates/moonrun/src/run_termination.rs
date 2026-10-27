@@ -63,13 +63,15 @@ impl RunTerminator {
     /// This provides no grace period and cannot forcibly unwind a synchronous
     /// host operation. Such an operation must return before the Run can finish.
     pub fn terminate(&self, outcome: RunTermination) -> bool {
-        // TODO: wake registered host waits before promising bounded-time Run
-        // shutdown; interrupting V8 alone cannot release a blocked Rust call.
         let mut state = self.request.0.lock().unwrap();
         if !state.connected || state.outcome.is_some() {
             return false;
         }
         state.outcome = Some(outcome);
+        // Host waits must return even while their callback defers V8 interruption.
+        if let Some(wake) = &state.host_wake {
+            wake();
+        }
         if state.suspended == 0
             && let Some(interrupt) = &state.interrupt
         {
@@ -84,6 +86,7 @@ impl RunTerminationReceiver {
         let mut state = self.request.0.lock().unwrap();
         state.connected = false;
         state.interrupt = None;
+        state.host_wake = None;
         state.outcome
     }
 }
@@ -105,6 +108,7 @@ struct State {
     outcome: Option<RunTermination>,
     connected: bool,
     interrupt: Option<Box<dyn Fn() + Send + Sync>>,
+    host_wake: Option<Box<dyn Fn() + Send + Sync>>,
     suspended: usize,
 }
 
@@ -119,6 +123,7 @@ impl Default for TerminationRequest {
             outcome: None,
             connected: false,
             interrupt: None,
+            host_wake: None,
             suspended: 0,
         })))
     }
@@ -142,6 +147,29 @@ impl TerminationRequest {
     #[cfg(feature = "v8")]
     pub(crate) fn is_connected(&self) -> bool {
         self.0.lock().unwrap().connected
+    }
+
+    /// Register one synchronous host wait. Without an external receiver, skip
+    /// creation entirely. Creation and binding share the termination lock so an
+    /// early request cannot be missed; neither callback may re-enter this state.
+    /// Wakeups must be nonblocking and remain pending until observed.
+    pub(crate) fn bind_host_wake<W, E>(
+        &self,
+        create_wake: impl FnOnce() -> Result<W, E>,
+    ) -> Result<Option<HostWaitGuard>, E>
+    where
+        W: Fn() + Send + Sync + 'static,
+    {
+        let mut state = self.0.lock().unwrap();
+        if !state.connected {
+            return Ok(None);
+        }
+        assert!(state.host_wake.is_none());
+        state.host_wake = Some(Box::new(create_wake()?));
+        if state.outcome.is_some() {
+            state.host_wake.as_ref().unwrap()();
+        }
+        Ok(Some(HostWaitGuard(self.clone())))
     }
 
     /// Bind only while engine interruption is safe. The callback must not
@@ -171,6 +199,14 @@ impl TerminationRequest {
         state.suspended += 1;
         clear();
         InterruptSuspension(self.clone())
+    }
+}
+
+pub(crate) struct HostWaitGuard(TerminationRequest);
+
+impl Drop for HostWaitGuard {
+    fn drop(&mut self) {
+        self.0.0.lock().unwrap().host_wake = None;
     }
 }
 
@@ -268,13 +304,85 @@ mod tests {
         });
         let outer = receiver.request.suspend_interrupt(|| {});
         let inner = receiver.request.suspend_interrupt(|| {});
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&wakes);
+        let wait = receiver
+            .request
+            .bind_host_wake(|| {
+                Ok::<_, ()>(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                })
+            })
+            .unwrap();
         let sender = std::thread::spawn(move || terminator.terminate(RunTermination::Exit(7)));
         assert!(sender.join().unwrap());
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+        drop(wait);
         drop(inner);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         drop(outer);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn host_waits_retain_early_requests_and_retire_old_targets() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let (terminator, receiver) = termination_channel();
+        let old = receiver
+            .request
+            .bind_host_wake(|| Ok::<_, ()>(|| panic!("retired wait woke")))
+            .unwrap();
+        drop(old);
+        assert!(terminator.terminate(RunTermination::Exit(7)));
+
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&wakes);
+        let wait = receiver
+            .request
+            .bind_host_wake(|| {
+                Ok::<_, ()>(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                })
+            })
+            .unwrap();
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        drop(wait);
+        receiver.close();
+        assert!(
+            receiver
+                .request
+                .bind_host_wake::<fn(), ()>(|| panic!("closed Run created a wake source"))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn host_wakeup_stays_pending_until_poll_wait() {
+        use crate::async_sys::internal::event_loop::poll;
+
+        for terminate_before_binding in [true, false] {
+            let (terminator, receiver) = termination_channel();
+            let mut poll = poll::poll_create().unwrap();
+            if terminate_before_binding {
+                assert!(terminator.terminate(RunTermination::Exit(7)));
+            }
+            let _wait = receiver
+                .request
+                .bind_host_wake(|| {
+                    let waker = poll::PollWaker::new(&poll)?;
+                    Ok::<_, crate::async_host::AsyncHostError>(move || waker.wake().unwrap())
+                })
+                .unwrap();
+            if !terminate_before_binding {
+                assert!(terminator.terminate(RunTermination::Exit(7)));
+            }
+            // A zero timeout proves readiness was retained before the syscall,
+            // including a request that arrived before registration itself.
+            assert_eq!(poll::poll_wait(&mut poll, 0), Ok(1));
+        }
     }
 
     #[test]

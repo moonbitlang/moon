@@ -59,6 +59,7 @@ use crate::network::HostNetwork;
 use crate::process::HostProcess;
 use crate::resource::{Resource, ResourceClass, ResourcePublication, ResourceRef};
 use crate::run_signal::SignalReceiver;
+use crate::run_termination::TerminationRequest;
 pub(crate) use crate::runtime::HostKey as HandleKey;
 use crate::runtime::{
     Env, Handles, HostKeys, HostResourceKind as HandleKind, Stdio, StdioStream, null_handle,
@@ -619,6 +620,7 @@ impl OverlappedAddr {
 #[derive(Debug)]
 struct HostPoll {
     instance: PollInstance,
+    termination_waker: Option<Arc<poll::PollWaker>>,
     #[cfg(unix)]
     registered_fds: HashSet<RawFd>,
 }
@@ -1382,6 +1384,7 @@ impl AsyncHost {
         let instance = poll::poll_create()?;
         let key = self.polls.borrow_mut().polls.insert(HostPoll {
             instance,
+            termination_waker: None,
             #[cfg(unix)]
             registered_fds: HashSet::new(),
         });
@@ -1493,12 +1496,36 @@ impl AsyncHost {
         })
     }
 
-    pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
+    pub(crate) fn poll_wait(
+        &self,
+        poll_handle: u64,
+        timeout_ms: i32,
+        termination: &TerminationRequest,
+    ) -> AsyncHostResult<i32> {
         let poll_key = key_from_handle(poll_handle);
         let mut polls = self.polls.borrow_mut();
         let result = {
             let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
-            poll::poll_wait(&mut poll.instance, timeout_ms)?
+            let wait = termination.bind_host_wake(|| {
+                if poll.termination_waker.is_none() {
+                    poll.termination_waker = Some(Arc::new(poll::PollWaker::new(&poll.instance)?));
+                }
+                let waker = Arc::clone(poll.termination_waker.as_ref().unwrap());
+                Ok::<_, AsyncHostError>(move || {
+                    if let Err(error) = waker.wake() {
+                        tracing::error!(?error, "failed to wake a terminating Run's poll");
+                    }
+                })
+            })?;
+            let result = poll::poll_wait(&mut poll.instance, timeout_ms);
+            drop(wait);
+            // The shared import adapter turns the latched outcome into Run
+            // termination. Never publish the host-only wake event to the guest.
+            if termination.is_requested() {
+                polls.current_event_poll = None;
+                return Ok(0);
+            }
+            result?
         };
         polls.current_event_poll = Some(poll_key);
         drop(polls);
@@ -4282,6 +4309,85 @@ mod tests {
         test_host(Policy::allow_all(), Env::ambient())
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn poll_wait_without_external_termination_needs_no_spare_fds() {
+        // Descriptor limits are process-global; isolate this test from other tests.
+        const CHILD: &str = "MOONRUN_TEST_POLL_FD_LIMIT_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "async_host::tests::poll_wait_without_external_termination_needs_no_spare_fds",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        let termination = TerminationRequest::default();
+        let (_, receiver) = crate::termination_channel();
+        let mut original = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut original) },
+            0
+        );
+        // Existing descriptors remain valid, but no new pipe can be created.
+        let limited = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: original.rlim_max,
+        };
+        assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limited) }, 0);
+        let ordinary_wait = host.poll_wait(poll, 0, &termination);
+        let interruptible_wait = host.poll_wait(poll, 0, &receiver.request);
+        assert_eq!(
+            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &original) },
+            0
+        );
+
+        assert_eq!(ordinary_wait, Ok(0));
+        assert_eq!(
+            interruptible_wait,
+            Err(AsyncHostError::Native(libc::EMFILE))
+        );
+        // A failed wake-source allocation must leave binding retryable.
+        assert_eq!(host.poll_wait(poll, 0, &receiver.request), Ok(0));
+    }
+
+    #[test]
+    fn terminated_poll_does_not_publish_internal_wakeup() {
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        let (terminator, receiver) = crate::termination_channel();
+        assert_eq!(host.poll_wait(poll, 0, &receiver.request), Ok(0));
+        assert!(terminator.terminate(crate::RunTermination::Exit(7)));
+        assert_eq!(host.poll_wait(poll, 0, &receiver.request), Ok(0));
+        assert_eq!(host.poll_get_event(poll, 0), Err(AsyncHostError::Badf));
+        host.poll_destroy(poll).unwrap();
+    }
+
+    #[test]
+    fn finished_poll_wait_does_not_receive_later_termination() {
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        let (terminator, receiver) = crate::termination_channel();
+        assert_eq!(host.poll_wait(poll, 0, &receiver.request), Ok(0));
+        assert!(terminator.terminate(crate::RunTermination::Exit(7)));
+        // Inspect the raw poll without binding another wait. No stale sender
+        // may enqueue an event after the previous wait has detached.
+        let mut polls = host.polls.borrow_mut();
+        let poll = polls.polls.get_mut(key_from_handle(poll)).unwrap();
+        assert_eq!(poll::poll_wait(&mut poll.instance, 0), Ok(0));
+    }
+
     #[test]
     fn async_resource_wait_requires_reserved_absence_sentinel() {
         let host = default_host();
@@ -5165,7 +5271,7 @@ mod tests {
             assert_eq!(sender.send(signal), Ok(true));
         }
         let mut memory = [0; 4];
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         assert_eq!(
             host.poll_event_fd(host.poll_get_event(poll, 0).unwrap())
                 .unwrap(),
@@ -5177,7 +5283,7 @@ mod tests {
             0
         );
         for signal in signals {
-            assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+            assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 1);
             assert_eq!(
                 host.fetch_completion(memory.as_mut_slice(), source, 0, 1)
                     .unwrap(),
@@ -5185,11 +5291,11 @@ mod tests {
             );
             assert_eq!(i32::from_ne_bytes(memory), signal | i32::MIN);
         }
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 0);
 
         assert_eq!(sender.send(libc::SIGTERM), Ok(true));
         host.terminate_signal_handler();
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 0);
         assert_eq!(sender.send(libc::SIGTERM), Ok(false));
         host.set_cancellation_signals(&signals, &signals).unwrap();
         host.start_signal_handler().unwrap();
@@ -5199,7 +5305,7 @@ mod tests {
             0
         );
         assert_eq!(sender.send(libc::SIGINT), Ok(true));
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
     }
 
     #[cfg(unix)]
@@ -5263,7 +5369,7 @@ mod tests {
         let owner = host.poll_create().unwrap();
         let unrelated = host.poll_create().unwrap();
         host.init_thread_pool(owner).unwrap();
-        assert_eq!(host.poll_wait(owner, 0), Ok(0));
+        assert_eq!(host.poll_wait(owner, 0, &Default::default()), Ok(0));
 
         for handle in [owner, unrelated] {
             assert_eq!(
@@ -5286,16 +5392,19 @@ mod tests {
         assert_ne!(old, replacement);
         let buffer = host.insert_c_buffer(b"retained".to_vec().into_boxed_slice());
         host.init_thread_pool(replacement).unwrap();
-        assert_eq!(host.poll_wait(replacement, 0), Ok(0));
+        assert_eq!(host.poll_wait(replacement, 0, &Default::default()), Ok(0));
 
         // Polls require a live Handle, including for destruction.
         for handle in [0, null_handle(), host.invalid_fd(), buffer, old] {
             assert_eq!(host.poll_destroy(handle), Err(AsyncHostError::Badf));
-            assert_eq!(host.poll_wait(handle, 0), Err(AsyncHostError::Badf));
+            assert_eq!(
+                host.poll_wait(handle, 0, &Default::default()),
+                Err(AsyncHostError::Badf)
+            );
             assert_eq!(host.poll_get_event(handle, 0), Err(AsyncHostError::Badf));
             assert_eq!(host.init_thread_pool(handle), Err(AsyncHostError::Badf));
         }
-        assert_eq!(host.poll_wait(replacement, 0), Ok(0));
+        assert_eq!(host.poll_wait(replacement, 0, &Default::default()), Ok(0));
         assert_eq!(
             host.init_thread_pool(replacement),
             Err(AsyncHostError::Inval)
@@ -5324,7 +5433,7 @@ mod tests {
         #[cfg(windows)]
         poll::post_thread_pool_completion(&host.thread_pool_completion_target().unwrap(), 17)
             .unwrap();
-        assert_eq!(host.poll_wait(owner, 1000), Ok(1));
+        assert_eq!(host.poll_wait(owner, 1000, &Default::default()), Ok(1));
         let event = host.poll_get_event(owner, 0).unwrap();
         host.poll_destroy(unrelated).unwrap();
         assert_eq!(host.poll_get_event(owner, 0), Ok(event));
@@ -5354,7 +5463,7 @@ mod tests {
 
         host.poll_destroy(owner).unwrap();
         notifier.notify(17).unwrap();
-        assert_eq!(host.poll_wait(observer, 0), Ok(0));
+        assert_eq!(host.poll_wait(observer, 0, &Default::default()), Ok(0));
         assert!(matches!(
             host.acquire_resource(source),
             Err(AsyncHostError::Badf)
@@ -5381,7 +5490,7 @@ mod tests {
         }
 
         host.thread_pool_notifier().unwrap().notify(17).unwrap();
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
         assert_eq!(host.poll_event_fd(event).unwrap(), completion_source);
 
@@ -5719,26 +5828,26 @@ mod tests {
         }
 
         let mut memory = vec![0; 8];
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 1);
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 0)
             .unwrap();
         assert_eq!(bytes, 0);
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 1);
 
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 1)
             .unwrap();
         assert_eq!(bytes, 4);
         assert_eq!(i32::from_le_bytes(memory[0..4].try_into().unwrap()), 41);
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 1);
 
         let bytes = host
             .fetch_completion(memory.as_mut_slice(), completion_notifier, 4, 1)
             .unwrap();
         assert_eq!(bytes, 4);
         assert_eq!(i32::from_le_bytes(memory[4..8].try_into().unwrap()), 42);
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 0);
     }
 
     #[test]
@@ -5926,7 +6035,7 @@ mod tests {
             .unwrap();
         let worker = host.spawn_worker(42, job).unwrap();
 
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         #[cfg(unix)]
         {
             let mut memory = [0; 4];
@@ -6578,7 +6687,7 @@ mod tests {
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         host.spawn_worker(42, job).unwrap();
 
-        host.poll_wait(poll, 1000).unwrap();
+        host.poll_wait(poll, 1000, &Default::default()).unwrap();
         #[cfg(unix)]
         {
             let mut memory = [0; 4];
@@ -6673,7 +6782,7 @@ mod tests {
         assert_eq!(legacy_status, Ok(0));
         assert_eq!(host.with_job(job, |job| job.err()), Ok(libc::EINTR));
         assert_eq!(host.cancel_worker(worker), Ok(1));
-        assert_eq!(host.poll_wait(poll, 0), Ok(0));
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()), Ok(0));
 
         host.free_worker(worker).unwrap();
         host.free_job(job).unwrap();
@@ -6759,7 +6868,7 @@ mod tests {
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let worker = host.spawn_worker(42, job).unwrap();
 
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         assert_eq!(host.cancel_worker_with_retry(worker), Ok(2));
         assert_eq!(host.cancel_worker(worker), Ok(1));
         assert_eq!(host.with_job(job, |job| job.ret()).unwrap(), 0);
@@ -6795,7 +6904,7 @@ mod tests {
             let source = host.init_thread_pool(poll).unwrap();
             let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
             let worker = host.spawn_worker(42, job).unwrap();
-            assert_eq!(host.poll_wait(poll, 1000), Ok(1));
+            assert_eq!(host.poll_wait(poll, 1000, &Default::default()), Ok(1));
 
             if destroy_poll {
                 host.poll_destroy(poll).unwrap();
@@ -6823,7 +6932,7 @@ mod tests {
 
             let next_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
             let next_worker = host.spawn_worker(43, next_job).unwrap();
-            assert_eq!(host.poll_wait(poll, 1000), Ok(1));
+            assert_eq!(host.poll_wait(poll, 1000, &Default::default()), Ok(1));
             assert_eq!(host.cancel_worker_with_retry(next_worker), Ok(2));
             host.free_worker(worker).unwrap();
             host.free_worker(next_worker).unwrap();
@@ -7106,7 +7215,7 @@ mod tests {
             .insert_job(FilesystemJob::read(Arc::new(Resource::invalid()), 1, -1))
             .unwrap();
         let old_worker = host.spawn_worker(42, first_job).unwrap();
-        host.poll_wait(poll, 1000).unwrap();
+        host.poll_wait(poll, 1000, &Default::default()).unwrap();
         #[cfg(unix)]
         {
             let mut memory = [0; 4];
@@ -7151,7 +7260,7 @@ mod tests {
 
         poll::post_thread_pool_completion(&completion, 42).unwrap();
 
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
         assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
         assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
@@ -7187,7 +7296,7 @@ mod tests {
             .insert_job(FilesystemJob::read(Arc::new(Resource::invalid()), 1, -1))
             .unwrap();
         let worker = host.spawn_worker(42, job).unwrap();
-        host.poll_wait(poll, 1000).unwrap();
+        host.poll_wait(poll, 1000, &Default::default()).unwrap();
         #[cfg(unix)]
         {
             let mut memory = [0; 4];
@@ -7257,7 +7366,7 @@ mod tests {
         let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
         assert_eq!(ret, 1);
 
-        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 0);
 
         host.free_job(job).unwrap();
         host.close_fd(write).unwrap();
@@ -7714,7 +7823,7 @@ mod tests {
             unsafe { PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, overlapped) };
         assert_ne!(posted, 0);
 
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
         assert_eq!(host.poll_event_io_result(event).unwrap(), result);
@@ -7750,7 +7859,7 @@ mod tests {
         };
         assert_ne!(posted, 0);
 
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
         assert_eq!(host.poll_event_fd(event).unwrap(), completion_key as u64);
@@ -7772,7 +7881,7 @@ mod tests {
             unsafe { PostQueuedCompletionStatus(completion_port, 0, 0, std::ptr::null_mut()) };
         assert_ne!(posted, 0);
 
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
         assert_eq!(host.poll_event_fd(event).unwrap(), 0);
@@ -7801,7 +7910,7 @@ mod tests {
             )
         };
         assert_ne!(posted, 0);
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
         host.close_fd(read).unwrap();
@@ -7814,32 +7923,47 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn poll_reports_registered_pipe_readiness_as_guest_fd() {
-        let host = default_host();
-        let poll = host.poll_create().unwrap();
-        let [read, write] = host.pipe(true, true).unwrap();
-        host.poll_register(poll, read, true).unwrap();
+        let (_, receiver) = crate::termination_channel();
+        for termination in [TerminationRequest::default(), receiver.request.clone()] {
+            let host = default_host();
+            let poll = host.poll_create().unwrap();
+            let [read, write] = host.pipe(true, true).unwrap();
+            host.poll_register(poll, read, true).unwrap();
 
-        let fd = host
-            .acquire_resource(write)
-            .unwrap()
-            .as_fd()
-            .unwrap()
-            .as_raw_fd();
-        let byte = b"x";
-        let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
-        assert_eq!(ret, 1);
+            let fd = host
+                .acquire_resource(write)
+                .unwrap()
+                .as_fd()
+                .unwrap()
+                .as_raw_fd();
+            // The same byte as the private wake source remains ordinary guest data.
+            let byte = b"x";
+            let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
+            assert_eq!(ret, 1);
 
-        assert_eq!(host.poll_wait(poll, 100).unwrap(), 1);
-        let event = host.poll_get_event(poll, 0).unwrap();
-        assert_eq!(event, 0);
-        assert_eq!(host.poll_get_event(poll, 0).unwrap(), event);
-        assert_eq!(host.poll_event_fd(event).unwrap(), read);
-        assert_eq!(
-            host.poll_event_events(event).unwrap() & poll::READ_EVENT,
-            poll::READ_EVENT
-        );
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
+            assert_eq!(host.poll_wait(poll, 100, &termination).unwrap(), 1);
+            let event = host.poll_get_event(poll, 0).unwrap();
+            assert_eq!(event, 0);
+            assert_eq!(host.poll_get_event(poll, 0).unwrap(), event);
+            assert_eq!(host.poll_event_fd(event).unwrap(), read);
+            assert_eq!(
+                host.poll_event_events(event).unwrap() & poll::READ_EVENT,
+                poll::READ_EVENT
+            );
+            let fd = host
+                .acquire_resource(read)
+                .unwrap()
+                .as_fd()
+                .unwrap()
+                .as_raw_fd();
+            let mut data = [0; 1];
+            assert_eq!(unsafe { libc::read(fd, data.as_mut_ptr().cast(), 1) }, 1);
+            assert_eq!(&data, byte);
+            assert_eq!(host.poll_wait(poll, 0, &termination).unwrap(), 0);
+
+            host.close_fd(read).unwrap();
+            host.close_fd(write).unwrap();
+        }
     }
 
     #[cfg(unix)]
@@ -7859,7 +7983,7 @@ mod tests {
         let byte = b"x";
         let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
         assert_eq!(ret, 1);
-        assert_eq!(host.poll_wait(poll, 100).unwrap(), 1);
+        assert_eq!(host.poll_wait(poll, 100, &Default::default()).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
         host.close_fd(read).unwrap();

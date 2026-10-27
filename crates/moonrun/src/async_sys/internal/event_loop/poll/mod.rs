@@ -35,6 +35,9 @@ mod epoll;
 mod iocp;
 #[cfg(target_os = "macos")]
 mod kqueue;
+mod wake;
+
+pub(crate) use wake::PollWaker;
 
 #[cfg(target_os = "linux")]
 pub(crate) use epoll::*;

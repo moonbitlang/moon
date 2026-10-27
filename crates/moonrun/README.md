@@ -229,8 +229,9 @@ signal behavior.
 For external V8 termination, pass a `termination_channel` receiver through
 `RunOptions::with_termination_receiver`. Its `RunTerminator` can request an exit
 code or signal outcome from another thread; the first request wins. Acceptance
-does not mean completion: wait for `Engine::run` to return. Grace periods belong
-to the caller, and synchronous host I/O must still return before termination
+does not mean completion: wait for `Engine::run` to return. Termination wakes
+async event-loop waits without guest signal registration. Grace periods belong
+to the caller; other synchronous host I/O must still return before termination
 can finish. Wasmtime and wee8 currently reject this option.
 
 A Run can make its working-directory selection explicit with

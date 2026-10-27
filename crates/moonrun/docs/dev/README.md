@@ -167,7 +167,9 @@ Guest exits and external requests share one latched outcome. Requests,
 interrupt binding, and finalization use the same lock; accepted termination wins
 until finalization closes the channel after teardown. V8 enables interruption
 only during guest execution and defers it across host conversions and Guest
-Memory borrows. See `run_termination.rs` for the control contract and
+Memory borrows. A host-only poll wakeup remains pending across wait entry and
+is detached before the wait returns; it is never delivered as a guest signal.
+See `run_termination.rs` for the control contract and
 `tests/run_termination.rs` for timeout-bounded lifecycle tests.
 
 ## Worker cancellation

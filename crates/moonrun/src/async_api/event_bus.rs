@@ -183,7 +183,10 @@ pub(super) fn register_pid(context: &mut ImportContext<'_>, bus: u64, pid: i32) 
 }
 
 pub(super) fn wait(context: &mut ImportContext<'_>, bus: u64, timeout_ms: i32) -> i32 {
-    match context.host.poll_wait(bus, timeout_ms) {
+    match context
+        .host
+        .poll_wait(bus, timeout_ms, context.termination_request)
+    {
         Ok(n) => n,
         Err(error) => {
             context.host.record_error(error);

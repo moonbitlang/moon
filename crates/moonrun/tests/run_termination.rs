@@ -159,7 +159,19 @@ mod v8 {
         let Ok(case) = std::env::var("MOONRUN_TERMINATION_CASE") else {
             // A broken engine interrupt must fail with a timeout, never leave
             // an infinite guest loop in the test runner or the test process.
-            for case in ["loop", "start", "catch", "imports", "workers"] {
+            for case in [
+                "loop",
+                "start",
+                "catch",
+                "imports",
+                "workers",
+                "poll",
+                "poll_timeout",
+                "poll_start",
+                "poll_recreate",
+                "poll_other",
+                "poll_workers",
+            ] {
                 snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                     .args(["--exact", "v8::external_termination", "--nocapture"])
                     .env("MOONRUN_TERMINATION_CASE", case)
@@ -185,29 +197,59 @@ mod v8 {
                 "",
                 "(loop call $builder local.tee $value i32.const 65 call $append local.get $value call $finish drop br 0)",
             ),
-            "workers" => (
+            "workers" | "poll_workers" => (
                 r#"(import "moonbitlang/async" "event_bus/create" (func $poll (result i64)))
                     (import "moonbitlang/async" "thread_pool/init_thread_pool" (func $init (param i64) (result i64)))
                     (import "moonbitlang/async" "fd_util/pipe" (func $pipe (param i32 i32 i32 i32) (result i32)))
                     (import "moonbitlang/async" "thread_pool/make_read_job" (func $read (param i64 i32 i64) (result i64)))
-                    (import "moonbitlang/async" "thread_pool/spawn_worker" (func $spawn (param i32 i64) (result i64)))"#,
+                    (import "moonbitlang/async" "thread_pool/spawn_worker" (func $spawn (param i32 i64) (result i64)))
+                    (import "moonbitlang/async" "event_bus/wait" (func $wait (param i64 i32) (result i32)))"#,
                 // Keep the writer open so teardown must cancel the blocking read.
                 // The test-only sleep Job uses uncancellable Sleep on Windows.
-                r#"call $poll call $init drop
+                r#"call $poll local.tee $bus call $init drop
                     (if (call $pipe (i32.const 0) (i32.const 2)
                         (i32.const 0) (i32.const 0)) (then unreachable))
                     (drop (call $spawn (i32.const 1)
                         (call $read (i64.load (i32.const 0)) (i32.const 1) (i64.const -1))))"#,
-                "(loop br 0)",
+                if case == "workers" {
+                    "(loop br 0)"
+                } else {
+                    "local.get $bus i32.const -1 call $wait drop i32.const 88 call $ready"
+                },
+            ),
+            "poll" | "poll_start" | "poll_timeout" => (
+                r#"(import "moonbitlang/async" "event_bus/create" (func $poll (result i64)))
+                    (import "moonbitlang/async" "event_bus/wait" (func $wait (param i64 i32) (result i32)))"#,
+                "call $poll local.set $bus",
+                // Async timers pass their remaining duration to event_bus/wait.
+                if case == "poll_timeout" {
+                    "local.get $bus i32.const 60000 call $wait drop i32.const 88 call $ready"
+                } else {
+                    "local.get $bus i32.const -1 call $wait drop i32.const 88 call $ready"
+                },
+            ),
+            "poll_recreate" => (
+                r#"(import "moonbitlang/async" "event_bus/create" (func $poll (result i64)))
+                    (import "moonbitlang/async" "event_bus/destroy" (func $destroy (param i64)))
+                    (import "moonbitlang/async" "event_bus/wait" (func $wait (param i64 i32) (result i32)))"#,
+                "call $poll local.tee $bus i32.const 0 call $wait drop local.get $bus call $destroy call $poll local.set $bus",
+                "local.get $bus i32.const -1 call $wait drop i32.const 88 call $ready",
+            ),
+            "poll_other" => (
+                r#"(import "moonbitlang/async" "event_bus/create" (func $poll (result i64)))
+                    (import "moonbitlang/async" "thread_pool/init_thread_pool" (func $init (param i64) (result i64)))
+                    (import "moonbitlang/async" "event_bus/wait" (func $wait (param i64 i32) (result i32)))"#,
+                "call $poll call $init drop call $poll local.set $bus",
+                "local.get $bus i32.const -1 call $wait drop i32.const 88 call $ready",
             ),
             _ => panic!("unknown case: {case}"),
         };
-        let entry = if case == "start" {
+        let entry = if matches!(case.as_str(), "start" | "poll_start") {
             ""
         } else {
             "(export \"_start\")"
         };
-        let start = if case == "start" {
+        let start = if matches!(case.as_str(), "start" | "poll_start") {
             "(start $entry)"
         } else {
             ""
@@ -221,7 +263,7 @@ mod v8 {
             (import "spectest" "print_char" (func $ready (param i32)))
             {imports}
             (memory (export "memory") 1)
-            (func $entry {entry} (local $value externref)
+            (func $entry {entry} (local $value externref) (local $bus i64)
                 {setup} i32.const 82 call $ready {body})
             {start})"#
                 ))

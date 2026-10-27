@@ -2228,6 +2228,7 @@ dependencies = [
  "thiserror 1.0.63",
  "tokio",
  "toml",
+ "tracing",
  "v8",
  "vergen",
  "wasmparser 0.258.0",
