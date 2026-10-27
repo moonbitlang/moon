@@ -39,7 +39,7 @@ pub(crate) struct FetchSubcommand {
     #[clap(value_name = "MODULE[@VERSION]")]
     pub package_path: String,
 
-    /// Do not update the registry index before fetching
+    /// Do not refresh registry metadata before fetching
     #[clap(long)]
     pub no_update: bool,
 }

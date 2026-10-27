@@ -35,6 +35,9 @@ $MOON_HOME/
       ...
     symbols/
       ...
+    metadata/v1/<api-hash>/<module-hash>/
+      releases/<version-hash>.json
+      latest.json
     cache/
       <username>/<module>/<version>.zip
       <username>/<module>/<version>.zip.lock
@@ -65,6 +68,35 @@ $MOON_HOME/
   `registry/index/user/<username>/<module>.index`. Each JSONL release record
   requires a version and checksum. An omitted `deps` field means an empty
   dependency map; a present `deps` field must be an object.
+- `MOON_REGISTRY_API=1` opts all resolver metadata queries into the configured
+  HTTP API, even when a local Git entry exists. Otherwise the Git index remains
+  authoritative. This initial adapter reads public metadata anonymously; it
+  requires a server supporting public resolver metadata. Existing API commands
+  such as search retain their separate optional authentication.
+- On a cache miss, API resolution requests
+  `GET /api/v0/registry/modules/<owner>/<module>?version=<exact>` for the declared
+  version. Unversioned commands may omit the query to ask for
+  latest. Neither operation lists version history or performs a range lookup.
+  Exact version identity, dependencies and SHA-256 are validated before caching.
+  A response for an already cached release must preserve its dependencies and
+  checksum. Conflicting responses fail without replacing the cache; only
+  deprecation status may change.
+- API release records are keyed by normalized API URL, module and exact version
+  beneath `registry/metadata/v1`. The optional `latest.json` contains only a version
+  pointer. Exact requests share release records directly; no generation or
+  range-selection cache is needed. Every current latest query contacts the server,
+  including repeated queries on the same client. Reading a persisted latest
+  pointer cannot suppress a current query.
+  Locally-known-latest executable selectors deliberately prefer a cached pointer.
+- In API mode, `moon update` reports that registry metadata refresh is not yet
+  implemented. Exact release records remain usable. Frozen module
+  synchronization reads only cached metadata and verified sources; a missing
+  exact release or source fails without HTTP or guessing another version.
+- Metadata is atomically written through owner-only temporary files; Unix
+  directories are owner-only. Each release's adjacent `.json.lock` serializes
+  comparison and publication, so concurrent responses cannot overwrite conflicting
+  immutable content. Cached deprecation state is advisory and can be
+  stale: refreshing latest does not invalidate immutable release records.
 - `registry/symbols` is the symbols archive materialized by registry sync.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
@@ -126,8 +158,15 @@ including registry entries, archives, executable artifacts, and update state.
 versioned contents below the selected cache root. Behavioral owners remain
 separate:
 
-- `RegistryClient` owns registry synchronization, validation, downloads, and
-  cache publication.
+- `RegistryClient` selects a metadata backend once and owns authenticated API
+  commands and verified downloads. `Registry` exposes exact-version and latest
+  queries without requiring a complete version history. `registry::git::GitIndex`
+  owns Git synchronization, JSONL compatibility, and the parsed index cache;
+  `registry::http::HttpMetadata` owns HTTP queries and response validation. Its
+  internal `MetadataCache` owns disk layout, memory reuse, atomic writes and
+  immutable-content checks. Cached latest reads and current latest queries are
+  separate operations; there is no latest query deduplication or TTL. Only the
+  Git backend enumerates all versions.
 - `moonutil::registry::RegistryCredentials` owns saved credential loading and
   persistence, legacy compatibility, and API destination matching. Login and
   API consumers share these operations; HTTP headers and redirect policy stay

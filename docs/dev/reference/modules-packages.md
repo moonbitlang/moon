@@ -257,8 +257,9 @@ module/version, including transitive dependencies. A warning includes the
 registry's reason when present and one shortest dependency path for transitive
 dependencies. Local and workspace modules are not checked against registry
 deprecation. Versions and dependencies visited but discarded by MVS do not
-produce warnings. The check assumes the local registry index is up to date and
-reuses it without refreshing the index or making additional network requests.
+produce warnings. The check reuses the metadata already read during resolution;
+it does not refresh advisory status or make additional network requests. Cached
+deprecation status may therefore be stale for either registry backend.
 These warnings are User Logs, so `--quiet` suppresses them and
 structured commands capture them with their other logs.
 

@@ -385,12 +385,13 @@ executable assets need to publish them before consumers can migrate. The
 
 There are two kinds of sources that dependencies come from:
 
-- A **registry dependency** is resolved from the local registry index under
-  `$MOON_HOME/registry/index`, which is typically populated from
-  `mooncakes.io` by `moon update`. See the
+- A **registry dependency** is resolved from registry metadata. By default this
+  is the local index under `$MOON_HOME/registry/index`, typically populated from
+  `mooncakes.io` by `moon update`; an opt-in HTTP backend fetches exact release
+  metadata on demand. See the
   [Moon home layout](./moon-home-layout.md) for its physical structure.
   It is declared with a concrete version whose dependency metadata must exist
-  in the index. MVS may later raise the selected version to satisfy another
+  in the registry. MVS may later raise the selected version to satisfy another
   dependency's requirement.
 - A **local dependency** is fetched from a local path.
   It is declared with a relative path from the module's root directory.
@@ -408,9 +409,10 @@ See details in [Modules and packages][mod-pkg].
 
 Current registry configuration behavior today is:
 
-- `RegistryClient` owns the physical registry lifecycle: searching the remote
-  service, synchronizing the Git index and HTTP symbols archive, reading the
-  local index, and downloading and verifying HTTP package archives and
+- `RegistryClient` selects either `GitIndex` or `HttpMetadata` for metadata
+  queries. HTTP storage is encapsulated by its internal `MetadataCache`, while
+  Git keeps its parsed index cache. The client also
+  searches the remote service and downloads and verifies package archives and
   prebuilt wasm assets. Resolver code sees only the narrower `Registry`
   capability.
 - The public `Registry` trait exposes exact-version metadata and two distinct
@@ -437,10 +439,15 @@ Current registry configuration behavior today is:
   the CLI, while the registry query itself remains strict. For Git, refresh
   failures include local synchronization errors; errors reading or validating
   module metadata records still propagate.
-  `add/fetch --no-update` disables remote metadata queries and uses cached latest
-  for unversioned requests. Pinned add/fetch/install retain their Git
-  synchronization for source/dependency acquisition but do not query latest.
-  `--no-update` does not prohibit source downloads; it is not an offline mode.
+  Pinned add/fetch/install refresh the specified version through
+  `RegistryClient::refresh_version_info`: Git synchronizes the index, while HTTP
+  fetches that exact release and updates only advisory status if already cached.
+  On an unavailable registry, the CLI warns and uses `cached_version_info` only
+  if that exact release exists locally. Other errors propagate.
+  `add/fetch --no-update` skips explicit metadata refresh and uses cached latest
+  for unversioned requests. Exact records missing during resolution can still be
+  fetched, as can missing sources; this flag is not an offline mode. Frozen
+  dependency resolution permits neither metadata nor source cache misses.
 - `moon add --upgrade` permits changing an existing dependency's version; a new
   dependency can be added with or without the flag. It does not control metadata
   queries or dependency installation. Both additions and version changes resolve
@@ -462,8 +469,14 @@ Current registry configuration behavior today is:
 - Existing `registry`-format configurations and `MOONCAKES_REGISTRY` retain
   their former combined endpoint layout while users migrate to the split
   configuration.
-- MVS itself resolves against the local on-disk index and does not consume
-  `RegistryConfig` directly.
+- MVS requests every declared dependency's exact version through
+  `Registry::version_info`, without constructing transport URLs or enumerating
+  version histories. The default adapter still reads the local Git index.
+  `MOON_REGISTRY_API=1` enables the experimental HTTP metadata adapter globally,
+  including modules already present in that index. The initial HTTP adapter
+  accepts public metadata only and sends no login credentials for resolver
+  requests. The configured server must support public metadata.
+  See [Moon home layout](./moon-home-layout.md) for caching and frozen behavior.
 
 [semver]: https://semver.org/
 [mvs]: https://go.dev/ref/mod#minimal-version-selection

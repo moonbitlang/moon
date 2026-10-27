@@ -19,11 +19,15 @@
 mod client;
 pub(crate) mod download;
 mod executable;
+mod git;
+mod http;
 #[cfg(test)]
 pub(crate) mod mock;
 pub mod path;
 
 use std::path::Path;
+
+use anyhow::Context;
 
 pub use client::{
     RegistryClient, RegistryModuleManifest, RegistryPackageMatch, RegistryPublishedModule,
@@ -51,7 +55,8 @@ pub struct RegistryModuleNotFound(pub ModuleName);
 
 /// A metadata refresh could not complete. Callers may explicitly use cached data.
 /// Git synchronization failures, including local Git and filesystem failures,
-/// belong here. Authoritative absence and failures to read or validate module
+/// belong here, as do HTTP transport errors, 5xx responses, and request throttling.
+/// Authoritative absence and failures to read or validate module
 /// metadata records do not: a cached answer cannot override those results.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
@@ -63,6 +68,8 @@ pub trait Registry {
     /// `None` means the version is absent from a known module. Return
     /// [`RegistryModuleNotFound`] if the module has no registry entry, and
     /// preserve read errors so callers can distinguish failures from absence.
+    /// Backends that cannot distinguish absence from denied access return an
+    /// error rather than guessing which part of the coordinate is missing.
     fn version_info(
         &self,
         name: &ModuleName,
@@ -204,6 +211,42 @@ where
     ) -> anyhow::Result<(ModuleName, String, String)> {
         (**self).resolve_cached_unversioned_path(path)
     }
+}
+
+/// Percent-encode one RFC 3986 path segment without treating `/` as data.
+fn encode_path_segment(segment: &str) -> String {
+    segment.bytes().fold(String::new(), |mut encoded, byte| {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+        encoded
+    })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn stage_registry_cache_file(
+    path: &Path,
+) -> anyhow::Result<(tempfile::NamedTempFile, std::path::PathBuf)> {
+    let parent = path.parent().context("registry cache file has no parent")?;
+    // Keep Windows' extended-length prefix for tempfile's direct Win32 calls.
+    // Canonicalize the existing parent because the destination may not exist yet.
+    let parent =
+        std::fs::canonicalize(parent).context("failed to canonicalize registry cache directory")?;
+    let path = parent.join(
+        path.file_name()
+            .context("registry cache file has no name")?,
+    );
+    let staged =
+        tempfile::NamedTempFile::new_in(&parent).context("failed to stage registry cache file")?;
+    Ok((staged, path))
 }
 
 pub(crate) fn default_registry() -> RegistryClient {
