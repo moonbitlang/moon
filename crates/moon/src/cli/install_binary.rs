@@ -246,7 +246,7 @@ pub(super) fn install_binary(
     install_all: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let registry = RegistryClient::configured();
+    let registry = RegistryClient::configured(user_log);
     let allow_remote = true;
     let module = registry_queries::resolve_module(
         &registry,

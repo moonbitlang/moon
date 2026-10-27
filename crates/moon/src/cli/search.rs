@@ -21,7 +21,7 @@ use std::io::Write;
 use mooncake::registry::{RegistryClient, RegistryPackageMatch, RegistrySearchResult};
 use moonutil::{
     command_output::CommandOutput,
-    user_log::{UserLogCapture, UserLogEntry, UserLogEntryLevel},
+    user_log::{UserLog, UserLogCapture, UserLogEntry, UserLogEntryLevel},
 };
 use serde::Serialize;
 
@@ -54,7 +54,7 @@ pub(crate) struct SearchSubcommand {
 }
 
 pub(crate) fn run_search(cmd: SearchSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
-    let results = RegistryClient::configured().search(&cmd.keyword, cmd.limit)?;
+    let results = RegistryClient::configured(output.user_log()).search(&cmd.keyword, cmd.limit)?;
     output.write_result(|writer| render_search_results(writer, &results))?;
     Ok(0)
 }
@@ -87,8 +87,8 @@ struct SearchJsonReport {
     messages: Vec<UserLogEntry>,
 }
 
-fn run_search_json(cmd: &SearchSubcommand) -> SearchJsonOutcome {
-    match RegistryClient::configured().search(&cmd.keyword, cmd.limit) {
+fn run_search_json(cmd: &SearchSubcommand, user_log: &UserLog) -> SearchJsonOutcome {
+    match RegistryClient::configured(user_log).search(&cmd.keyword, cmd.limit) {
         Ok(results) => SearchJsonOutcome {
             exit_code: 0,
             results,
@@ -113,9 +113,9 @@ impl JsonCommand for SearchJsonCommand {
     fn run(
         &self,
         _flags: &moonutil::cli_support::UniversalFlags,
-        _output: &CommandOutput,
+        output: &CommandOutput,
     ) -> JsonCommandOutcome {
-        search_json_outcome(run_search_json(&self.command))
+        search_json_outcome(run_search_json(&self.command, output.user_log()))
     }
 
     fn bootstrap_error(&self, message: String) -> JsonCommandOutcome {

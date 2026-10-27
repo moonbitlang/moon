@@ -29,7 +29,7 @@ use moonutil::{
     command_output::CommandOutput,
     registry::{Credentials, validate_username},
     resolution::ModuleName,
-    user_log::{UserLogEntry, UserLogEntryLevel},
+    user_log::{UserLog, UserLogEntry, UserLogEntryLevel},
 };
 use semver::Version;
 use serde::Serialize;
@@ -114,8 +114,8 @@ pub(super) enum ViewResult {
 }
 
 impl ViewSubcommand {
-    fn fetch(&self) -> anyhow::Result<ViewResult> {
-        let registry = RegistryClient::configured();
+    fn fetch(&self, user_log: &UserLog) -> anyhow::Result<ViewResult> {
+        let registry = RegistryClient::configured(user_log);
         match &self.target {
             Some(ViewTarget::Module { name, version }) => {
                 let manifest = registry.module_manifest(name, version.as_ref())?;
@@ -152,7 +152,7 @@ impl ViewSubcommand {
 }
 
 pub(crate) fn run_view(command: ViewSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
-    let result = command.fetch()?;
+    let result = command.fetch(output.user_log())?;
     output.write_result(|writer| render_view(writer, &result))?;
     Ok(0)
 }
@@ -162,8 +162,8 @@ pub(crate) fn json_command(command: ViewSubcommand) -> Box<dyn JsonCommand> {
 }
 
 impl JsonCommand for ViewSubcommand {
-    fn run(&self, _flags: &UniversalFlags, _output: &CommandOutput) -> JsonCommandOutcome {
-        view_json_outcome(self.fetch())
+    fn run(&self, _flags: &UniversalFlags, output: &CommandOutput) -> JsonCommandOutcome {
+        view_json_outcome(self.fetch(output.user_log()))
     }
 
     fn bootstrap_error(&self, message: String) -> JsonCommandOutcome {

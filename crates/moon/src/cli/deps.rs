@@ -221,7 +221,7 @@ pub(crate) fn add_cli(
         return Ok(0);
     }
 
-    let registry = RegistryClient::configured();
+    let registry = RegistryClient::configured(user_log);
     let allow_remote = !cmd.no_update;
     let module = registry_queries::resolve_module(
         &registry,

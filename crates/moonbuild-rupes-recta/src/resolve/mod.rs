@@ -467,7 +467,7 @@ pub fn discover_single_file_project(
         SingleFileSourceKind::Mbt
     };
     let (header, front_matter_config) = if source_kind == SingleFileSourceKind::Mbtx {
-        let imports = parse_mbtx_imports(source_file)
+        let imports = parse_mbtx_imports(source_file, user_log)
             .map_err(ProjectPreparationError::SingleFileParseError)?;
         let mut config = FrontMatterConfig {
             deps_to_sync: None,

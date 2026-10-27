@@ -59,7 +59,7 @@ pub fn remove(
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
 
-    let registry = registry::default_registry();
+    let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: false, // no need to inject

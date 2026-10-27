@@ -18,10 +18,7 @@
 
 //! On-demand HTTP release metadata and the cache policy for exact/latest queries.
 
-use super::{
-    RegistryUnavailable, RegistryVersionInfo, authentication::RegistryAuthentication,
-    encode_path_segment,
-};
+use super::{RegistryUnavailable, RegistryVersionInfo, authentication, encode_path_segment};
 
 mod cache;
 use anyhow::{Context, bail};
@@ -30,7 +27,7 @@ use indexmap::IndexMap;
 use moonutil::{
     MoonHomeLayout,
     dependency::SourceDependencyInfo,
-    registry::registry_api_url,
+    registry::{RegistryCredentials, registry_api_url},
     resolution::{ModuleName, ModuleSource},
 };
 use reqwest::StatusCode;
@@ -77,7 +74,7 @@ where
 
 pub(super) struct HttpMetadata {
     api: String,
-    authentication: Arc<RegistryAuthentication>,
+    credentials: Option<Arc<RegistryCredentials>>,
     cache: MetadataCache,
     client: OnceCell<reqwest::blocking::Client>,
 }
@@ -86,10 +83,10 @@ impl HttpMetadata {
     pub(super) fn new(
         api: String,
         home: MoonHomeLayout,
-        authentication: Arc<RegistryAuthentication>,
+        credentials: Option<Arc<RegistryCredentials>>,
     ) -> Self {
         Self {
-            authentication,
+            credentials,
             cache: MetadataCache::new(home, api.clone()),
             api,
             client: OnceCell::new(),
@@ -183,7 +180,13 @@ impl HttpMetadata {
 
     fn check_access(&self, name: &ModuleName, metadata: &ModuleMetadata) -> anyhow::Result<()> {
         if metadata.visibility == ModuleVisibility::Private {
-            self.authentication.check_owner(&self.api, name)?;
+            let credentials = self
+                .credentials
+                .as_deref()
+                .context("Registry login is required for restricted modules")?;
+            if credentials.confirmed_username(&self.api)? != name.username {
+                bail!("Module `{name}` not found or access denied");
+            }
         }
         Ok(())
     }
@@ -271,7 +274,7 @@ impl HttpMetadata {
         }
         // Successful initialization retains connections and the operation's login.
         // Cache-only reads never need to construct a network client.
-        let client = self.authentication.client(&self.api)?;
+        let client = authentication::client(&self.api, self.credentials.as_deref())?;
         Ok(self.client.get_or_init(|| client))
     }
 }

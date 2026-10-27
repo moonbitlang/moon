@@ -22,7 +22,10 @@ use std::str::FromStr;
 use anyhow::Context;
 use indexmap::IndexMap;
 use mooncake::registry::{Registry, RegistryClient, path as registry_path};
-use moonutil::{constants::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import};
+use moonutil::{
+    constants::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import,
+    user_log::UserLog,
+};
 
 #[derive(Default)]
 pub(super) struct MbtxFrontMatterImports {
@@ -30,13 +33,16 @@ pub(super) struct MbtxFrontMatterImports {
     pub(super) imports: Vec<Import>,
 }
 
-pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterImports> {
+pub(super) fn parse_mbtx_imports(
+    file: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<MbtxFrontMatterImports> {
     if file.extension().is_none_or(|x| x != "mbtx") {
         return Ok(MbtxFrontMatterImports::default());
     }
 
     let header = moonutil::front_matter::MbtxFrontMatter::from_file(file)?;
-    let registry = RegistryClient::configured();
+    let registry = RegistryClient::configured(user_log);
 
     let mut deps = IndexMap::new();
     let mut module_versions: IndexMap<String, String> = IndexMap::new();
@@ -117,6 +123,7 @@ mod tests {
     use mooncake::registry::RegistryClient;
     use moonutil::package::Import;
     use moonutil::resolution::DEFAULT_VERSION;
+    use moonutil::user_log::UserLog;
 
     #[allow(clippy::disallowed_methods)] // test fixture setup/cleanup on temp files.
     fn parse_imports_from_source(content: &str) -> anyhow::Result<MbtxFrontMatterImports> {
@@ -127,7 +134,7 @@ mod tests {
             std::process::id()
         ));
         std::fs::write(&path, content)?;
-        let parsed = parse_mbtx_imports(&path);
+        let parsed = parse_mbtx_imports(&path, &UserLog::new(log::LevelFilter::Error));
         let _ = std::fs::remove_file(&path);
         parsed
     }
@@ -172,7 +179,7 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_supports_module_package() {
-        let registry = RegistryClient::configured();
+        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
         let (module, version, package) =
             split_mbtx_import_path("path/module@0.4.38/package/path", &registry)
                 .expect("module package import should parse");
@@ -183,7 +190,7 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_normalizes_relative_package_with_module_prefix() {
-        let registry = RegistryClient::configured();
+        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
         let (module, version, package) = split_mbtx_import_path("a/b@version/c/d/e", &registry)
             .expect("module package import should parse");
         assert_eq!(module, "a/b");
@@ -193,7 +200,7 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_supports_module_root() {
-        let registry = RegistryClient::configured();
+        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
         let (module, version, package) = split_mbtx_import_path("path/module@0.4.38", &registry)
             .expect("module root import should parse");
         assert_eq!(module, "path/module");
@@ -203,13 +210,13 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_rejects_three_segment_module_with_version() {
-        let registry = RegistryClient::configured();
+        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
         assert!(split_mbtx_import_path("moonbitlang/x/fs@0.4.39/path", &registry).is_err());
     }
 
     #[test]
     fn split_mbtx_import_path_supports_core_without_version() {
-        let registry = RegistryClient::configured();
+        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
         let (module, version, package) = split_mbtx_import_path("moonbitlang/core/env", &registry)
             .expect("core import without version should parse");
         assert_eq!(module, "moonbitlang/core");

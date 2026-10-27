@@ -251,8 +251,8 @@ fn stage_registry_cache_file(
     Ok((staged, path))
 }
 
-pub(crate) fn default_registry() -> RegistryClient {
-    RegistryClient::configured()
+pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {
+    RegistryClient::configured(user_log)
 }
 
 #[allow(clippy::items_after_test_module)]
