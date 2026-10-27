@@ -226,6 +226,13 @@ Ordinary Unix Jobs retain the thread pool's `pthread_kill(SIGUSR2)` path.
 If the Run does not accept a signal, the adapter applies the process's existing
 signal behavior.
 
+For external V8 termination, pass a `termination_channel` receiver through
+`RunOptions::with_termination_receiver`. Its `RunTerminator` can request an exit
+code or signal outcome from another thread; the first request wins. Acceptance
+does not mean completion: wait for `Engine::run` to return. Grace periods belong
+to the caller, and synchronous host I/O must still return before termination
+can finish. Wasmtime and wee8 currently reject this option.
+
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
 existing process-global behavior. `WorkingDirectory::Fixed(path)` resolves

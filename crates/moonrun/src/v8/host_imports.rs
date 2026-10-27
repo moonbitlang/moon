@@ -49,6 +49,9 @@ fn print_char(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = context::enter_host_call(scope) else {
+        return;
+    };
     let print_env = {
         let data = args.data();
         assert!(data.is_external());
@@ -72,6 +75,9 @@ fn console_log(
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = context::enter_host_call(scope) else {
+        return;
+    };
     let arg = args.string_lossy(scope, 0);
     run_context(&args)
         .runtime()
@@ -89,10 +95,10 @@ pub(super) fn install<'s>(
     args: &[String],
     runtime: crate::runtime::Runtime,
     memory_sanitizer: &crate::memory_sanitizer::MemorySanitizer,
+    termination_request: run_termination::TerminationRequest,
 ) -> anyhow::Result<InstalledImports<'s>> {
     let module_imports = v8::Object::new(scope);
     let mut retained_callback_state = Vec::<Box<dyn Any>>::new();
-    let termination_request = run_termination::TerminationRequest::default();
     let values = Rc::new(super::values::State::new(scope)?);
     let v8_context = Box::new(context::V8RunContext::new(
         runtime,

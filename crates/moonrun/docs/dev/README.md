@@ -161,6 +161,15 @@ using retained Wasm function names and the existing source map. A stack-limit
 guard checks the owning thread's actual stack bounds and restores the previous
 limit before store teardown. It does not allocate a replacement thread stack.
 
+## External Run termination
+
+Guest exits and external requests share one latched outcome. Requests,
+interrupt binding, and finalization use the same lock; accepted termination wins
+until finalization closes the channel after teardown. V8 enables interruption
+only during guest execution and defers it across host conversions and Guest
+Memory borrows. See `run_termination.rs` for the control contract and
+`tests/run_termination.rs` for timeout-bounded lifecycle tests.
+
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a
@@ -256,11 +265,12 @@ submission and stopping are separate operations: stopping returns any queued
 Job and permanently closes admission, while the active Job can finish. A later
 submission returns the unaccepted Job to its caller. Joining consumes the Rust
 Worker handle, so there is no usable handle without an owned thread. Pool
-completion publication is independent of guest consumption. Cancellation after
-a Run stops executing its guest event loop remains a correctness FIXME for
-teardown: a signal arriving before a blocking syscall may still require another
-attempt, and no guest remains to request it. `free_worker` has no cancellation
-retry loop and cannot forcibly stop noncooperative computation.
+completion publication is independent of guest consumption. During teardown,
+`shutdown_workers` closes admission, preserves queued Jobs, and drives
+cancellation retries for all Workers before joining any. Retries use a 10 ms
+timer without guest polling. Joining still requires actual thread exit;
+non-cancellable host operations cannot be forcibly stopped. The native-shaped
+`free_worker` remains a plain termination wakeup and join.
 
 ## How to Build and Test
 

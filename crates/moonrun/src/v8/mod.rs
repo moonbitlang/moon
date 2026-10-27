@@ -38,6 +38,8 @@ use anyhow::Context;
 use builder::ScopeExt;
 use std::sync::{Arc, OnceLock};
 
+pub(crate) const SUPPORTS_RUN_TERMINATION: bool = true;
+
 pub(crate) struct CompiledModule(v8::CompiledWasmModule);
 
 #[derive(Clone, Copy)]
@@ -142,8 +144,13 @@ fn invoke<'s>(
     call: impl FnOnce(&mut v8::HandleScope<'s>) -> Option<v8::Local<'s, v8::Value>>,
 ) -> anyhow::Result<CallOutcome<'s>> {
     let scope = &mut v8::TryCatch::new(scope);
+    let handle = scope.thread_safe_handle();
+    let interrupt = termination_request.bind_interrupt(move || {
+        handle.terminate_execution();
+    });
     let result = call(scope);
-    if let Some(termination) = termination_request.take() {
+    drop(interrupt);
+    if let Some(termination) = termination_request.get() {
         return Ok(CallOutcome::Stopped(BackendCallOutcome::Terminated(
             termination,
         )));
@@ -219,6 +226,7 @@ impl Engine {
         test_args: Option<TestArgs>,
         no_stack_trace: bool,
         runtime: Runtime,
+        termination: TerminationRequest,
     ) -> anyhow::Result<BackendRunOutcome> {
         run(
             &self.config,
@@ -229,6 +237,7 @@ impl Engine {
             test_args,
             no_stack_trace,
             runtime,
+            termination,
         )
     }
 }
@@ -326,10 +335,14 @@ pub(crate) fn run(
     test_args: Option<TestArgs>,
     no_stack_trace: bool,
     runtime: Runtime,
+    termination: TerminationRequest,
 ) -> anyhow::Result<BackendRunOutcome> {
     initialize(config)?;
 
     let isolate = &mut v8::Isolate::new(Default::default());
+    if termination.is_connected() {
+        isolate.set_slot(termination.clone());
+    }
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
@@ -357,8 +370,14 @@ pub(crate) fn run(
     let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
     let stdio = Arc::clone(runtime.stdio());
 
-    let installed_imports =
-        host_imports::install(scope, module_name, args, runtime, &memory_sanitizer)?;
+    let installed_imports = host_imports::install(
+        scope,
+        module_name,
+        args,
+        runtime,
+        &memory_sanitizer,
+        termination,
+    )?;
     let module_imports = installed_imports.module_imports;
     let termination_request = &installed_imports.termination_request;
     let memory_binding = &installed_imports.memory_binding;

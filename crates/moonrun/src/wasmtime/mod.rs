@@ -45,6 +45,11 @@ use crate::wasm_diagnostic::{self, DiagnosticLine};
 
 use crate::wasm_imports::payload::JsString;
 
+// TODO: add an epoch driver before enabling external termination. A single
+// engine-wide epoch tick can race another Store renewing its deadline and lose
+// that Store's cancellation request.
+pub(crate) const SUPPORTS_RUN_TERMINATION: bool = false;
+
 pub(crate) struct StoreData {
     runtime: Runtime,
     termination_request: TerminationRequest,
@@ -125,9 +130,9 @@ impl Engine {
         test_args: Option<TestArgs>,
         no_stack_trace: bool,
         runtime: Runtime,
+        termination_request: TerminationRequest,
     ) -> anyhow::Result<BackendRunOutcome> {
         let engine = self.inner()?;
-        let termination_request = TerminationRequest::default();
         let wasi =
             crate::wasi::WasiContext::new(module_name, args, &runtime, termination_request.clone());
         let stdio = Arc::clone(runtime.stdio());
@@ -150,7 +155,7 @@ impl Engine {
         let instance = match linker.instantiate(&mut store, &module.0) {
             Ok(instance) => instance,
             Err(error) => {
-                let outcome = if let Some(termination) = termination_request.take() {
+                let outcome = if let Some(termination) = termination_request.get() {
                     BackendCallOutcome::Terminated(termination)
                 } else if is_guest_failure(&error) {
                     BackendCallOutcome::GuestFailure(format_wasm_error(
@@ -579,7 +584,7 @@ fn call_export(
     no_stack_trace: bool,
 ) -> anyhow::Result<BackendCallOutcome> {
     let result = function.call(&mut *store, arguments, &mut []);
-    if let Some(termination) = store.data().termination_request.take() {
+    if let Some(termination) = store.data().termination_request.get() {
         return Ok(BackendCallOutcome::Terminated(termination));
     }
     match result {

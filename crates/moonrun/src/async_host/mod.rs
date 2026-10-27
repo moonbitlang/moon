@@ -3599,9 +3599,7 @@ impl AsyncHost {
             .remove(key_from_handle(worker_handle))
             .ok_or(AsyncHostError::Badf)?;
         // Cancellation and joining run after the owning table borrow ends.
-        let _ = thread_pool::cancel_worker(&worker);
-        let unrun_job = thread_pool::free_worker(worker);
-        if let Some(unrun_job) = unrun_job {
+        for unrun_job in thread_pool::shutdown_workers([worker]) {
             self.restore_unrun_worker_job(unrun_job);
         }
         self.restore_completed_worker_jobs();

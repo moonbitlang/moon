@@ -35,6 +35,9 @@ fn throw<'s>(
     args: FunctionCallbackArguments<'s>,
     _ret: v8::ReturnValue,
 ) {
+    let Ok(_termination) = super::context::enter_host_call(scope) else {
+        return;
+    };
     // SAFETY: install supplies this exact type and retains the box until the
     // run ends, after guest code can no longer invoke the callback.
     let state = unsafe { callback_context::<ExceptionImports>(&args) };

@@ -109,21 +109,7 @@ impl InstanceWorkers {
 
     pub(super) fn destroy(&self) -> Vec<WorkerJob> {
         let workers = self.workers.borrow_mut().take_all();
-
-        // Cancellation must fan out before any join: one slow Worker must not
-        // prevent the remaining Workers from receiving their stop request.
-        // FIXME: after the guest stops polling, a cancellation signal arriving
-        // before a blocking syscall may still need a retry to let join finish.
-        // Define cancellation retry ownership for Run teardown outside
-        // native free_worker; neither join nor repeated signals can forcibly
-        // stop noncooperative computation.
-        for worker in &workers {
-            let _ = thread_pool::cancel_worker(worker);
-        }
-        workers
-            .into_iter()
-            .filter_map(thread_pool::free_worker)
-            .collect()
+        thread_pool::shutdown_workers(workers)
     }
 }
 
@@ -314,6 +300,98 @@ mod tests {
         for (instance, worker) in [(&first, first_worker), (&second, second_worker)] {
             let worker = instance.workers.borrow_mut().remove(worker).unwrap();
             assert!(thread_pool::free_worker(worker).is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destroy_retries_cancellation_for_all_workers_without_guest_polling() {
+        use std::time::Instant;
+
+        for destroy_explicitly in [true, false] {
+            let keys = Rc::new(RefCell::new(HostKeys::default()));
+            let workers = InstanceWorkers::new(keys.clone());
+            let (first_interrupted, wait_for_first) = mpsc::channel();
+            let (second_interrupted, wait_for_second) = mpsc::channel();
+            let (started, wait_for_start) = mpsc::channel();
+            let (finished, results) = mpsc::channel();
+            let timeout = Duration::from_secs(5);
+
+            for (interrupted, other_interrupted) in [
+                (first_interrupted, wait_for_second),
+                (second_interrupted, wait_for_first),
+            ] {
+                let job_key = keys.borrow_mut().insert(HostResourceKind::Job);
+                let started = started.clone();
+                let finished = finished.clone();
+                workers.spawn(
+                    job(11, job_key),
+                    move |_| {
+                        let mut signals = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                        let mut previous = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                        unsafe {
+                            libc::sigemptyset(&mut signals);
+                            libc::sigaddset(&mut signals, libc::SIGUSR2);
+                            assert_eq!(
+                                libc::pthread_sigmask(libc::SIG_BLOCK, &signals, &mut previous),
+                                0
+                            );
+                        }
+                        let result = thread_pool::with_cancellable_region(|| {
+                            // Pause after the cancellation check, then consume
+                            // the first interrupt before entering the syscall.
+                            // Only a host-owned retry can interrupt this poll.
+                            started.send(()).unwrap();
+                            let deadline = Instant::now() + timeout;
+                            loop {
+                                let mut pending = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+                                assert_eq!(unsafe { libc::sigpending(&mut pending) }, 0);
+                                if unsafe { libc::sigismember(&pending, libc::SIGUSR2) } == 1 {
+                                    break;
+                                }
+                                assert!(Instant::now() < deadline, "no cancellation request");
+                                std::thread::sleep(Duration::from_millis(1));
+                            }
+                            let mut signal = 0;
+                            assert_eq!(unsafe { libc::sigwait(&signals, &mut signal) }, 0);
+                            assert_eq!(signal, libc::SIGUSR2);
+                            assert_eq!(
+                                unsafe {
+                                    libc::pthread_sigmask(
+                                        libc::SIG_SETMASK,
+                                        &previous,
+                                        std::ptr::null_mut(),
+                                    )
+                                },
+                                0
+                            );
+                            // A timeout releases a broken implementation instead
+                            // of leaving the test hung in Worker teardown.
+                            let ret = unsafe { libc::poll(std::ptr::null_mut(), 0, 2000) };
+                            Ok(ret == -1
+                                && std::io::Error::last_os_error().raw_os_error()
+                                    == Some(libc::EINTR))
+                        });
+                        interrupted.send(()).unwrap();
+                        // Retrying only the Worker about to be joined is also
+                        // insufficient: its cleanup may depend on another one.
+                        let both_interrupted = other_interrupted.recv_timeout(timeout).is_ok();
+                        finished.send((result, both_interrupted)).unwrap();
+                    },
+                    WorkerCompletionDestination::Test(Box::new(|_| {})),
+                );
+            }
+            for _ in 0..2 {
+                wait_for_start.recv_timeout(timeout).unwrap();
+            }
+
+            if destroy_explicitly {
+                assert!(workers.destroy().is_empty());
+            }
+            drop(workers);
+            for _ in 0..2 {
+                assert_eq!(results.recv_timeout(timeout).unwrap(), (Ok(true), true));
+            }
         }
     }
 }

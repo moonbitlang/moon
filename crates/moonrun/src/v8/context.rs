@@ -39,6 +39,25 @@ pub(crate) enum ValueImportError {
     Range(&'static str),
 }
 
+/// A callback can allocate V8 values while executing Rust. External termination
+/// must wait until those conversions and any Guest Memory borrows have ended.
+pub(super) fn enter_host_call(
+    scope: &mut v8::HandleScope,
+) -> Result<Option<crate::run_termination::InterruptSuspension>, ()> {
+    let Some(request) = scope.get_slot::<TerminationRequest>().cloned() else {
+        return Ok(None);
+    };
+    let guard = request.suspend_interrupt(|| {
+        scope.cancel_terminate_execution();
+    });
+    // If termination already won, do not start another potentially blocking
+    // host operation. Dropping the guard reissues the engine interrupt.
+    if request.is_requested() {
+        return Err(());
+    }
+    Ok(Some(guard))
+}
+
 /// Complete one synchronous V8 callback. The operation returns ordinary Rust
 /// results; only this adapter translates an operation error into a JS exception.
 pub(crate) fn value_import<'s>(
@@ -48,6 +67,9 @@ pub(crate) fn value_import<'s>(
         &mut v8::HandleScope<'s>,
     ) -> Result<v8::Local<'s, v8::Value>, ValueImportError>,
 ) {
+    let Ok(_termination) = enter_host_call(scope) else {
+        return;
+    };
     match operation(scope) {
         Ok(value) => ret.set(value),
         Err(ValueImportError::V8) => {}
