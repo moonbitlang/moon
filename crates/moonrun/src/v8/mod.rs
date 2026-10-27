@@ -415,6 +415,7 @@ pub(crate) fn run(
         }
 
         if let Some(test_args) = test_args {
+            let initialize = exported_function(scope, exports, "_initialize")?;
             let execute =
                 exported_function(scope, exports, "moonbit_test_driver_internal_execute")?
                     .context(
@@ -426,6 +427,12 @@ pub(crate) fn run(
                 scope,
                 test_args,
                 &stdio,
+                |scope| match initialize {
+                    Some(initialize) => {
+                        call_export(scope, initialize, &[], termination_request, classifier)
+                    }
+                    None => Ok(BackendCallOutcome::Completed),
+                },
                 |scope, file, index| {
                     let file = scope.string(file).into();
                     let index = v8::Integer::new_from_unsigned(scope, index).into();

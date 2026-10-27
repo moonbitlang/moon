@@ -205,6 +205,19 @@ impl Engine {
                 &mut instance,
                 test_args,
                 &stdio,
+                |instance| {
+                    if instance.has_export("_initialize") {
+                        call_outcome(
+                            &store,
+                            &termination,
+                            source_map,
+                            no_stack_trace,
+                            instance.call("_initialize", &[]),
+                        )
+                    } else {
+                        Ok(BackendCallOutcome::Completed)
+                    }
+                },
                 |instance, file, index| {
                     let file =
                         api::StringRef::from_utf8(store.as_context(), file)?.into_extern_ref();
