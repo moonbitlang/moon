@@ -29,8 +29,7 @@ fn test_standalone_mbt_warns_to_migrate_to_mbtx() {
 #[test]
 fn test_single_file_requires_explicit_core_imports() {
     let dir = TestDir::new_empty();
-    // The compiler still accepts undeclared core packages with warning 71.
-    // Promote it to an error to verify the same import rules as normal packages.
+    // Core packages follow the same explicit import rules as other packages.
     for header in ["", "----\nimport {}\n----\n"] {
         fs::write(
             dir.join("script.mbtx"),
@@ -40,7 +39,7 @@ fn test_single_file_requires_explicit_core_imports() {
         for command in ["build", "check", "test", "run"] {
             let stderr = get_err_stderr(&dir, [command, "script.mbtx", "--deny-warn"]);
             assert!(
-                stderr.contains("Package `int` from `moonbitlang/core/` is used without import."),
+                stderr.contains("Cannot use `@int`: package int is not imported."),
                 "stderr: {stderr}"
             );
         }

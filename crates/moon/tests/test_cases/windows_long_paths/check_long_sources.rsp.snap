@@ -167,10 +167,10 @@ json
 test/long-source-paths/$PACKAGE
 -pkg-type
 library
--std-path
-$TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle
 -i
-$TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle\prelude\prelude.mi:prelude
+$TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle\builtin\builtin.mi:moonbitlang/core/builtin
+-i
+$TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle\prelude\prelude.mi:moonbitlang/core/prelude
 -pkg-sources
 test/long-source-paths/$PACKAGE:\\?\$ROOT\$PACKAGE
 -target
