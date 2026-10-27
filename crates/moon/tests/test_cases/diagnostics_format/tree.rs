@@ -20,16 +20,18 @@ import {
     for (name, entry) in [
         (
             "dep/direct",
-            r#"{"version":"1.0.0","deps":{"dep/transitive":"1.0.0"},"yanked":true,"yanked_reason":"Use dep/replacement."}"#,
+            serde_json::json!({"version": "1.0.0", "deps": {"dep/transitive": "1.0.0"},
+                "yanked": true, "yanked_reason": "Use dep/replacement.", "checksum": "b".repeat(64)}),
         ),
         (
             "dep/transitive",
-            r#"{"version":"1.0.0","yanked":true,"yanked_reason":" "}"#,
+            serde_json::json!({"version": "1.0.0", "yanked": true, "yanked_reason": " ",
+                "checksum": "b".repeat(64)}),
         ),
     ] {
         let index = home.registry_index_file(&name.into());
         std::fs::create_dir_all(index.parent().unwrap()).unwrap();
-        std::fs::write(index, entry).unwrap();
+        std::fs::write(index, entry.to_string()).unwrap();
     }
 
     moon_cmd(&dir)

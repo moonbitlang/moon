@@ -52,9 +52,10 @@ use crate::{
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct RegistryIndexEntry {
-    version: Option<String>,
-    deps: Option<IndexMap<String, SourceDependencyInfo>>,
-    checksum: Option<String>,
+    version: String,
+    #[serde(default)]
+    deps: IndexMap<String, SourceDependencyInfo>,
+    checksum: String,
     #[serde(default)]
     yanked: bool,
     #[serde(rename = "yanked_reason")]
@@ -639,16 +640,14 @@ impl RegistryClient {
                     continue;
                 }
             };
-            if let Some(v) = entry.version.as_deref() {
-                res.insert(
-                    Version::parse(v)?,
-                    RegistryVersionInfo {
-                        deps: entry.deps.unwrap_or_default(),
-                        yanked: entry.yanked,
-                        yanked_reason: entry.yanked_reason,
-                    },
-                );
-            }
+            res.insert(
+                Version::parse(&entry.version)?,
+                RegistryVersionInfo {
+                    deps: entry.deps,
+                    yanked: entry.yanked,
+                    yanked_reason: entry.yanked_reason,
+                },
+            );
         }
 
         // put in cache
@@ -799,16 +798,8 @@ impl RegistryClient {
         let version_str = version.to_string();
         for line in lines.iter().rev() {
             let entry = serde_json_lenient::from_str::<RegistryIndexEntry>(line)?;
-            if entry.version.as_deref() == Some(version_str.as_str()) {
-                if let Some(checksum) = entry.checksum {
-                    return Ok(checksum);
-                } else {
-                    bail!(
-                        "No checksum found for version {} in index file {:?}",
-                        version,
-                        p
-                    );
-                }
+            if entry.version == version_str {
+                return Ok(entry.checksum);
             }
         }
         bail!(
@@ -2195,7 +2186,11 @@ mod tests {
 
         let index_file = registry.home.registry_index_file(&module);
         std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
-        std::fs::write(index_file, r#"{"version":"invalid"}"#).unwrap();
+        std::fs::write(
+            index_file,
+            serde_json::json!({"version": "invalid", "checksum": "b".repeat(64)}).to_string(),
+        )
+        .unwrap();
         let error = registry.latest_version(&module).unwrap_err();
         assert!(!error.is::<crate::registry::RegistryModuleNotFound>());
         assert!(error.is::<semver::Error>());
@@ -2383,8 +2378,11 @@ mod tests {
             std::fs::write(
                 index,
                 releases
-                    .iter()
-                    .map(ToString::to_string)
+                    .into_iter()
+                    .map(|mut entry| {
+                        entry["checksum"] = json!("b".repeat(64));
+                        entry.to_string()
+                    })
                     .collect::<Vec<_>>()
                     .join("\n"),
             )
