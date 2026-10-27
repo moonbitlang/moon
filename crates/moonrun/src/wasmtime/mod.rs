@@ -179,6 +179,7 @@ impl Engine {
         };
 
         let result = if let Some(test_args) = test_args {
+            let initialize = instance.get_func(&mut store, "_initialize");
             let execute = instance
                 .get_func(&mut store, "moonbit_test_driver_internal_execute")
                 .context("test module does not export `moonbit_test_driver_internal_execute`")?;
@@ -189,6 +190,12 @@ impl Engine {
                 &mut store,
                 test_args,
                 &stdio,
+                |store| match initialize {
+                    Some(initialize) => {
+                        call_export(store, &initialize, &[], source_map, no_stack_trace)
+                    }
+                    None => Ok(BackendCallOutcome::Completed),
+                },
                 |store, file, index| {
                     let file =
                         ExternRef::new(&mut *store, JsString(file.encode_utf16().collect()))?;

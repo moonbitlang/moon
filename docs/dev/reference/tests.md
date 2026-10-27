@@ -229,6 +229,10 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
 - Invocation: `moonrun --test-args <json> [--policy <path>] <artifact>.wasm --`.
 - The JSON payload is a serialized `TestArgs`, so the runtime knows which files and
   indices to execute. Everything after `--` is forwarded to the MoonBit program.
+- The runtime calls the optional `_initialize` export once before invoking test
+  exports and the test-driver finalizer, including when no test indices are selected.
+  Modules without `_initialize` remain supported. Initialization failure stops the
+  run before any tests or finalization; test execution does not call `_start`.
 - `moon test --wasm-policy <path>` supplies the optional Moonrun Policy to each
   Wasm test executable. A relative path is resolved against the effective Moon
   invocation directory before test commands change to their module roots.

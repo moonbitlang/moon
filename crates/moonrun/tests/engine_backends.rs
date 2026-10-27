@@ -22,7 +22,12 @@ fn engine_backend_reuses_compiled_modules() {
     let plain = engine
         .compile(
             "plain.wasm",
-            wat::parse_str(r#"(module (func (export "_start")))"#).unwrap(),
+            wat::parse_str(
+                r#"(module
+                    (func (export "_initialize") unreachable)
+                    (func (export "_start")))"#,
+            )
+            .unwrap(),
         )
         .unwrap();
     for _ in 0..2 {
@@ -220,6 +225,102 @@ fn engine_backends_support_js_string_builtins() {
             .unwrap(),
         moonrun::RunOutcome::Completed
     );
+}
+
+#[test]
+fn engine_backends_test_driver_initialization_is_optional_and_runs_once() {
+    let engine = moonrun::Engine::default();
+    for initialize in [false, true] {
+        for test_count in [0, 2] {
+            let export = if initialize {
+                r#"(export "_initialize")"#
+            } else {
+                ""
+            };
+            let initialized = i32::from(!initialize);
+            let module = engine
+                .compile(
+                    "test-initialize.wasm",
+                    wat::parse_str(format!(
+                        r#"(module
+                            (import "wasi_snapshot_preview1" "args_sizes_get"
+                                (func $args_sizes_get (param i32 i32) (result i32)))
+                            (memory (export "memory") 1)
+                            (global $initialized (mut i32) (i32.const {initialized}))
+                            (global $executed (mut i32) (i32.const 0))
+                            (func {export}
+                                ;; Initialization must have access to exported guest memory.
+                                i32.const 0 i32.const 4 call $args_sizes_get
+                                if unreachable end
+                                global.get $initialized i32.const 1 i32.add
+                                global.set $initialized)
+                            (func (export "_start") unreachable)
+                            (func (export "moonbit_test_driver_internal_execute")
+                                (param externref i32)
+                                global.get $initialized i32.const 1 i32.ne
+                                if unreachable end
+                                global.get $executed i32.const 1 i32.add
+                                global.set $executed)
+                            (func (export "moonbit_test_driver_finish")
+                                global.get $initialized i32.const 1 i32.ne
+                                if unreachable end
+                                global.get $executed i32.const {test_count} i32.ne
+                                if unreachable end))"#
+                    ))
+                    .unwrap(),
+                )
+                .unwrap();
+            let test_args = serde_json::json!({
+                "package": "moon/core",
+                "file_and_index": [["main_test.mbt", [{"start": 0, "end": test_count}]]],
+            });
+            assert_eq!(
+                engine
+                    .run(
+                        &module,
+                        moonrun::RunOptions::default().with_test_args(test_args.to_string()),
+                    )
+                    .unwrap(),
+                moonrun::RunOutcome::Completed,
+                "initialize={initialize}, test_count={test_count}"
+            );
+        }
+    }
+}
+
+#[test]
+fn engine_backends_test_driver_initialization_failure_stops_execution() {
+    let engine = moonrun::Engine::default();
+    for (initialize, exit_code) in [("unreachable", 1), ("i32.const 7 call $exit", 7)] {
+        let module = engine
+            .compile(
+                "test-initialize-failure.wasm",
+                wat::parse_str(format!(
+                    r#"(module
+                        (import "wasi_snapshot_preview1" "proc_exit"
+                            (func $exit (param i32)))
+                        (func (export "_initialize") {initialize})
+                        (func (export "moonbit_test_driver_internal_execute")
+                            (param externref i32)
+                            i32.const 9 call $exit)
+                        (func (export "moonbit_test_driver_finish")
+                            i32.const 10 call $exit))"#
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            engine
+                .run(
+                    &module,
+                    moonrun::RunOptions::default().with_test_args(
+                        r#"{"package":"moon/core","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+                    ),
+                )
+                .unwrap(),
+            moonrun::RunOutcome::Exited(exit_code),
+        );
+    }
 }
 
 #[test]
