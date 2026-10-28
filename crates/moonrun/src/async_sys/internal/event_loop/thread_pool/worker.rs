@@ -1291,6 +1291,7 @@ mod tests {
                 cancellation: WorkerCancellation::new(),
                 state: Mutex::new(WorkerState {
                     job: Some(queued_job),
+                    active_cancel: None,
                     running_cancel: RunningCancellation::Idle,
                     terminating: false,
                 }),

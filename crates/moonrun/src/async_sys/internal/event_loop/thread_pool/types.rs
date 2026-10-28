@@ -56,6 +56,8 @@ impl CancellationOutcome {
 ///
 /// This is the Rust equivalent of native `struct job::cancel_handler`: most
 /// Jobs do not provide one and are cancelled through the Worker thread.
+/// Both platforms need hooks for virtual waits, which block on a condition
+/// variable rather than a syscall that native I/O cancellation can interrupt.
 pub(crate) trait JobCancellationOverride: std::fmt::Debug + Send + Sync {
     fn cancel(&self) -> AsyncHostResult<CancellationOutcome>;
 }

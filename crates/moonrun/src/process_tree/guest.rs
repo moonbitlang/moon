@@ -114,7 +114,12 @@ impl ProcessWait {
             WaitClaim::new(Arc::clone(table), self.pid).map_err(|_| AsyncHostError::Inval)?;
         let mut result = self.cancel.completion.result.lock().unwrap();
         loop {
-            if self.cancel.cancelled.load(Ordering::Relaxed) {
+            let cancelled = self.cancel.cancelled.load(Ordering::Relaxed);
+            // Match the native Windows wait: the process handle precedes the
+            // cancellation event, so an available exit result wins the race.
+            #[cfg(windows)]
+            let cancelled = cancelled && result.is_none();
+            if cancelled {
                 // Release the lock before dropping the claim.
                 drop(result);
                 #[cfg(unix)]
@@ -262,6 +267,18 @@ mod tests {
             assert!(completion.result.lock().unwrap().is_none());
 
             *completion.result.lock().unwrap() = Some(Ok(RunOutcome::Exited(42)));
+            let mut completed_and_cancelled = context.wait(child.get()).unwrap();
+            completed_and_cancelled.cancellation().cancel().unwrap();
+            // Windows waits put the process before the cancellation event:
+            // a completed process wins when both are ready at wait entry.
+            #[cfg(windows)]
+            assert_eq!(completed_and_cancelled.run(), Ok(42));
+            #[cfg(unix)]
+            assert_eq!(
+                completed_and_cancelled.run(),
+                Err(AsyncHostError::Native(libc::EINTR))
+            );
+            drop(completed_and_cancelled);
             let mut unread = context.wait(child.get()).unwrap();
             assert_eq!(unread.run(), Ok(42));
             assert!(table.lock().unwrap()[&child].waiting);
