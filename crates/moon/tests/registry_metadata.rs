@@ -150,6 +150,63 @@ fn configure(home: &Path, api: &str) {
 }
 
 #[test]
+fn malformed_credentials_warn_without_blocking_public_queries() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[("alice/a", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    std::fs::write(
+        home.path().join("credentials.json"),
+        r#"{"token":"test-secret","username":"alice","unexpected":"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/a@0.1.0\" }\n",
+    )
+    .unwrap();
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success()
+        .stderr_eq("Warning: failed to load registry credentials; continuing without login: failed to parse registry credentials\n");
+    moon(project.path(), home.path(), true)
+        .args(["tree", "--quiet"])
+        .assert()
+        .success()
+        .stderr_eq("");
+
+    server
+        .responses
+        .lock()
+        .unwrap()
+        .insert("/api/v0/search?kw=tool&limit=20".into(), (200, "[]".into()));
+    moon(project.path(), home.path(), true)
+        .args(["search", "tool", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","results":[],"messages":[{"level":"warning","message":"failed to load registry credentials; continuing without login: failed to parse registry credentials"}]}
+
+"#]]);
+    server.stop();
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.to_ascii_lowercase().contains("authorization:"))
+    );
+    drop(requests);
+    moon(project.path(), home.path(), true)
+        .args(["tree", "--quiet"])
+        .assert()
+        .success()
+        .stderr_eq("");
+}
+
+#[test]
 fn api_mode_preserves_exact_mvs_traversal_and_offline_resolution() {
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();

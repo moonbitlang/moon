@@ -43,7 +43,7 @@ pub(crate) fn update_cli(
     if cli.dry_run {
         bail!("dry-run is not supported for update")
     }
-    let registry = RegistryClient::configured();
+    let registry = RegistryClient::configured(output.user_log());
     if !registry.uses_http_metadata() {
         registry.sync(output.user_log())?;
         return Ok(0);

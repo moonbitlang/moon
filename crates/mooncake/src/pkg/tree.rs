@@ -46,7 +46,7 @@ pub fn tree(
 ) -> anyhow::Result<ResolvedTree> {
     let module = Arc::new(read_module_desc_file_in_dir(module_dir)?);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest)?;
-    let registry = registry::default_registry();
+    let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
         inject_std: false,

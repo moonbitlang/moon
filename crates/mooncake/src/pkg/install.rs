@@ -108,9 +108,9 @@ pub(crate) fn install_impl(
     }
 
     let registry = if dont_sync {
-        registry::default_registry().for_frozen_dependencies()
+        registry::default_registry(user_log).for_frozen_dependencies()
     } else {
-        registry::default_registry()
+        registry::default_registry(user_log)
     };
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,

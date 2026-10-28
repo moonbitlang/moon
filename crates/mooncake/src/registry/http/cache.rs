@@ -218,7 +218,10 @@ impl MetadataCache {
                         .get(name)
                         .is_some_and(|incoming| incoming.version() == dependency.version())
                 });
-            if !same_dependencies || !cached.checksum.eq_ignore_ascii_case(&metadata.checksum) {
+            if cached.visibility != metadata.visibility
+                || !same_dependencies
+                || !cached.checksum.eq_ignore_ascii_case(&metadata.checksum)
+            {
                 bail!(
                     "registry changed immutable metadata for {name}@{}; cached release preserved",
                     metadata.version

@@ -20,21 +20,18 @@ use std::{
     fs::File,
     io::{Read, Seek, Write},
     path::Path,
+    sync::Arc,
 };
 
 use anyhow::{Context, bail};
 use moonutil::{
     MOON_HOME, MoonHomeLayout,
     locks::{lock_directory, lock_file},
-    registry::{RegistryConfig, RegistryCredentials, registry_api_url},
+    registry::{RegistryConfig, RegistryCredentials, RegistryDownloadRequest},
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
-use reqwest::{
-    StatusCode, Url,
-    header::{AUTHORIZATION, HeaderMap, HeaderValue},
-    redirect::Policy,
-};
+use reqwest::StatusCode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +41,8 @@ use crate::{
 };
 
 use super::{
-    encode_path_segment, git::GitIndex, http::HttpMetadata, sha256_hex, stage_registry_cache_file,
+    authentication, encode_path_segment, git::GitIndex, http::HttpMetadata, sha256_hex,
+    stage_registry_cache_file,
 };
 
 /// Select the metadata implementation once, when constructing the client.
@@ -57,29 +55,6 @@ struct RegistryEndpoints {
     api: String,
     download: String,
     legacy_asset_urls: bool,
-}
-
-fn registry_authorization(
-    saved: &RegistryCredentials,
-    api: &Url,
-) -> anyhow::Result<Option<HeaderValue>> {
-    if !saved.matches_registry(api.as_str())? || saved.credentials.token.trim().is_empty() {
-        return Ok(None);
-    }
-    let loopback = api.host_str().is_some_and(|host| {
-        host == "localhost"
-            || host
-                .trim_matches(['[', ']'])
-                .parse::<std::net::IpAddr>()
-                .is_ok_and(|address| address.is_loopback())
-    });
-    if api.scheme() != "https" && !loopback {
-        bail!("registry API credentials require HTTPS except on loopback addresses");
-    }
-    let mut authorization = HeaderValue::from_str(&format!("Bearer {}", saved.credentials.token))
-        .context("invalid registry API token header")?;
-    authorization.set_sensitive(true);
-    Ok(Some(authorization))
 }
 
 impl RegistryEndpoints {
@@ -231,6 +206,8 @@ pub struct RegistryClient {
     home: MoonHomeLayout,
     endpoints: RegistryEndpoints,
     metadata: MetadataBackend,
+    /// Loaded at construction and shared unchanged with the HTTP backend.
+    credentials: Option<Arc<RegistryCredentials>>,
     /// Restrict dependency metadata and source acquisition to existing caches.
     /// This is not a global network policy for search or other API commands.
     frozen_dependencies: bool,
@@ -238,50 +215,33 @@ pub struct RegistryClient {
 
 impl RegistryClient {
     fn api_http_client(&self) -> anyhow::Result<reqwest::blocking::Client> {
-        let mut builder = reqwest::blocking::Client::builder()
-            .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")));
-        if let Some(saved) = RegistryCredentials::load(&self.home.credentials_path())? {
-            let api = registry_api_url(&self.endpoints.api)?;
-            if let Some(authorization) = registry_authorization(&saved, &api)? {
-                let mut headers = HeaderMap::new();
-                headers.insert(AUTHORIZATION, authorization);
-                let api_path = format!("{}/api/", api.path().trim_end_matches('/'));
-                builder =
-                    builder
-                        .default_headers(headers)
-                        .redirect(Policy::custom(move |attempt| {
-                            // Never forward credentials outside this registry's API,
-                            // including same-host CDN paths and HTTPS downgrades.
-                            if attempt.url().origin() != api.origin()
-                                || !attempt.url().path().starts_with(&api_path)
-                            {
-                                attempt.stop()
-                            } else if attempt.previous().len() >= 10 {
-                                attempt.error("too many registry API redirects")
-                            } else {
-                                attempt.follow()
-                            }
-                        }));
+        authentication::client(&self.endpoints.api, self.credentials.as_deref())
+    }
+
+    /// Load registry configuration and credentials, using the standard local
+    /// index and cache. Missing credentials mean anonymous access; unreadable or
+    /// malformed credentials produce a warning and also leave the client anonymous.
+    pub fn configured(user_log: &UserLog) -> Self {
+        Self::with_home(RegistryConfig::load(), MOON_HOME.clone(), user_log)
+    }
+
+    fn with_home(config: RegistryConfig, home: MoonHomeLayout, user_log: &UserLog) -> Self {
+        let credentials = match RegistryCredentials::load(&home.credentials_path()) {
+            Ok(credentials) => credentials.map(Arc::new),
+            Err(error) => {
+                user_log.warn(format!(
+                    "failed to load registry credentials; continuing without login: {error:#}"
+                ));
+                None
             }
-        }
-        builder
-            .build()
-            .context("failed to create registry HTTP client")
-    }
-
-    /// Load registry configuration and use the standard local index and cache.
-    pub fn configured() -> Self {
-        Self::from_config(RegistryConfig::load())
-    }
-
-    fn from_config(config: RegistryConfig) -> Self {
-        Self::with_home(config, MOON_HOME.clone())
-    }
-
-    fn with_home(config: RegistryConfig, home: MoonHomeLayout) -> Self {
+        };
         let endpoints = RegistryEndpoints::from_config(&config);
         let metadata = if std::env::var("MOON_REGISTRY_API").is_ok_and(|value| value == "1") {
-            MetadataBackend::Http(HttpMetadata::new(endpoints.api.clone(), home.clone()))
+            MetadataBackend::Http(HttpMetadata::new(
+                endpoints.api.clone(),
+                home.clone(),
+                credentials.clone(),
+            ))
         } else {
             MetadataBackend::Git(GitIndex::new(home.clone()))
         };
@@ -290,6 +250,7 @@ impl RegistryClient {
             home,
             endpoints,
             metadata,
+            credentials,
             frozen_dependencies: false,
         }
     }
@@ -490,6 +451,14 @@ impl RegistryClient {
         );
 
         ensure_cached_wasm(&cache_path, user_log, |staged| {
+            // Private prebuilt downloads are not implemented yet, so existing
+            // artifacts came from public downloads. Check visibility on misses;
+            // cache hits must survive disabled or cleared metadata persistence.
+            if let MetadataBackend::Http(metadata) = &self.metadata
+                && metadata.is_restricted(name, version, self.frozen_dependencies)?
+            {
+                bail!("Prebuilt artifacts are not available for restricted modules");
+            }
             let checksum_bytes = download(&checksum_url)?;
             let expected_checksum = parse_sha256_checksum(&checksum_bytes)
                 .with_context(|| format!("invalid SHA-256 checksum from {checksum_url}"))?;
@@ -772,16 +741,17 @@ impl RegistryClient {
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
         validate_registry_module_name(name)?;
-        match &self.metadata {
+        let restricted = match &self.metadata {
             MetadataBackend::Git(_) => {
                 if !self.home.registry_index_file(name).exists() {
                     bail!("Module {name}@{version} not found");
                 }
+                false
             }
             MetadataBackend::Http(http) => {
-                http.version_info(name, version, self.frozen_dependencies)?;
+                http.is_restricted(name, version, self.frozen_dependencies)?
             }
-        }
+        };
         let cache_file = self.home.registry_source_archive_path(name, version);
         if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
             user_log.status(format!("Using cached {name}@{version}"));
@@ -806,6 +776,30 @@ impl RegistryClient {
             return Ok(archive);
         }
         user_log.status(format!("Downloading {name}@{version}"));
+        if restricted {
+            let (staged, cache_file) = stage_registry_cache_file(&cache_file)?;
+            let credentials = self
+                .credentials
+                .as_deref()
+                .context("Registry login is required")?
+                .clone();
+            super::external::download_archive(&RegistryDownloadRequest {
+                api: self.endpoints.api.clone(),
+                module: name.to_string(),
+                version: version.clone(),
+                checksum: expected_checksum.into(),
+                destination: staged.path().into(),
+                credentials,
+            })?;
+            // Recheck the bytes at the process boundary before publishing them.
+            let archive = open_verified_archive(staged.path(), expected_checksum)?
+                .context("mooncake returned a source archive with an invalid checksum")?;
+            drop(archive);
+            staged.as_file().sync_all()?;
+            let mut archive = staged.persist(cache_file).map_err(|error| error.error)?;
+            archive.rewind()?;
+            return Ok(archive);
+        }
         let url = self.endpoints.package_archive(name, version);
         let mut response = download::client_with_retry()?
             .get(url)
@@ -889,7 +883,8 @@ mod tests {
     use moonutil::{constants::MOON_LOCK, locks::lock_file};
 
     use super::*;
-    use crate::registry::Registry;
+    use crate::registry::{Registry, authentication::registry_authorization};
+    use moonutil::registry::{RegistryCredentials, registry_api_url};
 
     fn quiet_user_log() -> UserLog {
         UserLog::new(log::LevelFilter::Error)
@@ -905,6 +900,7 @@ mod tests {
                 legacy_asset_urls: false,
             },
             MoonHomeLayout::new(home.to_owned()),
+            &quiet_user_log(),
         );
         registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
         registry
@@ -915,6 +911,7 @@ mod tests {
         registry.metadata = MetadataBackend::Http(HttpMetadata::new(
             registry.endpoints.api.clone(),
             registry.home.clone(),
+            registry.credentials.clone(),
         ));
         registry
     }
@@ -1147,11 +1144,11 @@ mod tests {
     }
 
     #[test]
-    fn api_mode_resolves_public_releases_without_git_or_download_credentials() {
+    fn api_mode_authenticates_metadata_but_keeps_public_downloads_anonymous() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
-        save_test_login(home.path(), &api, "alice", "not-sent-by-public-metadata");
+        save_test_login(home.path(), &api, "alice", "metadata-only-token");
         let registry = http_test_registry(home.path(), &api);
         let name: ModuleName = "alice/public".into();
         let version = Version::new(0, 1, 0);
@@ -1184,10 +1181,11 @@ mod tests {
         );
         assert!(requests[1].starts_with("GET /user/alice/public/0.1.0.zip "));
         assert!(
-            requests
-                .iter()
-                .all(|request| !request.to_lowercase().contains("authorization:"))
+            requests[0]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer metadata-only-token")
         );
+        assert!(!requests[1].to_ascii_lowercase().contains("authorization:"));
         assert!(
             registry
                 .home
@@ -1199,6 +1197,134 @@ mod tests {
             "not valid registry metadata"
         );
         assert!(!registry.home.registry_dir().join("symbols").exists());
+    }
+
+    #[test]
+    fn private_cache_reuses_one_login_and_checks_new_clients_on_cache_hits() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "first-token");
+        let archive = b"cached source archive";
+        let checksum = sha256_hex(archive);
+        let body = serde_json::json!({
+            "module":"alice/secret", "visibility":"PRIVATE", "version":"0.1.0",
+            "deps":{}, "checksum":checksum,
+        })
+        .to_string();
+        let server = api_test_server(
+            listener,
+            vec![
+                (200, String::new(), body.clone()),
+                (200, String::new(), body),
+            ],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        // Capture the login at construction, before the first metadata request.
+        save_test_login(home.path(), &api, "bob", "other-token");
+        let name: ModuleName = "alice/secret".into();
+        let version = registry
+            .query_latest_version(&name, &quiet_user_log())
+            .unwrap();
+        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        registry
+            .refresh_version_info(&name, &version, &quiet_user_log())
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|r| {
+            r.to_ascii_lowercase()
+                .contains("authorization: bearer first-token")
+        }));
+
+        // Public and private sources use the same archive cache. A hit still
+        // requires the selected login and a matching checksum.
+        let archive_path = registry.home.registry_source_archive_path(&name, &version);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        std::fs::write(&archive_path, archive).unwrap();
+        let registry = registry.for_frozen_dependencies();
+        let cached = registry
+            .download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+            .unwrap();
+        assert_eq!(std::io::read_to_string(cached).unwrap().as_bytes(), archive);
+
+        let bob = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        assert!(bob.version_info(&name, &version).is_err());
+        assert!(bob.cached_latest_version(&name).is_err());
+        assert!(
+            bob.download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+                .is_err()
+        );
+        std::fs::remove_file(home.path().join("credentials.json")).unwrap();
+        let anonymous = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        assert!(anonymous.cached_version_info(&name, &version).is_err());
+        std::fs::write(home.path().join("credentials.json"), "invalid credentials").unwrap();
+        let anonymous = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        assert_eq!(
+            anonymous
+                .cached_version_info(&name, &version)
+                .unwrap_err()
+                .to_string(),
+            "Registry login is required for restricted modules"
+        );
+        save_test_login(home.path(), &api, "alice", "rotated-token");
+        let alice = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        assert!(alice.version_info(&name, &version).unwrap().is_some());
+        assert_eq!(
+            alice.cached_latest_version(&name).unwrap(),
+            Some(version.clone())
+        );
+        assert!(
+            alice
+                .download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+                .is_ok()
+        );
+        std::fs::write(&archive_path, b"different content").unwrap();
+        assert!(
+            alice
+                .download_or_use_cache(&name, &version, &checksum, &quiet_user_log())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn private_metadata_from_an_unbound_api_is_not_accepted_or_cached() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(
+            home.path(),
+            "https://origin.example",
+            "alice",
+            "origin-token",
+        );
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                serde_json::json!({
+                    "module":"alice/secret", "visibility":"PRIVATE", "version":"0.1.0",
+                    "deps":{}, "checksum":"a".repeat(64),
+                })
+                .to_string(),
+            )],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        let name = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        assert!(registry.version_info(&name, &version).is_err());
+        assert!(
+            registry
+                .cached_version_info(&name, &version)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !server.join().unwrap()[0]
+                .to_ascii_lowercase()
+                .contains("authorization:")
+        );
     }
 
     #[test]
@@ -1262,15 +1388,17 @@ mod tests {
 
     #[test]
     fn latest_queries_preserve_cached_immutable_release_content() {
-        for field in ["deps", "checksum"] {
+        for field in ["deps", "checksum", "visibility"] {
             let home = tempfile::tempdir().unwrap();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let api = format!("http://{}", listener.local_addr().unwrap());
+            save_test_login(home.path(), &api, "alice", "owner-token");
             let original = resolver_response("alice/public", "PUBLIC", "0.1.0");
             let mut changed: serde_json::Value = serde_json::from_str(&original).unwrap();
             changed[field] = match field {
                 "deps" => serde_json::json!({"alice/public": "0.2.0"}),
                 "checksum" => serde_json::json!("c".repeat(64)),
+                "visibility" => serde_json::json!("PRIVATE"),
                 _ => unreachable!(),
             };
             let server = api_test_server(
@@ -1290,6 +1418,7 @@ mod tests {
                 .unwrap_err();
             assert!(error.to_string().contains("immutable"), "{error:#}");
             assert!(registry.cached_latest_version(&name).unwrap().is_none());
+            std::fs::remove_file(home.path().join("credentials.json")).unwrap();
             // A rejected response must leave both memory and persisted metadata intact.
             for cached in [
                 registry.for_frozen_dependencies(),
@@ -1785,12 +1914,14 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+        let registry = api_test_registry(sandbox.path(), &api);
         registry.search("tools", 5).unwrap();
         std::fs::write(
             sandbox.path().join("credentials.json"),
             r#"{"token":"official-secret"}"#,
         )
         .unwrap();
+        let registry = api_test_registry(sandbox.path(), &api);
         registry.search("tools", 5).unwrap();
         for request in server.join().unwrap() {
             assert!(!request.to_ascii_lowercase().contains("authorization:"));
@@ -1802,7 +1933,6 @@ mod tests {
         let sandbox = tempfile::TempDir::new().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
-        let registry = api_test_registry(sandbox.path(), &api);
         std::fs::write(
             sandbox.path().join("credentials.json"),
             serde_json::json!({
@@ -1811,6 +1941,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+        let registry = api_test_registry(sandbox.path(), &api);
         let server = api_test_server(listener, vec![(200, String::new(), "artifact".to_owned())]);
         download_registry_asset(
             &download::client_with_retry().unwrap(),
@@ -1828,8 +1959,6 @@ mod tests {
         );
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
-        let (mut registry, name, version) = test_registry(&sandbox);
-        registry.endpoints.download = api.clone();
         std::fs::write(
             sandbox.path().join("credentials.json"),
             serde_json::json!({
@@ -1838,6 +1967,8 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+        let (mut registry, name, version) = test_registry(&sandbox);
+        registry.endpoints.download = api.clone();
         let archive = test_archive();
         let checksum = sha256_hex(&archive);
         let server = api_test_server(listener, vec![(200, String::new(), archive)]);
@@ -1861,7 +1992,6 @@ mod tests {
         let sandbox = tempfile::TempDir::new().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
-        let registry = api_test_registry(sandbox.path(), &api);
         std::fs::write(
             sandbox.path().join("credentials.json"),
             serde_json::json!({
@@ -1870,6 +2000,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+        let registry = api_test_registry(sandbox.path(), &api);
         let server = api_test_server(
             listener,
             vec![
@@ -1919,7 +2050,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_credentials_errors_do_not_include_secrets() {
+    fn invalid_authorization_errors_do_not_include_secrets() {
         let sandbox = tempfile::TempDir::new().unwrap();
         std::fs::write(
             sandbox.path().join("credentials.json"),
@@ -1937,13 +2068,46 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+        let registry = api_test_registry(sandbox.path(), "https://mooncakes.io");
         let error = format!("{:#}", registry.api_http_client().unwrap_err());
         assert!(!error.contains("test-secret"));
         assert!(!error.contains("X-Injected"));
         assert!(!error.contains("secret-invalid-address"));
-        std::fs::write(sandbox.path().join("credentials.json"), r#"{"token":"test-secret","username":"alice","registry_api":"https://mooncakes.io","unexpected":"#).unwrap();
-        let error = format!("{:#}", registry.api_http_client().unwrap_err());
-        assert!(!error.contains("test-secret"));
+    }
+
+    #[test]
+    fn invalid_credential_files_warn_and_leave_the_registry_anonymous() {
+        for is_directory in [false, true] {
+            let home = tempfile::tempdir().unwrap();
+            let path = home.path().join("credentials.json");
+            if is_directory {
+                std::fs::create_dir(path).unwrap();
+            } else {
+                std::fs::write(path, r#"{"token":"test-secret","unexpected":"#).unwrap();
+            }
+            let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+            let registry = RegistryClient::with_home(
+                RegistryConfig {
+                    api: "https://mooncakes.io".into(),
+                    index: String::new(),
+                    download: String::new(),
+                    symbols: None,
+                    legacy_asset_urls: false,
+                },
+                MoonHomeLayout::new(home.path().to_owned()),
+                &user_log,
+            );
+            assert!(registry.credentials.is_none());
+            assert!(registry.api_http_client().is_ok());
+            let warnings = capture.take();
+            assert_eq!(warnings.len(), 1);
+            assert!(
+                warnings[0]
+                    .message
+                    .starts_with("failed to load registry credentials; continuing without login: ")
+            );
+            assert!(!warnings[0].message.contains("test-secret"));
+        }
     }
 
     #[test]
@@ -2094,6 +2258,7 @@ mod tests {
                 legacy_asset_urls: false,
             },
             MoonHomeLayout::new(sandbox.path().to_path_buf()),
+            &quiet_user_log(),
         )
     }
 
@@ -2240,6 +2405,96 @@ mod tests {
 
         assert_eq!(path, cache_path);
         assert!(!cache_path.parent().unwrap().join(MOON_LOCK).exists());
+
+        // Existing public artifacts remain usable with HTTP and broken credentials.
+        std::fs::write(
+            sandbox.path().join("credentials.json"),
+            "invalid credentials",
+        )
+        .unwrap();
+        let registry =
+            http_test_registry(sandbox.path(), "https://mooncakes.io").for_frozen_dependencies();
+        assert_eq!(
+            registry
+                .acquire_executable_wasm("moonbitlang/parser/cmd/moonfmt@0.3.3", &quiet_user_log())
+                .unwrap(),
+            cache_path
+        );
+    }
+
+    #[test]
+    fn public_wasm_cache_survives_removing_http_metadata() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let wasm = b"\0asmtest";
+        let server = api_test_server(
+            listener,
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/tool", "PUBLIC", "0.1.0").into_bytes(),
+                ),
+                (200, String::new(), sha256_hex(wasm).into_bytes()),
+                (200, String::new(), wasm.to_vec()),
+            ],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        let path = registry
+            .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), wasm);
+        assert_eq!(server.join().unwrap().len(), 3);
+        let metadata = registry.home.registry_metadata_cache_dir();
+        if metadata.exists() {
+            std::fs::remove_dir_all(metadata).unwrap();
+        }
+        // A new invocation must not query the now-unavailable registry, whether
+        // metadata was cleared or persistence was disabled from the start.
+        let fresh = http_test_registry(home.path(), &api);
+        assert_eq!(
+            fresh
+                .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+                .unwrap(),
+            path
+        );
+    }
+
+    #[test]
+    fn private_prebuilt_wasm_download_remains_unsupported() {
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "owner-token");
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/tool", "PRIVATE", "0.1.0"),
+            )],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        let error = registry
+            .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Prebuilt artifacts are not available for restricted modules"
+        );
+        assert!(
+            !registry
+                .home
+                .registry_executable_artifact_path(
+                    &"alice/tool".into(),
+                    &Version::new(0, 1, 0),
+                    "",
+                    "tool.wasm",
+                )
+                .exists()
+        );
+        assert_eq!(server.join().unwrap().len(), 1);
     }
 
     #[test]
@@ -2262,6 +2517,7 @@ mod tests {
                         legacy_asset_urls: false,
                     },
                     home.clone(),
+                    &quiet_user_log(),
                 );
                 let start = Arc::clone(&start);
                 let download_count = Arc::clone(&download_count);
@@ -2475,6 +2731,7 @@ mod tests {
                     legacy_asset_urls: false,
                 },
                 home,
+                &quiet_user_log(),
             ),
             name,
             version,
@@ -2622,6 +2879,7 @@ mod tests {
                             legacy_asset_urls: false,
                         },
                         home,
+                        &quiet_user_log(),
                     );
                     barrier.wait();
                     registry.acquire_source_to(
@@ -2862,6 +3120,7 @@ mod tests {
                     legacy_asset_urls: false,
                 },
                 home,
+                &quiet_user_log(),
             );
             registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
             registry
@@ -2973,6 +3232,7 @@ mod tests {
                 legacy_asset_urls: false,
             },
             home.clone(),
+            &quiet_user_log(),
         );
         let version = Version::parse("0.2.1").unwrap();
         assert!(registry.version_info(&module, &version).unwrap().is_some());
@@ -3055,6 +3315,7 @@ mod tests {
                 legacy_asset_urls: false,
             },
             home,
+            &quiet_user_log(),
         );
         let mut roots = ResolvedRootModules::with_key();
         for (name, deps) in [

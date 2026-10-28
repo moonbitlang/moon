@@ -127,7 +127,7 @@ pub(crate) fn prepare(
         (built.executable, built.embedded_mbtx_policy)
     } else {
         (
-            RegistryClient::configured().acquire_executable_wasm(&input, user_log)?,
+            RegistryClient::configured(user_log).acquire_executable_wasm(&input, user_log)?,
             None,
         )
     };

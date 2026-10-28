@@ -91,7 +91,7 @@ pub(crate) fn run_runwasm(
     if cli.dry_run {
         bail!("--dry-run is not supported for Mooncakes assets in `moon runwasm`");
     }
-    let wasm_path = mooncake::registry::RegistryClient::configured()
+    let wasm_path = mooncake::registry::RegistryClient::configured(output.user_log())
         .acquire_executable_wasm(&cmd.package, output.user_log())?;
     super::registry_runner::prepare_artifact(
         &wasm_path,

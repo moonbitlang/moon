@@ -100,5 +100,9 @@ asset for that exact module version and package path. The client owns the
 transport URL, checksum verification, cache path, and atomic cache publication.
 A cache hit runs the cached wasm; a cache miss downloads and verifies it first.
 
-An asset cache miss does not trigger registry update. At that point the version
-has already been resolved.
+Private prebuilt downloads are not implemented yet, so existing cached artifacts
+come from public downloads. Artifact cache hits do not read registry metadata,
+including when `MOON_REGISTRY_CACHE=off` or after `moon clean --registry-cache`.
+In HTTP mode, a cache miss checks the selected release's visibility before
+downloading and rejects private releases. The cache itself is not partitioned by
+visibility. The Git backend does not update its index on an asset cache miss.

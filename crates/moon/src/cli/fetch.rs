@@ -50,7 +50,7 @@ pub(crate) fn fetch_cli(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let path = parse_module_path(&cmd.package_path)?;
-    let registry = RegistryClient::configured();
+    let registry = RegistryClient::configured(user_log);
 
     let allow_remote = !cmd.no_update;
     let module = registry_queries::resolve_module(

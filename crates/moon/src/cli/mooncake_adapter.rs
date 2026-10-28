@@ -149,8 +149,8 @@ pub(crate) fn deprecate_cli(
         }
         // Read the same live version list as `moon view`. The preview never
         // invokes the publishing backend or sends it a mutation request.
-        let manifest =
-            RegistryClient::configured().module_manifest(&cmd.module.as_str().into(), None)?;
+        let manifest = RegistryClient::configured(output.user_log())
+            .module_manifest(&cmd.module.as_str().into(), None)?;
         output
             .write_result(|writer| render_deprecation_preview(writer, &cmd, &manifest.versions))?;
         Ok(0)
