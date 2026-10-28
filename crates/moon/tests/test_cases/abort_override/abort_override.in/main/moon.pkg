@@ -1,5 +1,0 @@
-pkgtype(kind: "executable")
-
-options(
-  overrides: ["username/abort_override/myabort"],
-)

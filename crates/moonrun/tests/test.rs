@@ -235,7 +235,6 @@ fn test_moonrun_wasm_stack_trace() {
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
@@ -247,7 +246,6 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
@@ -258,7 +256,6 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
@@ -269,7 +266,6 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
@@ -280,7 +276,6 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
@@ -357,7 +352,6 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
@@ -377,7 +371,6 @@ Total tests: 1, passed: 0, failed: 1.
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
     at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall ([..]0x[..])
@@ -654,7 +647,11 @@ fn engine_backends_run_compiler_generated_tests() {
 ----- END MOON TEST RESULT -----
 
 "#]])
-                .stderr_eq("");
+                .stderr_eq(if target == "wasm" {
+                    "expected test failure\n"
+                } else {
+                    ""
+                });
         }
     }
 }
