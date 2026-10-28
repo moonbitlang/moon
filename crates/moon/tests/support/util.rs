@@ -268,93 +268,6 @@ pub(crate) fn core_package_interfaces(backend: TargetBackend) -> Vec<(String, Pa
     interfaces
 }
 
-fn core_import_specs(backend: TargetBackend) -> Vec<String> {
-    core_package_interfaces(backend)
-        .into_iter()
-        .map(|(package, _)| package)
-        .filter(|package| !package.split('/').any(|segment| segment == "internal"))
-        .map(|package| {
-            let name = package.rsplit('/').next().unwrap();
-            let alias = if package.starts_with("immut/") {
-                package.as_str()
-            } else {
-                name
-            };
-            format!("{package}/{name}.mi:{alias}")
-        })
-        .collect()
-}
-
-/// Collapse toolchain-owned `core` imports in dry-run commands to one marker.
-///
-/// Single-file builds import every public package in the installed core bundle.
-/// Validate that inventory before collapsing it so toolchain additions do not
-/// expand the snapshot without weakening the behavior under test.
-pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> String {
-    // These snapshots use one logical toolchain root for every installation layout.
-    let s = s.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME");
-    let expected_imports = core_import_specs(backend);
-    let bundle = core_bundle_for_tests(backend);
-    let mut bundle_prefixes = vec![format!("{}/", bundle.to_string_lossy().replace('\\', "/"))];
-    for root in [
-        moonutil::MOON_HOME.root().to_path_buf(),
-        toolchain_root_for_tests(),
-    ] {
-        if let Ok(relative) = bundle.strip_prefix(root) {
-            bundle_prefixes.push(format!(
-                "$MOON_HOME/{}/",
-                relative.to_string_lossy().replace('\\', "/")
-            ));
-        }
-    }
-
-    let mut lines = s.lines();
-    let command = lines.next().expect("missing single-file command");
-    let mut args = shlex::split(command).expect("invalid single-file command");
-    let imports_start = args
-        .iter()
-        .position(|arg| arg == "-i")
-        .expect("missing core imports");
-    let mut imports_end = imports_start;
-    while args.get(imports_end).is_some_and(|arg| arg == "-i") {
-        assert!(
-            args.get(imports_end + 1).is_some(),
-            "missing import after `-i`"
-        );
-        imports_end += 2;
-    }
-
-    let mut actual_imports = args[imports_start..imports_end]
-        .chunks_exact(2)
-        .map(|import| {
-            assert_eq!(import[0], "-i", "unexpected argument among core imports");
-            bundle_prefixes
-                .iter()
-                .find_map(|prefix| import[1].strip_prefix(prefix))
-                .expect("unexpected non-core import")
-                .to_owned()
-        })
-        .collect::<Vec<_>>();
-    actual_imports.sort();
-    assert_eq!(
-        actual_imports, expected_imports,
-        "single-file command must import every public core package exactly once"
-    );
-
-    args.splice(
-        imports_start..imports_end,
-        ["-i".to_owned(), "$MOON_HOME/lib/core/<imports>".to_owned()],
-    );
-    let mut output = std::iter::once(moonutil::shlex::join_unix(args.iter().map(String::as_str)))
-        .chain(lines.map(str::to_owned))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if s.ends_with('\n') {
-        output.push('\n');
-    }
-    output
-}
-
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     moon_test_util::test_dir::copy_tree(src, dest, true)
 }
@@ -472,9 +385,8 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{assert_command_matches, collapse_core_import_args, replace_dir};
+    use super::{assert_command_matches, replace_dir};
     use expect_test::expect;
-    use moonutil::target::TargetBackend;
 
     #[cfg(unix)]
     #[test]
@@ -554,32 +466,6 @@ mod tests {
             path.to_string_lossy().replace('\\', "/"),
         ] {
             assert_eq!(replace_dir(&spelling, dir.path()), "$ROOT/_build/main.mi");
-        }
-    }
-
-    #[test]
-    fn collapse_core_import_args_rejects_duplicate_and_non_core_imports() {
-        let backend = TargetBackend::WasmGC;
-        let bundle = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/";
-        let imports = super::core_import_specs(backend)
-            .into_iter()
-            .map(|import| format!("-i '{bundle}{import}'"))
-            .collect::<Vec<_>>();
-        let command = |extra_import: &str| {
-            format!(
-                "moonc build-package main.mbt {} {extra_import} -pkg-sources moon/test/single:.\n",
-                imports.join(" ")
-            )
-        };
-
-        for extra_import in [imports[0].as_str(), "-i ./local.mi:local"] {
-            assert!(
-                std::panic::catch_unwind(|| {
-                    collapse_core_import_args(&command(extra_import), backend)
-                })
-                .is_err(),
-                "accepted unexpected import: {extra_import}"
-            );
         }
     }
 

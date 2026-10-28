@@ -1947,9 +1947,11 @@ fn test_moon_run_pipe_input() {
     let moon = moon_bin().to_string_lossy().replace('\'', "'\\''");
     let script = format!(
         r#"MOON_BIN='{moon}'
-echo 'import {{
+echo '----
+import {{
   "moonbitlang/core/list",
 }}
+----
 fn main {{
   let xs : @list.List[Int] = @list.of([1, 2, 3])
   println("hello from run pipe \{{xs}}")
