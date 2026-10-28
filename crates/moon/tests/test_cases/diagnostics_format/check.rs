@@ -1,4 +1,6 @@
 use expect_test::expect;
+use moonutil::constants::MOON_WORK_ENV;
+use std::path::PathBuf;
 
 use crate::{TestDir, get_stderr, get_stdout, moon_cmd, util::check};
 
@@ -410,6 +412,46 @@ fn test_moon_check_complete_json_project_not_found() {
     );
     assert_eq!(report["summary"]["tasks_executed"], serde_json::Value::Null);
     assert_eq!(report["summary"]["moon_errors"], 1);
+}
+
+#[test]
+fn test_moon_check_complete_json_mbt_requires_project() {
+    for filename in ["script.mbt", "script.mbt.md"] {
+        let dir = TestDir::new_empty();
+        std::fs::write(dir.join(filename), "fn main {}\n").unwrap();
+        for path in [PathBuf::from(filename), dir.join(filename)] {
+            for workspace in ["auto", "off"] {
+                let report = parse_complete_json(
+                    moon_cmd(&dir)
+                        .env(MOON_WORK_ENV, workspace)
+                        .args(["check", "--json"])
+                        .arg(&path)
+                        .assert()
+                        .failure(),
+                );
+                assert_eq!(report["status"], "failure");
+                assert_eq!(report["diagnostics"], serde_json::json!([]));
+                assert_eq!(report["messages"].as_array().unwrap().len(), 1);
+                assert_eq!(report["messages"][0]["$message_type"], "moon");
+                assert_eq!(report["messages"][0]["level"], "error");
+                assert!(
+                    report["messages"][0]["message"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with(if workspace == "off" {
+                            "not in a Moon module (workspace mode is disabled by MOON_WORK=off"
+                        } else {
+                            "not in a Moon project"
+                        })
+                );
+                assert_eq!(report["summary"]["moon_errors"], 1);
+                assert_eq!(report["summary"]["diagnostic_errors"], 0);
+                assert_eq!(report["summary"]["tasks_executed"], serde_json::Value::Null);
+                assert!(!dir.join("_build").exists());
+                assert!(!dir.join(".mooncakes").exists());
+            }
+        }
+    }
 }
 
 #[test]

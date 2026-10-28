@@ -574,6 +574,41 @@ fn test_moon_build_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source()
 // ===== moon check command tests =====
 
 #[test]
+fn test_moon_check_file_selects_containing_package() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/selection\"\n").unwrap();
+    for package in ["selected", "other"] {
+        std::fs::create_dir(dir.join(package)).unwrap();
+        std::fs::write(dir.join(format!("{package}/moon.pkg")), "").unwrap();
+    }
+    std::fs::write(
+        dir.join("selected/definition.mbt"),
+        "pub fn value() -> Int { 42 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("selected/use.mbt"),
+        "test { assert_eq(value(), 42) }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("selected/use.mbt.md"),
+        "```mbt check\ntest { assert_eq(@selected.value(), 42) }\n```\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("other/invalid.mbt"), "not valid MoonBit").unwrap();
+
+    for filename in ["selected/use.mbt", "selected/use.mbt.md"] {
+        for path in [PathBuf::from(filename), dir.join(filename)] {
+            moon_cmd(&dir).arg("check").arg(path).assert().success();
+        }
+    }
+    assert!(!dir.join("selected/_build").exists());
+    assert!(!dir.join("_build/use.mbt").exists());
+    assert!(!dir.join("_build/use.mbt.md").exists());
+}
+
+#[test]
 fn test_moon_check_filter_by_path_success() {
     let dir = TestDir::new("test_filter/test_filter");
 
