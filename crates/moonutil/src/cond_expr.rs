@@ -164,19 +164,28 @@ fn test_001() {
 }
 
 #[test]
-fn llvm_file_condition_matches_native() {
+fn native_file_condition_matches_llvm() {
     for (source, expected_backends) in [
         (
-            r#""llvm""#,
+            r#""native""#,
             vec![TargetBackend::Native, TargetBackend::LLVM],
         ),
-        (r#""native""#, vec![TargetBackend::Native]),
+        (r#""llvm""#, vec![TargetBackend::LLVM]),
+        (
+            r#"["not", "native"]"#,
+            vec![
+                TargetBackend::Wasm,
+                TargetBackend::WasmGC,
+                TargetBackend::Js,
+            ],
+        ),
         (
             r#"["not", "llvm"]"#,
             vec![
                 TargetBackend::Wasm,
                 TargetBackend::WasmGC,
                 TargetBackend::Js,
+                TargetBackend::Native,
             ],
         ),
     ] {
