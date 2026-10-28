@@ -68,10 +68,18 @@ fn multi_backend_check_shares_the_package_prebuild_provider() {
 #[test]
 fn builtin_embed_handles_moon_path_with_spaces() {
     let dir = test_dir("unconsumed_output");
-    let moon_bin_dir = dir.join("moon bin");
-    std::fs::create_dir(&moon_bin_dir).expect("failed to create moon bin directory");
-    let moon = moon_bin_dir.join(format!("moon{}", std::env::consts::EXE_SUFFIX));
-    std::fs::copy(snapbox::cargo_bin!("moon"), &moon).expect("failed to copy moon executable");
+    let built_moon = snapbox::cargo_bin!("moon");
+    let moon_bin_dir = tempfile::Builder::new()
+        .prefix("moon bin ")
+        .tempdir_in(built_moon.parent().unwrap())
+        .expect("failed to create moon bin directory");
+    let moon = moon_bin_dir
+        .path()
+        .join(format!("moon{}", std::env::consts::EXE_SUFFIX));
+    // Keep both paths on the same filesystem so a hard link avoids Linux's
+    // ETXTBSY window for copied executables during concurrent process spawning.
+    // Unlike a symlink, it preserves spaces in std::env::current_exe().
+    std::fs::hard_link(built_moon, &moon).expect("failed to link moon executable");
 
     assert!(!dir.join("src/main/generated.txt").exists());
     snapbox::cmd::Command::new(&moon)
