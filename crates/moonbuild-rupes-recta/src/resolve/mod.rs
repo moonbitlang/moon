@@ -53,7 +53,7 @@ use moonutil::{
 };
 use tracing::instrument;
 
-use crate::mbtx::parse_mbtx_imports;
+use crate::single_file::parse_mbtx_imports;
 
 use crate::discover::special_case::inject_core_coverage_into_builtin;
 use crate::special_cases::CORE_MODULE_TUPLE;

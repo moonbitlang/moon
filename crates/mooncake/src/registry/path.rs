@@ -247,7 +247,7 @@ pub fn parse_package_at_version_path(input: &str) -> anyhow::Result<RegistryPath
     parse_install_style_path(path)?.with_version(Some(version))
 }
 
-/// Parse `username/module[/vN][@version][/package]` using the moonbit.import grammar.
+/// Parse `username/module[/vN][@version][/package]` as an import-style registry path.
 pub fn parse_front_matter_import_path(path: &str) -> anyhow::Result<RegistryPath> {
     if path.contains('@') {
         parse_module_at_version_path(path)
