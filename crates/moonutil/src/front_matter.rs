@@ -22,7 +22,12 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
 
-use crate::{constants::DOT_MBT_DOT_MD, package::Import};
+use crate::constants::DOT_MBT_DOT_MD;
+use crate::{
+    dependency::SourceDependencyInfo,
+    package::{Import, PkgJSONImport},
+    target::TargetBackend,
+};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct MbtMdHeader {
@@ -55,6 +60,81 @@ pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Opti
         None
     };
     Ok(front_matter_config)
+}
+
+/// YAML configuration at the start of a Markdown source file. An explicitly
+/// empty import list selects standalone mode; an absent import does not.
+#[derive(Debug, Default)]
+pub struct MbtMdFrontMatter {
+    pub imports: Option<PkgJSONImport>,
+    pub backend: Option<TargetBackend>,
+}
+
+impl MbtMdFrontMatter {
+    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read Markdown file `{}`", path.display()))?;
+        Self::parse(&content)
+            .with_context(|| format!("invalid Markdown front matter in `{}`", path.display()))
+    }
+
+    pub fn parse(content: &str) -> anyhow::Result<Self> {
+        #[derive(serde::Deserialize)]
+        struct Header {
+            #[serde(default, deserialize_with = "present")]
+            moonbit: Option<Section>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Section {
+            #[serde(default, deserialize_with = "present")]
+            deps: Option<IndexMap<String, SourceDependencyInfo>>,
+            #[serde(default, deserialize_with = "present")]
+            import: Option<PkgJSONImport>,
+            #[serde(default, deserialize_with = "present")]
+            backend: Option<String>,
+        }
+        // Optional fields may be absent, but a present null is not a valid
+        // import list, dependency map, backend, or moonbit section.
+        fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+            T: serde::Deserialize<'de>,
+        {
+            T::deserialize(deserializer).map(Some)
+        }
+
+        let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+        let mut lines = content.split_inclusive('\n');
+        let Some(first) = lines.next().filter(|line| line.trim_end() == "---") else {
+            return Ok(Self::default());
+        };
+        let start = first.len();
+        let mut end = start;
+        for line in lines {
+            if line.trim_end() == "---" {
+                let header: Option<Header> = serde_yaml::from_str(&content[start..end])?;
+                let Some(section) = header.and_then(|header| header.moonbit) else {
+                    return Ok(Self::default());
+                };
+                anyhow::ensure!(
+                    section.deps.is_none() || section.import.is_none(),
+                    "moonbit.deps and moonbit.import are mutually exclusive"
+                );
+                let backend = section
+                    .backend
+                    .as_deref()
+                    .map(TargetBackend::str_to_backend)
+                    .transpose()
+                    .context("invalid moonbit.backend")?;
+                return Ok(Self {
+                    imports: section.import,
+                    backend,
+                });
+            }
+            end += line.len();
+        }
+        anyhow::bail!("Unterminated Markdown front matter: expected a closing `---` line.")
+    }
 }
 
 /// Script declarations share the `moon.pkg` grammar. Permission values stay
@@ -222,7 +302,58 @@ fn extract_mbtx_import_source(content: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MbtxFrontMatter, extract_mbtx_front_matter, extract_mbtx_import_source};
+    use super::{
+        MbtMdFrontMatter, MbtxFrontMatter, extract_mbtx_front_matter, extract_mbtx_import_source,
+    };
+
+    #[test]
+    fn markdown_distinguishes_empty_and_absent_imports() {
+        for section in ["import: []", "import: {}"] {
+            let parsed =
+                MbtMdFrontMatter::parse(&format!("---\nmoonbit:\n  {section}\n---")).unwrap();
+            assert!(parsed.imports.is_some());
+        }
+        for source in [
+            "```mbt check\ntest {}\n```",
+            "---\n---",
+            "---\ntitle: A document\n---",
+            "---\nmoonbit:\n  deps: {example/lib: '1.2.3'}\n---",
+            "---\nmoonbit:\n  backend: js\n---",
+        ] {
+            assert!(MbtMdFrontMatter::parse(source).unwrap().imports.is_none());
+        }
+    }
+
+    #[test]
+    fn markdown_supports_blank_lines_crlf_and_bom() {
+        let parsed = MbtMdFrontMatter::parse(
+            "\u{feff}---\r\ntitle: Document\r\n\r\nmoonbit:\r\n  import: []\r\n  backend: js\r\n---\r\n```mbt check\r\n```\r\n",
+        ).unwrap();
+        assert!(parsed.imports.is_some());
+        assert_eq!(parsed.backend, Some(crate::target::TargetBackend::Js));
+    }
+
+    #[test]
+    fn markdown_rejects_invalid_configuration_even_without_imports() {
+        for source in [
+            "---\nmoonbit: [\n---",
+            "---\nmoonbit:\n  import: []",
+            "---\nmoonbit: invalid\n---",
+            "---\nmoonbit: null\n---",
+            "---\nmoonbit:\n  import: invalid\n---",
+            "---\nmoonbit:\n  import: null\n---",
+            "---\nmoonbit:\n  import: [42]\n---",
+            "---\nmoonbit:\n  import: [{alias: integer}]\n---",
+            "---\nmoonbit:\n  deps: invalid\n---",
+            "---\nmoonbit:\n  deps: {}\n  import: []\n---",
+            "---\nmoonbit:\n  backend: removed-backend\n---",
+            "---\nmoonbit:\n  backend: []\n---",
+            "---\nmoonbit:\n  backend: null\n---",
+            "---\nmoonbit:\n  import: []\n  import: {}\n---",
+        ] {
+            assert!(MbtMdFrontMatter::parse(source).is_err(), "{source}");
+        }
+    }
 
     #[test]
     fn parses_imports_and_permission_using_moon_pkg_grammar() {
