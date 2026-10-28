@@ -94,7 +94,13 @@ pub(crate) fn file_metadatas<'a>(
         } else {
             let (backend, remaining) = get_file_target_backend(without_mbt);
             let cond = MetadataCompileCondition {
-                backend: backend.map_or_else(|| TargetBackend::all().into(), |x| vec![x]),
+                backend: TargetBackend::all()
+                    .iter()
+                    .copied()
+                    .filter(|actual| {
+                        backend.is_none_or(|target| actual.matches_file_target(target))
+                    })
+                    .collect(),
                 optlevel: OptLevel::all().to_vec(),
             };
             (cond, remaining)
@@ -146,7 +152,7 @@ fn should_compile_using_filename_without_test_kind(
 
     let (backend, remaining) = get_file_target_backend(filename);
     if let Some(backend) = backend
-        && backend != actual_backend
+        && !actual_backend.matches_file_target(backend)
     {
         return None;
     }
@@ -186,4 +192,45 @@ pub enum FileTestKind {
     NoTest,
     Whitebox,
     Blackbox,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moonutil::{moon_pkg, package::convert_pkg_dsl_to_package, user_log::UserLog};
+
+    #[test]
+    fn llvm_filenames_match_native_in_selection_and_metadata() {
+        use TargetBackend::{Js, LLVM, Native};
+
+        let pkg = convert_pkg_dsl_to_package(
+            moon_pkg::parse("").expect("empty package should parse"),
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .expect("empty package should convert");
+
+        for (filename, expected_backends) in [
+            ("lib.llvm.mbt", vec![Native, LLVM]),
+            ("lib_test.llvm.mbt", vec![Native, LLVM]),
+            ("lib_wbtest.llvm.mbt", vec![Native, LLVM]),
+            ("lib.native.mbt", vec![Native]),
+            ("lib.js.mbt", vec![Js]),
+        ] {
+            let path = Path::new(filename);
+            let (_, _, metadata) = file_metadatas(&pkg, std::iter::once(path))
+                .next()
+                .expect("file should have metadata");
+            assert_eq!(metadata.backend, expected_backends, "{filename}");
+
+            for &optlevel in OptLevel::all() {
+                for &backend in TargetBackend::all() {
+                    let selected =
+                        classify_files(&pkg, std::iter::once(path), optlevel, backend).next();
+                    let expected = expected_backends.contains(&backend);
+                    assert_eq!(selected.is_some(), expected, "{filename}: {backend}");
+                    assert_eq!(metadata.eval(optlevel, backend), expected);
+                }
+            }
+        }
+    }
 }

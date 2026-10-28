@@ -91,6 +91,10 @@ so that the file will only be included when compiling to the given target platfo
 For example, `my_file.js.mbt` will only be included for building
 when the target platform is JavaScript (`moon build --target js`).
 
+The `llvm` suffix also matches the `native` backend: `my_file.llvm.mbt` is
+included for both `--target llvm` and `--target native`. The `native` suffix
+continues to match only `--target native`.
+
 Tests (`*_test.mbt`, `*_wbtest.mbt`) also accepts the same prefixes.
 In this case, the prefix is located between the test suffixes and extension,
 like `my_test.wasm.mbt` and `another_wbtest.native.mbt`.
@@ -128,7 +132,10 @@ Atoms are the basic building blocks of conditional expressions:
 - `"wasm"` - WebAssembly (MVP) backend
 - `"wasm-gc"` - WebAssembly with garbage collection backend
 - `"native"` - Native C backend
-- `"llvm"` - LLVM backend
+- `"llvm"` - LLVM or Native C backend
+
+This also applies inside logical expressions: `["not", "llvm"]` excludes
+both LLVM and Native builds. File metadata reports the same backend selection.
 
 **Optimization Level Atoms:**
 
