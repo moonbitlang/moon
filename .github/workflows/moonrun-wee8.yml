@@ -59,6 +59,7 @@ jobs:
           # Keep this feature's cache separate; native archives are staged by build.rs.
           shared-key: moonrun-wee8
           cache-targets: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install MoonBit (Unix)
         if: runner.os != 'Windows'
         run: |

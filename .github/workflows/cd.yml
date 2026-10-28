@@ -48,8 +48,14 @@ jobs:
         with:
           toolchain: 1.95.0
 
+      - name: Remove unused Rust toolchains
+        shell: bash
+        run: bash .github/scripts/prune-rust-toolchains.sh
+
       - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build
         run: cargo build --release
@@ -92,6 +98,10 @@ jobs:
           toolchain: 1.95.0
           targets: ${{ env.LINUX_TARGET }}
 
+      - name: Remove unused Rust toolchains
+        shell: bash
+        run: bash .github/scripts/prune-rust-toolchains.sh
+
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
@@ -100,7 +110,9 @@ jobs:
         run: cargo install --locked --version 0.22.1 cargo-zigbuild
 
       - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build
         run: cargo zigbuild --release --target "${LINUX_TARGET}.${LINUX_GLIBC_VERSION}"
