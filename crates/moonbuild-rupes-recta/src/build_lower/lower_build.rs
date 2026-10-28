@@ -21,6 +21,7 @@
 use std::{
     collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use moonutil::{
@@ -62,6 +63,20 @@ use super::{
     context::{ActionArtifacts, LoweringContext},
     moonc_command,
 };
+
+/// The package name under which `link-core` receives the stdlib source root.
+static STDLIB_PACKAGE: LazyLock<PackageFQN> =
+    LazyLock::new(|| PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty()));
+
+/// The inputs of one `moonc link-core` invocation.
+struct LinkCoreInputs<'a> {
+    /// The installed stdlib `.core` files, which n2 must observe explicitly.
+    stdlib_inputs: Vec<PathBuf>,
+    /// Every `.core` input in initialization order.
+    core_deps: Vec<PathBuf>,
+    /// The source root of each linked package, and of the stdlib.
+    package_sources: Vec<PackageSource<'a>>,
+}
 
 impl<'a> LoweringContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
@@ -655,57 +670,17 @@ impl<'a> LoweringContext<'a> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
-        let backend = self.opt.backend.target_backend();
-        // Installed stdlib `.core` files are not produced by any action, so
-        // n2 must observe them as extra inputs.
-        let mut stdlib_inputs = Vec::new();
-        let mut core_input_files = Vec::new();
-        // Linked core targets, including the stdlib packages they reach
-        for target in &info.linked_order {
-            let core_path = if self.packages.is_stdlib_package(target.package) {
-                let path = self
-                    .artifact_paths
-                    .core_of_build_target(self.packages, target, backend);
-                stdlib_inputs.push(path.clone());
-                path
-            } else {
-                artifacts.single_dependency_path_matching(|artifact| {
-                    matches!(
-                        artifact,
-                        ArtifactKey::CoreIr {
-                            package,
-                            target_kind,
-                        } if *package == target.package && *target_kind == target.kind
-                    )
-                })
-            };
-            core_input_files.push(core_path);
-        }
+        let LinkCoreInputs {
+            stdlib_inputs,
+            core_deps,
+            package_sources,
+        } = self.link_core_inputs(artifacts, info);
 
         let out_file = artifacts.single_output_path();
 
-        let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
-        // The stdlib module is described by a single source entry below.
-        let package_sources = info
-            .linked_order
-            .iter()
-            .filter(|target| !self.packages.is_stdlib_package(target.package))
-            .map(|target| {
-                let pkg = self.packages.get_package(target.package);
-                PackageSource {
-                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, target.kind),
-                    source_dir: pkg.root_path.as_path().into(),
-                }
-            })
-            .chain(self.opt.stdlib_path.as_ref().map(|p| PackageSource {
-                package_name: compiler::CompiledPackageName::new(&core_fqn, TargetKind::Source),
-                source_dir: p.into(),
-            }))
-            .collect::<Vec<_>>();
-
         let config_path = package.config_path();
         let cmd = compiler::MooncLinkCore {
-            core_deps: &core_input_files,
+            core_deps: &core_deps,
             main_package: compiler::CompiledPackageName {
                 fqn: &package.fqn,
                 kind: target.kind,
@@ -738,6 +713,68 @@ impl<'a> LoweringContext<'a> {
             extra_inputs,
             commandline,
         })
+    }
+
+    /// Collect the `.core` inputs of a `link-core` invocation in
+    /// initialization order, together with the source roots of their packages.
+    fn link_core_inputs(
+        &self,
+        artifacts: &ActionArtifacts,
+        info: &LinkCoreInfo,
+    ) -> LinkCoreInputs<'a> {
+        let backend = self.opt.backend.target_backend();
+        // Installed stdlib `.core` files are not produced by any action, so
+        // n2 must observe them as extra inputs.
+        let mut stdlib_inputs = Vec::new();
+        let mut core_deps = Vec::new();
+        // Linked core targets, including the stdlib packages they reach
+        for target in &info.linked_order {
+            let core_path = if self.packages.is_stdlib_package(target.package) {
+                let path = self
+                    .artifact_paths
+                    .core_of_build_target(self.packages, target, backend);
+                stdlib_inputs.push(path.clone());
+                path
+            } else {
+                artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(
+                        artifact,
+                        ArtifactKey::CoreIr {
+                            package,
+                            target_kind,
+                        } if *package == target.package && *target_kind == target.kind
+                    )
+                })
+            };
+            core_deps.push(core_path);
+        }
+
+        // The stdlib module is described by a single source entry below.
+        let package_sources = info
+            .linked_order
+            .iter()
+            .filter(|target| !self.packages.is_stdlib_package(target.package))
+            .map(|target| {
+                let pkg = self.packages.get_package(target.package);
+                PackageSource {
+                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, target.kind),
+                    source_dir: pkg.root_path.as_path().into(),
+                }
+            })
+            .chain(self.opt.stdlib_path.as_ref().map(|p| PackageSource {
+                package_name: compiler::CompiledPackageName::new(
+                    &STDLIB_PACKAGE,
+                    TargetKind::Source,
+                ),
+                source_dir: p.as_path().into(),
+            }))
+            .collect();
+
+        LinkCoreInputs {
+            stdlib_inputs,
+            core_deps,
+            package_sources,
+        }
     }
 
     fn get_wasm_config<'b>(
