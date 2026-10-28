@@ -285,14 +285,21 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn relay_attaches_the_policy_fd_to_one_command() {
-        use std::os::fd::AsRawFd;
+        use std::os::fd::{AsRawFd, FromRawFd};
         use std::os::unix::fs::MetadataExt;
 
-        // Exercise a multi-digit descriptor even when this test runs alone.
-        let _occupied_fds: Vec<_> = (0..10).map(|_| tempfile::tempfile().unwrap()).collect();
-        let transfer = policy(b"policy");
-        let fd = transfer.as_raw_fd();
-        assert!(fd >= 10);
+        // Request a multi-digit descriptor atomically: parallel tests may close
+        // low descriptors even while this test keeps other descriptors occupied.
+        let source = policy(b"policy");
+        let fd = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 10) };
+        assert!(
+            fd >= 10,
+            "policy fd duplication failed: {}",
+            io::Error::last_os_error()
+        );
+        // SAFETY: fcntl returned a new descriptor owned exclusively by this test.
+        let transfer = PolicyTransfer::from_file(unsafe { File::from_raw_fd(fd) }).unwrap();
+        drop(source);
         // Keep the anonymous file alive after the relay closes its descriptor.
         // This makes its identity stable even if another parallel test reuses
         // the descriptor number immediately.
