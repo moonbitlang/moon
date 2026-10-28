@@ -298,7 +298,8 @@ By default, running `moonrun` without `--policy` preserves existing behavior.
 Supplying a JSON file with `--policy <path>` enables an experimental policy
 system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
-deny that surface, and process spawning is disabled unless explicitly allowed.
+deny that surface, and process spawning and the controlling terminal are
+disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
 `moonbitlang/async` and moonrun's own non-WASI `__moonbit_*_unstable` FFI
 surfaces. WASI operations generally remain outside Moonrun Policy
@@ -307,8 +308,8 @@ exception: `environ_get` and `environ_sizes_get` expose the Runtime environment
 realized from the `env` policy. WASI descriptors, preopens, and other WASI
 operations are still configured separately from Moonrun Policy.
 
-An empty JSON object denies all policy-covered filesystem, network, and
-environment access:
+An empty JSON object denies all policy-covered filesystem, network,
+environment, process, and terminal access:
 
 ```json
 {}
@@ -328,7 +329,8 @@ To allow everything while still passing a policy file, use explicit wildcards:
     "connect": ["*:*"],
     "bind": ["*:*"]
   },
-  "process": { "spawn": true }
+  "process": { "spawn": true },
+  "tty": true
 }
 ```
 
@@ -374,6 +376,10 @@ alternatives.
 
 `process.spawn` and `process.allow` cannot be used together. Set
 `process.spawn = true` only as a coarse allow-all escape hatch.
+
+`tty = true` lets the program open the controlling terminal (`/dev/tty` on Unix,
+the console on Windows), switch it to raw mode, and write to it. Filesystem
+rules do not grant terminal access.
 
 These rules authorize the logical request, not the executable file eventually
 selected by the operating system. In particular, `PATH`, the working directory,

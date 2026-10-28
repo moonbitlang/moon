@@ -21,6 +21,7 @@
 mod console;
 mod runner;
 mod stat;
+mod tty;
 
 pub(crate) use stat::stdio_kind;
 
@@ -117,6 +118,20 @@ enum Kind {
     WriteConsole {
         file: Option<ResourceRef>,
         data: Vec<u16>,
+    },
+    TtyRead {
+        input: Option<ResourceRef>,
+        wakeup: Option<ResourceRef>,
+        len: u32,
+        result: Option<Vec<u8>>,
+    },
+    TtyReadConsoleInput {
+        input: Option<ResourceRef>,
+        wakeup: Option<ResourceRef>,
+        len: u32,
+        result: Option<Vec<u16>>,
+        // A resize read along with the returned input.
+        resized: bool,
     },
     FileKindByPath {
         parent: Option<ResourceRef>,
@@ -345,6 +360,33 @@ impl Job {
         }
     }
 
+    pub(crate) fn tty_read(input: ResourceRef, wakeup: ResourceRef, len: u32) -> Self {
+        Self {
+            kind: Kind::TtyRead {
+                input: Some(input),
+                wakeup: Some(wakeup),
+                len,
+                result: None,
+            },
+        }
+    }
+
+    pub(crate) fn tty_read_console_input(
+        input: ResourceRef,
+        wakeup: ResourceRef,
+        len: u32,
+    ) -> Self {
+        Self {
+            kind: Kind::TtyReadConsoleInput {
+                input: Some(input),
+                wakeup: Some(wakeup),
+                len,
+                result: None,
+                resized: false,
+            },
+        }
+    }
+
     pub(crate) fn file_kind_by_path(
         parent: Option<ResourceRef>,
         path: OsString,
@@ -538,6 +580,8 @@ impl Job {
             | Kind::Write { .. }
             | Kind::ReadConsole { .. }
             | Kind::WriteConsole { .. }
+            | Kind::TtyRead { .. }
+            | Kind::TtyReadConsoleInput { .. }
             | Kind::Fsync { .. }
             | Kind::Readdir { .. } => Ok(()),
         }
@@ -612,6 +656,27 @@ impl Job {
             Kind::WriteConsole { file, data } => match file.take() {
                 Some(file) => console::write(&file, data),
                 None => Err(AsyncHostError::Badf),
+            },
+            Kind::TtyRead {
+                input,
+                wakeup,
+                len,
+                result,
+            } => match (input.take(), wakeup.take()) {
+                (Some(input), Some(wakeup)) => tty::read(&input, &wakeup, *len, result),
+                _ => Err(AsyncHostError::Badf),
+            },
+            Kind::TtyReadConsoleInput {
+                input,
+                wakeup,
+                len,
+                result,
+                resized,
+            } => match (input.take(), wakeup.take()) {
+                (Some(input), Some(wakeup)) => {
+                    tty::read_console_input(&input, &wakeup, *len, result, resized)
+                }
+                _ => Err(AsyncHostError::Badf),
             },
             Kind::FileKindByPath {
                 parent,
@@ -692,6 +757,21 @@ impl Job {
             Kind::Realpath { path, result } => {
                 runner::run_realpath_job(std::mem::take(path), result)
             }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn cancellation_resource(&self) -> Option<ResourceRef> {
+        match &self.kind {
+            Kind::TtyReadConsoleInput { wakeup, .. } => wakeup.clone(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn tty_read_console_input_resized(&self) -> AsyncHostResult<bool> {
+        match &self.kind {
+            Kind::TtyReadConsoleInput { resized, .. } => Ok(*resized),
+            _ => Err(AsyncHostError::Badf),
         }
     }
 
@@ -794,10 +874,14 @@ impl Job {
         if job_error != 0 {
             return Ok(());
         }
-        let Kind::Read {
+        let (Kind::Read {
             result: Some(result),
             ..
-        } = &self.kind
+        }
+        | Kind::TtyRead {
+            result: Some(result),
+            ..
+        }) = &self.kind
         else {
             return Err(AsyncHostError::Badf);
         };
@@ -819,10 +903,14 @@ impl Job {
         if job_error != 0 {
             return Ok(());
         }
-        let Kind::ReadConsole {
+        let (Kind::ReadConsole {
             result: Some(result),
             ..
-        } = &self.kind
+        }
+        | Kind::TtyReadConsoleInput {
+            result: Some(result),
+            ..
+        }) = &self.kind
         else {
             return Err(AsyncHostError::Badf);
         };

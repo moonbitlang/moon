@@ -141,6 +141,7 @@ impl Job {
     pub(crate) fn cancellation_resource(&self) -> Option<crate::resource::ResourceRef> {
         match &self.payload {
             JobPayload::Process(job) => job.cancellation_resource(),
+            JobPayload::Filesystem(job) => job.cancellation_resource(),
             _ => None,
         }
     }

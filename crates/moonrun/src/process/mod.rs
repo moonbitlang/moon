@@ -339,8 +339,3 @@ impl HostProcess {
         }
     }
 }
-
-#[cfg(windows)]
-pub(crate) fn cancel_wait(cancel: &crate::resource::ResourceRef) -> AsyncHostResult<()> {
-    ambient::cancel_wait_for_process(cancel)
-}

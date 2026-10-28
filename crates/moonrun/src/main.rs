@@ -121,6 +121,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         options = options.preserve_current_signal_mask_for_children()?;
+        block_resize_signal()?;
     }
 
     let (signal_sender, signal_receiver) = signal_channel();
@@ -137,6 +138,24 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// Keep `SIGWINCH` pending for the terminal's resize source. The Linux
+/// `signalfd` only sees a signal that every thread blocks, so block it here
+/// before any thread exists. `SIGWINCH` is ignored by default, so nothing else
+/// observes the difference; children get the preserved mask.
+#[cfg(unix)]
+fn block_resize_signal() -> std::io::Result<()> {
+    let mut signal_set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    let error = unsafe {
+        libc::sigemptyset(&mut signal_set);
+        libc::sigaddset(&mut signal_set, libc::SIGWINCH);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &signal_set, std::ptr::null_mut())
+    };
+    if error != 0 {
+        return Err(std::io::Error::from_raw_os_error(error));
+    }
+    Ok(())
 }
 
 #[cfg(unix)]

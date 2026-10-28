@@ -857,17 +857,6 @@ pub(super) fn make_wait_for_process_cancel() -> AsyncHostResult<Resource> {
 }
 
 #[cfg(windows)]
-pub(super) fn cancel_wait_for_process(cancel: &ResourceRef) -> AsyncHostResult<()> {
-    use windows_sys::Win32::System::Threading::SetEvent;
-
-    if unsafe { SetEvent(cancel.as_handle()?.as_raw_handle()) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
 fn wait_for_process(
     handle: Option<ResourceRef>,
     pid: i32,
