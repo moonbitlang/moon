@@ -122,7 +122,7 @@ fn test_blackbox_failed() {
     // bbtest can not use private function in bbtest_import
     assert!(output.contains("Value _private_hello not found in package `A`"));
     // bbtest_import could no be used in _wbtest.mbt
-    assert!(output.contains("Package \"C\" not found in the loaded packages."));
+    assert!(output.contains("Cannot use @C: package C is not imported."));
 
     let output = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -137,7 +137,7 @@ fn test_blackbox_failed() {
     assert!(output.contains("Unused variable 'a'"));
     assert!(output.contains("Unused variable 'b'"));
     assert!(output.contains("Value _private_hello not found in package `A`"));
-    assert!(output.contains("Package \"C\" not found in the loaded packages."));
+    assert!(output.contains("Cannot use @C: package C is not imported."));
 }
 
 #[test]
