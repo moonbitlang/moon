@@ -86,33 +86,38 @@ impl ProcessContext {
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn register_exit(
+    pub(crate) fn observe_exit(
         &self,
         pid: i32,
-        poll: &crate::async_sys::internal::event_loop::poll::PollInstance,
+        create_wake: impl FnOnce() -> AsyncHostResult<Arc<std::task::Waker>>,
     ) -> AsyncHostResult<i32> {
         let entries = self.table.lock().unwrap();
         let entry = entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
-        if entry.info.parent != Some(self.pid) {
+        if entry.info.parent != Some(self.pid) || entry.waiting {
             return Err(AsyncHostError::PermissionDenied);
         }
-        // Serialize registration with publication so an exit cannot fall
-        // between checking completion and installing its kqueue notification.
+        // A supervisor can take the result only while entry.waiting is true.
+        // With the table locked and that claim excluded, None means pending,
+        // even on repeat registration. Exited alone does not imply TLS cleanup
+        // and join have finished.
         let result = entry.completion.result.lock().unwrap();
         if result.is_some() {
             return Ok(0);
         }
-        let notification =
-            crate::async_sys::internal::event_loop::poll::register_process_notification(poll, pid)?;
+        // Construct the Run-owned notifier only for an authorized, pending
+        // child. The caller must retain a strong Arc and construction must not
+        // re-enter the tree. Holding the result lock through registration
+        // excludes publication and lost wakeups.
+        let wake = Arc::downgrade(&create_wake()?);
         let mut notifications = entry.completion.notifications.lock().unwrap();
-        notifications.retain(|existing| existing.is_live());
+        notifications.retain(|notification| notification.strong_count() != 0);
         if !notifications
             .iter()
-            .any(|existing| existing.same_queue(&notification))
+            .any(|notification| notification.ptr_eq(&wake))
         {
-            notifications.push(notification);
+            notifications.push(wake);
         }
         Ok(1)
     }
@@ -406,6 +411,188 @@ mod tests {
         );
         // A signal racing completed teardown must not change the exit result.
         assert_eq!(context.terminate(pid.get(), libc::SIGINT), Ok(()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn completion_observers_survive_races_and_detach_independently() {
+        struct Notify(mpsc::Sender<i32>, i32);
+        impl std::task::Wake for Notify {
+            fn wake(self: Arc<Self>) {
+                self.0.send(self.1).unwrap();
+            }
+        }
+        for race in [false, true] {
+            let parent = VirtualPid(1);
+            let child = VirtualPid(2);
+            let completion = Arc::new(ProcessCompletion::default());
+            let context = ProcessContext {
+                pid: parent,
+                table: Arc::new(Mutex::new(BTreeMap::from([(
+                    child,
+                    Entry {
+                        info: ProcessInfo {
+                            pid: child,
+                            parent: Some(parent),
+                            state: ProcessState::Running,
+                        },
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                        completion: completion.clone(),
+                        waiting: false,
+                    },
+                )]))),
+            };
+            let (send, received) = mpsc::channel();
+            let cancelled = Arc::new(std::task::Waker::from(Arc::new(Notify(send.clone(), 1))));
+            let retained = Arc::new(std::task::Waker::from(Arc::new(Notify(send.clone(), 2))));
+            let concurrent = Arc::new(std::task::Waker::from(Arc::new(Notify(send, 3))));
+            assert_eq!(
+                context.observe_exit(child.get(), || Ok(cancelled.clone())),
+                Ok(1)
+            );
+            for _ in 0..2 {
+                assert_eq!(
+                    context.observe_exit(child.get(), || Ok(retained.clone())),
+                    Ok(1)
+                );
+            }
+            let claim = WaitClaim::new(context.table.clone(), child).unwrap();
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("claimed by supervisor")),
+                Err(AsyncHostError::PermissionDenied),
+            );
+            drop(claim);
+            drop(cancelled);
+            let pending = if race {
+                let barrier = Arc::new(std::sync::Barrier::new(2));
+                let start = barrier.clone();
+                let finished = completion.clone();
+                let publisher = std::thread::spawn(move || {
+                    start.wait();
+                    finished.publish(Ok(RunOutcome::Exited(23)));
+                });
+                barrier.wait();
+                let pending = context
+                    .observe_exit(child.get(), || Ok(concurrent.clone()))
+                    .unwrap();
+                publisher.join().unwrap();
+                pending
+            } else {
+                let pending = context
+                    .observe_exit(child.get(), || Ok(concurrent.clone()))
+                    .unwrap();
+                completion.publish(Ok(RunOutcome::Exited(23)));
+                pending
+            };
+            let mut notifications: Vec<_> = received.try_iter().collect();
+            notifications.sort();
+            assert_eq!(
+                notifications,
+                if pending == 1 { vec![2, 3] } else { vec![2] }
+            );
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("already complete")),
+                Ok(0)
+            );
+            // Taking the owned result must never turn the process back into
+            // an observable pending completion while the table entry remains.
+            let claim = WaitClaim::new(context.table.clone(), child).unwrap();
+            let result = completion.result.lock().unwrap().take();
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("result taken by supervisor")),
+                Err(AsyncHostError::PermissionDenied),
+            );
+            *completion.result.lock().unwrap() = result;
+            drop(claim);
+            // Observation never consumes the exit, even after its owner closes.
+            drop((retained, concurrent));
+            assert_eq!(context.read_exit(child.get(), Ok), Ok(23));
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("already reaped")),
+                Err(AsyncHostError::PermissionDenied),
+            );
+            assert!(context.table.lock().unwrap().is_empty());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parent_poll_owns_virtual_process_observation() {
+        use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
+
+        for finish in ["event", "ready", "closed"] {
+            let child = VirtualPid(2);
+            let completion = Arc::new(ProcessCompletion::default());
+            let context = ProcessContext {
+                pid: VirtualPid(1),
+                table: Arc::new(Mutex::new(BTreeMap::from([(
+                    child,
+                    Entry {
+                        info: ProcessInfo {
+                            pid: child,
+                            parent: Some(VirtualPid(1)),
+                            state: ProcessState::Running,
+                        },
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                        completion: completion.clone(),
+                        waiting: false,
+                    },
+                )]))),
+            };
+            let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+            assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
+            let runtime = Runtime::new(
+                None,
+                None,
+                None,
+                None,
+                WorkingDirectory::Ambient,
+                Stdio::Ambient,
+                Executable::unavailable(),
+                crate::signal_channel().1,
+                Some(context.clone()),
+                mask,
+            )
+            .unwrap();
+            let host = runtime.async_host();
+            let poll = host.poll_create().unwrap();
+            assert_eq!(host.poll_register_pid(poll, child.get()), Ok(1));
+            let observer = completion.notifications.lock().unwrap()[0].clone();
+            assert_eq!(host.poll_register_pid(poll, child.get()), Ok(1));
+            assert_eq!(completion.notifications.lock().unwrap().len(), 1);
+            assert_eq!(observer.strong_count(), 1);
+            let claim = WaitClaim::new(context.table.clone(), child).unwrap();
+            assert_eq!(
+                host.poll_register_pid(poll, child.get()),
+                Err(AsyncHostError::PermissionDenied)
+            );
+            assert_eq!(observer.strong_count(), 1);
+            drop(claim);
+
+            if finish == "closed" {
+                host.poll_destroy(poll).unwrap();
+                assert_eq!(observer.strong_count(), 0);
+                let replacement = host.poll_create().unwrap();
+                completion.publish(Ok(RunOutcome::Exited(23)));
+                assert_eq!(host.poll_wait(replacement, 0, &Default::default()), Ok(0));
+                host.poll_destroy(replacement).unwrap();
+            } else {
+                completion.publish(Ok(RunOutcome::Exited(23)));
+                if finish == "event" {
+                    assert_eq!(host.poll_wait(poll, 0, &Default::default()), Ok(1));
+                    let event = host.poll_get_event(poll, 0).unwrap();
+                    assert_eq!(host.poll_event_pid(event), Ok(child.get()));
+                    assert_eq!(host.poll_event_events(event), Ok(4));
+                }
+                assert_eq!(host.poll_register_pid(poll, child.get()), Ok(0));
+                assert_eq!(observer.strong_count(), 0);
+                assert_eq!(host.poll_wait(poll, 0, &Default::default()), Ok(0));
+                host.poll_destroy(poll).unwrap();
+            }
+            assert_eq!(context.read_exit(child.get(), Ok), Ok(23));
+        }
     }
 
     #[cfg(windows)]

@@ -126,10 +126,32 @@ struct ProcessCompletion {
     #[cfg(windows)]
     exit_code: std::sync::OnceLock<i32>,
     #[cfg(target_os = "macos")]
-    notifications: Mutex<Vec<crate::async_sys::internal::event_loop::poll::ProcessNotification>>,
+    // Observations belong to the waiting Run. The tree must not keep its
+    // notification resources alive after that Run closes its poll.
+    notifications: Mutex<Vec<std::sync::Weak<std::task::Waker>>>,
 }
 
 impl ProcessCompletion {
+    fn publish(&self, result: Result<RunOutcome, ProcessError>) {
+        let mut slot = self.result.lock().unwrap();
+        #[cfg(windows)]
+        self.exit_code.set(guest::exit_status(&result)).unwrap();
+        *slot = Some(result);
+        #[cfg(target_os = "macos")]
+        let notifications: Vec<_> = std::mem::take(&mut *self.notifications.lock().unwrap())
+            .into_iter()
+            .filter_map(|notification| notification.upgrade())
+            .collect();
+        drop(slot);
+        self.changed.notify_all();
+        // Listeners choose their transport. Never call them with completion
+        // locks held; collecting them under the result lock prevents lost wakes.
+        #[cfg(target_os = "macos")]
+        for notification in notifications {
+            notification.wake_by_ref();
+        }
+    }
+
     // Reserve a separate reaper before starting the Run: thread creation may
     // fail, and joining after Run exit can still block in native TLS cleanup.
     // Even is_finished() can be true before those destructors have returned.
@@ -150,19 +172,7 @@ impl ProcessCompletion {
                     Ok(result) => result.map_err(ProcessError::RunFailed),
                     Err(_) => Err(ProcessError::Panicked(pid)),
                 };
-                let mut result_slot = completion.result.lock().unwrap();
-                #[cfg(windows)]
-                completion
-                    .exit_code
-                    .set(guest::exit_status(&result))
-                    .unwrap();
-                *result_slot = Some(result);
-                #[cfg(target_os = "macos")]
-                for notification in completion.notifications.lock().unwrap().drain(..) {
-                    notification.notify();
-                }
-                drop(result_slot);
-                completion.changed.notify_all();
+                completion.publish(result);
             })?;
         Ok(sender)
     }

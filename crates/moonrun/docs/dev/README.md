@@ -180,8 +180,12 @@ SIGINT/SIGTERM/SIGHUP, SIGKILL and the signal-zero probe; Windows uses Ctrl-Brea
 for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
-Guest spawning is not yet supported. Ordinary Runs remain ambient. Each Run has its own
-reaper so blocked thread cleanup cannot delay other completions. Guest wait Jobs
+Guest spawning is not yet supported. Ordinary Runs remain ambient. The tree owns
+PIDs, child relationships, and one reaper per Run, so blocked thread cleanup
+cannot delay other completions. A parent Run owns its wait Jobs and poll
+registrations. On macOS, its kqueue notifier observes tree completion through a
+weak `Waker`; the tree neither owns the parent poll nor knows its transport.
+Guest wait Jobs
 are cancellable and only consume the result when the guest reads it. Dropping an
 unread Job preserves that result. Exiting parents leave children with the
 supervisor. `Terminating` does not promise
