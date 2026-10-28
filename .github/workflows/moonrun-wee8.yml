@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-latest]
+        os: [ubuntu-22.04, macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -56,7 +56,8 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          # Keep this feature's cache separate; native archives are staged by build.rs.
+          # Keep this cache separate and exclude target/, which holds libwee8.a
+          # (wee8.lib on Windows) and the downloaded native archives.
           shared-key: moonrun-wee8
           cache-targets: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
