@@ -516,7 +516,7 @@ fn test_standalone_mbtx_run_rejects_relative_dependency_cache() {
 
     moon_cmd(&dir)
         .env("MOON_DEP_CACHE", "relative")
-        .args(["run", "with_main.mbtx"])
+        .args(["run", "import_ok.mbtx"])
         .assert()
         .failure()
         .stderr_eq(

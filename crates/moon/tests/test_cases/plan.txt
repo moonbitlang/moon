@@ -50,7 +50,7 @@ Moon Commands and Tools
   - test_moon_check_json_output
   - test_moon_package_list
   - test_moon_run_with_cli_args
-  - test_moon_run_single_mbt_file
+  - test_moon_run_single_mbtx_file
   - test_moon_run_single_mbt_file_inside_a_pkg
   - test_run_doc_test
   - test_run_md_test
