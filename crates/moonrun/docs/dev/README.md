@@ -174,9 +174,13 @@ See `run_termination.rs` for the control contract and
 
 ## Virtual process supervision
 
-`VirtualProcessTree` gives Runs virtual PIDs. Guests can kill themselves or
-children and wait for direct children; spawning, soft signals and native process
-handles are not yet supported. Ordinary Runs remain ambient. Each Run has its own
+`VirtualProcessTree` gives Runs virtual PIDs. Guests can signal themselves or
+children and wait for direct children through existing async APIs. Unix supports
+SIGINT/SIGTERM/SIGHUP, SIGKILL and the signal-zero probe; Windows uses Ctrl-Break
+for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
+signals terminate only the target Run; accepted signals leave the grace period
+to the guest caller. Windows handles retain the exit status after reaping.
+Guest spawning is not yet supported. Ordinary Runs remain ambient. Each Run has its own
 reaper so blocked thread cleanup cannot delay other completions. Guest wait Jobs
 are cancellable and only consume the result when the guest reads it. Dropping an
 unread Job preserves that result. Exiting parents leave children with the

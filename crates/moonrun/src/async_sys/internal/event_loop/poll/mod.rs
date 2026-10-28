@@ -26,7 +26,7 @@ use crate::async_sys::internal::fd_util::stub::RawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
@@ -73,8 +73,10 @@ pub(crate) type PollEvent = libc::kevent;
 pub(crate) type PollEvent = windows_sys::Win32::System::IO::OVERLAPPED_ENTRY;
 
 pub(crate) struct PollInstance {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fd: OwnedFd,
+    #[cfg(target_os = "macos")]
+    fd: Arc<OwnedFd>,
     #[cfg(windows)]
     fd: Arc<OwnedHandle>,
     // poll/wait returns only a count. Later event accessor imports read the

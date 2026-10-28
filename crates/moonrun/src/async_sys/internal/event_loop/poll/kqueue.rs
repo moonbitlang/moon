@@ -37,7 +37,7 @@ ported_fns! {
             Err(last_native_error())
         } else {
             Ok(PollInstance {
-                fd: unsafe { OwnedFd::from_raw_fd(fd) },
+                fd: std::sync::Arc::new(unsafe { OwnedFd::from_raw_fd(fd) }),
                 raw_events: KeventBuffer(
                     vec![empty_kevent(); EVENT_BUFFER_SIZE].into_boxed_slice(),
                 ),
@@ -338,13 +338,93 @@ fn kqueue_result_events(event: &libc::kevent) -> i32 {
     if event.filter == libc::EVFILT_WRITE {
         return WRITE_EVENT;
     }
-    if event.filter == libc::EVFILT_PROC {
+    if event.filter == libc::EVFILT_PROC || event.filter == libc::EVFILT_USER {
         return PROCESS_EVENT;
     }
     if (event.flags & libc::EV_ERROR) != 0 {
         return READ_EVENT | WRITE_EVENT;
     }
     0
+}
+
+// One-shot virtual process events use a separate kqueue filter namespace.
+// A weak queue reference prevents completed/destroyed guest polls from being
+// retained by a long-running child; upgrading also protects against FD reuse.
+#[derive(Debug)]
+pub(crate) struct ProcessNotification {
+    queue: std::sync::Weak<OwnedFd>,
+    pid: i32,
+}
+
+impl ProcessNotification {
+    pub(crate) fn is_live(&self) -> bool {
+        self.queue.strong_count() != 0
+    }
+    pub(crate) fn same_queue(&self, other: &Self) -> bool {
+        self.queue.ptr_eq(&other.queue)
+    }
+    pub(crate) fn notify(self) {
+        use std::os::fd::AsRawFd;
+        if let Some(queue) = self.queue.upgrade() {
+            let event = new_kevent(
+                self.pid as _,
+                libc::EVFILT_USER,
+                0,
+                libc::NOTE_TRIGGER,
+                0,
+                None,
+            )
+            .unwrap();
+            // A previous notification may already have consumed this one-shot
+            // filter. Closed guest polls require no further notification.
+            loop {
+                let ret = unsafe {
+                    libc::kevent(
+                        queue.as_raw_fd(),
+                        &event,
+                        1,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                };
+                if ret >= 0 || last_errno() != libc::EINTR {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn register_process_notification(
+    instance: &PollInstance,
+    pid: i32,
+) -> AsyncHostResult<ProcessNotification> {
+    let event = new_kevent(
+        pid as _,
+        libc::EVFILT_USER,
+        libc::EV_ADD | libc::EV_ONESHOT,
+        0,
+        0,
+        None,
+    )?;
+    if unsafe {
+        libc::kevent(
+            instance.raw_fd(),
+            &event,
+            1,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null(),
+        )
+    } < 0
+    {
+        return Err(last_native_error());
+    }
+    Ok(ProcessNotification {
+        queue: std::sync::Arc::downgrade(&instance.fd),
+        pid,
+    })
 }
 
 fn new_kevent(

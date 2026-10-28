@@ -82,6 +82,10 @@ fn guest_process_control() {
             // OS, foreign, unrelated PIDs and process-group selectors must
             // all be rejected. An accidental OS kill would kill this bounded
             // subprocess, rather than the parent test runner.
+            #[cfg(unix)]
+            let signal = libc::SIGTERM;
+            #[cfg(windows)]
+            let signal = windows_sys::Win32::System::Console::CTRL_BREAK_EVENT as i32;
             for pid in [
                 std::process::id() as i32,
                 foreign.get(),
@@ -89,25 +93,31 @@ fn guest_process_control() {
                 0,
                 -1,
             ] {
-                let module = engine
+                for operation in [
+                    "call $kill".to_owned(),
+                    format!("i32.const {signal} call $terminate"),
+                ] {
+                    let module = engine
                     .compile(
                         "foreign.wasm",
                         wat::parse_str(format!(
                             r#"(module
                         (import "moonbitlang/async" "process/kill" (func $kill (param i32)))
-                        (func (export "_start") i32.const {pid} call $kill))"#
+                        (import "moonbitlang/async" "process/terminate" (func $terminate (param i32 i32)))
+                        (func (export "_start") i32.const {pid} {operation}))"#
                         ))
                         .unwrap(),
                     )
                     .unwrap();
-                let caller = tree.spawn(None, &module, RunOptions::default()).unwrap();
-                let ProcessError::RunFailed(error) = tree.wait(caller).unwrap_err() else {
-                    panic!("expected rejection by the guest process interface");
-                };
-                assert!(
-                    format!("{error:#}").contains("PermissionDenied"),
-                    "{error:#}"
-                );
+                    let caller = tree.spawn(None, &module, RunOptions::default()).unwrap();
+                    let ProcessError::RunFailed(error) = tree.wait(caller).unwrap_err() else {
+                        panic!("expected rejection by the guest process interface");
+                    };
+                    assert!(
+                        format!("{error:#}").contains("PermissionDenied"),
+                        "{error:#}"
+                    );
+                }
             }
             other.terminate(foreign, RunTermination::Exit(0)).unwrap();
             assert_eq!(other.wait(foreign).unwrap(), RunOutcome::Exited(0));

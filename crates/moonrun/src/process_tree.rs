@@ -19,6 +19,8 @@
 //! Supervision and guest process identity for concurrent Runs.
 
 mod guest;
+#[cfg(windows)]
+pub(crate) use guest::ProcessHandle;
 pub(crate) use guest::{ProcessContext, ProcessWait};
 
 use std::collections::BTreeMap;
@@ -108,6 +110,7 @@ pub enum ProcessError {
 struct Entry {
     info: ProcessInfo,
     terminator: RunTerminator,
+    signals: crate::SignalSender,
     completion: Arc<ProcessCompletion>,
     waiting: bool,
 }
@@ -118,6 +121,12 @@ struct ProcessCompletion {
     // table or a termination lock while holding it.
     result: Mutex<Option<Result<RunOutcome, ProcessError>>>,
     changed: Condvar,
+    // Windows handles retain the exit status even after a supervisor takes
+    // the owned Run result and removes the process from the tree.
+    #[cfg(windows)]
+    exit_code: std::sync::OnceLock<i32>,
+    #[cfg(target_os = "macos")]
+    notifications: Mutex<Vec<crate::async_sys::internal::event_loop::poll::ProcessNotification>>,
 }
 
 impl ProcessCompletion {
@@ -141,7 +150,18 @@ impl ProcessCompletion {
                     Ok(result) => result.map_err(ProcessError::RunFailed),
                     Err(_) => Err(ProcessError::Panicked(pid)),
                 };
-                *completion.result.lock().unwrap() = Some(result);
+                let mut result_slot = completion.result.lock().unwrap();
+                #[cfg(windows)]
+                completion
+                    .exit_code
+                    .set(guest::exit_status(&result))
+                    .unwrap();
+                *result_slot = Some(result);
+                #[cfg(target_os = "macos")]
+                for notification in completion.notifications.lock().unwrap().drain(..) {
+                    notification.notify();
+                }
+                drop(result_slot);
                 completion.changed.notify_all();
             })?;
         Ok(sender)
@@ -154,8 +174,8 @@ type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
 ///
 /// Each Run gets a thread, an owned environment (policy provisioning takes
 /// precedence), and a fixed cwd. Parent links do not imply configuration
-/// inheritance. Guests see their virtual PID and can wait for or kill their
-/// children. Guest spawning and native process-handle operations are not yet
+/// inheritance. Guests see their virtual PID and can signal or wait for their
+/// children through the existing async process API. Guest spawning is not yet
 /// supported in this mode; ordinary Engine Runs retain ambient process access.
 /// Native stacks retain at least the creator's size; Run startup checks the
 /// guest budget against the executing thread's remaining native stack.
@@ -234,6 +254,7 @@ impl VirtualProcessTree {
             table: Arc::clone(&self.table),
         });
         let (terminator, receiver) = termination_channel();
+        let (signals, signal_receiver) = crate::signal_channel();
         options.termination_receiver = Some(receiver);
         let engine = self.engine.clone();
         let module = module.clone();
@@ -250,7 +271,7 @@ impl VirtualProcessTree {
                     table: shared_table,
                     pid,
                 };
-                engine.run(&module, options)
+                engine.run_with_signal_receiver(&module, options, signal_receiver)
             })?;
         table.insert(
             pid,
@@ -261,6 +282,7 @@ impl VirtualProcessTree {
                     state: ProcessState::Running,
                 },
                 terminator,
+                signals,
                 completion,
                 waiting: false,
             },
@@ -521,6 +543,7 @@ mod tests {
                         state: ProcessState::Running,
                     },
                     terminator,
+                    signals: crate::signal_channel().0,
                     completion: process_completion,
                     waiting: false,
                 },

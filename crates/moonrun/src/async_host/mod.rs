@@ -1488,6 +1488,14 @@ impl AsyncHost {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_register_pid(&self, poll_handle: u64, pid: i32) -> AsyncHostResult<i32> {
+        if let Some(context) = self.process.context() {
+            let polls = self.polls.borrow();
+            let poll = polls
+                .polls
+                .get(key_from_handle(poll_handle))
+                .ok_or(AsyncHostError::Badf)?;
+            return context.register_exit(pid, &poll.instance);
+        }
         self.with_owned_child_pid(pid, || {
             let poll_key = key_from_handle(poll_handle);
             let polls = self.polls.borrow();
@@ -2520,6 +2528,28 @@ impl AsyncHost {
             return Ok(None);
         }
         self.process.process_handle_pid(handle)
+    }
+
+    pub(crate) fn open_virtual_process_handle(
+        &self,
+        pid: i32,
+    ) -> Option<AsyncHostResult<HostHandle>> {
+        let context = self.process.context()?;
+        Some((|| {
+            #[cfg(unix)]
+            {
+                // Validate direct-child authority without consuming its completion.
+                drop(context.wait(pid)?);
+                self.set_errno(0);
+                Ok(self.invalid_fd())
+            }
+            #[cfg(windows)]
+            {
+                Ok(self.handles.borrow_mut().insert_resource(Resource::process(
+                    crate::process_tree::ProcessHandle::open(context, pid)?,
+                )))
+            }
+        })())
     }
 
     pub(crate) fn make_wait_for_process_job(
