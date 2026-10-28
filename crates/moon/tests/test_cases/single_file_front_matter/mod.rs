@@ -2,6 +2,63 @@ use super::*;
 use std::{fs, thread, time::Duration};
 
 #[test]
+fn test_standalone_mbt_warns_to_migrate_to_mbtx() {
+    let dir = TestDir::new_empty();
+    for command in ["check", "test", "run"] {
+        // Legacy `.mbt` tests are libraries; scripts use an explicit main.
+        let source = if command == "test" {
+            "test { assert_eq(1, 1) }\n"
+        } else {
+            "fn main { println(\"hello\") }\ntest { assert_eq(1, 1) }\n"
+        };
+        fs::write(dir.join("script.mbt"), source).unwrap();
+        let stderr = get_stderr(&dir, [command, "script.mbt"]);
+        assert!(
+            stderr.contains("Standalone `.mbt` files are deprecated. Use `.mbtx` for scripts"),
+            "stderr: {stderr}"
+        );
+    }
+
+    fs::rename(dir.join("script.mbt"), dir.join("script.mbtx")).unwrap();
+    for command in ["check", "test", "run"] {
+        let stderr = get_stderr(&dir, [command, "script.mbtx"]);
+        assert!(!stderr.contains("deprecated"), "stderr: {stderr}");
+    }
+}
+
+#[test]
+fn test_single_file_requires_explicit_core_imports() {
+    let dir = TestDir::new_empty();
+    // The compiler still accepts undeclared core packages with warning 71.
+    // Promote it to an error to verify the same import rules as normal packages.
+    for header in ["", "----\nimport {}\n----\n"] {
+        fs::write(
+            dir.join("script.mbtx"),
+            format!("{header}fn main {{ println(@int.MAX_VALUE) }}\n"),
+        )
+        .unwrap();
+        for command in ["build", "check", "test", "run"] {
+            let stderr = get_err_stderr(&dir, [command, "script.mbtx", "--deny-warn"]);
+            assert!(
+                stderr.contains("Package `int` from `moonbitlang/core/` is used without import."),
+                "stderr: {stderr}"
+            );
+        }
+    }
+
+    fs::write(
+        dir.join("script.mbtx"),
+        "----\nimport { \"moonbitlang/core/int\" }\n----\nfn main { println(@int.MAX_VALUE) }\n",
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["run", "script.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("2147483647\n");
+}
+
+#[test]
 fn test_single_file_front_matter_import_ok() {
     let dir = TestDir::new("moon_test_single_file.in");
     let _ = get_stdout(&dir, ["check", "front_matter_import_ok.mbt.md"]);
@@ -15,7 +72,7 @@ fn test_single_file_front_matter_import_missing_dep() {
 }
 
 #[test]
-fn test_single_file_front_matter_import_replaces_import_all() {
+fn test_single_file_front_matter_import_selects_declared_packages() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(
         &dir,
@@ -30,21 +87,35 @@ fn test_single_file_front_matter_import_replaces_import_all() {
 }
 
 #[test]
-fn test_single_file_front_matter_deps_only_keeps_legacy_import_all_with_warning() {
+fn test_single_file_front_matter_dependency_requires_explicit_import() {
     let dir = TestDir::new("moon_test_single_file.in");
-    let _ = get_stdout(
-        &dir,
-        ["check", "front_matter_deps_only.mbt.md", "--dry-run"],
+    let path = dir.join("front_matter_import_version.mbt.md");
+    let source = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        source.replace(
+            "  import:\n    - moonbitlang/async@0.21.2/aqueue",
+            "  deps:\n    moonbitlang/async: 0.21.2",
+        ),
+    )
+    .unwrap();
+    let stderr = get_err_stderr(&dir, ["check", "front_matter_import_version.mbt.md"]);
+    assert!(
+        stderr.contains("package aqueue is not imported."),
+        "stderr: {stderr}"
     );
 
-    let stderr = get_stderr(
+    fs::write(path, source).unwrap();
+    let stdout = get_stdout(
         &dir,
-        ["check", "front_matter_deps_only.mbt.md", "--dry-run"],
+        ["check", "front_matter_import_version.mbt.md", "--dry-run"],
     );
+    assert!(stdout.contains("aqueue/aqueue.mi:aqueue"));
+    assert!(!stdout.contains("gzip/gzip.mi"));
+
+    let stderr = get_stderr(&dir, ["check", "front_matter_import_version.mbt.md"]);
     assert!(
-        stderr.contains(
-            "moonbit.deps without moonbit.import: importing all packages (legacy behavior)."
-        ),
+        !stderr.contains("importing all packages"),
         "stderr: {stderr}"
     );
 }
@@ -391,12 +462,12 @@ fn test_single_file_mbtx_run_does_not_warn_about_supported_targets() {
 }
 
 #[test]
-fn test_standalone_mbt_run_rejects_relative_dependency_cache() {
+fn test_standalone_mbtx_run_rejects_relative_dependency_cache() {
     let dir = TestDir::new("moon_test_single_file.in");
 
     moon_cmd(&dir)
         .env("MOON_DEP_CACHE", "relative")
-        .args(["run", "with_main.mbt"])
+        .args(["run", "with_main.mbtx"])
         .assert()
         .failure()
         .stderr_eq(
@@ -430,7 +501,8 @@ fn test_single_file_run_inputs_share_immutable_dependency_sources() {
 
     moon_cmd(&inline_dir)
         .env("MOON_DEP_CACHE", dependency_cache.path())
-        .args(["run", "--frozen", "-e", &source])
+        .args(["run", "--frozen"])
+        .arg(format!("-e={source}"))
         .assert()
         .success()
         .stdout_eq("hello\n");

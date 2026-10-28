@@ -167,18 +167,14 @@ struct FrontMatterImports {
     imports: Vec<Import>,
 }
 
+#[derive(Default)]
 struct FrontMatterConfig {
     deps_to_sync: Option<IndexMap<String, SourceDependencyInfo>>,
-    package_imports: Option<Vec<Import>>,
-    warn_import_all: bool,
+    package_imports: Vec<Import>,
 }
 
 fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<FrontMatterConfig> {
-    let mut config = FrontMatterConfig {
-        deps_to_sync: None,
-        package_imports: None,
-        warn_import_all: false,
-    };
+    let mut config = FrontMatterConfig::default();
 
     let Some(moonbit) = header.and_then(|h| h.moonbit.as_ref()) else {
         return Ok(config);
@@ -190,12 +186,11 @@ fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<F
         }
         (Some(deps), None) => {
             config.deps_to_sync = Some(deps.clone());
-            config.warn_import_all = true;
         }
         (None, Some(_)) => {
             let imports = parse_front_matter_imports(moonbit.import.clone())?;
             config.deps_to_sync = Some(imports.deps);
-            config.package_imports = Some(imports.imports);
+            config.package_imports = imports.imports;
         }
         (None, None) => {}
     }
@@ -466,18 +461,18 @@ pub fn discover_single_file_project(
     } else {
         SingleFileSourceKind::Mbt
     };
+    if source_kind == SingleFileSourceKind::Mbt {
+        user_log.warn(
+            "Standalone `.mbt` files are deprecated. Use `.mbtx` for scripts and declare imports in front matter.",
+        );
+    }
     let (header, front_matter_config) = if source_kind == SingleFileSourceKind::Mbtx {
         let imports = parse_mbtx_imports(source_file, user_log)
             .map_err(ProjectPreparationError::SingleFileParseError)?;
-        let mut config = FrontMatterConfig {
-            deps_to_sync: None,
-            package_imports: None,
-            warn_import_all: false,
+        let config = FrontMatterConfig {
+            deps_to_sync: Some(imports.deps),
+            package_imports: imports.imports,
         };
-        if !imports.deps.is_empty() || !imports.imports.is_empty() {
-            config.deps_to_sync = Some(imports.deps);
-            config.package_imports = Some(imports.imports);
-        }
         (None, config)
     } else {
         let header = parse_front_matter_config(source_file)
@@ -497,13 +492,6 @@ pub fn discover_single_file_project(
         .context("Unable to parse target backend from front matter")
         .map_err(ProjectPreparationError::SingleFileParseError)?;
 
-    if front_matter_config.warn_import_all {
-        user_log.warn(
-            "moonbit.deps without moonbit.import: importing all packages (legacy behavior). \
-Use moonbit.import with 'username/module@version[/package]' entries to opt in to explicit imports.",
-        );
-    }
-
     let (module_graph, dir_sync_result) = auto_sync_for_single_file_rr(
         dirs,
         &cfg.sync_flags,
@@ -515,7 +503,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     .map_err(ProjectPreparationError::SyncModulesError)?;
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
-    // Synthesize the single-file package that imports everything from discovered modules
+    // Synthesize the single-file package with only its declared imports.
     crate::discover::synth::build_synth_single_file_package(
         source_file,
         source_kind,

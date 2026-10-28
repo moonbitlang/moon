@@ -1,3 +1,5 @@
+fn main {}
+
 
 fn _hello() -> Unit {
   println("------------------ in main ------------------")

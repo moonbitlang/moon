@@ -16,7 +16,7 @@ fn test_mbtx_symlink_preserves_script_semantics() {
 
     std::fs::write(
         dir.join("sources/source.mbt"),
-        "import { \"moonbitlang/core/int\", }\nfn main { println(\"script main ran\") }\ntest { assert_eq(@int.MAX_VALUE, 2147483647) }\n",
+        "----\nimport { \"moonbitlang/core/int\", }\n----\nfn main { println(\"script main ran\") }\ntest { assert_eq(@int.MAX_VALUE, 2147483647) }\n",
     )
     .unwrap();
     moon_cmd(&dir)
@@ -40,33 +40,14 @@ fn test_mbtx_symlink_preserves_script_semantics() {
 
 #[cfg(unix)]
 #[test]
-fn test_mbt_symlink_preserves_library_semantics() {
-    let dir = TestDir::new_empty();
-    std::fs::create_dir(dir.join("sources")).unwrap();
-    std::fs::write(
-        dir.join("sources/source.mbtx"),
-        "test { assert_eq(1, 1) }\n",
-    )
-    .unwrap();
-    std::os::unix::fs::symlink("sources/source.mbtx", dir.join("alias.mbt")).unwrap();
-
-    moon_cmd(&dir)
-        .args(["test", "alias.mbt"])
-        .assert()
-        .success()
-        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
-}
-
-#[cfg(unix)]
-#[test]
-fn test_markdown_symlink_preserves_source_format() {
+fn test_markdown_symlink_preserves_source_format_and_library_semantics() {
     let dir = TestDir::new_empty();
     std::fs::write(
-        dir.join("source.mbt"),
+        dir.join("source.mbtx"),
         "---\nmoonbit:\n  backend: js\n---\n```mbt check\ntest { assert_eq(1, 1) }\n```\n",
     )
     .unwrap();
-    std::os::unix::fs::symlink("source.mbt", dir.join("alias.mbt.md")).unwrap();
+    std::os::unix::fs::symlink("source.mbtx", dir.join("alias.mbt.md")).unwrap();
 
     moon_cmd(&dir)
         .args(["test", "alias.mbt.md"])
@@ -91,9 +72,11 @@ fn test_mbtx_runs_tests_without_running_main() {
     let dir = TestDir::new_empty();
     std::fs::write(
         dir.join("script.mbtx"),
-        r#"import {
+        r#"----
+import {
   "moonbitlang/core/int",
 }
+----
 
 fn main { println("script main must not run") }
 
@@ -290,19 +273,16 @@ fn test_mbtx_directory_selects_package() {
 }
 
 #[test]
-fn test_single_mbt_tests_do_not_require_main() {
+fn test_markdown_tests_do_not_require_main() {
     let dir = TestDir::new_empty();
-    std::fs::write(dir.join("test.mbt"), "test { assert_eq(1, 1) }\n").unwrap();
     std::fs::write(
         dir.join("test.mbt.md"),
         "```mbt check\ntest { assert_eq(1, 1) }\n```\n",
     )
     .unwrap();
-    for file in ["test.mbt", "test.mbt.md"] {
-        moon_cmd(&dir)
-            .args(["test", file])
-            .assert()
-            .success()
-            .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
-    }
+    moon_cmd(&dir)
+        .args(["test", "test.mbt.md"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 }

@@ -125,7 +125,7 @@ fn test_tracing_value_for_single_file() {
     // single file
     let dir = TestDir::new("tracing_value.in");
 
-    let content = get_stdout(&dir, ["run", "./main.mbt", "--enable-value-tracing"])
+    let content = get_stdout(&dir, ["run", "./main.mbtx", "--enable-value-tracing"])
         .split("######MOONBIT_VALUE_TRACING_START######")
         .filter(|l| !(l.contains("__generated_driver_for")))
         .collect::<Vec<_>>()
@@ -135,21 +135,21 @@ fn test_tracing_value_for_single_file() {
         expect![[r#"
 
 
-            {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbtx", "value": "$placeholder"}
             ######MOONBIT_VALUE_TRACING_CONTENT_START######
             1
             ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
 
 
-            {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbtx", "value": "$placeholder"}
             ######MOONBIT_VALUE_TRACING_CONTENT_START######
             2
             ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
 
 
-            {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbtx", "value": "$placeholder"}
             ######MOONBIT_VALUE_TRACING_CONTENT_START######
             3
             ######MOONBIT_VALUE_TRACING_CONTENT_END######
@@ -169,18 +169,18 @@ fn test_tracing_value_for_single_file_dry_run() {
             "run",
             "--target",
             "wasm-gc",
-            "./main.mbt",
+            "./main.mbtx",
             "--enable-value-tracing",
             "--dry-run",
         ],
     );
 
     check(
-        collapse_core_import_args(&output, TargetBackend::WasmGC),
+        output.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME"),
         expect![[r#"
-            moonc build-package ./main.mbt -o ./_build/main.mbt/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/<imports>' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -enable-value-tracing -workspace-path . -all-pkgs ./_build/main.mbt/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/main.mbt/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/main.mbt/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
-            '$MOONRUN_OVERRIDE' ./_build/main.mbt/wasm-gc/debug/build/single/single.wasm --
+            moonc build-package ./main.mbtx -ignore-import-declaration -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -enable-value-tracing -workspace-path . -all-pkgs ./_build/main.mbtx/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            '$MOONRUN_OVERRIDE' ./_build/main.mbtx/wasm-gc/debug/build/single/single.wasm --
         "#]],
     );
 }

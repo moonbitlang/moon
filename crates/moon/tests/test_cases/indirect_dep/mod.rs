@@ -15,11 +15,14 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
         })
         .collect::<Vec<_>>();
     actual_core_packages.sort();
-    assert_eq!(
-        actual_core_packages,
-        core_package_interfaces(TargetBackend::WasmGC),
-        "all_pkgs.json does not match the installed core package interfaces"
-    );
+    // Metadata lists every discovered package, including packages unsupported
+    // on WasmGC. Only packages supported by this backend have bundled interfaces.
+    for interface in core_package_interfaces(TargetBackend::WasmGC) {
+        assert!(
+            actual_core_packages.binary_search(&interface).is_ok(),
+            "all_pkgs.json is missing the installed core package interface {interface:?}"
+        );
+    }
 
     // Standard library membership follows the installed toolchain and is
     // unrelated to the indirect project dependencies covered here.

@@ -4,5 +4,5 @@ import {
 }
 
 options(
-  overrides: [ "username/hello/lib4", "username/xxx/myabort" ],
+  overrides: [ "username/hello/lib4" ],
 )

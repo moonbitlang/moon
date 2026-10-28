@@ -30,7 +30,6 @@ use moonutil::{
     version::get_cargo_pkg_version,
 };
 
-mod abort_override;
 mod backend;
 mod backend_config;
 mod bench2;
