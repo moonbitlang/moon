@@ -107,6 +107,7 @@ mod run_profile;
 mod simple_pkg;
 mod single_file;
 mod single_file_front_matter;
+mod single_file_markdown;
 mod single_file_test;
 mod snapshot_testing;
 mod source_directory;
