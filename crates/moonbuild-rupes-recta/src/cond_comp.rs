@@ -200,7 +200,7 @@ mod tests {
     use moonutil::{moon_pkg, package::convert_pkg_dsl_to_package, user_log::UserLog};
 
     #[test]
-    fn llvm_filenames_match_native_in_selection_and_metadata() {
+    fn native_filenames_match_llvm_in_selection_and_metadata() {
         use TargetBackend::{Js, LLVM, Native};
 
         let pkg = convert_pkg_dsl_to_package(
@@ -210,10 +210,12 @@ mod tests {
         .expect("empty package should convert");
 
         for (filename, expected_backends) in [
-            ("lib.llvm.mbt", vec![Native, LLVM]),
-            ("lib_test.llvm.mbt", vec![Native, LLVM]),
-            ("lib_wbtest.llvm.mbt", vec![Native, LLVM]),
-            ("lib.native.mbt", vec![Native]),
+            ("lib.native.mbt", vec![Native, LLVM]),
+            ("lib_test.native.mbt", vec![Native, LLVM]),
+            ("lib_wbtest.native.mbt", vec![Native, LLVM]),
+            ("lib.llvm.mbt", vec![LLVM]),
+            ("lib_test.llvm.mbt", vec![LLVM]),
+            ("lib_wbtest.llvm.mbt", vec![LLVM]),
             ("lib.js.mbt", vec![Js]),
         ] {
             let path = Path::new(filename);

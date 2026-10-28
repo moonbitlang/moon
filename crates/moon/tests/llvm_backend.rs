@@ -17,6 +17,43 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[test]
+fn native_file_conditions_match_compiler_cfg_on_llvm() {
+    let project = tempfile::tempdir().unwrap();
+    for (name, contents) in [
+        ("moon.mod", "name = \"test/llvm\"\n"),
+        (
+            "moon.pkg",
+            "options(targets: { \"provider.mbt\": [\"native\"] })\n",
+        ),
+        ("provider.mbt", "pub fn from_manifest() -> Int { 1 }\n"),
+        (
+            "provider.native.mbt",
+            "pub fn from_filename() -> Int { 2 }\n",
+        ),
+        (
+            "consumer.mbt",
+            "#cfg(target=\"native\")\npub fn answer() -> Int { from_manifest() + from_filename() }\n",
+        ),
+    ] {
+        std::fs::write(project.path().join(name), contents).unwrap();
+    }
+
+    // The compiler enables native declarations for LLVM too, so file selection
+    // must retain their implementations without requiring an installed stdlib.
+    for backend in ["native", "llvm"] {
+        snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+            .current_dir(project.path())
+            .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+            .env("MOON_DEP_CACHE", "off")
+            .env("MOON_WORK", "off")
+            .args(["check", "--nostd", "--target", backend])
+            .assert()
+            .success()
+            .stdout_eq("");
+    }
+}
+
+#[test]
 fn missing_llvm_prelude_reports_an_actionable_error() {
     let project = tempfile::tempdir().unwrap();
     std::fs::write(project.path().join("moon.mod"), "name = \"test/llvm\"\n").unwrap();
