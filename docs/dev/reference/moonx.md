@@ -83,6 +83,13 @@ packages.
 The resulting Wasm artifact then uses the same moonx execution path as a
 registry Wasm artifact.
 
+Scripts use only explicitly declared package imports. Omitting imports, an empty
+`import {}`, or a permission-only header leaves the package import list empty;
+language builtins and the ordinary prelude remain available. For example, using
+`@env` requires an explicit `"moonbitlang/core/env"` import. The same rule applies
+to `moon build`, `moon check`, `moon test`, `moon run`, stdin, `-e`, and prebuild
+scripts through their shared standalone project resolution.
+
 Standalone `.mbtx` execution uses the linear-memory Wasm backend.
 Program arguments are forwarded to the final
 `moonrun`, and `--experimental-policy` has the same meaning as for a registry

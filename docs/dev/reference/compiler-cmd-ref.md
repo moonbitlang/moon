@@ -2,6 +2,17 @@
 
 See doc comments in: [`moonbuild_rupes_recta::build_lower::compiler`](../../../crates/moonbuild-rupes-recta/src/build_lower/compiler/mod.rs).
 
+## Standalone script imports
+
+Every `.mbtx` check or package compilation uses only its explicit import list,
+including when the list is empty. Lowering keeps `-std-path` for language
+builtins and implicit method lookup. To prevent the compiler's compatibility
+fallback from loading undeclared `@package` references, it enables and promotes
+`core_package_not_imported` to an error after applying user warning settings.
+Suppressing warnings cannot re-enable implicit core imports. This applies to
+source and test targets across all standalone script entry points; other
+source formats retain their existing compiler warning policy.
+
 ## Package asynchronous I/O
 
 The top-level `moon.pkg` declaration `use_async_io = true` adds

@@ -42,7 +42,8 @@ Accepted input forms:
   moonx user/module/package@1.2.3
   moonx user/module/package@latest
 
-Standalone .mbtx files always use the linear-memory Wasm backend. Pinned
+Standalone .mbtx files use only explicitly declared package imports and always
+use the linear-memory Wasm backend. Pinned
 package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index."#,

@@ -27,35 +27,84 @@ fn test_standalone_mbt_warns_to_migrate_to_mbtx() {
 }
 
 #[test]
-fn test_single_file_requires_explicit_core_imports() {
-    let dir = TestDir::new_empty();
-    // The compiler still accepts undeclared core packages with warning 71.
-    // Promote it to an error to verify the same import rules as normal packages.
-    for header in ["", "----\nimport {}\n----\n"] {
+fn test_mbtx_requires_explicit_imports() {
+    for (header, explicit_header) in [
+        ("", "import { \"moonbitlang/core/env\", }\n"),
+        ("import {}\n", "import { \"moonbitlang/core/env\", }\n"),
+        (
+            "----\nimport {}\n----\n",
+            "----\nimport { \"moonbitlang/core/env\", }\n----\n",
+        ),
+        (
+            "----\npermission()\n----\n",
+            "----\nimport { \"moonbitlang/core/env\", }\npermission()\n----\n",
+        ),
+    ] {
+        let dir = TestDir::new_empty();
         fs::write(
             dir.join("script.mbtx"),
-            format!("{header}fn main {{ println(@int.MAX_VALUE) }}\n"),
+            format!(
+                "{header}fn main {{ println(1 + 1) }}\ntest {{ assert_eq([1, 2].length(), 2) }}\n"
+            ),
         )
         .unwrap();
-        for command in ["build", "check", "test", "run"] {
-            let stderr = get_err_stderr(&dir, [command, "script.mbtx", "--deny-warn"]);
-            assert!(
-                stderr.contains("Package `int` from `moonbitlang/core/` is used without import."),
-                "stderr: {stderr}"
-            );
-        }
-    }
+        moon_cmd(&dir)
+            .args(["test", "script.mbtx"])
+            .assert()
+            .success()
+            .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 
-    fs::write(
-        dir.join("script.mbtx"),
-        "----\nimport { \"moonbitlang/core/int\" }\n----\nfn main { println(@int.MAX_VALUE) }\n",
-    )
-    .unwrap();
-    moon_cmd(&dir)
-        .args(["run", "script.mbtx"])
-        .assert()
-        .success()
-        .stdout_eq("2147483647\n");
+        let body = "fn main { println(@env.args().length()) }\n";
+        fs::write(dir.join("script.mbtx"), format!("{header}{body}")).unwrap();
+        for flags in [vec![], vec!["--warn-list=-a"]] {
+            moon_cmd(&dir)
+                .args(["check", "script.mbtx"])
+                .args(flags)
+                .assert()
+                .failure()
+                .stdout_eq("")
+                .stderr_eq(snapbox::str![[r#"
+...
+Error: [0071]
+...
+[..]Error Warning (core_package_not_imported): Package `env` from `moonbitlang/core/` is used without import. This is deprecated. Please add it to the imports in the moon.pkg file.
+...
+Failed with [..] warnings, 1 errors.
+Error: failed when checking project
+
+"#]]);
+        }
+
+        fs::write(dir.join("script.mbtx"), format!("{explicit_header}{body}")).unwrap();
+        moon_cmd(&dir)
+            .args(["check", "script.mbtx"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn test_mbtx_explicit_imports_apply_to_all_commands() {
+    let dir = TestDir::new_empty();
+    for args in [
+        vec!["build", "script.mbtx"],
+        vec!["test", "script.mbtx", "--build-only"],
+        vec!["run", "script.mbtx"],
+    ] {
+        fs::write(
+            dir.join("script.mbtx"),
+            "fn main { println(@env.args().length()) }\n",
+        )
+        .unwrap();
+        moon_cmd(&dir).args(&args).assert().failure();
+
+        fs::write(
+            dir.join("script.mbtx"),
+            "import { \"moonbitlang/core/env\" @args, }\nfn main { println(@args.args().length()) }\n",
+        )
+        .unwrap();
+        moon_cmd(&dir).args(&args).assert().success();
+    }
 }
 
 #[test]

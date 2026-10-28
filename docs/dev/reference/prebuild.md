@@ -93,6 +93,10 @@ carries script diagnostics. A failed script or invalid JSON output fails the
 build.
 
 MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
+Package imports must be explicit, including core packages such as
+`"moonbitlang/core/env"`; an omitted or empty import declaration leaves the
+package import list empty. Language builtins and the ordinary prelude remain
+available, and a `permission(...)` declaration does not add imports.
 Their target is always linear-memory Wasm, independently of the project backend;
 compiling the script therefore skips module-level prebuild configuration. The
 command layer calls the standalone builder directly and preserves the outer

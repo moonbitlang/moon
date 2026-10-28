@@ -222,6 +222,7 @@ impl<'a> LoweringContext<'a> {
             workspace_root,
             pkgtype,
             use_async_io: pkg.raw.use_async_io,
+            require_explicit_imports: pkg.is_mbtx_single_file(),
 
             check_mi,
             virtual_implementation,

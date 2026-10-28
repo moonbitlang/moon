@@ -126,7 +126,8 @@ Accepted input forms:
   moonx user/module/package@1.2.3
   moonx user/module/package@latest
 
-Standalone .mbtx files always use the linear-memory Wasm backend. Pinned
+Standalone .mbtx files use only explicitly declared package imports and always
+use the linear-memory Wasm backend. Pinned
 package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index.
@@ -180,6 +181,31 @@ native
             .is_file()
     );
     assert!(!dir.join("_build/moonx_args.mbtx/wasm-gc").exists());
+}
+
+#[test]
+fn test_moonx_mbtx_requires_explicit_imports() {
+    let dir = TestDir::new_empty();
+    let bin_dir = tempfile::tempdir().unwrap();
+    let moonx = moonx_bin(&bin_dir);
+    let body = "fn main { println(@env.args().length()) }\n";
+    for (import, succeeds) in [
+        ("", false),
+        ("import { \"moonbitlang/core/env\", }\n", true),
+    ] {
+        std::fs::write(dir.join("script.mbtx"), format!("{import}{body}")).unwrap();
+        let result = snapbox::cmd::Command::new(&moonx)
+            .current_dir(&dir)
+            .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+            .env("MOONRUN_OVERRIDE", moonrun_bin())
+            .arg("script.mbtx")
+            .assert();
+        if succeeds {
+            result.success().stdout_eq("1\n");
+        } else {
+            result.failure().stdout_eq("");
+        }
+    }
 }
 
 #[test]
@@ -1628,6 +1654,32 @@ fn test_moon_run_dash_reads_stdin() {
         .assert()
         .success()
         .stdout_eq("hello from run dash stdin\n");
+}
+
+#[test]
+fn test_moon_run_stdin_and_inline_require_explicit_imports() {
+    let dir = TestDir::new_empty();
+    let body = "fn main { println(@env.args().length()) }\n";
+    for (import, succeeds) in [
+        ("", false),
+        ("import { \"moonbitlang/core/env\", }\n", true),
+    ] {
+        let source = format!("{import}{body}");
+        for input in ["-", "-e"] {
+            let command = moon_cmd(&dir).args(["run", input]);
+            let command = if input == "-" {
+                command.stdin(source.clone())
+            } else {
+                command.arg(&source)
+            };
+            let result = command.assert();
+            if succeeds {
+                result.success().stdout_eq("1\n");
+            } else {
+                result.failure().stdout_eq("");
+            }
+        }
+    }
 }
 
 #[test]

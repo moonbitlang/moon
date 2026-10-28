@@ -188,6 +188,8 @@ pub(crate) struct BuildCommonConfig<'a> {
     // Package configuration
     pub pkgtype: PackageKind,
     pub use_async_io: bool,
+    /// Reject the compiler's compatibility fallback for undeclared core imports.
+    pub require_explicit_imports: bool,
 
     // Standard library
     /// Pass [None] for no_std
@@ -218,6 +220,7 @@ impl<'a> Default for BuildCommonConfig<'a> {
             warn_config: WarnAlertConfig::Default,
             pkgtype: PackageKind::Library,
             use_async_io: false,
+            require_explicit_imports: false,
             stdlib_core_file: None,
             workspace_root: None,
             check_mi: None,
@@ -237,8 +240,7 @@ impl<'a> BuildCommonConfig<'a> {
         }
     }
 
-    /// Add the warning selection expression, with deny promotion appended last
-    /// when `--deny-warn` is enabled.
+    /// Add warning selection and promotion, then enforce package import rules.
     pub(crate) fn add_warning_options(&self, args: &mut Vec<String>) {
         let mut warn_list = match &self.warn_config {
             WarnAlertConfig::Default => String::new(),
@@ -249,6 +251,13 @@ impl<'a> BuildCommonConfig<'a> {
             // `moonc -w` parses the list left-to-right. `@a` promotes active
             // warnings to errors, so it must come after opt-ins like `+missing_doc`.
             warn_list.push_str(MOONC_DENY_WARNING_SET);
+        }
+        if self.require_explicit_imports {
+            // Keep `-std-path` for builtins and implicit method lookup, but do
+            // not let the compiler load undeclared `@package` references in
+            // scripts. Apply this after user warning settings so suppressing
+            // warnings cannot re-enable implicit imports.
+            warn_list.push_str("+core_package_not_imported@core_package_not_imported");
         }
         if !warn_list.is_empty() {
             args.extend(["-w".to_string(), warn_list]);

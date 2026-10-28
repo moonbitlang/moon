@@ -502,6 +502,27 @@ options("--moonbit-unstable-prebuild": "build.mbtx")
 }
 
 #[test]
+fn test_prebuild_config_mbtx_requires_explicit_imports() {
+    let dir = TestDir::new("prebuild_config_script/mbtx");
+    let body = "fn main { let _ = @env.args(); println(\"{}\") }\n";
+    std::fs::write(dir.join("build config.mbtx"), body).unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .failure();
+
+    std::fs::write(
+        dir.join("build config.mbtx"),
+        format!("import {{ \"moonbitlang/core/env\", }}\n{body}"),
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .args(["build", "--target", "native", "--dry-run"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_prebuild_config_mbtx_failure() {
     let dir = TestDir::new("prebuild_config_script/mbtx");
     std::fs::write(
