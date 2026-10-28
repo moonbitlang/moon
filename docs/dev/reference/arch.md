@@ -391,12 +391,21 @@ The legacy import prelude and `// policy:` YAML comments remain supported;
 legacy YAML is decoded only when selected as the effective permission. See
 [`moonx`](moonx.md#standalone-mbtx) for syntax and policy precedence.
 
-`moon fmt` also accepts explicit `.mbtx` paths, including several scripts mixed
+`moon fmt` also accepts explicit `.mbtx` paths and standalone `.mbt.md` files,
+including several files mixed
 with package selectors. Each script is formatted on its own without loading
 the surrounding project or resolving its dependencies. Scripts use the same
-formatter invocation as ordinary source files. `--check` compares the formatted
-result with the script and fails if they differ; `--warn` reports differences
+formatter invocation as ordinary source files. Markdown identification checks
+only YAML syntax, the header and `moonbit` mapping structure, and whether
+`moonbit.import` is present. Any present value selects standalone formatting,
+including null or unfinished imports. Import values, paths, versions, backends,
+and `deps`/`import` conflicts are not validated for formatting. Invalid YAML or
+mapping structure still reports the file path.
+`--check` compares the formatted result with the script and fails if they differ;
+`--warn` reports differences
 without changing the script.
+`moon check --fmt` uses this path for explicit standalone inputs as well, then
+performs full configuration validation during its checking stage.
 Package-wide formatting continues to exclude `.mbtx` files, and other file
 paths continue to select their containing package. Explicit script paths are
 validated before formatting begins, and repeated paths to the same script

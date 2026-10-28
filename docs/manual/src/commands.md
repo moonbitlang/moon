@@ -398,9 +398,11 @@ Format source code
 
 ###### **Arguments:**
 
-* `<PATH>` — Paths to packages, files selecting their containing package, or standalone `.mbtx` scripts
+* `<PATH>` — Paths to packages, files selecting their containing package, or standalone `.mbtx` / `.mbt.md` files
 
-   An explicit `.mbtx` path formats only that script, with or without a surrounding project. Multiple scripts and package paths can be combined. Without paths, standalone scripts are excluded from package formatting. `--check` fails if a selected script needs formatting.
+   An explicit `.mbtx` path or `.mbt.md` file with YAML `moonbit.import` formats only that file, with or without a surrounding project. Multiple scripts and package paths can be combined. Without paths, standalone scripts are excluded from package formatting. `--check` fails if a selected script needs formatting.
+
+   Markdown formatting checks YAML syntax and the header and `moonbit` mapping structure. An `import` field selects standalone formatting even when its value is null or invalid. Import paths, versions, backends, and `deps` conflicts are validated by `check` and `test`, including after the formatting stage of `check --fmt`.
 * `<ARGS>` — Extra arguments passed to the formatter (after --)
 
 ###### **Options:**

@@ -50,6 +50,15 @@ fn test_standalone_markdown_ignores_surrounding_project() {
         .success()
         .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 
+    moon_cmd(&dir)
+        .args(["fmt", "readme.mbt.md"])
+        .assert()
+        .success();
+    assert_eq!(
+        read(dir.join("readme.mbt.md")),
+        "---\nmoonbit:\n  import: []\n---\n```mbt check\n///|\ntest {\n  assert_eq(1, 1)\n}\n```\n"
+    );
+
     for command in ["check", "test"] {
         moon_cmd(&dir)
             .args([command, "readme.mbt.md", "."])
@@ -193,6 +202,135 @@ Error: not in a Moon project (no moon.mod, moon.mod.json, or moon.work found sta
 }
 
 #[test]
+fn test_standalone_markdown_fmt_outside_project() {
+    let dir = TestDir::new_empty();
+    write_markdown(&dir, "  import: []", "test {assert_eq(1,1)}");
+    moon_cmd(&dir)
+        .args(["check", "readme.mbt.md", "--fmt"])
+        .assert()
+        .success();
+    moon_cmd(&dir)
+        .args(["fmt", "readme.mbt.md", "--check"])
+        .assert()
+        .failure();
+    moon_cmd(&dir)
+        .args(["fmt", "readme.mbt.md"])
+        .assert()
+        .success();
+    moon_cmd(&dir)
+        .args(["fmt", "readme.mbt.md", "--check"])
+        .assert()
+        .success();
+    assert_eq!(
+        read(dir.join("readme.mbt.md")),
+        "---\nmoonbit:\n  import: []\n---\n```mbt check\n///|\ntest {\n  assert_eq(1, 1)\n}\n```\n"
+    );
+}
+
+#[test]
+fn test_standalone_markdown_fmt_defers_config_validation() {
+    let dir = TestDir::new_empty();
+    for (config, context, cause) in [
+        (
+            "  import: ['example/lib/pkg']",
+            "moonbit.import",
+            "    module 'example/lib' must include a version in moonbit.import (e.g. example/lib@0.4.40[/package])",
+        ),
+        (
+            "  import: ['example/lib@1.2.3/../pkg']",
+            "moonbit.import",
+            "    path contains an invalid component",
+        ),
+        (
+            "  import: []\n  backend: invalid",
+            "Markdown front matter",
+            "    0: invalid moonbit.backend\n    1: invalid backend: invalid, only support wasm, wasm-gc, js, native, llvm",
+        ),
+        (
+            "  deps: {}\n  import: []",
+            "Markdown front matter",
+            "    moonbit.deps and moonbit.import are mutually exclusive",
+        ),
+    ] {
+        write_markdown(&dir, config, "test {assert_eq(1,1)}");
+        moon_cmd(&dir)
+            .args(["fmt", "readme.mbt.md"])
+            .assert()
+            .success();
+        assert_eq!(
+            read(dir.join("readme.mbt.md")),
+            format!(
+                "---\nmoonbit:\n{config}\n---\n```mbt check\n///|\ntest {{\n  assert_eq(1, 1)\n}}\n```\n"
+            )
+        );
+        for command in ["check", "test"] {
+            moon_cmd(&dir)
+                .args([command, "readme.mbt.md"])
+                .assert()
+                .failure()
+                .stdout_eq("")
+                .stderr_eq(format!(
+                    "Error: invalid {context} in `readme.mbt.md`\n\nCaused by:\n{cause}\n"
+                ));
+        }
+    }
+    moon_cmd(&dir)
+        .args(["fmt", "readme.mbt.md", "--check"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_standalone_markdown_fmt_with_other_paths() {
+    let dir = TestDir::new_empty();
+    fs::write(dir.join("moon.mod"), "name = \"test/project\"\n").unwrap();
+    fs::write(dir.join("moon.pkg"), "\n").unwrap();
+    fs::write(dir.join("main.mbt"), "fn main {}\n").unwrap();
+    fs::write(dir.join("script.mbtx"), "fn main {}\n").unwrap();
+    // Keep the standalone input outside the selected package's file set.
+    let script_dir = TestDir::new_empty();
+    write_markdown(&script_dir, "  import: null", "test {}");
+    moon_cmd(&dir)
+        .args(["fmt", "--dry-run", "script.mbtx", "."])
+        .arg(script_dir.join("readme.mbt.md"))
+        .arg(script_dir.join("readme.mbt.md"))
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonfmt ./script.mbtx -w -o ./_build/script.mbtx/format/script.mbtx
+moonfmt [..]/readme.mbt.md -w -o [..]/_build/readme.mbt.md/format/readme.mbt.md
+moonfmt ./moon.pkg -w -o ./_build/wasm-gc/release/format/moon.pkg
+moonfmt ./main.mbt -w -o ./_build/wasm-gc/release/format/main.mbt
+
+"#]]);
+}
+
+#[test]
+fn test_standalone_markdown_check_fmt_validates_after_formatting() {
+    let dir = TestDir::new_empty();
+    write_markdown(
+        &dir,
+        "  import: []\n  backend: invalid",
+        "test {assert_eq(1,1)}",
+    );
+    let source = read(dir.join("readme.mbt.md"));
+    moon_cmd(&dir)
+        .args(["check", "readme.mbt.md", "--fmt"])
+        .assert()
+        .failure()
+        .stdout_eq("File not formatted: [..]/readme.mbt.md\n")
+        .stderr_eq(snapbox::str![[r#"
+Error: invalid Markdown front matter in `readme.mbt.md`
+
+Caused by:
+    0: invalid moonbit.backend
+    1: invalid backend: invalid, only support wasm, wasm-gc, js, native, llvm
+
+"#]]);
+    assert_eq!(read(dir.join("readme.mbt.md")), source);
+}
+
+#[test]
 fn test_standalone_markdown_invalid_config_reports_path_without_project_fallback() {
     let dir = TestDir::new_empty();
     fs::write(dir.join("moon.mod"), "invalid module manifest").unwrap();
@@ -272,5 +410,9 @@ fn test_standalone_markdown_invoked_path_and_symlink() {
         .assert()
         .success()
         .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+    moon_cmd(&dir)
+        .args(["fmt", "alias.mbt.md"])
+        .assert()
+        .success();
     assert!(dir.join("_build/original.data/.moon_db").is_file());
 }

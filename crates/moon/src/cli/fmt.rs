@@ -45,11 +45,17 @@ pub(crate) struct FmtSubcommand {
     #[clap(long, conflicts_with = "check")]
     pub warn: bool,
 
-    /// Paths to packages, files selecting their containing package, or standalone `.mbtx` scripts
+    /// Paths to packages, files selecting their containing package, or standalone `.mbtx` / `.mbt.md` files
     ///
-    /// An explicit `.mbtx` path formats only that script, with or without a surrounding project.
+    /// An explicit `.mbtx` path or `.mbt.md` file with YAML `moonbit.import` formats
+    /// only that file, with or without a surrounding project.
     /// Multiple scripts and package paths can be combined. Without paths, standalone scripts
     /// are excluded from package formatting. `--check` fails if a selected script needs formatting.
+    ///
+    /// Markdown formatting checks YAML syntax and the header and `moonbit` mapping structure.
+    /// An `import` field selects standalone formatting even when its value is null or invalid.
+    /// Import paths, versions, backends, and `deps` conflicts are validated by `check` and `test`,
+    /// including after the formatting stage of `check --fmt`.
     #[clap(name = "PATH")]
     pub path: Vec<PathBuf>,
 
@@ -79,10 +85,25 @@ fn run_fmt_rr(
         migrate_moon_mod_json: cli.unstable_feature.rr_moon_mod,
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
-    let (scripts, package_paths): (Vec<_>, Vec<_>) = cmd
-        .path
-        .iter()
-        .partition(|path| path.extension().is_some_and(|ext| ext == "mbtx"));
+    let mut scripts = Vec::new();
+    let mut package_paths = Vec::new();
+    for path in &cmd.path {
+        // Formatting only needs to identify standalone inputs, not validate
+        // their configuration. Use the invoked filename, even for symlinks;
+        // Markdown directories still select project packages.
+        if path.extension().is_some_and(|ext| ext == "mbtx")
+            || (path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(".mbt.md"))
+                && moonutil::front_matter::markdown_has_import(path)?)
+        {
+            scripts.push(path);
+        } else {
+            package_paths.push(path);
+        }
+    }
     let script_dry_run_root = (cli.dry_run && !scripts.is_empty())
         .then(std::env::current_dir)
         .transpose()?;
@@ -103,13 +124,13 @@ fn run_fmt_rr(
         }
         let execution_plan = build_execution_plan_for_fmt_file(
             &fmt_config,
-            &script.file_path,
+            &script.input_path,
             &script.package_dirs.target_dir,
         )?;
         let normalizer = script_dry_run_root.as_deref().map(|root| {
             PathNormalizer::new(root).with_relative_paths(
                 root,
-                std::iter::once(script.file_path.as_path())
+                std::iter::once(script.input_path.as_path())
                     .chain(execution_plan.default_output_paths()),
             )
         });
