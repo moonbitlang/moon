@@ -73,7 +73,7 @@ impl CondExpr {
         match self {
             CondExpr::Atom(atom) => match atom {
                 Atom::OptLevel(level) => level == &opt_level,
-                Atom::Target(backend) => backend == &target_backend,
+                Atom::Target(backend) => target_backend.matches_file_target(*backend),
             },
             CondExpr::Condition(op, exprs) => match op {
                 LogicOp::And => exprs.iter().all(|x| x.eval(opt_level, target_backend)),
@@ -161,6 +161,40 @@ fn test_001() {
     };
     assert!(b.eval(OptLevel::Debug, TargetBackend::Js));
     assert!(b.eval(OptLevel::Debug, TargetBackend::Wasm));
+}
+
+#[test]
+fn llvm_file_condition_matches_native() {
+    for (source, expected_backends) in [
+        (
+            r#""llvm""#,
+            vec![TargetBackend::Native, TargetBackend::LLVM],
+        ),
+        (r#""native""#, vec![TargetBackend::Native]),
+        (
+            r#"["not", "llvm"]"#,
+            vec![
+                TargetBackend::Wasm,
+                TargetBackend::WasmGC,
+                TargetBackend::Js,
+            ],
+        ),
+    ] {
+        let expr: CondExpr = serde_json_lenient::from_str(source).unwrap();
+        let metadata = expr.to_compile_condition();
+        assert_eq!(metadata.backend, expected_backends, "{source}");
+        for &optlevel in OptLevel::all() {
+            for &backend in TargetBackend::all() {
+                let expected = expected_backends.contains(&backend);
+                assert_eq!(
+                    expr.eval(optlevel, backend),
+                    expected,
+                    "{source}: {backend}"
+                );
+                assert_eq!(metadata.eval(optlevel, backend), expected);
+            }
+        }
+    }
 }
 
 #[test]

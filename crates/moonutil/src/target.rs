@@ -112,6 +112,12 @@ impl std::fmt::Display for TargetBackend {
 }
 
 impl TargetBackend {
+    /// Whether this backend includes a file guarded by the given target.
+    /// LLVM file conditions also apply to the Native backend.
+    pub fn matches_file_target(self, file_target: Self) -> bool {
+        self == file_target || matches!((self, file_target), (Self::Native, Self::LLVM))
+    }
+
     pub fn to_flag(self) -> &'static str {
         match self {
             Self::Wasm => "wasm",
