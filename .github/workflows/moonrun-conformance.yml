@@ -26,6 +26,8 @@ on:
       - 'crates/moonrun/**'
       - 'third_party/moonbitlang_async'
       - '.github/workflows/moonrun-conformance.yml'
+      - '.github/actions/setup-debug-cache/**'
+      - '.github/scripts/prune-rust-toolchains.sh'
   pull_request:
     branches:
       - main
@@ -33,6 +35,8 @@ on:
       - 'crates/moonrun/**'
       - 'third_party/moonbitlang_async'
       - '.github/workflows/moonrun-conformance.yml'
+      - '.github/actions/setup-debug-cache/**'
+      - '.github/scripts/prune-rust-toolchains.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,6 +44,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 0
 
 jobs:
   test:
@@ -60,12 +68,7 @@ jobs:
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: 1.95.0
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-debug-cache
 
       - name: Install MoonBit (Unix)
         if: matrix.os != 'windows-latest'
@@ -112,7 +115,9 @@ jobs:
           toolchain: 1.95.0
 
       - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install MoonBit
         run: |
