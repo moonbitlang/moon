@@ -23,11 +23,12 @@ visibility and are preserved distinctly when manifests are serialized. If presen
 the value must be a boolean; `null`, other types, and duplicate declarations are
 rejected. The compatibility spelling `options(private: true)` is also accepted.
 
-Publishing with private visibility is not implemented yet. As a temporary safety
-measure, `moon publish` rejects private modules, including with `--dry-run`, before
-the publishing backend is started. In a workspace, the check applies to the
-selected member. Building, testing, local dependencies, and `moon package` remain
-available. The field alone does not implement registry storage or access control.
+`moon publish` delegates both public and private modules to the publishing
+backend, including with `--dry-run`. In a workspace, it publishes the selected
+member. A compatible backend preserves the requested visibility in the archive;
+the registry checks publication permissions and visibility. The field alone does
+not implement registry storage or access control. Building, testing, local
+dependencies, and `moon package` remain available for private modules.
 
 A module may contain one or more **package**s,
 which is the unit of compilation in MoonBit.

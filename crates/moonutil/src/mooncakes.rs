@@ -797,13 +797,12 @@ pub struct RegisterSubcommand {}
 
 /// Publish the current module
 ///
-/// The optional `private` field in moon.mod (or moon.mod.json) requests restricted
+/// The optional `private` field in moon.mod requests restricted
 /// access to the module after publication when true. Omission or false requests
 /// public visibility.
 ///
-/// Publishing with private visibility is not supported yet, so private modules
-/// are currently rejected, including with --dry-run. Local building, testing,
-/// and packaging remain available.
+/// Publication permissions and visibility are checked by the registry.
+/// With --dry-run, validate the publication without creating a release.
 #[derive(Debug, clap::Parser, Serialize, Deserialize)]
 pub struct PublishSubcommand {
     #[clap(flatten)]
