@@ -38,10 +38,7 @@ pub struct MbtMdFrontMatter {
 
 impl MbtMdFrontMatter {
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read Markdown file `{}`", path.display()))?;
-        Self::parse(&content)
-            .with_context(|| format!("invalid Markdown front matter in `{}`", path.display()))
+        parse_markdown_file(path, Self::parse)
     }
 
     pub fn parse(content: &str) -> anyhow::Result<Self> {
@@ -69,38 +66,77 @@ impl MbtMdFrontMatter {
             T::deserialize(deserializer).map(Some)
         }
 
-        let content = content.strip_prefix('\u{feff}').unwrap_or(content);
-        let mut lines = content.split_inclusive('\n');
-        let Some(first) = lines.next().filter(|line| line.trim_end() == "---") else {
+        let Some(front_matter) = extract_markdown_front_matter(content)? else {
             return Ok(Self::default());
         };
-        let start = first.len();
-        let mut end = start;
-        for line in lines {
-            if line.trim_end() == "---" {
-                let header: Option<Header> = serde_yaml::from_str(&content[start..end])?;
-                let Some(section) = header.and_then(|header| header.moonbit) else {
-                    return Ok(Self::default());
-                };
-                anyhow::ensure!(
-                    section.deps.is_none() || section.import.is_none(),
-                    "moonbit.deps and moonbit.import are mutually exclusive"
-                );
-                let backend = section
-                    .backend
-                    .as_deref()
-                    .map(TargetBackend::str_to_backend)
-                    .transpose()
-                    .context("invalid moonbit.backend")?;
-                return Ok(Self {
-                    imports: section.import,
-                    backend,
-                });
-            }
-            end += line.len();
-        }
-        anyhow::bail!("Unterminated Markdown front matter: expected a closing `---` line.")
+        let header: Option<Header> = serde_yaml::from_str(front_matter)?;
+        let Some(section) = header.and_then(|header| header.moonbit) else {
+            return Ok(Self::default());
+        };
+        anyhow::ensure!(
+            section.deps.is_none() || section.import.is_none(),
+            "moonbit.deps and moonbit.import are mutually exclusive"
+        );
+        let backend = section
+            .backend
+            .as_deref()
+            .map(TargetBackend::str_to_backend)
+            .transpose()
+            .context("invalid moonbit.backend")?;
+        Ok(Self {
+            imports: section.import,
+            backend,
+        })
     }
+}
+
+/// Identify standalone Markdown for formatting without validating configuration
+/// values. YAML syntax and the header and `moonbit` mappings must be valid, but
+/// any present `import` value, including null, selects standalone formatting.
+pub fn markdown_has_import(path: &Path) -> anyhow::Result<bool> {
+    parse_markdown_file(path, parse_markdown_import_presence)
+}
+
+fn parse_markdown_import_presence(content: &str) -> anyhow::Result<bool> {
+    let Some(front_matter) = extract_markdown_front_matter(content)? else {
+        return Ok(false);
+    };
+    let header: Option<serde_yaml::Mapping> = serde_yaml::from_str(front_matter)?;
+    let Some(header) = header else {
+        return Ok(false);
+    };
+    let Some(section) = header.get("moonbit") else {
+        return Ok(false);
+    };
+    let section = section.as_mapping().context("moonbit must be a mapping")?;
+    Ok(section.contains_key("import"))
+}
+
+fn parse_markdown_file<T>(
+    path: &Path,
+    parse: impl FnOnce(&str) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read Markdown file `{}`", path.display()))?;
+    parse(&content)
+        .with_context(|| format!("invalid Markdown front matter in `{}`", path.display()))
+}
+
+fn extract_markdown_front_matter(content: &str) -> anyhow::Result<Option<&str>> {
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let mut lines = content.split_inclusive('\n');
+    let Some(first) = lines.next().filter(|line| line.trim_end() == "---") else {
+        return Ok(None);
+    };
+    let start = first.len();
+    let mut end = start;
+    for line in lines {
+        if line.trim_end() == "---" {
+            return Ok(Some(&content[start..end]));
+        }
+        end += line.len();
+    }
+    anyhow::bail!("Unterminated Markdown front matter: expected a closing `---` line.")
 }
 
 /// Script declarations share the `moon.pkg` grammar. Permission values stay
@@ -270,33 +306,116 @@ fn extract_mbtx_import_source(content: &str) -> Option<&str> {
 mod tests {
     use super::{
         MbtMdFrontMatter, MbtxFrontMatter, extract_mbtx_front_matter, extract_mbtx_import_source,
+        markdown_has_import, parse_markdown_import_presence,
     };
 
     #[test]
     fn markdown_distinguishes_empty_and_absent_imports() {
         for section in ["import: []", "import: {}"] {
-            let parsed =
-                MbtMdFrontMatter::parse(&format!("---\nmoonbit:\n  {section}\n---")).unwrap();
+            let source = format!("---\nmoonbit:\n  {section}\n---");
+            let parsed = MbtMdFrontMatter::parse(&source).unwrap();
             assert!(parsed.imports.is_some());
+            assert!(parse_markdown_import_presence(&source).unwrap());
         }
         for source in [
             "```mbt check\ntest {}\n```",
             "---\n---",
+            "---\n# empty header\n---",
+            "---\n{}\n---",
             "---\ntitle: A document\n---",
+            "---\nmoonbit: {}\n---",
             "---\nmoonbit:\n  deps: {example/lib: '1.2.3'}\n---",
             "---\nmoonbit:\n  backend: js\n---",
         ] {
             assert!(MbtMdFrontMatter::parse(source).unwrap().imports.is_none());
+            assert!(!parse_markdown_import_presence(source).unwrap());
         }
     }
 
     #[test]
     fn markdown_supports_blank_lines_crlf_and_bom() {
-        let parsed = MbtMdFrontMatter::parse(
-            "\u{feff}---\r\ntitle: Document\r\n\r\nmoonbit:\r\n  import: []\r\n  backend: js\r\n---\r\n```mbt check\r\n```\r\n",
-        ).unwrap();
+        let source = "\u{feff}---\r\ntitle: Document\r\n\r\nmoonbit:\r\n  import: []\r\n  backend: js\r\n---\r\n```mbt check\r\n```\r\n";
+        let parsed = MbtMdFrontMatter::parse(source).unwrap();
         assert!(parsed.imports.is_some());
         assert_eq!(parsed.backend, Some(crate::target::TargetBackend::Js));
+        assert!(parse_markdown_import_presence(source).unwrap());
+        assert!(!parse_markdown_import_presence("\u{feff}---\r\n\r\n---\r\n").unwrap());
+    }
+
+    #[test]
+    fn markdown_import_presence_ignores_configuration_values() {
+        for section in [
+            "import:",
+            "import: null",
+            "import: ~",
+            "import: invalid",
+            "import: false",
+            "import: 42",
+            "import: [42]",
+            "import: [{alias: integer}]",
+            "import: ['example/lib/pkg']",
+            "import: ['example/lib@1.2.3/../pkg']",
+            "import: []\n  backend: invalid",
+            "import: []\n  backend: []",
+            "import: []\n  backend: null",
+            "import: []\n  deps: {}",
+            "import: []\n  deps: invalid",
+        ] {
+            let source = format!("---\nmoonbit:\n  {section}\n---");
+            assert!(parse_markdown_import_presence(&source).unwrap(), "{source}");
+        }
+        for section in ["backend: invalid", "deps: invalid"] {
+            let source = format!("---\nmoonbit:\n  {section}\n---");
+            assert!(
+                !parse_markdown_import_presence(&source).unwrap(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_import_presence_requires_valid_yaml_and_mappings() {
+        for source in [
+            "---\ninvalid\n---",
+            "---\n[]\n---",
+            "---\n- moonbit: {import: []}\n---",
+            "---\nmoonbit: invalid\n---",
+            "---\nmoonbit: null\n---",
+            "---\nmoonbit: []\n---",
+            "---\nmoonbit: [import, []]\n---",
+            "---\nmoonbit: 42\n---",
+            "---\nmoonbit: [\n---",
+            "---\nmoonbit:\n  import: []",
+            "---\nmoonbit:\n  import: [\n---",
+            "---\nmoonbit:\n  import: []\n  import: {}\n---",
+        ] {
+            assert!(parse_markdown_import_presence(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn markdown_file_errors_include_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("document.mbt.md");
+        for result in [
+            markdown_has_import(&path).map(|_| ()),
+            MbtMdFrontMatter::from_file(&path).map(|_| ()),
+        ] {
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                format!("failed to read Markdown file `{}`", path.display())
+            );
+        }
+        std::fs::write(&path, "---\nmoonbit: []\n---").unwrap();
+        for result in [
+            markdown_has_import(&path).map(|_| ()),
+            MbtMdFrontMatter::from_file(&path).map(|_| ()),
+        ] {
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                format!("invalid Markdown front matter in `{}`", path.display())
+            );
+        }
     }
 
     #[test]
