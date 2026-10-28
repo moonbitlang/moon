@@ -136,42 +136,64 @@ mod unix {
         })
     }
 
-    /// The size of the state saved by `enter_raw`: a native `termios`.
-    pub(super) const STATE_SIZE: usize = std::mem::size_of::<libc::termios>();
+    /// The kernel's `struct termios2`, which `TCGETS2` and `TCSETS2` use,
+    /// unlike glibc's `struct termios`.
+    #[cfg(target_os = "linux")]
+    type Termios = libc::termios2;
 
-    /// Put the terminal in raw mode and return the old state as bytes.
-    pub(super) fn enter_raw(input: BorrowedFd<'_>) -> AsyncHostResult<Vec<u8>> {
-        let mut saved = unsafe { std::mem::zeroed::<libc::termios>() };
-        if unsafe { libc::tcgetattr(input.as_raw_fd(), &mut saved) } < 0 {
-            return Err(last_error());
-        }
-        let mut raw = saved;
-        unsafe { libc::cfmakeraw(&mut raw) };
-        raw.c_cc[libc::VMIN] = 1;
-        raw.c_cc[libc::VTIME] = 0;
-        if unsafe { libc::tcsetattr(input.as_raw_fd(), libc::TCSANOW, &raw) } < 0 {
+    /// macOS's `struct termios`, the same on arm64 and x86_64.
+    #[cfg(target_os = "macos")]
+    type Termios = libc::termios;
+
+    /// The size of a state: the termios above.
+    pub(super) const STATE_SIZE: usize = std::mem::size_of::<Termios>();
+
+    #[cfg(target_os = "linux")]
+    fn get_termios(fd: BorrowedFd<'_>, termios: &mut Termios) -> libc::c_int {
+        unsafe { libc::ioctl(fd.as_raw_fd(), libc::TCGETS2, termios as *mut Termios) }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_termios(fd: BorrowedFd<'_>, termios: &mut Termios) -> libc::c_int {
+        unsafe { libc::tcgetattr(fd.as_raw_fd(), termios) }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn set_termios(fd: BorrowedFd<'_>, termios: &Termios) -> libc::c_int {
+        unsafe { libc::ioctl(fd.as_raw_fd(), libc::TCSETS2, termios as *const Termios) }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn set_termios(fd: BorrowedFd<'_>, termios: &Termios) -> libc::c_int {
+        unsafe { libc::tcsetattr(fd.as_raw_fd(), libc::TCSANOW, termios) }
+    }
+
+    /// Return the current state as the bytes of `Termios`.
+    pub(super) fn get_state(input: BorrowedFd<'_>) -> AsyncHostResult<Vec<u8>> {
+        let mut termios = unsafe { std::mem::zeroed::<Termios>() };
+        if get_termios(input, &mut termios) < 0 {
             return Err(last_error());
         }
         let bytes = unsafe {
-            std::slice::from_raw_parts((&saved as *const libc::termios).cast::<u8>(), STATE_SIZE)
+            std::slice::from_raw_parts((&termios as *const Termios).cast::<u8>(), STATE_SIZE)
         };
         Ok(bytes.to_vec())
     }
 
-    /// Restore a state saved by `enter_raw`.
-    pub(super) fn leave_raw(input: BorrowedFd<'_>, state: &[u8]) -> AsyncHostResult<()> {
+    /// Apply a state, the bytes of `Termios`.
+    pub(super) fn set_state(input: BorrowedFd<'_>, state: &[u8]) -> AsyncHostResult<()> {
         if state.len() != STATE_SIZE {
             return Err(AsyncHostError::Inval);
         }
-        let mut saved = unsafe { std::mem::zeroed::<libc::termios>() };
+        let mut termios = unsafe { std::mem::zeroed::<Termios>() };
         unsafe {
             std::ptr::copy_nonoverlapping(
                 state.as_ptr(),
-                (&mut saved as *mut libc::termios).cast::<u8>(),
+                (&mut termios as *mut Termios).cast::<u8>(),
                 STATE_SIZE,
             );
         }
-        if unsafe { libc::tcsetattr(input.as_raw_fd(), libc::TCSANOW, &saved) } < 0 {
+        if set_termios(input, &termios) < 0 {
             return Err(last_error());
         }
         Ok(())
@@ -193,8 +215,10 @@ pub(crate) fn open() -> AsyncHostResult<TtyResources> {
     return windows::open();
 }
 
-/// The size of the state saved by `enter_raw`, as in the native runtime: a
-/// `termios` on Unix, the input and output console modes on Windows.
+/// The size of a state: the kernel `struct termios2` on Linux (44 bytes),
+/// `struct termios` on macOS
+/// (72 bytes), and the input and output console modes as little-endian `u32`
+/// on Windows (8 bytes). The guest interprets these layouts.
 pub(crate) fn state_size() -> usize {
     #[cfg(unix)]
     return unix::STATE_SIZE;
@@ -202,28 +226,27 @@ pub(crate) fn state_size() -> usize {
     return windows::STATE_SIZE;
 }
 
-/// Put the terminal in raw mode and return the old state, which the guest
-/// keeps without interpreting it.
-pub(crate) fn enter_raw(
+/// Return the current terminal state, see `state_size`.
+pub(crate) fn get_state(
     input: &Resource,
     #[cfg(windows)] output: &Resource,
 ) -> AsyncHostResult<Vec<u8>> {
     #[cfg(unix)]
-    return unix::enter_raw(input.as_fd()?);
+    return unix::get_state(input.as_fd()?);
     #[cfg(windows)]
-    return windows::enter_raw(input.as_handle()?, output.as_handle()?);
+    return windows::get_state(input.as_handle()?, output.as_handle()?);
 }
 
-/// Restore a state returned by `enter_raw`.
-pub(crate) fn leave_raw(
+/// Apply a terminal state, see `state_size`.
+pub(crate) fn set_state(
     input: &Resource,
     #[cfg(windows)] output: &Resource,
     state: &[u8],
 ) -> AsyncHostResult<()> {
     #[cfg(unix)]
-    return unix::leave_raw(input.as_fd()?, state);
+    return unix::set_state(input.as_fd()?, state);
     #[cfg(windows)]
-    return windows::leave_raw(input.as_handle()?, output.as_handle()?, state);
+    return windows::set_state(input.as_handle()?, output.as_handle()?, state);
 }
 
 pub(crate) fn size(output: &Resource) -> AsyncHostResult<i64> {

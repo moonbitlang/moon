@@ -1089,9 +1089,8 @@ declare_async_imports! {
     helper thread_pool::make_tty_read_console_input_job(input: u64, wakeup: u64, len: u32) -> u64 => "thread_pool/make_tty_read_console_input_job";
     helper thread_pool::tty_read_console_input_job_get_resized(job: u64) -> i32 => "thread_pool/tty_read_console_input_job_get_resized";
     helper tty::open(dst: u32, len: u32) -> i32 => "tty/open";
-    helper tty::state_size() -> i32 => "tty/state_size";
-    helper tty::enter_raw(input: u64, output: u64, flags: i32, dst: u32) -> i32 => "tty/enter_raw";
-    helper tty::leave_raw(input: u64, output: u64, src: u32) -> i32 => "tty/leave_raw";
+    helper tty::get_state(input: u64, output: u64, dst: u32) -> i32 => "tty/get_state";
+    helper tty::set_state(input: u64, output: u64, src: u32) -> i32 => "tty/set_state";
     helper tty::size(output: u64) -> i64 => "tty/size";
 
     compat thread_pool::make_file_kind_by_path_job(

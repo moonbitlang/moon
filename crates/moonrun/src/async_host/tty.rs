@@ -25,9 +25,7 @@ impl AsyncHost {
     /// `[input, wakeup, control, output]`. On Unix the control Handle is the
     /// input Handle, and the guest closes only the input Handle.
     pub(crate) fn tty_open(&self) -> AsyncHostResult<[HostHandle; 4]> {
-        if !self.tty_allowed {
-            crate::policy::sandbox_denied("terminal access", None)?;
-        }
+        self.authorize_tty()?;
         let tty = tty::open()?;
         let mut handles = self.handles.borrow_mut();
         let input = handles.insert_resource(tty.input);
@@ -40,38 +38,49 @@ impl AsyncHost {
         Ok([input, wakeup, control, output])
     }
 
-    /// Put the terminal in raw mode and return the old state, which the guest
-    /// keeps and passes back to `tty_leave_raw`.
-    pub(crate) fn tty_enter_raw(
+    /// Fail unless the policy allows terminal access. Checked on every
+    /// operation that changes the terminal mode, since a guest may also reach
+    /// the terminal through a filesystem Handle.
+    fn authorize_tty(&self) -> AsyncHostResult<()> {
+        if !self.tty_allowed {
+            crate::policy::sandbox_denied("terminal access", None)?;
+        }
+        Ok(())
+    }
+
+    /// Return the current terminal state, see `tty::state_size`.
+    pub(crate) fn tty_get_state(
         &self,
         input: HostHandle,
         output: HostHandle,
     ) -> AsyncHostResult<Vec<u8>> {
+        self.authorize_tty()?;
         let input = self.acquire_resource_of_class(input, ResourceClass::File)?;
         #[cfg(windows)]
         let output = self.acquire_resource_of_class(output, ResourceClass::File)?;
         #[cfg(unix)]
         let _ = output;
-        tty::enter_raw(
+        tty::get_state(
             &input,
             #[cfg(windows)]
             &output,
         )
     }
 
-    /// Restore a state returned by `tty_enter_raw`.
-    pub(crate) fn tty_leave_raw(
+    /// Apply a terminal state, see `tty::state_size`.
+    pub(crate) fn tty_set_state(
         &self,
         input: HostHandle,
         output: HostHandle,
         state: &[u8],
     ) -> AsyncHostResult<()> {
+        self.authorize_tty()?;
         let input = self.acquire_resource_of_class(input, ResourceClass::File)?;
         #[cfg(windows)]
         let output = self.acquire_resource_of_class(output, ResourceClass::File)?;
         #[cfg(unix)]
         let _ = output;
-        tty::leave_raw(
+        tty::set_state(
             &input,
             #[cfg(windows)]
             &output,

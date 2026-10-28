@@ -55,25 +55,11 @@ pub(super) fn open(context: &mut ImportContext<'_>, dst: u32, len: u32) -> i32 {
     errno_result(context, result)
 }
 
-/// The size of the state `enter_raw` writes, which the guest allocates.
-pub(super) fn state_size(_context: &mut ImportContext<'_>) -> i32 {
-    crate::async_sys::tty::state_size() as i32
-}
-
-/// Enter raw mode and write the old state, `state_size` opaque bytes, at
-/// `dst`.
-pub(super) fn enter_raw(
-    context: &mut ImportContext<'_>,
-    input: u64,
-    output: u64,
-    _flags: i32,
-    dst: u32,
-) -> i32 {
+/// Write the current terminal state, `tty::state_size` bytes, at `dst`.
+pub(super) fn get_state(context: &mut ImportContext<'_>, input: u64, output: u64, dst: u32) -> i32 {
     let len = crate::async_sys::tty::state_size() as u32;
     let result = (|| {
-        // Validate the destination before changing the terminal.
-        context.with_memory_mut(|memory| Ok(memory.read_exact_mut(dst, len).map(|_| ())?))?;
-        let state = context.host.tty_enter_raw(input, output)?;
+        let state = context.host.tty_get_state(input, output)?;
         context.with_memory_mut(|memory| {
             memory.read_exact_mut(dst, len)?.copy_from_slice(&state);
             Ok(())
@@ -82,12 +68,12 @@ pub(super) fn enter_raw(
     errno_result(context, result)
 }
 
-/// Restore the state `enter_raw` wrote, read back from `src`.
-pub(super) fn leave_raw(context: &mut ImportContext<'_>, input: u64, output: u64, src: u32) -> i32 {
+/// Apply the terminal state, `tty::state_size` bytes, read from `src`.
+pub(super) fn set_state(context: &mut ImportContext<'_>, input: u64, output: u64, src: u32) -> i32 {
     let len = crate::async_sys::tty::state_size() as u32;
     let result = (|| {
         let state = context.with_memory_mut(|memory| Ok(memory.read_exact(src, len)?.to_vec()))?;
-        context.host.tty_leave_raw(input, output, &state)
+        context.host.tty_set_state(input, output, &state)
     })();
     errno_result(context, result)
 }

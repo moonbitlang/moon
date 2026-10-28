@@ -88,40 +88,20 @@ fn set_mode(handle: BorrowedHandle<'_>, mode: u32) -> AsyncHostResult<()> {
     Ok(())
 }
 
-/// Two console modes, encoded as little-endian u32 values in guest-owned bytes.
+/// Two console modes, input then output, as little-endian `u32`.
 pub(super) const STATE_SIZE: usize = 2 * std::mem::size_of::<u32>();
 
-pub(super) fn enter_raw(
+pub(super) fn get_state(
     input: BorrowedHandle<'_>,
     output: BorrowedHandle<'_>,
 ) -> AsyncHostResult<Vec<u8>> {
-    let input_mode = get_mode(input)?;
-    let output_mode = get_mode(output)?;
     let mut state = Vec::with_capacity(STATE_SIZE);
-    state.extend_from_slice(&input_mode.to_le_bytes());
-    state.extend_from_slice(&output_mode.to_le_bytes());
-    let raw_input = (input_mode
-        & !(ENABLE_ECHO_INPUT
-            | ENABLE_LINE_INPUT
-            | ENABLE_PROCESSED_INPUT
-            | ENABLE_QUICK_EDIT_MODE))
-        | ENABLE_VIRTUAL_TERMINAL_INPUT
-        | ENABLE_WINDOW_INPUT
-        | ENABLE_EXTENDED_FLAGS;
-    let raw_output = output_mode
-        | ENABLE_PROCESSED_OUTPUT
-        | ENABLE_VIRTUAL_TERMINAL_PROCESSING
-        | DISABLE_NEWLINE_AUTO_RETURN;
-    set_mode(input, raw_input)?;
-    if let Err(error) = set_mode(output, raw_output) {
-        // Preserve the output error while rolling back the input change.
-        let _ = set_mode(input, input_mode);
-        return Err(error);
-    }
+    state.extend_from_slice(&get_mode(input)?.to_le_bytes());
+    state.extend_from_slice(&get_mode(output)?.to_le_bytes());
     Ok(state)
 }
 
-pub(super) fn leave_raw(
+pub(super) fn set_state(
     input: BorrowedHandle<'_>,
     output: BorrowedHandle<'_>,
     state: &[u8],
@@ -129,10 +109,15 @@ pub(super) fn leave_raw(
     let state: &[u8; STATE_SIZE] = state.try_into().map_err(|_| AsyncHostError::Inval)?;
     let input_mode = u32::from_le_bytes(state[..4].try_into().unwrap());
     let output_mode = u32::from_le_bytes(state[4..].try_into().unwrap());
-    // Attempt both restorations even if one fails.
-    let input = set_mode(input, input_mode);
-    let output = set_mode(output, output_mode);
-    input.and(output)
+    let old_input_mode = get_mode(input)?;
+    set_mode(input, input_mode)?;
+    if let Err(error) = set_mode(output, output_mode) {
+        // Preserve the output error while rolling back the input change, e.g.
+        // on a legacy console that rejects the VT output flags.
+        let _ = set_mode(input, old_input_mode);
+        return Err(error);
+    }
+    Ok(())
 }
 
 pub(super) fn size(output: BorrowedHandle<'_>) -> AsyncHostResult<i64> {

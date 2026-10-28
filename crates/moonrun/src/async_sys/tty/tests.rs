@@ -116,9 +116,9 @@ fn windows_tty_lifecycle_child() {
         packed_size & 0xffff_ffff,
         i64::from(info.srWindow.Right - info.srWindow.Left + 1)
     );
-    raw_mode_roundtrip(&tty);
-    raw_mode_rolls_back_input_on_output_failure(&tty);
-    guest_owns_raw_state(&tty);
+    state_roundtrip(&tty);
+    set_state_rolls_back_input_on_output_failure(&tty);
+    guest_owns_state(&tty);
     console_input_records(tty);
     console_read_cancellation();
     // No controlling console must remain an error, rather than falling back to stdio.
@@ -136,41 +136,50 @@ fn mode(resource: &Resource) -> u32 {
     mode
 }
 
-fn raw_mode_roundtrip(tty: &TtyResources) {
+/// The raw state `@tty.State::make_raw` computes from `state` in the guest.
+fn make_raw(state: &[u8]) -> Vec<u8> {
+    let input = u32::from_le_bytes(state[..4].try_into().unwrap());
+    let output = u32::from_le_bytes(state[4..].try_into().unwrap());
+    let input = (input
+        & !(ENABLE_ECHO_INPUT
+            | ENABLE_LINE_INPUT
+            | ENABLE_PROCESSED_INPUT
+            | ENABLE_QUICK_EDIT_MODE))
+        | ENABLE_VIRTUAL_TERMINAL_INPUT
+        | ENABLE_WINDOW_INPUT
+        | ENABLE_EXTENDED_FLAGS;
+    let output = output
+        | ENABLE_PROCESSED_OUTPUT
+        | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        | DISABLE_NEWLINE_AUTO_RETURN;
+    [input.to_le_bytes(), output.to_le_bytes()].concat()
+}
+
+fn state_roundtrip(tty: &TtyResources) {
     let saved = (mode(&tty.input), mode(&tty.control));
-    let state = enter_raw(&tty.input, &tty.control).unwrap();
+    let state = get_state(&tty.input, &tty.control).unwrap();
     assert_eq!(state.len(), state_size());
     assert_eq!(&state[..4], saved.0.to_le_bytes());
     assert_eq!(&state[4..], saved.1.to_le_bytes());
-    assert_eq!(
-        mode(&tty.input)
-            & (ENABLE_ECHO_INPUT
-                | ENABLE_LINE_INPUT
-                | ENABLE_PROCESSED_INPUT
-                | ENABLE_QUICK_EDIT_MODE),
-        0
-    );
-    let input_flags = ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
-    assert_eq!(mode(&tty.input) & input_flags, input_flags);
-    let output_flags =
-        ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
-    assert_eq!(mode(&tty.control) & output_flags, output_flags);
+    let raw = make_raw(&state);
+    set_state(&tty.input, &tty.control, &raw).unwrap();
+    assert_eq!(get_state(&tty.input, &tty.control).unwrap(), raw);
     let raw_modes = (mode(&tty.input), mode(&tty.control));
     for len in [0, state_size() - 1, state_size() + 1] {
         assert_eq!(
-            leave_raw(&tty.input, &tty.control, &vec![0; len]),
+            set_state(&tty.input, &tty.control, &vec![0; len]),
             Err(crate::async_host::AsyncHostError::Inval)
         );
         assert_eq!((mode(&tty.input), mode(&tty.control)), raw_modes);
     }
-    leave_raw(&tty.input, &tty.control, &state).unwrap();
+    set_state(&tty.input, &tty.control, &state).unwrap();
     assert_eq!((mode(&tty.input), mode(&tty.control)), saved);
     // State is reusable bytes, not a consumed host Handle.
-    leave_raw(&tty.input, &tty.control, &state).unwrap();
+    set_state(&tty.input, &tty.control, &state).unwrap();
     assert_eq!((mode(&tty.input), mode(&tty.control)), saved);
 }
 
-fn raw_mode_rolls_back_input_on_output_failure(tty: &TtyResources) {
+fn set_state_rolls_back_input_on_output_failure(tty: &TtyResources) {
     let output = unsafe {
         CreateFileW(
             windows_sys::w!("CONOUT$"),
@@ -185,51 +194,59 @@ fn raw_mode_rolls_back_input_on_output_failure(tty: &TtyResources) {
     assert_ne!(output, INVALID_HANDLE_VALUE);
     let output = Resource::new(output);
     let saved = mode(&tty.input);
-    assert!(enter_raw(&tty.input, &output).is_err());
+    let raw = make_raw(&get_state(&tty.input, &tty.control).unwrap());
+    assert!(set_state(&tty.input, &output, &raw).is_err());
     assert_eq!(mode(&tty.input), saved);
 }
 
-fn guest_owns_raw_state(tty: &TtyResources) {
+fn guest_owns_state(tty: &TtyResources) {
     let saved = (mode(&tty.input), mode(&tty.control));
+    let raw = make_raw(&[saved.0.to_le_bytes(), saved.1.to_le_bytes()].concat());
+    let raw_input = u32::from_le_bytes(raw[..4].try_into().unwrap());
+    let raw_output = u32::from_le_bytes(raw[4..].try_into().unwrap());
     let engine = crate::Engine::default();
     for trap in [false, true] {
         let finish = if trap {
             "unreachable"
         } else {
-            "(call $check (call $leave (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 41)))"
+            "(call $check (call $set (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 41)))"
         };
         let source = format!(
             r#"(module
             (import "moonbitlang/async" "tty/open" (func $open (param i32 i32) (result i32)))
-            (import "moonbitlang/async" "tty/state_size" (func $state_size (result i32)))
-            (import "moonbitlang/async" "tty/enter_raw" (func $enter (param i64 i64 i32 i32) (result i32)))
-            (import "moonbitlang/async" "tty/leave_raw" (func $leave (param i64 i64 i32) (result i32)))
+            (import "moonbitlang/async" "tty/get_state" (func $get (param i64 i64 i32) (result i32)))
+            (import "moonbitlang/async" "tty/set_state" (func $set (param i64 i64 i32) (result i32)))
             (import "moonbitlang/async" "tty/size" (func $size (param i64) (result i64)))
             (import "moonbitlang/async" "fd_util/close_fd" (func $close (param i64) (result i32)))
             (memory (export "memory") 1)
             (func $check (param $err i32) (if (local.get $err) (then unreachable)))
             (func (export "_start")
-                (call $check (i32.ne (call $state_size) (i32.const 8)))
                 (call $check (call $open (i32.const 0) (i32.const 4)))
                 (call $check (i64.eq (i64.load (i32.const 0)) (i64.load (i32.const 16))))
                 (call $check (i64.eq (i64.load (i32.const 16)) (i64.load (i32.const 24))))
                 (call $check (i64.le_s (call $size (i64.load (i32.const 16))) (i64.const 0)))
-                ;; An invalid destination must fail before changing either mode.
-                (call $check (i32.ne (call $enter (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 0) (i32.const 65532)) (i32.const -1)))
-                (call $check (call $enter (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 0) (i32.const 32)))
+                ;; An invalid destination fails.
+                (call $check (i32.ne (call $get (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 65532)) (i32.const -1)))
+                (call $check (call $get (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 32)))
                 (call $check (i32.ne (i32.load (i32.const 32)) (i32.const {input_mode})))
                 (call $check (i32.ne (i32.load (i32.const 36)) (i32.const {output_mode})))
-                ;; Move the bytes to an unaligned buffer and erase the original.
-                (memory.copy (i32.const 41) (i32.const 32) (call $state_size))
-                (memory.fill (i32.const 32) (i32.const 0) (call $state_size))
-                (call $check (i32.ne (call $leave (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 65532)) (i32.const -1)))
+                ;; The guest computes the raw state itself.
+                (i32.store (i32.const 48) (i32.const {raw_input}))
+                (i32.store (i32.const 52) (i32.const {raw_output}))
+                (call $check (call $set (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 48)))
+                ;; Move the saved bytes to an unaligned buffer and erase the original.
+                (memory.copy (i32.const 41) (i32.const 32) (i32.const 8))
+                (memory.fill (i32.const 32) (i32.const 0) (i32.const 8))
+                (call $check (i32.ne (call $set (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 65532)) (i32.const -1)))
                 {finish}
                 (call $check (call $close (i64.load (i32.const 0))))
                 (call $check (call $close (i64.load (i32.const 8))))
                 (call $check (call $close (i64.load (i32.const 16))))
                 (call $check (call $close (i64.load (i32.const 24))))))"#,
-            input_mode = saved.0,
-            output_mode = saved.1,
+            input_mode = saved.0 as i32,
+            output_mode = saved.1 as i32,
+            raw_input = raw_input as i32,
+            raw_output = raw_output as i32,
         );
         let module = engine
             .compile("tty-modes.wasm", wat::parse_str(source).unwrap())
@@ -289,7 +306,8 @@ fn inject(input: &Resource, records: &[INPUT_RECORD]) {
 
 fn console_input_records(tty: TtyResources) {
     use crate::filesystem::Job;
-    let state = enter_raw(&tty.input, &tty.control).unwrap();
+    let state = get_state(&tty.input, &tty.control).unwrap();
+    set_state(&tty.input, &tty.control, &make_raw(&state)).unwrap();
     let input = Arc::new(tty.input);
     let wakeup = Arc::new(tty.wakeup);
     assert_ne!(unsafe { FlushConsoleInputBuffer(raw(&input)) }, 0);
@@ -344,7 +362,7 @@ fn console_input_records(tty: TtyResources) {
     let mut job = Job::tty_read_console_input(input.clone(), wakeup, 3);
     assert_eq!(job.run().unwrap(), -1);
     assert!(job.tty_read_console_input_resized().unwrap());
-    leave_raw(&input, &tty.control, &state).unwrap();
+    set_state(&input, &tty.control, &state).unwrap();
 }
 
 fn console_read_cancellation() {
