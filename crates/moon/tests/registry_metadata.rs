@@ -302,7 +302,7 @@ fn missing_declared_version_is_not_replaced_by_an_available_newer_release() {
 }
 
 #[test]
-fn api_mode_is_opt_in_and_ignores_existing_index_contents() {
+fn full_api_mode_ignores_existing_index_contents() {
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
     let mut server = Server::new(&[("alice/shared", "0.1.0", serde_json::json!({}))]);
@@ -332,6 +332,272 @@ fn api_mode_is_opt_in_and_ignores_existing_index_contents() {
         .success();
     server.stop();
     assert_eq!(server.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn mixed_mode_routes_whole_modules_and_reuses_private_cache_with_the_saved_identity() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[]);
+    configure(home.path(), &server.api);
+    let credentials = home.path().join("credentials.json");
+    std::fs::write(
+        &credentials,
+        serde_json::json!({
+            "username": "alice", "token": "owner-token", "registry_api": server.api,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    server.responses.lock().unwrap().insert(
+        "/api/v0/registry/modules/alice/secret?version=0.1.0".into(),
+        (
+            200,
+            serde_json::json!({
+                "module": "alice/secret", "version": "0.1.0", "visibility": "PRIVATE",
+                "deps": {"alice/public": "0.1.0"}, "checksum": "a".repeat(64),
+            })
+            .to_string(),
+        ),
+    );
+    let index = home.path().join("registry/index/user/alice/public.index");
+    std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index,
+        serde_json::json!({
+            "version": "0.1.0", "checksum": "b".repeat(64),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let manifest = project.path().join("moon.mod");
+    std::fs::write(
+        &manifest,
+        "name = \"test/app\"\nimport { \"alice/secret@0.1.0\" }\n",
+    )
+    .unwrap();
+
+    // Explicit Git mode remains Git-only, even with a login.
+    moon(project.path(), home.path(), false)
+        .args(["tree"])
+        .assert()
+        .failure();
+    assert!(server.requests.lock().unwrap().is_empty());
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .success();
+    server.stop();
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 "));
+    assert!(
+        requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer owner-token")
+    );
+    drop(requests);
+
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .success();
+    std::fs::write(
+        &credentials,
+        serde_json::json!({
+            "username": "bob", "token": "other-token", "registry_api": server.api,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: Failed to read registry dependency `alice/secret@0.1.0` for module `test/app`: Module `alice/secret` not found or access denied\n");
+
+    // A missing version of an indexed module must never issue an HTTP request.
+    std::fs::write(
+        &manifest,
+        "name = \"test/app\"\nimport { \"alice/public@0.2.0\" }\n",
+    )
+    .unwrap();
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .failure()
+        .stderr_eq("...\nError: Failed to resolve registry dependency `alice/public` for module `test/app`: version `0.2.0` was not found in the registry\n");
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn mixed_mode_rejects_public_http_metadata_even_when_cached() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut server = Server::new(&[("alice/public", "0.1.0", serde_json::json!({}))]);
+    configure(home.path(), &server.api);
+    std::fs::write(
+        project.path().join("moon.mod"),
+        "name = \"test/app\"\nimport { \"alice/public@0.1.0\" }\n",
+    )
+    .unwrap();
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: Failed to read registry dependency `alice/public@0.1.0` for module `test/app`: Public module `alice/public` is missing from the Git index; run `moon update` or use `MOON_REGISTRY_API=1`\n");
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    // Explicit full HTTP mode can accept and persist the public response.
+    moon(project.path(), home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    server.stop();
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: Failed to read registry dependency `alice/public@0.1.0` for module `test/app`: Public module `alice/public` is missing from the Git index; run `moon update` or use `MOON_REGISTRY_API=1`\n");
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn mixed_update_syncs_git_once_and_refreshes_private_modules() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let upstream = tempfile::tempdir().unwrap();
+    let server = Server::new(&[]);
+    let index = upstream.path().join("user/alice/public.index");
+    std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index,
+        ["0.1.0", "0.2.0"]
+            .map(|version| {
+                serde_json::json!({"version": version, "checksum": "b".repeat(64) }).to_string()
+            })
+            .join("\n"),
+    )
+    .unwrap();
+    for args in [
+        vec!["init"],
+        vec!["add", "."],
+        vec![
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "index",
+        ],
+    ] {
+        snapbox::cmd::Command::new("git")
+            .current_dir(upstream.path())
+            .args(args)
+            .assert()
+            .success();
+    }
+    std::fs::write(
+        home.path().join("config.json"),
+        serde_json::json!({
+            "api": server.api, "download": server.api,
+            "index": url::Url::from_directory_path(upstream.path()).unwrap().to_string(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        home.path().join("credentials.json"),
+        serde_json::json!({
+            "username": "alice", "token": "owner-token", "registry_api": server.api,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    for (query, version) in [("?version=0.1.0", "0.1.0"), ("", "0.2.0")] {
+        server.responses.lock().unwrap().insert(
+            format!("/api/v0/registry/modules/alice/secret{query}"),
+            (
+                200,
+                serde_json::json!({
+                    "module": "alice/secret", "version": version, "visibility": "PRIVATE",
+                    "deps": {"alice/public": "0.1.0"}, "checksum": "a".repeat(64),
+                    "yanked": !query.is_empty(),
+                })
+                .to_string(),
+            ),
+        );
+    }
+    // Outside a project, mixed mode retains the Git-only update operation.
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["update"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    server.requests.lock().unwrap().clear();
+    let manifest = "name = \"test/app\"\nimport { \"alice/secret@0.1.0\" }\n";
+    std::fs::write(project.path().join("moon.mod"), manifest).unwrap();
+    // Warm the exact private record so update measures refresh, not resolution.
+    moon(project.path(), home.path(), false)
+        .env_remove("MOON_REGISTRY_API")
+        .args(["tree"])
+        .assert()
+        .success();
+    server.requests.lock().unwrap().clear();
+    moon(project.path(), home.path(), false).env_remove("MOON_REGISTRY_API")
+        .args(["update"]).assert().success()
+        .stdout_eq("alice/public@0.1.0: latest 0.2.0 (update available)\nalice/secret@0.1.0: latest 0.2.0 (update available); deprecated\n");
+    assert_eq!(
+        std::fs::read_to_string(project.path().join("moon.mod")).unwrap(),
+        manifest
+    );
+    assert!(!project.path().join("_build").join(".mooncakes").exists());
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /symbols.zip "))
+            .count(),
+        1
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 "))
+            .count(),
+        1
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /api/v0/registry/modules/alice/secret "))
+            .count(),
+        1
+    );
+    assert!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /api/"))
+            .all(|r| r
+                .to_ascii_lowercase()
+                .contains("authorization: bearer owner-token"))
+    );
+    assert!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /symbols.zip "))
+            .all(|r| !r.to_ascii_lowercase().contains("authorization:"))
+    );
 }
 
 #[test]
