@@ -209,7 +209,6 @@ mod tests {
                         state: ProcessState::Running,
                     },
                     terminator: crate::termination_channel().0,
-                    thread: None,
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },

@@ -176,10 +176,11 @@ See `run_termination.rs` for the control contract and
 
 `VirtualProcessTree` gives Runs virtual PIDs. Guests can kill themselves or
 children and wait for direct children; spawning, soft signals and native process
-handles are not yet supported. Ordinary Runs remain ambient. A supervisor thread
-joins exited Runs; guest wait Jobs are cancellable and only consume the result
-when the guest reads it. Dropping an unread Job preserves that result. Exiting
-parents leave children with the supervisor. `Terminating` does not promise
+handles are not yet supported. Ordinary Runs remain ambient. Each Run has its own
+reaper so blocked thread cleanup cannot delay other completions. Guest wait Jobs
+are cancellable and only consume the result when the guest reads it. Dropping an
+unread Job preserves that result. Exiting parents leave children with the
+supervisor. `Terminating` does not promise
 bounded teardown. See `tests/process_tree.rs` and `tests/guest_process_control.rs`.
 
 ## Worker cancellation
