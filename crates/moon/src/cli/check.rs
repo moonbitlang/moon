@@ -50,7 +50,7 @@ use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::locks::lock_directory;
-use moonutil::project::{PackageDirs, ProjectProbe};
+use moonutil::project::PackageDirs;
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
 use moonutil::user_log::{UserLog, UserLogCapture, UserLogEntry, UserLogEntryLevel};
@@ -272,7 +272,14 @@ pub(crate) struct CheckSubcommand {
     #[clap(long)]
     pub explain: bool,
 
-    /// Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
+    /// Paths to packages, files inside packages, or one standalone `.mbtx` / `.mbt.md` file
+    ///
+    /// An explicit `.mbtx` path checks only that script, even inside a project.
+    /// Scripts use only explicitly declared package imports; omitting imports or
+    /// declaring an empty import block leaves the package import list empty.
+    /// A `.mbt.md` file with YAML `moonbit.import` is also checked independently,
+    /// including an empty import list. Its backend defaults to `moonbit.backend`.
+    /// Other `.mbt` and `.mbt.md` paths select their containing package and require a project.
     #[clap(conflicts_with = "watch", name = "PATH", group = "package_selector")]
     pub path: Vec<PathBuf>,
 
@@ -412,31 +419,21 @@ fn run_check_impl(
         }
     }
 
-    let (mut dirs, single_file) = if let Some(path) =
-        super::standalone_mbtx_path(&cmd.path, "moon check")?
-    {
-        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-        (single_file.package_dirs, Some(single_file.input_path))
-    } else {
-        // Check if we're running within a project.
-        let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-        match query.probe_project()? {
-            ProjectProbe::Found(_) => {
-                let dirs = query.select(user_log)?.package_dirs()?;
-                (dirs, None)
-            }
-            ProjectProbe::NotFound(not_found) => match cmd.path.as_slice() {
-                [path] => {
-                    let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-                    (single_file.package_dirs, Some(single_file.input_path))
-                }
-                [] => return Err(not_found.into_error().into()),
-                _ => {
-                    anyhow::bail!("standalone single-file `moon check` expects exactly one `PATH`");
-                }
-            },
-        }
-    };
+    let (mut dirs, single_file) =
+        if let Some((path, config)) = super::standalone_file(&cmd.path, "moon check", user_log)? {
+            let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+            (
+                single_file.package_dirs,
+                Some((single_file.input_path, config)),
+            )
+        } else {
+            let dirs = cli
+                .source_tgt_dir
+                .query(cli.workspace_env.clone())?
+                .select(user_log)?
+                .package_dirs()?;
+            (dirs, None)
+        };
     let watch_ignored_subtree = dirs.target_dir.clone();
     if cmd.watch {
         dirs.target_dir = dirs.target_dir.join(WATCH_MODE_DIR);
@@ -452,9 +449,17 @@ fn run_check_impl(
     // target plans converge with project checks in `run_planned_checks`.
     // Standalone Check is currently one-shot; only project checks enter the
     // watcher below.
-    if let Some(single_file_path) = single_file.as_deref() {
-        let result =
-            run_check_for_single_file_rr(cli, cmd, single_file_path, &dirs, &targets, output, json);
+    if let Some((single_file_path, config)) = single_file {
+        let result = run_check_for_single_file_rr(
+            cli,
+            cmd,
+            &single_file_path,
+            config,
+            &dirs,
+            &targets,
+            output,
+            json,
+        );
         return match targets.as_slice() {
             [] => result,
             [target] => result.context(format!("failed to run check for target {target:?}")),
@@ -521,6 +526,7 @@ fn run_check_for_single_file_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     single_file_path: &Path,
+    config: moonbuild_rupes_recta::single_file::SingleFileConfig,
     dirs: &PackageDirs,
     selected_target_backends: &[TargetBackend],
     output: &CommandOutput,
@@ -549,19 +555,15 @@ fn run_check_for_single_file_rr(
             ChildOutputMode::Inherit
         },
     });
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let target_backends =
+        rr_build::single_file_target_backends(selected_target_backends, config.backend);
+    let discovered = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
-        false,
+        config,
         user_log,
     )?;
-    let target_backends = rr_build::single_file_target_backends(
-        &discovered,
-        selected_target_backends,
-        backend,
-        user_log,
-    );
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let _lock;

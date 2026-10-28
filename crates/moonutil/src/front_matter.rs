@@ -22,45 +22,11 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
 
-use crate::constants::DOT_MBT_DOT_MD;
 use crate::{
     dependency::SourceDependencyInfo,
     package::{Import, PkgJSONImport},
     target::TargetBackend,
 };
-
-#[derive(Debug, serde::Deserialize)]
-pub struct MbtMdHeader {
-    pub moonbit: Option<MbtMdSection>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-pub struct MbtMdSection {
-    pub deps: Option<IndexMap<String, crate::dependency::SourceDependencyInfo>>,
-    pub import: Option<crate::package::PkgJSONImport>,
-    pub backend: Option<String>,
-}
-
-pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Option<MbtMdHeader>> {
-    let single_file_string = single_file_path.display().to_string();
-    let front_matter_config: Option<MbtMdHeader> = if single_file_string.ends_with(DOT_MBT_DOT_MD) {
-        let content = std::fs::read_to_string(single_file_path)?;
-        let pattern = regex::Regex::new(r"(?s)^---\s*\n((?:[^\n]+\n)*?)---\s*\n")?;
-        if let Some(cap) = pattern.captures(&content) {
-            let yaml_content = cap.get(1).unwrap().as_str();
-            let config: MbtMdHeader = serde_yaml::from_str(yaml_content).map_err(|e| {
-                anyhow::anyhow!("Failed to parse front matter in markdown file: {}", e)
-            })?;
-
-            Some(config)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    Ok(front_matter_config)
-}
 
 /// YAML configuration at the start of a Markdown source file. An explicitly
 /// empty import list selects standalone mode; an absent import does not.

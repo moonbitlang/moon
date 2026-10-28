@@ -249,7 +249,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
-        if importer_pkg.single_file_source_kind.is_none()
+        if !importer_pkg.is_single_file()
             && importer_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
             && importer_target.package != dep.package
             && dependency_pkg.supported_targets_decl != SupportedTargetsDeclKind::Omitted
@@ -591,8 +591,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // `.mbtx` is interpreted as a standalone source during resolution. It
         // is not a package source filename, so it does not participate in
         // package conditional-compilation or test-file classification.
-        let is_mbtx_single_file = pkg.is_mbtx_single_file();
-        let source_files_for_classification = if is_mbtx_single_file {
+        let source_files_for_classification = if pkg.is_single_file() {
             &[][..]
         } else {
             pkg.source_files.as_slice()
@@ -637,7 +636,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let mut whitebox_files = IndexSet::new();
         let mut blackbox_files = IndexSet::new();
 
-        if is_mbtx_single_file {
+        if pkg.is_single_file() {
             no_test_files.extend(pkg.source_files.iter().cloned());
         }
 

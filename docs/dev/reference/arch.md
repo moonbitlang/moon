@@ -322,19 +322,28 @@ Resolving the package selectors to their in-memory definition
 happens after discovering all relevant modules and packages.
 There is currently no explicit module resolving, because there is only one (input) module to work on.
 
-If no input module can be found, some subcommands of `moon` enters a "single-file mode",
-which treats the input file (if specified) as the content of a synthesized input module and package.
-The concrete declaration of the synthesized module/package is out of scope for this document,
-please consult the relevant code for the actual implementation.
-Subcommands that do not support single-file mode simply fails with an error.
+Standalone builds and runs accept `.mbtx` scripts; checks and tests also accept
+`.mbt.md` files declaring YAML `moonbit.import`.
+An explicit script file synthesizes one input module and one executable package,
+without loading a surrounding project. Stdin and `-e` input are also `.mbtx` scripts.
+
+Ordinary `.mbt` and `.mbt.md` paths require project context: they select their containing
+package for `moon check` and `moon run`, and tests within that package for
+`moon test`. Running compiles the whole main package. Without a project these
+commands report the ordinary project-not-found error before creating `_build`
+or `.mooncakes`, including dry-run and build-only modes. A file inside a project
+without a containing package reports the ordinary package-selection error;
+it never falls back to standalone execution.
 
 An explicit `.mbtx` file path selects single-file mode for `moon build`,
-`moon check`, and `moon test` even when the path is inside an ordinary package.
+`moon check`, `moon run`, and `moon test` even when the path is inside an ordinary package.
 The `.mbtx` file is therefore the synthetic package's source; it is not
 interpreted as a selector for the containing package.
 Source interpretation follows the invoked filename, including when a symlink's
 target has a different suffix. The canonical file identity still determines
-standalone build storage.
+standalone build storage. Directories ending in `.mbtx` remain package
+selectors. `moon run` locates the project from its input path, and continues to
+execute existing `.wasm` files directly.
 The synthetic `.mbtx` package is always executable. Building, running, and
 testing a script require a user `fn main`; tests execute the generated test
 entrypoint instead of the script's main.
@@ -346,12 +355,35 @@ Standalone `.mbt` inputs remain supported by `moon check`, `moon test`, and
 matter imports. This warning applies only to synthetic standalone packages;
 ordinary project `.mbt` files retain their package semantics.
 
+For Markdown, an explicit YAML `moonbit.import` selects standalone mode even
+when the list or map is empty. For build, check, run, and test, the shared command
+selector parses and validates the configuration once, preserving it for
+dependency synchronization and discovery. Standalone Markdown becomes a library package with the original file
+in its blackbox-test inputs; it never requires `fn main`. Module versions may be
+shared across import entries, external modules require versions, and core forbids
+versions. Backend selection precedes package resolution and uses CLI targets,
+then YAML `moonbit.backend`, then the default backend. Malformed YAML, imports,
+or backends report the file path; they do not fall back to project discovery.
+Headers without imports select the surrounding package. Deps-only headers do
+not enable standalone mode or import all packages, and combining `deps` with
+`import` is an error. `moon build` and `moon run` reject standalone Markdown
+with a hint to use `check` or `test`.
+
 Script declarations use `moon.pkg` grammar in leading front matter fenced by
 three or more hyphens, such as `----`:
 `import { ... }` declares dependencies and `permission(...)` declares the
-embedded Moonrun Policy. The shared front matter parser reads import
-structures and untyped permission values; dependency resolution selects module
-versions, and Moonrun validates the effective permission schema. An optional
+embedded Moonrun Policy. Scripts use only explicitly declared package imports.
+No import declaration, an empty import block, and a permission-only header all
+produce an empty package import list; language builtins and the ordinary prelude
+remain available. This rule is shared by build, check, test, run, moonx, stdin,
+`-e`, and prebuild scripts. Lowering enforces this through the shared
+[compiler configuration](compiler-cmd-ref.md#standalone-script-imports).
+The shared front matter parser reads import structures and untyped permission
+values. `SingleFileConfig` records whether an embedded permission is present
+during this parse, so run orchestration can pass the script as a policy source
+without reopening its header to detect permissions. This flag is always false
+for Markdown. Dependency resolution selects module versions, and Moonrun
+validates the effective permission schema. An optional
 first-line shebang is skipped when interpreting either declaration format.
 This is header-parser behavior only; compiler tools receive the original script
 unchanged.
@@ -773,7 +805,7 @@ and conditional metadata for all package files. This first migration step only
 relocates that document behind the selector; backend/profile projection and
 removal of redundant legacy fields are deferred to a follow-up change.
 
-Standalone-file checks publish the same relative metadata layout within their
+Standalone `.mbtx` and `.mbt.md` checks publish the same relative metadata layout within their
 filename-scoped target directory:
 
 ```text

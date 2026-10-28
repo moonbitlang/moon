@@ -52,7 +52,7 @@ fn test_moon_help() {
               build                  Build the current package
               check                  Check the current package, but don't build object files
               prove                  Prove the current package
-              run                    Run a main package
+              run                    Run a main package or standalone `.mbtx` script
               runwasm                Deprecated: use moon run --target wasm locally or moonx for registry packages
               test                   Test the current package
               clean                  Remove local build outputs or configured global caches

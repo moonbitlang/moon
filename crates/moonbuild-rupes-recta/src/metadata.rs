@@ -113,7 +113,7 @@ fn gen_package_json(
     let mut files = IndexMap::new();
     let mut wbtest_files = IndexMap::new();
     let mut test_files = IndexMap::new();
-    if pkg.is_mbtx_single_file() {
+    if pkg.is_single_file() {
         for path in &pkg.source_files {
             files.insert(
                 dunce::simplified(path).to_owned(),

@@ -55,7 +55,7 @@ This document contains the help content for the `moon` command-line program.
 * `build` — Build the current package
 * `check` — Check the current package, but don't build object files
 * `prove` — Prove the current package
-* `run` — Run a main package
+* `run` — Run a main package or standalone `.mbtx` script
 * `runwasm` — Deprecated: use moon run --target wasm locally or moonx for registry packages
 * `test` — Test the current package
 * `clean` — Remove local build outputs or configured global caches
@@ -114,7 +114,11 @@ A successful build also lists each executable and foreign library it built on st
 
 ###### **Arguments:**
 
-* `<PATH>` — Paths to the packages that should be built, or one standalone `.mbtx` file
+* `<PATH>` — Paths to the packages that should be built, or one standalone `.mbtx` file.
+
+   Markdown with YAML `moonbit.import` must be passed to `moon check` or `moon test`.
+
+   Scripts use only explicitly declared package imports; omitting imports or declaring an empty import block leaves the package import list empty.
 
 ###### **Options:**
 
@@ -156,7 +160,9 @@ A successful check also updates `pkg.generated.mbti` of the checked local packag
 
 ###### **Arguments:**
 
-* `<PATH>` — Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
+* `<PATH>` — Paths to packages, files inside packages, or one standalone `.mbtx` / `.mbt.md` file
+
+   An explicit `.mbtx` path checks only that script, even inside a project. Scripts use only explicitly declared package imports; omitting imports or declaring an empty import block leaves the package import list empty. A `.mbt.md` file with YAML `moonbit.import` is also checked independently, including an empty import list. Its backend defaults to `moonbit.backend`. Other `.mbt` and `.mbt.md` paths select their containing package and require a project.
 
 ###### **Options:**
 
@@ -226,13 +232,15 @@ Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing `moonbit_builtin_pre
 
 ## `moon run`
 
-Run a main package
+Run a main package or standalone `.mbtx` script
+
+`.mbtx` scripts, including stdin and `-e` input, use only explicitly declared package imports. Omitting imports or declaring an empty import block leaves the package import list empty. `.mbt` and `.mbt.md` paths select their containing main package and require a project. Markdown with YAML `moonbit.import` is standalone and must be passed to `moon check` or `moon test`.
 
 **Usage:** `moon run [OPTIONS] <PACKAGE_OR_MBT_FILE|-e <SCRIPT>> [ARGS]...`
 
 ###### **Arguments:**
 
-* `<PACKAGE_OR_MBT_FILE>` — The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
+* `<PACKAGE_OR_MBT_FILE>` — A package directory, `.mbt` / `.mbt.md` package selector, standalone `.mbtx` file, or `-` to read `.mbtx` source from stdin
 * `<ARGS>` — The arguments provided to the program to be run
 
 ###### **Options:**
@@ -319,9 +327,9 @@ Test executables run in parallel using the available CPU count by default. Use `
 
 ###### **Arguments:**
 
-* `<PATH>` — Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
+* `<PATH>` — Run tests for packages, files inside packages, or one standalone `.mbtx` / `.mbt.md` file.
 
-   An explicit `.mbtx` path tests only that script, even inside a project. The script must define `fn main`, but tests use a generated entrypoint and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts. Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
+   An explicit `.mbtx` path tests only that script, even inside a project. The script must define `fn main`, but tests use a generated entrypoint and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts. `.mbtx` scripts use only explicitly declared package imports; omitting imports or declaring an empty import block leaves the package import list empty. A `.mbt.md` file with YAML `moonbit.import` is tested independently without requiring `fn main`. Its backend defaults to `moonbit.backend`. Other `.mbt` and `.mbt.md` paths select tests in their containing package and require a project.
 
 ###### **Options:**
 

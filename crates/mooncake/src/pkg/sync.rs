@@ -119,22 +119,15 @@ fn resolve_workspace_sync(
 pub fn auto_sync_for_single_file_rr(
     dirs: &PackageDirs,
     sync_flags: &AutoSyncFlags,
-    front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
+    deps: &IndexMap<String, moonutil::dependency::SourceDependencyInfo>,
     output_options: SyncOutputOptions,
     source_cache: &CacheRoot,
     user_log: &UserLog,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
-    let mut synth_deps = IndexMap::new();
-    if let Some(deps_map) = front_matter_deps {
-        for (k, v) in deps_map.iter() {
-            synth_deps.insert(k.clone(), v.clone());
-        }
-    }
-
     let m = Arc::new(MoonMod {
         name: moonutil::constants::SINGLE_FILE_TEST_MODULE.to_string(),
         version: Some(Version::new(0, 0, 1)),
-        deps: synth_deps,
+        deps: deps.clone(),
         ..Default::default()
     });
     let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;

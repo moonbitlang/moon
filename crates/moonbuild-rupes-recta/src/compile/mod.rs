@@ -153,7 +153,7 @@ mod tests {
         ResolvedProject,
         build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
-        discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
+        discover::{DiscoverResult, DiscoveredPackage},
         model::{
             BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, NativeTarget, TargetKind,
         },
@@ -236,12 +236,16 @@ mod tests {
             root_path: PathBuf::from(path),
             module,
             fqn: PackageFQN::new(module_source.clone(), package_path),
-            single_file_source_kind: is_single_file.then_some(SingleFileSourceKind::Mbt),
+            single_file_source_kind: is_single_file
+                .then_some(crate::discover::SingleFileSourceKind::Mbtx),
             manifest_path: (!is_single_file).then(|| PathBuf::from(path).join("moon.pkg.json")),
             raw: Box::new(moon_pkg(is_main)),
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,
             effective_supported_targets: TargetBackend::all().iter().copied().collect(),
-            source_files: vec![PathBuf::from(path).join(format!("{path}.mbt"))],
+            source_files: vec![PathBuf::from(path).join(format!(
+                "{path}.{}",
+                if is_single_file { "mbtx" } else { "mbt" }
+            ))],
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: Vec::new(),

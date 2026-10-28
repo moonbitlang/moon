@@ -27,16 +27,28 @@ There are 4 kinds of source files within each package:
   and recognized by the build system to be built.
 
 Standalone inputs are represented as synthetic single-file packages. Their
-source format is recorded while resolving the input. In particular, an
-original `.mbtx` input is kept as a regular, unconditional source file. Both
+standalone status is recorded while resolving the input. The original `.mbtx`
+input is kept as a regular, unconditional source file. Both
 `moonc build-package` and `moonc check` receive `-ignore-import-declaration`
-when lowering that synthetic package. This does not make `.mbtx` a source
+when lowering a synthetic `.mbtx` package. Standalone Markdown is kept in the
+package's existing Markdown blackbox-test inputs, with a non-main source
+package. `SingleFileSourceKind::{Mbtx, MbtMd}` records the source interpretation;
+it is not recomputed from a canonical file path. This does not make `.mbtx` a source
 extension discovered in ordinary packages.
 
 `moon build <file.mbtx>` and `moon check <file.mbtx>` always select this
 standalone representation, even when the file is located under an ordinary
 package root. Each command accepts one standalone `.mbtx` path and supports
 single- and multi-backend target selection; watch mode remains project-only.
+Scripts use only explicit package imports, including an empty list when none
+are declared. The shared [compiler configuration](compiler-cmd-ref.md#standalone-script-imports)
+enforces this for `.mbtx` checks and compilations. A `.mbt.md` path with YAML
+`moonbit.import` selects a standalone library package for `moon check` and
+`moon test`, without requiring `fn main`. It retains ordinary standard-library
+import compatibility. Empty import lists and maps also select standalone mode.
+Other `.mbt` and `.mbt.md` paths require project context, selecting their
+containing package or tests within it. Standalone Markdown is rejected by
+`moon build` and `moon run` with a hint to use `check` or `test`.
 All standalone-file commands use `<source-dir>/_build/<filename>` as their
 default target directory, including the complete extension in `<filename>`, so
 differently named inputs in one source directory do not share synthetic package

@@ -65,10 +65,7 @@ impl SingleFileConfig {
     }
 }
 
-pub(crate) fn parse_mbtx_imports(
-    file: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<SingleFileConfig> {
+fn parse_mbtx_imports(file: &Path, user_log: &UserLog) -> anyhow::Result<SingleFileConfig> {
     let header = moonutil::front_matter::MbtxFrontMatter::from_file(file)?;
     let registry = RegistryClient::configured(user_log);
 

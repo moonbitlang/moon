@@ -40,11 +40,10 @@ pub(crate) struct MooncCheck<'a> {
     /// The output `.mi` file's path.
     pub mi_out: Cow<'a, Path>,
 
-    /// Whether to enable single file mode.
+    /// Whether this is a standalone input, enabling compiler single-file mode.
     pub single_file: bool,
 
-    /// Whether `moonc check` should accept the inline import declaration of an
-    /// already-resolved `.mbtx` single-file input.
+    /// Script import declarations have already been resolved by Moon.
     pub ignore_import_declaration: bool,
 
     /// Extra flags to append at the end.

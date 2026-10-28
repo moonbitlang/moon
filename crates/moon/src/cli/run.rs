@@ -33,13 +33,10 @@ use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{
-    PackageDirs, ProjectProbe, SingleFilePackageDirs, SourceTargetDirs, WorkspaceEnv,
-};
+use moonutil::project::{PackageDirs, SingleFilePackageDirs, SourceTargetDirs, WorkspaceEnv};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
-    constants::is_moon_pkg_exist,
     locks::lock_directory,
     target::{SurfaceTarget, TargetBackend},
     user_log::{UserLog, user_log_level},
@@ -81,14 +78,20 @@ impl ResolvedRunSelection {
     }
 }
 
-/// Run a main package
+/// Run a main package or standalone `.mbtx` script
+///
+/// `.mbtx` scripts, including stdin and `-e` input, use only explicitly declared
+/// package imports. Omitting imports or declaring an empty import block leaves
+/// the package import list empty. `.mbt` and `.mbt.md` paths select their containing
+/// main package and require a project. Markdown with YAML `moonbit.import` is
+/// standalone and must be passed to `moon check` or `moon test`.
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
 pub(crate) struct RunSubcommand {
     #[clap(skip)]
     pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
 
-    /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
+    /// A package directory, `.mbt` / `.mbt.md` package selector, standalone `.mbtx` file, or `-` to read `.mbtx` source from stdin
     #[clap(group = "run_source")]
     pub package_or_mbt_file: Option<String>,
 
@@ -315,7 +318,12 @@ fn run_source_as_single_file(
         build_only,
         profile,
     };
-    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
+    let config = moonbuild_rupes_recta::single_file::SingleFileConfig::from_file(
+        &input_path,
+        output.user_log(),
+    )?
+    .expect("materialized inline and stdin inputs use .mbtx");
+    let executable = build_single_file_executable_from_arg(cli, &cmd, config, options, output)?;
     let result = run_executable(cli, &cmd, executable, output);
     drop(temp_dir);
     result
@@ -442,32 +450,14 @@ pub(crate) fn build_run_executable(
     {
         return build_wasm_file_executable_from_arg(cli, cmd, output);
     }
-    let is_mbt = input.ends_with(".mbt");
-    let is_mbtx = input.ends_with(".mbtx");
-    let run_start_dir = resolve_run_start_dir(input)?;
-
-    let query = cli
-        .source_tgt_dir
-        .query_from(&run_start_dir, cli.workspace_env.clone())?;
-    match query.probe_project()? {
-        ProjectProbe::Found(_) => {
-            if is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options, output);
-            }
-            if is_mbt {
-                let moon_pkg_json_exist =
-                    std::fs::metadata(input)?.is_file() && is_moon_pkg_exist(&run_start_dir);
-                if !moon_pkg_json_exist {
-                    return build_single_file_executable_from_arg(cli, cmd, options, output);
-                }
-            }
-        }
-        ProjectProbe::NotFound(not_found) => {
-            if is_mbt || is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options, output);
-            }
-            return Err(not_found.into_error().into());
-        }
+    if let Some((_, config)) =
+        super::standalone_file(&[PathBuf::from(input)], "moon run", output.user_log())?
+    {
+        anyhow::ensure!(
+            config.source_kind != moonbuild_rupes_recta::discover::SingleFileSourceKind::MbtMd,
+            "standalone Markdown `{input}` only supports `moon check` and `moon test`; use one of these commands instead of `moon run`"
+        );
+        return build_single_file_executable_from_arg(cli, cmd, config, options, output);
     }
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
@@ -515,11 +505,17 @@ pub(crate) fn build_standalone_wasm(
         profile: false,
     };
     let output = CommandOutput::new(user_log_level(verbose, !verbose));
+    let config = moonbuild_rupes_recta::single_file::SingleFileConfig::from_file(
+        &dirs.input_path,
+        output.user_log(),
+    )?
+    .context("standalone Wasm input must use .mbtx")?;
     let built = build_single_file_executable(
         &cli,
         &cmd,
         dirs.package_dirs,
         dirs.input_path,
+        config,
         BuildRunExecutableOptions::for_run(&cli),
         &output,
     )?;
@@ -701,11 +697,12 @@ fn resolve_run_selection(
     })
 }
 
-/// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
+/// Build a standalone `.mbtx` input through the synthesized single-file
 /// package machinery.
 fn build_single_file_executable_from_arg(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
+    config: moonbuild_rupes_recta::single_file::SingleFileConfig,
     options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
@@ -719,6 +716,7 @@ fn build_single_file_executable_from_arg(
         cmd,
         single_file_dirs.package_dirs,
         single_file_dirs.input_path,
+        config,
         options,
         output,
     )
@@ -732,21 +730,14 @@ fn build_single_file_executable(
     cmd: &RunSubcommand,
     dirs: PackageDirs,
     input_path: std::path::PathBuf,
+    config: moonbuild_rupes_recta::single_file::SingleFileConfig,
     options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
-    let embedded_mbtx_policy = if input_path.extension().is_some_and(|ext| ext == "mbtx")
-        && moonutil::front_matter::MbtxFrontMatter::from_file(&input_path)?
-            .permission
-            .is_some()
-    {
-        Some(EmbeddedMbtxPolicy {
-            source: input_path.clone(),
-            source_dir_override: options.embedded_policy_source_dir.clone(),
-        })
-    } else {
-        None
-    };
+    let embedded_mbtx_policy = config.has_embedded_permission.then(|| EmbeddedMbtxPolicy {
+        source: input_path.clone(),
+        source_dir_override: options.embedded_policy_source_dir.clone(),
+    });
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -771,16 +762,14 @@ fn build_single_file_executable(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let discovered = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         &dirs,
         &input_path,
-        true,
+        config,
         user_log,
     )?;
-    let selected_target_backend = selected_target_backend
-        .or(backend)
-        .unwrap_or(options.default_target_backend);
+    let selected_target_backend = selected_target_backend.unwrap_or(options.default_target_backend);
     let resolved = discovered.resolve_packages(&[selected_target_backend], user_log)?;
 
     let lock = if cli.dry_run {

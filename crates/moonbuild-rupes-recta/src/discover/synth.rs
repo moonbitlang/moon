@@ -18,8 +18,10 @@
 
 //! Synthetic single-file project discovery
 //!
-//! Synthesizes a package `single` with the imports declared by its source.
-//! Prelude is supplied by ordinary package resolution, just as for project packages.
+//! Synthesizes a package `single` under the local single-file module.
+//!
+//! Scripts are executable; Markdown contributes blackbox tests to a library
+//! package. Both formats carry their already resolved explicit imports.
 
 use std::{path::Path, sync::Arc};
 
@@ -35,16 +37,13 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// Build and insert a synthetic single-file package into the discovery result,
 /// returning the newly created package ID.
 ///
-/// The synthetic package is named `single` and uses explicit front matter imports.
-///
-/// Scripts are executable packages. Other single-file formats are marked as
-/// main packages only in `run_mode`.
+/// The synthetic package is named `single` and uses explicit package imports.
+/// An empty import list is valid. Only `.mbtx` packages require a main function.
 pub fn build_synth_single_file_package(
     file: &Path,
     source_kind: SingleFileSourceKind,
     env: &ModuleDependencyGraph,
     discovered: &mut DiscoverResult,
-    run_mode: bool,
     imports: Vec<Import>,
 ) -> Result<PackageId, DiscoverError> {
     // Expect exactly one local module for single-file synth
@@ -81,7 +80,7 @@ pub fn build_synth_single_file_package(
         name: None,
         experimental: false,
         allow_experimental_packages: None,
-        is_main: run_mode || source_kind == SingleFileSourceKind::Mbtx,
+        is_main: source_kind == SingleFileSourceKind::Mbtx,
         force_link: false,
         sub_package: None,
         imports,
@@ -112,12 +111,6 @@ pub fn build_synth_single_file_package(
     // Keep the invoked filename through compiler and test-file classification.
     // Following a renamed symlink here would change the source interpretation.
     let file_path = file.to_path_buf();
-    let files = vec![file_path.clone()];
-    let (source_files, mbt_md_files) = match source_kind {
-        SingleFileSourceKind::Mbt | SingleFileSourceKind::Mbtx => (files, Vec::new()),
-        SingleFileSourceKind::MbtMd => (Vec::new(), files),
-    };
-
     // Build DiscoveredPackage for synthetic package
     let synth_pkg = DiscoveredPackage {
         root_path: file_path
@@ -131,8 +124,16 @@ pub fn build_synth_single_file_package(
         raw: Box::new(moon_pkg),
         supported_targets_decl: SupportedTargetsDeclKind::Omitted,
         effective_supported_targets: supported,
-        source_files,
-        mbt_md_files,
+        source_files: if source_kind == SingleFileSourceKind::Mbtx {
+            vec![file_path.clone()]
+        } else {
+            Vec::new()
+        },
+        mbt_md_files: if source_kind == SingleFileSourceKind::MbtMd {
+            vec![file_path]
+        } else {
+            Vec::new()
+        },
         mbtp_files: Vec::new(),
         c_stub_files: Vec::new(),
         c_stub_header_files: Vec::new(),

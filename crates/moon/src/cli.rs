@@ -96,23 +96,32 @@ pub(crate) use view::*;
 pub(crate) use whoami::*;
 pub(crate) use work::{WorkSubcommand, work_cli};
 
-fn standalone_mbtx_path<'a>(
+fn standalone_file<'a>(
     paths: &'a [std::path::PathBuf],
     command: &str,
-) -> anyhow::Result<Option<&'a std::path::Path>> {
-    let Some(path) = paths.iter().find(|path| {
-        path.extension()
-            .is_some_and(|extension| extension == "mbtx")
-            && path.is_file()
-    }) else {
-        return Ok(None);
-    };
-
-    anyhow::ensure!(
-        paths.len() == 1,
-        "standalone `.mbtx` `{command}` expects exactly one `PATH`"
-    );
-    Ok(Some(path))
+    user_log: &moonutil::user_log::UserLog,
+) -> anyhow::Result<
+    Option<(
+        &'a std::path::Path,
+        moonbuild_rupes_recta::single_file::SingleFileConfig,
+    )>,
+> {
+    for path in paths.iter().filter(|path| path.is_file()) {
+        if let Some(config) =
+            moonbuild_rupes_recta::single_file::SingleFileConfig::from_file(path, user_log)?
+        {
+            let extension = match config.source_kind {
+                moonbuild_rupes_recta::discover::SingleFileSourceKind::Mbtx => ".mbtx",
+                moonbuild_rupes_recta::discover::SingleFileSourceKind::MbtMd => ".mbt.md",
+            };
+            anyhow::ensure!(
+                paths.len() == 1,
+                "standalone `{extension}` `{command}` expects exactly one `PATH`"
+            );
+            return Ok(Some((path, config)));
+        }
+    }
+    Ok(None)
 }
 
 #[derive(Debug, clap::Parser)]

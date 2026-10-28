@@ -175,20 +175,16 @@ pub(crate) fn local_packages(
     })
 }
 
-/// Select a standalone file's Target Backends before package resolution:
-/// explicit targets, then the file's preferred backend, then the project default.
+/// Select a standalone script's Target Backends before package resolution:
+/// explicit targets, then a YAML backend, then the default backend.
 pub(crate) fn single_file_target_backends(
-    discovered: &DiscoveredProject,
     selected_target_backends: &[TargetBackend],
     preferred_backend: Option<TargetBackend>,
-    user_log: &UserLog,
 ) -> Vec<TargetBackend> {
     if !selected_target_backends.is_empty() {
         return selected_target_backends.to_vec();
     }
-    vec![preferred_backend.unwrap_or_else(|| {
-        local_modules_preferred_target(discovered, user_log).unwrap_or_default()
-    })]
+    vec![preferred_backend.unwrap_or_default()]
 }
 
 /// The preferred target that all local modules agree on, if any.

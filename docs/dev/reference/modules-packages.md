@@ -296,8 +296,18 @@ The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
 because it covers module sync, package discovery, and package resolution.
 `sync_module_dependencies` resolves and synchronizes modules;
 `prepare_synced_project` discovers packages and resolves their relationships for
-an explicit backend set. `discover_single_file_project` synchronizes and discovers
-a script's synthesized project. The CLI's `sync_and_discover_project` and its
+an explicit backend set. The shared CLI selector interprets invoked `.mbtx`
+files and `.mbt.md` files with YAML `moonbit.import` before project discovery.
+It carries their parsed `SingleFileConfig` into `discover_single_file_project`,
+which synchronizes explicit dependencies and discovers the synthesized project
+without rereading the header. Markdown imports may share a module version across
+entries; every external module needs a version, core forbids versions, and
+conflicting versions or simultaneous `deps`/`import` are errors. An empty import
+list or map is explicit. Absent imports, including deps-only headers, select the
+surrounding package; malformed configuration never falls back to that path.
+Target Backends are chosen before package resolution: CLI targets, then the
+Markdown YAML backend, then the default backend.
+The CLI's `sync_and_discover_project` and its
 command-specific preparation helpers also stop after discovery and return
 `DiscoveredProject`. Commands using these discovery helpers run discover, select,
 resolve, and plan in that order: they select packages and Target Backends from the

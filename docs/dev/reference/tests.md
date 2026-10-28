@@ -10,17 +10,28 @@ behavior can change.
 `moon test` includes ordinary tests, doc tests, and Markdown tests by default.
 
 An explicit `.mbtx` file path selects a standalone script before project discovery.
-It uses the script's imports and does not load the surrounding project. Exactly
+It uses only the script's explicit imports, including an empty list when none
+are declared, and does not load the surrounding project. Exactly
 one path is accepted in this mode; package-wide testing does not discover scripts.
 Directories ending in `.mbtx` still select packages. Standalone tests accept
 `--target all` and comma-separated backends, composing their plans before any test
-runs. Without `--target`, the script's preferred backend supplies the default.
+runs. Without `--target`, the default Target Backend is used.
 The synthesized script package is always executable. Building, running, and
 testing it require a user `fn main`. Inline tests compile alongside the script;
 doctests remain blackbox tests and import its source compilation. Test targets
 use the generated test entrypoint and do not execute the script's main.
-Legacy standalone `.mbt` and `.mbt.md` tests retain their library package
-declaration and do not require a main.
+An explicit `.mbt.md` with YAML `moonbit.import` also selects standalone mode,
+including empty import lists or maps. Its synthesized package is a library and
+the Markdown file is a blackbox-test input, so it does not require `fn main`.
+Imports accept legacy strings, path/alias objects, and mappings. External module
+versions may be shared across imports, while core imports cannot have versions.
+Markdown retains ordinary standard-library import compatibility. Its backend
+selection is CLI `--target`, then YAML `moonbit.backend`, then the default.
+Invalid configuration reports the filename and never falls back to project mode.
+Other `.mbt` and `.mbt.md` paths select tests in their containing package, including
+ordinary Markdown tests and cross-file source dependencies. They require a
+project and a containing package; discovery or selection failures never fall
+back to a standalone project.
 For file symlinks, these semantics follow the invoked filename, and the compiler
 and test runner also receive that filename rather than the target's filename.
 

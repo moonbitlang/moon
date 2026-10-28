@@ -27,13 +27,12 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod model;
+pub use model::SingleFileSourceKind;
 pub mod special_case;
 pub mod synth;
 
 pub(crate) use model::resolve_prebuild_path;
-pub use model::{
-    DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage, SingleFileSourceKind,
-};
+pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
 use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
 use moonutil::project::ProjectManifest;
 

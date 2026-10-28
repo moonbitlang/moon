@@ -46,7 +46,7 @@ use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::locks::lock_directory;
-use moonutil::project::{PackageDirs, ProjectProbe};
+use moonutil::project::PackageDirs;
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
@@ -313,12 +313,16 @@ pub(crate) struct TestSubcommand {
     #[clap(long, requires("package"), conflicts_with = "update")]
     pub patch_file: Option<PathBuf>,
 
-    /// Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
+    /// Run tests for packages, files inside packages, or one standalone `.mbtx` / `.mbt.md` file.
     ///
     /// An explicit `.mbtx` path tests only that script, even inside a project.
     /// The script must define `fn main`, but tests use a generated entrypoint
     /// and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts.
-    /// Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
+    /// `.mbtx` scripts use only explicitly declared package imports; omitting imports or
+    /// declaring an empty import block leaves the package import list empty.
+    /// A `.mbt.md` file with YAML `moonbit.import` is tested independently without
+    /// requiring `fn main`. Its backend defaults to `moonbit.backend`.
+    /// Other `.mbt` and `.mbt.md` paths select tests in their containing package and require a project.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub path: Vec<PathBuf>,
 
@@ -374,40 +378,21 @@ fn run_test_impl(
         path_filters = cmd.path.len(),
         "starting moon test command"
     );
-    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon test")? {
+    if let Some((path, config)) = super::standalone_file(&cmd.path, "moon test", user_log)? {
         let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
         return run_test_in_single_file(
             cli,
             cmd,
             &single_file.input_path,
+            config,
             &single_file.package_dirs,
             output,
         );
     }
 
-    // Other paths select packages in a project or use the legacy single-file fallback.
+    // Other paths select packages in a project.
     let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let dirs = match query.probe_project()? {
-        ProjectProbe::Found(_) => query.select(user_log)?.package_dirs()?,
-        ProjectProbe::NotFound(not_found) => {
-            // Now we're talking about real single-file scenario.
-            match cmd.path.as_slice() {
-                [path] => {
-                    let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-                    info!("delegating to single-file test runner");
-                    return run_test_in_single_file(
-                        cli,
-                        cmd,
-                        &single_file.input_path,
-                        &single_file.package_dirs,
-                        output,
-                    );
-                }
-                [] => return Err(not_found.into_error().into()),
-                _ => anyhow::bail!("standalone single-file `moon test` expects exactly one `PATH`"),
-            }
-        }
-    };
+    let dirs = query.select(user_log)?.package_dirs()?;
 
     debug!(
         source = %dirs.source_dir.display(),
@@ -512,13 +497,14 @@ fn run_test_in_single_file(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     single_file_path: &Path,
+    config: moonbuild_rupes_recta::single_file::SingleFileConfig,
     dirs: &PackageDirs,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
     }
-    run_test_in_single_file_rr(cli, cmd, single_file_path, dirs, output)
+    run_test_in_single_file_rr(cli, cmd, single_file_path, config, dirs, output)
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -526,6 +512,7 @@ fn run_test_in_single_file_rr(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     single_file_path: &Path,
+    config: moonbuild_rupes_recta::single_file::SingleFileConfig,
     dirs: &PackageDirs,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -556,15 +543,14 @@ fn run_test_in_single_file_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let target_backends = rr_build::single_file_target_backends(&targets, config.backend);
+    let discovered = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
-        false,
+        config,
         user_log,
     )?;
-    let target_backends =
-        rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let lock = if cli.dry_run {

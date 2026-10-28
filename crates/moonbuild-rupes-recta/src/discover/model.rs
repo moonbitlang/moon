@@ -87,16 +87,12 @@ pub(crate) fn resolve_prebuild_path(package_root: &Path, path: &str) -> PathBuf 
     }
 }
 
-/// The source format of a synthetic single-file package.
-///
-/// This is determined from the invoked filename when resolving the single-file
-/// input. Later build stages consume this interpretation instead of inferring
-/// semantics from the canonical file identity.
+/// The source format interpreted from the invoked standalone filename.
+/// Later phases consume this rather than inspecting a canonical symlink target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SingleFileSourceKind {
-    Mbt,
-    MbtMd,
     Mbtx,
+    MbtMd,
 }
 
 // Be careful adding more fields to this struct. If it's not needed everywhere,
@@ -110,7 +106,7 @@ pub struct DiscoveredPackage {
     /// The fully-qualified name of the package
     pub fqn: PackageFQN,
 
-    /// The source format when this is a synthetic single-file package.
+    /// The source format when this is a synthetic standalone package.
     ///
     /// Single-file packages behave differently in certain aspects, such as
     /// file determination and import resolution.
@@ -134,8 +130,8 @@ pub struct DiscoveredPackage {
     /// Source inputs awaiting Build Target Projection.
     ///
     /// For an ordinary package, this is its unfiltered set of discovered
-    /// `.mbt` files. Single-file mode instead carries its selected `.mbt` or
-    /// `.mbtx` input here; `.mbtx` is never discovered as part of an ordinary
+    /// `.mbt` files. Single-file mode instead carries its selected `.mbtx`
+    /// input here; `.mbtx` is never discovered as part of an ordinary
     /// package. Paths in this and the other file lists below are absolute.
     pub source_files: Vec<PathBuf>,
 
@@ -461,7 +457,7 @@ pub enum DiscoverError {
     },
 
     #[error(
-        "Front matter import '{import}' could not be resolved. Make sure its module is listed in moonbit.deps."
+        "Script import '{import}' could not be resolved. Make sure the package exists in its declared module."
     )]
     SingleFileImportNotFound { import: String },
 }

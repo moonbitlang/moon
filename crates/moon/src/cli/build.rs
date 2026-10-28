@@ -74,6 +74,11 @@ impl ResolvedBuildSelection {
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct BuildSubcommand {
     /// Paths to the packages that should be built, or one standalone `.mbtx` file.
+    ///
+    /// Markdown with YAML `moonbit.import` must be passed to `moon check` or `moon test`.
+    ///
+    /// Scripts use only explicitly declared package imports; omitting imports or
+    /// declaring an empty import block leaves the package import list empty.
     #[clap(name = "PATH", conflicts_with("package"))]
     pub path: Vec<PathBuf>,
 
@@ -99,7 +104,14 @@ pub(crate) fn run_build(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let targets = lower_surface_targets(&cmd.build_flags.target);
-    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon build")? {
+    if let Some((path, config)) =
+        super::standalone_file(&cmd.path, "moon build", output.user_log())?
+    {
+        anyhow::ensure!(
+            config.source_kind != moonbuild_rupes_recta::discover::SingleFileSourceKind::MbtMd,
+            "standalone Markdown `{}` only supports `moon check` and `moon test`; use one of these commands instead of `moon build`",
+            path.display()
+        );
         anyhow::ensure!(
             !cmd.watch,
             "standalone `.mbtx` `moon build` does not support `--watch`"
@@ -109,6 +121,7 @@ pub(crate) fn run_build(
             cli,
             &cmd,
             &single_file.input_path,
+            config,
             &single_file.package_dirs,
             &targets,
             output,
@@ -155,6 +168,7 @@ fn run_build_for_single_file_rr(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     single_file_path: &Path,
+    config: moonbuild_rupes_recta::single_file::SingleFileConfig,
     dirs: &PackageDirs,
     selected_target_backends: &[TargetBackend],
     output: &CommandOutput,
@@ -177,19 +191,15 @@ fn run_build_for_single_file_rr(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let target_backends =
+        rr_build::single_file_target_backends(selected_target_backends, config.backend);
+    let discovered = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
-        true,
+        config,
         user_log,
     )?;
-    let target_backends = rr_build::single_file_target_backends(
-        &discovered,
-        selected_target_backends,
-        backend,
-        user_log,
-    );
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let _lock;

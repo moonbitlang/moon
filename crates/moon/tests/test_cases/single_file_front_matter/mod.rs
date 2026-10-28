@@ -2,31 +2,6 @@ use super::*;
 use std::{fs, thread, time::Duration};
 
 #[test]
-fn test_standalone_mbt_warns_to_migrate_to_mbtx() {
-    let dir = TestDir::new_empty();
-    for command in ["check", "test", "run"] {
-        // Legacy `.mbt` tests are libraries; scripts use an explicit main.
-        let source = if command == "test" {
-            "test { assert_eq(1, 1) }\n"
-        } else {
-            "fn main { println(\"hello\") }\ntest { assert_eq(1, 1) }\n"
-        };
-        fs::write(dir.join("script.mbt"), source).unwrap();
-        let stderr = get_stderr(&dir, [command, "script.mbt"]);
-        assert!(
-            stderr.contains("Standalone `.mbt` files are deprecated. Use `.mbtx` for scripts"),
-            "stderr: {stderr}"
-        );
-    }
-
-    fs::rename(dir.join("script.mbt"), dir.join("script.mbtx")).unwrap();
-    for command in ["check", "test", "run"] {
-        let stderr = get_stderr(&dir, [command, "script.mbtx"]);
-        assert!(!stderr.contains("deprecated"), "stderr: {stderr}");
-    }
-}
-
-#[test]
 fn test_mbtx_requires_explicit_imports() {
     for (header, explicit_header) in [
         ("", "import { \"moonbitlang/core/env\", }\n"),
@@ -108,72 +83,25 @@ fn test_mbtx_explicit_imports_apply_to_all_commands() {
 }
 
 #[test]
-fn test_single_file_front_matter_import_ok() {
-    let dir = TestDir::new("moon_test_single_file.in");
-    let _ = get_stdout(&dir, ["check", "front_matter_import_ok.mbt.md"]);
-}
-
-#[test]
-fn test_single_file_front_matter_import_missing_dep() {
-    let dir = TestDir::new("moon_test_single_file.in");
-    let stderr = get_err_stderr(&dir, ["check", "front_matter_import_missing_dep.mbt.md"]);
-    assert!(stderr.contains("module 'moonbitlang/x' must include a version in moonbit.import"));
-}
-
-#[test]
-fn test_single_file_front_matter_import_selects_declared_packages() {
-    let dir = TestDir::new("moon_test_single_file.in");
-    let stdout = get_stdout(
-        &dir,
-        [
-            "check",
-            "front_matter_import_missing_pkg.mbt.md",
-            "--dry-run",
-        ],
-    );
-    assert!(stdout.contains("stack/stack.mi:xstack"));
-    assert!(!stdout.contains("crypto/crypto.mi"));
-}
-
-#[test]
-fn test_single_file_front_matter_dependency_requires_explicit_import() {
-    let dir = TestDir::new("moon_test_single_file.in");
-    let path = dir.join("front_matter_import_version.mbt.md");
-    let source = fs::read_to_string(&path).unwrap();
+fn test_mbtx_reports_missing_imported_package() {
+    let dir = TestDir::new_empty();
     fs::write(
-        &path,
-        source.replace(
-            "  import:\n    - moonbitlang/async@0.21.2/aqueue",
-            "  deps:\n    moonbitlang/async: 0.21.2",
-        ),
+        dir.join("script.mbtx"),
+        "import { \"moonbitlang/core/missing_package\" }\nfn main {}\n",
     )
     .unwrap();
-    let stderr = get_err_stderr(&dir, ["check", "front_matter_import_version.mbt.md"]);
-    assert!(
-        stderr.contains("package aqueue is not imported."),
-        "stderr: {stderr}"
-    );
+    moon_cmd(&dir)
+        .args(["check", "script.mbtx", "--dry-run"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed when discovering packages
 
-    fs::write(path, source).unwrap();
-    let stdout = get_stdout(
-        &dir,
-        ["check", "front_matter_import_version.mbt.md", "--dry-run"],
-    );
-    assert!(stdout.contains("aqueue/aqueue.mi:aqueue"));
-    assert!(!stdout.contains("gzip/gzip.mi"));
+Caused by:
+    Script import 'moonbitlang/core/missing_package' could not be resolved. Make sure the package exists in its declared module.
 
-    let stderr = get_stderr(&dir, ["check", "front_matter_import_version.mbt.md"]);
-    assert!(
-        !stderr.contains("importing all packages"),
-        "stderr: {stderr}"
-    );
-}
-
-#[test]
-fn test_single_file_front_matter_import_module_root() {
-    let dir = TestDir::new("moon_test_single_file.in");
-    let stdout = get_stdout(&dir, ["test", "t.mbt.md", "--no-parallelize"]);
-    assert!(stdout.contains("Total tests: 2, passed: 2, failed: 0."));
+"#]]);
 }
 
 #[test]
@@ -682,12 +610,7 @@ fn test_single_file_check_rejects_patch_file() {
 
     let patch_stderr = get_err_stderr(
         &dir,
-        [
-            "check",
-            "front_matter_import_ok.mbt.md",
-            "--patch-file",
-            "patch.json",
-        ],
+        ["check", "import_ok.mbtx", "--patch-file", "patch.json"],
     );
     assert!(
         patch_stderr.contains("does not support `--patch-file`"),

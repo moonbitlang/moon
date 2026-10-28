@@ -40,20 +40,33 @@ fn test_mbtx_symlink_preserves_script_semantics() {
 
 #[cfg(unix)]
 #[test]
-fn test_markdown_symlink_preserves_source_format_and_library_semantics() {
+fn test_old_extension_symlinks_require_project() {
     let dir = TestDir::new_empty();
+    std::fs::create_dir(dir.join("sources")).unwrap();
     std::fs::write(
-        dir.join("source.mbtx"),
-        "---\nmoonbit:\n  backend: js\n---\n```mbt check\ntest { assert_eq(1, 1) }\n```\n",
+        dir.join("sources/source.mbtx"),
+        "fn main { println(1) }\ntest { assert_eq(1, 1) }\n",
     )
     .unwrap();
-    std::os::unix::fs::symlink("source.mbtx", dir.join("alias.mbt.md")).unwrap();
+    for alias in ["alias.mbt", "alias.mbt.md"] {
+        std::os::unix::fs::symlink("sources/source.mbtx", dir.join(alias)).unwrap();
+        for command in ["check", "run", "test"] {
+            moon_cmd(&dir)
+                .env(MOON_WORK_ENV, "auto")
+                .args([command, alias])
+                .assert()
+                .failure()
+                .stdout_eq("")
+                .stderr_eq(snapbox::str![[r#"
+Error: not in a Moon project (no moon.mod, moon.mod.json, or moon.work found starting from [..] or its ancestors)
 
-    moon_cmd(&dir)
-        .args(["test", "alias.mbt.md"])
-        .assert()
-        .success()
-        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+"#]]);
+            assert!(!dir.join("_build").exists());
+            assert!(!dir.join(".mooncakes").exists());
+            assert!(!dir.join("sources/_build").exists());
+            assert!(!dir.join("sources/.mooncakes").exists());
+        }
+    }
 }
 
 #[test]
@@ -273,16 +286,132 @@ fn test_mbtx_directory_selects_package() {
 }
 
 #[test]
-fn test_markdown_tests_do_not_require_main() {
+fn test_project_mbt_and_markdown_tests_do_not_require_main() {
     let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/project\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "\n").unwrap();
+    std::fs::write(dir.join("test.mbt"), "test { assert_eq(1, 1) }\n").unwrap();
     std::fs::write(
         dir.join("test.mbt.md"),
         "```mbt check\ntest { assert_eq(1, 1) }\n```\n",
     )
     .unwrap();
-    moon_cmd(&dir)
-        .args(["test", "test.mbt.md"])
+    for file in ["test.mbt", "test.mbt.md"] {
+        moon_cmd(&dir)
+            .args(["test", file])
+            .assert()
+            .success()
+            .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+    }
+}
+
+#[test]
+fn test_old_extensions_select_project_package_and_tests() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/project\"\n").unwrap();
+    std::fs::create_dir(dir.join("app")).unwrap();
+    std::fs::write(dir.join("app/moon.pkg"), "pkgtype(kind: \"executable\")\n").unwrap();
+    std::fs::write(
+        dir.join("app/main.mbt"),
+        "fn main { println(value()) }\ntest \"selected\" { assert_eq(value(), 42) }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app/helper.mbt"),
+        "pub fn value() -> Int { 42 }\ntest \"other\" { println(\"other file test\") }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app/readme.mbt.md"),
+        "---\nmoonbit:\n  deps: {}\n  backend: js\n---\n```mbt check\ntest { assert_eq(@app.value(), 42) }\n```\n",
+    )
+    .unwrap();
+
+    for file in ["app/main.mbt", "app/readme.mbt.md"] {
+        for path in [PathBuf::from(file), dir.join(file)] {
+            moon_cmd(&dir)
+                .arg("run")
+                .arg(&path)
+                .assert()
+                .success()
+                .stdout_eq("42\n");
+            moon_cmd(&dir)
+                .arg("test")
+                .arg(&path)
+                .assert()
+                .success()
+                .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+        }
+    }
+
+    // Run keeps finding the project from the input path, even from another project.
+    let caller = TestDir::new_empty();
+    std::fs::write(caller.join("moon.mod"), "name = \"test/caller\"\n").unwrap();
+    moon_cmd(&caller)
+        .arg("run")
+        .arg(dir.join("app/main.mbt"))
         .assert()
         .success()
-        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+        .stdout_eq("42\n");
+
+    std::fs::write(dir.join("app/moon.pkg"), "\n").unwrap();
+    std::fs::write(
+        dir.join("app/main.mbt"),
+        "test { assert_eq(value(), 42) }\n",
+    )
+    .unwrap();
+    for file in ["app/main.mbt", "app/readme.mbt.md"] {
+        moon_cmd(&dir)
+            .args(["run", file])
+            .assert()
+            .failure()
+            .stderr_eq(format!("Error: `{file}` is not a main package\n"));
+    }
+}
+
+#[test]
+fn test_old_extensions_without_package_do_not_run_standalone() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/project\"\n").unwrap();
+    std::fs::create_dir(dir.join("orphan")).unwrap();
+    for file in ["script.mbt", "script.mbt.md"] {
+        std::fs::write(dir.join("orphan").join(file), "fn main { println(1) }\n").unwrap();
+        for command in ["run", "test"] {
+            for mode in [None, Some("--dry-run"), Some("--build-only")] {
+                moon_cmd(&dir)
+                    .arg(command)
+                    .arg(dir.join("orphan").join(file))
+                    .args(mode)
+                    .assert()
+                    .failure()
+                    .stdout_eq("")
+                    .stderr_eq(snapbox::str![[r#"
+Error: Cannot find package to build based on input path `[..]/orphan`.
+Hint: The provided path `[..]/orphan` is inside the packages directory of module `test/project` at `[..]`, but the directory itself does not contain `moon.pkg` or `moon.pkg.json`, so it is not a package.
+
+"#]]);
+                assert!(!dir.join("orphan/_build").exists());
+                assert!(!dir.join("orphan/.mooncakes").exists());
+            }
+        }
+    }
+}
+
+#[test]
+fn test_run_mbtx_directory_selects_package() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/project\"\n").unwrap();
+    std::fs::create_dir(dir.join("app.mbtx")).unwrap();
+    std::fs::write(
+        dir.join("app.mbtx/moon.pkg"),
+        "pkgtype(kind: \"executable\")\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.mbtx/main.mbt"), "fn main { println(42) }\n").unwrap();
+    moon_cmd(&dir)
+        .args(["run", "app.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
+    assert!(!dir.join("app.mbtx/_build").exists());
 }
