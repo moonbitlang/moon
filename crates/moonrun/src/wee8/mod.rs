@@ -192,6 +192,9 @@ impl Engine {
         }
 
         let result = if let Some(test_args) = test_args {
+            let initialize = ["_initialize", "_start"]
+                .into_iter()
+                .find(|name| instance.has_export(name));
             for export in [
                 "moonbit_test_driver_internal_execute",
                 "moonbit_test_driver_finish",
@@ -206,13 +209,13 @@ impl Engine {
                 test_args,
                 &stdio,
                 |instance| {
-                    if instance.has_export("_initialize") {
+                    if let Some(initialize) = initialize {
                         call_outcome(
                             &store,
                             &termination,
                             source_map,
                             no_stack_trace,
-                            instance.call("_initialize", &[]),
+                            instance.call(initialize, &[]),
                         )
                     } else {
                         Ok(BackendCallOutcome::Completed)
