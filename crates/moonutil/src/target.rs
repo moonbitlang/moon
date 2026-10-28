@@ -113,9 +113,10 @@ impl std::fmt::Display for TargetBackend {
 
 impl TargetBackend {
     /// Whether this backend includes a file guarded by the given target.
-    /// LLVM file conditions also apply to the Native backend.
+    /// Native file conditions also apply to LLVM, matching the compiler's
+    /// `#cfg(target="native")` behavior. LLVM conditions remain LLVM-only.
     pub fn matches_file_target(self, file_target: Self) -> bool {
-        self == file_target || matches!((self, file_target), (Self::Native, Self::LLVM))
+        self == file_target || matches!((self, file_target), (Self::LLVM, Self::Native))
     }
 
     pub fn to_flag(self) -> &'static str {

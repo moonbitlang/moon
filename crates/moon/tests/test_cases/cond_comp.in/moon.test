@@ -136,7 +136,8 @@
           "[WORK_DIR]/src/lib/native_and_wasm.mbt": {
             "backend": [
               "Wasm",
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Release",
@@ -145,7 +146,8 @@
           },
           "[WORK_DIR]/src/lib/native_only.mbt": {
             "backend": [
-              "Native"
+              "Native",
+              "LLVM"
             ],
             "optlevel": [
               "Release",
