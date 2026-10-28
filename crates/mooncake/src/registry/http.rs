@@ -74,6 +74,8 @@ where
 
 pub(super) struct HttpMetadata {
     api: String,
+    /// Mixed mode reserves HTTP for modules absent from the public Git index.
+    private_only: bool,
     credentials: Option<Arc<RegistryCredentials>>,
     cache: MetadataCache,
     client: OnceCell<reqwest::blocking::Client>,
@@ -86,11 +88,17 @@ impl HttpMetadata {
         credentials: Option<Arc<RegistryCredentials>>,
     ) -> Self {
         Self {
+            private_only: false,
             credentials,
             cache: MetadataCache::new(home, api.clone()),
             api,
             client: OnceCell::new(),
         }
+    }
+
+    pub(super) fn for_private_modules(mut self) -> Self {
+        self.private_only = true;
+        self
     }
 
     pub(super) fn version_info(
@@ -179,6 +187,12 @@ impl HttpMetadata {
     }
 
     fn check_access(&self, name: &ModuleName, metadata: &ModuleMetadata) -> anyhow::Result<()> {
+        // Apply the same module routing constraint to cached and remote records.
+        if self.private_only && metadata.visibility != ModuleVisibility::Private {
+            bail!(
+                "Public module `{name}` is missing from the Git index; run `moon update` or use `MOON_REGISTRY_API=1`"
+            );
+        }
         if metadata.visibility == ModuleVisibility::Private {
             let credentials = self
                 .credentials

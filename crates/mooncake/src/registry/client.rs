@@ -45,10 +45,36 @@ use super::{
     stage_registry_cache_file,
 };
 
-/// Select the metadata implementation once, when constructing the client.
+/// Select the available transports once, when constructing the client.
 enum MetadataBackend {
     Git(GitIndex),
     Http(HttpMetadata),
+    Mixed {
+        index: GitIndex,
+        private: HttpMetadata,
+    },
+}
+
+/// The backend for a whole module, independent of the requested version.
+enum ModuleBackend<'a> {
+    Git(&'a GitIndex),
+    Http(&'a HttpMetadata),
+}
+
+impl MetadataBackend {
+    fn for_module(&self, name: &ModuleName) -> anyhow::Result<ModuleBackend<'_>> {
+        match self {
+            Self::Git(index) => Ok(ModuleBackend::Git(index)),
+            Self::Http(http) => Ok(ModuleBackend::Http(http)),
+            Self::Mixed { index, private } => {
+                if index.contains_module(name)? {
+                    Ok(ModuleBackend::Git(index))
+                } else {
+                    Ok(ModuleBackend::Http(private))
+                }
+            }
+        }
+    }
 }
 
 struct RegistryEndpoints {
@@ -236,14 +262,23 @@ impl RegistryClient {
             }
         };
         let endpoints = RegistryEndpoints::from_config(&config);
-        let metadata = if std::env::var("MOON_REGISTRY_API").is_ok_and(|value| value == "1") {
-            MetadataBackend::Http(HttpMetadata::new(
+        let metadata = match std::env::var_os("MOON_REGISTRY_API") {
+            Some(value) if value == "1" => MetadataBackend::Http(HttpMetadata::new(
                 endpoints.api.clone(),
                 home.clone(),
                 credentials.clone(),
-            ))
-        } else {
-            MetadataBackend::Git(GitIndex::new(home.clone()))
+            )),
+            // Preserve the explicit opt-out; only an unset variable enables mixing.
+            Some(_) => MetadataBackend::Git(GitIndex::new(home.clone())),
+            None => MetadataBackend::Mixed {
+                index: GitIndex::new(home.clone()),
+                private: HttpMetadata::new(
+                    endpoints.api.clone(),
+                    home.clone(),
+                    credentials.clone(),
+                )
+                .for_private_modules(),
+            },
         };
         Self {
             config,
@@ -255,9 +290,16 @@ impl RegistryClient {
         }
     }
 
-    /// Whether metadata is acquired per release instead of synchronizing an index.
+    /// Whether this client can acquire metadata through HTTP.
     pub fn uses_http_metadata(&self) -> bool {
-        matches!(self.metadata, MetadataBackend::Http(_))
+        !matches!(self.metadata, MetadataBackend::Git(_))
+    }
+
+    pub(crate) fn uses_http_metadata_for(&self, name: &ModuleName) -> anyhow::Result<bool> {
+        Ok(matches!(
+            self.metadata.for_module(name)?,
+            ModuleBackend::Http(_)
+        ))
     }
 
     /// Use only cached metadata and sources for frozen dependency resolution.
@@ -267,17 +309,19 @@ impl RegistryClient {
         self
     }
 
-    /// Synchronize the complete Git index and symbols archive.
-    /// HTTP metadata is refreshed per module through the query APIs instead.
-    pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
+    /// Synchronize the configured Git index and symbols archive, if used.
+    /// Returns whether an index was synchronized. HTTP metadata is refreshed
+    /// separately per module; full HTTP mode has no index to synchronize.
+    pub fn sync_index(&self, user_log: &UserLog) -> anyhow::Result<bool> {
         if self.frozen_dependencies {
             bail!("frozen mode cannot synchronize registry metadata");
         }
         match &self.metadata {
-            MetadataBackend::Git(index) => index.sync(&self.config, user_log),
-            MetadataBackend::Http(_) => {
-                bail!("HTTP registry metadata must be refreshed per module")
+            MetadataBackend::Git(index) | MetadataBackend::Mixed { index, .. } => {
+                index.sync(&self.config, user_log)?;
+                Ok(true)
             }
+            MetadataBackend::Http(_) => Ok(false),
         }
     }
 
@@ -287,12 +331,12 @@ impl RegistryClient {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-        match &self.metadata {
-            MetadataBackend::Git(index) => match index.version_info(name, version) {
+        match self.metadata.for_module(name)? {
+            ModuleBackend::Git(index) => match index.version_info(name, version) {
                 Err(error) if error.is::<super::RegistryModuleNotFound>() => Ok(None),
                 result => result,
             },
-            MetadataBackend::Http(http) => http.cached_version_info(name, version),
+            ModuleBackend::Http(http) => http.cached_version_info(name, version),
         }
     }
 
@@ -308,12 +352,14 @@ impl RegistryClient {
         if self.frozen_dependencies {
             bail!("frozen mode cannot refresh registry metadata for {name}@{version}");
         }
-        match &self.metadata {
-            MetadataBackend::Git(index) => {
-                self.sync(user_log).map_err(super::RegistryUnavailable)?;
+        match self.metadata.for_module(name)? {
+            ModuleBackend::Git(index) => {
+                index
+                    .sync(&self.config, user_log)
+                    .map_err(super::RegistryUnavailable)?;
                 index.version_info(name, version)
             }
-            MetadataBackend::Http(http) => http.refresh_version_info(name, version).map(Some),
+            ModuleBackend::Http(http) => http.refresh_version_info(name, version).map(Some),
         }
     }
 
@@ -454,7 +500,7 @@ impl RegistryClient {
             // Private prebuilt downloads are not implemented yet, so existing
             // artifacts came from public downloads. Check visibility on misses;
             // cache hits must survive disabled or cleared metadata persistence.
-            if let MetadataBackend::Http(metadata) = &self.metadata
+            if let ModuleBackend::Http(metadata) = self.metadata.for_module(name)?
                 && metadata.is_restricted(name, version, self.frozen_dependencies)?
             {
                 bail!("Prebuilt artifacts are not available for restricted modules");
@@ -595,18 +641,18 @@ impl super::Registry for RegistryClient {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-        match &self.metadata {
-            MetadataBackend::Git(index) => index.version_info(name, version),
-            MetadataBackend::Http(http) => http
+        match self.metadata.for_module(name)? {
+            ModuleBackend::Git(index) => index.version_info(name, version),
+            ModuleBackend::Http(http) => http
                 .version_info(name, version, self.frozen_dependencies)
                 .map(Some),
         }
     }
 
     fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
-        match &self.metadata {
-            MetadataBackend::Git(index) => index.cached_latest_version(name),
-            MetadataBackend::Http(http) => http.cached_latest_version(name),
+        match self.metadata.for_module(name)? {
+            ModuleBackend::Git(index) => index.cached_latest_version(name),
+            ModuleBackend::Http(http) => http.cached_latest_version(name),
         }
     }
 
@@ -618,9 +664,9 @@ impl super::Registry for RegistryClient {
         if self.frozen_dependencies {
             bail!("frozen mode cannot query the latest registry version for {name}");
         }
-        match &self.metadata {
-            MetadataBackend::Git(index) => index.query_latest_version(&self.config, name, user_log),
-            MetadataBackend::Http(http) => http.query_latest_version(name),
+        match self.metadata.for_module(name)? {
+            ModuleBackend::Git(index) => index.query_latest_version(&self.config, name, user_log),
+            ModuleBackend::Http(http) => http.query_latest_version(name),
         }
     }
 }
@@ -741,14 +787,14 @@ impl RegistryClient {
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
         validate_registry_module_name(name)?;
-        let restricted = match &self.metadata {
-            MetadataBackend::Git(_) => {
+        let restricted = match self.metadata.for_module(name)? {
+            ModuleBackend::Git(_) => {
                 if !self.home.registry_index_file(name).exists() {
                     bail!("Module {name}@{version} not found");
                 }
                 false
             }
-            MetadataBackend::Http(http) => {
+            ModuleBackend::Http(http) => {
                 http.is_restricted(name, version, self.frozen_dependencies)?
             }
         };
@@ -811,11 +857,11 @@ impl RegistryClient {
 
     /// Return the registry's SHA-256 checksum for a published source archive.
     pub fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String> {
-        match &self.metadata {
-            MetadataBackend::Git(index) => {
+        match self.metadata.for_module(module.name())? {
+            ModuleBackend::Git(index) => {
                 index.source_archive_checksum(module.name(), module.version())
             }
-            MetadataBackend::Http(http) => http.source_archive_checksum(
+            ModuleBackend::Http(http) => http.source_archive_checksum(
                 module.name(),
                 module.version(),
                 self.frozen_dependencies,
@@ -913,6 +959,20 @@ mod tests {
             registry.home.clone(),
             registry.credentials.clone(),
         ));
+        registry
+    }
+
+    fn mixed_test_registry(home: &Path, api: &str) -> RegistryClient {
+        let mut registry = api_test_registry(home, api);
+        registry.metadata = MetadataBackend::Mixed {
+            index: GitIndex::new(registry.home.clone()),
+            private: HttpMetadata::new(
+                registry.endpoints.api.clone(),
+                registry.home.clone(),
+                registry.credentials.clone(),
+            )
+            .for_private_modules(),
+        };
         registry
     }
 
@@ -1201,6 +1261,70 @@ mod tests {
 
     #[test]
     fn private_cache_reuses_one_login_and_checks_new_clients_on_cache_hits() {
+        check_private_cache_access(http_test_registry);
+    }
+
+    #[test]
+    fn mixed_private_cache_reuses_one_login_and_checks_new_clients_on_cache_hits() {
+        check_private_cache_access(mixed_test_registry);
+    }
+
+    #[test]
+    fn mixed_mode_does_not_fill_git_version_gaps_from_http() {
+        let home = tempfile::tempdir().unwrap();
+        let name: ModuleName = "alice/public".into();
+        let version = Version::new(0, 2, 0);
+        let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
+        let index = MoonHomeLayout::new(home.path().to_owned()).registry_index_file(&name);
+        std::fs::create_dir_all(index.parent().unwrap()).unwrap();
+        for contents in [
+            "",
+            "invalid index entry",
+            r#"{"version":"0.1.0","checksum":"abc"}"#,
+        ] {
+            std::fs::write(&index, contents).unwrap();
+            let registry = mixed_test_registry(home.path(), "http://127.0.0.1:1");
+            assert!(registry.version_info(&name, &version).unwrap().is_none());
+            assert!(
+                registry
+                    .cached_version_info(&name, &version)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(registry.source_archive_checksum(&source).is_err());
+            assert_eq!(
+                registry.cached_latest_version(&name).unwrap(),
+                if contents.starts_with('{') {
+                    Some(Version::new(0, 1, 0))
+                } else {
+                    None
+                }
+            );
+        }
+        std::fs::remove_file(&index).unwrap();
+        std::fs::create_dir(&index).unwrap();
+        let registry = mixed_test_registry(home.path(), "http://127.0.0.1:1");
+        assert!(
+            registry
+                .version_info(&name, &version)
+                .unwrap_err()
+                .is::<std::io::Error>()
+        );
+        assert!(
+            registry
+                .cached_latest_version(&name)
+                .unwrap_err()
+                .is::<std::io::Error>()
+        );
+        assert!(
+            registry
+                .source_archive_checksum(&source)
+                .unwrap_err()
+                .is::<std::io::Error>()
+        );
+    }
+
+    fn check_private_cache_access(make_registry: fn(&Path, &str) -> RegistryClient) {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -1219,7 +1343,7 @@ mod tests {
                 (200, String::new(), body),
             ],
         );
-        let registry = http_test_registry(home.path(), &api);
+        let registry = make_registry(home.path(), &api);
         // Capture the login at construction, before the first metadata request.
         save_test_login(home.path(), &api, "bob", "other-token");
         let name: ModuleName = "alice/secret".into();
@@ -1248,7 +1372,7 @@ mod tests {
             .unwrap();
         assert_eq!(std::io::read_to_string(cached).unwrap().as_bytes(), archive);
 
-        let bob = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        let bob = make_registry(home.path(), &api).for_frozen_dependencies();
         assert!(bob.version_info(&name, &version).is_err());
         assert!(bob.cached_latest_version(&name).is_err());
         assert!(
@@ -1256,10 +1380,10 @@ mod tests {
                 .is_err()
         );
         std::fs::remove_file(home.path().join("credentials.json")).unwrap();
-        let anonymous = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        let anonymous = make_registry(home.path(), &api).for_frozen_dependencies();
         assert!(anonymous.cached_version_info(&name, &version).is_err());
         std::fs::write(home.path().join("credentials.json"), "invalid credentials").unwrap();
-        let anonymous = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        let anonymous = make_registry(home.path(), &api).for_frozen_dependencies();
         assert_eq!(
             anonymous
                 .cached_version_info(&name, &version)
@@ -1268,7 +1392,7 @@ mod tests {
             "Registry login is required for restricted modules"
         );
         save_test_login(home.path(), &api, "alice", "rotated-token");
-        let alice = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        let alice = make_registry(home.path(), &api).for_frozen_dependencies();
         assert!(alice.version_info(&name, &version).unwrap().is_some());
         assert_eq!(
             alice.cached_latest_version(&name).unwrap(),
@@ -2249,7 +2373,7 @@ mod tests {
     }
 
     fn asset_test_registry(sandbox: &tempfile::TempDir) -> RegistryClient {
-        RegistryClient::with_home(
+        let mut registry = RegistryClient::with_home(
             RegistryConfig {
                 api: "https://mooncakes.io".to_owned(),
                 index: String::new(),
@@ -2259,7 +2383,9 @@ mod tests {
             },
             MoonHomeLayout::new(sandbox.path().to_path_buf()),
             &quiet_user_log(),
-        )
+        );
+        registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
+        registry
     }
 
     fn parser_module() -> ModuleName {
@@ -2452,17 +2578,30 @@ mod tests {
         }
         // A new invocation must not query the now-unavailable registry, whether
         // metadata was cleared or persistence was disabled from the start.
-        let fresh = http_test_registry(home.path(), &api);
-        assert_eq!(
-            fresh
-                .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
-                .unwrap(),
-            path
-        );
+        for fresh in [
+            http_test_registry(home.path(), &api),
+            mixed_test_registry(home.path(), &api),
+        ] {
+            assert_eq!(
+                fresh
+                    .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+                    .unwrap(),
+                path
+            );
+        }
     }
 
     #[test]
     fn private_prebuilt_wasm_download_remains_unsupported() {
+        check_private_prebuilt_rejected(http_test_registry);
+    }
+
+    #[test]
+    fn mixed_private_prebuilt_wasm_download_remains_unsupported() {
+        check_private_prebuilt_rejected(mixed_test_registry);
+    }
+
+    fn check_private_prebuilt_rejected(make_registry: fn(&Path, &str) -> RegistryClient) {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -2475,7 +2614,7 @@ mod tests {
                 resolver_response("alice/tool", "PRIVATE", "0.1.0"),
             )],
         );
-        let registry = http_test_registry(home.path(), &api);
+        let registry = make_registry(home.path(), &api);
         let error = registry
             .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
             .unwrap_err();
@@ -2508,7 +2647,7 @@ mod tests {
 
         let threads = (0..2)
             .map(|_| {
-                let registry = RegistryClient::with_home(
+                let mut registry = RegistryClient::with_home(
                     RegistryConfig {
                         api: "https://mooncakes.io".to_owned(),
                         index: String::new(),
@@ -2519,6 +2658,7 @@ mod tests {
                     home.clone(),
                     &quiet_user_log(),
                 );
+                registry.metadata = MetadataBackend::Git(GitIndex::new(home.clone()));
                 let start = Arc::clone(&start);
                 let download_count = Arc::clone(&download_count);
                 let wasm = wasm.clone();

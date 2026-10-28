@@ -807,9 +807,9 @@ With `--dry-run`, fetch the module's currently published versions and print the 
 
 Refresh registry metadata and report dependency updates
 
-With MOON_REGISTRY_API=1, refresh the selected module or workspace's exact dependency versions and query each module's current latest version. Report available updates and deprecation status without changing declarations, downloading sources, or running build hooks. Partial refresh failures return a nonzero exit status; successful refreshes remain cached.
+Synchronize the public Git index and refresh the selected module or workspace's private HTTP dependencies. Report each dependency's current latest version and deprecation status without changing declarations, downloading sources, or running build hooks. Partial refresh failures return a nonzero exit status; successful refreshes remain cached.
 
-Otherwise, synchronize the Git registry index and symbols as before. This mode also works outside a project.
+With MOON_REGISTRY_API=1, refresh all dependencies through HTTP. With MOON_REGISTRY_API=0, only synchronize the Git index and symbols. Outside a project, synchronize only Git; full HTTP mode requires a project.
 
 **Usage:** `moon update`
 

@@ -81,14 +81,34 @@ pub fn update(
     // Resolution produces one selected version per module identity, including
     // shared workspace dependencies. Refresh old selected versions separately
     // from latest: a healthy latest release says nothing about the old one.
-    Ok(selected
+    // Git was already synchronized once before project discovery; use that
+    // complete snapshot instead of synchronizing again for each dependency.
+    selected
         .into_iter()
-        .map(|module| DependencyUpdate {
-            status: registry
-                .refresh_version_info(module.name(), module.version(), user_log)
-                .and_then(|info| info.with_context(|| format!("release {module} is missing"))),
-            latest: registry.query_latest_version(module.name(), user_log),
-            module: module.clone(),
+        .map(|module| {
+            let (status, latest) = if registry.uses_http_metadata_for(module.name())? {
+                (
+                    registry.refresh_version_info(module.name(), module.version(), user_log),
+                    registry.query_latest_version(module.name(), user_log),
+                )
+            } else {
+                (
+                    registry.cached_version_info(module.name(), module.version()),
+                    registry
+                        .cached_latest_version(module.name())
+                        .and_then(|version| {
+                            version.with_context(|| {
+                                format!("module {} has no versions", module.name())
+                            })
+                        }),
+                )
+            };
+            Ok(DependencyUpdate {
+                status: status
+                    .and_then(|info| info.with_context(|| format!("release {module} is missing"))),
+                latest,
+                module: module.clone(),
+            })
         })
-        .collect())
+        .collect()
 }
