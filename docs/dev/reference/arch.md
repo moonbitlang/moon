@@ -347,13 +347,6 @@ execute existing `.wasm` files directly.
 The synthetic `.mbtx` package is always executable. Building, running, and
 testing a script require a user `fn main`; tests execute the generated test
 entrypoint instead of the script's main.
-Standalone packages use the same implicit prelude as ordinary packages. Other
-packages must be imported explicitly; discovering a module does not import its
-packages, even when Markdown front matter lists it in `moonbit.deps`.
-Standalone `.mbt` inputs remain supported by `moon check`, `moon test`, and
-`moon run`, but emit a deprecation warning directing users to `.mbtx` with front
-matter imports. This warning applies only to synthetic standalone packages;
-ordinary project `.mbt` files retain their package semantics.
 
 For Markdown, an explicit YAML `moonbit.import` selects standalone mode even
 when the list or map is empty. For build, check, run, and test, the shared command

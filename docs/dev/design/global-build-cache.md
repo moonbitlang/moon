@@ -65,7 +65,7 @@ prepared privately; disabling the cache does not disable dependency
 resolution.
 
 `MOON_DEP_CACHE` currently affects registry dependencies of standalone
-`moon run` inputs: persistent `.mbt` and `.mbtx` files, inline `-e` programs,
+`moon run` inputs: persistent `.mbtx` files, inline `-e` programs,
 and stdin programs passed as `-`. Single-file check and test commands retain
 private dependency directories. Whenever a standalone command uses private
 dependencies, its `.mooncakes` directory lives under the per-script build root

@@ -34,6 +34,85 @@ recognize them report `Invalid configuration` (`E4192`); use the legacy
 are provided by the toolchain's `moonfmt`. Older formatter versions may rewrite
 direct declarations into their equivalent `options(...)` form.
 
+## Standalone scripts
+
+An explicit `.mbtx` path selects a standalone script for `moon build`,
+`moon check`, `moon test`, and `moon run`, including inside a project. Scripts
+declare their package imports in front matter using `moon.pkg` syntax:
+
+```moonbit
+----
+import {
+  "moonbitlang/core/env",
+}
+----
+
+fn main {
+  println(@env.args())
+}
+```
+
+Only declared packages are imported. With no import declaration, an empty
+`import {}`, or only a `permission(...)` declaration, the package import list is
+empty. Language builtins and the ordinary prelude remain available. References
+such as `@env` require explicit imports; suppressing warnings does not allow
+undeclared core imports. Versioned paths, aliases, and `*` imports remain
+supported. This also applies to `moonx`, `moon run -`, `moon run -e`, and `.mbtx`
+prebuild scripts.
+
+For `moon check`, `moon run`, and `moon test`, ordinary `.mbt` and `.mbt.md`
+paths select their containing package and require project context. Running a selector compiles the whole
+package and requires a main package; testing selects tests in the requested file.
+Outside a project, these paths report the ordinary project-not-found error.
+Inside a project, files without a containing package report the ordinary
+package-selection error.
+
+## Standalone Markdown
+
+`moon check file.mbt.md` and `moon test file.mbt.md` treat a Markdown file as
+standalone when its YAML front matter declares `moonbit.import`, including an
+empty list (`[]`) or map (`{}`). This works inside and outside projects and uses
+only that file and its declared dependencies. No `fn main` is required.
+
+````markdown
+---
+moonbit:
+  import:
+    - path: moonbitlang/core/int
+      alias: integer
+  backend: js
+---
+```mbt check
+test { assert_eq(@integer.MAX_VALUE, 2147483647) }
+```
+````
+
+Imports accept strings, objects with `path` and an optional `alias`, or a map
+from paths to aliases. An external module requires a version in at least one
+import: `example/lib@1.2.3/first` and `example/lib/second` share that version.
+`example/lib@1.2.3` imports the module's root package. Conflicting versions are
+errors, and `moonbitlang/core` imports must not specify versions. Markdown
+retains the compiler's usual standard-library import compatibility behavior;
+the stricter `.mbtx` import policy does not apply.
+
+Backend selection uses `--target` first, then `moonbit.backend`, then the default
+backend. Multiple CLI backends and `--target all` are supported. Explicit
+`moon fmt file.mbt.md` and `moon check file.mbt.md --fmt` also work outside a
+project. Formatting checks YAML syntax and requires the header and `moonbit`
+section to be mappings. The presence of `moonbit.import` selects standalone
+formatting even when its value is null or unfinished. Formatting does not
+validate import values, paths, versions, backends, or `deps`/`import` conflicts.
+`moon check` and `moon test` validate the full configuration;
+`moon check --fmt` does so after its formatting stage. Build outputs and private
+dependencies are isolated under `_build/file.mbt.md` by default.
+
+Without `moonbit.import`, Markdown continues to select its containing package.
+`moonbit.deps` alone does not enable standalone mode or automatically import
+packages. During build, check, run, and test, combining `deps` and `import` is an
+error, and invalid YAML, imports, or backends report the file path without falling
+back to project mode. Standalone Markdown passed to `moon build` or `moon run`
+reports an error directing users to `moon check` or `moon test`.
+
 ## Experimental packages
 
 Declare `experimental = true` at the top level of a package's `moon.pkg` to

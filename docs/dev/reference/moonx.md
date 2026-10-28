@@ -77,9 +77,6 @@ script path. Moonx reuses the same synthesized-package dependency resolution,
 build planning, and incremental target directory as a standalone linear-memory
 Wasm build through `moon run`. Imports declared by `.mbtx` front matter or the
 legacy prelude are resolved and built before the synthesized script package.
-Prelude is available implicitly, as in an ordinary package. Other packages
-require explicit imports; an absent or empty import block imports no additional
-packages.
 The resulting Wasm artifact then uses the same moonx execution path as a
 registry Wasm artifact.
 

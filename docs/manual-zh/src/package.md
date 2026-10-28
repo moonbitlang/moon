@@ -30,6 +30,74 @@
 `options(...)` 形式。格式化和 JSON 到 DSL 的迁移由工具链中的 `moonfmt`
 提供。较旧的格式化工具可能会把直接声明改写成等价的 `options(...)` 形式。
 
+## 独立脚本
+
+`moon build`、`moon check`、`moon test` 和 `moon run` 的显式 `.mbtx` 路径
+会选择独立脚本，在项目内也一样。脚本使用 `moon.pkg` 语法在文件头声明包导入：
+
+```moonbit
+----
+import {
+  "moonbitlang/core/env",
+}
+----
+
+fn main {
+  println(@env.args())
+}
+```
+
+脚本只导入显式声明的包。没有 import、空 `import {}` 或只有 `permission(...)`
+声明时，包导入列表均为空。语言内建能力和常规 prelude 仍可用；引用 `@env` 等包
+必须显式导入，关闭警告也不会允许未声明的 core 导入。版本路径、别名和 `*` 导入
+仍受支持。相同规则也适用于 `moonx`、`moon run -`、`moon run -e` 和 `.mbtx`
+预构建脚本。
+
+对于 `moon check`、`moon run` 和 `moon test`，普通 `.mbt` 和 `.mbt.md`
+路径用于选择所属包，需要项目上下文。
+运行时编译整个包，并要求该包为可执行包；测试时选择指定文件中的测试。
+项目外报告正常的项目查找错误，项目内找不到所属包时报告正常的包选择错误。
+
+## 独立 Markdown
+
+当 Markdown 文件顶部的 YAML 声明了 `moonbit.import` 时，
+`moon check file.mbt.md` 和 `moon test file.mbt.md` 会将其作为独立文件处理，
+显式空列表 `[]` 或空映射 `{}` 也一样。项目内外均可使用，只读取该文件及其声明的依赖，
+不要求定义 `fn main`。
+
+````markdown
+---
+moonbit:
+  import:
+    - path: moonbitlang/core/int
+      alias: integer
+  backend: js
+---
+```mbt check
+test { assert_eq(@integer.MAX_VALUE, 2147483647) }
+```
+````
+
+import 支持字符串列表、带 `path` 和可选 `alias` 的对象列表，以及路径到别名的映射。
+外部模块必须至少在一个 import 中声明版本：`example/lib@1.2.3/first` 和
+`example/lib/second` 可共用该版本。`example/lib@1.2.3` 导入模块根包。
+同一模块的版本冲突会报错，`moonbitlang/core` 的导入不允许指定版本。
+Markdown 保留编译器原有的标准库导入兼容行为，不使用 `.mbtx` 的严格导入限制。
+
+后端优先级为命令行 `--target`、`moonbit.backend`、默认后端，支持多个命令行后端和
+`--target all`。显式 `moon fmt file.mbt.md` 和 `moon check file.mbt.md --fmt`
+也可在项目外使用。格式化只检查 YAML 语法，以及 header 和 `moonbit` 是否为映射；
+只要存在 `moonbit.import` 字段，就按独立文件格式化，即使其值为 null 或尚未填写完成。
+格式化不校验 import 值、导入路径、版本、backend 或 `deps`/`import` 互斥规则。
+`moon check` 和 `moon test` 仍完整校验配置；`moon check --fmt` 会在格式化阶段之后进行完整校验。
+默认构建产物和私有依赖隔离在 `_build/file.mbt.md` 下。
+
+没有 `moonbit.import` 时，Markdown 继续选择所属包。仅有 `moonbit.deps` 不会启用独立模式，
+也不会自动导入所有包。在 build、check、run 和 test 中，同时声明 `deps` 和 `import` 会报错；
+非法 YAML、import 或 backend 会报告文件路径，不会回退到项目模式。
+将独立 Markdown 传给 `moon build` 或 `moon run` 时，会明确提示改用
+`moon check` 或 `moon test`。
+
 ## 实验性包
 
 在包的 `moon.pkg` 顶层声明 `experimental = true` 后，直接依赖它的包会收到警告。
