@@ -16,14 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_sys::internal::env_util::stub;
-
 use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/internal/env_util/stub.c")]
-pub(super) fn getpid(_context: &mut ImportContext<'_>) -> i32 {
-    stub::get_pid() as i32
+pub(super) fn getpid(context: &mut ImportContext<'_>) -> i32 {
+    context.host.process().pid()
 }
 }

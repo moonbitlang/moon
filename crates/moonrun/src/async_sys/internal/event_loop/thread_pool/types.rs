@@ -23,7 +23,6 @@ use crate::filesystem::Job as FilesystemJob;
 use crate::network::Job as NetworkJob;
 use crate::process::Job as ProcessJob;
 use crate::sqlite::Job as SqliteJob;
-#[cfg(unix)]
 use std::sync::Arc;
 
 pub(crate) type ResourceHandle = u64;
@@ -57,12 +56,12 @@ impl CancellationOutcome {
 ///
 /// This is the Rust equivalent of native `struct job::cancel_handler`: most
 /// Jobs do not provide one and are cancelled through the Worker thread.
-#[cfg(unix)]
+/// Both platforms need hooks for virtual waits, which block on a condition
+/// variable rather than a syscall that native I/O cancellation can interrupt.
 pub(crate) trait JobCancellationOverride: std::fmt::Debug + Send + Sync {
     fn cancel(&self) -> AsyncHostResult<CancellationOutcome>;
 }
 
-#[cfg(unix)]
 pub(crate) type JobCancellation = Arc<dyn JobCancellationOverride>;
 
 /// A host operation following the `moonbitlang/async` native Job contract.
@@ -145,9 +144,10 @@ impl Job {
         }
     }
 
-    #[cfg(unix)]
     pub(crate) fn cancellation_override(&self) -> Option<JobCancellation> {
         match &self.payload {
+            JobPayload::Process(job) => job.cancellation_override(),
+            #[cfg(unix)]
             JobPayload::Signal(job) => Some(job.cancellation_override()),
             _ => None,
         }

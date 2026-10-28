@@ -70,6 +70,7 @@ pub struct RunOptions {
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
+    pub(crate) process_context: Option<crate::process_tree::ProcessContext>,
     pub(crate) termination_receiver: Option<RunTerminationReceiver>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
@@ -445,6 +446,7 @@ impl Engine {
                 options.stdio,
                 module.executable().clone(),
                 signals,
+                options.process_context,
                 #[cfg(unix)]
                 child_signal_mask,
             )?;

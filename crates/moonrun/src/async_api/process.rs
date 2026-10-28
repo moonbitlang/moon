@@ -385,10 +385,7 @@ pub(super) fn terminate(
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
-    context.host.with_owned_child_pid(pid, || {
-        let _ = process::terminate_process(pid, signal);
-        Ok(())
-    })
+    context.host.process().terminate(pid, signal)
 }
 
 #[ported(
@@ -401,10 +398,7 @@ pub(super) fn terminate(
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
-    context.host.with_owned_child_pid(pid, || {
-        let _ = process::terminate_process(pid, signal);
-        Ok(())
-    })
+    context.host.process().terminate(pid, signal)
 }
 
 #[ported(
@@ -413,10 +407,7 @@ pub(super) fn terminate(
 )]
 #[cfg(unix)]
 pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult<()> {
-    context.host.with_owned_child_pid(pid, || {
-        let _ = process::kill_process(pid);
-        Ok(())
-    })
+    context.host.process().kill(pid)
 }
 
 #[ported(
@@ -425,10 +416,7 @@ pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult
 )]
 #[cfg(windows)]
 pub(super) fn kill(context: &mut ImportContext<'_>, pid: i32) -> AsyncHostResult<()> {
-    context.host.with_owned_child_pid(pid, || {
-        let _ = process::kill_process(pid);
-        Ok(())
-    })
+    context.host.process().kill(pid)
 }
 }
 

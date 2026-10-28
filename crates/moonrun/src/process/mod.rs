@@ -21,8 +21,8 @@
 //! [`HostProcess`] is the module interface used by the async host. Policy,
 //! working-directory configuration, and child provenance stay above the
 //! private [`ambient`] implementation, which owns native operating-system
-//! execution. A future execution kind can therefore be added inside this
-//! module without exposing platform process details to callers.
+//! execution. Supervised Runs instead resolve guest process identities and
+//! waits within their virtual process tree.
 
 mod ambient;
 mod job;
@@ -48,6 +48,7 @@ pub(crate) struct HostProcess {
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
+    context: Option<crate::process_tree::ProcessContext>,
 }
 
 #[derive(Default)]
@@ -68,6 +69,7 @@ impl HostProcess {
         policy_inheritance: Option<PolicyInheritance>,
         working_directory: Arc<WorkingDirectory>,
         stdio: Arc<Stdio>,
+        context: Option<crate::process_tree::ProcessContext>,
     ) -> Self {
         // Enforced process policy needs child provenance to authorize later
         // PID and handle operations. Ambient execution preserves direct OS
@@ -81,7 +83,51 @@ impl HostProcess {
             working_directory,
             stdio,
             child_authority,
+            context,
         }
+    }
+
+    pub(crate) fn pid(&self) -> i32 {
+        self.context.as_ref().map_or_else(
+            || crate::async_sys::internal::env_util::stub::get_pid() as i32,
+            |context| context.pid(),
+        )
+    }
+
+    pub(crate) fn kill(&self, pid: i32) -> AsyncHostResult<()> {
+        if let Some(context) = &self.context {
+            return context.kill(pid);
+        }
+        self.with_owned_child_pid(pid, || {
+            let _ = crate::async_sys::process::kill_process(pid);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn terminate(&self, pid: i32, signal: i32) -> AsyncHostResult<()> {
+        #[cfg(unix)]
+        if self.context.is_some() && signal == libc::SIGKILL {
+            return self.kill(pid);
+        }
+        self.require_ambient()?;
+        self.with_owned_child_pid(pid, || {
+            let _ = crate::async_sys::process::terminate_process(pid, signal);
+            Ok(())
+        })
+    }
+
+    // The unfinished virtual spawn/signal/native-handle paths must never
+    // reinterpret a virtual PID as an operating-system process identity.
+    fn require_ambient(&self) -> AsyncHostResult<()> {
+        if self.context.is_none() {
+            return Ok(());
+        }
+        #[cfg(unix)]
+        return Err(AsyncHostError::Native(libc::ENOTSUP));
+        #[cfg(windows)]
+        return Err(AsyncHostError::Native(
+            windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED as i32,
+        ));
     }
 
     pub(crate) fn check_job(&self, job: &Job) -> AsyncHostResult<()> {
@@ -94,6 +140,12 @@ impl HostProcess {
         tracked_pid: Option<i32>,
         pid: i32,
     ) -> AsyncHostResult<Job> {
+        if let Some(context) = &self.context {
+            if handle.is_some() {
+                return Err(AsyncHostError::Badf);
+            }
+            return Ok(Job::wait_for_virtual_process(context.wait(pid)?));
+        }
         // On Unix, enforced authorization must inspect this provenance before
         // reaping, so the worker defers the final reap to HostProcess.
         #[cfg(unix)]
@@ -140,6 +192,7 @@ impl HostProcess {
         pid: i32,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
+        self.require_ambient()?;
         let Some(state) = self.child_authority.as_deref() else {
             return f();
         };
@@ -157,6 +210,7 @@ impl HostProcess {
         handle: Option<u64>,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
+        self.require_ambient()?;
         let Some(state) = self.child_authority.as_deref() else {
             return f();
         };
@@ -179,6 +233,7 @@ impl HostProcess {
         raw_handle: RawFd,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
+        self.require_ambient()?;
         let Some(state) = self.child_authority.as_deref() else {
             return f();
         };
@@ -262,6 +317,7 @@ impl HostProcess {
         program: &std::ffi::OsStr,
         argv: &[std::ffi::OsString],
     ) -> AsyncHostResult<()> {
+        self.require_ambient()?;
         self.policy
             .as_ref()
             .map_or(Ok(()), |policy| policy.allows_unix(program, argv))
@@ -269,6 +325,7 @@ impl HostProcess {
 
     #[cfg(windows)]
     fn check_spawn_windows(&self, command_line: &std::ffi::OsStr) -> AsyncHostResult<()> {
+        self.require_ambient()?;
         self.policy
             .as_ref()
             .map_or(Ok(()), |policy| policy.allows_windows(command_line))

@@ -16,11 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Host-side supervision of concurrent Runs. Guest process imports remain ambient.
+//! Supervision and guest process identity for concurrent Runs.
+
+mod guest;
+pub(crate) use guest::{ProcessContext, ProcessWait};
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
 use thiserror::Error;
@@ -105,8 +108,44 @@ pub enum ProcessError {
 struct Entry {
     info: ProcessInfo,
     terminator: RunTerminator,
-    // Taken by exactly one waiter. The entry stays visible until join finishes.
-    thread: Option<JoinHandle<anyhow::Result<RunOutcome>>>,
+    completion: Arc<ProcessCompletion>,
+    waiting: bool,
+}
+
+#[derive(Debug, Default)]
+struct ProcessCompletion {
+    // Wait/cancel may lock this independently of the table. Never acquire the
+    // table or a termination lock while holding it.
+    result: Mutex<Option<Result<RunOutcome, ProcessError>>>,
+    changed: Condvar,
+}
+
+impl ProcessCompletion {
+    // Reserve a separate reaper before starting the Run: thread creation may
+    // fail, and joining after Run exit can still block in native TLS cleanup.
+    // Even is_finished() can be true before those destructors have returned.
+    // Dropping the sender without a thread cancels this unused reservation.
+    fn start_reaper(
+        self: &Arc<Self>,
+        pid: VirtualPid,
+    ) -> std::io::Result<mpsc::Sender<JoinHandle<anyhow::Result<RunOutcome>>>> {
+        let (sender, receiver) = mpsc::channel::<JoinHandle<anyhow::Result<RunOutcome>>>();
+        let completion = Arc::clone(self);
+        thread::Builder::new()
+            .name(format!("moonrun-reaper-{pid}"))
+            .spawn(move || {
+                let Ok(thread) = receiver.recv() else {
+                    return;
+                };
+                let result = match thread.join() {
+                    Ok(result) => result.map_err(ProcessError::RunFailed),
+                    Err(_) => Err(ProcessError::Panicked(pid)),
+                };
+                *completion.result.lock().unwrap() = Some(result);
+                completion.changed.notify_all();
+            })?;
+        Ok(sender)
+    }
 }
 
 type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
@@ -115,8 +154,9 @@ type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
 ///
 /// Each Run gets a thread, an owned environment (policy provisioning takes
 /// precedence), and a fixed cwd. Parent links do not imply configuration
-/// inheritance. Guest spawn/wait/kill imports still use their existing native
-/// implementation; this API does not yet route them through the tree.
+/// inheritance. Guests see their virtual PID and can wait for or kill their
+/// children. Guest spawning and native process-handle operations are not yet
+/// supported in this mode; ordinary Engine Runs retain ambient process access.
 /// Native stacks retain at least the creator's size; Run startup checks the
 /// guest budget against the executing thread's remaining native stack.
 ///
@@ -189,11 +229,17 @@ impl VirtualProcessTree {
             }
         }
         let pid = VirtualPid::allocate(&NEXT_PID)?;
+        options.process_context = Some(ProcessContext {
+            pid,
+            table: Arc::clone(&self.table),
+        });
         let (terminator, receiver) = termination_channel();
         options.termination_receiver = Some(receiver);
         let engine = self.engine.clone();
         let module = module.clone();
         let shared_table = Arc::clone(&self.table);
+        let completion = Arc::new(ProcessCompletion::default());
+        let reaper = completion.start_reaper(pid)?;
         // Keep admission locked through publication. Even an immediate return
         // or panic must find its entry, and a parent cannot exit in between.
         let thread = thread::Builder::new()
@@ -215,9 +261,13 @@ impl VirtualProcessTree {
                     state: ProcessState::Running,
                 },
                 terminator,
-                thread: Some(thread),
+                completion,
+                waiting: false,
             },
         );
+        reaper
+            .send(thread)
+            .expect("process reaper must accept its Run");
         Ok(pid)
     }
 
@@ -243,21 +293,16 @@ impl VirtualProcessTree {
     /// Join and reap exactly once, including Run failures and thread panics.
     /// No table lock is held while waiting for Run and thread teardown.
     pub fn wait(&self, pid: VirtualPid) -> Result<RunOutcome, ProcessError> {
-        let thread = {
-            let mut table = self.table.lock().unwrap();
-            table
-                .get_mut(&pid)
-                .ok_or(ProcessError::NotFound(pid))?
-                .thread
-                .take()
-                .ok_or(ProcessError::AlreadyWaiting(pid))?
-        };
-        let result = thread.join();
-        self.table.lock().unwrap().remove(&pid);
-        match result {
-            Ok(result) => result.map_err(ProcessError::RunFailed),
-            Err(_) => Err(ProcessError::Panicked(pid)),
+        let claim = WaitClaim::new(Arc::clone(&self.table), pid)?;
+        let mut result = claim.completion.result.lock().unwrap();
+        while result.is_none() {
+            result = claim.completion.changed.wait(result).unwrap();
         }
+        let outcome = result.take().unwrap();
+        drop(result);
+        self.table.lock().unwrap().remove(&pid);
+        drop(claim);
+        outcome
     }
 
     /// A coherent snapshot, including exited members awaiting reaping.
@@ -271,7 +316,8 @@ impl VirtualProcessTree {
     }
 }
 
-// Also publish completion on panic, after Engine::run's stack has unwound.
+// Mark exit on panic too, after Engine::run's stack has unwound. The reaper
+// publishes completion separately, after native thread cleanup and join.
 // The thread retains the table even if the embedding owner drops its tree.
 struct ProcessExitGuard {
     table: Table,
@@ -286,6 +332,41 @@ impl Drop for ProcessExitGuard {
             if entry.info.parent == Some(self.pid) {
                 entry.info.parent = None;
             }
+        }
+    }
+}
+
+// A completed guest Job retains its claim until the guest reads the result.
+// Dropping/cancelling an unconsumed Job releases it without losing the exit.
+struct WaitClaim {
+    table: Table,
+    pid: VirtualPid,
+    completion: Arc<ProcessCompletion>,
+}
+
+impl WaitClaim {
+    fn new(table: Table, pid: VirtualPid) -> Result<Self, ProcessError> {
+        let completion = {
+            let mut entries = table.lock().unwrap();
+            let entry = entries.get_mut(&pid).ok_or(ProcessError::NotFound(pid))?;
+            if entry.waiting {
+                return Err(ProcessError::AlreadyWaiting(pid));
+            }
+            entry.waiting = true;
+            Arc::clone(&entry.completion)
+        };
+        Ok(Self {
+            table,
+            pid,
+            completion,
+        })
+    }
+}
+
+impl Drop for WaitClaim {
+    fn drop(&mut self) {
+        if let Some(entry) = self.table.lock().unwrap().get_mut(&self.pid) {
+            entry.waiting = false;
         }
     }
 }
@@ -380,6 +461,16 @@ mod tests {
         use std::sync::mpsc;
         use std::time::Duration;
 
+        struct ThreadCleanup(mpsc::Receiver<()>);
+        impl Drop for ThreadCleanup {
+            fn drop(&mut self) {
+                self.0.recv().unwrap();
+            }
+        }
+        thread_local! {
+            static CLEANUP: std::cell::RefCell<Option<ThreadCleanup>> = const { std::cell::RefCell::new(None) };
+        }
+
         if std::env::var_os("MOONRUN_PENDING_PROCESS_TEST").is_none() {
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args([
@@ -393,14 +484,25 @@ mod tests {
                 .success();
             return;
         }
-        for panic in [false, true] {
+        for (panic, native_tls) in [(false, false), (true, false), (false, true), (true, true)] {
             let tree = Arc::new(VirtualProcessTree::new(Engine::default()).unwrap());
             let pid = VirtualPid::allocate(&NEXT_PID).unwrap();
             let (terminator, receiver) = termination_channel();
             let (release, blocked) = mpsc::channel();
+            let (finish_thread, cleanup) = mpsc::channel();
             let table = Arc::clone(&tree.table);
+            let process_completion = Arc::new(ProcessCompletion::default());
+            let reaper = process_completion.start_reaper(pid).unwrap();
             let mut entries = tree.table.lock().unwrap();
             let thread = thread::spawn(move || {
+                let _cleanup = if native_tls {
+                    CLEANUP.set(Some(ThreadCleanup(cleanup)));
+                    None
+                } else {
+                    // Declared before the exit guard so cleanup blocks after
+                    // Run exit is recorded, including during unwinding.
+                    Some(ThreadCleanup(cleanup))
+                };
                 let _exit = ProcessExitGuard { table, pid };
                 // Model host work that cannot yet return. A termination
                 // request must not destroy it or make wait report success.
@@ -419,9 +521,11 @@ mod tests {
                         state: ProcessState::Running,
                     },
                     terminator,
-                    thread: Some(thread),
+                    completion: process_completion,
+                    waiting: false,
                 },
             );
+            reaper.send(thread).unwrap();
             drop(entries);
             assert!(tree.terminate(pid, RunTermination::Exit(7)).unwrap());
             assert!(!tree.terminate(pid, RunTermination::Exit(8)).unwrap());
@@ -437,9 +541,9 @@ mod tests {
             let waiting_tree = Arc::clone(&tree);
             let (done, completion) = mpsc::channel();
             let waiter = thread::spawn(move || done.send(waiting_tree.wait(pid)).unwrap());
-            // Wait until the waiter claims the join handle, without permitting
+            // Wait until the waiter reserves the result, without permitting
             // the simulated host work to finish.
-            while tree.table.lock().unwrap()[&pid].thread.is_some() {
+            while !tree.table.lock().unwrap()[&pid].waiting {
                 thread::yield_now();
             }
             assert_eq!(tree.snapshot()[0].state, ProcessState::Terminating);
@@ -448,6 +552,46 @@ mod tests {
                 Err(mpsc::TryRecvError::Empty)
             ));
             release.send(()).unwrap();
+            while tree.snapshot()[0].state != ProcessState::Exited {
+                thread::yield_now();
+            }
+            // Run exit is recorded, but cleanup still blocks thread teardown.
+            // Only the completed join may publish the result.
+            assert!(matches!(
+                completion.try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            ));
+
+            // Windows TLS destructors hold the OS loader lock, which itself
+            // blocks other threads' startup/exit. Check independent reaping
+            // with ordinary post-Run cleanup there; retain the real TLS case
+            // above to verify that join still waits for those destructors.
+            let other = if cfg!(windows) && native_tls {
+                None
+            } else {
+                let other = tree.spawn(None, &module, RunOptions::default()).unwrap();
+                let other_tree = Arc::clone(&tree);
+                let (other_done, other_completion) = mpsc::channel();
+                let other_waiter = thread::spawn(move || {
+                    other_done.send(other_tree.wait(other)).unwrap();
+                });
+                Some((
+                    other_waiter,
+                    other_completion.recv_timeout(Duration::from_secs(5)),
+                ))
+            };
+            let pending_result = completion.try_recv();
+            finish_thread.send(()).unwrap();
+            assert!(matches!(pending_result, Err(mpsc::TryRecvError::Empty)));
+            if let Some((other_waiter, other_result)) = other {
+                other_waiter.join().unwrap();
+                assert_eq!(
+                    other_result
+                        .expect("unrelated completion blocked by thread cleanup")
+                        .unwrap(),
+                    RunOutcome::Completed
+                );
+            }
             let result = completion.recv_timeout(Duration::from_secs(5)).unwrap();
             if panic {
                 assert!(matches!(result, Err(ProcessError::Panicked(found)) if found == pid));

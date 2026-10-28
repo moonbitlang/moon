@@ -2472,6 +2472,10 @@ impl AsyncHost {
         &self.filesystem
     }
 
+    pub(crate) fn process(&self) -> &HostProcess {
+        &self.process
+    }
+
     pub(crate) fn environment(&self) -> &Env {
         &self.environment
     }
@@ -4285,6 +4289,7 @@ mod tests {
             policy.take_policy_inheritance(),
             working_directory,
             Arc::clone(&stdio),
+            None,
         );
         #[cfg(unix)]
         let child_signal_mask = {
