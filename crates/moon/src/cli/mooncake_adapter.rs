@@ -28,8 +28,6 @@ use moonutil::cli_support::{
     DeprecateSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, UniversalFlags,
 };
 use moonutil::command_output::CommandOutput;
-use moonutil::manifest::read_module_desc_file_in_dir;
-use moonutil::project::ModuleRef;
 use moonutil::user_log::UserLog;
 use serde::Serialize;
 
@@ -106,14 +104,7 @@ pub(crate) fn publish_cli(
     cmd: PublishSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let module = select_mooncake_module(&mut cli, "publish", user_log)?;
-    let manifest = read_module_desc_file_in_dir(&module.root)?;
-    if manifest.private == Some(true) {
-        bail!(
-            "Cannot publish private module `{}`: publishing with private visibility is not supported yet.",
-            manifest.name
-        );
-    }
+    select_mooncake_module(&mut cli, "publish", user_log)?;
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
@@ -194,20 +185,20 @@ fn select_mooncake_module(
     cli: &mut UniversalFlags,
     command: &str,
     user_log: &UserLog,
-) -> anyhow::Result<ModuleRef> {
+) -> anyhow::Result<()> {
     let project = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .select(user_log)?;
     let project = project.context();
-    let Some(module) = project.selected_module() else {
+    if project.selected_module().is_none() {
         bail!(
             "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",
             project.root().display(),
         );
-    };
+    }
     cli.source_tgt_dir.cwd = None;
-    Ok(module)
+    Ok(())
 }
 
 #[cfg(test)]

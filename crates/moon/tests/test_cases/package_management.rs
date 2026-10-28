@@ -19,29 +19,7 @@
 use super::*;
 
 #[test]
-fn private_module_publish_is_rejected_before_backend_handoff() {
-    let dir = TestDir::new_empty();
-    std::fs::write(
-        dir.join("moon.mod"),
-        r#"
-name = "test/internal"
-private = true
-"#,
-    )
-    .unwrap();
-    for args in [vec!["publish"], vec!["publish", "--dry-run"]] {
-        moon_cmd(&dir)
-            .env("MOONCAKE_OVERRIDE", dir.join("must-not-execute"))
-            .args(args)
-            .assert()
-            .failure()
-            .stdout_eq("")
-            .stderr_eq("Error: Cannot publish private module `test/internal`: publishing with private visibility is not supported yet.\n");
-    }
-}
-
-#[test]
-fn private_module_preserves_public_publishing_and_local_packaging() {
+fn package_and_publish_delegate_for_each_module_visibility() {
     let dir = TestDir::new_empty();
     let executable = dir.join(format!("fake-mooncake{}", std::env::consts::EXE_SUFFIX));
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_mooncake.rs");
@@ -72,30 +50,36 @@ private = true
         let module_dir = dir.join(format!("module-{index}"));
         std::fs::create_dir(&module_dir).unwrap();
         std::fs::write(module_dir.join("moon.mod"), manifest).unwrap();
-        let private = manifest.contains("true");
         for command in ["package", "publish"] {
-            if command == "publish" && private {
-                continue;
-            }
-            moon_cmd(&module_dir)
-                .env("MOONCAKE_OVERRIDE", &executable)
-                .args([command, "--dry-run"])
-                .assert()
-                .success()
-                .stdout_eq("backend result\n")
-                .stderr_eq("backend notice\n");
-            let (_, payload): (serde_json::Value, serde_json::Value) =
-                serde_json::from_slice(&std::fs::read(module_dir.join("handoff.json")).unwrap())
+            for dry_run in [false, true] {
+                moon_cmd(&module_dir)
+                    .env("MOONCAKE_OVERRIDE", &executable)
+                    .args([command, "--frozen", "--quiet"])
+                    .args(dry_run.then_some("--dry-run"))
+                    .assert()
+                    .success()
+                    .stdout_eq("backend result\n")
+                    .stderr_eq("backend notice\n");
+                let (flags, payload): (serde_json::Value, serde_json::Value) =
+                    serde_json::from_slice(
+                        &std::fs::read(module_dir.join("handoff.json")).unwrap(),
+                    )
                     .unwrap();
-            assert!(
-                payload
-                    .get(if command == "publish" {
+                assert_eq!(flags["dry_run"], dry_run);
+                assert_eq!(flags["quiet"], true);
+                assert_eq!(
+                    payload[if command == "publish" {
                         "Publish"
                     } else {
                         "Package"
-                    })
-                    .is_some()
-            );
+                    }]["auto_sync_flags"]["frozen"],
+                    true
+                );
+                assert_eq!(
+                    std::fs::read_to_string(module_dir.join("moon.mod")).unwrap(),
+                    manifest
+                );
+            }
         }
     }
 
@@ -112,19 +96,14 @@ private = true
             format!("name = \"test/member\"\nprivate = {member_private}\n"),
         )
         .unwrap();
-        let assertion = moon_cmd(&dir)
+        moon_cmd(&dir)
             .env("MOONCAKE_OVERRIDE", &executable)
             .args(["-C", "member/src", "publish", "--dry-run"])
-            .assert();
-        if member_private {
-            assertion.failure().stdout_eq("").stderr_eq("Error: Cannot publish private module `test/member`: publishing with private visibility is not supported yet.\n");
-            assert!(!dir.join("member/src/handoff.json").exists());
-        } else {
-            assertion
-                .success()
-                .stdout_eq("backend result\n")
-                .stderr_eq("backend notice\n");
-        }
+            .assert()
+            .success()
+            .stdout_eq("backend result\n")
+            .stderr_eq("backend notice\n");
+        assert!(dir.join("member/src/handoff.json").is_file());
     }
 }
 
