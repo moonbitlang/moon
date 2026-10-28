@@ -415,7 +415,10 @@ pub(crate) fn run(
         }
 
         if let Some(test_args) = test_args {
-            let initialize = exported_function(scope, exports, "_initialize")?;
+            let initialize = match exported_function(scope, exports, "_initialize")? {
+                Some(initialize) => Some(initialize),
+                None => exported_function(scope, exports, "_start")?,
+            };
             let execute =
                 exported_function(scope, exports, "moonbit_test_driver_internal_execute")?
                     .context(

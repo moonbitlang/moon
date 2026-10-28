@@ -174,6 +174,19 @@ fn engine_backend_preserves_host_adapter_errors() {
             Some("failed to initialize the MoonBit test driver"),
         ),
         (
+            "test-start-host-error.wasm",
+            r#"(module
+                (import "moonbit:ffi/memory-sanitizer" "register-object-free"
+                    (func $free (param i32)))
+                (func (export "_start") i32.const 1 call $free)
+                (func (export "moonbit_test_driver_internal_execute")
+                    (param externref i32))
+                (func (export "moonbit_test_driver_finish")))"#,
+            moonrun::RunOptions::default()
+                .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
+            Some("failed to initialize the MoonBit test driver"),
+        ),
+        (
             "test-execute-host-error.wasm",
             r#"(module
                 (import "moonbit:ffi/memory-sanitizer" "register-object-free"

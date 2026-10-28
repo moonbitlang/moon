@@ -249,8 +249,9 @@ pub(crate) fn run_test_driver<D>(
     mut execute: impl FnMut(&mut D, &str, u32) -> anyhow::Result<BackendCallOutcome>,
     finish: impl FnOnce(&mut D) -> anyhow::Result<BackendCallOutcome>,
 ) -> anyhow::Result<BackendRunOutcome> {
-    // Tests invoke exports directly, so WASI reactor initialization must run
-    // once before any test or finalizer. Older modules may omit `_initialize`.
+    // Tests invoke exports directly. Initialize once before any test or finalizer,
+    // preferring `_initialize` and falling back to `_start` for test executables.
+    // Older modules may omit both exports.
     match initialize(driver).context("failed to initialize the MoonBit test driver")? {
         BackendCallOutcome::Completed => {}
         outcome => return complete_run_call(outcome, stdio),
