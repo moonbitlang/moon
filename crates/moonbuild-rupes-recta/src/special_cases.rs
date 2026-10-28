@@ -64,3 +64,16 @@ pub(crate) fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
         .iter()
         .any(|&target| name_matches(package_fqn, target))
 }
+
+/// Packages that every wasm1 object and every executable linked from objects
+/// load, with their dependencies (Wasm separate compilation).
+///
+/// `moonc` gives each error constructor an object uses an entry in the error
+/// table, whose methods call functions of these packages. It needs their
+/// `.core` files to compile such an object, and their objects must be linked
+/// with it. Not every standard library package that uses errors depends on
+/// them, `builtin` included.
+// FIXME: Remove once the linker assembles each error table entry from the
+// objects defining its methods.
+pub(crate) const WASM_ERROR_TABLE_PACKAGES: &[&str] =
+    &["moonbitlang/core/json", "moonbitlang/core/debug"];

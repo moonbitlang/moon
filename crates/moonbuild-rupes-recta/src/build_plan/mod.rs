@@ -64,7 +64,7 @@ use crate::{
     CompileConfig, ResolvedProject,
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
-        PackageId,
+        PackageId, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
@@ -131,6 +131,12 @@ pub(crate) struct BackendPlan {
 
     /// The map of build target to the metadata it needs when linking core
     link_core_info: HashMap<BuildTarget, LinkCoreInfo>,
+
+    /// The `.core` inputs of each package's wasm1 library object.
+    wasm_object_info: HashMap<WasmObject, LinkCoreInfo>,
+
+    /// The library objects linked into each executable linked from objects.
+    wasm_link_info: HashMap<BuildTarget, WasmLinkInfo>,
 
     /// The map of build target to the C stubs information
     c_stubs_info: HashMap<PackageId, BuildCStubsInfo>,
@@ -439,6 +445,16 @@ pub struct LinkCoreInfo {
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library
     // pub std: bool,
+}
+
+/// The objects `moonc wasm-ld` links into one executable, besides the object
+/// of its main package.
+#[derive(Debug)]
+pub struct WasmLinkInfo {
+    /// The packages whose library objects are linked, in dependency order:
+    /// the standard library's, then the program's. The linker initializes
+    /// them in this order.
+    pub(crate) library_objects: Vec<PackageId>,
 }
 
 #[derive(Debug)]

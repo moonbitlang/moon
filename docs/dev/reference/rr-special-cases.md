@@ -88,6 +88,18 @@ important ones and why they exist.
   intentionally not injected; the proof prelude is a toolchain resource rather
   than a prebuilt stdlib package artifact.
 
+## Wasm separate compilation
+
+- **Every wasm1 object reads the error table packages.** With
+  `MOON_SEPARATE_COMPILATION=1`, `wasm_object_inputs` appends the dependency
+  closures of `moonbitlang/core/json` and `moonbitlang/core/debug`
+  (`WASM_ERROR_TABLE_PACKAGES`) to the `.core` inputs of every object, and the
+  executable links their objects. `moonc` compiles an error table entry, whose
+  methods call into these packages, into each object using the error type, so
+  standard library objects such as `builtin`, which do not depend on them,
+  could not be compiled otherwise. This can go once the linker assembles each
+  entry from the objects defining its methods.
+
 ## Runtime + tooling side effects
 
 - **Core coverage is folded into builtin artifacts.** Once coverage sources are

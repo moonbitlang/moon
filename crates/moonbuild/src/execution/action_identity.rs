@@ -276,6 +276,12 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::LinkedCore { target_kind, .. } => {
                 (b"linked-core".as_slice(), Some(*target_kind), None)
             }
+            ArtifactKey::WasmMainObject { target_kind, .. } => {
+                (b"wasm-main-object".as_slice(), Some(*target_kind), None)
+            }
+            ArtifactKey::WasmLibraryObject { .. } => {
+                (b"wasm-library-object".as_slice(), None, None)
+            }
             ArtifactKey::GeneratedCObject { target_kind, .. } => {
                 (b"generated-c-object".as_slice(), Some(*target_kind), None)
             }

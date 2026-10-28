@@ -370,6 +370,12 @@ impl<'a> LoweringContext<'a> {
                 info,
                 native_toolchain,
             } => self.lower_link_core(&action_artifacts, target, info, native_toolchain)?,
+            BuildAction::BuildWasmObject { object, info } => {
+                self.lower_build_wasm_object(&action_artifacts, object, info)?
+            }
+            BuildAction::LinkWasmObjects { target, info } => {
+                self.lower_link_wasm_objects(&action_artifacts, target, info)?
+            }
             BuildAction::MakeExecutable { target, info } => {
                 self.lower_make_exe(&action_artifacts, target, info)
             }
@@ -488,7 +494,11 @@ impl<'a> LoweringContext<'a> {
                 info.c_flags.is_empty() && info.link_args.is_empty()
             }
             BuildAction::CompileGeneratedC { info, .. } => info.c_flags.is_empty(),
-            BuildAction::ArchiveForeignLibrary { .. }
+            // Objects carry no package or module link flags; see
+            // `links_wasm_objects`.
+            BuildAction::BuildWasmObject { .. }
+            | BuildAction::LinkWasmObjects { .. }
+            | BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateNodeTestPackageConfig { .. }
@@ -531,9 +541,11 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::Prove { .. }
             | BuildAction::BuildCore { .. }
             | BuildAction::LinkCore { .. }
+            | BuildAction::BuildWasmObject { .. }
             | BuildAction::BuildVirtual { .. } => ActionOutputKind::Compiler,
             BuildAction::BuildCStub { .. }
             | BuildAction::ArchiveOrLinkCStubs { .. }
+            | BuildAction::LinkWasmObjects { .. }
             | BuildAction::MakeExecutable { .. }
             | BuildAction::CompileGeneratedC { .. }
             | BuildAction::ArchiveForeignLibrary { .. }

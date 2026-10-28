@@ -53,15 +53,16 @@ use crate::{
     discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
-        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind,
+        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
+    special_cases::WASM_ERROR_TABLE_PACKAGES,
 };
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
     CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
-    PackagePrebuildKey,
+    PackagePrebuildKey, WasmLinkInfo,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     constructor::{BuildPlanConstructor, PackageFileSet},
 };
@@ -978,13 +979,28 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Linking Core IR for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
-        // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, _) = self.dfs_link_core_sources(target)?;
+        let (linked_order, _) = self.dfs_link_core_sources(target)?;
+        let link_core_info = self.require_core_ir_closure(node, linked_order);
+        self.res
+            .backend
+            .link_core_info
+            .insert(target, link_core_info);
+        self.resolved_node(node);
 
+        Ok(())
+    }
+
+    /// Require the Core IR closure of a compilation, given in initialization
+    /// order, and record it.
+    fn require_core_ir_closure(
+        &mut self,
+        node: BuildPlanNode,
+        linked_order: IndexSet<BuildTarget>,
+    ) -> LinkCoreInfo {
         // The traversal has already replaced unnecessary dependencies.
         // Injected stdlib packages are linked from their installed `.core`
         // files, which this plan does not produce.
-        for target in &link_core_deps {
+        for target in &linked_order {
             if self.input.pkg_dirs.is_stdlib_package(target.package) {
                 continue;
             }
@@ -998,16 +1014,220 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // Use DFS-built order directly (dependencies first, then dependents).
-        let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
-        let link_core_info = LinkCoreInfo {
-            linked_order: targets,
+        LinkCoreInfo {
+            linked_order: linked_order.into_iter().collect(),
+        }
+    }
+
+    /// Whether `target`'s executable is linked from per-package wasm1 objects
+    /// (Wasm separate compilation) rather than by one whole-program
+    /// `link-core`.
+    ///
+    /// This is the single rule for choosing the provider of the executable.
+    /// Executables that need what only a whole-program link supports keep it:
+    /// - the objects carry no link configuration, so a package with
+    ///   `link.wasm` settings (exports, memory, flags) or a module with link
+    ///   flags is linked whole;
+    /// - a library object is compiled once per package and shared by every
+    ///   executable using it, while virtual packages resolve per executable,
+    ///   from its own overrides; an executable reaching a virtual package is
+    ///   linked whole;
+    /// - a main package cannot be compiled into a library object, which a
+    ///   blackbox test of it would link;
+    /// - a library object cannot refer to the package its main object
+    ///   compiles, so a test whose linked libraries depend on the package
+    ///   under test is linked whole (see
+    ///   [`Self::links_dependent_of_main_package`]);
+    /// - `moonc wasm-ld` writes binary modules only.
+    pub(super) fn links_wasm_objects(&self, target: BuildTarget) -> bool {
+        let BackendConfig::Wasm {
+            use_wat: false,
+            separate_compilation: true,
+            ..
+        } = self.config.backend
+        else {
+            return false;
         };
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+        let module = self.input.pkg_dirs.module_info(pkg.module);
+        let links_as_main = if pkg.raw.is_main {
+            target.kind != TargetKind::BlackboxTest
+        } else {
+            target.kind.is_test()
+        };
+        if !(links_as_main
+            && pkg.raw.link.as_ref().is_none_or(|link| link.wasm.is_none())
+            && module.link_flags.as_deref().is_none_or(<[_]>::is_empty))
+        {
+            return false;
+        }
+        let linked = self.wasm_linked_targets(target);
+        !linked
+            .iter()
+            .any(|linked| self.input.pkg_dirs.get_package(linked.package).is_virtual())
+            && !self.links_dependent_of_main_package(target, &linked)
+    }
+
+    /// The targets whose packages `target`'s executable would link from
+    /// objects: those `target` and the error table packages reach (see
+    /// `wasm_object_inputs`), before any virtual package is resolved.
+    fn wasm_linked_targets(&self, target: BuildTarget) -> HashSet<BuildTarget> {
+        let graph = &self.rel.dep_graph;
+        let mut visited = HashSet::new();
+        let mut stack = std::iter::once(target)
+            .chain(
+                self.wasm_error_table_packages()
+                    .map(|package| package.build_target(TargetKind::Source)),
+            )
+            .collect::<Vec<_>>();
+        while let Some(node) = stack.pop() {
+            if visited.insert(node) {
+                stack.extend(graph.neighbors_directed(node, petgraph::Direction::Outgoing));
+            }
+        }
+        visited
+    }
+
+    /// Whether a library object that `target`'s executable would link, among
+    /// the `linked` targets, depends on the package whose code `target`'s main
+    /// object compiles.
+    ///
+    /// The main object of a source, inline-test or whitebox-test target
+    /// compiles its package, and keeps that package's definitions local. A
+    /// library object referring to them cannot be linked, and would also be
+    /// initialized before the main object initializes the package. This
+    /// happens when a whitebox test imports a package depending on the package
+    /// under test, or when an error table package depends on it, as every
+    /// standard library package below `json` does.
+    fn links_dependent_of_main_package(
+        &self,
+        target: BuildTarget,
+        linked: &HashSet<BuildTarget>,
+    ) -> bool {
+        // A blackbox test's main object compiles only the test code, which no
+        // package depends on.
+        if target.kind == TargetKind::BlackboxTest {
+            return false;
+        }
+
+        // The packages whose source depends on the main package.
+        let main_source = target.package.build_target(TargetKind::Source);
+        let mut dependents = HashSet::new();
+        let mut stack = vec![main_source];
+        while let Some(node) = stack.pop() {
+            for dependent in self
+                .rel
+                .dep_graph
+                .neighbors_directed(node, petgraph::Direction::Incoming)
+            {
+                if dependent.kind == TargetKind::Source && dependents.insert(dependent.package) {
+                    stack.push(dependent);
+                }
+            }
+        }
+        dependents.remove(&target.package);
+
+        linked
+            .iter()
+            .any(|node| node.kind == TargetKind::Source && dependents.contains(&node.package))
+    }
+
+    /// The [`WASM_ERROR_TABLE_PACKAGES`] present in this build.
+    fn wasm_error_table_packages(&self) -> impl Iterator<Item = PackageId> + '_ {
+        WASM_ERROR_TABLE_PACKAGES
+            .iter()
+            .filter_map(|name| self.input.pkg_dirs.get_package_id_by_name(name))
+    }
+
+    /// The `.core` inputs of the wasm1 object compiling `target`, in
+    /// dependency order: `target`'s own dependencies, then those of the
+    /// [`WASM_ERROR_TABLE_PACKAGES`], which `moonc` needs for error types.
+    ///
+    /// An object only refers to the packages it loads: `moonc` keeps a
+    /// definition local to an object when the package owning it is not
+    /// loaded. An executable links the objects of its main object's inputs,
+    /// which therefore cover the inputs of every object it links.
+    fn wasm_object_inputs(
+        &self,
+        target: BuildTarget,
+    ) -> Result<IndexSet<BuildTarget>, BuildPlanConstructError> {
+        let (mut order, _) = self.dfs_link_core_sources(target)?;
+        // A package already loaded as a test target is not loaded again.
+        let mut packages = order
+            .iter()
+            .map(|target| target.package)
+            .collect::<HashSet<_>>();
+        for package in self.wasm_error_table_packages() {
+            // Each traversal emits dependencies first, so appending them keeps
+            // a dependency order.
+            let (deps, _) = self.dfs_link_core_sources(package.build_target(TargetKind::Source))?;
+            for dep in deps {
+                if packages.insert(dep.package) {
+                    order.insert(dep);
+                }
+            }
+        }
+        Ok(order)
+    }
+
+    /// Plan a wasm1 object (Wasm separate compilation).
+    ///
+    /// Every object is compiled from the `.core` files of its target's
+    /// dependencies and the error table packages. A library object compiles a
+    /// package's source target alone, so every executable using it shares it.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_wasm_object(
+        &mut self,
+        node: BuildPlanNode,
+        object: WasmObject,
+    ) -> Result<(), BuildPlanConstructError> {
+        let target = match object {
+            WasmObject::Main(target) => target,
+            WasmObject::Library(package) => package.build_target(TargetKind::Source),
+        };
+        let inputs = self.wasm_object_inputs(target)?;
+        let info = self.require_core_ir_closure(node, inputs);
+        self.res.backend.wasm_object_info.insert(object, info);
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Plan the `moonc wasm-ld` action that links an executable from the
+    /// object of its main package and the library objects of the other
+    /// packages its main object loads, in link order.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_link_wasm_objects(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.require_artifact(
+            node,
+            ArtifactKey::WasmMainObject {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+
+        // The main package's own target, which may replace its source target
+        // (whitebox tests), is compiled into its main object.
+        let library_objects = self
+            .wasm_object_inputs(target)?
+            .into_iter()
+            .filter(|&dep| dep != target)
+            .map(|dep| {
+                debug_assert_eq!(dep.kind, TargetKind::Source);
+                dep.package
+            })
+            .collect::<Vec<_>>();
+        for &package in &library_objects {
+            self.require_artifact(node, ArtifactKey::WasmLibraryObject { package });
+        }
         self.res
             .backend
-            .link_core_info
-            .insert(target, link_core_info);
+            .wasm_link_info
+            .insert(target, WasmLinkInfo { library_objects });
         self.resolved_node(node);
-
         Ok(())
     }
 

@@ -49,10 +49,10 @@ use crate::{
     },
     build_plan::{
         ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, WasmLinkInfo,
     },
     discover::DiscoveredPackage,
-    model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind},
+    model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind, WasmObject},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::is_self_coverage_lib,
     target_layout::proof_artifact_stem,
@@ -686,8 +686,9 @@ impl<'a> LoweringContext<'a> {
                 fqn: &package.fqn,
                 kind: target.kind,
             },
+            library_object: false,
             output_path: out_file.clone().into(),
-            pkg_config_path: config_path.clone().into(),
+            pkg_config_path: Some(config_path.clone().into()),
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.backend.target_backend(),
@@ -714,6 +715,140 @@ impl<'a> LoweringContext<'a> {
             extra_inputs,
             commandline,
         })
+    }
+
+    /// Lower a wasm1 object: `link-core` of the target it compiles, with the
+    /// settings every object of a program shares.
+    ///
+    /// A main object also carries what applies to its executable alone: the
+    /// package's link configuration, the program's exports, and the test
+    /// driver's entry points. A library object is compiled with
+    /// `-pkg-type library` and none of them, since every executable using
+    /// the package shares it.
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
+    pub(super) fn lower_build_wasm_object(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        object: WasmObject,
+        info: &LinkCoreInfo,
+    ) -> Result<BuildCommand, LoweringError> {
+        let CoreIrClosure {
+            stdlib_inputs,
+            core_deps,
+            package_sources,
+        } = self.core_ir_closure(artifacts, info);
+        let out_file = artifacts.single_output_path();
+        let mut extra_inputs = stdlib_inputs;
+
+        let (target, library_object) = match object {
+            WasmObject::Main(target) => (target, false),
+            WasmObject::Library(package) => (package.build_target(TargetKind::Source), true),
+        };
+        let package = self.get_package(target);
+        let (pkg_config_path, wasm_config, exports) = if library_object {
+            let wasm_config = WasmConfig {
+                wasi: self.opt.backend.wasi_link(),
+                new_allocator: self.wasm_new_allocator(),
+                collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+                ..Default::default()
+            };
+            (None, wasm_config, None)
+        } else {
+            let config_path = package.config_path();
+            if !package.is_single_file() {
+                extra_inputs.push(config_path.clone());
+            }
+            let mut wasm_config = self.get_wasm_config(target, package);
+            // `moonc wasm-ld` does not name the module it links.
+            wasm_config.module_name = None;
+            let exports = package.exported_functions(TargetBackend::Wasm);
+            (Some(config_path), wasm_config, exports)
+        };
+
+        let cmd = compiler::MooncLinkCore {
+            core_deps: &core_deps,
+            main_package: compiler::CompiledPackageName {
+                fqn: &package.fqn,
+                kind: target.kind,
+            },
+            library_object,
+            output_path: out_file.as_path().into(),
+            pkg_config_path: pkg_config_path.map(Into::into),
+            package_sources: &package_sources,
+            stdlib_core_source: None,
+            target_backend: TargetBackend::Wasm,
+            native_target: None,
+            flags: self.set_flags(),
+            test_mode: target.kind.is_test(),
+            wasm_config,
+            js_config: None,
+            exports,
+            // `links_wasm_objects` keeps modules with link flags whole.
+            extra_link_opts: &[],
+            #[cfg(target_os = "windows")]
+            native_toolchain_is_msvc: false,
+        };
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
+
+        Ok(BuildCommand {
+            extra_inputs,
+            commandline,
+        })
+    }
+
+    /// Lower the `moonc wasm-ld` link of an executable from its main
+    /// package's object and its library objects, in initialization order.
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
+    pub(super) fn lower_link_wasm_objects(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        target: BuildTarget,
+        info: &WasmLinkInfo,
+    ) -> Result<BuildCommand, LoweringError> {
+        // Library objects are shared by every executable, so they all target
+        // WASI exactly when the backend links it: they are main packages and
+        // tests, in commands that link them.
+        let wasi = self.should_link_wasi(target, self.get_package(target));
+        debug_assert_eq!(wasi, self.opt.backend.wasi_link());
+
+        let mut objects = info
+            .library_objects
+            .iter()
+            .map(|&object| {
+                artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(artifact, ArtifactKey::WasmLibraryObject { package } if *package == object)
+                })
+            })
+            .collect::<Vec<_>>();
+        objects.push(artifacts.single_dependency_path_matching(|artifact| {
+            matches!(artifact, ArtifactKey::WasmMainObject { .. })
+        }));
+        let out_file = artifacts.single_output_path();
+
+        let cmd = compiler::MooncWasmLd {
+            objects: &objects,
+            output_path: out_file.as_path().into(),
+            symbols: self.set_flags().symbols,
+            wasi,
+            new_allocator: self.wasm_new_allocator(),
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+        };
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
+
+        Ok(BuildCommand {
+            extra_inputs: Vec::new(),
+            commandline,
+        })
+    }
+
+    fn wasm_new_allocator(&self) -> bool {
+        matches!(
+            self.opt.backend,
+            BackendConfig::Wasm {
+                new_allocator: true,
+                ..
+            }
+        )
     }
 
     /// Collect the Core IR closure of the packages `info` links.

@@ -103,6 +103,8 @@ pub enum ArtifactKey {
     RuntimeLibrary,
     GeneratedTestDriver { package: PackageId, target_kind: TargetKind },
     LinkedCore { package: PackageId, target_kind: TargetKind },
+    WasmMainObject { package: PackageId, target_kind: TargetKind },
+    WasmLibraryObject { package: PackageId },
     GeneratedCObject { package: PackageId, target_kind: TargetKind },
     Executable { package: PackageId, target_kind: TargetKind },
     ForeignLibrary { package: PackageId },
@@ -131,6 +133,14 @@ For generated-C native builds, `MakeExecutable` and `ArchiveForeignLibrary`
 consume `GeneratedCObject`, provided by `CompileGeneratedC`. Only that compile
 action consumes the C form of `LinkedCore` and observes toolchain headers.
 Object-producing backends let final linking consume `LinkedCore` directly.
+
+With Wasm separate compilation, `BuildWasmObject` provides both kinds of wasm1
+object, and the executable's target never runs `LinkCore`. Its
+`WasmObject::Main` form provides the `WasmMainObject` of the executable's main
+package target, carrying its entry, exports and link settings. Its
+`WasmObject::Library` form provides each other package's `WasmLibraryObject`,
+which is keyed by package alone because every executable shares it.
+`LinkWasmObjects` consumes both and provides the `Executable`.
 
 `Executable { package, target_kind }` includes test executables: source,
 inline-test, whitebox-test, and blackbox-test targets have different
