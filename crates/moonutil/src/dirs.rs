@@ -64,15 +64,6 @@ pub enum PackageDirsError {
     Other(#[from] anyhow::Error),
 }
 
-impl PackageDirsError {
-    fn allows_single_file_fallback(&self) -> bool {
-        matches!(
-            self,
-            Self::NotInProject(_) | Self::WorkspaceDisabledNotInModule(_)
-        )
-    }
-}
-
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 pub struct SourceTargetDirs {
     /// Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`.
@@ -137,8 +128,8 @@ impl SourceTargetDirs {
         &self,
         file_path: impl AsRef<Path>,
     ) -> Result<SingleFilePackageDirs, PackageDirsError> {
-        // This only builds the synthetic package directories. Whether a command
-        // may fall back to single-file mode depends on that command's argv.
+        // Commands select standalone scripts by the invoked filename before
+        // calling this helper to compute their synthetic package directories.
         let input_path = std::path::absolute(file_path.as_ref())
             .context("failed to resolve input path")
             .map_err(PackageDirsError::from)?;
@@ -169,8 +160,8 @@ impl SourceTargetDirs {
             .context("file path must have a parent directory")
             .map(Path::to_path_buf)
             .map_err(PackageDirsError::from)?;
-        // Keep the complete filename so supported source extensions with the
-        // same stem cannot share build state.
+        // Keep the complete canonical filename as the script's build identity,
+        // even when invoked through an alias with a different extension.
         let file_name = file_path
             .file_name()
             .context("file path must have a file name")
@@ -361,23 +352,6 @@ pub enum WorkspaceEditTarget {
     Existing(WorkspaceLayout),
 }
 
-#[derive(Debug)]
-pub enum ProjectProbe {
-    Found(ProjectContext),
-    NotFound(ProjectNotFound),
-}
-
-#[derive(Debug)]
-pub struct ProjectNotFound {
-    error: PackageDirsError,
-}
-
-impl ProjectNotFound {
-    pub fn into_error(self) -> PackageDirsError {
-        self.error
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleRef {
     pub root: PathBuf,
@@ -493,30 +467,14 @@ impl ProjectQuery {
         })
     }
 
-    pub fn probe_project(&self) -> Result<ProjectProbe, PackageDirsError> {
-        let project_context = self.project_context_from_start_dir();
-
-        match project_context {
-            Ok(project) => Ok(ProjectProbe::Found(project)),
-            Err(error) if error.allows_single_file_fallback() => {
-                Ok(ProjectProbe::NotFound(ProjectNotFound { error }))
-            }
-            Err(error) => Err(error),
-        }
-    }
-
     pub fn select(self, user_log: &UserLog) -> Result<SelectedProject, PackageDirsError> {
-        match self.probe_project()? {
-            ProjectProbe::Found(project) => {
-                self.emit_workspace_warnings(user_log);
-                Ok(SelectedProject {
-                    context: project,
-                    target_dir: self.target_dir,
-                    workspace: self.workspace,
-                })
-            }
-            ProjectProbe::NotFound(not_found) => Err(not_found.into_error()),
-        }
+        let context = self.project_context_from_start_dir()?;
+        self.emit_workspace_warnings(user_log);
+        Ok(SelectedProject {
+            context,
+            target_dir: self.target_dir,
+            workspace: self.workspace,
+        })
     }
 
     fn workspace_edit_target(
@@ -795,9 +753,8 @@ fn find_applicable_workspace(
 #[cfg(test)]
 mod tests {
     use super::{
-        PackageDirsError, ProjectContext, ProjectManifest, ProjectProbe, SourceTargetDirs,
-        WorkspaceEnv, parse_workspace_env, project_query_from_start_dir,
-        resolve_project_context_from_start_dir,
+        PackageDirsError, ProjectContext, ProjectManifest, SourceTargetDirs, WorkspaceEnv,
+        parse_workspace_env, project_query_from_start_dir, resolve_project_context_from_start_dir,
     };
     use crate::constants::{DEP_PATH, MOON_MOD};
     use std::{
@@ -886,7 +843,7 @@ version = "0.1.0"
     #[test]
     fn single_file_package_dirs_scope_target_to_complete_filename() {
         let project = tempfile::tempdir().expect("create test project");
-        write_file(&project.path().join("first.mbt"), "fn main {}\n");
+        write_file(&project.path().join("first.mbtx"), "fn main {}\n");
         write_file(&project.path().join("second.mbtx"), "fn main {}\n");
         let source_target_dirs = SourceTargetDirs {
             cwd: None,
@@ -894,7 +851,7 @@ version = "0.1.0"
         };
 
         let first = source_target_dirs
-            .single_file_package_dirs(project.path().join("first.mbt"))
+            .single_file_package_dirs(project.path().join("first.mbtx"))
             .unwrap();
         let second = source_target_dirs
             .single_file_package_dirs(project.path().join("second.mbtx"))
@@ -902,7 +859,7 @@ version = "0.1.0"
 
         assert_eq!(
             first.package_dirs.target_dir,
-            std::fs::canonicalize(project.path().join("_build/first.mbt")).unwrap()
+            std::fs::canonicalize(project.path().join("_build/first.mbtx")).unwrap()
         );
         assert_eq!(
             second.package_dirs.target_dir,
@@ -925,21 +882,18 @@ version = "0.1.0"
     #[test]
     fn single_file_package_dirs_scope_configured_target_to_filename() {
         let project = tempfile::tempdir().expect("create test project");
-        write_file(
-            &project.path().join("main.mbt.md"),
-            "```mbt\nfn main {}\n```\n",
-        );
+        write_file(&project.path().join("main.mbtx"), "fn main {}\n");
 
         let dirs = SourceTargetDirs {
             cwd: None,
             target_dir: Some(project.path().join("target")),
         }
-        .single_file_package_dirs(project.path().join("main.mbt.md"))
+        .single_file_package_dirs(project.path().join("main.mbtx"))
         .unwrap();
 
         assert_eq!(
             dirs.package_dirs.target_dir,
-            std::fs::canonicalize(project.path().join("target/main.mbt.md")).unwrap()
+            std::fs::canonicalize(project.path().join("target/main.mbtx")).unwrap()
         );
         assert_eq!(
             dirs.package_dirs.mooncakes_dir,
@@ -1042,18 +996,21 @@ version = "0.1.0"
     }
 
     #[test]
-    fn project_probe_reports_not_found_without_project() {
+    fn project_selection_reports_not_found_without_creating_build_storage() {
         let project = tempfile::tempdir().expect("create test project");
         let query = project_query_from_start_dir(project.path().to_path_buf(), &WorkspaceEnv::Auto)
             .unwrap();
 
-        let ProjectProbe::NotFound(not_found) = query.probe_project().unwrap() else {
-            panic!("expected project probe to report not found");
-        };
+        let error = query
+            .select(&crate::user_log::UserLog::new(log::LevelFilter::Error))
+            .err()
+            .expect("project selection must fail without a project");
         assert!(matches!(
-            not_found.into_error(),
+            error,
             PackageDirsError::NotInProject(path) if path == canonical(project.path())
         ));
+        assert!(!project.path().join("_build").exists());
+        assert!(!project.path().join(".mooncakes").exists());
     }
 
     #[test]

@@ -98,10 +98,6 @@ impl PackageFQN {
         let same_module = self.module == dependency.module;
         self.package.can_import(&dependency.package, same_module)
     }
-
-    pub fn has_internal_segment(&self) -> bool {
-        self.package().segments().any(|seg| seg == "internal")
-    }
 }
 
 impl std::fmt::Display for PackageFQN {
