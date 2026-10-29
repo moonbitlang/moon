@@ -79,6 +79,24 @@ instantiation, and worker completion/teardown. Compiler-produced async and
 SQLite CLI fixtures exercise the same registrations, including filesystem
 policy, native resource cleanup, and i64/f64 database values.
 
+## Synchronous jobs
+
+`thread_pool/run_job(i64) -> void` runs one fresh Job synchronously on the
+calling thread. It uses the same domain authorization, path interpretation,
+executor, result envelope and resource publication as worker execution. It does
+not require a thread pool or emit a worker Completion. The caller checks
+`job_get_err`, reads `job_get_ret` and operation-specific results, then calls
+`free_job`. A Job instance can be executed only once; reuse the constructor and
+executor, not the completed Job.
+
+Synchronous execution blocks the calling thread. Ordinary worker cancellation
+regions have no Worker state on this path; jobs with a dedicated cancellation
+hook retain the existing Run Termination wake binding. Use workers when coroutine
+progress or worker cancellation is needed. The runner itself does not borrow
+Guest Memory, but constructors and result getters may. In particular, generic
+stat still needs Guest Memory for copy-out, so the scalar `stdio/kind_of_fd`
+import remains necessary for stdio initialization during Wasm startup.
+
 ## Async import context
 
 Async FFI implementations use one engine-independent `ImportContext`: borrowed
