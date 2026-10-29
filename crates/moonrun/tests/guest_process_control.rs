@@ -32,6 +32,7 @@ fn guest_process_control() {
             "kill_self",
             "pid_isolation",
             "child_wait",
+            "handle_wait",
             "wait_teardown",
             "sync_wait_teardown",
             "unread_wait",
@@ -124,13 +125,34 @@ fn guest_process_control() {
             tree.terminate(unrelated, RunTermination::Exit(0)).unwrap();
             assert_eq!(tree.wait(unrelated).unwrap(), RunOutcome::Exited(0));
         }
-        "child_wait" | "wait_teardown" | "sync_wait_teardown" | "unread_wait" => {
+        "child_wait" | "handle_wait" | "wait_teardown" | "sync_wait_teardown" | "unread_wait" => {
             use std::io::Write;
             #[cfg(unix)]
             let status = -libc::SIGKILL;
             #[cfg(windows)]
             let status = 1;
+            let wait_handle = if case == "handle_wait" {
+                "local.get $pid call $open"
+            } else {
+                "call $invalid"
+            };
             let body = match case.as_str() {
+                    "handle_wait" => {
+                        // Bypass the normal guest library: read ret early,
+                        // close the handle before running its Job, then read
+                        // twice and never call get_process_result. Unix uses
+                        // the PID fallback; Windows exercises an owned handle.
+                        r#"local.get $job call $ret drop
+                        local.get $handle call $invalid i64.ne
+                        (if (then local.get $handle call $close (if (then unreachable))))
+                        local.get $pid call $kill
+                        local.get $job call $run
+                        local.get $job call $err (if (then unreachable))
+                        local.get $job call $ret i32.const EXPECTED_STATUS i32.ne (if (then unreachable))
+                        local.get $job call $ret i32.const EXPECTED_STATUS i32.ne (if (then unreachable))
+                        local.get $job call $free
+                        i32.const 71 call $exit"#
+                    }
                     "child_wait" => {
                         r#"local.get $pid call $kill
                         local.get $job call $run
@@ -154,18 +176,21 @@ fn guest_process_control() {
                     (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
                     (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
                     (import "moonbitlang/async" "process/kill" (func $kill (param i32)))
+                    (import "moonbitlang/async" "process/open_pid_handle" (func $open (param i32) (result i64)))
+                    (import "moonbitlang/async" "fd_util/close_fd" (func $close (param i64) (result i32)))
                     (import "moonbitlang/async" "fd_util/invalid_fd" (func $invalid (result i64)))
                     (import "moonbitlang/async" "thread_pool/make_wait_for_process_job" (func $make (param i64 i32) (result i64)))
                     (import "moonbitlang/async" "thread_pool/run_job" (func $run (param i64)))
                     (import "moonbitlang/async" "thread_pool/job_get_ret" (func $ret (param i64) (result i32)))
                     (import "moonbitlang/async" "thread_pool/job_get_err" (func $err (param i64) (result i32)))
+                    (import "moonbitlang/async" "thread_pool/free_job" (func $free (param i64)))
                     (import "moonbitlang/async" "event_bus/create" (func $poll (result i64)))
                     (import "moonbitlang/async" "thread_pool/init_thread_pool" (func $init (param i64) (result i64)))
                     (import "moonbitlang/async" "thread_pool/spawn_worker" (func $spawn (param i32 i64) (result i64)))
                     (memory (export "memory") 1)
                     (func $ready
                         (drop (call $write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8))))
-                    (func (export "_start") (local $pid i32) (local $job i64)
+                    (func (export "_start") (local $pid i32) (local $job i64) (local $handle i64)
                         i32.const 0 i32.const 16 i32.store
                         i32.const 4 i32.const 4 i32.store
                         (loop $input
@@ -173,7 +198,7 @@ fn guest_process_control() {
                                 (then unreachable))
                             i32.const 8 i32.load i32.eqz br_if $input)
                         i32.const 16 i32.load local.set $pid
-                        call $invalid local.get $pid call $make local.set $job
+                        {wait_handle} local.tee $handle local.get $pid call $make local.set $job
                         {body}))"#)).unwrap()).unwrap();
             let mut input = tempfile::NamedTempFile::new().unwrap();
             let marker = tempfile::NamedTempFile::new().unwrap();
@@ -197,7 +222,7 @@ fn guest_process_control() {
             let killed = RunOutcome::KilledBySignal(libc::SIGKILL);
             #[cfg(windows)]
             let killed = RunOutcome::Exited(1);
-            if case == "child_wait" {
+            if matches!(case.as_str(), "child_wait" | "handle_wait") {
                 assert_eq!(
                     tree.wait(parent).unwrap(),
                     RunOutcome::Exited(71),

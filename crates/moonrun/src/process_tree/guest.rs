@@ -204,8 +204,21 @@ impl ProcessContext {
                 cancelled: AtomicBool::new(false),
             }),
             claim: None,
-            consume_on_read: true,
+            claim_on_run: true,
+            completed: false,
         })
+    }
+
+    fn reap_unclaimed(&self, pid: VirtualPid, completion: &Arc<super::ProcessCompletion>) {
+        let mut entries = self.table.lock().unwrap();
+        // Handle observations do not own an exclusive wait claim. Preserve
+        // another waiter's result, and remove only the observed entry.
+        if entries
+            .get(&pid)
+            .is_some_and(|entry| !entry.waiting && Arc::ptr_eq(&entry.completion, completion))
+        {
+            entries.remove(&pid);
+        }
     }
 }
 
@@ -245,7 +258,8 @@ impl ProcessHandle {
                 cancelled: AtomicBool::new(false),
             }),
             claim: None,
-            consume_on_read: false,
+            claim_on_run: false,
+            completed: false,
         }
     }
 
@@ -262,15 +276,8 @@ impl ProcessHandle {
                 windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32,
             ))?;
         let accepted = accept(code)?;
-        let mut entries = self.owner.table.lock().unwrap();
-        // An outstanding PID wait still owns the table entry. Open handles
-        // retain their own completion and can read it independently.
-        if entries
-            .get(&VirtualPid(self.pid))
-            .is_some_and(|entry| !entry.waiting)
-        {
-            entries.remove(&VirtualPid(self.pid));
-        }
+        self.owner
+            .reap_unclaimed(VirtualPid(self.pid), &self.completion);
         Ok(accepted)
     }
 }
@@ -279,7 +286,8 @@ pub(crate) struct ProcessWait {
     pid: VirtualPid,
     cancel: Arc<WaitCancellation>,
     claim: Option<WaitClaim>,
-    consume_on_read: bool,
+    claim_on_run: bool,
+    completed: bool,
 }
 
 impl std::fmt::Debug for ProcessWait {
@@ -300,7 +308,7 @@ impl ProcessWait {
             return Err(AsyncHostError::Inval);
         }
         let table = &self.cancel.context.table;
-        let claim = if self.consume_on_read {
+        let claim = if self.claim_on_run {
             Some(WaitClaim::new(Arc::clone(table), self.pid).map_err(|_| AsyncHostError::Inval)?)
         } else {
             None
@@ -327,6 +335,7 @@ impl ProcessWait {
             }
             if let Some(status) = status {
                 self.claim = claim;
+                self.completed = true;
                 return Ok(i64::from(status));
             }
             result = self.cancel.completion.changed.wait(result).unwrap();
@@ -336,10 +345,19 @@ impl ProcessWait {
     /// Reading the completed Job result commits the wait. Freeing an unread
     /// Job (including Runtime teardown) instead leaves the exit for its owner.
     pub(crate) fn consume(&mut self) {
-        if let Some(claim) = self.claim.take()
-            && self.consume_on_read
-        {
+        // An untrusted guest can read ret before running the Job, when err is
+        // still zero, or after cancelling it. Only a successful wait may reap.
+        if !std::mem::take(&mut self.completed) {
+            return;
+        }
+        if let Some(claim) = self.claim.take() {
             claim.table.lock().unwrap().remove(&claim.pid);
+        } else if !self.claim_on_run {
+            // Windows handles retain their cached status independently; the
+            // guest need not call get_process_result to release this entry.
+            self.cancel
+                .context
+                .reap_unclaimed(self.pid, &self.cancel.completion);
         }
     }
 }
@@ -645,14 +663,14 @@ mod tests {
         let code = 0xC000_013A_u32 as i32;
         let mut wait = first.wait();
         assert_eq!(wait.run(), Ok(i64::from(code)));
-        wait.consume();
         assert_eq!(
             first.read_exit::<()>(|_| Err(AsyncHostError::Fault)),
             Err(AsyncHostError::Fault)
         );
         assert!(owner.table.lock().unwrap().contains_key(&child));
-        assert_eq!(first.read_exit(Ok), Ok(code));
+        wait.consume();
         assert!(owner.table.lock().unwrap().is_empty());
+        assert_eq!(first.read_exit(Ok), Ok(code));
         // Model a supervisor taking the owned Run result. Handles still own
         // the status, and completion wins over cancellation on Windows.
         completion.result.lock().unwrap().take();
@@ -662,6 +680,64 @@ mod tests {
         again.consume();
         assert_eq!(second.read_exit(Ok), Ok(code));
         assert_eq!(first.read_exit(Ok), Ok(code));
+    }
+
+    #[test]
+    fn handle_wait_consumption_requires_successful_completion() {
+        // Exercise the non-exclusive wait used by Windows handles without
+        // relying on guest code to follow async's normal call sequence.
+        let child = VirtualPid(2);
+        let completion = Arc::new(ProcessCompletion::default());
+        let owner = ProcessContext {
+            pid: VirtualPid(1),
+            table: Arc::new(Mutex::new(BTreeMap::from([(
+                child,
+                Entry {
+                    info: ProcessInfo {
+                        pid: child,
+                        parent: Some(VirtualPid(1)),
+                        state: ProcessState::Running,
+                    },
+                    terminator: crate::termination_channel().0,
+                    signals: crate::signal_channel().0,
+                    completion: completion.clone(),
+                    waiting: false,
+                },
+            )]))),
+        };
+        let mut cancelled = owner.wait(child.get()).unwrap();
+        cancelled.claim_on_run = false;
+        cancelled.consume();
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+        cancelled.cancellation().cancel().unwrap();
+        assert!(cancelled.run().is_err());
+        completion.publish(Ok(RunOutcome::Exited(23)));
+        cancelled.consume();
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+
+        let mut unread = owner.wait(child.get()).unwrap();
+        unread.claim_on_run = false;
+        // Even an already-exited process must not be reaped by reading an
+        // unexecuted Job's default return value.
+        unread.consume();
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+        assert_eq!(unread.run(), Ok(23));
+        drop(unread);
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+
+        let mut accepted = owner.wait(child.get()).unwrap();
+        accepted.claim_on_run = false;
+        assert_eq!(accepted.run(), Ok(23));
+        let claim = WaitClaim::new(owner.table.clone(), child).unwrap();
+        accepted.consume();
+        assert!(owner.table.lock().unwrap()[&child].waiting);
+        drop(claim);
+        let mut accepted = owner.wait(child.get()).unwrap();
+        accepted.claim_on_run = false;
+        assert_eq!(accepted.run(), Ok(23));
+        accepted.consume();
+        accepted.consume();
+        assert!(owner.table.lock().unwrap().is_empty());
     }
 
     #[test]
