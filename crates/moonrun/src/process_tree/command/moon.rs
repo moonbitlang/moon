@@ -16,49 +16,52 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Build helpers return an artifact; only this thread executes its Wasm.
+//! Moon preparation owns its helper invocation and the delivered files.
 
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
-use moonutil::run_handoff::{HANDOFF_ARG, RunHandoff};
+use moonutil::run_handoff::{HANDOFF_ARG, PreparedProgram, RunHandoff};
 
+use crate::RunOutcome;
+use crate::run_termination::TerminationRequest;
+use crate::runtime::RuntimeConfig;
 use crate::runtime::Stdio as RuntimeStdio;
-use crate::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 
-pub(super) fn run(
-    engine: &Engine,
+pub(super) enum Preparation {
+    Ready {
+        program: Box<PreparedProgram>,
+        directory: tempfile::TempDir,
+    },
+    Exited(RunOutcome),
+}
+
+pub(super) fn prepare(
     executable: &Path,
     args: &[OsString],
-    mut options: RunOptions,
-    signals: crate::SignalReceiver,
+    config: &RuntimeConfig,
+    request: &TerminationRequest,
     #[cfg(windows)] no_console_window: bool,
-) -> anyhow::Result<RunOutcome> {
-    let request = options
-        .termination_receiver
-        .as_ref()
-        .expect("the tree owns termination")
-        .request
-        .clone();
+) -> anyhow::Result<Preparation> {
     if let Some(outcome) = request.get() {
-        return Ok(outcome.into());
+        return Ok(Preparation::Exited(outcome.into()));
     }
     let directory = tempfile::tempdir().context("failed to create Moon artifact handoff")?;
     let handoff = RunHandoff::new(
         directory.path(),
-        options.inherited_policy.is_some() || options.policy_file.is_some(),
+        config.inherited_policy.is_some() || config.policy_file.is_some(),
     )?;
     let mut command = Command::new(executable);
     command
         .arg(HANDOFF_ARG)
         .arg(handoff.directory())
         .args(args)
-        .current_dir(options.working_directory.current_dir()?)
+        .current_dir(config.working_directory.current_dir()?)
         .env_clear()
         .envs(
-            options
+            config
                 .default_environment
                 .as_ref()
                 .expect("the tree owns the environment")
@@ -66,7 +69,7 @@ pub(super) fn run(
                 .cloned(),
         )
         .env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
-    if let RuntimeStdio::Owned(files) = &options.stdio {
+    if let RuntimeStdio::Owned(files) = &config.stdio {
         command
             .stdin(Stdio::from(files[0].lock().unwrap().try_clone()?))
             .stdout(Stdio::from(files[1].lock().unwrap().try_clone()?))
@@ -78,7 +81,7 @@ pub(super) fn run(
         command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
     }
     #[cfg(unix)]
-    if let Some(mask) = options.preserved_child_signal_mask {
+    if let Some(mask) = config.preserved_child_signal_mask {
         use std::os::unix::process::CommandExt;
         // Restore only the explicit pre-broker mask, using an async-signal-safe
         // syscall in the forked child. No Rust locks or allocation here.
@@ -98,7 +101,7 @@ pub(super) fn run(
     let status = command.status().context("failed to run Moon build helper");
     drop(command);
     if let Some(outcome) = request.get() {
-        return Ok(outcome.into());
+        return Ok(Preparation::Exited(outcome.into()));
     }
     let status = status?;
     if !status.success() {
@@ -106,34 +109,15 @@ pub(super) fn run(
         {
             use std::os::unix::process::ExitStatusExt;
             if let Some(signal) = status.signal() {
-                return Ok(RunOutcome::KilledBySignal(signal));
+                return Ok(Preparation::Exited(RunOutcome::KilledBySignal(signal)));
             }
         }
-        return Ok(RunOutcome::Exited(status.code().unwrap_or(1)));
+        return Ok(Preparation::Exited(RunOutcome::Exited(
+            status.code().unwrap_or(1),
+        )));
     }
-    let prepared = handoff.load()?;
-    options.args = prepared.args;
-    options.working_directory = WorkingDirectory::Fixed(prepared.working_directory);
-    if options.inherited_policy.is_none()
-        && options.policy_file.is_none()
-        && let Some((policy, source_dir)) = prepared.policy
-    {
-        options = options.with_policy_file_source_dir(policy, source_dir);
-    }
-    // Keep the handoff directory, including copied policy sources, alive until
-    // Runtime construction and execution have finished.
-    super::run_executable(
-        engine,
-        prepared.execution_kind,
-        &prepared.artifact,
-        &prepared.executable,
-        |_| {
-            prepared
-                .source_map
-                .as_deref()
-                .and_then(crate::source_map::SourceMap::parse)
-        },
-        options,
-        signals,
-    )
+    Ok(Preparation::Ready {
+        program: Box::new(handoff.load()?),
+        directory,
+    })
 }

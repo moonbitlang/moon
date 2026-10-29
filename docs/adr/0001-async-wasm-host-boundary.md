@@ -2,6 +2,24 @@
 
 We will support `moonbitlang/async` on the wasm backend through `#cfg(target="wasm")` bindings to a `moonbit_v0` host module in `moonrun`, without compiler changes or JS backend changes. The host follows the semantic contract of async's native C stubs, but wasm resources are represented as Handles and guest-memory ranges rather than native MoonBit runtime objects or pinned pointers; this keeps V8 as the first adapter while allowing the V8-free host core to be reused by future wasm runtimes.
 
+## Scope and subsequent decisions
+
+The native-shaped semantic contract, port provenance, fresh Guest Memory
+borrows, host-owned worker results, and Run-scoped termination remain in force.
+[Moonrun ADR 0012](../../crates/moonrun/docs/adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md)
+extends these constraints to embedding, Runtime ownership, supervision, and
+overall authority. It supersedes the initial module allocation below:
+`async_api` now owns backend-neutral ABI definitions, Runtime owns shared state
+and the Handle namespace, Host Domains own interpretation and authorization,
+and `async_sys` retains native-port mechanisms. Async Host continues to own
+async Resources, Jobs, Workers, and Completions within that composition.
+
+The V8-specific JS memory plumbing, initial import-module name, and Deferred
+section below record the initial implementation plan. Use the
+[Moonrun developer index](../../crates/moonrun/docs/dev/README.md) for current
+adapter behavior and the [architecture guide](../../crates/moonrun/docs/dev/design/runtime-architecture.md)
+for the decision relationships and implementation constraints.
+
 ## Decisions
 
 - Use a semantic C-stub boundary: `moonbit_v0` symbols map from `moonbitlang_async_*` symbols by stripping that prefix.

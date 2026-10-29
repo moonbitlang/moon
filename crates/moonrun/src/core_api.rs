@@ -89,24 +89,10 @@ mod tests {
 
     #[test]
     fn in_memory_module_cannot_produce_current_exe() {
-        #[cfg(unix)]
-        let mask = {
-            let mut mask = unsafe { std::mem::zeroed() };
-            unsafe { libc::sigemptyset(&mut mask) };
-            mask
-        };
         let runtime = Runtime::new(
-            None,
-            None,
-            None,
-            None,
-            crate::WorkingDirectory::Ambient,
-            crate::runtime::Stdio::Ambient,
+            crate::runtime::RuntimeConfig::default(),
             Executable::unavailable(),
             crate::signal_channel().1,
-            None,
-            #[cfg(unix)]
-            mask,
         )
         .unwrap();
 

@@ -16,10 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Supervision and guest process identity for concurrent Runs.
+//! Admission, control, and reaping for supervised commands and their Runs.
 
+mod command;
 mod guest;
-mod moon;
 #[cfg(windows)]
 pub(crate) use guest::ProcessHandle;
 pub(crate) use guest::{ProcessContext, ProcessWait};
@@ -70,11 +70,11 @@ impl std::fmt::Display for VirtualPid {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessState {
-    /// Admitted for execution, including startup and ordinary Run teardown.
+    /// Admitted for execution, including preparation and command cleanup.
     Running,
     /// Forced termination was accepted; teardown may still be blocked.
     Terminating,
-    /// The Run has returned or unwound, but has not been reaped by `wait`.
+    /// Command execution returned or unwound; thread reaping may still be pending.
     Exited,
 }
 
@@ -193,9 +193,9 @@ pub(crate) struct SpawnedProcess {
     completion: Arc<ProcessCompletion>,
 }
 
-/// Opt-in host-side lifecycle management for Runs on the supplied Engine.
+/// Opt-in supervision of commands executing on the supplied Engine.
 ///
-/// Each Run gets a thread, an owned environment (policy provisioning takes
+/// Each command gets a thread, an owned environment (policy provisioning takes
 /// precedence), and a fixed cwd. Parent links do not imply configuration
 /// inheritance. Guests see their virtual PID and can signal or wait for their
 /// children through the existing async process API, including recursive Moon
@@ -206,7 +206,7 @@ pub(crate) struct SpawnedProcess {
 ///
 /// The supervisor can wait for any member. Exiting parents leave children
 /// running under the supervisor. Dropping the tree neither stops nor joins
-/// Runs: callers must explicitly terminate and wait when required.
+/// commands: callers must explicitly terminate and wait when required.
 #[derive(Clone)]
 pub struct VirtualProcessTree {
     engine: Engine,
@@ -271,9 +271,14 @@ impl VirtualProcessTree {
         signals: crate::SignalReceiver,
     ) -> Result<VirtualPid, ProcessError> {
         let module = module.clone();
-        self.spawn_run(parent, options, signals, move |engine, options, signals| {
-            engine.run_with_signal_receiver(&module, options, signals)
-        })
+        self.spawn_command(
+            parent,
+            options,
+            signals,
+            move |engine, options, signals, termination| {
+                engine.run_in_scope(&module, options, signals, termination)
+            },
+        )
         .map(|spawned| spawned.pid)
     }
 
@@ -288,21 +293,27 @@ impl VirtualProcessTree {
         signals: crate::SignalReceiver,
     ) -> Result<VirtualPid, ProcessError> {
         let executable = executable.to_owned();
-        self.spawn_run(parent, options, signals, move |engine, options, signals| {
-            run_executable(
-                engine,
-                kind,
-                &executable,
-                &executable,
-                |bytes| {
-                    moonutil::wasm_source_map::load(&executable, bytes)
-                        .as_deref()
-                        .and_then(crate::source_map::SourceMap::parse)
-                },
-                options,
-                signals,
-            )
-        })
+        self.spawn_command(
+            parent,
+            options,
+            signals,
+            move |engine, options, signals, termination| {
+                command::run_executable(
+                    engine,
+                    kind,
+                    &executable,
+                    &executable,
+                    |bytes| {
+                        moonutil::wasm_source_map::load(&executable, bytes)
+                            .as_deref()
+                            .and_then(crate::source_map::SourceMap::parse)
+                    },
+                    options,
+                    signals,
+                    termination,
+                )
+            },
+        )
         .map(|spawned| spawned.pid)
     }
 
@@ -324,17 +335,18 @@ impl VirtualProcessTree {
         }
         let executable = executable.to_owned();
         let args = args.to_vec();
-        self.spawn_run(
+        self.spawn_command(
             parent,
             options,
             crate::signal_channel().1,
-            move |engine, options, signals| {
-                moon::run(
+            move |engine, options, signals, termination| {
+                command::run_moon(
                     engine,
                     &executable,
                     &args,
                     options,
                     signals,
+                    termination,
                     #[cfg(windows)]
                     false,
                 )
@@ -343,12 +355,17 @@ impl VirtualProcessTree {
         .map(|spawned| spawned.pid)
     }
 
-    fn spawn_run(
+    fn spawn_command(
         &self,
         parent: Option<VirtualPid>,
         mut options: RunOptions,
         signal_receiver: crate::SignalReceiver,
-        run: impl FnOnce(&Engine, RunOptions, crate::SignalReceiver) -> anyhow::Result<RunOutcome>
+        execute: impl FnOnce(
+            &Engine,
+            RunOptions,
+            crate::SignalReceiver,
+            &crate::run_termination::TerminationRequest,
+        ) -> anyhow::Result<RunOutcome>
         + Send
         + 'static,
     ) -> Result<SpawnedProcess, ProcessError> {
@@ -357,10 +374,11 @@ impl VirtualProcessTree {
         }
         options.native_stack_budget = Some(self.guest_stack_budget);
         options
+            .runtime
             .default_environment
             .get_or_insert_with(|| std::env::vars_os().collect());
-        if matches!(options.working_directory, WorkingDirectory::Ambient) {
-            options.working_directory = WorkingDirectory::Fixed(std::env::current_dir()?);
+        if matches!(options.runtime.working_directory, WorkingDirectory::Ambient) {
+            options.runtime.working_directory = WorkingDirectory::Fixed(std::env::current_dir()?);
         }
         let mut table = self.table.lock().unwrap();
         if let Some(parent) = parent {
@@ -370,14 +388,12 @@ impl VirtualProcessTree {
             }
         }
         let pid = VirtualPid::allocate(&NEXT_PID)?;
-        options.process_context = Some(ProcessContext {
+        options.runtime.process_context = Some(ProcessContext {
             pid,
             tree: self.clone(),
         });
         let (terminator, receiver) = termination_channel();
-        let request = receiver.request.clone();
         let signals = signal_receiver.sender();
-        options.termination_receiver = Some(receiver);
         let engine = self.engine.clone();
         let shared_table = Arc::clone(&self.table);
         let completion = Arc::new(ProcessCompletion::default());
@@ -392,13 +408,18 @@ impl VirtualProcessTree {
                     table: shared_table,
                     pid,
                 };
-                let result = match request.get() {
-                    Some(outcome) => Ok(outcome.into()),
-                    None => run(&engine, options, signal_receiver),
+                // Close control before publishing exit, including on unwind.
+                let receiver = receiver;
+                let result = match receiver.request.get() {
+                    Some(outcome) => {
+                        drop((execute, options, signal_receiver));
+                        Ok(outcome.into())
+                    }
+                    None => execute(&engine, options, signal_receiver, &receiver.request),
                 };
                 // Admission owns cancellation through preparation too, including
                 // artifact loading errors before the Wasm engine is entered.
-                match request.close() {
+                match receiver.close() {
                     Some(outcome) => Ok(outcome.into()),
                     None => result,
                 }
@@ -424,7 +445,7 @@ impl VirtualProcessTree {
         );
         reaper
             .send(thread)
-            .expect("process reaper must accept its Run");
+            .expect("process reaper must accept its command");
         Ok(spawned)
     }
 
@@ -439,7 +460,7 @@ impl VirtualProcessTree {
         let mut table = self.table.lock().unwrap();
         let entry = table.get_mut(&pid).ok_or(ProcessError::NotFound(pid))?;
         // Lock order is table then termination. Run completion acquires the
-        // table only after Engine::run has closed the termination channel.
+        // table only after command execution has closed the termination channel.
         let accepted = entry.terminator.terminate(outcome);
         if accepted {
             entry.info.state = ProcessState::Terminating;
@@ -473,34 +494,7 @@ impl VirtualProcessTree {
     }
 }
 
-// Both root executables and Moon delivery results enter here. The preparation
-// layer describes the artifact; process supervision owns execution dispatch.
-fn run_executable(
-    engine: &Engine,
-    kind: moonutil::run_handoff::ExecutionKind,
-    artifact: &Path,
-    origin: &Path,
-    source_map: impl FnOnce(&[u8]) -> Option<crate::source_map::SourceMap>,
-    options: RunOptions,
-    signals: crate::SignalReceiver,
-) -> anyhow::Result<RunOutcome> {
-    match kind {
-        moonutil::run_handoff::ExecutionKind::Wasm => {
-            let bytes = std::fs::read(artifact)?;
-            let module = engine.compile_file(origin, &bytes, || source_map(&bytes))?;
-            engine.run_with_signal_receiver(&module, options, signals)
-        }
-        moonutil::run_handoff::ExecutionKind::Native | moonutil::run_handoff::ExecutionKind::Js => {
-            // FIXME: Admit native executables and Node through the tree's native
-            // process nodes, sharing PID, wait, cancellation and reaping ownership.
-            anyhow::bail!(
-                "native process nodes (including Node) are not yet supported in virtual process trees"
-            )
-        }
-    }
-}
-
-// Mark exit on panic too, after Engine::run's stack has unwound. The reaper
+// Mark exit on panic too, after command execution and control have unwound. The reaper
 // publishes completion separately, after native thread cleanup and join.
 // The thread retains the table even if the embedding owner drops its tree.
 struct ProcessExitGuard {
@@ -784,6 +778,72 @@ mod tests {
                 assert_eq!(result.unwrap(), RunOutcome::Exited(7));
             }
             waiter.join().unwrap();
+            assert!(tree.snapshot().is_empty());
+        }
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn command_termination_remains_open_after_run_teardown() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let engine = Engine::default();
+        let module = engine
+            .compile("empty.wasm", wat::parse_str("(module)").unwrap())
+            .unwrap();
+        let tree = VirtualProcessTree::new(engine).unwrap();
+        for (run_error, cleanup_panic) in [(false, false), (true, false), (false, true)] {
+            let module = module.clone();
+            let (returned, run_returned) = mpsc::channel();
+            let (release, cleanup) = mpsc::channel();
+            let options = if run_error {
+                RunOptions::default().with_test_args("invalid test arguments")
+            } else {
+                RunOptions::default()
+            };
+            let spawned = tree
+                .spawn_command(
+                    None,
+                    options,
+                    crate::signal_channel().1,
+                    move |engine, options, signals, termination| {
+                        let result = engine.run_in_scope(&module, options, signals, termination);
+                        assert_eq!(result.is_err(), run_error);
+                        returned.send(()).unwrap();
+                        // A command can retain delivery files after its Run returns.
+                        // Model that cleanup without depending on filesystem timing.
+                        cleanup.recv_timeout(Duration::from_secs(5)).unwrap();
+                        assert!(!cleanup_panic, "simulated command cleanup panic");
+                        result
+                    },
+                )
+                .unwrap();
+            run_returned.recv_timeout(Duration::from_secs(5)).unwrap();
+            let terminator = tree.table.lock().unwrap()[&spawned.pid].terminator.clone();
+            let accepted = tree
+                .terminate(spawned.pid, RunTermination::Exit(42))
+                .unwrap();
+            let (done, completion) = mpsc::channel();
+            let waiting_tree = tree.clone();
+            let waiter = thread::spawn(move || done.send(waiting_tree.wait(spawned.pid)).unwrap());
+            assert!(matches!(
+                completion.recv_timeout(Duration::from_millis(25)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ));
+            release.send(()).unwrap();
+            let result = completion.recv_timeout(Duration::from_secs(5)).unwrap();
+            waiter.join().unwrap();
+            assert!(
+                accepted,
+                "Run teardown closed the command termination channel"
+            );
+            if cleanup_panic {
+                assert!(matches!(result, Err(ProcessError::Panicked(pid)) if pid == spawned.pid));
+            } else {
+                assert_eq!(result.unwrap(), RunOutcome::Exited(42));
+            }
+            assert!(!terminator.terminate(RunTermination::Exit(43)));
             assert!(tree.snapshot().is_empty());
         }
     }

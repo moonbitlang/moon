@@ -70,17 +70,18 @@ impl ProcessContext {
         let executable = executable.to_owned();
         let args = args.to_vec();
         self.tree
-            .spawn_run(
+            .spawn_command(
                 Some(self.pid),
                 options,
                 crate::signal_channel().1,
-                move |engine, options, signals| {
-                    super::moon::run(
+                move |engine, options, signals, termination| {
+                    super::command::run_moon(
                         engine,
                         &executable,
                         &args,
                         options,
                         signals,
+                        termination,
                         #[cfg(windows)]
                         no_console_window,
                     )
@@ -591,7 +592,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn parent_poll_owns_virtual_process_observation() {
-        use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
+        use crate::runtime::{Executable, Runtime};
 
         for finish in ["event", "ready", "closed"] {
             let child = VirtualPid(2);
@@ -613,19 +614,13 @@ mod tests {
                     },
                 )])))),
             };
-            let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-            assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
             let runtime = Runtime::new(
-                None,
-                None,
-                None,
-                None,
-                WorkingDirectory::Ambient,
-                Stdio::Ambient,
+                crate::runtime::RuntimeConfig {
+                    process_context: Some(context.clone()),
+                    ..Default::default()
+                },
                 Executable::unavailable(),
                 crate::signal_channel().1,
-                Some(context.clone()),
-                mask,
             )
             .unwrap();
             let host = runtime.async_host();

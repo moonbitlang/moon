@@ -27,7 +27,7 @@ mod working_directory;
 
 use std::cell::RefCell;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -135,33 +135,65 @@ pub(crate) struct Runtime {
     sqlite: SqliteHost,
 }
 
+/// Construction input shared by command preparation and its eventual Runtime.
+/// Moving these inputs transfers ownership; only Runtime realizes the state
+/// and loads the policy sources into domain authorization rules.
+#[derive(Debug, Default)]
+pub(crate) struct RuntimeConfig {
+    pub(crate) policy_file: Option<PathBuf>,
+    pub(crate) policy_source_dir: Option<PathBuf>,
+    pub(crate) inherited_policy: Option<Vec<u8>>,
+    pub(crate) working_directory: WorkingDirectory,
+    pub(crate) stdio: Stdio,
+    // Explicit policy provisioning takes precedence over the source environment.
+    pub(crate) default_environment: Option<Vec<(OsString, OsString)>>,
+    pub(crate) process_context: Option<crate::process_tree::ProcessContext>,
+    #[cfg(unix)]
+    pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
+}
+
+#[cfg(unix)]
+pub(crate) fn current_signal_mask() -> anyhow::Result<libc::sigset_t> {
+    let mut signal_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+    let error =
+        unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, std::ptr::null(), &mut signal_mask) };
+    if error != 0 {
+        return Err(std::io::Error::from_raw_os_error(error).into());
+    }
+    Ok(signal_mask)
+}
+
 impl Runtime {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        policy_file: Option<&Path>,
-        policy_source_dir: Option<&Path>,
-        inherited_policy: Option<&[u8]>,
-        default_environment: Option<Vec<(OsString, OsString)>>,
-        working_directory: WorkingDirectory,
-        stdio: Stdio,
+        config: RuntimeConfig,
         executable: Executable,
         signals: SignalReceiver,
-        process_context: Option<crate::process_tree::ProcessContext>,
-        #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
-        let source_environment = default_environment
+        #[cfg(unix)]
+        let child_signal_mask = match config.preserved_child_signal_mask {
+            Some(mask) => mask,
+            None => current_signal_mask()?,
+        };
+        let source_environment = config
+            .default_environment
             .map(Env::owned)
             .transpose()?
             .unwrap_or_else(Env::ambient);
-        let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
+        let (mut policy, env_provisioning) = match (
+            config.inherited_policy.as_deref(),
+            config.policy_file.as_deref(),
+        ) {
             (Some(contents), _) => {
                 let (policy, env) = policy::load_inherited_json(contents, &source_environment)
                     .context("failed to load inherited sandbox policy (experimental)")?;
                 (policy, Some(env))
             }
             (None, Some(path)) => {
-                let loaded =
-                    policy::load_file_with_source_dir(path, policy_source_dir, &source_environment);
+                let loaded = policy::load_file_with_source_dir(
+                    path,
+                    config.policy_source_dir.as_deref(),
+                    &source_environment,
+                );
                 let (policy, env) = loaded.context(
                     "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
                 )?;
@@ -180,7 +212,7 @@ impl Runtime {
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
         let policy_inheritance = policy.take_policy_inheritance();
-        let working_directory = Arc::new(match working_directory {
+        let working_directory = Arc::new(match config.working_directory {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(path) => {
                 let path = dunce::canonicalize(path)
@@ -189,7 +221,7 @@ impl Runtime {
                 WorkingDirectory::Fixed(path)
             }
         });
-        let stdio = Arc::new(stdio);
+        let stdio = Arc::new(config.stdio);
         let keys = Rc::new(RefCell::new(HostKeys::default()));
         let filesystem = Arc::new(HostFs::new(
             filesystem_policy,
@@ -202,7 +234,7 @@ impl Runtime {
             policy_inheritance,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
-            process_context,
+            config.process_context,
             Arc::clone(&environment),
         );
         let async_host = AsyncHost::new(
@@ -316,24 +348,10 @@ mod tests {
     #[test]
     fn runtime_owns_the_selected_executable() {
         let path = std::env::current_exe().unwrap();
-        #[cfg(unix)]
-        let mask = {
-            let mut mask = unsafe { std::mem::zeroed() };
-            unsafe { libc::sigemptyset(&mut mask) };
-            mask
-        };
         let runtime = Runtime::new(
-            None,
-            None,
-            None,
-            None,
-            WorkingDirectory::Ambient,
-            Stdio::Ambient,
+            crate::runtime::RuntimeConfig::default(),
             Executable::from_file(&path),
             crate::signal_channel().1,
-            None,
-            #[cfg(unix)]
-            mask,
         )
         .unwrap();
 

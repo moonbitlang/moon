@@ -131,24 +131,10 @@ pub(super) mod tests {
     }
 
     pub(crate) fn runtime() -> crate::runtime::Runtime {
-        #[cfg(unix)]
-        let mask = {
-            let mut mask = unsafe { std::mem::zeroed() };
-            unsafe { libc::sigemptyset(&mut mask) };
-            mask
-        };
         crate::runtime::Runtime::new(
-            None,
-            None,
-            None,
-            None,
-            crate::WorkingDirectory::Ambient,
-            crate::runtime::Stdio::Ambient,
+            crate::runtime::RuntimeConfig::default(),
             crate::runtime::Executable::unavailable(),
             crate::signal_channel().1,
-            None,
-            #[cfg(unix)]
-            mask,
         )
         .unwrap()
     }
