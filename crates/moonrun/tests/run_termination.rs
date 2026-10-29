@@ -50,6 +50,47 @@ mod v8 {
     use std::time::{Duration, Instant};
 
     #[test]
+    fn file_preparation_shares_the_execution_termination_scope() {
+        let engine = Engine::default();
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing.wasm");
+        for mode in [
+            moonrun::GuestProcessMode::Native,
+            moonrun::GuestProcessMode::Virtual,
+        ] {
+            let (terminator, receiver) = termination_channel();
+            assert!(terminator.terminate(RunTermination::Exit(7)));
+            assert_eq!(
+                engine
+                    .run_file(
+                        &missing,
+                        RunOptions::default()
+                            .with_guest_process_mode(mode)
+                            .with_termination_receiver(receiver),
+                    )
+                    .unwrap(),
+                RunOutcome::Exited(7)
+            );
+            assert!(!terminator.terminate(RunTermination::Exit(8)));
+            assert!(engine.snapshot().is_empty());
+
+            let (terminator, receiver) = termination_channel();
+            assert!(
+                engine
+                    .run_file(
+                        &missing,
+                        RunOptions::default()
+                            .with_guest_process_mode(mode)
+                            .with_termination_receiver(receiver)
+                    )
+                    .is_err()
+            );
+            assert!(!terminator.terminate(RunTermination::Exit(9)));
+            assert!(engine.snapshot().is_empty());
+        }
+    }
+
+    #[test]
     fn requests_before_execution_skip_guest_and_errors_disconnect_the_receiver() {
         let engine = Engine::default();
         let module = engine

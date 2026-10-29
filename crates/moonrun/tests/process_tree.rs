@@ -16,21 +16,55 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonrun::{Engine, ProcessError, VirtualProcessTree};
+use moonrun::{Engine, GuestProcessMode, ProcessError};
 
 #[cfg(not(feature = "v8"))]
 #[test]
 fn unsupported_backend_cannot_admit_virtual_processes() {
+    use moonrun::{RunOptions, RunOutcome};
+
+    let engine = Engine::default();
+    let module = engine
+        .compile(
+            "return.wasm",
+            wat::parse_str(r#"(module (func (export "_start")))"#).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, RunOptions::default()).unwrap(),
+        RunOutcome::Completed
+    );
+    let error = engine
+        .run(
+            &module,
+            RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+        )
+        .unwrap_err();
     assert!(matches!(
-        VirtualProcessTree::new(Engine::default()),
+        error.downcast_ref::<ProcessError>(),
+        Some(ProcessError::UnsupportedBackend)
+    ));
+    assert!(matches!(
+        engine.spawn(
+            None,
+            &module,
+            RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+        ),
         Err(ProcessError::UnsupportedBackend)
     ));
+    assert!(engine.snapshot().is_empty());
+    assert_eq!(
+        engine.run(&module, RunOptions::default()).unwrap(),
+        RunOutcome::Completed
+    );
 }
 
 #[cfg(feature = "v8")]
 mod v8 {
     use super::*;
-    use moonrun::{ProcessInfo, ProcessState, RunOptions, RunOutcome, RunTermination};
+    use moonrun::{
+        ProcessInfo, ProcessState, RunOptions, RunOutcome, RunTermination, WorkingDirectory,
+    };
     use std::sync::{Arc, Barrier, mpsc};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -63,7 +97,7 @@ mod v8 {
             "tiny_stack" => Engine::new(moonrun::EngineConfig::default().with_stack_size(1)),
             _ => Engine::default(),
         };
-        let tree = Arc::new(VirtualProcessTree::new(engine.clone()).unwrap());
+        let tree = engine.clone();
         if case == "tiny_stack" {
             // Both execution placements must return an ordinary error. Repeat
             // to check that exception handling leaves the Engine usable.
@@ -81,7 +115,12 @@ mod v8 {
                     .and_then(|module| {
                         let error = engine.run(&module, RunOptions::default()).unwrap_err();
                         assert!(format!("{error:#}").contains("Maximum call stack size exceeded"));
-                        let pid = tree.spawn(None, &module, RunOptions::default())?;
+                        let pid = tree.spawn(
+                            None,
+                            &module,
+                            RunOptions::default()
+                                .with_guest_process_mode(GuestProcessMode::Virtual),
+                        )?;
                         Ok(tree.wait(pid)?)
                     });
                 let error = result.unwrap_err();
@@ -110,7 +149,13 @@ mod v8 {
                     )
                     .unwrap();
                 let pid = tree
-                    .spawn(None, &module, RunOptions::default().without_stack_trace())
+                    .spawn(
+                        None,
+                        &module,
+                        RunOptions::default()
+                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .without_stack_trace(),
+                    )
                     .unwrap();
                 assert!(matches!(
                     tree.wait(pid),
@@ -119,12 +164,26 @@ mod v8 {
                 ));
             }
             "tree" => {
-                let parent = tree.spawn(None, &module, RunOptions::default()).unwrap();
+                let parent = tree
+                    .spawn(
+                        None,
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    )
+                    .unwrap();
                 let child = tree
-                    .spawn(Some(parent), &module, RunOptions::default())
+                    .spawn(
+                        Some(parent),
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    )
                     .unwrap();
                 let grandchild = tree
-                    .spawn(Some(child), &module, RunOptions::default())
+                    .spawn(
+                        Some(child),
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    )
                     .unwrap();
                 assert_eq!(
                     tree.snapshot(),
@@ -147,14 +206,24 @@ mod v8 {
                     ]
                 );
                 assert!(parent.get() >= 1 << 30);
-                let other = VirtualProcessTree::new(engine.clone()).unwrap();
-                let foreign = other.spawn(None, &module, RunOptions::default()).unwrap();
+                let other = Engine::default();
+                let foreign = other
+                    .spawn(
+                        None,
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    )
+                    .unwrap();
                 assert!(matches!(
                     tree.terminate(foreign, RunTermination::Exit(1)),
                     Err(ProcessError::NotFound(_))
                 ));
                 assert!(matches!(
-                    tree.spawn(Some(foreign), &module, RunOptions::default()),
+                    tree.spawn(
+                        Some(foreign),
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual)
+                    ),
                     Err(ProcessError::NotFound(_))
                 ));
                 assert!(tree.terminate(parent, RunTermination::Exit(7)).unwrap());
@@ -164,7 +233,11 @@ mod v8 {
                     thread::yield_now();
                 }
                 assert!(matches!(
-                    tree.spawn(Some(parent), &module, RunOptions::default()),
+                    tree.spawn(
+                        Some(parent),
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual)
+                    ),
                     Err(ProcessError::ParentNotRunning(_))
                 ));
                 assert!(!tree.terminate(parent, RunTermination::Exit(8)).unwrap());
@@ -189,7 +262,7 @@ mod v8 {
                     Err(ProcessError::NotFound(_))
                 ));
                 assert!(matches!(tree.wait(parent), Err(ProcessError::NotFound(_))));
-                for (owner, pid) in [(&*tree, child), (&*tree, grandchild), (&other, foreign)] {
+                for (owner, pid) in [(&tree, child), (&tree, grandchild), (&other, foreign)] {
                     assert!(
                         owner
                             .terminate(pid, RunTermination::KilledBySignal(9))
@@ -201,12 +274,18 @@ mod v8 {
                 assert!(other.snapshot().is_empty());
             }
             "waiters" => {
-                let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
+                let pid = tree
+                    .spawn(
+                        None,
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    )
+                    .unwrap();
                 let barrier = Arc::new(Barrier::new(3));
                 let (send, receive) = mpsc::channel();
                 let waiters: Vec<_> = (0..2)
                     .map(|_| {
-                        let tree = Arc::clone(&tree);
+                        let tree = tree.clone();
                         let barrier = Arc::clone(&barrier);
                         let send = send.clone();
                         thread::spawn(move || {
@@ -223,7 +302,11 @@ mod v8 {
                 // The first waiter is still blocked; admission and termination
                 // must continue, including spawning a child of that process.
                 let child = tree
-                    .spawn(Some(pid), &module, RunOptions::default())
+                    .spawn(
+                        Some(pid),
+                        &module,
+                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    )
                     .unwrap();
                 assert!(tree.terminate(pid, RunTermination::Exit(2)).unwrap());
                 assert_eq!(
@@ -249,7 +332,14 @@ mod v8 {
                     .unwrap();
                 let mut previous = None;
                 for _ in 0..32 {
-                    let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
+                    let pid = tree
+                        .spawn(
+                            None,
+                            &module,
+                            RunOptions::default()
+                                .with_guest_process_mode(GuestProcessMode::Virtual),
+                        )
+                        .unwrap();
                     assert!(previous.is_none_or(|previous| pid > previous));
                     previous = Some(pid);
                     let accepted = tree.terminate(pid, RunTermination::Exit(8)).unwrap();
@@ -264,7 +354,13 @@ mod v8 {
                     assert!(tree.snapshot().is_empty());
                 }
                 let pid = tree
-                    .spawn(None, &module, RunOptions::default().with_test_args("{"))
+                    .spawn(
+                        None,
+                        &module,
+                        RunOptions::default()
+                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .with_test_args("{"),
+                    )
                     .unwrap();
                 assert!(matches!(tree.wait(pid), Err(ProcessError::RunFailed(_))));
                 assert!(tree.snapshot().is_empty());
@@ -273,7 +369,9 @@ mod v8 {
                     tree.spawn(
                         None,
                         &module,
-                        RunOptions::default().with_termination_receiver(receiver)
+                        RunOptions::default()
+                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .with_termination_receiver(receiver)
                     ),
                     Err(ProcessError::TerminationAlreadyConfigured)
                 ));
@@ -283,7 +381,8 @@ mod v8 {
             "environment" => {
                 const KEY: &str = "MOONRUN_TREE_PRIVATE_ENV_TEST";
                 assert!(std::env::var_os(KEY).is_none());
-                let cwd = dunce::canonicalize(std::env::current_dir().unwrap()).unwrap();
+                let directory = tempfile::tempdir().unwrap();
+                let cwd = dunce::canonicalize(directory.path()).unwrap();
                 let module = engine.compile("environment.wasm", wat::parse_str(format!(r#"(module
                     (import "_" "{KEY}" (global $key (ref extern)))
                     (import "_" "MOONRUN_PROCESS_TREE_CASE" (global $inherited (ref extern)))
@@ -301,8 +400,31 @@ mod v8 {
                         global.get $inherited call $get global.get $value call $equals i32.eqz if unreachable end
                         call $cwd_get global.get $cwd call $equals i32.eqz if unreachable end))"#,
                     cwd = cwd.to_str().unwrap())).unwrap()).unwrap();
+                // Execution placement must not change the virtual Env/cwd
+                // contract, and inline teardown must leave no waitable entry.
+                assert_eq!(
+                    engine
+                        .run(
+                            &module,
+                            RunOptions::default()
+                                .with_guest_process_mode(GuestProcessMode::Virtual)
+                                .with_working_directory(WorkingDirectory::Fixed(cwd.clone())),
+                        )
+                        .unwrap(),
+                    RunOutcome::Completed
+                );
+                assert!(tree.snapshot().is_empty());
                 let pids: Vec<_> = (0..2)
-                    .map(|_| tree.spawn(None, &module, RunOptions::default()).unwrap())
+                    .map(|_| {
+                        tree.spawn(
+                            None,
+                            &module,
+                            RunOptions::default()
+                                .with_guest_process_mode(GuestProcessMode::Virtual)
+                                .with_working_directory(WorkingDirectory::Fixed(cwd.clone())),
+                        )
+                        .unwrap()
+                    })
                     .collect();
                 for pid in pids {
                     assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Completed);
@@ -323,7 +445,9 @@ mod v8 {
                     .spawn(
                         None,
                         &module,
-                        RunOptions::default().with_policy_file(policy),
+                        RunOptions::default()
+                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .with_policy_file(policy),
                     )
                     .unwrap();
                 assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Completed);

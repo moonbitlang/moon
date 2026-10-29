@@ -141,29 +141,27 @@ fn main() -> anyhow::Result<()> {
     let _process_signals = ProcessSignals::install(signal_sender)?;
     let engine = Engine::new(engine_config);
     let outcome = if matches.virtual_process_tree {
-        let tree = moonrun::VirtualProcessTree::new(engine)?;
-        let root = tree.spawn_executable_with_signal_receiver(
+        let root = engine.spawn_executable_with_signal_receiver(
             None,
             &matches.path,
             matches.virtual_process_kind,
-            options,
+            options.with_guest_process_mode(moonrun::GuestProcessMode::Virtual),
             signal_receiver,
         )?;
-        let outcome = tree.wait(root);
+        let outcome = engine.wait(root);
         // The CLI owns the entire tree. An exiting parent leaves children
         // with this supervisor; only claim adopted roots so live parents keep
         // their own guest waits. Descendant status does not replace root status.
-        while let Some(orphan) = tree
+        while let Some(orphan) = engine
             .snapshot()
             .into_iter()
             .find(|process| process.parent.is_none())
         {
-            let _ = tree.wait(orphan.pid);
+            let _ = engine.wait(orphan.pid);
         }
         outcome.map_err(Into::into)
     } else {
-        let module = engine.load_file(matches.path)?;
-        engine.run_with_signal_receiver(&module, options, signal_receiver)
+        engine.run_file_with_signal_receiver(matches.path, options, signal_receiver)
     };
 
     match outcome? {

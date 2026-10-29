@@ -135,7 +135,7 @@ pub(crate) struct Runtime {
     sqlite: SqliteHost,
 }
 
-/// Construction input shared by command preparation and its eventual Runtime.
+/// Construction input shared by artifact preparation and its eventual Runtime.
 /// Moving these inputs transfers ownership; only Runtime realizes the state
 /// and loads the policy sources into domain authorization rules.
 #[derive(Debug, Default)]
@@ -150,6 +150,20 @@ pub(crate) struct RuntimeConfig {
     pub(crate) process_context: Option<crate::process_tree::ProcessContext>,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
+}
+
+impl RuntimeConfig {
+    /// Capture missing host state before creating a virtual root.
+    /// Guest children already carry state derived by their Host Process and
+    /// must not use this host fallback. Policy is realized by Runtime later.
+    pub(crate) fn capture_host_state(&mut self) -> std::io::Result<()> {
+        self.default_environment
+            .get_or_insert_with(|| std::env::vars_os().collect());
+        if matches!(self.working_directory, WorkingDirectory::Ambient) {
+            self.working_directory = WorkingDirectory::Fixed(std::env::current_dir()?);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(unix)]
@@ -320,6 +334,43 @@ impl Drop for Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_capture_preserves_explicit_empty_environment_and_fixed_directory() {
+        let directory = PathBuf::from("unresolved-directory");
+        let policy = PathBuf::from("unloaded-policy.json");
+        let mut config = RuntimeConfig {
+            default_environment: Some(Vec::new()),
+            working_directory: WorkingDirectory::Fixed(directory.clone()),
+            policy_file: Some(policy.clone()),
+            ..Default::default()
+        };
+
+        config.capture_host_state().unwrap();
+
+        assert_eq!(config.default_environment, Some(Vec::new()));
+        assert_eq!(config.working_directory, WorkingDirectory::Fixed(directory));
+        assert_eq!(config.policy_file, Some(policy));
+    }
+
+    #[test]
+    fn host_capture_resolves_ambient_directory_without_replacing_environment() {
+        let mut config = RuntimeConfig {
+            default_environment: Some(vec![("RUN_ONLY".into(), "value".into())]),
+            ..Default::default()
+        };
+
+        config.capture_host_state().unwrap();
+
+        assert_eq!(
+            config.working_directory,
+            WorkingDirectory::Fixed(std::env::current_dir().unwrap())
+        );
+        assert_eq!(
+            config.default_environment,
+            Some(vec![("RUN_ONLY".into(), "value".into())])
+        );
+    }
 
     #[test]
     fn keys_are_typed_and_generational() {
