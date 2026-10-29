@@ -114,6 +114,10 @@ jobs:
         with:
           toolchain: 1.95.0
 
+      - name: Remove unused Rust toolchains
+        shell: bash
+        run: bash .github/scripts/prune-rust-toolchains.sh
+
       - name: Cargo cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
