@@ -28,9 +28,31 @@ runs:
         OCAML_VERSION: "4.14.2"
         WHY3_C_STANDARD: gnu17
       run: |
-        runner_image="${ImageOS:?}-${ImageVersion:?}"
+        # Match setup-ocaml's OS-release boundary; image revisions also change
+        # when unrelated preinstalled tools are updated.
+        case "$RUNNER_OS" in
+          Linux)
+            os_release=$(
+              # shellcheck source=/dev/null
+              . /etc/os-release
+              # Ubuntu's VERSION includes the point release, unlike VERSION_ID.
+              printf '%s' "${VERSION%% (*}"
+            )
+            ;;
+          macOS)
+            os_release=$(sw_vers | awk '
+              /^ProductVersion:/ { version = $2 }
+              /^ProductVersionExtra:/ { extra = " " $2 }
+              END { print version extra }
+            ')
+            ;;
+          *)
+            echo "::error::Unsupported Why3 runner OS: ${RUNNER_OS}"
+            exit 1
+            ;;
+        esac
         {
-          echo "key=why3-v2-${RUNNER_OS}-${RUNNER_ARCH}-${runner_image}-ocaml-${OCAML_VERSION}-${WHY3_C_STANDARD}"
+          echo "key=why3-v3-${RUNNER_OS}-${RUNNER_ARCH}-${os_release:?}-ocaml-${OCAML_VERSION}-${WHY3_C_STANDARD}"
           echo "ocaml-compiler=${OCAML_VERSION}"
           echo "cc=cc -std=${WHY3_C_STANDARD}"
         } >> "$GITHUB_OUTPUT"
