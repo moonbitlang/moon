@@ -75,6 +75,41 @@ pub fn split_windows(args: &str) -> Vec<String> {
     result
 }
 
+/// Parse native Windows arguments without losing unpaired UTF-16 surrogates.
+#[cfg(windows)]
+pub fn split_windows_os(args: &std::ffi::OsStr) -> std::io::Result<Vec<std::ffi::OsString>> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let mut wide: Vec<_> = args.encode_wide().collect();
+    // CommandLineToArgvW treats empty input as the host executable. That is not
+    // a guest spawn request, and embedded NULs must not truncate the request.
+    if wide.is_empty() || wide.contains(&0) {
+        return Err(std::io::Error::from_raw_os_error(
+            windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER as i32,
+        ));
+    }
+    wide.push(0);
+    let mut count = 0;
+    // The API owns one allocation containing the pointer array and terminated
+    // arguments. Copy the code units before releasing that whole allocation.
+    let argv =
+        unsafe { windows_sys::Win32::UI::Shell::CommandLineToArgvW(wide.as_ptr(), &mut count) };
+    if argv.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = unsafe { std::slice::from_raw_parts(argv, count as usize) }
+        .iter()
+        .map(|arg| {
+            let mut len = 0;
+            while unsafe { *(*arg).add(len) } != 0 {
+                len += 1;
+            }
+            std::ffi::OsString::from_wide(unsafe { std::slice::from_raw_parts(*arg, len) })
+        })
+        .collect();
+    unsafe { windows_sys::Win32::Foundation::LocalFree(argv.cast()) };
+    Ok(result)
+}
+
 /// Split an argument tail according to Windows rules, without applying the
 /// special parsing rules for `argv[0]`.
 pub fn split_windows_args(mut args: &str) -> Vec<String> {

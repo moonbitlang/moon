@@ -21,6 +21,36 @@ use super::parse_windows_argv0;
 use super::split_native_args;
 use super::{join_windows, split_windows, split_windows_args};
 
+#[cfg(windows)]
+#[test]
+fn native_windows_arguments_preserve_unpaired_surrogates() {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    let program: Vec<_> = "C:\\Moon "
+        .encode_utf16()
+        .chain([0xd800])
+        .chain("\\moon.exe".encode_utf16())
+        .collect();
+    let argument = [b'x' as u16, 0xdc00, b' ' as u16, b'y' as u16];
+    let command = [b'"' as u16]
+        .into_iter()
+        .chain(program.iter().copied())
+        .chain("\" \"".encode_utf16())
+        .chain(argument)
+        .chain([b'"' as u16])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        super::split_windows_os(&OsString::from_wide(&command)).unwrap(),
+        [
+            OsString::from_wide(&program),
+            OsString::from_wide(&argument)
+        ]
+    );
+    for value in ["", "moon\0ignored"] {
+        assert!(super::split_windows_os(value.as_ref()).is_err());
+    }
+}
+
 fn assert_parse_tail(tail: &str, expected: &[&str]) {
     let got = split_windows_args(tail);
     let expected_vec: Vec<String> = expected.iter().map(|s| s.to_string()).collect();

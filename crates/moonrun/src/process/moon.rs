@@ -105,9 +105,11 @@ impl Spawn {
         parent_env: &Env,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
-        let args =
-            moonutil::shlex::split_windows(command_line.to_str().ok_or(AsyncHostError::Inval)?);
-        let program = args.first().ok_or(AsyncHostError::Inval)?.as_str().into();
+        if command_line.is_empty() || command_line.as_encoded_bytes().contains(&0) {
+            return Err(AsyncHostError::Inval);
+        }
+        let args = moonutil::shlex::split_windows_os(&command_line).map_err(io_error)?;
+        let program = args.first().ok_or(AsyncHostError::Inval)?.clone();
         let env = env
             .split(|unit| *unit == 0)
             .take_while(|entry| !entry.is_empty())
@@ -129,7 +131,7 @@ impl Spawn {
         let mut spawn = Self::prepare(
             context,
             program,
-            args.into_iter().skip(1).map(Into::into).collect(),
+            args.into_iter().skip(1).collect(),
             env,
             stdio,
             cwd,
