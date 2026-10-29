@@ -14,6 +14,31 @@ On Windows, the new native backend requires a cl-compatible MSVC toolchain,
 such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
 the executable.
 
+## C compiler caching
+
+Set `MOON_CC_WRAPPER` to use a compiler cache such as ccache or sccache:
+
+```sh
+MOON_CC_WRAPPER=ccache moon build --target native --release
+MOON_CC=clang MOON_CC_WRAPPER=sccache moon test --target native
+```
+
+The value is one executable name or path, including paths containing spaces;
+it is not a shell command and cannot include arguments. Unset it or set it to
+an empty string to disable the wrapper. Custom wrappers receive the selected
+compiler path followed by its arguments. Configure wrapper options through
+its environment or a wrapper script.
+
+Moon uses the wrapper for generated C, runtime C, and C stubs, including those
+in foreign libraries and LLVM builds. Each source is compiled separately to
+an object before linking or archiving. Compiler discovery, linking, and
+archiving run without the wrapper. The wrapper does not change compiler
+selection, backend selection, or the default allocator.
+
+`MOON_CC` remains a compiler executable name or path; use `MOON_CC_WRAPPER`
+instead of setting `MOON_CC="ccache clang"`. Cache reuse across different
+directories also depends on the cache tool's path and debug-info settings.
+
 ## Floating-point arithmetic
 
 Native C compilation with GCC/Clang disables floating-point contraction by

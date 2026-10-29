@@ -13,7 +13,11 @@ fn test_native_backend_system_cc_fallback() {
         &dir,
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         envs,
-        expect_file!["system_cc_fallback/build_native_graph.jsonl.snap"],
+        if cfg!(target_os = "macos") {
+            expect_file!["system_cc_fallback/build_native_macos_graph.jsonl.snap"]
+        } else {
+            expect_file!["system_cc_fallback/build_native_graph.jsonl.snap"]
+        },
     );
 
     assert_native_backend_graph(

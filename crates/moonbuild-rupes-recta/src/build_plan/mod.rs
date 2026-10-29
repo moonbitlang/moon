@@ -467,11 +467,13 @@ pub struct BuildCStubsInfo {
 pub struct MakeExecutableInfo {
     /// The effective native toolchain for this executable step
     pub(crate) effective_native_toolchain: Toolchain,
-    /// Settings for the compiler-driver step. Direct-object linking does not
-    /// compile C and therefore does not consume these settings.
+    /// Compiler-driver settings retained at link time for generated-C and LLVM
+    /// builds. Direct-object native linking does not consume these settings.
     pub(crate) c_debug_info: bool,
     pub(crate) c_opt_level: CCOptLevel,
-    /// The flags to pass to the C compiler when compiling the package itself
+    /// Preserve the link effects of `cc-flags` (e.g. sanitizers and LTO).
+    /// TODO: Remove this compatibility forwarding only with an explicit
+    /// migration to requiring those flags in `cc-link-flags` as well.
     pub(crate) c_flags: Vec<String>,
     /// Ordered link inputs, rendered by the selected driver during command lowering.
     pub(crate) link_args: Vec<NativeLinkArg>,
@@ -481,7 +483,7 @@ pub struct MakeExecutableInfo {
     pub(crate) native_allocator: NativeAllocator,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompileGeneratedCInfo {
     /// The effective native toolchain for compiling the generated C
     pub(crate) effective_native_toolchain: Toolchain,

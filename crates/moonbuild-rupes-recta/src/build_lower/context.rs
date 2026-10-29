@@ -27,7 +27,7 @@ use moonutil::{
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
-use super::{CExecutableRealization, LoweringError};
+use super::LoweringError;
 use crate::{
     CompileConfig, ResolvedProject,
     build_plan::{ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
@@ -427,15 +427,6 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildCStub { .. }
                 | BuildAction::BuildRuntimeObject { .. }
                 | BuildAction::CompileGeneratedC { .. }
-        ) || matches!(
-            action,
-            BuildAction::MakeExecutable { .. }
-                if matches!(
-                    &self.opt.backend,
-                    BackendConfig::Native { .. }
-                        if self.plan.backend_plan().native_mode().executable_realization()
-                            == CExecutableRealization::CompileAndLinkGeneratedC
-                )
         );
         if observes_toolchain_headers {
             inputs.extend(
@@ -511,25 +502,9 @@ impl<'a> LoweringContext<'a> {
                     .is_none_or(<[_]>::is_empty)
                     && package_link_flags.is_none_or(<[_]>::is_empty)
             }
-            BuildAction::MakeExecutable { info, .. } => match &self.opt.backend {
-                BackendConfig::Native { .. } => {
-                    match self
-                        .plan
-                        .backend_plan()
-                        .native_mode()
-                        .executable_realization()
-                    {
-                        CExecutableRealization::CompileAndLinkGeneratedC => {
-                            info.c_flags.is_empty() && info.link_args.is_empty()
-                        }
-                        CExecutableRealization::LinkDirectObject => info.link_args.is_empty(),
-                    }
-                }
-                BackendConfig::Llvm { .. } => info.c_flags.is_empty() && info.link_args.is_empty(),
-                BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                    unreachable!("non-native plans do not contain MakeExecutable actions")
-                }
-            },
+            BuildAction::MakeExecutable { info, .. } => {
+                info.c_flags.is_empty() && info.link_args.is_empty()
+            }
             BuildAction::CompileGeneratedC { info, .. } => info.c_flags.is_empty(),
             BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }

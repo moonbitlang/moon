@@ -429,11 +429,50 @@ mod tests {
                             && args.iter().any(|arg| {
                                 matches!(
                                     Path::new(arg).file_name().and_then(|name| name.to_str()),
-                                    Some("main.c" | "main.o" | "main.obj")
-                                )
+                                    Some("main.c") if generated_c
+                                ) || (!generated_c
+                                    && matches!(
+                                        Path::new(arg).file_name().and_then(|name| name.to_str()),
+                                        Some("main.o" | "main.obj")
+                                    ))
                             })
                     })
                     .expect("native executable needs a compiler or linker action");
+                if generated_c {
+                    assert!(
+                        program.iter().any(|arg| arg == "-c" || arg == "/c"),
+                        "generated C must compile separately so compiler wrappers can cache it: {program:?}"
+                    );
+                    let execution = &output.execution_plan;
+                    let link = execution
+                        .action_ids()
+                        .map(|id| execution.action(id))
+                        .find(|action| {
+                            action.outputs().iter().any(|path| {
+                                matches!(
+                                    execution
+                                        .declared_output(path)
+                                        .and_then(|output| output.artifact()),
+                                    Some(ArtifactKey::Executable { .. })
+                                )
+                            })
+                        })
+                        .expect("executable must have a link action");
+                    assert!(!link.command().args().iter().any(|arg| arg.ends_with(".c")));
+                    assert!(
+                        link.command()
+                            .args()
+                            .iter()
+                            .any(|arg| { arg.ends_with("main.o") || arg.ends_with("main.obj") })
+                    );
+                    if let Some(flag) = c_flags {
+                        assert!(program.iter().any(|arg| arg == flag));
+                        assert!(
+                            link.command().args().iter().any(|arg| arg == flag),
+                            "compiler-driver flags retain their link effects"
+                        );
+                    }
+                }
                 assert_eq!(
                     program.iter().any(|arg| arg == "-g" || arg == "/Z7"),
                     generated_c && moonc_debug,

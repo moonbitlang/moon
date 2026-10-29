@@ -57,6 +57,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
+    pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -95,6 +96,7 @@ impl<'a> BuildPlanConstructor<'a> {
             warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
+            package_native_compile: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }

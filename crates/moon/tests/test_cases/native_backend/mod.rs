@@ -1,5 +1,7 @@
 mod cc_flags;
 #[cfg(unix)]
+mod compiler_wrapper;
+#[cfg(unix)]
 mod cross_compiler;
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),

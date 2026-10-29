@@ -62,6 +62,7 @@ use tcc::{
 };
 
 const ENV_MOON_CC: &str = "MOON_CC";
+const ENV_MOON_CC_WRAPPER: &str = "MOON_CC_WRAPPER";
 const ENV_MOON_AR: &str = "MOON_AR";
 const ENV_MOONBIT_ALLOCATOR: &str = "MOONBIT_ALLOCATOR";
 #[derive(Copy, Clone, Debug)]
@@ -131,6 +132,9 @@ pub struct Toolchain {
     cc: CC,
     source: ToolchainSource,
     msvc_environment: Option<MsvcEnvironment>,
+    /// A resolved launcher for C compilation only. Compiler identity, probes,
+    /// linking, and archiving continue to use the underlying tools.
+    cc_wrapper: Option<PathBuf>,
 }
 
 /// Environment variables required by a discovered MSVC toolchain.
@@ -236,6 +240,7 @@ impl Toolchain {
             cc,
             source: ToolchainSource::EnvOverride,
             msvc_environment: None,
+            cc_wrapper: None,
         }
     }
 
@@ -244,6 +249,7 @@ impl Toolchain {
             cc,
             source: ToolchainSource::PathProbe,
             msvc_environment: None,
+            cc_wrapper: None,
         }
     }
 
@@ -252,6 +258,7 @@ impl Toolchain {
             cc,
             source: ToolchainSource::PackageOverride,
             msvc_environment: None,
+            cc_wrapper: None,
         }
     }
 
@@ -298,11 +305,24 @@ impl Toolchain {
         self.cc.cc_path.clone()
     }
 
+    pub fn cc_wrapper(&self) -> Option<&Path> {
+        self.cc_wrapper.as_deref()
+    }
+
+    /// Attach an already resolved executable without changing compiler selection.
+    pub fn with_cc_wrapper(mut self, wrapper: PathBuf) -> Self {
+        self.cc_wrapper = Some(wrapper);
+        self
+    }
+
     pub fn with_package_override(&self, package_cc: Option<&CC>) -> Toolchain {
         match (self.source, package_cc) {
             (ToolchainSource::EnvOverride, Some(_)) => self.clone(),
             (ToolchainSource::EnvOverride, None) | (_, None) => self.clone(),
-            (_, Some(package_cc)) => Toolchain::from_package_override(package_cc.clone()),
+            (_, Some(package_cc)) => Toolchain {
+                cc_wrapper: self.cc_wrapper.clone(),
+                ..Toolchain::from_package_override(package_cc.clone())
+            },
         }
     }
 }
@@ -393,15 +413,40 @@ fn resolve_native_toolchain_executables_with(
 /// Toolchains returned across this boundary always contain concrete executable paths.
 fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<Toolchain> {
     #[cfg(windows)]
-    if toolchain.cc.uses_msvc_cli() && !is_path_like_tool(&toolchain.cc.cc_path) {
+    let toolchain = if toolchain.cc.uses_msvc_cli() && !is_path_like_tool(&toolchain.cc.cc_path) {
         let discovered = resolve_windows_msvc_toolchain()?;
-        return Ok(resolve_msvc_toolchain_override(toolchain, &discovered));
-    }
+        resolve_msvc_toolchain_override(toolchain, &discovered)
+    } else {
+        toolchain
+    };
 
-    resolve_native_toolchain_executables_with(toolchain, |tool| {
+    let mut toolchain = resolve_native_toolchain_executables_with(toolchain, |tool| {
         crate::toolchain::resolve_executable(tool)
-    })
+    })?;
+    toolchain.cc_wrapper = ENV_CC_WRAPPER
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error:#}"))?
+        .clone();
+    Ok(toolchain)
 }
+
+// Resolve only when a native toolchain is actually needed. Lightweight commands
+// such as `moon check` must not require an installed compiler wrapper.
+static ENV_CC_WRAPPER: std::sync::LazyLock<anyhow::Result<Option<PathBuf>>> =
+    std::sync::LazyLock::new(|| {
+        let wrapper = match env::var(ENV_MOON_CC_WRAPPER) {
+            Ok(wrapper) if !wrapper.is_empty() => wrapper,
+            Ok(_) | Err(env::VarError::NotPresent) => return Ok(None),
+            Err(error) => return Err(error).context(ENV_MOON_CC_WRAPPER),
+        };
+        crate::toolchain::resolve_executable(&wrapper)
+            .with_context(|| {
+                format!(
+                    "failed to resolve C compiler wrapper `{wrapper}` from {ENV_MOON_CC_WRAPPER}"
+                )
+            })
+            .map(Some)
+    });
 
 impl CC {
     pub fn cc_name(&self) -> &'static str {
@@ -838,6 +883,14 @@ pub struct CCConfig {
 #[derive(Clone, Builder)]
 #[builder(setter(into))]
 pub struct LinkerConfig<P: AsRef<Path>> {
+    /// Compiler-driver options that also affect linking, before MSVC's `/link`.
+    #[builder(default)]
+    pub driver_flags: Vec<String>,
+    #[builder(default = false)]
+    pub debug_info: bool,
+    /// Retain the generated-C/LLVM driver's optimization policy for LTO.
+    #[builder(default)]
+    pub opt_level: Option<OptLevel>,
     #[builder(default = false)]
     pub link_moonbitrun: bool,
     #[builder(default = false)]
@@ -998,6 +1051,10 @@ where
     add_linker_library_paths(&cc, &mut buf, &config, lpath);
     add_linker_intermediate_dir_flags(&cc, &mut buf, dest_dir);
     add_linker_shared_lib_flags(&cc, &mut buf, &config);
+    add_cc_debug_flags(&cc, &mut buf, config.debug_info);
+    if let Some(opt_level) = config.opt_level {
+        add_cc_optimization_flags(&cc, &mut buf, opt_level, !config.driver_flags.is_empty());
+    }
 
     // Linker compiler-specific flags
     add_linker_msvc_specific_flags(&cc, &mut buf);
@@ -1011,6 +1068,7 @@ where
     }));
 
     add_linker_common_libraries(&cc, &mut buf, &config);
+    buf.extend(config.driver_flags.iter().cloned());
     add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
 
     buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
@@ -1096,8 +1154,8 @@ fn add_cc_intermediate_dir_flags(
     }
 }
 
-fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if config.debug_info {
+fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, debug_info: bool) {
+    if debug_info {
         if cc.is_gcc_like() {
             buf.push("-g".to_string());
         } else if cc.uses_msvc_cli() {
@@ -1130,11 +1188,11 @@ fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) 
 fn add_cc_optimization_flags(
     cc: &CC,
     buf: &mut Vec<String>,
-    config: &CCConfig,
+    opt_level: OptLevel,
     has_user_flags: bool,
 ) {
     if !has_user_flags {
-        match config.opt_level {
+        match opt_level {
             OptLevel::Speed => {
                 if cc.uses_msvc_cli() {
                     buf.push("/O2".to_string());
@@ -1357,7 +1415,7 @@ where
     add_cc_output_flags(&cc, &mut buf, &config, dest);
     add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
     add_cc_intermediate_dir_flags(&cc, &mut buf, &config, intermediate_dir);
-    add_cc_debug_flags(&cc, &mut buf, &config);
+    add_cc_debug_flags(&cc, &mut buf, config.debug_info);
     add_cc_shared_lib_flags(&cc, &mut buf, &config);
     add_cc_compile_only_flags(&cc, &mut buf, &config);
 
@@ -1366,7 +1424,7 @@ where
     add_cc_gcc_like_specific_flags(&cc, &mut buf);
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
-    add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
+    add_cc_optimization_flags(&cc, &mut buf, config.opt_level, has_user_flags);
     add_cc_build_system_flags(&cc, &mut buf, &config);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
     add_cc_simdutf_flags(&cc, &mut buf, &config);
@@ -1716,6 +1774,9 @@ mod tests {
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
                 link_moonbitrun: true,
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
@@ -1741,6 +1802,9 @@ mod tests {
         let command = make_linker_command_resolved(
             cc,
             LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
                 link_moonbitrun: true,
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
@@ -1870,6 +1934,52 @@ mod tests {
         assert!(toolchain.uses_msvc_abi());
         assert!(!toolchain.uses_msvc_cli());
         assert_eq!(toolchain.msvc_crt_policy(), None);
+    }
+
+    #[test]
+    fn compiler_wrapper_does_not_override_toolchain_selection() {
+        let toolchain = Toolchain::from_path_probe(fake_cc(CCKind::Clang, None));
+        let wrapped = toolchain
+            .clone()
+            .with_cc_wrapper(PathBuf::from("/tools/ccache"));
+        assert_eq!(wrapped.source(), toolchain.source());
+        assert_eq!(wrapped.cc().cc_path, toolchain.cc().cc_path);
+        assert_eq!(wrapped.cc().ar_path, toolchain.cc().ar_path);
+        assert_eq!(
+            wrapped.cc().is_libmoonbitrun_o_available(),
+            toolchain.cc().is_libmoonbitrun_o_available()
+        );
+        let overridden = wrapped.with_package_override(Some(&fake_cc(CCKind::Gcc, None)));
+        assert!(matches!(overridden.cc().cc_kind, CCKind::Gcc));
+        assert_eq!(overridden.cc_wrapper(), wrapped.cc_wrapper());
+    }
+
+    #[test]
+    fn linker_preserves_driver_flags_before_msvc_linker_arguments() {
+        let config = LinkerConfigBuilder::<&Path>::default()
+            .driver_flags(vec!["/GL".to_string()])
+            .debug_info(true)
+            .opt_level(Some(OptLevel::Speed))
+            .build()
+            .unwrap();
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Msvc, None),
+            config,
+            &[NativeLinkArg::SearchPath(PathBuf::from("libraries"))],
+            &["program.obj"],
+            "output",
+            "program.exe",
+            "runtime",
+        );
+        let separator = command.iter().position(|arg| arg == "/link").unwrap();
+        assert!(command[..separator].iter().any(|arg| arg == "/GL"));
+        assert!(command[..separator].iter().any(|arg| arg == "/Z7"));
+        assert!(
+            command[separator..]
+                .iter()
+                .any(|arg| arg == "/LIBPATH:libraries")
+        );
+        assert!(!command.iter().any(|arg| arg == "/c" || arg == "/O2"));
     }
 
     #[test]
@@ -2193,6 +2303,9 @@ mod tests {
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Tcc, None),
             LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
                 link_moonbitrun: false,
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
@@ -2244,6 +2357,9 @@ mod tests {
         assert!(!cc_flags.iter().any(|f| f == "-lm"));
 
         let linker_config = LinkerConfig::<&Path> {
+            driver_flags: vec![],
+            debug_info: false,
+            opt_level: None,
             link_moonbitrun: false,
             link_libbacktrace: false,
             output_ty: OutputType::Executable,
@@ -2264,6 +2380,9 @@ mod tests {
         assert!(cc_flags.iter().any(|f| f == "-lm"));
 
         let linker_config = LinkerConfig::<&Path> {
+            driver_flags: vec![],
+            debug_info: false,
+            opt_level: None,
             link_moonbitrun: false,
             link_libbacktrace: false,
             output_ty: OutputType::Executable,
@@ -2545,6 +2664,9 @@ mod tests {
             let link_only = make_linker_command_resolved(
                 cc,
                 LinkerConfig::<&Path> {
+                    driver_flags: vec![],
+                    debug_info: false,
+                    opt_level: None,
                     link_moonbitrun: false,
                     link_libbacktrace: false,
                     output_ty: OutputType::Executable,
@@ -2633,6 +2755,9 @@ mod tests {
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Msvc, None),
             LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
                 link_moonbitrun: false,
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,

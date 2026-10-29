@@ -148,8 +148,12 @@ pub(crate) fn assert_with_replacements(
         std::fs::File::open(&graph_path).expect("Failed to open actual graph output file");
     let mut actual_graph =
         BuildGraphDump::read_from(actual_file).expect("Failed to read actual graph");
+    let dsymutil = moonutil::toolchain::resolve_executable("dsymutil").ok();
     transform_graph(&mut actual_graph, |s| {
         normalize_current_moon_binary(s);
+        if let Some(path) = &dsymutil {
+            *s = s.replace(path.to_string_lossy().as_ref(), "dsymutil");
+        }
         transform(s);
     });
 

@@ -29,7 +29,6 @@ use crate::{
     execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
 };
 
-mod backend;
 mod command;
 mod compiler;
 mod context;
@@ -40,8 +39,6 @@ mod moonc_command;
 pub use crate::execution_plan::{
     InputObservation, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
 };
-
-pub(crate) use backend::CExecutableRealization;
 
 use command::BuildCommand;
 use context::LoweringContext;

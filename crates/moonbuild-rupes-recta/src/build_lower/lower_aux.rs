@@ -226,58 +226,46 @@ impl<'a> super::LoweringContext<'a> {
 
         let runtime_toolchain = &info.effective_native_toolchain;
         let resolved_cc = runtime_toolchain.cc().clone();
-        let (cc_cmd, command_env) = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
-            (
-                compiler::msvc::compile_runtime_command(
-                    runtime_toolchain,
-                    source,
-                    &artifact_path,
-                    &compiler_paths.include_path,
-                    crt,
-                    info.native_allocator,
-                    self.opt.backend.collect_ref_cycle(),
-                )
-                .into(),
-                compiler::msvc::command_env(runtime_toolchain),
+        let cc_cmd = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
+            compiler::msvc::compile_runtime_command(
+                runtime_toolchain,
+                source,
+                &artifact_path,
+                &compiler_paths.include_path,
+                crt,
+                info.native_allocator,
+                self.opt.backend.collect_ref_cycle(),
             )
         } else {
-            (
-                make_cc_command_resolved(
-                    resolved_cc,
-                    CCConfigBuilder::default()
-                        .no_sys_header(true)
-                        .output_ty(CCOutputType::Object)
-                        .opt_level(CCOptLevel::Speed)
-                        .debug_info(true)
-                        .allow_stacktrace(info.enable_backtrace)
-                        .link_moonbitrun(true)
-                        .define_use_shared_runtime_macro(false)
-                        .use_simdutf(!info.simdutf_objects.is_empty())
-                        .native_allocator(info.native_allocator)
-                        .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
-                        .build()
-                        .expect("Failed to build CC configuration for runtime"),
-                    &[] as &[&str],
-                    [source.display().to_string()],
-                    &self
-                        .artifact_paths
-                        .target_layout()
-                        .runtime_output_dir(self.opt.backend.target_backend())
-                        .display()
-                        .to_string(),
-                    Some(&artifact_path.display().to_string()),
-                    compiler_paths,
-                )
-                .into(),
-                Vec::new(),
+            make_cc_command_resolved(
+                resolved_cc,
+                CCConfigBuilder::default()
+                    .no_sys_header(true)
+                    .output_ty(CCOutputType::Object)
+                    .opt_level(CCOptLevel::Speed)
+                    .debug_info(true)
+                    .allow_stacktrace(info.enable_backtrace)
+                    .link_moonbitrun(true)
+                    .define_use_shared_runtime_macro(false)
+                    .use_simdutf(!info.simdutf_objects.is_empty())
+                    .native_allocator(info.native_allocator)
+                    .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
+                    .build()
+                    .expect("Failed to build CC configuration for runtime"),
+                &[] as &[&str],
+                [source.display().to_string()],
+                &self
+                    .artifact_paths
+                    .target_layout()
+                    .runtime_output_dir(self.opt.backend.target_backend())
+                    .display()
+                    .to_string(),
+                Some(&artifact_path.display().to_string()),
+                compiler_paths,
             )
         };
 
-        BuildCommand {
-            extra_inputs: vec![source.clone()],
-            commandline: cc_cmd,
-        }
-        .with_env(command_env)
+        BuildCommand::c_compile(runtime_toolchain, cc_cmd, vec![source.clone()])
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]

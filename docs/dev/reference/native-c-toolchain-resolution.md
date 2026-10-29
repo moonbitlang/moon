@@ -22,8 +22,9 @@ Moon does not resolve a standalone linker executable such as `ld` or `lld-link` 
 Linking is performed through the selected compiler driver.
 
 `dsymutil` is a post-link debug-symbol tool, not a fourth C-toolchain role.
-When planning an LLVM macOS debug build or an AArch64 Apple direct-object debug
-build, Moon resolves `dsymutil` through the same shared executable resolver and
+When planning an LLVM macOS debug build, an AArch64 Apple direct-object debug
+build, or a generated-C macOS build with debug information and an Apple-targeting
+compiler, Moon resolves `dsymutil` through the same shared executable resolver and
 stores its concrete absolute path as planning metadata for the `GenerateDsym`
 action. Other builds do not resolve it.
 
@@ -38,9 +39,9 @@ The ordinary C pipeline is:
 When a user runs `clang foo.c -o foo`, these steps are usually fused by one compiler-driver
 invocation. When a user runs `clang -c foo.c -o foo.o`, the pipeline stops after object generation.
 
-Moon uses both modes:
+Moon models these steps separately:
 
-- it compiles some C files directly to object files
+- it compiles each C source directly to an object file
 - it invokes the compiler driver again for final linking
 - it sometimes invokes a separate archiver to group multiple object files into a static archive
 
@@ -57,13 +58,19 @@ The high-level build flow is documented in `build.md`:
 
 1. `BuildPackage`
 2. `LinkCore`
-3. `MakeExecutable`
+3. `CompileGeneratedC`, when `LinkCore` emits C
+4. `MakeExecutable`
 
 For native backends, `LinkCore` emits:
 
 - a generated C file for the generated-C native backend
 - an object file for the LLVM backend
 - an object file for a direct object native target
+
+Generated C always passes through `CompileGeneratedC`, which provides a
+`GeneratedCObject` consumed by executable linking or foreign-library archiving.
+The compile command takes one C source and emits one `.o` or `.obj`, allowing
+compiler caches to reuse the result independently of final link inputs.
 
 Package C stubs are handled separately:
 
@@ -212,6 +219,22 @@ GCC-like fallback.
 - `MOON_CC` takes precedence over package-level compiler overrides.
 
 This override is global to the current Moon invocation.
+
+## C compiler wrapper
+
+`MOON_CC_WRAPPER` optionally names one compiler-wrapper executable, such as
+`ccache` or `sccache`. An empty value disables it. The complete value is treated
+as an executable name or path, without shell parsing or embedded arguments.
+The wrapper is resolved once, lazily when a native toolchain is needed, and
+stored separately from `cc_path` in each effective `Toolchain`.
+
+C compilation lowering emits `<wrapper> <compiler> <arguments>` for generated
+C, C stubs, and runtime translation units. Both executable files are explicit
+Execution Action inputs, and the toolchain's command environment is preserved.
+Compiler probes, executable linking, and archiving use their underlying tools
+directly. `MOON_CC_WRAPPER` does not count as a compiler override and therefore
+does not change ABI, allocator, or backend-selection policy. Commands without
+native toolchain actions do not resolve or invoke it.
 
 ## Package-Level Override
 
@@ -376,6 +399,10 @@ mode once in its private Backend Plan metadata; toolchain selection and lowering
 consume that same derived value.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
+They also remain on the compiler-driver link invocation for compatibility with
+flags that affect both stages, such as sanitizers and LTO. `cc-link-flags` apply
+only to linking. The package's native settings are resolved once during planning
+and shared by its compilation and linking actions.
 If any selected executable package sets these flags, Moon uses the generated-C native backend
 instead of direct object output so the configured flags are not skipped.
 This native payload form is currently selected once per invocation, so one such package makes every
@@ -451,9 +478,10 @@ failing command construction.
 - GCC or Clang style: `<cc> ... -o ...`
 
 MSVC executable and shared-library commands place linker options, including
-prebuild library search paths, after `/link`. Source inputs, compiler flags, and
-the `/MT` CRT policy stay before that separator. Generated-C and direct-object
-linking both follow this ordering; prebuild scripts do not need to insert `/link`.
+prebuild library search paths, after `/link`. Object inputs and any retained
+compiler-driver flags stay before that separator. The `/MT` CRT policy applies
+when compiling the objects. Generated-C and direct-object linking both follow
+this ordering; prebuild scripts do not need to insert `/link`.
 
 `-lm` is added only when the selected compiler is full-featured gcc-like and the probed target
 triple does not contain `msvc`.
@@ -484,7 +512,8 @@ Because Moon is that action's executable, lowering records the archiver as an ex
 
 ### Generate macOS debug symbols
 
-For LLVM macOS debug builds and AArch64 Apple direct-object debug builds, Moon
+For LLVM macOS debug builds, AArch64 Apple direct-object debug builds, and
+generated-C macOS builds with debug information and an Apple-targeting compiler, Moon
 models debug-symbol generation as a separate `GenerateDsym` action:
 
 1. `MakeExecutable` invokes the resolved compiler driver and produces the executable.
@@ -494,6 +523,9 @@ models debug-symbol generation as a separate `GenerateDsym` action:
 The commands are not joined with `&&`. This keeps the linker invocation as
 structured argv, makes the executable-to-dSYM dependency explicit, and records
 the `dsymutil` executable as an n2 file input.
+
+Generated-C builds need this explicit action after separating compilation from
+linking: Clang no longer runs `dsymutil` implicitly when it links only objects.
 
 ## Maintenance Notes
 

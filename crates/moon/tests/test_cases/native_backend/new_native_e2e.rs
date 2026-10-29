@@ -25,7 +25,9 @@ fn assert_debug_uses_direct_object_without_env(dir: &TestDir, args: &[&str]) {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("__moonbit_link_core__"),
+        stdout
+            .lines()
+            .any(|line| line.contains("moonc link-core") && line.contains("__moonbit_link_core__")),
         "debug dry-run did not use the direct object backend:\n{stdout}"
     );
     assert!(
@@ -50,7 +52,9 @@ fn assert_debug_uses_generated_c_when_disabled(dir: &TestDir, args: &[&str]) {
         "disabled new native dry-run did not generate C source:\n{output}"
     );
     assert!(
-        !output.contains("__moonbit_link_core__"),
+        !output
+            .lines()
+            .any(|line| line.contains("moonc link-core") && line.contains("__moonbit_link_core__")),
         "disabled new native dry-run unexpectedly used the direct object backend:\n{output}"
     );
 }
@@ -77,7 +81,9 @@ fn assert_debug_with_cc_flags_uses_generated_c(dir: &TestDir, args: &[&str]) {
         "cc-flags dry-run did not compile generated C with package flags:\n{output}"
     );
     assert!(
-        !output.contains("__moonbit_link_core__"),
+        !output
+            .lines()
+            .any(|line| line.contains("moonc link-core") && line.contains("__moonbit_link_core__")),
         "cc-flags dry-run unexpectedly used the direct object backend:\n{output}"
     );
 }
@@ -103,7 +109,9 @@ fn assert_release_uses_generated_c(dir: &TestDir, args: &[&str]) {
         "release dry-run did not compile generated C with release optimization:\n{output}"
     );
     assert!(
-        !output.contains("__moonbit_link_core__"),
+        !output
+            .lines()
+            .any(|line| line.contains("moonc link-core") && line.contains("__moonbit_link_core__")),
         "release dry-run unexpectedly used the direct object backend:\n{output}"
     );
 }

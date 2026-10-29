@@ -14,6 +14,7 @@ fn test_indirect_depend_virtual() {
     .filter(|line| {
         !(line.contains("cc")
             || line.contains("cl.exe")
+            || line.contains("dsymutil")
             || line.contains("libruntime")
             || *line == "  env:"
             || line.starts_with("    LIB=")
