@@ -28,7 +28,7 @@
 //! scheduling and Rust owns the OS poller behind opaque poll handles.
 
 use std::cell::{Cell, RefCell};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::collections::HashSet;
@@ -621,6 +621,10 @@ impl OverlappedAddr {
 struct HostPoll {
     instance: PollInstance,
     termination_waker: Option<Arc<poll::PollWaker>>,
+    // A registration belongs to this parent Run's poll, not to one guest
+    // coroutine wait. Cancelling and retrying a wait must reuse its notifier.
+    #[cfg(target_os = "macos")]
+    process_notifications: HashMap<i32, Arc<std::task::Waker>>,
     #[cfg(unix)]
     registered_fds: HashSet<RawFd>,
 }
@@ -1385,6 +1389,8 @@ impl AsyncHost {
         let key = self.polls.borrow_mut().polls.insert(HostPoll {
             instance,
             termination_waker: None,
+            #[cfg(target_os = "macos")]
+            process_notifications: HashMap::new(),
             #[cfg(unix)]
             registered_fds: HashSet::new(),
         });
@@ -1488,6 +1494,28 @@ impl AsyncHost {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_register_pid(&self, poll_handle: u64, pid: i32) -> AsyncHostResult<i32> {
+        if let Some(context) = self.process.context() {
+            let mut polls = self.polls.borrow_mut();
+            let poll = polls
+                .polls
+                .get_mut(key_from_handle(poll_handle))
+                .ok_or(AsyncHostError::Badf)?;
+            let result =
+                context.observe_exit(pid, || match poll.process_notifications.entry(pid) {
+                    std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.get().clone()),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let notification =
+                            poll::register_process_notification(&poll.instance, pid)?;
+                        let wake = Arc::new(std::task::Waker::from(Arc::new(notification)));
+                        entry.insert(wake.clone());
+                        Ok(wake)
+                    }
+                });
+            if result == Ok(0) {
+                poll.process_notifications.remove(&pid);
+            }
+            return result;
+        }
         self.with_owned_child_pid(pid, || {
             let poll_key = key_from_handle(poll_handle);
             let polls = self.polls.borrow();
@@ -1525,7 +1553,16 @@ impl AsyncHost {
                 polls.current_event_poll = None;
                 return Ok(0);
             }
-            result?
+            let count = result?;
+            #[cfg(target_os = "macos")]
+            for index in 0..count as u32 {
+                let event = poll::event_list_get(&poll.instance, index)?;
+                if poll::event_get_events(event) == poll::PROCESS_EVENT {
+                    poll.process_notifications
+                        .remove(&poll::event_get_pid(event));
+                }
+            }
+            count
         };
         polls.current_event_poll = Some(poll_key);
         drop(polls);
@@ -2520,6 +2557,28 @@ impl AsyncHost {
             return Ok(None);
         }
         self.process.process_handle_pid(handle)
+    }
+
+    pub(crate) fn open_virtual_process_handle(
+        &self,
+        pid: i32,
+    ) -> Option<AsyncHostResult<HostHandle>> {
+        let context = self.process.context()?;
+        Some((|| {
+            #[cfg(unix)]
+            {
+                // Validate direct-child authority without consuming its completion.
+                drop(context.wait(pid)?);
+                self.set_errno(0);
+                Ok(self.invalid_fd())
+            }
+            #[cfg(windows)]
+            {
+                Ok(self.handles.borrow_mut().insert_resource(Resource::process(
+                    crate::process_tree::ProcessHandle::open(context, pid)?,
+                )))
+            }
+        })())
     }
 
     pub(crate) fn make_wait_for_process_job(

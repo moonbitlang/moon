@@ -272,6 +272,9 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
+    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+        return result;
+    }
     let handle = context
         .host
         .with_owned_child_pid(pid, || Ok(context.host.invalid_fd()))?;
@@ -290,6 +293,9 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
+    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+        return result;
+    }
     let handle = context.host.with_owned_child_pid(pid, || {
         match process::open_pid_handle(pid) {
             Ok(handle) => Ok(Some(handle)),
@@ -312,6 +318,9 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
+    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+        return result;
+    }
     let handle = context
         .host
         .with_owned_child_pid(pid, || process::open_pid_handle(pid))?;
@@ -334,6 +343,28 @@ pub(super) fn get_process_result(
         } else {
             Some(handle)
         };
+        if let Some(process) = context.host.process().context() {
+            #[cfg(unix)]
+            if handle_id.is_some() {
+                return Err(AsyncHostError::Badf);
+            }
+            #[cfg(windows)]
+            {
+                let resource = context.host
+                    .acquire_resource(handle_id.ok_or(AsyncHostError::Badf)?)?;
+                let handle = resource.as_process()?;
+                if !handle.matches(process, pid) {
+                    return Err(AsyncHostError::PermissionDenied);
+                }
+                return handle.read_exit(|code| {
+                    context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
+                });
+            }
+            #[cfg(unix)]
+            return process.read_exit(pid, |code| {
+                context.with_memory_mut(|memory| Ok(memory.write_exact(out, &code.to_le_bytes())?))
+            });
+        }
         #[cfg(unix)]
         let raw_handle = handle_id
             .map(|handle| {

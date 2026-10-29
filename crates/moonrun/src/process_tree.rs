@@ -19,6 +19,8 @@
 //! Supervision and guest process identity for concurrent Runs.
 
 mod guest;
+#[cfg(windows)]
+pub(crate) use guest::ProcessHandle;
 pub(crate) use guest::{ProcessContext, ProcessWait};
 
 use std::collections::BTreeMap;
@@ -108,6 +110,7 @@ pub enum ProcessError {
 struct Entry {
     info: ProcessInfo,
     terminator: RunTerminator,
+    signals: crate::SignalSender,
     completion: Arc<ProcessCompletion>,
     waiting: bool,
 }
@@ -118,9 +121,37 @@ struct ProcessCompletion {
     // table or a termination lock while holding it.
     result: Mutex<Option<Result<RunOutcome, ProcessError>>>,
     changed: Condvar,
+    // Windows handles retain the exit status even after a supervisor takes
+    // the owned Run result and removes the process from the tree.
+    #[cfg(windows)]
+    exit_code: std::sync::OnceLock<i32>,
+    #[cfg(target_os = "macos")]
+    // Observations belong to the waiting Run. The tree must not keep its
+    // notification resources alive after that Run closes its poll.
+    notifications: Mutex<Vec<std::sync::Weak<std::task::Waker>>>,
 }
 
 impl ProcessCompletion {
+    fn publish(&self, result: Result<RunOutcome, ProcessError>) {
+        let mut slot = self.result.lock().unwrap();
+        #[cfg(windows)]
+        self.exit_code.set(guest::exit_status(&result)).unwrap();
+        *slot = Some(result);
+        #[cfg(target_os = "macos")]
+        let notifications: Vec<_> = std::mem::take(&mut *self.notifications.lock().unwrap())
+            .into_iter()
+            .filter_map(|notification| notification.upgrade())
+            .collect();
+        drop(slot);
+        self.changed.notify_all();
+        // Listeners choose their transport. Never call them with completion
+        // locks held; collecting them under the result lock prevents lost wakes.
+        #[cfg(target_os = "macos")]
+        for notification in notifications {
+            notification.wake_by_ref();
+        }
+    }
+
     // Reserve a separate reaper before starting the Run: thread creation may
     // fail, and joining after Run exit can still block in native TLS cleanup.
     // Even is_finished() can be true before those destructors have returned.
@@ -141,8 +172,7 @@ impl ProcessCompletion {
                     Ok(result) => result.map_err(ProcessError::RunFailed),
                     Err(_) => Err(ProcessError::Panicked(pid)),
                 };
-                *completion.result.lock().unwrap() = Some(result);
-                completion.changed.notify_all();
+                completion.publish(result);
             })?;
         Ok(sender)
     }
@@ -154,8 +184,8 @@ type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
 ///
 /// Each Run gets a thread, an owned environment (policy provisioning takes
 /// precedence), and a fixed cwd. Parent links do not imply configuration
-/// inheritance. Guests see their virtual PID and can wait for or kill their
-/// children. Guest spawning and native process-handle operations are not yet
+/// inheritance. Guests see their virtual PID and can signal or wait for their
+/// children through the existing async process API. Guest spawning is not yet
 /// supported in this mode; ordinary Engine Runs retain ambient process access.
 /// Native stacks retain at least the creator's size; Run startup checks the
 /// guest budget against the executing thread's remaining native stack.
@@ -234,6 +264,7 @@ impl VirtualProcessTree {
             table: Arc::clone(&self.table),
         });
         let (terminator, receiver) = termination_channel();
+        let (signals, signal_receiver) = crate::signal_channel();
         options.termination_receiver = Some(receiver);
         let engine = self.engine.clone();
         let module = module.clone();
@@ -250,7 +281,7 @@ impl VirtualProcessTree {
                     table: shared_table,
                     pid,
                 };
-                engine.run(&module, options)
+                engine.run_with_signal_receiver(&module, options, signal_receiver)
             })?;
         table.insert(
             pid,
@@ -261,6 +292,7 @@ impl VirtualProcessTree {
                     state: ProcessState::Running,
                 },
                 terminator,
+                signals,
                 completion,
                 waiting: false,
             },
@@ -521,6 +553,7 @@ mod tests {
                         state: ProcessState::Running,
                     },
                     terminator,
+                    signals: crate::signal_channel().0,
                     completion: process_completion,
                     waiting: false,
                 },

@@ -87,6 +87,10 @@ impl HostProcess {
         }
     }
 
+    pub(crate) fn context(&self) -> Option<&crate::process_tree::ProcessContext> {
+        self.context.as_ref()
+    }
+
     pub(crate) fn pid(&self) -> i32 {
         self.context.as_ref().map_or_else(
             || crate::async_sys::internal::env_util::stub::get_pid() as i32,
@@ -105,18 +109,16 @@ impl HostProcess {
     }
 
     pub(crate) fn terminate(&self, pid: i32, signal: i32) -> AsyncHostResult<()> {
-        #[cfg(unix)]
-        if self.context.is_some() && signal == libc::SIGKILL {
-            return self.kill(pid);
+        if let Some(context) = &self.context {
+            return context.terminate(pid, signal);
         }
-        self.require_ambient()?;
         self.with_owned_child_pid(pid, || {
             let _ = crate::async_sys::process::terminate_process(pid, signal);
             Ok(())
         })
     }
 
-    // The unfinished virtual spawn/signal/native-handle paths must never
+    // The unfinished virtual spawn/native-handle paths must never
     // reinterpret a virtual PID as an operating-system process identity.
     fn require_ambient(&self) -> AsyncHostResult<()> {
         if self.context.is_none() {
@@ -141,8 +143,17 @@ impl HostProcess {
         pid: i32,
     ) -> AsyncHostResult<Job> {
         if let Some(context) = &self.context {
+            #[cfg(unix)]
             if handle.is_some() {
                 return Err(AsyncHostError::Badf);
+            }
+            #[cfg(windows)]
+            if let Some(handle) = &handle {
+                let handle = handle.as_process()?;
+                if !handle.matches(context, pid) {
+                    return Err(AsyncHostError::PermissionDenied);
+                }
+                return Ok(Job::wait_for_virtual_process(handle.wait()));
             }
             return Ok(Job::wait_for_virtual_process(context.wait(pid)?));
         }
@@ -250,6 +261,9 @@ impl HostProcess {
     }
 
     pub(crate) fn process_handle_pid(&self, handle: u64) -> AsyncHostResult<Option<i32>> {
+        if self.context.is_some() {
+            return Ok(None);
+        }
         let Some(state) = self.child_authority.as_deref() else {
             return Ok(None);
         };
@@ -265,6 +279,9 @@ impl HostProcess {
     }
 
     pub(crate) fn track_process_handle(&self, handle: u64, pid: i32) {
+        if self.context.is_some() {
+            return;
+        }
         if let Some(state) = self.child_authority.as_deref() {
             state
                 .inner

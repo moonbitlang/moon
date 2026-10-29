@@ -28,6 +28,19 @@ use crate::async_sys::internal::event_loop::thread_pool::{
 };
 use crate::{RunOutcome, RunTermination};
 
+// Use the same status encoding as native process waits and the CLI adapter.
+pub(super) fn exit_status(result: &Result<RunOutcome, super::ProcessError>) -> i32 {
+    match result {
+        Ok(RunOutcome::Completed) => 0,
+        Ok(RunOutcome::Exited(code)) => *code,
+        #[cfg(unix)]
+        Ok(RunOutcome::KilledBySignal(signal)) => -*signal,
+        #[cfg(windows)]
+        Ok(RunOutcome::KilledBySignal(_)) => 0xC000_013A_u32 as i32,
+        Err(_) => 1,
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ProcessContext {
     pub(super) pid: VirtualPid,
@@ -47,6 +60,68 @@ impl ProcessContext {
         self.pid.get()
     }
 
+    #[cfg(unix)]
+    pub(crate) fn read_exit<T>(
+        &self,
+        pid: i32,
+        accept: impl FnOnce(i32) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let mut entries = self.table.lock().unwrap();
+        let entry = entries
+            .get(&VirtualPid(pid))
+            .ok_or(AsyncHostError::PermissionDenied)?;
+        if entry.info.parent != Some(self.pid) || entry.waiting {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        let result_guard = entry.completion.result.lock().unwrap();
+        let Some(result) = result_guard.as_ref() else {
+            return Err(AsyncHostError::Native(libc::EAGAIN));
+        };
+        let status = exit_status(result);
+        let accepted = accept(status)?;
+        drop(result_guard);
+        // The completion mutex must be released before removing its owner.
+        drop(entries.remove(&VirtualPid(pid)));
+        Ok(accepted)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn observe_exit(
+        &self,
+        pid: i32,
+        create_wake: impl FnOnce() -> AsyncHostResult<Arc<std::task::Waker>>,
+    ) -> AsyncHostResult<i32> {
+        let entries = self.table.lock().unwrap();
+        let entry = entries
+            .get(&VirtualPid(pid))
+            .ok_or(AsyncHostError::PermissionDenied)?;
+        if entry.info.parent != Some(self.pid) || entry.waiting {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        // A supervisor can take the result only while entry.waiting is true.
+        // With the table locked and that claim excluded, None means pending,
+        // even on repeat registration. Exited alone does not imply TLS cleanup
+        // and join have finished.
+        let result = entry.completion.result.lock().unwrap();
+        if result.is_some() {
+            return Ok(0);
+        }
+        // Construct the Run-owned notifier only for an authorized, pending
+        // child. The caller must retain a strong Arc and construction must not
+        // re-enter the tree. Holding the result lock through registration
+        // excludes publication and lost wakeups.
+        let wake = Arc::downgrade(&create_wake()?);
+        let mut notifications = entry.completion.notifications.lock().unwrap();
+        notifications.retain(|notification| notification.strong_count() != 0);
+        if !notifications
+            .iter()
+            .any(|notification| notification.ptr_eq(&wake))
+        {
+            notifications.push(wake);
+        }
+        Ok(1)
+    }
+
     pub(crate) fn kill(&self, pid: i32) -> AsyncHostResult<()> {
         let mut entries = self.table.lock().unwrap();
         let entry = entries
@@ -60,6 +135,53 @@ impl ProcessContext {
         #[cfg(windows)]
         let outcome = RunTermination::Exit(1);
         if entry.terminator.terminate(outcome) {
+            entry.info.state = super::ProcessState::Terminating;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn terminate(&self, pid: i32, signal: i32) -> AsyncHostResult<()> {
+        #[cfg(unix)]
+        {
+            if signal == libc::SIGKILL {
+                return self.kill(pid);
+            }
+            // Only the signals with guest cancellation/default termination
+            // semantics are implemented. In particular, stop/continue must
+            // never accidentally turn into termination.
+            if ![0, libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+                return Err(AsyncHostError::Inval);
+            }
+        }
+        // Match the native Windows adapter: graceful cancellation targets a
+        // process group with Ctrl-Break, independently of the signal argument.
+        #[cfg(windows)]
+        let signal = {
+            let _ = signal;
+            windows_sys::Win32::System::Console::CTRL_BREAK_EVENT as i32
+        };
+        let mut entries = self.table.lock().unwrap();
+        let entry = entries
+            .get_mut(&VirtualPid(pid))
+            .ok_or(AsyncHostError::PermissionDenied)?;
+        if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        #[cfg(unix)]
+        if signal == 0 {
+            return Ok(());
+        }
+        match entry.signals.send(signal) {
+            Ok(true) | Err(crate::SignalSendError::Disconnected) => return Ok(()),
+            Ok(false) => {}
+            Err(_) => return Err(AsyncHostError::Io),
+        }
+        // An unhandled cancellation signal takes its default action on this
+        // Run only. Accepted signals leave the caller's grace period in charge.
+        if entry
+            .terminator
+            .terminate(RunTermination::KilledBySignal(signal))
+        {
             entry.info.state = super::ProcessState::Terminating;
         }
         Ok(())
@@ -82,7 +204,81 @@ impl ProcessContext {
                 cancelled: AtomicBool::new(false),
             }),
             claim: None,
+            claim_on_run: true,
+            completed: false,
         })
+    }
+
+    fn reap_unclaimed(&self, pid: VirtualPid, completion: &Arc<super::ProcessCompletion>) {
+        let mut entries = self.table.lock().unwrap();
+        // Handle observations do not own an exclusive wait claim. Preserve
+        // another waiter's result, and remove only the observed entry.
+        if entries
+            .get(&pid)
+            .is_some_and(|entry| !entry.waiting && Arc::ptr_eq(&entry.completion, completion))
+        {
+            entries.remove(&pid);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+pub(crate) struct ProcessHandle {
+    owner: ProcessContext,
+    pid: i32,
+    completion: Arc<super::ProcessCompletion>,
+}
+
+#[cfg(windows)]
+impl ProcessHandle {
+    pub(crate) fn open(owner: &ProcessContext, pid: i32) -> AsyncHostResult<Self> {
+        let wait = owner.wait(pid)?;
+        Ok(Self {
+            owner: owner.clone(),
+            pid,
+            completion: Arc::clone(&wait.cancel.completion),
+        })
+    }
+
+    pub(crate) fn matches(&self, owner: &ProcessContext, pid: i32) -> bool {
+        self.pid == pid
+            && self.owner.pid == owner.pid
+            && Arc::ptr_eq(&self.owner.table, &owner.table)
+    }
+
+    pub(crate) fn wait(&self) -> ProcessWait {
+        // Like a Windows process HANDLE, each wait is independent and pins
+        // the completion even if another handle or supervisor reaps the PID.
+        ProcessWait {
+            pid: VirtualPid(self.pid),
+            cancel: Arc::new(WaitCancellation {
+                context: self.owner.clone(),
+                completion: Arc::clone(&self.completion),
+                cancelled: AtomicBool::new(false),
+            }),
+            claim: None,
+            claim_on_run: false,
+            completed: false,
+        }
+    }
+
+    pub(crate) fn read_exit<T>(
+        &self,
+        accept: impl FnOnce(i32) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let code = self
+            .completion
+            .exit_code
+            .get()
+            .copied()
+            .ok_or(AsyncHostError::Native(
+                windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32,
+            ))?;
+        let accepted = accept(code)?;
+        self.owner
+            .reap_unclaimed(VirtualPid(self.pid), &self.completion);
+        Ok(accepted)
     }
 }
 
@@ -90,6 +286,8 @@ pub(crate) struct ProcessWait {
     pid: VirtualPid,
     cancel: Arc<WaitCancellation>,
     claim: Option<WaitClaim>,
+    claim_on_run: bool,
+    completed: bool,
 }
 
 impl std::fmt::Debug for ProcessWait {
@@ -110,15 +308,21 @@ impl ProcessWait {
             return Err(AsyncHostError::Inval);
         }
         let table = &self.cancel.context.table;
-        let claim =
-            WaitClaim::new(Arc::clone(table), self.pid).map_err(|_| AsyncHostError::Inval)?;
+        let claim = if self.claim_on_run {
+            Some(WaitClaim::new(Arc::clone(table), self.pid).map_err(|_| AsyncHostError::Inval)?)
+        } else {
+            None
+        };
         let mut result = self.cancel.completion.result.lock().unwrap();
         loop {
+            let status = result.as_ref().map(exit_status);
+            #[cfg(windows)]
+            let status = status.or_else(|| self.cancel.completion.exit_code.get().copied());
             let cancelled = self.cancel.cancelled.load(Ordering::Relaxed);
             // Match the native Windows wait: the process handle precedes the
             // cancellation event, so an available exit result wins the race.
             #[cfg(windows)]
-            let cancelled = cancelled && result.is_none();
+            let cancelled = cancelled && status.is_none();
             if cancelled {
                 // Release the lock before dropping the claim.
                 drop(result);
@@ -129,15 +333,10 @@ impl ProcessWait {
                     windows_sys::Win32::Foundation::ERROR_OPERATION_ABORTED as i32,
                 ));
             }
-            if let Some(result) = &*result {
-                let status = match result {
-                    Ok(RunOutcome::Completed) => 0,
-                    Ok(RunOutcome::Exited(code)) => i64::from(*code),
-                    Ok(RunOutcome::KilledBySignal(signal)) => -i64::from(*signal),
-                    Err(_) => 1,
-                };
-                self.claim = Some(claim);
-                return Ok(status);
+            if let Some(status) = status {
+                self.claim = claim;
+                self.completed = true;
+                return Ok(i64::from(status));
             }
             result = self.cancel.completion.changed.wait(result).unwrap();
         }
@@ -146,8 +345,19 @@ impl ProcessWait {
     /// Reading the completed Job result commits the wait. Freeing an unread
     /// Job (including Runtime teardown) instead leaves the exit for its owner.
     pub(crate) fn consume(&mut self) {
+        // An untrusted guest can read ret before running the Job, when err is
+        // still zero, or after cancelling it. Only a successful wait may reap.
+        if !std::mem::take(&mut self.completed) {
+            return;
+        }
         if let Some(claim) = self.claim.take() {
             claim.table.lock().unwrap().remove(&claim.pid);
+        } else if !self.claim_on_run {
+            // Windows handles retain their cached status independently; the
+            // guest need not call get_process_result to release this entry.
+            self.cancel
+                .context
+                .reap_unclaimed(self.pid, &self.cancel.completion);
         }
     }
 }
@@ -181,6 +391,355 @@ mod tests {
     use std::sync::{Mutex, mpsc};
     use std::time::Duration;
 
+    #[cfg(unix)]
+    #[test]
+    fn signal_probe_and_unsupported_signals_do_not_terminate() {
+        let pid = VirtualPid(1);
+        let (terminator, receiver) = crate::termination_channel();
+        let (signals, _signals) = crate::signal_channel();
+        let context = ProcessContext {
+            pid,
+            table: Arc::new(Mutex::new(BTreeMap::from([(
+                pid,
+                Entry {
+                    info: ProcessInfo {
+                        pid,
+                        parent: None,
+                        state: ProcessState::Running,
+                    },
+                    terminator,
+                    signals,
+                    completion: Arc::new(ProcessCompletion::default()),
+                    waiting: false,
+                },
+            )]))),
+        };
+        assert_eq!(context.terminate(pid.get(), 0), Ok(()));
+        for signal in [-1, libc::SIGSTOP, libc::SIGCONT, i32::MAX] {
+            assert_eq!(
+                context.terminate(pid.get(), signal),
+                Err(AsyncHostError::Inval)
+            );
+        }
+        assert!(!receiver.request.is_requested());
+        assert_eq!(context.terminate(pid.get(), libc::SIGTERM), Ok(()));
+        assert_eq!(
+            receiver.close(),
+            Some(RunTermination::KilledBySignal(libc::SIGTERM))
+        );
+        // A signal racing completed teardown must not change the exit result.
+        assert_eq!(context.terminate(pid.get(), libc::SIGINT), Ok(()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn completion_observers_survive_races_and_detach_independently() {
+        struct Notify(mpsc::Sender<i32>, i32);
+        impl std::task::Wake for Notify {
+            fn wake(self: Arc<Self>) {
+                self.0.send(self.1).unwrap();
+            }
+        }
+        for race in [false, true] {
+            let parent = VirtualPid(1);
+            let child = VirtualPid(2);
+            let completion = Arc::new(ProcessCompletion::default());
+            let context = ProcessContext {
+                pid: parent,
+                table: Arc::new(Mutex::new(BTreeMap::from([(
+                    child,
+                    Entry {
+                        info: ProcessInfo {
+                            pid: child,
+                            parent: Some(parent),
+                            state: ProcessState::Running,
+                        },
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                        completion: completion.clone(),
+                        waiting: false,
+                    },
+                )]))),
+            };
+            let (send, received) = mpsc::channel();
+            let cancelled = Arc::new(std::task::Waker::from(Arc::new(Notify(send.clone(), 1))));
+            let retained = Arc::new(std::task::Waker::from(Arc::new(Notify(send.clone(), 2))));
+            let concurrent = Arc::new(std::task::Waker::from(Arc::new(Notify(send, 3))));
+            assert_eq!(
+                context.observe_exit(child.get(), || Ok(cancelled.clone())),
+                Ok(1)
+            );
+            for _ in 0..2 {
+                assert_eq!(
+                    context.observe_exit(child.get(), || Ok(retained.clone())),
+                    Ok(1)
+                );
+            }
+            let claim = WaitClaim::new(context.table.clone(), child).unwrap();
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("claimed by supervisor")),
+                Err(AsyncHostError::PermissionDenied),
+            );
+            drop(claim);
+            drop(cancelled);
+            let pending = if race {
+                let barrier = Arc::new(std::sync::Barrier::new(2));
+                let start = barrier.clone();
+                let finished = completion.clone();
+                let publisher = std::thread::spawn(move || {
+                    start.wait();
+                    finished.publish(Ok(RunOutcome::Exited(23)));
+                });
+                barrier.wait();
+                let pending = context
+                    .observe_exit(child.get(), || Ok(concurrent.clone()))
+                    .unwrap();
+                publisher.join().unwrap();
+                pending
+            } else {
+                let pending = context
+                    .observe_exit(child.get(), || Ok(concurrent.clone()))
+                    .unwrap();
+                completion.publish(Ok(RunOutcome::Exited(23)));
+                pending
+            };
+            let mut notifications: Vec<_> = received.try_iter().collect();
+            notifications.sort();
+            assert_eq!(
+                notifications,
+                if pending == 1 { vec![2, 3] } else { vec![2] }
+            );
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("already complete")),
+                Ok(0)
+            );
+            // Taking the owned result must never turn the process back into
+            // an observable pending completion while the table entry remains.
+            let claim = WaitClaim::new(context.table.clone(), child).unwrap();
+            let result = completion.result.lock().unwrap().take();
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("result taken by supervisor")),
+                Err(AsyncHostError::PermissionDenied),
+            );
+            *completion.result.lock().unwrap() = result;
+            drop(claim);
+            // Observation never consumes the exit, even after its owner closes.
+            drop((retained, concurrent));
+            assert_eq!(context.read_exit(child.get(), Ok), Ok(23));
+            assert_eq!(
+                context.observe_exit(child.get(), || panic!("already reaped")),
+                Err(AsyncHostError::PermissionDenied),
+            );
+            assert!(context.table.lock().unwrap().is_empty());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parent_poll_owns_virtual_process_observation() {
+        use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
+
+        for finish in ["event", "ready", "closed"] {
+            let child = VirtualPid(2);
+            let completion = Arc::new(ProcessCompletion::default());
+            let context = ProcessContext {
+                pid: VirtualPid(1),
+                table: Arc::new(Mutex::new(BTreeMap::from([(
+                    child,
+                    Entry {
+                        info: ProcessInfo {
+                            pid: child,
+                            parent: Some(VirtualPid(1)),
+                            state: ProcessState::Running,
+                        },
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                        completion: completion.clone(),
+                        waiting: false,
+                    },
+                )]))),
+            };
+            let mut mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+            assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
+            let runtime = Runtime::new(
+                None,
+                None,
+                None,
+                None,
+                WorkingDirectory::Ambient,
+                Stdio::Ambient,
+                Executable::unavailable(),
+                crate::signal_channel().1,
+                Some(context.clone()),
+                mask,
+            )
+            .unwrap();
+            let host = runtime.async_host();
+            let poll = host.poll_create().unwrap();
+            assert_eq!(host.poll_register_pid(poll, child.get()), Ok(1));
+            let observer = completion.notifications.lock().unwrap()[0].clone();
+            assert_eq!(host.poll_register_pid(poll, child.get()), Ok(1));
+            assert_eq!(completion.notifications.lock().unwrap().len(), 1);
+            assert_eq!(observer.strong_count(), 1);
+            let claim = WaitClaim::new(context.table.clone(), child).unwrap();
+            assert_eq!(
+                host.poll_register_pid(poll, child.get()),
+                Err(AsyncHostError::PermissionDenied)
+            );
+            assert_eq!(observer.strong_count(), 1);
+            drop(claim);
+
+            if finish == "closed" {
+                host.poll_destroy(poll).unwrap();
+                assert_eq!(observer.strong_count(), 0);
+                let replacement = host.poll_create().unwrap();
+                completion.publish(Ok(RunOutcome::Exited(23)));
+                assert_eq!(host.poll_wait(replacement, 0, &Default::default()), Ok(0));
+                host.poll_destroy(replacement).unwrap();
+            } else {
+                completion.publish(Ok(RunOutcome::Exited(23)));
+                if finish == "event" {
+                    assert_eq!(host.poll_wait(poll, 0, &Default::default()), Ok(1));
+                    let event = host.poll_get_event(poll, 0).unwrap();
+                    assert_eq!(host.poll_event_pid(event), Ok(child.get()));
+                    assert_eq!(host.poll_event_events(event), Ok(4));
+                }
+                assert_eq!(host.poll_register_pid(poll, child.get()), Ok(0));
+                assert_eq!(observer.strong_count(), 0);
+                assert_eq!(host.poll_wait(poll, 0, &Default::default()), Ok(0));
+                host.poll_destroy(poll).unwrap();
+            }
+            assert_eq!(context.read_exit(child.get(), Ok), Ok(23));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn process_handles_retain_completion_after_reaping() {
+        let parent = VirtualPid(1);
+        let child = VirtualPid(2);
+        let completion = Arc::new(ProcessCompletion::default());
+        let owner = ProcessContext {
+            pid: parent,
+            table: Arc::new(Mutex::new(BTreeMap::from([(
+                child,
+                Entry {
+                    info: ProcessInfo {
+                        pid: child,
+                        parent: Some(parent),
+                        state: ProcessState::Running,
+                    },
+                    terminator: crate::termination_channel().0,
+                    signals: crate::signal_channel().0,
+                    completion: Arc::clone(&completion),
+                    waiting: false,
+                },
+            )]))),
+        };
+        let first = ProcessHandle::open(&owner, child.get()).unwrap();
+        let second = ProcessHandle::open(&owner, child.get()).unwrap();
+        assert!(first.matches(&owner, child.get()));
+        assert!(!first.matches(&owner, parent.get()));
+        let stranger = ProcessContext {
+            pid: parent,
+            table: Default::default(),
+        };
+        assert!(!first.matches(&stranger, child.get()));
+        assert_eq!(
+            first.read_exit(Ok),
+            Err(AsyncHostError::Native(
+                windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32
+            ))
+        );
+        completion
+            .start_reaper(child)
+            .unwrap()
+            .send(std::thread::spawn(|| {
+                Ok(RunOutcome::KilledBySignal(
+                    windows_sys::Win32::System::Console::CTRL_BREAK_EVENT as i32,
+                ))
+            }))
+            .unwrap();
+        let code = 0xC000_013A_u32 as i32;
+        let mut wait = first.wait();
+        assert_eq!(wait.run(), Ok(i64::from(code)));
+        assert_eq!(
+            first.read_exit::<()>(|_| Err(AsyncHostError::Fault)),
+            Err(AsyncHostError::Fault)
+        );
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+        wait.consume();
+        assert!(owner.table.lock().unwrap().is_empty());
+        assert_eq!(first.read_exit(Ok), Ok(code));
+        // Model a supervisor taking the owned Run result. Handles still own
+        // the status, and completion wins over cancellation on Windows.
+        completion.result.lock().unwrap().take();
+        let mut again = second.wait();
+        again.cancellation().cancel().unwrap();
+        assert_eq!(again.run(), Ok(i64::from(code)));
+        again.consume();
+        assert_eq!(second.read_exit(Ok), Ok(code));
+        assert_eq!(first.read_exit(Ok), Ok(code));
+    }
+
+    #[test]
+    fn handle_wait_consumption_requires_successful_completion() {
+        // Exercise the non-exclusive wait used by Windows handles without
+        // relying on guest code to follow async's normal call sequence.
+        let child = VirtualPid(2);
+        let completion = Arc::new(ProcessCompletion::default());
+        let owner = ProcessContext {
+            pid: VirtualPid(1),
+            table: Arc::new(Mutex::new(BTreeMap::from([(
+                child,
+                Entry {
+                    info: ProcessInfo {
+                        pid: child,
+                        parent: Some(VirtualPid(1)),
+                        state: ProcessState::Running,
+                    },
+                    terminator: crate::termination_channel().0,
+                    signals: crate::signal_channel().0,
+                    completion: completion.clone(),
+                    waiting: false,
+                },
+            )]))),
+        };
+        let mut cancelled = owner.wait(child.get()).unwrap();
+        cancelled.claim_on_run = false;
+        cancelled.consume();
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+        cancelled.cancellation().cancel().unwrap();
+        assert!(cancelled.run().is_err());
+        completion.publish(Ok(RunOutcome::Exited(23)));
+        cancelled.consume();
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+
+        let mut unread = owner.wait(child.get()).unwrap();
+        unread.claim_on_run = false;
+        // Even an already-exited process must not be reaped by reading an
+        // unexecuted Job's default return value.
+        unread.consume();
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+        assert_eq!(unread.run(), Ok(23));
+        drop(unread);
+        assert!(owner.table.lock().unwrap().contains_key(&child));
+
+        let mut accepted = owner.wait(child.get()).unwrap();
+        accepted.claim_on_run = false;
+        assert_eq!(accepted.run(), Ok(23));
+        let claim = WaitClaim::new(owner.table.clone(), child).unwrap();
+        accepted.consume();
+        assert!(owner.table.lock().unwrap()[&child].waiting);
+        drop(claim);
+        let mut accepted = owner.wait(child.get()).unwrap();
+        accepted.claim_on_run = false;
+        assert_eq!(accepted.run(), Ok(23));
+        accepted.consume();
+        accepted.consume();
+        assert!(owner.table.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn wait_cancellation_and_result_ownership() {
         if std::env::var_os("MOONRUN_WAIT_OWNERSHIP_TEST").is_none() {
@@ -209,6 +768,7 @@ mod tests {
                         state: ProcessState::Running,
                     },
                     terminator: crate::termination_channel().0,
+                    signals: crate::signal_channel().0,
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },

@@ -19,7 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 use super::{
     EVENT_BUFFER_SIZE, KeventBuffer, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT,
@@ -37,7 +37,7 @@ ported_fns! {
             Err(last_native_error())
         } else {
             Ok(PollInstance {
-                fd: unsafe { OwnedFd::from_raw_fd(fd) },
+                fd: std::sync::Arc::new(unsafe { OwnedFd::from_raw_fd(fd) }),
                 raw_events: KeventBuffer(
                     vec![empty_kevent(); EVENT_BUFFER_SIZE].into_boxed_slice(),
                 ),
@@ -338,13 +338,90 @@ fn kqueue_result_events(event: &libc::kevent) -> i32 {
     if event.filter == libc::EVFILT_WRITE {
         return WRITE_EVENT;
     }
-    if event.filter == libc::EVFILT_PROC {
+    if event.filter == libc::EVFILT_PROC || event.filter == libc::EVFILT_USER {
         return PROCESS_EVENT;
     }
     if (event.flags & libc::EV_ERROR) != 0 {
         return READ_EVENT | WRITE_EVENT;
     }
     0
+}
+
+// One-shot virtual process events use a separate kqueue filter namespace.
+// The parent poll owns the Waker; the tree holds only a weak observation.
+// An in-flight notification retains this exact descriptor until kevent returns,
+// even if the parent closes its poll meanwhile.
+#[derive(Debug)]
+pub(crate) struct ProcessNotification {
+    queue: std::sync::Arc<OwnedFd>,
+    pid: i32,
+}
+
+impl std::task::Wake for ProcessNotification {
+    fn wake(self: std::sync::Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &std::sync::Arc<Self>) {
+        if let Err(error) =
+            change_process_notification(self.queue.as_raw_fd(), self.pid, 0, libc::NOTE_TRIGGER)
+        {
+            // A retried trigger may find its one-shot event already delivered.
+            if error != AsyncHostError::Native(libc::ENOENT) {
+                tracing::error!(
+                    ?error,
+                    pid = self.pid,
+                    "failed to notify a virtual process exit"
+                );
+            }
+        }
+    }
+}
+
+impl Drop for ProcessNotification {
+    fn drop(&mut self) {
+        // Revalidation may report ready before the event is collected. Remove
+        // that abandoned filter too, instead of retaining it until poll close.
+        if let Err(error) =
+            change_process_notification(self.queue.as_raw_fd(), self.pid, libc::EV_DELETE, 0)
+            && error != AsyncHostError::Native(libc::ENOENT)
+        {
+            tracing::error!(
+                ?error,
+                pid = self.pid,
+                "failed to remove a virtual process event"
+            );
+        }
+    }
+}
+
+pub(crate) fn register_process_notification(
+    instance: &PollInstance,
+    pid: i32,
+) -> AsyncHostResult<ProcessNotification> {
+    change_process_notification(instance.raw_fd(), pid, libc::EV_ADD | libc::EV_ONESHOT, 0)?;
+    Ok(ProcessNotification {
+        queue: std::sync::Arc::clone(&instance.fd),
+        pid,
+    })
+}
+
+fn change_process_notification(
+    fd: RawFd,
+    pid: i32,
+    flags: u16,
+    fflags: u32,
+) -> AsyncHostResult<()> {
+    let event = new_kevent(pid as _, libc::EVFILT_USER, flags, fflags, 0, None)?;
+    loop {
+        if unsafe { libc::kevent(fd, &event, 1, std::ptr::null_mut(), 0, std::ptr::null()) } >= 0 {
+            return Ok(());
+        }
+        let errno = last_errno();
+        if errno != libc::EINTR {
+            return Err(AsyncHostError::Native(errno));
+        }
+    }
 }
 
 fn new_kevent(
@@ -375,8 +452,75 @@ fn empty_kevent() -> libc::kevent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::fs::OpenOptions;
+    use std::io::Write;
     use std::os::fd::AsRawFd;
+    use std::sync::Arc;
+    use std::task::Wake;
+
+    #[test]
+    fn virtual_process_events_share_io_batches_without_losing_completions() {
+        let mut poll = poll_create().unwrap();
+        let (read, mut write) = std::io::pipe().unwrap();
+        poll_register(&poll, read.as_raw_fd(), true, 77).unwrap();
+        write.write_all(b"R").unwrap();
+        let pids: BTreeSet<_> = (1..=EVENT_BUFFER_SIZE as i32 + 1).collect();
+        let notifications: Vec<_> = pids
+            .iter()
+            .map(|pid| Arc::new(register_process_notification(&poll, *pid).unwrap()))
+            .collect();
+        for notification in &notifications {
+            notification.wake_by_ref();
+        }
+        let mut received = BTreeSet::new();
+        let mut io_events = 0;
+        // More notifications than fit in a batch must remain queued by kqueue.
+        for _ in 0..3 {
+            let count = poll_wait(&mut poll, 0).unwrap();
+            for index in 0..count as u32 {
+                let event = event_list_get(&poll, index).unwrap();
+                match event_get_events(event) {
+                    PROCESS_EVENT => assert!(received.insert(event_get_pid(event))),
+                    READ_EVENT => {
+                        assert_eq!(event_get_fd(event), 77);
+                        io_events += 1;
+                    }
+                    other => panic!("unexpected event {other}"),
+                }
+            }
+        }
+        assert_eq!(received, pids);
+        assert_eq!(io_events, 1);
+        assert_eq!(poll_wait(&mut poll, 0), Ok(0));
+    }
+
+    #[test]
+    fn abandoned_registration_removes_its_pending_event() {
+        let mut poll = poll_create().unwrap();
+        let notification = Arc::new(register_process_notification(&poll, 42).unwrap());
+        notification.wake_by_ref();
+        drop(notification);
+        assert_eq!(poll_wait(&mut poll, 0), Ok(0));
+        let notification = Arc::new(register_process_notification(&poll, 42).unwrap());
+        notification.wake_by_ref();
+        assert_eq!(poll_wait(&mut poll, 0), Ok(1));
+        assert_eq!(event_get_pid(event_list_get(&poll, 0).unwrap()), 42);
+    }
+
+    #[test]
+    fn in_flight_notification_pins_only_its_original_queue() {
+        let poll = poll_create().unwrap();
+        let queue = Arc::downgrade(&poll.fd);
+        let notification = Arc::new(register_process_notification(&poll, 42).unwrap());
+        drop(poll);
+        assert!(queue.upgrade().is_some());
+        let mut replacement = poll_create().unwrap();
+        notification.wake_by_ref();
+        assert_eq!(poll_wait(&mut replacement, 0), Ok(0));
+        drop(notification);
+        assert!(queue.upgrade().is_none());
+    }
 
     #[test]
     fn nonpollable_fd_is_reported_as_unsupported() {

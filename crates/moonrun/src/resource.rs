@@ -93,6 +93,8 @@ pub(crate) enum ResourceClass {
     File,
     TcpSocket,
     UdpSocket,
+    #[cfg(windows)]
+    Process,
 }
 
 impl ResourceClass {
@@ -113,6 +115,8 @@ pub(crate) struct Resource {
 
 #[derive(Debug)]
 enum ResourcePayload {
+    #[cfg(windows)]
+    Process(crate::process_tree::ProcessHandle),
     Invalid,
     File {
         raw: OwnedRawFile,
@@ -136,6 +140,19 @@ enum ResourcePayload {
 }
 
 impl Resource {
+    #[cfg(windows)]
+    pub(crate) fn process(handle: crate::process_tree::ProcessHandle) -> Self {
+        Self::from_payload(ResourcePayload::Process(handle))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn as_process(&self) -> AsyncHostResult<&crate::process_tree::ProcessHandle> {
+        match &self.payload {
+            ResourcePayload::Process(handle) => Ok(handle),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
     pub(crate) fn new(raw: fd_util::stub::RawFd) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
@@ -223,6 +240,8 @@ impl Resource {
 
     pub(crate) fn resource_class(&self) -> ResourceClass {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => ResourceClass::Process,
             ResourcePayload::TcpSocket { .. } => ResourceClass::TcpSocket,
             ResourcePayload::UdpSocket { .. } => ResourceClass::UdpSocket,
             ResourcePayload::Invalid
@@ -234,6 +253,8 @@ impl Resource {
     #[cfg(all(test, windows))]
     pub(crate) fn raw_identity(&self) -> isize {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => -1,
             ResourcePayload::Invalid => -1,
             ResourcePayload::File { raw, .. } => raw.as_handle().as_raw_handle() as isize,
             ResourcePayload::StdioFile(raw) => *raw,
@@ -269,6 +290,8 @@ impl Resource {
     #[cfg(windows)]
     pub(crate) fn as_handle(&self) -> AsyncHostResult<BorrowedHandle<'_>> {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => Err(AsyncHostError::Badf),
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::File { raw, .. } => Ok(raw.as_handle()),
             ResourcePayload::StdioFile(_) => Err(AsyncHostError::Inval),
@@ -281,6 +304,8 @@ impl Resource {
     #[cfg(windows)]
     pub(crate) fn as_file(&self) -> AsyncHostResult<FileRef<'_>> {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => Err(AsyncHostError::Badf),
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::File { raw, .. } => Ok(FileRef::Borrowed(raw.as_handle())),
             ResourcePayload::StdioFile(raw) => Ok(FileRef::Stdio(*raw as RawHandle)),
@@ -293,6 +318,8 @@ impl Resource {
     #[cfg(windows)]
     pub(crate) fn as_socket(&self) -> AsyncHostResult<BorrowedSocket<'_>> {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => Err(AsyncHostError::Badf),
             ResourcePayload::Invalid => Err(AsyncHostError::Badf),
             ResourcePayload::TcpSocket { raw, .. } => Ok(raw.as_socket()),
             ResourcePayload::UdpSocket { raw, .. } => Ok(raw.as_socket()),
@@ -304,6 +331,8 @@ impl Resource {
 
     pub(crate) fn canonical_path(&self) -> Option<&Path> {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => None,
             ResourcePayload::File { canonical_path, .. } => canonical_path.as_deref(),
             ResourcePayload::Invalid
             | ResourcePayload::StdioFile(_)
@@ -314,6 +343,8 @@ impl Resource {
 
     pub(crate) fn socket_family(&self) -> Option<i32> {
         match &self.payload {
+            #[cfg(windows)]
+            ResourcePayload::Process(_) => None,
             ResourcePayload::TcpSocket { family, .. } => Some(*family),
             ResourcePayload::UdpSocket { family, .. } => Some(*family),
             ResourcePayload::Invalid
