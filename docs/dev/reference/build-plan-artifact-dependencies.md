@@ -362,13 +362,14 @@ the compiler uses that local path without declaring it again. An installed
 standard-library virtual contract has no provider in the current Build Plan,
 so lowering also retains its exact interface file as an ordinary n2 input.
 
-Some semantic filesystem observations cannot be represented as ordinary n2
-file edges. Compiler actions carry the selected standard-library interface
-bundle as a recursive `.mi` input for action identity, while the n2 adapter
-omits that directory from its file list. Exact standard-library virtual
-contracts used by `-check-mi` or `-impl-virtual` therefore remain separate file
-observations for n2. Native lowering enumerates the chosen toolchain include
-tree and attaches its headers as ordinary inputs.
+Moon does not pass `-std-path` to `moonc`. Installed standard-library
+interfaces reach the compiler only as explicit `-i` dependencies, and `moonc`
+loads indirect dependencies through the paths in `all_pkgs.json`. A local
+indirect interface is covered by its producer, but an installed one has none.
+Compiler actions therefore observe every installed standard-library `.mi`
+reachable from their direct standard-library dependencies as an ordinary file
+input. Native lowering enumerates the chosen toolchain include tree and
+attaches its headers as ordinary inputs.
 
 Actions with broader unmodeled observations remain cache-ineligible. This
 includes proof execution, documentation generation, arbitrary prebuild shell

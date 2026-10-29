@@ -32,27 +32,6 @@ use crate::{ResolvedProject, build_plan::ArtifactKey, pkg_name::OptionalPackageF
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ActionId(pub(crate) usize);
 
-/// One concrete filesystem observation made by an execution action.
-///
-/// Regular file observations are matched against declared outputs after all
-/// actions have been lowered. An unmatched file is supplied across the
-/// Execution Plan boundary; a matched file depends on that output's producer.
-#[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum InputObservation {
-    /// One regular file observed by the action.
-    File(PathBuf),
-    /// The recursive `.mi` tree observed through `moonc -std-path`.
-    StandardLibraryInterfaces(PathBuf),
-}
-
-impl InputObservation {
-    pub fn path(&self) -> &Path {
-        match self {
-            Self::File(path) | Self::StandardLibraryInterfaces(path) => path,
-        }
-    }
-}
-
 /// A response file selected while lowering a command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LoweredResponseFile {
@@ -185,7 +164,12 @@ pub enum ActionOutputKind {
 /// One concrete action after command construction and path realization.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionAction {
-    inputs: Vec<InputObservation>,
+    /// Regular files observed by the action.
+    ///
+    /// Inputs are matched against declared outputs after all actions have
+    /// been lowered. An unmatched file is supplied across the Execution Plan
+    /// boundary; a matched file depends on that output's producer.
+    inputs: Vec<PathBuf>,
     outputs: Vec<PathBuf>,
     command: LoweredCommand,
     cache_eligible: bool,
@@ -200,7 +184,7 @@ pub struct ExecutionAction {
 
 impl ExecutionAction {
     pub(crate) fn new(
-        mut inputs: Vec<InputObservation>,
+        mut inputs: Vec<PathBuf>,
         outputs: Vec<PathBuf>,
         command: LoweredCommand,
         fileloc: String,
@@ -243,7 +227,7 @@ impl ExecutionAction {
         self
     }
 
-    pub fn inputs(&self) -> &[InputObservation] {
+    pub fn inputs(&self) -> &[PathBuf] {
         &self.inputs
     }
 
@@ -346,10 +330,7 @@ impl ExecutionPlan {
             .actions
             .iter()
             .flat_map(|action| &action.inputs)
-            .filter_map(|input| match input {
-                InputObservation::File(path) => Some(path.as_path()),
-                InputObservation::StandardLibraryInterfaces(_) => None,
-            })
+            .map(PathBuf::as_path)
             .collect::<HashSet<_>>();
         self.actions
             .iter()
@@ -558,7 +539,7 @@ mod tests {
             .collect();
         (
             ExecutionAction::new(
-                inputs.into_iter().map(InputObservation::File).collect(),
+                inputs,
                 outputs,
                 LoweredCommand::from(vec![command.to_string()]),
                 command.to_string(),
@@ -608,7 +589,7 @@ mod tests {
         let (plan, producer, consumer) = producer_and_consumer_plan();
 
         let input = plan
-            .declared_output(plan.action(consumer).inputs()[0].path())
+            .declared_output(&plan.action(consumer).inputs()[0])
             .expect("action input should resolve to a declared output");
         assert_eq!(input.artifact(), Some(&ArtifactKey::RuntimeLibrary));
         assert_eq!(input.producer(), producer);

@@ -32,9 +32,7 @@ use crate::{
     CompileConfig, ResolvedProject,
     build_plan::{ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
     discover::{DiscoverResult, DiscoveredPackage},
-    execution_plan::{
-        ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder, InputObservation,
-    },
+    execution_plan::{ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder},
     model::{BackendConfig, BuildPlanNode, BuildTarget},
     pkg_solve::PackageRelations,
     target_layout::{
@@ -408,20 +406,6 @@ impl<'a> LoweringContext<'a> {
                 .iter()
                 .flat_map(|artifact| artifact.paths.iter().map(PathBuf::as_path)),
         );
-        if matches!(
-            action,
-            BuildAction::Check { .. }
-                | BuildAction::EmitProof { .. }
-                | BuildAction::Prove { .. }
-                | BuildAction::BuildCore { .. }
-                | BuildAction::BuildVirtual { .. }
-        ) && let Some(stdlib_root) = &self.opt.stdlib_path
-        {
-            inputs.push(InputObservation::StandardLibraryInterfaces(
-                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.backend.target_backend()),
-            ));
-        }
-
         let observes_toolchain_headers = matches!(
             action,
             BuildAction::BuildCStub { .. }
@@ -429,12 +413,7 @@ impl<'a> LoweringContext<'a> {
                 | BuildAction::CompileGeneratedC { .. }
         );
         if observes_toolchain_headers {
-            inputs.extend(
-                self.toolchain_include_files()?
-                    .iter()
-                    .cloned()
-                    .map(InputObservation::File),
-            );
+            inputs.extend(self.toolchain_include_files()?.iter().cloned());
         }
 
         // These are the only Moon-owned libraries that command construction
@@ -447,7 +426,7 @@ impl<'a> LoweringContext<'a> {
                 let path = Path::new(&compiler_paths.lib_path).join(name);
                 let rendered = path.display().to_string();
                 if command.args().iter().any(|argument| argument == &rendered) {
-                    inputs.push(InputObservation::File(path));
+                    inputs.push(path);
                 }
             }
         }
@@ -455,8 +434,7 @@ impl<'a> LoweringContext<'a> {
             action_artifacts
                 .dependencies
                 .iter()
-                .flat_map(|artifact| artifact.paths.iter().cloned())
-                .map(InputObservation::File),
+                .flat_map(|artifact| artifact.paths.iter().cloned()),
         );
 
         let error_package = match action_key {

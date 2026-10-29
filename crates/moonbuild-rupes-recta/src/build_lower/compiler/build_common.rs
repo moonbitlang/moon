@@ -189,9 +189,6 @@ pub(crate) struct BuildCommonConfig<'a> {
     pub pkgtype: PackageKind,
     pub use_async_io: bool,
 
-    // Standard library
-    /// Pass [None] for no_std
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
     /// Module directory (parent of moon.mod.json)
     pub workspace_root: Option<Cow<'a, Path>>,
 
@@ -218,7 +215,6 @@ impl<'a> Default for BuildCommonConfig<'a> {
             warn_config: WarnAlertConfig::Default,
             pkgtype: PackageKind::Library,
             use_async_io: false,
-            stdlib_core_file: None,
             workspace_root: None,
             check_mi: None,
             virtual_implementation: None,
@@ -265,16 +261,6 @@ impl<'a> BuildCommonConfig<'a> {
     pub(crate) fn add_use_async_io(&self, args: &mut Vec<String>) {
         if self.use_async_io {
             args.push("-use-async-io".to_string());
-        }
-    }
-
-    /// Add standard library path arguments
-    pub(crate) fn add_stdlib_path(&self, args: &mut Vec<String>) {
-        if let Some(stdlib_path) = &self.stdlib_core_file {
-            args.extend([
-                "-std-path".to_string(),
-                dunce::simplified(stdlib_path).display().to_string(),
-            ]);
         }
     }
 

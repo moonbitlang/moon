@@ -35,8 +35,8 @@ fn virtual_contract_uses_lifecycle_interface_dependencies() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moonc build-package ./src/dep/dep.mbt -o ./_build/wasm-gc/debug/build/dep/dep.core -pkg virtual_artifact_lifecycle/dep -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources virtual_artifact_lifecycle/dep:./src/dep -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/build/virtual/virtual.mi -i ./_build/wasm-gc/debug/build/dep/dep.mi:dep -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg virtual_artifact_lifecycle/virtual -pkg-sources virtual_artifact_lifecycle/virtual:./src/virtual -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
+moonc build-package ./src/dep/dep.mbt -o ./_build/wasm-gc/debug/build/dep/dep.core -pkg virtual_artifact_lifecycle/dep -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude' -pkg-sources virtual_artifact_lifecycle/dep:./src/dep -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/build/virtual/virtual.mi -i ./_build/wasm-gc/debug/build/dep/dep.mi:dep -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude' -pkg virtual_artifact_lifecycle/virtual -pkg-sources virtual_artifact_lifecycle/virtual:./src/virtual -virtual -error-format json
 
 "#]]);
 
@@ -48,8 +48,8 @@ moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/build/vir
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moonc check ./src/dep/dep.mbt -o ./_build/wasm-gc/debug/check/dep/dep.mi -pkg virtual_artifact_lifecycle/dep -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources virtual_artifact_lifecycle/dep:./src/dep -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/check/virtual/virtual.mi -i ./_build/wasm-gc/debug/check/dep/dep.mi:dep -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg virtual_artifact_lifecycle/virtual -pkg-sources virtual_artifact_lifecycle/virtual:./src/virtual -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
+moonc check ./src/dep/dep.mbt -o ./_build/wasm-gc/debug/check/dep/dep.mi -pkg virtual_artifact_lifecycle/dep -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude' -pkg-sources virtual_artifact_lifecycle/dep:./src/dep -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+moonc build-interface ./src/virtual/pkg.mbti -o ./_build/wasm-gc/debug/check/virtual/virtual.mi -i ./_build/wasm-gc/debug/check/dep/dep.mi:dep -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude' -pkg virtual_artifact_lifecycle/virtual -pkg-sources virtual_artifact_lifecycle/virtual:./src/virtual -virtual -error-format json
 
 "#]]);
 }

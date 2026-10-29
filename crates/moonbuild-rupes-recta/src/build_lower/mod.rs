@@ -36,9 +36,7 @@ mod lower_aux;
 mod lower_build;
 mod moonc_command;
 
-pub use crate::execution_plan::{
-    InputObservation, LoweredCommand, LoweredCommandExecution, LoweredResponseFile,
-};
+pub use crate::execution_plan::{LoweredCommand, LoweredCommandExecution, LoweredResponseFile};
 
 use command::BuildCommand;
 use context::LoweringContext;
@@ -368,11 +366,7 @@ mod tests {
             .map(|id| plan.action(id))
             .find(|action| matches(action.command().args()))
             .expect("matching lowered command should be present");
-        action
-            .inputs()
-            .iter()
-            .map(|input| input.path().to_owned())
-            .collect()
+        action.inputs().to_vec()
     }
 
     #[test]
@@ -956,7 +950,7 @@ mod tests {
             let dsym_inputs = dsym_action
                 .inputs()
                 .iter()
-                .map(InputObservation::path)
+                .map(PathBuf::as_path)
                 .collect::<HashSet<_>>();
 
             assert_eq!(

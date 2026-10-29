@@ -60,6 +60,7 @@ mod fmt_moon_pkg;
 mod fmt_path;
 mod fuzzy_matching;
 mod hello;
+mod implicit_stdlib_alias;
 mod indirect_dep;
 mod inline_test;
 #[cfg(target_os = "macos")]

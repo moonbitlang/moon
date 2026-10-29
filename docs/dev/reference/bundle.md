@@ -10,4 +10,4 @@ The behavior of `moon bundle` is as follows:
 Virtual packages are excluded from `core.core`, but their separately built
 contract `.mi` and default implementation `.core` remain beside the bundle as
 installed sidecars. An implementation-check `.impl.mi` is a local check output,
-not a `moon bundle` product and not part of the installed `-std-path`.
+not a `moon bundle` product and not part of the installed bundle.

@@ -68,6 +68,17 @@ important ones and why they exist.
   `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   `None`, so stdlib packages resolve to local `_build/...` artifacts.
+- **Non-stdlib packages implicitly import `prelude` and `builtin`.** The
+  solver adds both edges to every non-stdlib target unless the package already
+  imports them, in which case its alias wins. Moon never passes `-std-path`, so
+  installed stdlib packages reach `moonc` only as explicit `-i` imports.
+  `builtin` is needed because `moonc` resolves some names re-exported by
+  `prelude`, such as the `Failure` constructor, only when `builtin` is loaded.
+  The implicit edges use the full package names (`moonbitlang/core/prelude`
+  and `moonbitlang/core/builtin`) as their aliases, so they never collide with
+  a user package or import named `prelude` or `builtin`, and user code still
+  has to import either package to write `@prelude.xxx` or `@builtin.xxx`. Any
+  other stdlib package must be imported explicitly.
 - **RR consumes the selected resolver.** `CompileConfig`, `LoweringContext`,
   `BuildMeta`, metadata generation, and `all_pkgs.json` generation all consume
   the same selected `ArtifactPathResolver`. `metadata.rs` and `all_pkgs.rs`

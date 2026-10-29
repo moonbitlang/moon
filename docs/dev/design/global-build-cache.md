@@ -184,8 +184,10 @@ relocatable execution model must first make path-dependent tool behavior
 explicit or path-independent; rewriting only the cache key would risk an
 incorrect hit.
 
-The standard-library `-std-path` input is represented as a recursive `.mi`
-tree and digested once per identity calculation. `all_pkgs.json` is derived
+Installed standard-library interfaces are ordinary file inputs: each compiler
+action observes the `.mi` files reachable from its direct standard-library
+dependencies, so an unrelated standard-library change does not alter its
+identity. `all_pkgs.json` is derived
 transport metadata and is not hashed by raw file contents: the reachable
 producer closure is the semantic source of dependency identities. Actions that
 still observe unmodeled directory state, such as proof execution and

@@ -392,8 +392,8 @@ impl<'a> BuildPlanConstructor<'a> {
     /// proof surface (`.mi` + `.mlw`). Provider selection decides whether an
     /// explicit `Prove` or an internal `EmitProof` action supplies that surface.
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        // As with normal `.mi` dependencies, stdlib packages are resolved via
-        // the injected stdlib path rather than by planning local nodes.
+        // As with normal `.mi` dependencies, stdlib packages use installed
+        // toolchain artifacts rather than planned local nodes.
         if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
@@ -422,7 +422,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) {
         // If the given target is a virtual package with default implementation,
         // we need to build its interface first. Injected stdlib contracts are
-        // already supplied by `-std-path` and remain external to this plan.
+        // installed toolchain files and remain external to this plan.
         if pkg.is_virtual() && !(self.config.stdlib_path.is_some() && pkg.is_stdlib) {
             self.require_artifact(
                 node,

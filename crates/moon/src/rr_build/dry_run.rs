@@ -27,7 +27,7 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
-use moonbuild_rupes_recta::execution_plan::{ActionId, ExecutionPlan, InputObservation};
+use moonbuild_rupes_recta::execution_plan::{ActionId, ExecutionPlan};
 use moonutil::path_normalizer::PathNormalizer;
 
 /// Print commands for default execution roots and explicitly requested artifacts.
@@ -128,12 +128,7 @@ fn write_action_graph(
             let mut inputs = action
                 .inputs()
                 .iter()
-                .filter_map(|input| match input {
-                    InputObservation::File(path) => {
-                        Some(replacer.normalize_path(&path.to_string_lossy()))
-                    }
-                    InputObservation::StandardLibraryInterfaces(_) => None,
-                })
+                .map(|path| replacer.normalize_path(&path.to_string_lossy()))
                 .collect::<Vec<_>>();
             inputs.sort();
             let outputs = action
@@ -172,7 +167,7 @@ fn ordered_actions<'a>(
             action
                 .inputs()
                 .iter()
-                .map(InputObservation::path)
+                .map(PathBuf::as_path)
                 .chain(action.outputs().iter().map(PathBuf::as_path))
         })
         .map(|path| {
@@ -208,15 +203,7 @@ fn ordered_actions<'a>(
             result.push(id);
         } else if visited.insert(id) {
             stack.push((path, true));
-            inputs.extend(
-                plan.action(id)
-                    .inputs()
-                    .iter()
-                    .filter_map(|input| match input {
-                        InputObservation::File(path) => Some(path.as_path()),
-                        InputObservation::StandardLibraryInterfaces(_) => None,
-                    }),
-            );
+            inputs.extend(plan.action(id).inputs().iter().map(PathBuf::as_path));
             inputs.sort_unstable_by_key(by_file_name);
             stack.extend(inputs.drain(..).map(|path| (path, false)));
         }
