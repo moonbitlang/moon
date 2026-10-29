@@ -41,7 +41,6 @@ clap.workspace = true
 sha2.workspace = true
 log.workspace = true
 tracing.workspace = true
-walkdir.workspace = true
 tempfile.workspace = true
 form_urlencoded.workspace = true
 indexmap.workspace = true

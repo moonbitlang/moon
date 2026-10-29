@@ -1438,7 +1438,7 @@ fn symlink_native_path(
     } else {
         0
     };
-    if unsafe { CreateSymbolicLinkW(path_wide.as_ptr(), target_wide.as_ptr(), flags) } != 0 {
+    if unsafe { CreateSymbolicLinkW(path_wide.as_ptr(), target_wide.as_ptr(), flags) } {
         Ok(())
     } else {
         Err(last_native_error())

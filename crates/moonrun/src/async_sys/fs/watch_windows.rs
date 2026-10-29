@@ -19,7 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 use std::sync::OnceLock;
-use windows_sys::Win32::Foundation::{BOOL, HANDLE};
+use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ACTION_MODIFIED, FILE_NOTIFY_CHANGE, FILE_NOTIFY_EXTENDED_INFORMATION,
     FILE_NOTIFY_INFORMATION, READ_DIRECTORY_NOTIFY_INFORMATION_CLASS,
@@ -27,6 +27,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::{LPOVERLAPPED_COMPLETION_ROUTINE, OVERLAPPED};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+use windows_sys::core::BOOL;
 
 const BASIC_EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_INFORMATION>();
 const EXTENDED_EVENT_SIZE: usize = std::mem::size_of::<FILE_NOTIFY_EXTENDED_INFORMATION>();
