@@ -35,7 +35,7 @@ fn select(raw_args: Vec<OsString>)
     -> Result<SelectedInvocation, clap::Error>;
 ```
 
-Selection produces one of four outcomes:
+Selection produces one of these outcomes:
 
 ```rust
 enum SelectedInvocation {
@@ -43,6 +43,7 @@ enum SelectedInvocation {
     Moon(Box<MoonInvocation>),
     Moonx(MoonxInvocation),
     Delegate(DelegatedInvocation),
+    ArtifactHandoff(Box<ArtifactHandoffInvocation>),
 }
 ```
 
@@ -51,8 +52,9 @@ workspace state, or start a child process.
 
 The selector owns the interaction between Clap and compatibility grammar. It
 first selects executable-name and hidden-tool parsers, then parses ordinary
-Moon commands. The private prefix parser is used only where an opaque delegate
-tail prevents Clap from parsing the complete invocation. Cram and external
+Moon commands. A private artifact-handoff prefix is restricted to `moon run` and `moonx`;
+selection retains its path, and runtime opens it before applying `-C`. Opaque
+delegate tails have their own prefix parser where Clap cannot parse the complete invocation. Cram and external
 modules receive an already selected invocation; they do not inspect raw
 arguments or Clap errors.
 

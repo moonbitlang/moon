@@ -59,19 +59,16 @@ fn async_virtual_process_control() {
         false,
     )
     .unwrap();
-    snapbox::cmd::Command::new(moon)
+    snapbox::cmd::Command::new(&moon)
         .current_dir(project.path())
         .args(["build", "src/virtual_control", "--target", "wasm"])
         .assert()
         .success();
     let engine = Engine::default();
-    let module = engine
-        .load_file(
-            project
-                .path()
-                .join("_build/wasm/debug/build/virtual_control/virtual_control.wasm"),
-        )
-        .unwrap();
+    let wasm_path = project
+        .path()
+        .join("_build/wasm/debug/build/virtual_control/virtual_control.wasm");
+    let module = engine.load_file(&wasm_path).unwrap();
     let unhandled = engine.compile("unhandled.wasm", wat::parse_str(r#"(module
         (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
         (memory (export "memory") 1)
@@ -80,8 +77,15 @@ fn async_virtual_process_control() {
         (func (export "_start")
             i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write drop
             (loop br 0)))"#).unwrap()).unwrap();
-    for mode in ["exit", "retry", "graceful", "unhandled", "busy"] {
-        eprintln!("virtual control: {mode}");
+    for (mode, handoff) in [
+        ("exit", false),
+        ("retry", false),
+        ("graceful", false),
+        ("unhandled", false),
+        ("busy", false),
+        ("graceful", true),
+    ] {
+        eprintln!("virtual control: {mode}, handoff: {handoff}");
         let tree = VirtualProcessTree::new(engine.clone()).unwrap();
         let expected = match mode {
             "exit" | "retry" => 23,
@@ -121,21 +125,38 @@ fn async_virtual_process_control() {
             .unwrap();
         let (child_input, mut release_child) = std::io::pipe().unwrap();
         let (child_output, child_stdout) = std::io::pipe().unwrap();
-        let child = tree
-            .spawn(
+        let options = RunOptions::default().with_stdio(
+            File::from(OwnedFile::from(child_input)),
+            File::from(OwnedFile::from(child_stdout)),
+            errors.try_clone().unwrap(),
+        );
+        // Artifact preparation must retain the tree's signal receiver: a
+        // registered graceful handler must run instead of default termination.
+        let child = if handoff {
+            tree.spawn_moon(
+                Some(parent),
+                Path::new(&moon),
+                &[
+                    "run".into(),
+                    wasm_path.as_os_str().to_owned(),
+                    "--".into(),
+                    "child".into(),
+                    mode.into(),
+                ],
+                options,
+            )
+        } else {
+            tree.spawn(
                 Some(parent),
                 if mode == "unhandled" {
                     &unhandled
                 } else {
                     &module
                 },
-                RunOptions::default().with_args(["child", mode]).with_stdio(
-                    File::from(OwnedFile::from(child_input)),
-                    File::from(OwnedFile::from(child_stdout)),
-                    errors.try_clone().unwrap(),
-                ),
+                options.with_args(["child", mode]),
             )
-            .unwrap();
+        }
+        .unwrap();
         let mut child_output = BufReader::new(child_output);
         let mut ready = String::new();
         child_output.read_line(&mut ready).unwrap();

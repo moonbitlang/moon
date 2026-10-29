@@ -73,6 +73,7 @@ enum MoonxInput {
 
 #[derive(Debug)]
 pub(crate) struct MoonxInvocation {
+    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
     pub(crate) experimental_policy: Option<PathBuf>,
     pub(crate) verbose: bool,
     input: String,
@@ -97,6 +98,7 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
         _ => args,
     };
     Ok(MoonxInvocation {
+        handoff: None,
         experimental_policy: cli.experimental_policy,
         verbose: cli.verbose,
         input: input.clone(),
@@ -109,6 +111,7 @@ pub(crate) fn prepare(
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
     let MoonxInvocation {
+        handoff,
         experimental_policy,
         verbose,
         input,
@@ -117,24 +120,31 @@ pub(crate) fn prepare(
 
     let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
         .map(moonutil::policy_transport::PolicyTransfer::into_relay);
-    let (wasm_path, embedded_policy) = if is_mbtx_input(&input) {
+    let standalone = if is_mbtx_input(&input) {
         let dirs = moonutil::project::SourceTargetDirs {
             cwd: None,
             target_dir: None,
         }
         .single_file_package_dirs(&input)?;
-        let built = super::run::build_standalone_wasm(dirs, false, verbose)?;
-        (built.executable, built.embedded_mbtx_policy)
+        Some(super::run::build_standalone_wasm(dirs, false, verbose)?)
     } else {
-        (
-            RegistryClient::configured(user_log).acquire_executable_wasm(&input, user_log)?,
-            None,
-        )
+        None
+    };
+    let wasm_path = match &standalone {
+        Some(built) => built.executable.clone(),
+        None => RegistryClient::configured(user_log).acquire_executable_wasm(&input, user_log)?,
     };
     let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
         experimental_policy.as_deref(),
-        embedded_policy.as_ref(),
+        standalone
+            .as_ref()
+            .and_then(|built| built.embedded_mbtx_policy.as_ref()),
     );
+
+    if let Some(handoff) = handoff {
+        handoff.publish(&wasm_path, &args, policy, policy_source_dir)?;
+        return Ok(super::process::ProcessAction::Exit(0));
+    }
 
     registry_runner::prepare_artifact(
         &wasm_path,

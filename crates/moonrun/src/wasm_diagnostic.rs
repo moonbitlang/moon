@@ -119,14 +119,9 @@ mod tests {
     #[test]
     #[cfg(any(feature = "v8", feature = "wasmtime", feature = "wee8"))]
     fn retains_runtime_locations_alongside_source_positions() {
-        let directory = tempfile::tempdir().unwrap();
-        let wasm = directory.path().join("module.wasm");
-        std::fs::write(
-            directory.path().join("module.wasm.map"),
-            r#"{"sources":["main.mbt"],"mappings":"AAAA"}"#,
-        )
-        .unwrap();
-        let source_map = crate::source_map::load(&wasm, b"").unwrap();
+        let source_map =
+            crate::source_map::SourceMap::parse(r#"{"sources":["main.mbt"],"mappings":"AAAA"}"#)
+                .unwrap();
         let diagnostic = render(
             [DiagnosticLine::Frame {
                 indentation: "    ".to_owned(),

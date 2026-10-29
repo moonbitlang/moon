@@ -49,6 +49,7 @@ fn command_string_run_parses_as_expected() {
                 },
             },
             RunSubcommand {
+                handoff: None,
                 package_or_mbt_file: None,
                 command: Some(
                     "fn main { println(\"hello\") }",

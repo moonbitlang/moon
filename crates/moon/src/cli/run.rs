@@ -85,6 +85,9 @@ impl ResolvedRunSelection {
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
 pub(crate) struct RunSubcommand {
+    #[clap(skip)]
+    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
+
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
     #[clap(group = "run_source")]
     pub package_or_mbt_file: Option<String>,
@@ -291,6 +294,7 @@ fn run_source_as_single_file(
     })?;
 
     let RunSubcommand {
+        handoff,
         command: _,
         build_flags,
         args,
@@ -301,6 +305,7 @@ fn run_source_as_single_file(
         ..
     } = cmd;
     let cmd = RunSubcommand {
+        handoff,
         package_or_mbt_file: Some(input_path.to_string_lossy().into_owned()),
         command: None,
         build_flags,
@@ -372,9 +377,24 @@ fn build_wasm_file_executable_from_arg(
 #[instrument(skip_all)]
 pub(crate) fn run_run(
     cli: &UniversalFlags,
-    cmd: RunSubcommand,
+    mut cmd: RunSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    if cmd.handoff.is_some() && (cli.dry_run || cmd.build_only || cmd.profile) {
+        bail!("Moonrun handoff cannot be combined with --dry-run, --build-only, or --profile");
+    }
+    if cmd.handoff.is_some() {
+        if cmd.build_flags.target.is_empty() {
+            cmd.build_flags.target.push(SurfaceTarget::Wasm);
+        }
+        anyhow::ensure!(
+            cmd.build_flags
+                .target
+                .iter()
+                .all(|target| matches!(target, SurfaceTarget::Wasm | SurfaceTarget::WasmGC)),
+            "Moonrun handoff requires a Wasm target"
+        );
+    }
     if cmd.profile {
         return super::profile::run_profiled_run(cli, cmd, output);
     }
@@ -462,7 +482,7 @@ pub(crate) fn build_standalone_wasm(
     dirs: SingleFilePackageDirs,
     frozen: bool,
     verbose: bool,
-) -> anyhow::Result<StandaloneWasm> {
+) -> anyhow::Result<RunExecutable> {
     // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
     // once standalone build planning accepts explicit source, backend, sync,
     // and output options without UniversalFlags and RunSubcommand.
@@ -481,6 +501,7 @@ pub(crate) fn build_standalone_wasm(
             .expect("empty unstable feature set must be valid"),
     };
     let cmd = RunSubcommand {
+        handoff: None,
         package_or_mbt_file: Some(dirs.input_path.to_string_lossy().into_owned()),
         command: None,
         build_flags: BuildFlags {
@@ -494,7 +515,7 @@ pub(crate) fn build_standalone_wasm(
         profile: false,
     };
     let output = CommandOutput::new(user_log_level(verbose, !verbose));
-    let mut built = build_single_file_executable(
+    let built = build_single_file_executable(
         &cli,
         &cmd,
         dirs.package_dirs,
@@ -507,16 +528,7 @@ pub(crate) fn build_standalone_wasm(
         built.backend.target_backend() == TargetBackend::Wasm,
         "standalone `.mbtx` build did not produce linear-memory Wasm"
     );
-    built.release_lock();
-    Ok(StandaloneWasm {
-        executable: built.executable,
-        embedded_mbtx_policy: built.embedded_mbtx_policy,
-    })
-}
-
-pub(crate) struct StandaloneWasm {
-    pub(crate) executable: PathBuf,
-    pub(crate) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
+    Ok(built)
 }
 
 #[instrument(skip_all)]
@@ -917,6 +929,15 @@ fn run_executable(
         cmd.moonrun_policy.as_deref(),
         executable.embedded_mbtx_policy.as_ref(),
     );
+    if let Some(handoff) = &cmd.handoff {
+        handoff.publish(
+            &executable.executable,
+            &cmd.args,
+            moonrun_policy,
+            policy_source_dir,
+        )?;
+        return Ok(0);
+    }
     let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
         crate::run::ExecutionMode::from(&executable.backend),
         executable.executable.as_path(),

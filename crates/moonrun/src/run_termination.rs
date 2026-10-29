@@ -86,11 +86,7 @@ impl RunTerminator {
 
 impl RunTerminationReceiver {
     pub(crate) fn close(&self) -> Option<RunTermination> {
-        let mut state = self.request.0.lock().unwrap();
-        state.connected = false;
-        state.interrupt = None;
-        state.host_wake = None;
-        state.outcome
+        self.request.close()
     }
 }
 
@@ -133,6 +129,16 @@ impl Default for TerminationRequest {
 }
 
 impl TerminationRequest {
+    // Preparation may finish before a receiver reaches Engine::run. Closing
+    // through the retained request keeps accepted termination authoritative.
+    pub(crate) fn close(&self) -> Option<RunTermination> {
+        let mut state = self.0.lock().unwrap();
+        state.connected = false;
+        state.interrupt = None;
+        state.host_wake = None;
+        state.outcome
+    }
+
     pub(crate) fn request(&self, termination: RunTermination) {
         // Imports record their outcome while Guest Memory may still be borrowed.
         // Their adapter interrupts only after the host call has returned.

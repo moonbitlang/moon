@@ -67,6 +67,16 @@ execution seam. On macOS, that seam retains the historical wait workaround but
 restores the parent's original signal mask in the child before `exec`, so the
 temporary block does not escape into the test program.
 
+## Supervised artifact delivery
+
+A private prefix, `--moonrun-artifact-handoff <directory>`, lets a moonrun
+supervisor request `moon run` preparation without program execution. Moon
+copies Wasm, its optional local source map and policy before releasing build
+locks or deleting temporary source. It publishes the result manifest last and
+exits; the supervisor requires successful helper exit before consuming it.
+Arguments and the effective cwd travel in that manifest. Dry-run, build-only,
+profiling and non-Wasm targets are rejected in this mode.
+
 ## Why Unix `exec` was rejected
 
 An earlier implementation used `exec` on Unix. It appeared attractive because

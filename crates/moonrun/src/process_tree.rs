@@ -19,11 +19,14 @@
 //! Supervision and guest process identity for concurrent Runs.
 
 mod guest;
+mod moon;
 #[cfg(windows)]
 pub(crate) use guest::ProcessHandle;
 pub(crate) use guest::{ProcessContext, ProcessWait};
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
@@ -99,6 +102,8 @@ pub enum ProcessError {
     AlreadyWaiting(VirtualPid),
     #[error("the virtual process tree owns the Run termination receiver")]
     TerminationAlreadyConfigured,
+    #[error("Moon handoff owns the program arguments; pass them through the Moon command")]
+    MoonArgumentsAlreadyConfigured,
     #[error("failed to prepare or start a virtual process")]
     Spawn(#[from] std::io::Error),
     #[error("virtual process Run failed")]
@@ -241,7 +246,44 @@ impl VirtualProcessTree {
         &self,
         parent: Option<VirtualPid>,
         module: &Module,
+        options: RunOptions,
+    ) -> Result<VirtualPid, ProcessError> {
+        let module = module.clone();
+        self.spawn_run(parent, options, move |engine, options, signals| {
+            engine.run_with_signal_receiver(&module, options, signals)
+        })
+    }
+
+    /// Ask a host-selected Moon or moonx executable to prepare Wasm, then run it
+    /// under the PID allocated here. `args` are Moon's arguments, including
+    /// `run` for Moon; pass program arguments there rather than in `options`.
+    ///
+    /// Build/download helpers retain host access. Termination during preparation
+    /// is retained until the helper exits and prevents subsequent Wasm execution.
+    pub fn spawn_moon(
+        &self,
+        parent: Option<VirtualPid>,
+        executable: &Path,
+        args: &[OsString],
+        options: RunOptions,
+    ) -> Result<VirtualPid, ProcessError> {
+        if !options.args.is_empty() || options.test_args.is_some() {
+            return Err(ProcessError::MoonArgumentsAlreadyConfigured);
+        }
+        let executable = executable.to_owned();
+        let args = args.to_vec();
+        self.spawn_run(parent, options, move |engine, options, signals| {
+            moon::run(engine, &executable, &args, options, signals)
+        })
+    }
+
+    fn spawn_run(
+        &self,
+        parent: Option<VirtualPid>,
         mut options: RunOptions,
+        run: impl FnOnce(&Engine, RunOptions, crate::SignalReceiver) -> anyhow::Result<RunOutcome>
+        + Send
+        + 'static,
     ) -> Result<VirtualPid, ProcessError> {
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
@@ -267,7 +309,6 @@ impl VirtualProcessTree {
         let (signals, signal_receiver) = crate::signal_channel();
         options.termination_receiver = Some(receiver);
         let engine = self.engine.clone();
-        let module = module.clone();
         let shared_table = Arc::clone(&self.table);
         let completion = Arc::new(ProcessCompletion::default());
         let reaper = completion.start_reaper(pid)?;
@@ -281,7 +322,7 @@ impl VirtualProcessTree {
                     table: shared_table,
                     pid,
                 };
-                engine.run_with_signal_receiver(&module, options, signal_receiver)
+                run(&engine, options, signal_receiver)
             })?;
         table.insert(
             pid,
