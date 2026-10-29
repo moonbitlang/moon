@@ -298,6 +298,14 @@ pub fn get_desc_name(package_name: &str, artifact: &str) -> String {
 /// prefixes as different roots. This does not change paths used for I/O, resolve
 /// dot components, or require paths (such as removed watch events) to exist.
 pub fn starts_with_equivalent_prefix(path: &Path, base: &Path) -> bool {
+    strip_equivalent_prefix(path, base).is_some()
+}
+
+/// Strip a path prefix while accepting ordinary and verbatim Windows drive/UNC
+/// spellings at an external-input or display boundary. Internal paths should
+/// still be constructed consistently before comparison. Like `strip_prefix`,
+/// this matches complete components without resolving symlinks or dot segments.
+pub fn strip_equivalent_prefix<'a>(path: &'a Path, base: &Path) -> Option<&'a Path> {
     use std::path::{Component, Prefix};
 
     let mut components = path.components();
@@ -321,4 +329,47 @@ pub fn starts_with_equivalent_prefix(path: &Path, base: &Path) -> bool {
             (Some(path), base) => path == base,
             (None, _) => false,
         })
+        .then_some(components.as_path())
+}
+
+#[cfg(windows)]
+#[test]
+fn strip_equivalent_prefix_preserves_long_suffixes_and_component_boundaries() {
+    let suffix = format!("{}moonc.exe", r"segment\".repeat(40));
+    for (ordinary, verbatim) in [
+        (r"C:\Users\test", r"\\?\C:\Users\test"),
+        (r"\\server\share\test", r"\\?\UNC\server\share\test"),
+    ] {
+        for root in [ordinary, verbatim] {
+            let path = Path::new(root).join(&suffix);
+            for base in [ordinary, verbatim] {
+                assert_eq!(
+                    strip_equivalent_prefix(&path, Path::new(base)),
+                    Some(Path::new(&suffix))
+                );
+                assert_eq!(
+                    strip_equivalent_prefix(Path::new(root), Path::new(base)),
+                    Some(Path::new(""))
+                );
+                assert_eq!(
+                    strip_equivalent_prefix(Path::new(&format!("{root}-other")), Path::new(base)),
+                    None
+                );
+            }
+        }
+    }
+    assert_eq!(
+        strip_equivalent_prefix(
+            Path::new(r"\\?\D:\Users\test\moonc.exe"),
+            Path::new(r"C:\Users\test")
+        ),
+        None
+    );
+    assert_eq!(
+        strip_equivalent_prefix(
+            Path::new(r"\\?\UNC\server\other\test\moonc.exe"),
+            Path::new(r"\\server\share\test")
+        ),
+        None
+    );
 }
