@@ -18,25 +18,29 @@ predate this decision. These commitments remain in force.
 Moonrun is an execution library with a CLI adapter. Embedding callers must be
 able to reuse prepared modules, choose execution placement, and observe guest
 outcomes without surrendering the host process's lifecycle. The public interface
-should converge on one execution-host entry point that integrates Engine and
-Supervisor responsibilities internally. A caller must not need to compose those
-owners or understand a Command object to execute a program. Internally, Engine
-prepares and executes Wasm, Supervisor owns admission and lifecycle, and Runtime
-owns the virtual environment. The command module composes preparation, execution,
-and cleanup rather than defining another public object model.
+uses `Engine` as its execution-host entry point. Engine prepares and executes
+Wasm and owns process admission and lifecycle; Runtime owns the virtual
+environment. A caller does not compose separate execution and supervision
+objects. Preparation, execution, and cleanup form one lifecycle without an
+additional command object or domain model.
 
 Preparing a Moon/moonx artifact for execution in the embedding process or
 delegating the invocation to an external process is an execution strategy
-behind that interface. This choice
-does not grant additional authority or change who owns completion and cleanup.
-Backend selection is separate from this strategy. Synchronous Run execution
-must remain available on the
-calling thread. Exact public types and method names remain to be designed.
+behind that interface. This choice does not grant additional authority or
+change who owns completion and cleanup.
+Backend selection is separate from this strategy. `Engine::run` executes on
+the calling thread; `Engine::spawn` creates managed work whose result is consumed
+by `Engine::wait`. `run_moon` and `spawn_moon` share preparation and artifact
+execution, with an external helper preparing the artifact in both cases.
+External delegation of the whole invocation remains future work.
 
-This public-interface convergence is follow-up work. The implementation in
-[#2403](https://github.com/moonbitlang/moon/pull/2403) retains the existing public
-`Engine` and `VirtualProcessTree` interfaces while establishing their internal
-ownership; it does not yet provide the unified entry point.
+Each new Engine owns an independent process namespace. Clones share its backend
+and process table, while each Run realizes its own Runtime. The process table
+retains control and completion rather than Runtime or Engine references, so a
+Runtime's reference to its execution host does not create an ownership cycle.
+Guest Process Mode is selected independently of placement: Native preserves
+compatibility, while Virtual selects virtual child control and owned root
+state. Public owned-environment configuration is available in either mode.
 
 Host behavior follows three semantic layers: ABI adaptation, Host Domains, and
 Raw Operations. Each Host Domain interprets and authorizes an operation against
@@ -53,10 +57,10 @@ PID, an owned environment, or a Moonrun Policy file alone is not a complete
 sandbox guarantee. Ambient compatibility remains explicit while these contracts
 are implemented incrementally.
 
-The additional decisions are the internal separation of Supervisor, command
-execution, Run, and Runtime ownership behind a converged execution-host
-interface; the host-creation versus guest-derivation contract; and an authority
-ceiling spanning all exposed surfaces. The three-layer model
+The additional decisions are the separation of Engine lifecycle, Run, and
+Runtime ownership behind one execution-host interface; the host-creation versus
+guest-derivation contract; and an authority ceiling spanning all exposed
+surfaces. The three-layer model
 consolidates the existing domain separation and replaces the repository ADR's
 early V8-specific module allocation. It does not replace the native-shaped
 Worker/Job contract, acquired Resource ownership, or the established ABI and

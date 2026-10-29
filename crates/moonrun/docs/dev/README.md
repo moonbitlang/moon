@@ -178,50 +178,67 @@ is detached before the wait returns; it is never delivered as a guest signal.
 See `run_termination.rs` for the control contract and
 `tests/run_termination.rs` for timeout-bounded lifecycle tests.
 
-## Virtual process supervision
+## Engine execution and process supervision
 
-`VirtualProcessTree` admits Supervised Commands under stable virtual PIDs. A
-command includes preparation, a Wasm Run, and command-owned cleanup. Guests can
-signal themselves or children and wait for direct children through existing
-async APIs. Unix supports
+`Engine` owns both reusable Wasm execution and process supervision. A new Engine
+has its own process namespace; clones share the backend and process table.
+`run` executes on the calling thread. `spawn(parent, module, options)` executes
+on a managed thread and returns an identity for host control through `wait`,
+`terminate`, and `snapshot`. `GuestProcessMode` independently selects Native
+compatibility or Virtual guest process operations. Engine construction remains
+available on every backend; Virtual execution, managed spawning, and external
+termination currently require V8 and are checked at those operations.
+
+In Virtual mode, guests see virtual PIDs and can signal themselves or children
+and wait for direct children through existing async APIs. Unix supports
 SIGINT/SIGTERM/SIGHUP, SIGKILL and the signal-zero probe; Windows uses Ctrl-Break
 for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
-`spawn_moon` asks a host-selected Moon/moonx helper to hand off Wasm, source map,
-arguments, cwd and optional policy, then executes it under the allocated PID.
-The command execution module owns preparation and artifact dispatch. Its
-private delivery directory stays alive through Runtime teardown; normal build
-caches stay with Moon. The supervisor retains the sole termination receiver
-until command cleanup finishes. `Engine::run_in_scope` borrows that control and
-cannot close it when the Wasm Run returns. Standalone `Engine::run` still owns
-and closes its own receiver. An accepted termination overrides a normal result
-or execution error until the owning scope finalizes; panics remain process
-failures. Completion is published only after thread reaping.
+
+`run_moon` and `spawn_moon` ask a host-selected Moon/moonx helper to hand off
+Wasm, source map, arguments, cwd and optional policy, then use the same Engine
+artifact execution flow. `prepare_artifact` only prepares the artifact and
+borrows termination control. Engine retains its private delivery directory
+through Runtime teardown and cleanup; normal build caches stay with Moon.
+`run_file` also places file loading inside its execution scope. A Run borrows
+that scope's termination request and cannot finalize it when Wasm returns.
+Accepted termination overrides a normal result or execution error until the
+scope closes. A panic unwinds caller-thread execution; a managed-thread panic
+is reported as process failure. Managed completion is published only after
+thread reaping. Caller-thread Virtual execution reserves its result for the
+calling method, then removes its identity and adopts remaining children.
 
 `RuntimeConfig` carries the single set of environment, cwd, stdio, policy and
-process configuration inputs from admission through preparation to Runtime
-construction. Helpers borrow these inputs without taking Run control or
-executing guest code. Runtime realizes the canonical state once; configuration
-does not itself grant host access. Helpers retain host access. Cancellation
-during preparation waits for helper exit and prevents Wasm startup; helper-group
-cancellation remains a FIXME. The Run's Host Process checks guest spawn policy,
-resolves Moon/moonx against its environment and cwd, and prepares owned stdio,
-environment and policy for tree admission. Descendants join the same tree;
-policy environment provisioning reads the supplied child environment.
-Other native guest spawning remains unsupported in this mode.
-Ordinary Runs remain ambient. The tree owns
-PIDs, child relationships, and one reaper per Run, so blocked thread cleanup
-cannot delay other completions. A parent Run owns its wait Jobs and poll
-registrations. On macOS, its kqueue notifier observes tree completion through a
-weak `Waker`; the tree neither owns the parent poll nor knows its transport.
-Guest wait Jobs
-are cancellable and only consume the result when the guest reads it. Dropping an
-unread Job preserves that result. Exiting parents leave children with the
-supervisor. The CLI's `--virtual-process-tree` mode waits for adopted descendants
-before exiting with the root outcome. `Terminating` does not promise bounded
-teardown. See `tests/process_tree.rs`, `tests/guest_process_control.rs` and
-`tests/recursive_moon.rs`.
+process configuration inputs through preparation to Runtime construction.
+`RunOptions::with_environment` supplies an owned source, including an explicit
+empty environment. Host-facing Virtual entries capture only missing root Env
+and cwd values. Guest Host Process derives complete child inputs from current
+Runtime state and the guest request, selects Virtual mode, and submits them
+without host fallback. Policy provisioning reads the supplied environment;
+policy inheritance retains its existing precedence. Parentage never selects
+state or authority. Native mode preserves Ambient defaults unless the caller
+supplies owned state.
+
+The process table contains relationships, control, and completion, not Runtime
+or Engine. A Runtime can therefore refer to its Engine without an ownership
+cycle through the table. Each managed execution has its own reaper, so blocked
+thread cleanup cannot delay other completions. A parent Run owns its wait Jobs
+and poll registrations. On macOS, its kqueue notifier observes completion
+through a weak `Waker`; the table neither owns the parent poll nor knows its
+transport. Guest wait Jobs are cancellable and consume a result only when the
+guest reads it. Dropping an unread Job preserves that result. Exiting parents
+leave children with the Engine. Dropping Engine does not stop or join them; the
+embedding caller owns shutdown. The CLI's `--virtual-process-tree` mode waits
+for adopted descendants before exiting with the root outcome.
+
+Current permission coverage is unchanged. Helpers retain host access, and
+cancellation during preparation waits for helper exit before preventing Wasm
+startup; helper-group cancellation remains a FIXME. Prepared native/Node
+artifacts and ordinary native guest spawning in Virtual mode remain
+unsupported. `Terminating` does not promise bounded teardown. See
+`tests/process_tree.rs`, `tests/guest_process_control.rs`, `tests/recursive_moon.rs`
+and `tests/moon_handoff.rs`.
 
 ## Worker cancellation
 
