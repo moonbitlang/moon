@@ -262,6 +262,7 @@ Run a main package
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
+* `--virtual-process-tree` — Run Wasm descendants in the same virtual process tree (experimental)
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux

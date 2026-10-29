@@ -1,0 +1,11 @@
+----
+import { "moonbitlang/core/env" }
+permission(env: true)
+----
+#unsafe_skip_stub_check
+fn pid() -> Int = "moonbitlang/async" "env_util/getpid"
+fn main {
+  println(pid())
+  println(@env.get_env_var("VIRTUAL_CHAIN").unwrap())
+  println(@env.args()[1])
+}

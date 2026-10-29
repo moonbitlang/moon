@@ -126,7 +126,8 @@ pub fn resolve_executable_in(
     )
 }
 
-fn resolve_executable_in_paths(
+/// Resolve using an explicit environment PATH and working directory.
+pub fn resolve_executable_in_paths(
     tool: &OsStr,
     paths: Option<&OsStr>,
     current_dir: &Path,

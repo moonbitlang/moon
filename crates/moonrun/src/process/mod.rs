@@ -26,6 +26,7 @@
 
 mod ambient;
 mod job;
+mod moon;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -49,6 +50,7 @@ pub(crate) struct HostProcess {
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
     context: Option<crate::process_tree::ProcessContext>,
+    environment: Arc<crate::runtime::Env>,
 }
 
 #[derive(Default)]
@@ -70,6 +72,7 @@ impl HostProcess {
         working_directory: Arc<WorkingDirectory>,
         stdio: Arc<Stdio>,
         context: Option<crate::process_tree::ProcessContext>,
+        environment: Arc<crate::runtime::Env>,
     ) -> Self {
         // Enforced process policy needs child provenance to authorize later
         // PID and handle operations. Ambient execution preserves direct OS
@@ -84,6 +87,7 @@ impl HostProcess {
             stdio,
             child_authority,
             context,
+            environment,
         }
     }
 
@@ -118,8 +122,8 @@ impl HostProcess {
         })
     }
 
-    // The unfinished virtual spawn/native-handle paths must never
-    // reinterpret a virtual PID as an operating-system process identity.
+    // Native-handle paths must never reinterpret a virtual PID as an
+    // operating-system process identity.
     fn require_ambient(&self) -> AsyncHostResult<()> {
         if self.context.is_none() {
             return Ok(());
@@ -187,6 +191,7 @@ impl HostProcess {
         // handle duplication, and reserved env replacement stay in the spawn
         // job.
         job.set_policy_inheritance(self.policy_inheritance.clone());
+        job.configure_virtual_spawn(self.context.clone(), &self.environment)?;
         Ok(())
     }
 
@@ -334,7 +339,6 @@ impl HostProcess {
         program: &std::ffi::OsStr,
         argv: &[std::ffi::OsString],
     ) -> AsyncHostResult<()> {
-        self.require_ambient()?;
         self.policy
             .as_ref()
             .map_or(Ok(()), |policy| policy.allows_unix(program, argv))
@@ -342,7 +346,6 @@ impl HostProcess {
 
     #[cfg(windows)]
     fn check_spawn_windows(&self, command_line: &std::ffi::OsStr) -> AsyncHostResult<()> {
-        self.require_ambient()?;
         self.policy
             .as_ref()
             .map_or(Ok(()), |policy| policy.allows_windows(command_line))

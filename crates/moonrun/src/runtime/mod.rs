@@ -149,15 +149,20 @@ impl Runtime {
         process_context: Option<crate::process_tree::ProcessContext>,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
+        let source_environment = default_environment
+            .map(Env::owned)
+            .transpose()?
+            .unwrap_or_else(Env::ambient);
         let (mut policy, env_provisioning) = match (inherited_policy, policy_file) {
             (Some(contents), _) => {
-                let (policy, env) = policy::load_inherited_json(contents)
+                let (policy, env) = policy::load_inherited_json(contents, &source_environment)
                     .context("failed to load inherited sandbox policy (experimental)")?;
                 (policy, Some(env))
             }
             (None, Some(path)) => {
-                let (policy, env) = policy::load_file_with_source_dir(path, policy_source_dir)
-                    .context(
+                let loaded =
+                    policy::load_file_with_source_dir(path, policy_source_dir, &source_environment);
+                let (policy, env) = loaded.context(
                     "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
                 )?;
                 (policy, Some(env))
@@ -165,10 +170,9 @@ impl Runtime {
             (None, None) => (Policy::allow_all(), None),
         };
         let environment = Arc::new(
-            match (env_provisioning, default_environment) {
-                (Some(provisioning), _) => provisioning.realize(),
-                (None, Some(entries)) => Env::owned(entries).map_err(Into::into),
-                (None, None) => Ok(Env::ambient()),
+            match env_provisioning {
+                Some(provisioning) => provisioning.realize(),
+                None => Ok(source_environment),
             }
             .context("failed to construct the Runtime environment")?,
         );
@@ -199,6 +203,7 @@ impl Runtime {
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
             process_context,
+            Arc::clone(&environment),
         );
         let async_host = AsyncHost::new(
             Arc::clone(&environment),

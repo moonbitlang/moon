@@ -94,29 +94,34 @@ impl Policy {
 /// from making provisioning part of the realized `Policy`.
 #[cfg(test)]
 pub(crate) fn load_file(path: &Path) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    load_file_with_source_dir(path, None)
+    load_file_with_source_dir(path, None, &crate::runtime::Env::ambient())
 }
 
 pub(crate) fn load_file_with_source_dir(
     path: &Path,
     source_dir: Option<&Path>,
+    source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
     let config = PolicyConfig::from_file(path)?;
     let config_dir = source_dir.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
-    realize_config(config, config_dir)
+    realize_config(config, config_dir, source)
 }
 
-pub(crate) fn load_inherited_json(contents: &[u8]) -> anyhow::Result<(Policy, EnvProvisioning)> {
+pub(crate) fn load_inherited_json(
+    contents: &[u8],
+    source: &crate::runtime::Env,
+) -> anyhow::Result<(Policy, EnvProvisioning)> {
     let config = serde_json::from_slice(contents)
         .context("failed to parse inherited JSON Moonrun Policy")?;
     // Inherited policies contain absolute filesystem roots. Running the same
     // canonicalization confirms that those roots still resolve here.
-    realize_config(config, Path::new("."))
+    realize_config(config, Path::new("."), source)
 }
 
 fn realize_config(
     config: PolicyConfig,
     config_dir: &Path,
+    source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
     let config = canonicalize(config, config_dir)?;
     let policy_inheritance = PolicyInheritance::from_config(&config)?;
@@ -125,7 +130,8 @@ fn realize_config(
     ));
     let net = Some(NetPolicy::from_config(config.net.unwrap_or_default())?);
     let env = config.env.unwrap_or_default();
-    let env_provisioning = EnvProvisioning::new(env.from_host, env.required_from_host, env.set)?;
+    let env_provisioning =
+        EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?;
     let process = Some(ProcessPolicy::from_config(
         config.process.unwrap_or_default(),
     )?);
@@ -294,8 +300,12 @@ fn main {}
         )
         .unwrap();
 
-        let (policy, _) =
-            load_file_with_source_dir(&temporary_source, Some(source_dir.path())).unwrap();
+        let (policy, _) = load_file_with_source_dir(
+            &temporary_source,
+            Some(source_dir.path()),
+            &crate::runtime::Env::ambient(),
+        )
+        .unwrap();
         let allowed = std::fs::canonicalize(allowed).unwrap();
 
         check_ambient_open(policy, allowed.as_os_str(), 0, 0, false).unwrap();
@@ -401,6 +411,7 @@ fn main {}
                 }),
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
         let contents = policy
@@ -439,7 +450,8 @@ fn main {}
             .unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
-        let (inherited, _) = load_inherited_json(&contents).unwrap();
+        let (inherited, _) =
+            load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
 
         #[cfg(unix)]
         assert_eq!(
@@ -475,6 +487,7 @@ fn main {}
                 process: None,
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
 
@@ -494,6 +507,7 @@ fn main {}
                 process: None,
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
         let denied = tmp.path().join("new.txt");
@@ -525,6 +539,7 @@ fn main {}
                 process: None,
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
 
@@ -544,6 +559,7 @@ fn main {}
                 process: None,
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
 
@@ -563,6 +579,7 @@ fn main {}
                 process: None,
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
 
@@ -583,7 +600,12 @@ fn main {}
     #[test]
     fn missing_process_section_denies_spawning_in_policy_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let (policy, _) = realize_config(PolicyConfig::default(), tmp.path()).unwrap();
+        let (policy, _) = realize_config(
+            PolicyConfig::default(),
+            tmp.path(),
+            &crate::runtime::Env::ambient(),
+        )
+        .unwrap();
 
         assert_eq!(
             {
@@ -612,6 +634,7 @@ fn main {}
                 ..PolicyConfig::default()
             },
             tmp.path(),
+            &crate::runtime::Env::ambient(),
         )
         .unwrap();
 

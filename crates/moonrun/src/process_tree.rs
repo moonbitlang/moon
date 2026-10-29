@@ -185,19 +185,29 @@ impl ProcessCompletion {
 
 type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
 
+// A Windows spawn must pin completion before another supervisor can reap its
+// PID. Publishing the guest HANDLE later must not depend on a new PID lookup.
+pub(crate) struct SpawnedProcess {
+    pub(crate) pid: VirtualPid,
+    #[cfg(windows)]
+    completion: Arc<ProcessCompletion>,
+}
+
 /// Opt-in host-side lifecycle management for Runs on the supplied Engine.
 ///
 /// Each Run gets a thread, an owned environment (policy provisioning takes
 /// precedence), and a fixed cwd. Parent links do not imply configuration
 /// inheritance. Guests see their virtual PID and can signal or wait for their
-/// children through the existing async process API. Guest spawning is not yet
-/// supported in this mode; ordinary Engine Runs retain ambient process access.
+/// children through the existing async process API, including recursive Moon
+/// invocations. Other native spawning is not yet supported in this mode;
+/// ordinary Engine Runs retain ambient process access.
 /// Native stacks retain at least the creator's size; Run startup checks the
 /// guest budget against the executing thread's remaining native stack.
 ///
 /// The supervisor can wait for any member. Exiting parents leave children
 /// running under the supervisor. Dropping the tree neither stops nor joins
 /// Runs: callers must explicitly terminate and wait when required.
+#[derive(Clone)]
 pub struct VirtualProcessTree {
     engine: Engine,
     table: Table,
@@ -248,10 +258,52 @@ impl VirtualProcessTree {
         module: &Module,
         options: RunOptions,
     ) -> Result<VirtualPid, ProcessError> {
+        self.spawn_with_signal_receiver(parent, module, options, crate::signal_channel().1)
+    }
+
+    /// Start a Run using an external signal channel, for example a CLI's
+    /// process-signal adapter. The tree retains a sender for guest control.
+    pub fn spawn_with_signal_receiver(
+        &self,
+        parent: Option<VirtualPid>,
+        module: &Module,
+        options: RunOptions,
+        signals: crate::SignalReceiver,
+    ) -> Result<VirtualPid, ProcessError> {
         let module = module.clone();
-        self.spawn_run(parent, options, move |engine, options, signals| {
+        self.spawn_run(parent, options, signals, move |engine, options, signals| {
             engine.run_with_signal_receiver(&module, options, signals)
         })
+        .map(|spawned| spawned.pid)
+    }
+
+    /// Admit a prepared executable through the same dispatch as a Moon helper
+    /// result. Native process nodes are not yet implemented.
+    pub fn spawn_executable_with_signal_receiver(
+        &self,
+        parent: Option<VirtualPid>,
+        executable: &Path,
+        kind: moonutil::run_handoff::ExecutionKind,
+        options: RunOptions,
+        signals: crate::SignalReceiver,
+    ) -> Result<VirtualPid, ProcessError> {
+        let executable = executable.to_owned();
+        self.spawn_run(parent, options, signals, move |engine, options, signals| {
+            run_executable(
+                engine,
+                kind,
+                &executable,
+                &executable,
+                |bytes| {
+                    moonutil::wasm_source_map::load(&executable, bytes)
+                        .as_deref()
+                        .and_then(crate::source_map::SourceMap::parse)
+                },
+                options,
+                signals,
+            )
+        })
+        .map(|spawned| spawned.pid)
     }
 
     /// Ask a host-selected Moon or moonx executable to prepare Wasm, then run it
@@ -272,24 +324,41 @@ impl VirtualProcessTree {
         }
         let executable = executable.to_owned();
         let args = args.to_vec();
-        self.spawn_run(parent, options, move |engine, options, signals| {
-            moon::run(engine, &executable, &args, options, signals)
-        })
+        self.spawn_run(
+            parent,
+            options,
+            crate::signal_channel().1,
+            move |engine, options, signals| {
+                moon::run(
+                    engine,
+                    &executable,
+                    &args,
+                    options,
+                    signals,
+                    #[cfg(windows)]
+                    false,
+                )
+            },
+        )
+        .map(|spawned| spawned.pid)
     }
 
     fn spawn_run(
         &self,
         parent: Option<VirtualPid>,
         mut options: RunOptions,
+        signal_receiver: crate::SignalReceiver,
         run: impl FnOnce(&Engine, RunOptions, crate::SignalReceiver) -> anyhow::Result<RunOutcome>
         + Send
         + 'static,
-    ) -> Result<VirtualPid, ProcessError> {
+    ) -> Result<SpawnedProcess, ProcessError> {
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
         }
         options.native_stack_budget = Some(self.guest_stack_budget);
-        options.default_environment = Some(std::env::vars_os().collect());
+        options
+            .default_environment
+            .get_or_insert_with(|| std::env::vars_os().collect());
         if matches!(options.working_directory, WorkingDirectory::Ambient) {
             options.working_directory = WorkingDirectory::Fixed(std::env::current_dir()?);
         }
@@ -303,10 +372,11 @@ impl VirtualProcessTree {
         let pid = VirtualPid::allocate(&NEXT_PID)?;
         options.process_context = Some(ProcessContext {
             pid,
-            table: Arc::clone(&self.table),
+            tree: self.clone(),
         });
         let (terminator, receiver) = termination_channel();
-        let (signals, signal_receiver) = crate::signal_channel();
+        let request = receiver.request.clone();
+        let signals = signal_receiver.sender();
         options.termination_receiver = Some(receiver);
         let engine = self.engine.clone();
         let shared_table = Arc::clone(&self.table);
@@ -322,8 +392,22 @@ impl VirtualProcessTree {
                     table: shared_table,
                     pid,
                 };
-                run(&engine, options, signal_receiver)
+                let result = match request.get() {
+                    Some(outcome) => Ok(outcome.into()),
+                    None => run(&engine, options, signal_receiver),
+                };
+                // Admission owns cancellation through preparation too, including
+                // artifact loading errors before the Wasm engine is entered.
+                match request.close() {
+                    Some(outcome) => Ok(outcome.into()),
+                    None => result,
+                }
             })?;
+        let spawned = SpawnedProcess {
+            pid,
+            #[cfg(windows)]
+            completion: Arc::clone(&completion),
+        };
         table.insert(
             pid,
             Entry {
@@ -341,7 +425,7 @@ impl VirtualProcessTree {
         reaper
             .send(thread)
             .expect("process reaper must accept its Run");
-        Ok(pid)
+        Ok(spawned)
     }
 
     /// Request forced termination of one member, without affecting descendants.
@@ -386,6 +470,33 @@ impl VirtualProcessTree {
             .values()
             .map(|entry| entry.info)
             .collect()
+    }
+}
+
+// Both root executables and Moon delivery results enter here. The preparation
+// layer describes the artifact; process supervision owns execution dispatch.
+fn run_executable(
+    engine: &Engine,
+    kind: moonutil::run_handoff::ExecutionKind,
+    artifact: &Path,
+    origin: &Path,
+    source_map: impl FnOnce(&[u8]) -> Option<crate::source_map::SourceMap>,
+    options: RunOptions,
+    signals: crate::SignalReceiver,
+) -> anyhow::Result<RunOutcome> {
+    match kind {
+        moonutil::run_handoff::ExecutionKind::Wasm => {
+            let bytes = std::fs::read(artifact)?;
+            let module = engine.compile_file(origin, &bytes, || source_map(&bytes))?;
+            engine.run_with_signal_receiver(&module, options, signals)
+        }
+        moonutil::run_handoff::ExecutionKind::Native | moonutil::run_handoff::ExecutionKind::Js => {
+            // FIXME: Admit native executables and Node through the tree's native
+            // process nodes, sharing PID, wait, cancellation and reaping ownership.
+            anyhow::bail!(
+                "native process nodes (including Node) are not yet supported in virtual process trees"
+            )
+        }
     }
 }
 

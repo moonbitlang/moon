@@ -71,11 +71,17 @@ temporary block does not escape into the test program.
 
 A private prefix, `--moonrun-artifact-handoff <directory>`, lets a moonrun
 supervisor request `moon run` preparation without program execution. Moon
-copies Wasm, its optional local source map and policy before releasing build
-locks or deleting temporary source. It publishes the result manifest last and
+copies the executable, its execution kind, optional Wasm source map and policy
+before releasing build locks or deleting temporary source. It publishes the result manifest last and
 exits; the supervisor requires successful helper exit before consuming it.
 Arguments and the effective cwd travel in that manifest. Dry-run, build-only,
-profiling and non-Wasm targets are rejected in this mode.
+and profiling are rejected in this mode.
+
+The public `moon run --virtual-process-tree` switch instead launches moonrun
+with virtual supervision enabled. It defaults to Wasm. Root and handed-off
+artifacts use the same supervisor dispatch; its native/Node branch is not yet
+implemented. A handoff still returns to the existing tree when this switch is
+present.
 
 ## Why Unix `exec` was rejected
 

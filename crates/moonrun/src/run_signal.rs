@@ -169,6 +169,12 @@ impl fmt::Debug for SignalReceiver {
 }
 
 impl SignalReceiver {
+    pub(crate) fn sender(&self) -> SignalSender {
+        SignalSender {
+            shared: Arc::clone(&self.shared),
+        }
+    }
+
     pub(crate) fn configure(&self, all_signals: &[i32], signals: &[i32]) {
         self.shared.inner.lock().unwrap().interested =
             signal_mask(signals) & signal_mask(all_signals);

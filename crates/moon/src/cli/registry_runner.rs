@@ -26,6 +26,7 @@ pub(crate) fn prepare_artifact(
     experimental_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
     policy_relay: Option<moonutil::policy_transport::PolicyRelay>,
+    virtual_process_tree: bool,
     args: &[String],
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
@@ -35,6 +36,7 @@ pub(crate) fn prepare_artifact(
         None,
         experimental_policy,
         policy_source_dir,
+        virtual_process_tree,
     );
     run_cmd.args(args);
 
@@ -64,6 +66,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             &[],
             &UserLog::new(log::LevelFilter::Warn),
         )

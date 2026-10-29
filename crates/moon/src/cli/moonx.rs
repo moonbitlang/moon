@@ -57,6 +57,10 @@ pub(crate) struct MoonxCli {
     #[arg(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 
+    /// Run Wasm descendants in the same virtual process tree (experimental)
+    #[arg(long)]
+    pub virtual_process_tree: bool,
+
     /// Show progress and execution details
     #[arg(short = 'v', long)]
     pub verbose: bool,
@@ -75,6 +79,7 @@ enum MoonxInput {
 pub(crate) struct MoonxInvocation {
     pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
     pub(crate) experimental_policy: Option<PathBuf>,
+    pub(crate) virtual_process_tree: bool,
     pub(crate) verbose: bool,
     input: String,
     args: Vec<String>,
@@ -100,6 +105,7 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
     Ok(MoonxInvocation {
         handoff: None,
         experimental_policy: cli.experimental_policy,
+        virtual_process_tree: cli.virtual_process_tree,
         verbose: cli.verbose,
         input: input.clone(),
         args: args.to_vec(),
@@ -113,6 +119,7 @@ pub(crate) fn prepare(
     let MoonxInvocation {
         handoff,
         experimental_policy,
+        virtual_process_tree,
         verbose,
         input,
         args,
@@ -142,7 +149,13 @@ pub(crate) fn prepare(
     );
 
     if let Some(handoff) = handoff {
-        handoff.publish(&wasm_path, &args, policy, policy_source_dir)?;
+        handoff.publish(
+            &wasm_path,
+            moonutil::run_handoff::ExecutionKind::Wasm,
+            &args,
+            policy,
+            policy_source_dir,
+        )?;
         return Ok(super::process::ProcessAction::Exit(0));
     }
 
@@ -151,6 +164,7 @@ pub(crate) fn prepare(
         policy,
         policy_source_dir,
         policy_relay,
+        virtual_process_tree,
         &args,
         user_log,
     )

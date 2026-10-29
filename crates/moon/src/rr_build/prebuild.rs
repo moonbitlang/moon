@@ -178,6 +178,7 @@ fn run_script_cmd(
             None,
             policy,
             policy_source_dir,
+            false,
         ))
     } else {
         Err(anyhow!(

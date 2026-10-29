@@ -60,7 +60,7 @@ url.workspace = true
 
 [target."cfg(windows)".dependencies]
 find-msvc-tools.workspace = true
-windows-sys = { workspace = true, features = ["Win32_Foundation"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_Shell"] }
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true

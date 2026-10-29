@@ -48,9 +48,13 @@ pub(crate) struct Job {
 
 #[derive(Debug)]
 // Unix's native signal mask makes SpawnUnix substantially larger than a Wait.
-// Keep it inline: this extraction does not need to add a per-Job allocation.
+// Keep native payloads inline; only the larger prepared Moon Run is boxed.
 #[allow(clippy::large_enum_variant)]
 enum Kind {
+    SpawnMoon {
+        request: Box<super::moon::Spawn>,
+        result: Option<ResourcePublication>,
+    },
     WaitForVirtualProcess(crate::process_tree::ProcessWait),
     #[cfg(unix)]
     SpawnUnix {
@@ -188,9 +192,9 @@ impl Job {
                 *job_cwd = Some(cwd);
                 Ok(())
             }
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
-                Err(AsyncHostError::Badf)
-            }
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
         }
     }
 
@@ -201,9 +205,9 @@ impl Job {
                 options.no_console_window = true;
                 Ok(())
             }
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
-                Err(AsyncHostError::Badf)
-            }
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
         }
     }
 
@@ -213,6 +217,7 @@ impl Job {
             Kind::SpawnUnix { result, .. } => Ok(result.take()),
             #[cfg(windows)]
             Kind::SpawnWindows { result, .. } => Ok(result.take()),
+            Kind::SpawnMoon { result, .. } => Ok(result.take()),
             Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
                 Err(AsyncHostError::Badf)
             }
@@ -231,6 +236,10 @@ impl Job {
             }
             #[cfg(windows)]
             Kind::SpawnWindows { result, .. } => {
+                *result = Some(resource);
+                Ok(())
+            }
+            Kind::SpawnMoon { result, .. } => {
                 *result = Some(resource);
                 Ok(())
             }
@@ -258,9 +267,9 @@ impl Job {
             Kind::SpawnUnix { cwd, .. } => Ok(cwd.as_deref()),
             #[cfg(windows)]
             Kind::SpawnWindows { cwd, .. } => Ok(cwd.as_deref()),
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
-                Err(AsyncHostError::Badf)
-            }
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
         }
     }
 
@@ -268,15 +277,16 @@ impl Job {
     pub(crate) fn no_console_window(&self) -> AsyncHostResult<bool> {
         match &self.kind {
             Kind::SpawnWindows { options, .. } => Ok(options.no_console_window),
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
-                Err(AsyncHostError::Badf)
-            }
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
         }
     }
 
     pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
         let invokes_moonx = self.invokes_moonx();
         match &mut self.kind {
+            Kind::SpawnMoon { request, result } => request.run(result),
             Kind::WaitForVirtualProcess(wait) => wait.run(),
             #[cfg(unix)]
             Kind::SpawnUnix {
@@ -343,13 +353,73 @@ impl Job {
         }
     }
 
+    pub(super) fn configure_virtual_spawn(
+        &mut self,
+        context: Option<crate::process_tree::ProcessContext>,
+        environment: &crate::runtime::Env,
+    ) -> AsyncHostResult<()> {
+        let Some(context) = context else {
+            return Ok(());
+        };
+        let request = match &self.kind {
+            #[cfg(unix)]
+            Kind::SpawnUnix {
+                path,
+                args,
+                env,
+                stdio,
+                cwd,
+                options,
+                policy_inheritance,
+                ..
+            } => super::moon::Spawn::unix(
+                context,
+                path.clone(),
+                args.clone(),
+                env.clone(),
+                stdio.clone(),
+                cwd.clone(),
+                *options,
+                policy_inheritance.clone(),
+                environment,
+            )?,
+            #[cfg(windows)]
+            Kind::SpawnWindows {
+                command_line,
+                env,
+                stdio,
+                cwd,
+                options,
+                policy_inheritance,
+                ..
+            } => super::moon::Spawn::windows(
+                context,
+                command_line.clone(),
+                env.clone(),
+                stdio.clone(),
+                cwd.clone(),
+                *options,
+                policy_inheritance.clone(),
+                environment,
+            )?,
+            _ => return Ok(()),
+        };
+        self.kind = Kind::SpawnMoon {
+            request: Box::new(request),
+            result: None,
+        };
+        Ok(())
+    }
+
     pub(super) fn configure_working_directory(&mut self, working_directory: &WorkingDirectory) {
         match &mut self.kind {
             #[cfg(unix)]
             Kind::SpawnUnix { cwd, .. } => working_directory.configure_child_cwd(cwd),
             #[cfg(windows)]
             Kind::SpawnWindows { cwd, .. } => working_directory.configure_child_cwd(cwd),
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {}
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => {}
         }
     }
 
@@ -380,7 +450,9 @@ impl Job {
                 }
                 Ok(())
             }
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => Ok(()),
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => Ok(()),
         }
     }
 
@@ -394,7 +466,9 @@ impl Job {
                     &moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy()),
                 ))
             }
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => false,
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => false,
         }
     }
 
@@ -411,7 +485,9 @@ impl Job {
             Kind::SpawnWindows {
                 policy_inheritance, ..
             } => Some(policy_inheritance),
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => None,
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => None,
         };
         if let Some(slot) = slot {
             *slot = inheritance;
@@ -420,7 +496,7 @@ impl Job {
 
     pub(super) fn check_policy(&self, process: &HostProcess) -> AsyncHostResult<()> {
         match &self.kind {
-            Kind::WaitForVirtualProcess(_) => Ok(()),
+            Kind::SpawnMoon { .. } | Kind::WaitForVirtualProcess(_) => Ok(()),
             #[cfg(unix)]
             Kind::SpawnUnix { path, args, .. } => process.check_spawn_unix(path.as_os_str(), args),
             #[cfg(windows)]
@@ -441,7 +517,7 @@ impl Job {
             return Ok(());
         }
         match &self.kind {
-            Kind::WaitForVirtualProcess(_) => {}
+            Kind::SpawnMoon { .. } | Kind::WaitForVirtualProcess(_) => {}
             #[cfg(unix)]
             Kind::SpawnUnix { .. } => {
                 if ret >= 0 {
@@ -483,7 +559,9 @@ impl Job {
             Kind::SpawnWindows { result, .. } => {
                 !matches!(result, Some(ResourcePublication::Published(_)))
             }
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => false,
+            Kind::SpawnMoon { .. }
+            | Kind::WaitForProcess { .. }
+            | Kind::WaitForVirtualProcess(_) => false,
         };
         if unclaimed {
             process.revoke_child_if_unreferenced(ret as i32);

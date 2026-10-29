@@ -52,6 +52,10 @@ impl PolicyInheritance {
         })
     }
 
+    pub(crate) fn contents(&self) -> Vec<u8> {
+        self.contents.to_vec()
+    }
+
     pub(crate) fn open_transfer(
         &self,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
