@@ -30,6 +30,11 @@ use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourcePublication};
 
+#[cfg(windows)]
+use super::stat::{
+    FILE_KIND_CHAR_DEVICE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE, FILE_KIND_REGULAR,
+    FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
+};
 use super::stat::{StatRequest, run_fstatx_job};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
 
@@ -481,21 +486,6 @@ fn file_kind_from_attr(attrs: u32) -> i32 {
         FILE_KIND_REGULAR
     }
 }
-
-#[cfg(windows)]
-const FILE_KIND_UNKNOWN: i32 = 0;
-#[cfg(windows)]
-const FILE_KIND_REGULAR: i32 = 1;
-#[cfg(windows)]
-const FILE_KIND_DIRECTORY: i32 = 2;
-#[cfg(windows)]
-const FILE_KIND_SYMLINK: i32 = 3;
-#[cfg(windows)]
-const FILE_KIND_SOCKET: i32 = 4;
-#[cfg(windows)]
-const FILE_KIND_PIPE: i32 = 5;
-#[cfg(windows)]
-const FILE_KIND_CHAR_DEVICE: i32 = 7;
 
 #[cfg(windows)]
 fn kind_of_raw_file(handle: RawFile) -> AsyncHostResult<i32> {

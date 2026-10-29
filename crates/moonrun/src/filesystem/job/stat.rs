@@ -28,6 +28,19 @@ use std::os::windows::io::{AsRawHandle, AsRawSocket};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::Resource;
 
+// Discriminants of moonbitlang/async's FileKind ABI.
+pub(super) const FILE_KIND_UNKNOWN: i32 = 0;
+pub(super) const FILE_KIND_REGULAR: i32 = 1;
+pub(super) const FILE_KIND_DIRECTORY: i32 = 2;
+pub(super) const FILE_KIND_SYMLINK: i32 = 3;
+pub(super) const FILE_KIND_SOCKET: i32 = 4;
+pub(super) const FILE_KIND_PIPE: i32 = 5;
+// Only Unix adapters produce this kind; ABI value 6 is reserved on all targets.
+#[cfg(unix)]
+const FILE_KIND_BLOCK_DEVICE: i32 = 6;
+pub(super) const FILE_KIND_CHAR_DEVICE: i32 = 7;
+pub(super) const FILE_KIND_CONSOLE: i32 = 8;
+
 pub(super) const STAT_FILE_KIND: u32 = 0x0001;
 pub(super) const STAT_FILE_SIZE: u32 = 0x0002;
 pub(super) const STAT_DEVICE_ID: u32 = 0x0004;
@@ -261,18 +274,13 @@ fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatVa
         file.as_file()?.as_raw_handle()
     };
 
-    let mut values = platform::query_handle(raw, request)?;
-    if values.kind == Some(7) {
-        #[cfg(unix)]
-        let is_console = unsafe { libc::isatty(raw) } == 1;
-        #[cfg(windows)]
-        let is_console = {
-            let mut mode = 0;
-            (unsafe { windows_sys::Win32::System::Console::GetConsoleMode(raw, &mut mode) }) != 0
-        };
-        if is_console {
-            values.kind = Some(8);
-        }
+    let values = platform::query_handle(raw, request)?;
+    #[cfg(unix)]
+    if values.kind == Some(FILE_KIND_CHAR_DEVICE) && unsafe { libc::isatty(raw) } == 1 {
+        return Ok(StatValues {
+            kind: Some(FILE_KIND_CONSOLE),
+            ..values
+        });
     }
     Ok(values)
 }
@@ -447,14 +455,14 @@ mod platform {
 
     fn file_kind(mode: u16) -> i32 {
         match u32::from(mode) & libc::S_IFMT {
-            libc::S_IFREG => 1,
-            libc::S_IFDIR => 2,
-            libc::S_IFLNK => 3,
-            libc::S_IFSOCK => 4,
-            libc::S_IFIFO => 5,
-            libc::S_IFBLK => 6,
-            libc::S_IFCHR => 7,
-            _ => 0,
+            libc::S_IFREG => FILE_KIND_REGULAR,
+            libc::S_IFDIR => FILE_KIND_DIRECTORY,
+            libc::S_IFLNK => FILE_KIND_SYMLINK,
+            libc::S_IFSOCK => FILE_KIND_SOCKET,
+            libc::S_IFIFO => FILE_KIND_PIPE,
+            libc::S_IFBLK => FILE_KIND_BLOCK_DEVICE,
+            libc::S_IFCHR => FILE_KIND_CHAR_DEVICE,
+            _ => FILE_KIND_UNKNOWN,
         }
     }
 
@@ -731,27 +739,27 @@ mod platform {
 
     fn file_kind_from_vnode(kind: FsObjType) -> i32 {
         match kind {
-            VREG => 1,
-            VDIR => 2,
-            VLNK => 3,
-            VSOCK => 4,
-            VFIFO => 5,
-            VBLK => 6,
-            VCHR => 7,
-            _ => 0,
+            VREG => FILE_KIND_REGULAR,
+            VDIR => FILE_KIND_DIRECTORY,
+            VLNK => FILE_KIND_SYMLINK,
+            VSOCK => FILE_KIND_SOCKET,
+            VFIFO => FILE_KIND_PIPE,
+            VBLK => FILE_KIND_BLOCK_DEVICE,
+            VCHR => FILE_KIND_CHAR_DEVICE,
+            _ => FILE_KIND_UNKNOWN,
         }
     }
 
     fn file_kind_from_mode(mode: libc::mode_t) -> i32 {
         match mode & libc::S_IFMT {
-            libc::S_IFREG => 1,
-            libc::S_IFDIR => 2,
-            libc::S_IFLNK => 3,
-            libc::S_IFSOCK => 4,
-            libc::S_IFIFO => 5,
-            libc::S_IFBLK => 6,
-            libc::S_IFCHR => 7,
-            _ => 0,
+            libc::S_IFREG => FILE_KIND_REGULAR,
+            libc::S_IFDIR => FILE_KIND_DIRECTORY,
+            libc::S_IFLNK => FILE_KIND_SYMLINK,
+            libc::S_IFSOCK => FILE_KIND_SOCKET,
+            libc::S_IFIFO => FILE_KIND_PIPE,
+            libc::S_IFBLK => FILE_KIND_BLOCK_DEVICE,
+            libc::S_IFCHR => FILE_KIND_CHAR_DEVICE,
+            _ => FILE_KIND_UNKNOWN,
         }
     }
 
@@ -856,7 +864,16 @@ mod platform {
             stat.file_type = Some(file_type);
             stat.is_socket = is_socket;
             if file_type != FILE_TYPE_DISK {
-                return Ok(to_values(request, stat));
+                let mut values = to_values(request, stat);
+                let mut mode = 0;
+                if file_type == FILE_TYPE_CHAR
+                    && unsafe {
+                        windows_sys::Win32::System::Console::GetConsoleMode(handle, &mut mode)
+                    } != 0
+                {
+                    values.kind = Some(FILE_KIND_CONSOLE);
+                }
+                return Ok(values);
             }
         }
 
@@ -957,24 +974,24 @@ mod platform {
         match file_type {
             FILE_TYPE_DISK => attributes.map(|attributes| {
                 if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                    3
+                    FILE_KIND_SYMLINK
                 } else if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
-                    2
+                    FILE_KIND_DIRECTORY
                 } else {
-                    1
+                    FILE_KIND_REGULAR
                 }
             }),
-            FILE_TYPE_CHAR => Some(7),
+            FILE_TYPE_CHAR => Some(FILE_KIND_CHAR_DEVICE),
             FILE_TYPE_PIPE | FILE_TYPE_UNKNOWN => {
                 if is_socket {
-                    Some(4)
+                    Some(FILE_KIND_SOCKET)
                 } else if file_type == FILE_TYPE_PIPE {
-                    Some(5)
+                    Some(FILE_KIND_PIPE)
                 } else {
-                    Some(0)
+                    Some(FILE_KIND_UNKNOWN)
                 }
             }
-            _ => Some(0),
+            _ => Some(FILE_KIND_UNKNOWN),
         }
     }
 
