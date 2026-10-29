@@ -213,11 +213,6 @@ jobs:
 
       - uses: ./.github/actions/setup-debug-cache
 
-      - name: Setup opam
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 4.14.2
-
       - name: install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
@@ -236,12 +231,7 @@ jobs:
           brew install z3
           echo "Z3PATH=$(command -v z3)" >> $GITHUB_ENV
 
-      - name: Install Why3 1.7.2 via opam
-        run: |
-          # Why3 1.7.2's C helpers are incompatible with GCC 15's default C23 mode.
-          CC="cc -std=gnu17" opam install -y why3.1.7.2
-          echo "WHY3DATA=$(opam exec -- why3 --print-datadir)" >> $GITHUB_ENV
-          echo "WHY3LIB=$(opam exec -- why3 --print-libdir)" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-why3
 
       - name: Build
         run: cargo build
