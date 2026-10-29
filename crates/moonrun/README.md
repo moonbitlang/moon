@@ -36,8 +36,10 @@ both engine adapters invoke the same shared WASIp1 host operations.
 
 ## Experimental virtual process tree
 
-`moonrun --virtual-process-tree program.wasm` runs the root and its recursive
-`moon run` / `moonx` children in one host process, with separate virtual PIDs,
+Use `moonx --virtual-process-tree script.mbtx` (or a registry package),
+`moon run --virtual-process-tree <input>`, or
+`moonrun --virtual-process-tree program.wasm`. The root and its recursive
+`moon run` / `moonx` children run in one host process, with separate virtual PIDs,
 Run state, cwd and environments. Existing async process APIs provide spawning,
 waiting and signals. The CLI waits for descendants and returns the root's status.
 This mode currently requires V8; ordinary invocation keeps native spawning.

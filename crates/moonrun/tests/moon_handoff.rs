@@ -125,6 +125,29 @@ fn moon_commands_run_in_virtual_tree() {
             "moonx arg\nNone\n"
         };
         assert_eq!(output, format!("{pid}\n{expected}"), "{diagnostics}");
+
+        // The public Moon/moonx switch starts a virtual root without requiring
+        // callers to locate the built artifact or invoke moonrun themselves.
+        let mut cli_args = args.clone();
+        cli_args.insert(
+            usize::from(program == moon),
+            "--virtual-process-tree".into(),
+        );
+        let output = snapbox::cmd::Command::new(program)
+            .current_dir(root)
+            .args(&cli_args)
+            .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+            .stdin(input)
+            .timeout(Duration::from_secs(30))
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let output = String::from_utf8(output).unwrap();
+        let (pid, rest) = output.split_once('\n').unwrap();
+        assert!(pid.trim().parse::<i32>().unwrap() >= 1 << 30);
+        assert_eq!(rest, expected);
     }
 
     // Parent-provided canonical policy wins even over an unreadable child file.
@@ -172,7 +195,8 @@ fn moon_commands_run_in_virtual_tree() {
         .success()
         .stdout_eq("");
     let prepared = handoff.load().unwrap();
-    assert!(prepared.wasm.starts_with(b"\0asm"));
+    let prepared_wasm = fs::read(&prepared.artifact).unwrap();
+    assert!(prepared_wasm.starts_with(b"\0asm"));
     assert!(prepared.source_map.is_some());
     assert!(!prepared.executable.exists());
     assert!(prepared.args.is_empty());
@@ -206,7 +230,6 @@ fn moon_commands_run_in_virtual_tree() {
 
     for args in [
         vec!["run", "-e", "this is invalid MoonBit"],
-        vec!["run", "--target", "native", "-e", "fn main {}"],
         vec!["run", "--build-only", "-e", "fn main {}"],
         vec!["new", "must-not-be-created"],
     ] {
@@ -225,12 +248,68 @@ fn moon_commands_run_in_virtual_tree() {
     }
     assert!(!root.join("must-not-be-created").exists());
 
+    // Moon may prepare any target. The supervisor, not the CLI or delivery
+    // protocol, owns the still-unimplemented native/Node execution branch.
+    let js_directory = tempfile::tempdir().unwrap();
+    let js_handoff = RunHandoff::new(js_directory.path(), false).unwrap();
+    let js_args = [
+        "run",
+        "--target=js",
+        "-e",
+        "fn main { println(\"must not execute\") }",
+    ];
+    snapbox::cmd::Command::new(moon)
+        .arg(HANDOFF_ARG)
+        .arg(js_handoff.directory())
+        .args(js_args)
+        .assert()
+        .success()
+        .stdout_eq("");
+    let prepared_js = js_handoff.load().unwrap();
+    assert_eq!(
+        prepared_js.execution_kind,
+        moonutil::run_handoff::ExecutionKind::Js
+    );
+    assert!(prepared_js.artifact.is_file());
+    assert!(!prepared_js.executable.exists());
+    let child = tree
+        .spawn_moon(
+            None,
+            moon,
+            &js_args.map(OsString::from),
+            RunOptions::default(),
+        )
+        .unwrap();
+    let error = anyhow::Error::from(tree.wait(child).unwrap_err());
+    assert!(
+        format!("{error:#}").contains("native process nodes"),
+        "{error:#}"
+    );
+    let output = snapbox::cmd::Command::new(moon)
+        .args([
+            "run",
+            "--virtual-process-tree",
+            "--target=js",
+            "-e",
+            "fn main {}",
+        ])
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("native process nodes")
+    );
+
     // The producer uses existing registry acquisition, including its pinned
     // artifact cache. This fixture must not need a live registry or a compiler.
     let cached =
         root.join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
     fs::create_dir_all(cached.parent().unwrap()).unwrap();
-    fs::write(&cached, &prepared.wasm).unwrap();
+    fs::write(&cached, &prepared_wasm).unwrap();
     let registry_dir = tempfile::tempdir().unwrap();
     let registry_handoff = RunHandoff::new(registry_dir.path(), false).unwrap();
     snapbox::cmd::Command::new(&moonx)
@@ -242,8 +321,27 @@ fn moon_commands_run_in_virtual_tree() {
         .success()
         .stdout_eq("");
     let registry = registry_handoff.load().unwrap();
-    assert_eq!(registry.wasm, prepared.wasm);
+    assert_eq!(fs::read(&registry.artifact).unwrap(), prepared_wasm);
     assert_eq!(registry.args, ["registry arg"]);
+
+    let output = snapbox::cmd::Command::new(&moonx)
+        .args([
+            "--virtual-process-tree",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "registry arg",
+        ])
+        .env("MOON_HOME", root)
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let output = String::from_utf8(output).unwrap();
+    let (pid, rest) = output.split_once('\n').unwrap();
+    assert!(pid.trim().parse::<i32>().unwrap() >= 1 << 30);
+    assert_eq!(rest, "registry arg\nNone\n");
 
     // The helper changes cwd while processing -C; the guest must observe it.
     fs::create_dir(root.join("subdir")).unwrap();

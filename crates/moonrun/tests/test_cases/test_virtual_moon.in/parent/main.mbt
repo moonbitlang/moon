@@ -58,7 +58,7 @@ async fn main {
     assert_eq(@env.get_env_var("VIRTUAL_CHAIN"), Some("child"))
     let (code, output) = @process.collect_stdout(
       "moonx",
-      ["leaf.mbtx", "arg with spaces"],
+      ["--virtual-process-tree", "leaf.mbtx", "arg with spaces"],
       cwd="subdir",
       extra_env={ "VIRTUAL_CHAIN": "grandchild" },
     )
@@ -67,7 +67,7 @@ async fn main {
   } else {
     let (code, output) = @process.collect_stdout(
       "moon",
-      ["run", "--wasm-policy", "missing-policy.toml", "src/virtual_parent", "--", "child"],
+      ["run", "--virtual-process-tree", "--wasm-policy", "missing-policy.toml", "src/virtual_parent", "--", "child"],
       extra_env={ "VIRTUAL_CHAIN": "child" },
     )
     assert_eq(code, 0)

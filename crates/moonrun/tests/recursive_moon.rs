@@ -116,6 +116,24 @@ fn recursive_moon_processes() {
     assert_eq!(&lines[3..], ["grandchild", "arg with spaces"]);
     assert!(tree.snapshot().is_empty(), "descendants were not reaped");
 
+    snapbox::cmd::Command::new(moon)
+        .current_dir(&project)
+        .args(["run", "--virtual-process-tree", "--wasm-policy"])
+        .arg(&policy)
+        .arg("src/virtual_parent")
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+        .timeout(Duration::from_secs(90))
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]
+[..]
+[..]
+grandchild
+arg with spaces
+
+"#]]);
+
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
         .arg("--virtual-process-tree")

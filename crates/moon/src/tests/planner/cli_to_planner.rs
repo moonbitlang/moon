@@ -76,6 +76,7 @@ fn command_string_run_parses_as_expected() {
                 },
                 args: [],
                 moonrun_policy: None,
+                virtual_process_tree: false,
                 auto_sync_flags: AutoSyncFlags {
                     frozen: false,
                 },

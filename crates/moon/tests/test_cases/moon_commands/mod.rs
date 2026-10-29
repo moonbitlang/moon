@@ -141,6 +141,9 @@ Options:
       --experimental-policy <PATH>
           Experimental moonrun policy file
 
+      --virtual-process-tree
+          Run Wasm descendants in the same virtual process tree (experimental)
+
   -v, --verbose
           Show progress and execution details
 

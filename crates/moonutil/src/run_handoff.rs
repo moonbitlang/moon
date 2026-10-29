@@ -24,6 +24,25 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, ensure};
 use serde::{Deserialize, Serialize};
 
+/// How the supervisor executes the delivered program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionKind {
+    Wasm,
+    Native,
+    Js,
+}
+
+impl ExecutionKind {
+    fn artifact_name(self) -> &'static str {
+        match self {
+            Self::Wasm => "program.wasm",
+            Self::Native => "program.exe",
+            Self::Js => "program.js",
+        }
+    }
+}
+
 pub const HANDOFF_ARG: &str = "--moonrun-artifact-handoff";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -41,6 +60,7 @@ pub struct RunHandoff {
 
 #[derive(Deserialize, Serialize)]
 struct Manifest {
+    execution_kind: ExecutionKind,
     executable: PathBuf,
     args: Vec<String>,
     working_directory: PathBuf,
@@ -54,10 +74,13 @@ struct PolicySource {
     source_dir: PathBuf,
 }
 
-pub struct PreparedWasm {
-    pub executable: PathBuf,
-    pub wasm: Vec<u8>,
+pub struct PreparedProgram {
+    pub execution_kind: ExecutionKind,
+    /// Owned copy, retained until the supervised process finishes.
+    pub artifact: PathBuf,
     pub source_map: Option<String>,
+    /// Original executable identity for guest paths and diagnostics.
+    pub executable: PathBuf,
     pub args: Vec<String>,
     pub working_directory: PathBuf,
     pub policy: Option<(PathBuf, PathBuf)>,
@@ -83,21 +106,28 @@ impl RunHandoff {
 
     pub fn publish(
         &self,
-        wasm: &Path,
+        executable: &Path,
+        execution_kind: ExecutionKind,
         args: &[String],
         policy: Option<&Path>,
         policy_source_dir: Option<&Path>,
     ) -> anyhow::Result<()> {
-        let wasm = std::path::absolute(wasm)?;
-        let contents = fs::read(&wasm)?;
-        ensure!(
-            contents.starts_with(b"\0asm"),
-            "Moonrun handoff requires a Wasm binary"
-        );
-        let source_map = crate::wasm_source_map::load(&wasm, &contents);
-        fs::write(self.directory.join("program.wasm"), contents)?;
+        let executable = std::path::absolute(executable)?;
+        let source_map = if matches!(execution_kind, ExecutionKind::Wasm) {
+            let contents = fs::read(&executable)?;
+            ensure!(contents.starts_with(b"\0asm"), "invalid Wasm artifact");
+            crate::wasm_source_map::load(&executable, &contents)
+        } else {
+            None
+        };
+        // Copy before the producer releases build locks or temporary sources.
+        // fs::copy also retains permissions for future native execution.
+        fs::copy(
+            &executable,
+            self.directory.join(execution_kind.artifact_name()),
+        )?;
         if let Some(source_map) = &source_map {
-            fs::write(self.directory.join("program.wasm.map"), source_map)?;
+            fs::write(self.directory.join("program.map"), source_map)?;
         }
         let policy = if self.request.inherited_policy {
             None
@@ -127,7 +157,8 @@ impl RunHandoff {
         serde_json_lenient::to_writer(
             File::create(self.directory.join("result.json"))?,
             &Manifest {
-                executable: wasm,
+                execution_kind,
+                executable,
                 args: args.to_vec(),
                 working_directory: std::env::current_dir()?,
                 policy,
@@ -137,18 +168,19 @@ impl RunHandoff {
         Ok(())
     }
 
-    pub fn load(&self) -> anyhow::Result<PreparedWasm> {
+    pub fn load(&self) -> anyhow::Result<PreparedProgram> {
         let manifest: Manifest = serde_json_lenient::from_reader(
             File::open(self.directory.join("result.json"))
-                .context("Moon helper did not return a Wasm artifact")?,
+                .context("Moon helper did not return an executable artifact")?,
         )?;
-        Ok(PreparedWasm {
-            executable: manifest.executable,
-            wasm: fs::read(self.directory.join("program.wasm"))?,
+        Ok(PreparedProgram {
+            execution_kind: manifest.execution_kind,
+            artifact: self.directory.join(manifest.execution_kind.artifact_name()),
             source_map: manifest
                 .source_map
-                .then(|| fs::read_to_string(self.directory.join("program.wasm.map")))
+                .then(|| fs::read_to_string(self.directory.join("program.map")))
                 .transpose()?,
+            executable: manifest.executable,
             args: manifest.args,
             working_directory: manifest.working_directory,
             policy: manifest.policy.map(|policy| {
@@ -170,6 +202,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_and_js_delivery_uses_the_same_owned_artifact_contract() {
+        for kind in [ExecutionKind::Native, ExecutionKind::Js] {
+            let source = tempfile::tempdir().unwrap();
+            let executable = source.path().join(kind.artifact_name());
+            fs::write(&executable, b"non-Wasm artifact").unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            let handoff = RunHandoff::new(directory.path(), false).unwrap();
+            handoff
+                .publish(&executable, kind, &["argument".into()], None, None)
+                .unwrap();
+            source.close().unwrap();
+            let prepared = handoff.load().unwrap();
+            assert_eq!(prepared.execution_kind, kind);
+            assert_eq!(fs::read(prepared.artifact).unwrap(), b"non-Wasm artifact");
+            assert_eq!(prepared.args, ["argument"]);
+            assert!(prepared.source_map.is_none());
+        }
+    }
+
+    #[test]
     fn delivery_owns_artifact_and_source_map_after_source_cleanup() {
         let source = tempfile::tempdir().unwrap();
         let wasm = source.path().join("program.wasm");
@@ -180,12 +232,15 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let handoff = RunHandoff::new(directory.path(), false).unwrap();
         handoff
-            .publish(&wasm, &["hello".into()], None, None)
+            .publish(&wasm, ExecutionKind::Wasm, &["hello".into()], None, None)
             .unwrap();
         source.close().unwrap();
         let prepared = handoff.load().unwrap();
-        assert_eq!(prepared.wasm, bytes);
-        assert_eq!(prepared.source_map.as_deref(), Some(map));
+        assert_eq!(fs::read(&prepared.artifact).unwrap(), bytes);
+        assert_eq!(
+            fs::read_to_string(directory.path().join("program.map")).unwrap(),
+            map
+        );
         assert_eq!(prepared.executable, wasm);
         assert_eq!(prepared.args, ["hello"]);
     }
@@ -205,7 +260,9 @@ mod tests {
         fs::write(&wasm, b"\0asm\x01\0\0\0").unwrap();
         let directory = tempfile::tempdir().unwrap();
         let handoff = RunHandoff::new(directory.path(), false).unwrap();
-        handoff.publish(&wasm, &[], Some(&alias), None).unwrap();
+        handoff
+            .publish(&wasm, ExecutionKind::Wasm, &[], Some(&alias), None)
+            .unwrap();
         let (policy, base) = handoff.load().unwrap().policy.unwrap();
         assert_eq!(policy.extension().unwrap(), "conf");
         assert_eq!(fs::read_to_string(policy).unwrap(), "[fs]\nread = ['.']\n");
