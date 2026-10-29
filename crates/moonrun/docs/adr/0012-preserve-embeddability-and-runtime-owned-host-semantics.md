@@ -24,6 +24,13 @@ environment. A caller does not compose separate execution and supervision
 objects. Preparation, execution, and cleanup form one lifecycle without an
 additional command object or domain model.
 
+The experimental virtual process feature has no current consumers. Its public
+types, signatures, defaults, and behavior are not compatibility commitments.
+Change them directly when clearer ownership or a smaller interface requires it;
+do not add compatibility wrappers or deprecation stages for hypothetical users.
+This does not relax the established host ABI or ordinary non-virtual execution
+contracts described above.
+
 Preparing a Moon/moonx artifact for execution in the embedding process or
 delegating the invocation to an external process is an execution strategy
 behind that interface. This choice does not grant additional authority or

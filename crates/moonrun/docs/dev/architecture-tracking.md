@@ -19,9 +19,11 @@ sequencing and completion status, not a second copy of those principles.
 
 ## Current milestone
 
-Only this milestone is expanded into implementation work. Preserve normal
-Wasm invocation, arguments, environment, cwd, stdio, policy inheritance, virtual
-PID, wait, and exit behavior. Complex executable discovery is deferred.
+Only this milestone is expanded into implementation work. Preserve ordinary
+Wasm invocation and its arguments, environment, cwd, stdio, policy, and exit
+behavior. Virtual process interfaces have no current consumers: change them
+directly when needed for the intended architecture, without compatibility
+wrappers or deprecation stages. Complex executable discovery is deferred.
 
 - [x] Separate artifact preparation from execution admission and reaping. Keep
   one termination receiver alive through preparation, Run execution, and
@@ -43,8 +45,9 @@ PID, wait, and exit behavior. Complex executable discovery is deferred.
 - [ ] Make the regular Host Process path prepare the operation before execution,
   with clear ownership of interpretation, authorization, and admission.
 
-Each independently reviewable change should preserve existing public behavior
-and include tests through its execution interface. Architectural vocabulary
+Each independently reviewable change should test its intended behavior through
+its execution interface. Existing virtual interfaces and tests do not impose a
+backward compatibility requirement. Architectural vocabulary
 belongs in the crate glossary; implemented behavior belongs in the developer
 index and its linked references. Keep this file focused on sequencing and
 remaining work.
@@ -59,8 +62,9 @@ have been removed.
 
 This completes the library-interface and configuration slice. The general
 Host Process path still separates policy checks from final operation
-configuration and executable resolution. Its remaining work must preserve the
-new interfaces; permission coverage has not expanded with this refactor.
+configuration and executable resolution. Its remaining work may revise the
+experimental interfaces to clarify ownership; permission coverage has not
+expanded with this refactor.
 
 ## Follow-up order
 

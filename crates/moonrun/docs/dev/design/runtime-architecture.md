@@ -55,6 +55,14 @@ processes, or invoking Moon. The CLI parses arguments, chooses configuration,
 connects process signals, and translates returned outcomes into host-process
 exit behavior. These actions stay outside the reusable execution interface.
 
+Virtual process interfaces have no current consumers and carry no backward
+compatibility requirement. Their types, signatures, defaults, and behavior may
+change directly as this architecture develops. Prefer replacing an inadequate
+interface over preserving it with adapters or deprecation stages. Tests should
+exercise the intended ownership, isolation, and lifecycle contracts rather than
+freeze incidental behavior of the experimental implementation. Existing guest
+ABIs and ordinary non-virtual execution retain their separate contracts.
+
 `Engine` is the public execution host. It integrates preparation and execution
 with admission and lifecycle, while callers select execution placement,
 configuration, and authority. Supervision is an Engine responsibility; callers
