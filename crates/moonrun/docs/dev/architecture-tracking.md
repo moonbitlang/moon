@@ -11,8 +11,9 @@ together.
 [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md)
 records the accepted direction. The
 [runtime architecture guide](design/runtime-architecture.md) owns the lasting
-requirements for library embedding, the three host-operation layers, per-Runtime
-virtualization, authority mapping, and child derivation. Its implementation
+requirements for library embedding, a converged execution-host interface, the
+three host-operation layers, per-Runtime virtualization, authority mapping, and
+child derivation. Its implementation
 guidance and acceptance scenarios apply to every item below. This file owns
 sequencing and completion status, not a second copy of those principles.
 
@@ -47,7 +48,24 @@ The first implementation separates command execution and preparation in
 makes Runtime consume `RuntimeConfig`. It fixes termination being rejected
 between Wasm Run teardown and command cleanup. Native execution and helper
 cancellation remain follow-ups; the first two items do not complete the whole
-milestone.
+milestone. [#2403](https://github.com/moonbitlang/moon/pull/2403) retains the public
+`Engine` and `VirtualProcessTree` interfaces. Its internal command module owns
+the preparation-execution-cleanup workflow; callers are not being asked to
+understand or construct a public Command object.
+
+## Public-interface convergence
+
+After the internal ownership work, converge on one execution-host entry point
+that integrates Engine and Supervisor responsibilities for library callers.
+Preserve prepared-module reuse, caller-thread synchronous Run execution,
+explicit root configuration, and the authority ceiling. The public type and
+method names are not fixed by this milestone.
+
+Place in-process Moon/moonx execution versus external delegation behind this
+interface as concrete execution strategies, keeping backend selection separate. Extend
+the existing internal owners instead of adding a second orchestrator or making
+the command workflow a public configuration obligation. Verify both execution
+choices through the resulting library interface as they become available.
 
 ## Follow-up order
 

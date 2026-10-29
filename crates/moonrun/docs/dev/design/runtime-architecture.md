@@ -12,6 +12,42 @@ notes identify incomplete enforcement; this document does not turn those gaps
 into existing guarantees. Designs may revise the constraints explicitly, but
 moving files or completing a tracking item must not silently weaken them.
 
+## Relationship to earlier decisions
+
+This architecture builds on existing decisions; ADR numbers are local to their
+directory. The repository ADR 0001 and Moonrun ADR 0001 are different records.
+
+| Existing decision | Constraint carried forward |
+| --- | --- |
+| Repository [0001: Async Wasm Host Boundary](../../../../../docs/adr/0001-async-wasm-host-boundary.md) | Keep host semantics independent of V8, preserve native-shaped behavior and provenance, borrow current Guest Memory, and report guest termination without exiting the embedding process |
+| Moonrun [0001](../../adr/0001-copy-worker-results-through-host-completions.md), [0004](../../adr/0004-use-host-completion-queue-for-wasm-workers.md), [0007](../../adr/0007-split-read-job-guest-destination-from-host-buffer.md) | Workers retain host-owned inputs/results; copy output through a fresh guest borrow after completion |
+| Moonrun [0002](../../adr/0002-preserve-native-shaped-worker-boundary.md), [0003](../../adr/0003-use-native-shaped-worker-threads-first.md), [0005](../../adr/0005-suspend-coroutines-for-wasm-worker-jobs.md), [0006](../../adr/0006-let-workers-own-running-jobs.md) | Preserve the Worker/Job contract, coroutine suspension, chosen thread execution model, and worker ownership of running Jobs; domain separation does not redesign the scheduler |
+| Moonrun [0008: Acquired Resources](../../adr/0008-own-resources-behind-boundary-handles.md), [0009: One Handle Namespace](../../adr/0009-use-one-handle-namespace.md) | Validate and acquire resources at the ABI interface; Jobs retain references; Runtime owns one Handle namespace while domains own payloads; future resource rights belong to the acquired payload |
+| Moonrun [0010: Stdio Compatibility](../../adr/0010-preserve-stdio-blocking-mode-for-compat-imports.md) | Compatibility imports must preserve embedding-owned descriptor blocking state |
+| Moonrun [0011: Generic Stat Result](../../adr/0011-use-a-stable-host-owned-generic-stat-result.md) | Share one host-owned result/codec, keep platform acquisition separate from ABI encoding, and authorize requested metadata effects |
+
+The glossary already defines Runtime Configuration, Runtime State, Moonrun
+Policy, Host Domain, Raw Operation, and Wasm Adapter. The
+[Rust library documentation](../../../README.md#rust-library) already describes
+embedding. This guide connects those existing definitions to ownership and
+implementation obligations; it does not claim to introduce them.
+
+ADR 0012 adds internal command/supervisor ownership, a converged execution-host
+interface, the derivation contracts, and the overall authority requirement. It
+replaces the repository ADR 0001's original
+module allocation, where `async_api` was V8-facing and `async_host` held the
+general host state. It preserves that ADR's semantic and lifetime guarantees.
+Its original V8/JS plumbing and deferred list are historical; the developer
+index describes current implementation and the tracker records remaining work.
+
+Related MoonBuild decisions keep their narrower scope. The
+[`moon run` lifecycle design](../../../../../docs/dev/design/moon-run-process-lifecycle.md)
+owns outer command execution and artifact delivery; its use of synchronous
+child waiting does not choose the Moonrun library's scheduler. Repository
+[ADR 0004](../../../../../docs/adr/0004-separate-command-results-from-user-logs.md)
+owns MoonBuild command output, not the guest's Runtime Stdio or all Moonrun
+diagnostics. Reuse their ownership lessons without importing unrelated modes.
+
 ## Library contract and execution ownership
 
 Moonrun must remain usable without starting its CLI, creating a virtual process
@@ -19,21 +55,42 @@ tree, or invoking Moon. The CLI parses arguments, chooses configuration, connect
 process signals, and translates returned outcomes into host-process exit
 behavior. These actions stay outside the reusable execution interface.
 
+The public interface should converge on one execution-host entry point. It
+integrates preparation and execution with the admission and lifecycle behavior
+needed by the request, while callers supply their execution configuration and
+authority. Callers must not need to coordinate an Engine with a Supervisor or
+construct a Command object. This is a target for public-interface convergence,
+not a commitment to a new public type, naming scheme, or generic execution
+framework. The following ownership remains internal to that interface.
+
 | Owner | Responsibility | Existing implementation |
 | --- | --- | --- |
 | Embedding caller / CLI | Select execution placement, root configuration and grants, signal forwarding, shutdown policy, and outcome presentation | [Library exports](../../../src/lib.rs), [CLI](../../../src/main.rs) |
 | Engine and Loaded Module | Prepare reusable guest code and provide synchronous execution; retain no mutable virtual environment between Runs | [engine.rs](../../../src/engine.rs) |
 | Supervisor | Admit commands; own virtual identities, parentage, control, adoption, completion, and reaping | [process_tree.rs](../../../src/process_tree.rs) |
-| Supervised Command | Prepare a program, execute its artifact, and release command-owned files under one stable identity | [process_tree/command.rs](../../../src/process_tree/command.rs) |
+| Supervised Command lifecycle | Compose preparation, artifact execution, and cleanup under one stable identity; does not require a public Command object | [process_tree/command.rs](../../../src/process_tree/command.rs) |
 | Run | Execute Wasm synchronously and return after its Runtime and guest execution state have torn down | `Engine::run` and its scoped implementation |
 | Runtime | Realize one environment and wire its Host Domains, shared state, Handles, and authorization inputs | [runtime/mod.rs](../../../src/runtime/mod.rs) |
 
-The public `Engine`, `Module`, `RunOptions`, and `RunOutcome` interface is the
-embedding entry point. `Engine::run` executes on the calling thread; the caller
-can reuse modules and choose its own scheduling. `VirtualProcessTree` adds
-command supervision when needed. Internal `RuntimeConfig` and Host Domains need
-not become public merely to make the library embeddable. Add public configuration
-where callers need control, keeping one internal source for each fact.
+Current interface: [#2403](https://github.com/moonbitlang/moon/pull/2403) retains
+public `Engine`, `Module`, `RunOptions`, `RunOutcome`, and `VirtualProcessTree`.
+`Engine::run` executes on the calling thread; the caller can reuse modules and
+choose its own scheduling. `VirtualProcessTree` adds supervision today. The
+unified entry point is subsequent work and must preserve caller-thread
+synchronous execution and module reuse. Internal `RuntimeConfig` and Host
+Domains need not become public merely to make the library embeddable. Add public
+configuration where callers need control, keeping one internal source for each
+fact.
+
+Whether a Moon/moonx request executes within the embedding host or through an
+external process is an execution strategy behind the entry point. In-process
+artifact execution may still use an external Moon helper for preparation. The strategy
+must preserve the request's authority ceiling and explicit ownership of state,
+completion, and cleanup. It must account for the different enforcement available
+in an external process rather than claim that launch alone constrains it. This
+keeps backend selection separate. Implement only the concrete execution
+choices required by callers, without exposing the internal command workflow as
+another configuration or object that they must manage.
 
 Guest exit and termination return an outcome after teardown. They must not call
 `process::exit`, kill the embedding host, or install the CLI's process-signal
@@ -42,8 +99,9 @@ but its lifetime and interference must be explicit. Diagnostics and Runtime
 stdio are separate concerns: embedding callers need deliberate diagnostic
 routing as well as guest stream bindings.
 
-The Supervisor is the orchestrator for admitted commands. Do not add another
-orchestrator that forwards its operations or owns a parallel process table.
+Within the execution host, Supervisor owns orchestration for admitted commands.
+Converging the public interface must reuse that owner, not add a forwarding
+orchestrator or a parallel process table.
 Parentage, guest authority over a child, and cancellation membership are
 different relationships. Killing one command must not implicitly kill siblings;
 cancelling a build may need to stop its helper and compiler descendants. A
