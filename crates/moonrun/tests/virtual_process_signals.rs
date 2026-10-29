@@ -18,7 +18,7 @@
 
 #![cfg(feature = "v8")]
 
-use moonrun::{Engine, RunOptions, RunOutcome, VirtualProcessTree};
+use moonrun::{Engine, GuestProcessMode, RunOptions, RunOutcome};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, Write};
 #[cfg(unix)]
@@ -86,7 +86,7 @@ fn async_virtual_process_control() {
         ("graceful", true),
     ] {
         eprintln!("virtual control: {mode}, handoff: {handoff}");
-        let tree = VirtualProcessTree::new(engine.clone()).unwrap();
+        let tree = engine.clone();
         let expected = match mode {
             "exit" | "retry" => 23,
             "busy" => {
@@ -115,6 +115,7 @@ fn async_virtual_process_control() {
                 None,
                 &module,
                 RunOptions::default()
+                    .with_guest_process_mode(GuestProcessMode::Virtual)
                     .with_args(["parent", mode, &expected.to_string()])
                     .with_stdio(
                         File::from(OwnedFile::from(parent_input)),
@@ -125,11 +126,13 @@ fn async_virtual_process_control() {
             .unwrap();
         let (child_input, mut release_child) = std::io::pipe().unwrap();
         let (child_output, child_stdout) = std::io::pipe().unwrap();
-        let options = RunOptions::default().with_stdio(
-            File::from(OwnedFile::from(child_input)),
-            File::from(OwnedFile::from(child_stdout)),
-            errors.try_clone().unwrap(),
-        );
+        let options = RunOptions::default()
+            .with_guest_process_mode(GuestProcessMode::Virtual)
+            .with_stdio(
+                File::from(OwnedFile::from(child_input)),
+                File::from(OwnedFile::from(child_stdout)),
+                errors.try_clone().unwrap(),
+            );
         // Artifact preparation must retain the tree's signal receiver: a
         // registered graceful handler must run instead of default termination.
         let child = if handoff {

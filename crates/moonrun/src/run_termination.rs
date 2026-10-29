@@ -56,6 +56,10 @@ pub fn termination_channel() -> (RunTerminator, RunTerminationReceiver) {
 }
 
 impl RunTerminator {
+    pub(crate) fn requested(&self) -> Option<RunTermination> {
+        self.request.get()
+    }
+
     /// Record the first termination request and interrupt guest execution.
     ///
     /// `true` means this request was accepted, not that the Run has finished.
@@ -85,6 +89,12 @@ impl RunTerminator {
 }
 
 impl RunTerminationReceiver {
+    pub(crate) fn sender(&self) -> RunTerminator {
+        RunTerminator {
+            request: self.request.clone(),
+        }
+    }
+
     pub(crate) fn close(&self) -> Option<RunTermination> {
         self.request.close()
     }

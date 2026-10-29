@@ -25,7 +25,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use moonrun::{
-    Engine, ProcessState, RunOptions, RunOutcome, RunTermination, VirtualProcessTree,
+    Engine, GuestProcessMode, ProcessState, RunOptions, RunOutcome, RunTermination,
     WorkingDirectory,
 };
 use moonutil::run_handoff::{HANDOFF_ARG, RunHandoff};
@@ -79,7 +79,7 @@ fn moon_commands_run_in_virtual_tree() {
         "[env.set]\nHANDOFF_POLICY = 'child'\n",
     )
     .unwrap();
-    let tree = std::sync::Arc::new(VirtualProcessTree::new(Engine::default()).unwrap());
+    let tree = Engine::default();
 
     let inline = format!("-e={SOURCE}");
     // Actual compiler output must see the very same virtual PID allocated
@@ -100,6 +100,7 @@ fn moon_commands_run_in_virtual_tree() {
         let stdout = tempfile::tempfile().unwrap();
         let stderr = tempfile::tempfile().unwrap();
         let options = RunOptions::default()
+            .with_guest_process_mode(GuestProcessMode::Virtual)
             .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
             .with_stdio(
                 stdin,
@@ -150,9 +151,45 @@ fn moon_commands_run_in_virtual_tree() {
         assert_eq!(rest, expected);
     }
 
+    // Inline execution consumes the same delivery, arguments, and policy as
+    // spawn, with guest process identity selected independently of placement.
+    for mode in [GuestProcessMode::Virtual, GuestProcessMode::Native] {
+        let stdout = tempfile::tempfile().unwrap();
+        let stderr = tempfile::tempfile().unwrap();
+        let result = tree.run_moon(
+            &moonx,
+            &[
+                "--experimental-policy".into(),
+                "policy.toml".into(),
+                "script.mbtx".into(),
+                "inline arg".into(),
+            ],
+            RunOptions::default()
+                .with_guest_process_mode(mode)
+                .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
+                .with_stdio(
+                    tempfile::tempfile().unwrap(),
+                    stdout.try_clone().unwrap(),
+                    stderr.try_clone().unwrap(),
+                ),
+        );
+        let diagnostics = contents(stderr);
+        assert_eq!(result.unwrap(), RunOutcome::Completed, "{diagnostics}");
+        let output = contents(stdout);
+        let (pid, rest) = output.split_once('\n').unwrap();
+        let pid = pid.trim().parse::<i32>().unwrap();
+        match mode {
+            GuestProcessMode::Virtual => assert!(pid >= 1 << 30),
+            GuestProcessMode::Native => assert_eq!(pid, std::process::id() as i32),
+        }
+        assert_eq!(rest, "inline arg\nSome(child)\n", "{diagnostics}");
+        assert!(tree.snapshot().is_empty());
+    }
+
     // Parent-provided canonical policy wins even over an unreadable child file.
     let stdout = tempfile::tempfile().unwrap();
     let options = RunOptions::default()
+        .with_guest_process_mode(GuestProcessMode::Virtual)
         .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
         .with_inherited_policy(br#"{"env":{"set":{"HANDOFF_POLICY":"parent"}}}"#.to_vec())
         .with_stdio(
@@ -217,11 +254,13 @@ fn moon_commands_run_in_virtual_tree() {
                 "-e".into(),
                 "fn main {\n  abort(\"handoff trap\")\n}".into(),
             ],
-            RunOptions::default().with_stdio(
-                tempfile::tempfile().unwrap(),
-                tempfile::tempfile().unwrap(),
-                stderr.try_clone().unwrap(),
-            ),
+            RunOptions::default()
+                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_stdio(
+                    tempfile::tempfile().unwrap(),
+                    tempfile::tempfile().unwrap(),
+                    stderr.try_clone().unwrap(),
+                ),
         )
         .unwrap();
     assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Exited(1));
@@ -235,6 +274,7 @@ fn moon_commands_run_in_virtual_tree() {
     ] {
         let stdout = tempfile::tempfile().unwrap();
         let options = RunOptions::default()
+            .with_guest_process_mode(GuestProcessMode::Virtual)
             .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
             .with_stdio(
                 tempfile::tempfile().unwrap(),
@@ -277,7 +317,7 @@ fn moon_commands_run_in_virtual_tree() {
             None,
             moon,
             &js_args.map(OsString::from),
-            RunOptions::default(),
+            RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
         )
         .unwrap();
     let error = anyhow::Error::from(tree.wait(child).unwrap_err());
@@ -385,11 +425,13 @@ fn moon_commands_run_in_virtual_tree() {
                 None,
                 &helper,
                 &args,
-                RunOptions::default().with_stdio(
-                    tempfile::tempfile().unwrap(),
-                    stdout.try_clone().unwrap(),
-                    tempfile::tempfile().unwrap(),
-                ),
+                RunOptions::default()
+                    .with_guest_process_mode(GuestProcessMode::Virtual)
+                    .with_stdio(
+                        tempfile::tempfile().unwrap(),
+                        stdout.try_clone().unwrap(),
+                        tempfile::tempfile().unwrap(),
+                    ),
             )
             .unwrap();
         let (mut helper, _) = listener.accept().unwrap();
@@ -445,6 +487,7 @@ fn moon_commands_run_in_virtual_tree() {
             moon,
             &["run".into(), "loop.wasm".into()],
             RunOptions::default()
+                .with_guest_process_mode(GuestProcessMode::Virtual)
                 .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
                 .with_stdio(
                     tempfile::tempfile().unwrap(),

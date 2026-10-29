@@ -230,16 +230,47 @@ fn environment_mutations_are_owned_by_each_run() {
             call $entries call $len if unreachable end))"#)).unwrap()).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let policy = directory.path().join("environment.toml");
-    // A policy creates an owned environment, avoiding process-global mutation.
+    // Explicit inputs and policy provisioning both create an owned environment.
     std::fs::write(&policy, "[env.set]\nHOST_IMPORT_TEST = \"λ🦀\"\n").unwrap();
+    let ambient = std::env::var_os("HOST_IMPORT_TEST");
     for _ in 0..2 {
-        assert_eq!(
-            engine
-                .run(&module, RunOptions::default().with_policy_file(&policy))
-                .unwrap(),
-            RunOutcome::Completed
-        );
+        for options in [
+            RunOptions::default().with_environment([("HOST_IMPORT_TEST", "λ🦀")]),
+            RunOptions::default().with_policy_file(&policy),
+            RunOptions::default()
+                .with_environment([("HOST_IMPORT_TEST", "overridden"), ("EXTRA", "removed")])
+                .with_policy_file(&policy),
+        ] {
+            assert_eq!(engine.run(&module, options).unwrap(), RunOutcome::Completed);
+        }
     }
+    assert_eq!(std::env::var_os("HOST_IMPORT_TEST"), ambient);
+}
+
+#[test]
+fn explicit_empty_environment_does_not_inherit_host_entries() {
+    let engine = Engine::default();
+    let module = engine
+        .compile(
+            "empty-environment.wasm",
+            wat::parse_str(
+                r#"(module
+                (import "__moonbit_fs_unstable" "get_env_vars" (func $entries (result externref)))
+                (import "__moonbit_fs_unstable" "array_len" (func $len (param externref) (result i32)))
+                (func (export "_start") call $entries call $len if unreachable end))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine
+            .run(
+                &module,
+                RunOptions::default().with_environment([] as [(&str, &str); 0]),
+            )
+            .unwrap(),
+        RunOutcome::Completed
+    );
 }
 
 #[test]

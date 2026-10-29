@@ -27,6 +27,7 @@ use crate::wasmtime as backend;
 #[cfg(all(feature = "wee8", not(feature = "v8")))]
 use crate::wee8 as backend;
 use anyhow::Context;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -52,13 +53,31 @@ impl EngineConfig {
     }
 }
 
-/// Configuration for one MoonBit Wasm run.
+/// How guest process operations are routed within one execution.
+///
+/// This choice is independent of whether the host calls [`Engine::run`] or
+/// [`Engine::spawn`]. Neither mode provides an operating-system sandbox.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GuestProcessMode {
+    /// Preserve native child-process operations and ambient defaults.
+    #[default]
+    Native,
+    /// Use this Engine's virtual process identities and child control.
+    ///
+    /// Roots capture an owned environment and fixed cwd unless supplied by the
+    /// caller. Recursive Moon children derive their state from their Runtime.
+    /// Currently requires V8 and supports only recursive Moon children.
+    Virtual,
+}
+
+/// Configuration for one execution, independent of thread placement.
 #[derive(Debug, Default)]
 pub struct RunOptions {
     pub(crate) args: Vec<String>,
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) runtime: RuntimeConfig,
+    pub(crate) guest_process_mode: GuestProcessMode,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
@@ -72,6 +91,38 @@ pub(crate) struct TestArgs {
 }
 
 impl RunOptions {
+    pub fn with_guest_process_mode(mut self, mode: GuestProcessMode) -> Self {
+        self.guest_process_mode = mode;
+        self
+    }
+
+    /// Supply an owned environment. An empty iterator means an empty environment.
+    /// Policy environment provisioning, when present, takes precedence.
+    /// Guest changes affect only this execution's environment.
+    pub fn with_environment<I, K, V>(mut self, environment: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<OsString>,
+        V: Into<OsString>,
+    {
+        self.runtime.default_environment = Some(
+            environment
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into()))
+                .collect(),
+        );
+        self
+    }
+
+    // Only host-facing entries may fill absent root inputs from ambient state.
+    // Guest derivation supplies complete inputs before process admission.
+    pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
+        if self.guest_process_mode == GuestProcessMode::Virtual {
+            self.runtime.capture_host_state()?;
+        }
+        Ok(())
+    }
+
     /// Bind a single-use receiver for external forced termination (V8 only).
     ///
     /// Other backends reject this option. See [`crate::RunTerminator::terminate`]
@@ -316,22 +367,26 @@ impl fmt::Debug for Module {
     }
 }
 
-/// Process-shared Moonrun execution engine.
+/// Moonrun's execution host: reusable modules, execution, and process lifecycle.
 ///
-/// An Engine loads reusable modules and executes each run synchronously
-/// on the calling thread. It does not create threads or retain run lifecycle
-/// state; callers choose execution placement and manage lifecycle.
+/// [`Engine::run`] executes on the calling thread; [`Engine::spawn`] creates a
+/// managed thread whose result is consumed by [`Engine::wait`]. Clones share
+/// the backend and process table; a new Engine creates a separate namespace.
 ///
 /// Environment, cwd and stdio default to ambient process state; callers can
-/// bind owned streams and a fixed cwd. Ambient guest environment mutations
-/// must not race other process-environment access. [`crate::VirtualProcessTree`]
-/// supplies an owned environment and manages concurrent Run lifecycles.
+/// bind an owned environment, owned streams and a fixed cwd. Ambient guest
+/// environment mutations must not race other process-environment access.
+/// [`GuestProcessMode::Virtual`] provides owned root state and guest process
+/// control. Parent links alone do not imply state or permission inheritance.
+/// Dropping an Engine does not terminate or join its executions; callers must
+/// explicitly terminate and wait when required.
 /// OS signal capture is left to the caller; a signal channel can direct
 /// cooperative delivery to one Run.
 #[derive(Clone, Debug)]
 pub struct Engine {
     backend: Arc<backend::Engine>,
     pub(crate) config: EngineConfig,
+    pub(crate) processes: crate::process_tree::ProcessTable,
 }
 
 impl Engine {
@@ -339,6 +394,7 @@ impl Engine {
         Self {
             backend: Arc::new(backend::Engine::new(config)),
             config,
+            processes: Default::default(),
         }
     }
 
@@ -411,26 +467,12 @@ impl Engine {
     pub fn run_with_signal_receiver(
         &self,
         module: &Module,
-        mut options: RunOptions,
+        options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        if options.termination_receiver.is_some() && !backend::SUPPORTS_RUN_TERMINATION {
-            anyhow::bail!("the selected engine backend does not support external Run termination");
-        }
-        let receiver =
-            options
-                .termination_receiver
-                .take()
-                .unwrap_or_else(|| RunTerminationReceiver {
-                    request: Default::default(),
-                });
-        let result = self.run_in_scope(module, options, signals, &receiver.request);
-        // The standalone caller owns finalization. A supervised command instead
-        // retains its receiver through preparation and command-owned cleanup.
-        match receiver.close() {
-            Some(termination) => Ok(termination.into()),
-            None => result,
-        }
+        self.run_inline(options, signals, |engine, options, signals, termination| {
+            engine.run_in_scope(module, options, signals, termination)
+        })
     }
 
     /// Execute one Run using control owned by the surrounding execution scope.
@@ -471,14 +513,134 @@ impl Engine {
         })
     }
 
+    /// Prepare a program with a host-selected Moon or moonx executable, then
+    /// execute it on the calling thread. Program arguments belong in `args`.
+    /// The preparation helper still runs as an external process with host access.
+    pub fn run_moon(
+        &self,
+        executable: &Path,
+        args: &[OsString],
+        options: RunOptions,
+    ) -> anyhow::Result<RunOutcome> {
+        if !options.args.is_empty() || options.test_args.is_some() {
+            return Err(crate::ProcessError::MoonArgumentsAlreadyConfigured.into());
+        }
+        self.run_inline(
+            options,
+            signal_channel().1,
+            |engine, options, signals, termination| {
+                engine.execute_moon_in_scope(
+                    executable,
+                    args,
+                    options,
+                    signals,
+                    termination,
+                    #[cfg(windows)]
+                    false,
+                )
+            },
+        )
+    }
+
+    pub(crate) fn execute_moon_in_scope(
+        &self,
+        executable: &Path,
+        args: &[std::ffi::OsString],
+        mut options: RunOptions,
+        signals: crate::SignalReceiver,
+        termination: &TerminationRequest,
+        #[cfg(windows)] no_console_window: bool,
+    ) -> anyhow::Result<RunOutcome> {
+        let (program, _directory) = match crate::prepare_artifact::prepare_moon(
+            executable,
+            args,
+            &options.runtime,
+            termination,
+            #[cfg(windows)]
+            no_console_window,
+        )? {
+            crate::prepare_artifact::Preparation::Ready { program, directory } => {
+                (*program, directory)
+            }
+            crate::prepare_artifact::Preparation::Exited(outcome) => return Ok(outcome),
+        };
+        options.args = program.args;
+        options.runtime.working_directory = WorkingDirectory::Fixed(program.working_directory);
+        if options.runtime.inherited_policy.is_none()
+            && options.runtime.policy_file.is_none()
+            && let Some((policy, source_dir)) = program.policy
+        {
+            options = options.with_policy_file_source_dir(policy, source_dir);
+        }
+        // The delivery directory outlives Runtime construction and execution. Its
+        // cleanup finishes before the Engine finalizes the execution result.
+        self.execute_artifact_in_scope(
+            program.execution_kind,
+            &program.artifact,
+            &program.executable,
+            |_| {
+                program
+                    .source_map
+                    .as_deref()
+                    .and_then(crate::source_map::SourceMap::parse)
+            },
+            options,
+            signals,
+            termination,
+        )
+    }
+
+    // Root executables and Moon delivery results share dispatch. Keep artifact
+    // location and original identity explicit; they differ after a handoff.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn execute_artifact_in_scope(
+        &self,
+        kind: moonutil::run_handoff::ExecutionKind,
+        artifact: &Path,
+        origin: &Path,
+        source_map: impl FnOnce(&[u8]) -> Option<crate::source_map::SourceMap>,
+        options: RunOptions,
+        signals: crate::SignalReceiver,
+        termination: &TerminationRequest,
+    ) -> anyhow::Result<RunOutcome> {
+        match kind {
+            moonutil::run_handoff::ExecutionKind::Wasm => {
+                let bytes = std::fs::read(artifact)?;
+                let module = self.compile_file(origin, &bytes, || source_map(&bytes))?;
+                self.run_in_scope(&module, options, signals, termination)
+            }
+            moonutil::run_handoff::ExecutionKind::Native
+            | moonutil::run_handoff::ExecutionKind::Js => {
+                // FIXME: Admit native executables and Node through the Engine's native
+                // process nodes, sharing PID, wait, cancellation and reaping ownership.
+                anyhow::bail!(
+                    "native process nodes (including Node) are not yet supported in virtual process trees"
+                )
+            }
+        }
+    }
+
     /// Load and synchronously execute one Wasm file.
     pub fn run_file(
         &self,
         file: impl AsRef<Path>,
         options: RunOptions,
     ) -> anyhow::Result<RunOutcome> {
-        let module = self.load_file(file)?;
-        self.run(&module, options)
+        self.run_file_with_signal_receiver(file, options, signal_channel().1)
+    }
+
+    /// Load and execute a Wasm file on the calling thread with injected signals.
+    /// Loading and execution share one termination scope.
+    pub fn run_file_with_signal_receiver(
+        &self,
+        file: impl AsRef<Path>,
+        options: RunOptions,
+        signals: SignalReceiver,
+    ) -> anyhow::Result<RunOutcome> {
+        self.run_inline(options, signals, |engine, options, signals, termination| {
+            let module = engine.load_file(file)?;
+            engine.run_in_scope(&module, options, signals, termination)
+        })
     }
 }
 

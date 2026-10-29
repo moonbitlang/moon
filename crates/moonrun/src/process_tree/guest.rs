@@ -21,7 +21,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{VirtualPid, VirtualProcessTree, WaitClaim};
+use super::{VirtualPid, WaitClaim};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::{
     CancellationOutcome, JobCancellation, JobCancellationOverride,
@@ -44,7 +44,7 @@ pub(super) fn exit_status(result: &Result<RunOutcome, super::ProcessError>) -> i
 #[derive(Clone)]
 pub(crate) struct ProcessContext {
     pub(super) pid: VirtualPid,
-    pub(super) tree: VirtualProcessTree,
+    pub(super) engine: crate::Engine,
 }
 
 impl std::fmt::Debug for ProcessContext {
@@ -69,14 +69,13 @@ impl ProcessContext {
     ) -> AsyncHostResult<super::SpawnedProcess> {
         let executable = executable.to_owned();
         let args = args.to_vec();
-        self.tree
-            .spawn_command(
+        self.engine
+            .spawn_execution(
                 Some(self.pid),
                 options,
                 crate::signal_channel().1,
                 move |engine, options, signals, termination| {
-                    super::command::run_moon(
-                        engine,
+                    engine.execute_moon_in_scope(
                         &executable,
                         &args,
                         options,
@@ -104,7 +103,7 @@ impl ProcessContext {
         pid: i32,
         accept: impl FnOnce(i32) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let mut entries = self.tree.table.lock().unwrap();
+        let mut entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
@@ -129,7 +128,7 @@ impl ProcessContext {
         pid: i32,
         create_wake: impl FnOnce() -> AsyncHostResult<Arc<std::task::Waker>>,
     ) -> AsyncHostResult<i32> {
-        let entries = self.tree.table.lock().unwrap();
+        let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
@@ -161,9 +160,9 @@ impl ProcessContext {
     }
 
     pub(crate) fn kill(&self, pid: i32) -> AsyncHostResult<()> {
-        let mut entries = self.tree.table.lock().unwrap();
+        let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
-            .get_mut(&VirtualPid(pid))
+            .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
             return Err(AsyncHostError::PermissionDenied);
@@ -172,9 +171,7 @@ impl ProcessContext {
         let outcome = RunTermination::KilledBySignal(libc::SIGKILL);
         #[cfg(windows)]
         let outcome = RunTermination::Exit(1);
-        if entry.terminator.terminate(outcome) {
-            entry.info.state = super::ProcessState::Terminating;
-        }
+        entry.terminator.terminate(outcome);
         Ok(())
     }
 
@@ -198,9 +195,9 @@ impl ProcessContext {
             let _ = signal;
             windows_sys::Win32::System::Console::CTRL_BREAK_EVENT as i32
         };
-        let mut entries = self.tree.table.lock().unwrap();
+        let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
-            .get_mut(&VirtualPid(pid))
+            .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
             return Err(AsyncHostError::PermissionDenied);
@@ -216,18 +213,15 @@ impl ProcessContext {
         }
         // An unhandled cancellation signal takes its default action on this
         // Run only. Accepted signals leave the caller's grace period in charge.
-        if entry
+        entry
             .terminator
-            .terminate(RunTermination::KilledBySignal(signal))
-        {
-            entry.info.state = super::ProcessState::Terminating;
-        }
+            .terminate(RunTermination::KilledBySignal(signal));
         Ok(())
     }
 
     pub(crate) fn wait(&self, pid: i32) -> AsyncHostResult<ProcessWait> {
         let pid = VirtualPid(pid);
-        let entries = self.tree.table.lock().unwrap();
+        let entries = self.engine.processes.0.lock().unwrap();
         if entries
             .get(&pid)
             .is_none_or(|entry| entry.info.parent != Some(self.pid))
@@ -248,7 +242,7 @@ impl ProcessContext {
     }
 
     fn reap_unclaimed(&self, pid: VirtualPid, completion: &Arc<super::ProcessCompletion>) {
-        let mut entries = self.tree.table.lock().unwrap();
+        let mut entries = self.engine.processes.0.lock().unwrap();
         // Handle observations do not own an exclusive wait claim. Preserve
         // another waiter's result, and remove only the observed entry.
         if entries
@@ -290,7 +284,7 @@ impl ProcessHandle {
     pub(crate) fn matches(&self, owner: &ProcessContext, pid: i32) -> bool {
         self.pid == pid
             && self.owner.pid == owner.pid
-            && Arc::ptr_eq(&self.owner.tree.table, &owner.tree.table)
+            && Arc::ptr_eq(&self.owner.engine.processes.0, &owner.engine.processes.0)
     }
 
     pub(crate) fn wait(&self) -> ProcessWait {
@@ -353,7 +347,7 @@ impl ProcessWait {
         if self.claim.is_some() {
             return Err(AsyncHostError::Inval);
         }
-        let table = &self.cancel.context.tree.table;
+        let table = &self.cancel.context.engine.processes.0;
         let claim = if self.claim_on_run {
             Some(WaitClaim::new(Arc::clone(table), self.pid).map_err(|_| AsyncHostError::Inval)?)
         } else {
@@ -437,13 +431,10 @@ mod tests {
     use std::sync::{Mutex, mpsc};
     use std::time::Duration;
 
-    fn test_tree(table: super::super::Table) -> VirtualProcessTree {
-        VirtualProcessTree {
-            engine: crate::Engine::default(),
-            table,
-            thread_stack_size: 4 * 1024 * 1024,
-            guest_stack_budget: 1024 * 1024,
-        }
+    fn test_engine(table: super::super::Table) -> crate::Engine {
+        let mut engine = crate::Engine::default();
+        engine.processes = super::super::ProcessTable(table);
+        engine
     }
 
     #[cfg(unix)]
@@ -454,7 +445,7 @@ mod tests {
         let (signals, _signals) = crate::signal_channel();
         let context = ProcessContext {
             pid,
-            tree: test_tree(Arc::new(Mutex::new(BTreeMap::from([(
+            engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
                 pid,
                 Entry {
                     info: ProcessInfo {
@@ -501,7 +492,7 @@ mod tests {
             let completion = Arc::new(ProcessCompletion::default());
             let context = ProcessContext {
                 pid: parent,
-                tree: test_tree(Arc::new(Mutex::new(BTreeMap::from([(
+                engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
                     child,
                     Entry {
                         info: ProcessInfo {
@@ -530,7 +521,7 @@ mod tests {
                     Ok(1)
                 );
             }
-            let claim = WaitClaim::new(context.tree.table.clone(), child).unwrap();
+            let claim = WaitClaim::new(context.engine.processes.0.clone(), child).unwrap();
             assert_eq!(
                 context.observe_exit(child.get(), || panic!("claimed by supervisor")),
                 Err(AsyncHostError::PermissionDenied),
@@ -570,7 +561,7 @@ mod tests {
             );
             // Taking the owned result must never turn the process back into
             // an observable pending completion while the table entry remains.
-            let claim = WaitClaim::new(context.tree.table.clone(), child).unwrap();
+            let claim = WaitClaim::new(context.engine.processes.0.clone(), child).unwrap();
             let result = completion.result.lock().unwrap().take();
             assert_eq!(
                 context.observe_exit(child.get(), || panic!("result taken by supervisor")),
@@ -585,7 +576,7 @@ mod tests {
                 context.observe_exit(child.get(), || panic!("already reaped")),
                 Err(AsyncHostError::PermissionDenied),
             );
-            assert!(context.tree.table.lock().unwrap().is_empty());
+            assert!(context.engine.processes.0.lock().unwrap().is_empty());
         }
     }
 
@@ -599,7 +590,7 @@ mod tests {
             let completion = Arc::new(ProcessCompletion::default());
             let context = ProcessContext {
                 pid: VirtualPid(1),
-                tree: test_tree(Arc::new(Mutex::new(BTreeMap::from([(
+                engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
                     child,
                     Entry {
                         info: ProcessInfo {
@@ -630,7 +621,7 @@ mod tests {
             assert_eq!(host.poll_register_pid(poll, child.get()), Ok(1));
             assert_eq!(completion.notifications.lock().unwrap().len(), 1);
             assert_eq!(observer.strong_count(), 1);
-            let claim = WaitClaim::new(context.tree.table.clone(), child).unwrap();
+            let claim = WaitClaim::new(context.engine.processes.0.clone(), child).unwrap();
             assert_eq!(
                 host.poll_register_pid(poll, child.get()),
                 Err(AsyncHostError::PermissionDenied)
@@ -670,7 +661,7 @@ mod tests {
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
             pid: parent,
-            tree: test_tree(Arc::new(Mutex::new(BTreeMap::from([(
+            engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
                 child,
                 Entry {
                     info: ProcessInfo {
@@ -691,7 +682,7 @@ mod tests {
         assert!(!first.matches(&owner, parent.get()));
         let stranger = ProcessContext {
             pid: parent,
-            tree: test_tree(Default::default()),
+            engine: test_engine(Default::default()),
         };
         assert!(!first.matches(&stranger, child.get()));
         assert_eq!(
@@ -716,9 +707,17 @@ mod tests {
             first.read_exit::<()>(|_| Err(AsyncHostError::Fault)),
             Err(AsyncHostError::Fault)
         );
-        assert!(owner.tree.table.lock().unwrap().contains_key(&child));
+        assert!(
+            owner
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .contains_key(&child)
+        );
         wait.consume();
-        assert!(owner.tree.table.lock().unwrap().is_empty());
+        assert!(owner.engine.processes.0.lock().unwrap().is_empty());
         assert_eq!(first.read_exit(Ok), Ok(code));
         // Model a supervisor taking the owned Run result. Handles still own
         // the status, and completion wins over cancellation on Windows.
@@ -738,7 +737,7 @@ mod tests {
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
             pid: VirtualPid(1),
-            tree: test_tree(Default::default()),
+            engine: test_engine(Default::default()),
         };
         // Admission captured this before releasing the table lock. By the time
         // the guest obtains its HANDLE the supervisor may have removed the row.
@@ -757,7 +756,7 @@ mod tests {
     #[test]
     fn invalid_virtual_spawn_inputs_do_not_admit_a_process() {
         let cwd = tempfile::tempdir().unwrap();
-        let tree = test_tree(Default::default());
+        let tree = test_engine(Default::default());
         let process = crate::process::HostProcess::new(
             None,
             None,
@@ -767,7 +766,7 @@ mod tests {
             Arc::new(crate::runtime::Stdio::Ambient),
             Some(ProcessContext {
                 pid: VirtualPid(1),
-                tree: tree.clone(),
+                engine: tree.clone(),
             }),
             Arc::new(crate::runtime::Env::owned([]).unwrap()),
         );
@@ -815,7 +814,7 @@ mod tests {
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
             pid: VirtualPid(1),
-            tree: test_tree(Arc::new(Mutex::new(BTreeMap::from([(
+            engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
                 child,
                 Entry {
                     info: ProcessInfo {
@@ -833,36 +832,68 @@ mod tests {
         let mut cancelled = owner.wait(child.get()).unwrap();
         cancelled.claim_on_run = false;
         cancelled.consume();
-        assert!(owner.tree.table.lock().unwrap().contains_key(&child));
+        assert!(
+            owner
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .contains_key(&child)
+        );
         cancelled.cancellation().cancel().unwrap();
         assert!(cancelled.run().is_err());
         completion.publish(Ok(RunOutcome::Exited(23)));
         cancelled.consume();
-        assert!(owner.tree.table.lock().unwrap().contains_key(&child));
+        assert!(
+            owner
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .contains_key(&child)
+        );
 
         let mut unread = owner.wait(child.get()).unwrap();
         unread.claim_on_run = false;
         // Even an already-exited process must not be reaped by reading an
         // unexecuted Job's default return value.
         unread.consume();
-        assert!(owner.tree.table.lock().unwrap().contains_key(&child));
+        assert!(
+            owner
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .contains_key(&child)
+        );
         assert_eq!(unread.run(), Ok(23));
         drop(unread);
-        assert!(owner.tree.table.lock().unwrap().contains_key(&child));
+        assert!(
+            owner
+                .engine
+                .processes
+                .0
+                .lock()
+                .unwrap()
+                .contains_key(&child)
+        );
 
         let mut accepted = owner.wait(child.get()).unwrap();
         accepted.claim_on_run = false;
         assert_eq!(accepted.run(), Ok(23));
-        let claim = WaitClaim::new(owner.tree.table.clone(), child).unwrap();
+        let claim = WaitClaim::new(owner.engine.processes.0.clone(), child).unwrap();
         accepted.consume();
-        assert!(owner.tree.table.lock().unwrap()[&child].waiting);
+        assert!(owner.engine.processes.0.lock().unwrap()[&child].waiting);
         drop(claim);
         let mut accepted = owner.wait(child.get()).unwrap();
         accepted.claim_on_run = false;
         assert_eq!(accepted.run(), Ok(23));
         accepted.consume();
         accepted.consume();
-        assert!(owner.tree.table.lock().unwrap().is_empty());
+        assert!(owner.engine.processes.0.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -900,7 +931,7 @@ mod tests {
             )])));
             let context = ProcessContext {
                 pid: parent,
-                tree: test_tree(Arc::clone(&table)),
+                engine: test_engine(Arc::clone(&table)),
             };
             let wait = context.wait(child.get()).unwrap();
             let (entered, started) = mpsc::channel();

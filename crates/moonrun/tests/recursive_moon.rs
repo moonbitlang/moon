@@ -18,7 +18,7 @@
 
 #![cfg(feature = "v8")]
 
-use moonrun::{Engine, RunOptions, RunOutcome, VirtualProcessTree, WorkingDirectory};
+use moonrun::{Engine, GuestProcessMode, RunOptions, RunOutcome, WorkingDirectory};
 use std::fs::{self, File};
 use std::io::{Read, Seek};
 use std::path::Path;
@@ -48,7 +48,7 @@ fn recursive_moon_processes() {
     fs::hard_link(moon, &moonx).unwrap_or_else(|_| {
         fs::copy(moon, &moonx).unwrap();
     });
-    let tree = VirtualProcessTree::new(Engine::default()).unwrap();
+    let tree = Engine::default();
     // Compile against the pinned async implementation, then exercise its real
     // process APIs without changing guest imports or platform dispatch.
     let upstream =
@@ -91,6 +91,7 @@ fn recursive_moon_processes() {
             moon,
             &["run".into(), "src/virtual_parent".into()],
             RunOptions::default()
+                .with_guest_process_mode(GuestProcessMode::Virtual)
                 .with_policy_file(&policy)
                 .with_working_directory(WorkingDirectory::Fixed(project.clone()))
                 .with_stdio(

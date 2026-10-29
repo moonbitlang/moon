@@ -239,13 +239,14 @@ impl Spawn {
             };
         let [stdin, stdout, stderr] = stdio;
         let mut run = RunOptions::default()
+            .with_guest_process_mode(crate::GuestProcessMode::Virtual)
+            .with_environment(env)
             .with_working_directory(WorkingDirectory::Fixed(cwd))
             .with_stdio(
                 duplicate(stdin, StdioStream::Stdin)?,
                 duplicate(stdout, StdioStream::Stdout)?,
                 duplicate(stderr, StdioStream::Stderr)?,
             );
-        run.runtime.default_environment = Some(env);
         if let Some(policy) = policy {
             run = run.with_inherited_policy(policy.contents());
         }

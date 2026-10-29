@@ -16,9 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Admission, control, and reaping for supervised commands and their Runs.
+//! Execution admission, control, and reaping owned by the Engine.
 
-mod command;
 mod guest;
 #[cfg(windows)]
 pub(crate) use guest::ProcessHandle;
@@ -33,7 +32,8 @@ use std::thread::{self, JoinHandle};
 
 use thiserror::Error;
 
-use crate::engine::SUPPORTS_RUN_TERMINATION;
+use crate::engine::{GuestProcessMode, SUPPORTS_RUN_TERMINATION};
+use crate::run_termination::{RunTerminationReceiver, TerminationRequest};
 use crate::{Engine, Module, RunOptions, RunOutcome, RunTermination, RunTerminator};
 use crate::{WorkingDirectory, termination_channel};
 
@@ -45,7 +45,7 @@ use crate::{WorkingDirectory, termination_channel};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VirtualPid(i32);
 
-// Allocate across trees so a handle from another tree cannot alias a local Run.
+// Allocate across Engines so an ID from another host cannot alias a local Run.
 static NEXT_PID: AtomicU32 = AtomicU32::new(1 << 30);
 
 impl VirtualPid {
@@ -70,18 +70,18 @@ impl std::fmt::Display for VirtualPid {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessState {
-    /// Admitted for execution, including preparation and command cleanup.
+    /// Admitted for execution, including preparation and execution cleanup.
     Running,
-    /// Forced termination was accepted; teardown may still be blocked.
+    /// Termination was requested; teardown may still be blocked.
     Terminating,
-    /// Command execution returned or unwound; thread reaping may still be pending.
+    /// Execution returned or unwound; thread reaping may still be pending.
     Exited,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessInfo {
     pub pid: VirtualPid,
-    /// `None` denotes a root or a child adopted by the embedding supervisor.
+    /// `None` denotes a root or a child adopted by the Engine.
     pub parent: Option<VirtualPid>,
     pub state: ProcessState,
 }
@@ -100,10 +100,12 @@ pub enum ProcessError {
     ParentNotRunning(VirtualPid),
     #[error("another caller is already waiting for virtual process {0}")]
     AlreadyWaiting(VirtualPid),
-    #[error("the virtual process tree owns the Run termination receiver")]
+    #[error("spawned execution owns the Run termination receiver")]
     TerminationAlreadyConfigured,
     #[error("Moon handoff owns the program arguments; pass them through the Moon command")]
     MoonArgumentsAlreadyConfigured,
+    #[error("virtual execution requires an owned environment and fixed working directory")]
+    InvalidVirtualConfiguration,
     #[error("failed to prepare or start a virtual process")]
     Spawn(#[from] std::io::Error),
     #[error("virtual process Run failed")]
@@ -118,6 +120,19 @@ struct Entry {
     signals: crate::SignalSender,
     completion: Arc<ProcessCompletion>,
     waiting: bool,
+}
+
+impl Entry {
+    fn info(&self) -> ProcessInfo {
+        let mut info = self.info;
+        // A caller-supplied terminator reaches the shared request directly.
+        // Derive this state from that request instead of requiring every
+        // termination source to update a second copy in the process table.
+        if info.state == ProcessState::Running && self.terminator.requested().is_some() {
+            info.state = ProcessState::Terminating;
+        }
+        info
+    }
 }
 
 #[derive(Debug, Default)]
@@ -193,65 +208,32 @@ pub(crate) struct SpawnedProcess {
     completion: Arc<ProcessCompletion>,
 }
 
-/// Opt-in supervision of commands executing on the supplied Engine.
-///
-/// Each command gets a thread, an owned environment (policy provisioning takes
-/// precedence), and a fixed cwd. Parent links do not imply configuration
-/// inheritance. Guests see their virtual PID and can signal or wait for their
-/// children through the existing async process API, including recursive Moon
-/// invocations. Other native spawning is not yet supported in this mode;
-/// ordinary Engine Runs retain ambient process access.
-/// Native stacks retain at least the creator's size; Run startup checks the
-/// guest budget against the executing thread's remaining native stack.
-///
-/// The supervisor can wait for any member. Exiting parents leave children
-/// running under the supervisor. Dropping the tree neither stops nor joins
-/// commands: callers must explicitly terminate and wait when required.
-#[derive(Clone)]
-pub struct VirtualProcessTree {
-    engine: Engine,
-    table: Table,
-    thread_stack_size: usize,
-    guest_stack_budget: usize,
+/// The sole process table shared by clones of one Engine.
+/// Entries contain control and completion, never the Engine or a Runtime.
+#[derive(Clone, Default)]
+pub(crate) struct ProcessTable(Table);
+
+impl std::fmt::Debug for ProcessTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProcessTable").finish_non_exhaustive()
+    }
 }
 
-impl VirtualProcessTree {
-    /// Requires external Run termination support, currently available on V8.
-    pub fn new(engine: Engine) -> Result<Self, ProcessError> {
-        if !SUPPORTS_RUN_TERMINATION {
-            return Err(ProcessError::UnsupportedBackend);
-        }
-        // Preserve the creator's actual native stack size, enlarging it when
-        // the guest budget requires more room. Each supervised Run checks its
-        // executing thread's remaining stack separately, including host reserve.
-        // The pinned V8's default guest limit fits in 1 MiB.
-        let guest_stack_budget = engine
-            .config
+impl Engine {
+    fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
+        self.config
             .stack_size
             .unwrap_or(1024)
             .checked_mul(1024)
             .filter(|bytes| *bytes != 0)
-            .ok_or(ProcessError::InvalidStackSize)?;
-        let thread_stack_size = guest_stack_budget
-            .checked_add(2 * 1024 * 1024)
-            .ok_or(ProcessError::InvalidStackSize)?;
-        let (low, high) = crate::native_stack::bounds()?;
-        let native_stack_size = high
-            .checked_sub(low)
-            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
-        Ok(Self {
-            engine,
-            table: Arc::new(Mutex::new(BTreeMap::new())),
-            thread_stack_size: thread_stack_size.max(native_stack_size),
-            guest_stack_budget,
-        })
+            .ok_or(ProcessError::InvalidStackSize)
     }
 
-    /// Start a Run with an optional live parent from this tree.
+    /// Start a Run on a new thread, with an optional live parent in this Engine.
     ///
-    /// Absent explicit provisioning, capture the host environment and cwd at
-    /// spawn. Stdio follows `options`. Host setup errors after thread creation
-    /// are returned by `wait`, just like other Run failures.
+    /// `GuestProcessMode::Virtual` captures the host environment and cwd unless
+    /// explicitly provisioned. Native mode preserves ambient host state. Stdio
+    /// follows `options`. Failures after admission are returned by `wait`.
     pub fn spawn(
         &self,
         parent: Option<VirtualPid>,
@@ -270,8 +252,10 @@ impl VirtualProcessTree {
         options: RunOptions,
         signals: crate::SignalReceiver,
     ) -> Result<VirtualPid, ProcessError> {
+        let mut options = options;
+        options.prepare_root()?;
         let module = module.clone();
-        self.spawn_command(
+        self.spawn_execution(
             parent,
             options,
             signals,
@@ -292,14 +276,15 @@ impl VirtualProcessTree {
         options: RunOptions,
         signals: crate::SignalReceiver,
     ) -> Result<VirtualPid, ProcessError> {
+        let mut options = options;
+        options.prepare_root()?;
         let executable = executable.to_owned();
-        self.spawn_command(
+        self.spawn_execution(
             parent,
             options,
             signals,
             move |engine, options, signals, termination| {
-                command::run_executable(
-                    engine,
+                engine.execute_artifact_in_scope(
                     kind,
                     &executable,
                     &executable,
@@ -333,15 +318,16 @@ impl VirtualProcessTree {
         if !options.args.is_empty() || options.test_args.is_some() {
             return Err(ProcessError::MoonArgumentsAlreadyConfigured);
         }
+        let mut options = options;
+        options.prepare_root()?;
         let executable = executable.to_owned();
         let args = args.to_vec();
-        self.spawn_command(
+        self.spawn_execution(
             parent,
             options,
             crate::signal_channel().1,
             move |engine, options, signals, termination| {
-                command::run_moon(
-                    engine,
+                engine.execute_moon_in_scope(
                     &executable,
                     &args,
                     options,
@@ -355,7 +341,88 @@ impl VirtualProcessTree {
         .map(|spawned| spawned.pid)
     }
 
-    fn spawn_command(
+    /// Execute on the calling thread. Virtual execution reserves its own result
+    /// so another waiter cannot consume the value this call must return.
+    pub(crate) fn run_inline(
+        &self,
+        mut options: RunOptions,
+        signals: crate::SignalReceiver,
+        execute: impl FnOnce(
+            &Engine,
+            RunOptions,
+            crate::SignalReceiver,
+            &TerminationRequest,
+        ) -> anyhow::Result<RunOutcome>,
+    ) -> anyhow::Result<RunOutcome> {
+        let virtual_process = options.guest_process_mode == GuestProcessMode::Virtual;
+        if !SUPPORTS_RUN_TERMINATION {
+            if virtual_process {
+                return Err(ProcessError::UnsupportedBackend.into());
+            }
+            anyhow::ensure!(
+                options.termination_receiver.is_none(),
+                "the selected engine backend does not support external Run termination"
+            );
+        }
+        // The receiver is declared after the exit guard so panic unwinding
+        // closes control before removing the PID and adopting its children.
+        let mut exit = None;
+        let receiver = options.termination_receiver.take().unwrap_or_else(|| {
+            if virtual_process {
+                termination_channel().1
+            } else {
+                RunTerminationReceiver {
+                    request: Default::default(),
+                }
+            }
+        });
+        let result = (|| {
+            if let Some(outcome) = receiver.request.get() {
+                drop((execute, options, signals));
+                return Ok(outcome.into());
+            }
+            options.prepare_root()?;
+            if virtual_process {
+                options.native_stack_budget = Some(self.guest_stack_budget()?);
+                let pid = VirtualPid::allocate(&NEXT_PID)?;
+                options.runtime.process_context = Some(ProcessContext {
+                    pid,
+                    engine: self.clone(),
+                });
+                self.processes.0.lock().unwrap().insert(
+                    pid,
+                    Entry {
+                        info: ProcessInfo {
+                            pid,
+                            parent: None,
+                            state: ProcessState::Running,
+                        },
+                        terminator: receiver.sender(),
+                        signals: signals.sender(),
+                        completion: Arc::new(ProcessCompletion::default()),
+                        waiting: true,
+                    },
+                );
+                exit = Some(ProcessExitGuard {
+                    table: Arc::clone(&self.processes.0),
+                    pid,
+                    reap_on_drop: true,
+                });
+            } else {
+                options.runtime.process_context = None;
+            }
+            execute(self, options, signals, &receiver.request)
+        })();
+        let result = match receiver.close() {
+            Some(outcome) => Ok(outcome.into()),
+            None => result,
+        };
+        drop(receiver);
+        drop(exit);
+        result
+    }
+
+    pub(crate) fn spawn_execution(
         &self,
         parent: Option<VirtualPid>,
         mut options: RunOptions,
@@ -364,49 +431,65 @@ impl VirtualProcessTree {
             &Engine,
             RunOptions,
             crate::SignalReceiver,
-            &crate::run_termination::TerminationRequest,
+            &TerminationRequest,
         ) -> anyhow::Result<RunOutcome>
         + Send
         + 'static,
     ) -> Result<SpawnedProcess, ProcessError> {
+        if !SUPPORTS_RUN_TERMINATION {
+            return Err(ProcessError::UnsupportedBackend);
+        }
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
         }
-        options.native_stack_budget = Some(self.guest_stack_budget);
-        options
-            .runtime
-            .default_environment
-            .get_or_insert_with(|| std::env::vars_os().collect());
-        if matches!(options.runtime.working_directory, WorkingDirectory::Ambient) {
-            options.runtime.working_directory = WorkingDirectory::Fixed(std::env::current_dir()?);
+        let guest_stack_budget = self.guest_stack_budget()?;
+        let required_stack = guest_stack_budget
+            .checked_add(2 * 1024 * 1024)
+            .ok_or(ProcessError::InvalidStackSize)?;
+        let (low, high) = crate::native_stack::bounds()?;
+        let native_stack_size = high
+            .checked_sub(low)
+            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
+        let thread_stack_size = required_stack.max(native_stack_size);
+        options.native_stack_budget = Some(guest_stack_budget);
+        if options.guest_process_mode == GuestProcessMode::Virtual
+            && (options.runtime.default_environment.is_none()
+                || !matches!(
+                    options.runtime.working_directory,
+                    WorkingDirectory::Fixed(_)
+                ))
+        {
+            return Err(ProcessError::InvalidVirtualConfiguration);
         }
-        let mut table = self.table.lock().unwrap();
+        let mut table = self.processes.0.lock().unwrap();
         if let Some(parent) = parent {
             let entry = table.get(&parent).ok_or(ProcessError::NotFound(parent))?;
-            if entry.info.state != ProcessState::Running {
+            if entry.info().state != ProcessState::Running {
                 return Err(ProcessError::ParentNotRunning(parent));
             }
         }
         let pid = VirtualPid::allocate(&NEXT_PID)?;
-        options.runtime.process_context = Some(ProcessContext {
-            pid,
-            tree: self.clone(),
-        });
+        options.runtime.process_context = (options.guest_process_mode == GuestProcessMode::Virtual)
+            .then(|| ProcessContext {
+                pid,
+                engine: self.clone(),
+            });
         let (terminator, receiver) = termination_channel();
         let signals = signal_receiver.sender();
-        let engine = self.engine.clone();
-        let shared_table = Arc::clone(&self.table);
+        let engine = self.clone();
+        let shared_table = Arc::clone(&self.processes.0);
         let completion = Arc::new(ProcessCompletion::default());
         let reaper = completion.start_reaper(pid)?;
         // Keep admission locked through publication. Even an immediate return
         // or panic must find its entry, and a parent cannot exit in between.
         let thread = thread::Builder::new()
             .name(format!("moonrun-{pid}"))
-            .stack_size(self.thread_stack_size)
+            .stack_size(thread_stack_size)
             .spawn(move || {
                 let _exit = ProcessExitGuard {
                     table: shared_table,
                     pid,
+                    reap_on_drop: false,
                 };
                 // Close control before publishing exit, including on unwind.
                 let receiver = receiver;
@@ -445,7 +528,7 @@ impl VirtualProcessTree {
         );
         reaper
             .send(thread)
-            .expect("process reaper must accept its command");
+            .expect("process reaper must accept its execution");
         Ok(spawned)
     }
 
@@ -457,55 +540,59 @@ impl VirtualProcessTree {
         pid: VirtualPid,
         outcome: RunTermination,
     ) -> Result<bool, ProcessError> {
-        let mut table = self.table.lock().unwrap();
-        let entry = table.get_mut(&pid).ok_or(ProcessError::NotFound(pid))?;
+        let table = self.processes.0.lock().unwrap();
+        let entry = table.get(&pid).ok_or(ProcessError::NotFound(pid))?;
         // Lock order is table then termination. Run completion acquires the
-        // table only after command execution has closed the termination channel.
-        let accepted = entry.terminator.terminate(outcome);
-        if accepted {
-            entry.info.state = ProcessState::Terminating;
-        }
-        Ok(accepted)
+        // table only after execution has closed the termination channel.
+        Ok(entry.terminator.terminate(outcome))
     }
 
     /// Join and reap exactly once, including Run failures and thread panics.
     /// No table lock is held while waiting for Run and thread teardown.
     pub fn wait(&self, pid: VirtualPid) -> Result<RunOutcome, ProcessError> {
-        let claim = WaitClaim::new(Arc::clone(&self.table), pid)?;
+        let claim = WaitClaim::new(Arc::clone(&self.processes.0), pid)?;
         let mut result = claim.completion.result.lock().unwrap();
         while result.is_none() {
             result = claim.completion.changed.wait(result).unwrap();
         }
         let outcome = result.take().unwrap();
         drop(result);
-        self.table.lock().unwrap().remove(&pid);
+        self.processes.0.lock().unwrap().remove(&pid);
         drop(claim);
         outcome
     }
 
-    /// A coherent snapshot, including exited members awaiting reaping.
+    /// Snapshot the members, including exited processes awaiting reaping.
+    /// External termination requests may change their states concurrently.
     pub fn snapshot(&self) -> Vec<ProcessInfo> {
-        self.table
+        self.processes
+            .0
             .lock()
             .unwrap()
             .values()
-            .map(|entry| entry.info)
+            .map(Entry::info)
             .collect()
     }
 }
 
-// Mark exit on panic too, after command execution and control have unwound. The reaper
+// Mark exit on panic too, after execution and control have unwound. The reaper
 // publishes completion separately, after native thread cleanup and join.
-// The thread retains the table even if the embedding owner drops its tree.
+// A spawned thread retains the table even if the embedding owner drops its
+// Engine. Inline execution instead removes the entry when its caller returns.
 struct ProcessExitGuard {
     table: Table,
     pid: VirtualPid,
+    reap_on_drop: bool,
 }
 
 impl Drop for ProcessExitGuard {
     fn drop(&mut self) {
         let mut table = self.table.lock().unwrap();
-        table.get_mut(&self.pid).unwrap().info.state = ProcessState::Exited;
+        if self.reap_on_drop {
+            table.remove(&self.pid);
+        } else {
+            table.get_mut(&self.pid).unwrap().info.state = ProcessState::Exited;
+        }
         for entry in table.values_mut() {
             if entry.info.parent == Some(self.pid) {
                 entry.info.parent = None;
@@ -565,28 +652,195 @@ mod tests {
         }
     }
 
+    #[test]
+    fn native_inline_execution_stays_on_the_caller_without_a_process_entry() {
+        let engine = Engine::default();
+        let caller = thread::current().id();
+        assert_eq!(
+            engine
+                .run_inline(
+                    RunOptions::default(),
+                    crate::signal_channel().1,
+                    |engine, options, _, _| {
+                        assert_eq!(thread::current().id(), caller);
+                        assert!(options.runtime.process_context.is_none());
+                        assert!(options.runtime.default_environment.is_none());
+                        assert!(matches!(
+                            options.runtime.working_directory,
+                            WorkingDirectory::Ambient
+                        ));
+                        assert!(engine.snapshot().is_empty());
+                        Ok(RunOutcome::Completed)
+                    },
+                )
+                .unwrap(),
+            RunOutcome::Completed
+        );
+    }
+
     #[cfg(feature = "v8")]
     #[test]
-    fn invalid_stack_budgets_are_rejected_before_thread_creation() {
-        for stack_size in [0, usize::MAX] {
+    fn virtual_inline_execution_stays_on_the_caller_and_owns_its_result() {
+        let engine = Engine::default();
+        let module = engine
+            .compile("empty.wasm", wat::parse_str("(module)").unwrap())
+            .unwrap();
+        let caller = thread::current().id();
+        let (terminator, receiver) = termination_channel();
+        let result = engine.run_inline(
+            RunOptions::default()
+                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_termination_receiver(receiver),
+            crate::signal_channel().1,
+            |engine, options, signals, termination| {
+                assert_eq!(thread::current().id(), caller);
+                let pid = options.runtime.process_context.as_ref().unwrap().pid;
+                assert!(options.runtime.default_environment.is_some());
+                assert!(matches!(
+                    options.runtime.working_directory,
+                    WorkingDirectory::Fixed(_)
+                ));
+                assert_eq!(engine.snapshot().len(), 1);
+                assert!(matches!(engine.clone().wait(pid), Err(ProcessError::AlreadyWaiting(id)) if id == pid));
+                // A newly created Engine owns a different namespace.
+                assert!(matches!(Engine::default().wait(pid), Err(ProcessError::NotFound(id)) if id == pid));
+                engine.run_in_scope(&module, options, signals, termination)?;
+                // Engine control and the supplied receiver are one channel,
+                // including after the Run has released its Runtime.
+                assert!(terminator.terminate(RunTermination::Exit(17)));
+                assert_eq!(engine.snapshot()[0].state, ProcessState::Terminating);
+                assert!(!engine.terminate(pid, RunTermination::Exit(18)).unwrap());
+                assert!(matches!(
+                    engine.spawn_execution(
+                        Some(pid),
+                        RunOptions::default(),
+                        crate::signal_channel().1,
+                        |_, _, _, _| panic!("terminating parent admitted a child"),
+                    ),
+                    Err(ProcessError::ParentNotRunning(id)) if id == pid
+                ));
+                Ok(RunOutcome::Completed)
+            },
+        );
+        assert_eq!(result.unwrap(), RunOutcome::Exited(17));
+        assert!(!terminator.terminate(RunTermination::Exit(19)));
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn inline_panic_closes_control_reaps_the_root_and_adopts_its_children() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use std::time::Duration;
+
+        let engine = Engine::default();
+        let (terminator, receiver) = termination_channel();
+        let (release, pending) = mpsc::channel();
+        let mut child = None;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            engine.run_inline(
+                RunOptions::default()
+                    .with_guest_process_mode(GuestProcessMode::Virtual)
+                    .with_termination_receiver(receiver),
+                crate::signal_channel().1,
+                |engine, options, _, _| {
+                    let parent = options.runtime.process_context.as_ref().unwrap().pid;
+                    child = Some(
+                        engine
+                            .spawn_execution(
+                                Some(parent),
+                                RunOptions::default(),
+                                crate::signal_channel().1,
+                                move |_, _, _, _| {
+                                    pending.recv_timeout(Duration::from_secs(5)).unwrap();
+                                    Ok(RunOutcome::Completed)
+                                },
+                            )
+                            .unwrap()
+                            .pid,
+                    );
+                    panic!("simulated inline execution panic");
+                },
+            )
+        }));
+        assert!(result.is_err());
+        assert!(!terminator.terminate(RunTermination::Exit(1)));
+        let child = child.unwrap();
+        assert_eq!(
+            engine.snapshot(),
+            [ProcessInfo {
+                pid: child,
+                parent: None,
+                state: ProcessState::Running,
+            }]
+        );
+        release.send(()).unwrap();
+        assert_eq!(engine.wait(child).unwrap(), RunOutcome::Completed);
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn guest_admission_requires_prepared_virtual_state() {
+        let engine = Engine::default();
+        for options in [
+            RunOptions::default(),
+            RunOptions::default().with_environment([("ONLY_GUEST", "value")]),
+            RunOptions::default()
+                .with_working_directory(WorkingDirectory::Fixed(std::env::current_dir().unwrap())),
+        ] {
             assert!(matches!(
-                VirtualProcessTree::new(Engine::new(
-                    crate::EngineConfig::default().with_stack_size(stack_size)
-                )),
-                Err(ProcessError::InvalidStackSize)
+                engine.spawn_execution(
+                    None,
+                    options.with_guest_process_mode(GuestProcessMode::Virtual),
+                    crate::signal_channel().1,
+                    |_, _, _, _| panic!("incomplete virtual state admitted"),
+                ),
+                Err(ProcessError::InvalidVirtualConfiguration)
             ));
+            assert!(engine.snapshot().is_empty());
         }
     }
 
     #[cfg(feature = "v8")]
     #[test]
-    fn supervisor_preserves_the_creating_threads_native_stack_size() {
+    fn invalid_stack_budgets_are_rejected_before_thread_creation() {
+        for stack_size in [0, usize::MAX] {
+            let engine = Engine::new(crate::EngineConfig::default().with_stack_size(stack_size));
+            assert!(matches!(
+                engine.spawn_execution(
+                    None,
+                    RunOptions::default(),
+                    crate::signal_channel().1,
+                    |_, _, _, _| panic!("invalid stack admitted"),
+                ),
+                Err(ProcessError::InvalidStackSize)
+            ));
+            assert!(engine.snapshot().is_empty());
+        }
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn spawn_preserves_the_calling_threads_native_stack_size() {
         thread::Builder::new()
             .stack_size(8 * 1024 * 1024)
             .spawn(|| {
                 let (low, high) = crate::native_stack::bounds().unwrap();
-                let tree = VirtualProcessTree::new(Engine::default()).unwrap();
-                assert!(tree.thread_stack_size >= high - low);
+                let engine = Engine::default();
+                let spawned = engine
+                    .spawn_execution(
+                        None,
+                        RunOptions::default(),
+                        crate::signal_channel().1,
+                        move |_, _, _, _| {
+                            let (child_low, child_high) = crate::native_stack::bounds()?;
+                            assert!(child_high - child_low >= high - low);
+                            Ok(RunOutcome::Completed)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(engine.wait(spawned.pid).unwrap(), RunOutcome::Completed);
             })
             .unwrap()
             .join()
@@ -623,14 +877,27 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-        let mut tree = VirtualProcessTree::new(engine).unwrap();
-        // Bypass creation-time sizing to verify that the executing thread
-        // checks its own native stack before entering V8.
-        tree.thread_stack_size = 512 * 1024;
-        let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
-        assert!(matches!(tree.wait(pid), Err(ProcessError::RunFailed(error))
-            if error.to_string().contains("native thread stack")));
-        assert!(tree.snapshot().is_empty());
+        // Inline execution must check the caller's real stack, rather than
+        // assume it received the larger stack allocated by spawn.
+        let inline_engine = engine.clone();
+        let result = thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                inline_engine.run(
+                    &module,
+                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                )
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("native thread stack")
+        );
+        assert!(engine.snapshot().is_empty());
     }
 
     #[cfg(feature = "v8")]
@@ -663,15 +930,15 @@ mod tests {
             return;
         }
         for (panic, native_tls) in [(false, false), (true, false), (false, true), (true, true)] {
-            let tree = Arc::new(VirtualProcessTree::new(Engine::default()).unwrap());
+            let tree = Arc::new(Engine::default());
             let pid = VirtualPid::allocate(&NEXT_PID).unwrap();
             let (terminator, receiver) = termination_channel();
             let (release, blocked) = mpsc::channel();
             let (finish_thread, cleanup) = mpsc::channel();
-            let table = Arc::clone(&tree.table);
+            let table = Arc::clone(&tree.processes.0);
             let process_completion = Arc::new(ProcessCompletion::default());
             let reaper = process_completion.start_reaper(pid).unwrap();
-            let mut entries = tree.table.lock().unwrap();
+            let mut entries = tree.processes.0.lock().unwrap();
             let thread = thread::spawn(move || {
                 let _cleanup = if native_tls {
                     CLEANUP.set(Some(ThreadCleanup(cleanup)));
@@ -681,7 +948,11 @@ mod tests {
                     // Run exit is recorded, including during unwinding.
                     Some(ThreadCleanup(cleanup))
                 };
-                let _exit = ProcessExitGuard { table, pid };
+                let _exit = ProcessExitGuard {
+                    table,
+                    pid,
+                    reap_on_drop: false,
+                };
                 // Model host work that cannot yet return. A termination
                 // request must not destroy it or make wait report success.
                 blocked.recv().unwrap();
@@ -710,7 +981,6 @@ mod tests {
             assert!(!tree.terminate(pid, RunTermination::Exit(8)).unwrap());
             assert_eq!(tree.snapshot()[0].state, ProcessState::Terminating);
             let module = tree
-                .engine
                 .compile("empty.wasm", wat::parse_str("(module)").unwrap())
                 .unwrap();
             assert!(matches!(
@@ -722,7 +992,7 @@ mod tests {
             let waiter = thread::spawn(move || done.send(waiting_tree.wait(pid)).unwrap());
             // Wait until the waiter reserves the result, without permitting
             // the simulated host work to finish.
-            while !tree.table.lock().unwrap()[&pid].waiting {
+            while !tree.processes.0.lock().unwrap()[&pid].waiting {
                 thread::yield_now();
             }
             assert_eq!(tree.snapshot()[0].state, ProcessState::Terminating);
@@ -784,7 +1054,7 @@ mod tests {
 
     #[cfg(feature = "v8")]
     #[test]
-    fn command_termination_remains_open_after_run_teardown() {
+    fn execution_termination_remains_open_after_run_teardown() {
         use std::sync::mpsc;
         use std::time::Duration;
 
@@ -792,7 +1062,7 @@ mod tests {
         let module = engine
             .compile("empty.wasm", wat::parse_str("(module)").unwrap())
             .unwrap();
-        let tree = VirtualProcessTree::new(engine).unwrap();
+        let tree = engine;
         for (run_error, cleanup_panic) in [(false, false), (true, false), (false, true)] {
             let module = module.clone();
             let (returned, run_returned) = mpsc::channel();
@@ -803,7 +1073,7 @@ mod tests {
                 RunOptions::default()
             };
             let spawned = tree
-                .spawn_command(
+                .spawn_execution(
                     None,
                     options,
                     crate::signal_channel().1,
@@ -811,16 +1081,18 @@ mod tests {
                         let result = engine.run_in_scope(&module, options, signals, termination);
                         assert_eq!(result.is_err(), run_error);
                         returned.send(()).unwrap();
-                        // A command can retain delivery files after its Run returns.
+                        // Execution can retain delivery files after its Run returns.
                         // Model that cleanup without depending on filesystem timing.
                         cleanup.recv_timeout(Duration::from_secs(5)).unwrap();
-                        assert!(!cleanup_panic, "simulated command cleanup panic");
+                        assert!(!cleanup_panic, "simulated artifact cleanup panic");
                         result
                     },
                 )
                 .unwrap();
             run_returned.recv_timeout(Duration::from_secs(5)).unwrap();
-            let terminator = tree.table.lock().unwrap()[&spawned.pid].terminator.clone();
+            let terminator = tree.processes.0.lock().unwrap()[&spawned.pid]
+                .terminator
+                .clone();
             let accepted = tree
                 .terminate(spawned.pid, RunTermination::Exit(42))
                 .unwrap();
@@ -836,7 +1108,7 @@ mod tests {
             waiter.join().unwrap();
             assert!(
                 accepted,
-                "Run teardown closed the command termination channel"
+                "Run teardown closed the execution termination channel"
             );
             if cleanup_panic {
                 assert!(matches!(result, Err(ProcessError::Panicked(pid)) if pid == spawned.pid));
@@ -850,14 +1122,14 @@ mod tests {
 
     #[cfg(feature = "v8")]
     #[test]
-    fn dropping_the_supervisor_preserves_live_runs_until_teardown() {
+    fn dropping_the_engine_preserves_live_runs_until_teardown() {
         use std::time::Duration;
 
         if std::env::var_os("MOONRUN_DROPPED_TREE_TEST").is_none() {
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "process_tree::tests::dropping_the_supervisor_preserves_live_runs_until_teardown",
+                    "process_tree::tests::dropping_the_engine_preserves_live_runs_until_teardown",
                     "--nocapture",
                 ])
                 .env("MOONRUN_DROPPED_TREE_TEST", "1")
@@ -873,10 +1145,10 @@ mod tests {
                 wat::parse_str(r#"(module (func (export "_start") (loop br 0)))"#).unwrap(),
             )
             .unwrap();
-        let tree = VirtualProcessTree::new(engine).unwrap();
+        let tree = engine;
         let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
-        let terminator = tree.table.lock().unwrap()[&pid].terminator.clone();
-        let table = Arc::downgrade(&tree.table);
+        let terminator = tree.processes.0.lock().unwrap()[&pid].terminator.clone();
+        let table = Arc::downgrade(&tree.processes.0);
         drop(tree);
         assert!(table.upgrade().is_some());
         assert!(terminator.terminate(RunTermination::Exit(0)));

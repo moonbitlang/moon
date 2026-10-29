@@ -179,7 +179,7 @@ The backend-neutral composition root and isolation boundary for one virtual
 environment. It consumes Runtime Configuration and authorization inputs, owns
 the canonical Runtime State and Host Domains, and wires each domain's
 dependencies during construction. It is not a forwarding layer for individual
-operations. A Runtime is distinct from the process-shared Engine, from a guest
+operations. A Runtime is distinct from its Engine, from a guest
 Instance, and from the Run action that executes guest code. An Ambient
 dependency may still deliberately expose process-global behavior.
 _Avoid_: Host, Engine, V8 Run Context, service locator
@@ -288,9 +288,11 @@ the backend state needed to create fresh guest execution state for each Run.
 _Avoid_: Wasm bytes, Run, file path alias
 
 **Engine**:
-The process-shared Moonrun backend that prepares reusable Loaded Modules and
-executes Runs. It neither owns a Runtime's virtual environment nor retains Run
-lifecycle state.
+The Moonrun execution host that prepares reusable Loaded Modules, executes Runs,
+and owns a namespace of admitted process identities and their lifecycle. Clones
+share that namespace and backend; a newly constructed Engine has an independent
+namespace. Execution placement and guest process behavior are separate choices.
+An Engine does not own a Runtime's virtual environment.
 _Avoid_: Runtime, Instance, Run, execution thread, thread pool
 
 **Instance**:
@@ -305,16 +307,20 @@ chosen by the caller. It returns only after run-local guest execution state is
 torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
-**Supervised Command**:
-One execution admitted under a stable virtual process identity, including any
-preparation, program execution, and command-owned cleanup. A Wasm Run is its
-guest execution action, not the whole command lifecycle.
-_Avoid_: Run, build Job, OS process
+**Guest Process Mode**:
+The selection of native operating-system process behavior or virtual process
+identities and child control for a Run. It is independent of the host's choice
+to execute on the calling thread or a managed thread, and does not grant host
+permissions.
+_Avoid_: Execution placement, Engine Backend, sandbox mode
 
 **Supervisor**:
-The owner of virtual process admission, identities, parent relationships,
-control, completion, adoption, and reaping across Supervised Commands.
-_Avoid_: Runtime, Engine, Host Process
+The Engine's responsibility for process admission, identities, parent
+relationships, control, completion, adoption, and reaping. A process identity
+can cover preparation, a Wasm Run, and cleanup; a Run is not that entire
+lifecycle. Supervision does not require a separate public owner or command
+object.
+_Avoid_: Runtime, Host Process, separate execution host
 
 **Async API**:
 The backend-neutral `moonbitlang/async` import definitions and ABI validation

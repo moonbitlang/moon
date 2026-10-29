@@ -30,7 +30,7 @@ use crate::run_termination::TerminationRequest;
 use crate::runtime::RuntimeConfig;
 use crate::runtime::Stdio as RuntimeStdio;
 
-pub(super) enum Preparation {
+pub(crate) enum Preparation {
     Ready {
         program: Box<PreparedProgram>,
         directory: tempfile::TempDir,
@@ -38,7 +38,7 @@ pub(super) enum Preparation {
     Exited(RunOutcome),
 }
 
-pub(super) fn prepare(
+pub(crate) fn prepare_moon(
     executable: &Path,
     args: &[OsString],
     config: &RuntimeConfig,
@@ -58,17 +58,11 @@ pub(super) fn prepare(
         .arg(HANDOFF_ARG)
         .arg(handoff.directory())
         .args(args)
-        .current_dir(config.working_directory.current_dir()?)
-        .env_clear()
-        .envs(
-            config
-                .default_environment
-                .as_ref()
-                .expect("the tree owns the environment")
-                .iter()
-                .cloned(),
-        )
-        .env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
+        .current_dir(config.working_directory.current_dir()?);
+    if let Some(environment) = &config.default_environment {
+        command.env_clear().envs(environment.iter().cloned());
+    }
+    command.env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
     if let RuntimeStdio::Owned(files) = &config.stdio {
         command
             .stdin(Stdio::from(files[0].lock().unwrap().try_clone()?))

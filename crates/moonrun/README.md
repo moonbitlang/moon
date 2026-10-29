@@ -45,7 +45,7 @@ waiting and signals. The CLI waits for descendants and returns the root's status
 This mode currently requires V8; ordinary invocation keeps native spawning.
 
 Moon helpers still build or download artifacts with host access, then hand Wasm
-back to the tree. Child Runs inherit the parent's policy and requested
+back to the Engine. Child Runs inherit the parent's policy and requested
 environment/stdio. Other native commands are not yet supported in virtual mode.
 Cancellation during a build waits for the helper to exit; blocking host I/O can
 also delay teardown.
@@ -207,9 +207,11 @@ match outcome {
 }
 ```
 
-An Engine can compile immutable Wasm Modules and execute them multiple times.
-Runs are synchronous, so an embedding application owns any threads used for
-concurrent execution.
+Engine is the shared entry point for execution and supervision. It can compile
+immutable Wasm Modules and execute them multiple times. `run` executes on the
+calling thread; `spawn` creates a managed thread and returns an identity whose
+result is consumed by `wait`. A new Engine has an independent process namespace;
+clones share its backend and process table.
 
 ```rust
 let engine = Engine::default();
@@ -224,12 +226,62 @@ the stable program name used for guest arguments and diagnostics:
 let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
+Guest process behavior is independent of thread placement.
+`GuestProcessMode::Native` is the default and preserves native child operations
+and Ambient defaults. `GuestProcessMode::Virtual` gives guest code virtual PIDs
+and child control, with owned root Env and fixed cwd. Either mode can be chosen
+for `run` or `spawn`; neither mode grants additional host permissions.
+
+```rust
+use moonrun::{Engine, GuestProcessMode, RunOptions};
+
+let engine = Engine::default();
+let module = engine.load_file("agent.wasm")?;
+let pid = engine.spawn(
+    None,
+    &module,
+    RunOptions::default()
+        .with_guest_process_mode(GuestProcessMode::Virtual)
+        .with_environment([("APP_MODE", "worker")]),
+)?;
+let outcome = engine.clone().wait(pid)?;
+```
+
+The optional parent passed to `spawn` records a relationship; it does not
+inherit that parent's state or policy. Guest-initiated children instead derive
+their inputs through their own Runtime's Host Process. Virtual host entries
+capture missing Env and cwd values once; explicit values, including an empty
+environment, remain authoritative. Native mode retains Ambient defaults on
+managed threads too, so embedding callers must coordinate any process-global
+environment access or supply owned environments.
+
+`terminate` requests termination of one managed or active virtual execution;
+`snapshot` reports identities still tracked by that Engine. A caller-thread
+Virtual run returns its own result and removes its identity; it does not wait
+for surviving children. Exiting parents leave children with the Engine.
+Dropping Engine does not terminate or join work: callers own shutdown and must
+wait for remaining executions when required. The CLI performs this descendant
+waiting for `--virtual-process-tree`.
+
+To prepare a program with Moon or moonx, `run_moon(executable, args, options)`
+prepares and executes on the calling thread; `spawn_moon(parent, executable,
+args, options)` provides the same flow on a managed thread. Pass program
+arguments in the Moon invocation's `args`, not `RunOptions::with_args`.
+Preparation still starts an external helper with host access. The helper only
+delivers the artifact; Engine executes Wasm and owns cleanup. Native/Node
+artifact execution and delegation of the whole invocation to another process
+remain unsupported by this flow.
+
 The shipping configuration remains V8-backed; the Wasmtime feature provides
-the same library surface at compile time. Both configurations inherit process
-stdio, environment, and working-directory behavior. The library does not
-install an operating-system signal handler. Callers may create a
-`signal_channel`, pass its receiver to `Engine::run_with_signal_receiver`, and
-send signals to that Run after its guest async handler is ready. This is
+the same library surface at compile time. Engine construction and ordinary
+caller-thread Runs work on every supported backend. Virtual mode, managed
+spawning, and external forced termination currently require V8; unsupported
+operations return an error rather than changing modes. Defaults preserve
+process stdio, environment, and working-directory behavior in Native mode.
+The library does not install the CLI's process-signal capture adapter. Callers
+may create a `signal_channel`, pass its receiver to
+`Engine::run_with_signal_receiver`, and send signals to that Run after its guest
+async handler is ready. This is
 cooperative delivery only: signals are not retained before registration and
 cannot yet forcibly interrupt guest execution. The `moonrun` CLI owns a
 process-lifetime adapter and forwards accepted signals directly through such a
@@ -245,19 +297,41 @@ signal behavior.
 For external V8 termination, pass a `termination_channel` receiver through
 `RunOptions::with_termination_receiver`. Its `RunTerminator` can request an exit
 code or signal outcome from another thread; the first request wins. Acceptance
-does not mean completion: wait for `Engine::run` to return. Termination wakes
-async event-loop waits without guest signal registration. Grace periods belong
-to the caller; other synchronous host I/O must still return before termination
-can finish. Wasmtime and wee8 currently reject this option.
+does not mean completion: wait for the synchronous method to return. `run_file`
+includes file loading, and `run_moon` includes preparation and artifact cleanup,
+in that same termination scope. Managed executions use Engine-owned control
+through `terminate` and `wait`, and reject an extra termination receiver.
+Termination wakes async event-loop waits without guest signal registration.
+Grace periods belong to the caller; other synchronous host I/O must still
+return before termination can finish. Wasmtime and wee8 currently reject this
+option.
 
 A Run can make its working-directory selection explicit with
 `WorkingDirectory::Ambient`, which is also the default and preserves the
 existing process-global behavior. `WorkingDirectory::Fixed(path)` resolves
-relative paths against a supplied directory without changing process cwd. Compiled modules reuse their prepared representation
-while each run currently creates a fresh Runtime that owns its environment,
-policy, working-directory selection, and domain state alongside fresh guest
-execution state. Thread placement and lifecycle tracking remain the caller's
-responsibility.
+relative paths against a supplied directory without changing process cwd.
+Compiled modules reuse their prepared representation while each Run currently
+creates a fresh Runtime that owns its environment, policy, working-directory
+selection, and domain state alongside fresh guest
+execution state. Engine tracks managed execution; the embedding caller selects
+placement and owns shutdown policy.
+
+### Owned environment
+
+`RunOptions::with_environment` supplies native-string entries for one Runtime's
+owned environment without requiring a policy file:
+
+```rust
+let options = RunOptions::default().with_environment([("APP_MODE", "agent")]);
+let outcome = engine.run(&module, options)?;
+```
+
+Guest mutations affect this environment only. An empty iterator means an empty
+environment, with no fallback to host values. When a policy is present, its
+environment provisioning selects from these supplied values and applies its
+overrides. This selects Runtime state; it does not restrict filesystem,
+network, or native-process access, and does not virtualize every native
+library's internal use of process-global state.
 
 ### Fixed working directory
 
