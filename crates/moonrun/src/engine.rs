@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::run_signal::{SignalReceiver, signal_channel};
-use crate::run_termination::{RunTermination, RunTerminationReceiver};
-use crate::runtime::{Executable, Runtime, Stdio, WorkingDirectory};
+use crate::run_termination::{RunTermination, RunTerminationReceiver, TerminationRequest};
+use crate::runtime::{Executable, Runtime, RuntimeConfig, Stdio, WorkingDirectory};
 use crate::source_map;
 #[cfg(feature = "v8")]
 use crate::v8 as backend;
@@ -27,7 +27,6 @@ use crate::wasmtime as backend;
 #[cfg(all(feature = "wee8", not(feature = "v8")))]
 use crate::wee8 as backend;
 use anyhow::Context;
-use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -59,21 +58,11 @@ pub struct RunOptions {
     pub(crate) args: Vec<String>,
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
-    pub(crate) policy_file: Option<PathBuf>,
-    pub(crate) policy_source_dir: Option<PathBuf>,
-    pub(crate) inherited_policy: Option<Vec<u8>>,
-    pub(crate) working_directory: WorkingDirectory,
-    pub(crate) stdio: Stdio,
-    // A supervisor supplies an owned fallback; explicit policy provisioning
-    // still determines the environment when present.
-    pub(crate) default_environment: Option<Vec<(OsString, OsString)>>,
+    pub(crate) runtime: RuntimeConfig,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
-    pub(crate) process_context: Option<crate::process_tree::ProcessContext>,
     pub(crate) termination_receiver: Option<RunTerminationReceiver>,
-    #[cfg(unix)]
-    pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
 
 #[derive(serde::Deserialize)]
@@ -120,9 +109,9 @@ impl RunOptions {
     }
 
     pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
-        self.policy_file = Some(policy_file.into());
-        self.policy_source_dir = None;
-        self.inherited_policy = None;
+        self.runtime.policy_file = Some(policy_file.into());
+        self.runtime.policy_source_dir = None;
+        self.runtime.inherited_policy = None;
         self
     }
 
@@ -132,17 +121,17 @@ impl RunOptions {
         policy_file: impl Into<PathBuf>,
         source_dir: impl Into<PathBuf>,
     ) -> Self {
-        self.policy_file = Some(policy_file.into());
-        self.policy_source_dir = Some(source_dir.into());
-        self.inherited_policy = None;
+        self.runtime.policy_file = Some(policy_file.into());
+        self.runtime.policy_source_dir = Some(source_dir.into());
+        self.runtime.inherited_policy = None;
         self
     }
 
     #[doc(hidden)]
     pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
-        self.policy_file = None;
-        self.policy_source_dir = None;
-        self.inherited_policy = Some(policy);
+        self.runtime.policy_file = None;
+        self.runtime.policy_source_dir = None;
+        self.runtime.inherited_policy = Some(policy);
         self
     }
 
@@ -153,7 +142,7 @@ impl RunOptions {
     /// Fixed roots must be existing directories and are canonicalized when
     /// execution begins.
     pub fn with_working_directory(mut self, working_directory: WorkingDirectory) -> Self {
-        self.working_directory = working_directory;
+        self.runtime.working_directory = working_directory;
         self
     }
 
@@ -163,7 +152,7 @@ impl RunOptions {
     /// child streams take precedence. Without this option, streams are ambient.
     /// The files are moved into the Runtime for this run.
     pub fn with_stdio(mut self, stdin: File, stdout: File, stderr: File) -> Self {
-        self.stdio = Stdio::owned(stdin, stdout, stderr);
+        self.runtime.stdio = Stdio::owned(stdin, stdout, stderr);
         self
     }
 
@@ -174,20 +163,9 @@ impl RunOptions {
     #[cfg(unix)]
     #[doc(hidden)]
     pub fn preserve_current_signal_mask_for_children(mut self) -> anyhow::Result<Self> {
-        self.preserved_child_signal_mask = Some(current_signal_mask()?);
+        self.runtime.preserved_child_signal_mask = Some(crate::runtime::current_signal_mask()?);
         Ok(self)
     }
-}
-
-#[cfg(unix)]
-fn current_signal_mask() -> anyhow::Result<libc::sigset_t> {
-    let mut signal_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-    let error =
-        unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, std::ptr::null(), &mut signal_mask) };
-    if error != 0 {
-        return Err(std::io::Error::from_raw_os_error(error).into());
-    }
-    Ok(signal_mask)
 }
 
 /// The observable result of one MoonBit Wasm run.
@@ -446,8 +424,27 @@ impl Engine {
                 .unwrap_or_else(|| RunTerminationReceiver {
                     request: Default::default(),
                 });
-        let termination = receiver.request.clone();
-        let result = (|| {
+        let result = self.run_in_scope(module, options, signals, &receiver.request);
+        // The standalone caller owns finalization. A supervised command instead
+        // retains its receiver through preparation and command-owned cleanup.
+        match receiver.close() {
+            Some(termination) => Ok(termination.into()),
+            None => result,
+        }
+    }
+
+    /// Execute one Run using control owned by the surrounding execution scope.
+    /// Runtime teardown completes here; only the receiver owner may finalize the
+    /// result and close admission to termination requests.
+    pub(crate) fn run_in_scope(
+        &self,
+        module: &Module,
+        options: RunOptions,
+        signals: SignalReceiver,
+        termination: &TerminationRequest,
+    ) -> anyhow::Result<RunOutcome> {
+        debug_assert!(options.termination_receiver.is_none());
+        let outcome = (|| {
             if let Some(outcome) = termination.get() {
                 return Ok(BackendRunOutcome::Terminated(outcome));
             }
@@ -455,24 +452,7 @@ impl Engine {
                 crate::native_stack::checked_limit(bytes)?;
             }
             let test_args = options.parsed_test_args()?;
-            #[cfg(unix)]
-            let child_signal_mask = match options.preserved_child_signal_mask {
-                Some(signal_mask) => signal_mask,
-                None => current_signal_mask()?,
-            };
-            let runtime = Runtime::new(
-                options.policy_file.as_deref(),
-                options.policy_source_dir.as_deref(),
-                options.inherited_policy.as_deref(),
-                options.default_environment,
-                options.working_directory,
-                options.stdio,
-                module.executable().clone(),
-                signals,
-                options.process_context,
-                #[cfg(unix)]
-                child_signal_mask,
-            )?;
+            let runtime = Runtime::new(options.runtime, module.executable().clone(), signals)?;
             self.backend.run(
                 module.name(),
                 module.compiled(),
@@ -481,16 +461,9 @@ impl Engine {
                 test_args,
                 options.no_stack_trace,
                 runtime,
-                termination,
+                termination.clone(),
             )
-        })();
-        // Finalize under the same lock as external requests. An accepted
-        // request wins until this point; after it, old handles cannot affect
-        // this or any later Run. Backend teardown has already completed.
-        let outcome = match receiver.close() {
-            Some(termination) => BackendRunOutcome::Terminated(termination),
-            None => result?,
-        };
+        })()?;
         Ok(match outcome {
             BackendRunOutcome::Completed => RunOutcome::Completed,
             BackendRunOutcome::GuestFailure => RunOutcome::Exited(1),
@@ -522,12 +495,13 @@ mod tests {
     #[test]
     fn run_options_default_to_ambient_working_directory() {
         assert_eq!(
-            RunOptions::default().working_directory,
+            RunOptions::default().runtime.working_directory,
             WorkingDirectory::Ambient
         );
         assert_eq!(
             RunOptions::default()
                 .with_working_directory(WorkingDirectory::Ambient)
+                .runtime
                 .working_directory,
             WorkingDirectory::Ambient
         );

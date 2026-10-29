@@ -129,9 +129,9 @@ impl Default for TerminationRequest {
 }
 
 impl TerminationRequest {
-    // Preparation may finish before a receiver reaches Engine::run. Closing
-    // through the retained request keeps accepted termination authoritative.
-    pub(crate) fn close(&self) -> Option<RunTermination> {
+    // Only the receiver owner finalizes execution. Borrowers may request an
+    // outcome or bind interruption, but cannot shorten the surrounding scope.
+    fn close(&self) -> Option<RunTermination> {
         let mut state = self.0.lock().unwrap();
         state.connected = false;
         state.interrupt = None;

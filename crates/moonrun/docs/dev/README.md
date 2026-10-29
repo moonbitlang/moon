@@ -2,6 +2,8 @@
 
 ## Developer workflows
 
+- [Architecture tracking](architecture-tracking.md): the current ownership and
+  execution milestone after recursive virtual process trees, and deferred work.
 - [Host handles](host-handles.md): registration, validation, owning tables, and
   operation-specific ownership rules.
 - [Current executable path semantics](current-exe-semantics.md): load-time path
@@ -174,17 +176,31 @@ See `run_termination.rs` for the control contract and
 
 ## Virtual process supervision
 
-`VirtualProcessTree` gives Runs virtual PIDs. Guests can signal themselves or
-children and wait for direct children through existing async APIs. Unix supports
+`VirtualProcessTree` admits Supervised Commands under stable virtual PIDs. A
+command includes preparation, a Wasm Run, and command-owned cleanup. Guests can
+signal themselves or children and wait for direct children through existing
+async APIs. Unix supports
 SIGINT/SIGTERM/SIGHUP, SIGKILL and the signal-zero probe; Windows uses Ctrl-Break
 for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
 `spawn_moon` asks a host-selected Moon/moonx helper to hand off Wasm, source map,
 arguments, cwd and optional policy, then executes it under the allocated PID.
-The tree owns the private delivery directory through Run completion; normal
-build caches stay with Moon. Helpers retain host access. Cancellation during
-preparation waits for helper exit and prevents Wasm startup; helper-group
+The command execution module owns preparation and artifact dispatch. Its
+private delivery directory stays alive through Runtime teardown; normal build
+caches stay with Moon. The supervisor retains the sole termination receiver
+until command cleanup finishes. `Engine::run_in_scope` borrows that control and
+cannot close it when the Wasm Run returns. Standalone `Engine::run` still owns
+and closes its own receiver. An accepted termination overrides a normal result
+or execution error until the owning scope finalizes; panics remain process
+failures. Completion is published only after thread reaping.
+
+`RuntimeConfig` carries the single set of environment, cwd, stdio, policy and
+process configuration inputs from admission through preparation to Runtime
+construction. Helpers borrow these inputs without taking Run control or
+executing guest code. Runtime realizes the canonical state once; configuration
+does not itself grant host access. Helpers retain host access. Cancellation
+during preparation waits for helper exit and prevents Wasm startup; helper-group
 cancellation remains a FIXME. The Run's Host Process checks guest spawn policy,
 resolves Moon/moonx against its environment and cwd, and prepares owned stdio,
 environment and policy for tree admission. Descendants join the same tree;

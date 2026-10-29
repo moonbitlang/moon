@@ -298,6 +298,17 @@ chosen by the caller. It returns only after run-local guest execution state is
 torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
+**Supervised Command**:
+One execution admitted under a stable virtual process identity, including any
+preparation, program execution, and command-owned cleanup. A Wasm Run is its
+guest execution action, not the whole command lifecycle.
+_Avoid_: Run, build Job, OS process
+
+**Supervisor**:
+The owner of virtual process admission, identities, parent relationships,
+control, completion, adoption, and reaping across Supervised Commands.
+_Avoid_: Runtime, Engine, Host Process
+
 **Async API**:
 The backend-neutral `moonbitlang/async` import definitions and ABI validation
 that invoke the Async Host and other Host Domains using decoded values and

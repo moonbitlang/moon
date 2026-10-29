@@ -87,8 +87,12 @@ impl Spawn {
             policy,
             parent_env,
         )?;
-        spawn.options.as_mut().unwrap().preserved_child_signal_mask =
-            Some(options.child_signal_mask);
+        spawn
+            .options
+            .as_mut()
+            .unwrap()
+            .runtime
+            .preserved_child_signal_mask = Some(options.child_signal_mask);
         Ok(spawn)
     }
 
@@ -241,7 +245,7 @@ impl Spawn {
                 duplicate(stdout, StdioStream::Stdout)?,
                 duplicate(stderr, StdioStream::Stderr)?,
             );
-        run.default_environment = Some(env);
+        run.runtime.default_environment = Some(env);
         if let Some(policy) = policy {
             run = run.with_inherited_policy(policy.contents());
         }
