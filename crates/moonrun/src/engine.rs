@@ -198,6 +198,15 @@ pub enum RunOutcome {
     KilledBySignal(i32),
 }
 
+impl From<RunTermination> for RunOutcome {
+    fn from(termination: RunTermination) -> Self {
+        match termination {
+            RunTermination::Exit(code) => Self::Exited(code),
+            RunTermination::KilledBySignal(signal) => Self::KilledBySignal(signal),
+        }
+    }
+}
+
 /// Backend result before the public runner applies Moonrun's common lifecycle
 /// policy. Guest failures are deliberately distinct from terminations requested
 /// by guest code.
@@ -377,7 +386,6 @@ impl Engine {
     /// Compile a Wasm file into a reusable immutable Module.
     pub fn load_file(&self, file: impl AsRef<Path>) -> anyhow::Result<Module> {
         let file = file.as_ref();
-        let executable = Executable::from_file(file);
         if !file.exists() {
             anyhow::bail!("no such file");
         }
@@ -385,16 +393,30 @@ impl Engine {
             anyhow::bail!("Unsupported file type");
         }
         let bytes = std::fs::read(file).context("failed to read Wasm file")?;
+        self.compile_file(file, &bytes, || {
+            moonutil::wasm_source_map::load(file, &bytes)
+                .and_then(|value| source_map::SourceMap::parse(&value))
+        })
+    }
+
+    /// Compile captured file contents without reopening their original path.
+    pub(crate) fn compile_file(
+        &self,
+        file: &Path,
+        bytes: &[u8],
+        load_source_map: impl FnOnce() -> Option<source_map::SourceMap>,
+    ) -> anyhow::Result<Module> {
         let name = file.to_string_lossy().into_owned();
+        let executable = Executable::from_file(file);
         let compiled = self
             .backend
-            .compile(&bytes)
+            .compile(bytes)
             .with_context(|| format!("failed to compile `{name}`"))?;
         Ok(Module(Arc::new(ModuleData {
             name,
             executable,
             compiled,
-            source_map: source_map::load(file, &bytes),
+            source_map: load_source_map(),
         })))
     }
 
@@ -472,10 +494,7 @@ impl Engine {
         Ok(match outcome {
             BackendRunOutcome::Completed => RunOutcome::Completed,
             BackendRunOutcome::GuestFailure => RunOutcome::Exited(1),
-            BackendRunOutcome::Terminated(RunTermination::Exit(code)) => RunOutcome::Exited(code),
-            BackendRunOutcome::Terminated(RunTermination::KilledBySignal(signal)) => {
-                RunOutcome::KilledBySignal(signal)
-            }
+            BackendRunOutcome::Terminated(termination) => termination.into(),
         })
     }
 

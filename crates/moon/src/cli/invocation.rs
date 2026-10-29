@@ -110,11 +110,70 @@ pub(crate) enum SelectedInvocation {
     Moon(Box<MoonInvocation>),
     Moonx(moonx::MoonxInvocation),
     Delegate(DelegatedInvocation),
+    ArtifactHandoff(Box<ArtifactHandoffInvocation>),
+}
+
+/// Only executable-producing commands can participate in artifact delivery.
+#[derive(Debug)]
+pub(crate) struct ArtifactHandoffInvocation {
+    pub(crate) directory: PathBuf,
+    pub(crate) command: ArtifactHandoffCommand,
+}
+
+#[derive(Debug)]
+pub(crate) enum ArtifactHandoffCommand {
+    Run(UniversalFlags, Box<super::run::RunSubcommand>),
+    Moonx(moonx::MoonxInvocation),
 }
 
 /// Parse and classify an invocation before output, tracing, workspace state,
 /// current-directory changes, or child processes are initialized.
-pub(crate) fn select(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::Error> {
+pub(crate) fn select(mut raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::Error> {
+    // This private prefix belongs to Moon, before command or program arguments.
+    // Parse only its path here; runtime opens it before applying any `-C`.
+    if raw_args
+        .get(1)
+        .is_some_and(|arg| arg == moonutil::run_handoff::HANDOFF_ARG)
+    {
+        if raw_args.len() < 3 {
+            return Err(MoonBuildCli::command().error(
+                ErrorKind::MissingRequiredArgument,
+                "Moonrun handoff requires a directory",
+            ));
+        }
+        let directory = PathBuf::from(raw_args.remove(2));
+        raw_args.remove(1);
+        let command = match select_command(raw_args)? {
+            SelectedInvocation::Moon(invocation) => match *invocation {
+                MoonInvocation {
+                    flags,
+                    command: MoonCommand::Human(command),
+                } => match *command {
+                    MoonBuildSubcommands::Run(command) => {
+                        ArtifactHandoffCommand::Run(flags, Box::new(command))
+                    }
+                    _ => return Err(handoff_command_error()),
+                },
+                _ => return Err(handoff_command_error()),
+            },
+            SelectedInvocation::Moonx(invocation) => ArtifactHandoffCommand::Moonx(invocation),
+            _ => return Err(handoff_command_error()),
+        };
+        return Ok(SelectedInvocation::ArtifactHandoff(Box::new(
+            ArtifactHandoffInvocation { directory, command },
+        )));
+    }
+    select_command(raw_args)
+}
+
+fn handoff_command_error() -> clap::Error {
+    MoonBuildCli::command().error(
+        ErrorKind::ArgumentConflict,
+        "Moonrun handoff requires `moon run` or `moonx`",
+    )
+}
+
+fn select_command(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::Error> {
     if moonx::is_moonx_invocation(&raw_args) {
         return moonx::parse_from(&raw_args).map(SelectedInvocation::Moonx);
     }
@@ -384,6 +443,60 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn handoff_parsing_is_pure_and_keeps_the_program_argument_tail() {
+        let SelectedInvocation::ArtifactHandoff(invocation) = select(args(&[
+            "moon",
+            "--moonrun-artifact-handoff",
+            "not-created",
+            "-C",
+            "project",
+            "run",
+            "script.mbtx",
+            "--",
+            "--moonrun-artifact-handoff",
+            "guest-arg",
+        ]))
+        .unwrap() else {
+            panic!("expected handoff")
+        };
+        assert_eq!(invocation.directory, PathBuf::from("not-created"));
+        let ArtifactHandoffCommand::Run(flags, command) = invocation.command else {
+            panic!("expected run")
+        };
+        assert_eq!(flags.source_tgt_dir.cwd, Some(PathBuf::from("project")));
+        assert_eq!(command.args, ["--moonrun-artifact-handoff", "guest-arg"]);
+        assert!(command.handoff.is_none());
+        assert!(matches!(
+            select(args(&[
+                "moonx",
+                "--moonrun-artifact-handoff",
+                "not-created",
+                "user/module",
+            ]))
+            .unwrap(),
+            SelectedInvocation::ArtifactHandoff(_)
+        ));
+        assert_eq!(
+            select(args(&[
+                "moon",
+                "--moonrun-artifact-handoff",
+                "not-created",
+                "new",
+                "project",
+            ]))
+            .unwrap_err()
+            .kind(),
+            ErrorKind::ArgumentConflict
+        );
+        assert_eq!(
+            select(args(&["moon", "--moonrun-artifact-handoff",]))
+                .unwrap_err()
+                .kind(),
+            ErrorKind::MissingRequiredArgument
+        );
     }
 
     #[test]

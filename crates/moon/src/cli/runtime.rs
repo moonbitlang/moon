@@ -33,8 +33,8 @@ use tracing_subscriber::{Layer, layer::SubscriberExt};
 use super::{
     MoonBuildCli, MoonBuildSubcommands,
     invocation::{
-        self, DelegatedInvocation, JsonCommand, JsonCommandOutcome, MoonCommand, MoonInvocation,
-        SelectedInvocation,
+        self, ArtifactHandoffCommand, ArtifactHandoffInvocation, DelegatedInvocation, JsonCommand,
+        JsonCommandOutcome, MoonCommand, MoonInvocation, SelectedInvocation,
     },
     process::{self, ProcessAction},
 };
@@ -44,10 +44,34 @@ const INTERNAL_ERROR_EXIT_CODE: i32 = -1;
 pub(crate) fn run(raw_args: Vec<OsString>) -> i32 {
     let invocation = invocation::select(raw_args).unwrap_or_else(|error| error.exit());
     match invocation {
+        SelectedInvocation::ArtifactHandoff(invocation) => run_artifact_handoff(*invocation),
         SelectedInvocation::Help => write_help(),
         SelectedInvocation::Moon(invocation) => run_moon(*invocation),
         SelectedInvocation::Moonx(invocation) => run_moonx(invocation),
         SelectedInvocation::Delegate(invocation) => run_transparent_delegate(invocation),
+    }
+}
+
+fn run_artifact_handoff(invocation: ArtifactHandoffInvocation) -> i32 {
+    let handoff = match moonutil::run_handoff::RunHandoff::open(&invocation.directory) {
+        Ok(handoff) => handoff,
+        Err(error) => {
+            eprintln!("Error: failed to open Moonrun handoff: {error:#}");
+            return INTERNAL_ERROR_EXIT_CODE;
+        }
+    };
+    match invocation.command {
+        ArtifactHandoffCommand::Run(flags, mut command) => {
+            command.handoff = Some(handoff);
+            run_moon(MoonInvocation {
+                flags,
+                command: MoonCommand::Human(Box::new(MoonBuildSubcommands::Run(*command))),
+            })
+        }
+        ArtifactHandoffCommand::Moonx(mut invocation) => {
+            invocation.handoff = Some(handoff);
+            run_moonx(invocation)
+        }
     }
 }
 

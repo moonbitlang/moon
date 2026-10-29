@@ -122,6 +122,7 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
         ..BuildFlags::default()
     };
     RunSubcommand {
+        handoff: None,
         package_or_mbt_file: Some(cmd.package),
         command: None,
         build_flags,

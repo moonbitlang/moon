@@ -180,7 +180,13 @@ SIGINT/SIGTERM/SIGHUP, SIGKILL and the signal-zero probe; Windows uses Ctrl-Brea
 for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
-Guest spawning is not yet supported. Ordinary Runs remain ambient. The tree owns
+`spawn_moon` asks a host-selected Moon/moonx helper to hand off Wasm, source map,
+arguments, cwd and optional policy, then executes it under the allocated PID.
+The tree owns the private delivery directory through Run completion; normal
+build caches stay with Moon. Helpers retain host access. Cancellation during
+preparation waits for helper exit and prevents Wasm startup; helper-group
+cancellation remains a FIXME. Guest spawning is not yet supported.
+Ordinary Runs remain ambient. The tree owns
 PIDs, child relationships, and one reaper per Run, so blocked thread cleanup
 cannot delay other completions. A parent Run owns its wait Jobs and poll
 registrations. On macOS, its kqueue notifier observes tree completion through a

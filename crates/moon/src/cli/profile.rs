@@ -510,6 +510,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     }
 
     Ok(RunSubcommand {
+        handoff: None,
         package_or_mbt_file: cmd.package_or_mbt_file,
         command: cmd.command,
         build_flags,

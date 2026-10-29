@@ -63,6 +63,13 @@ The inherited policy takes precedence over an explicit
 `--experimental-policy`; the child may not replace or widen it. This applies to
 both registry packages and standalone `.mbtx` files.
 
+For host-supervised execution, the private prefix
+`--moonrun-artifact-handoff <directory>` selects artifact delivery instead of
+launching moonrun. Registry acquisition and standalone builds keep their normal
+caches. The helper copies the Wasm and optional source map/policy, then returns
+arguments and cwd in a manifest. The supervisor's policy takes precedence.
+See [artifact delivery](../design/moon-run-process-lifecycle.md#supervised-artifact-delivery).
+
 ## Standalone `.mbtx`
 
 An input whose extension is `.mbtx` is treated as a persistent standalone

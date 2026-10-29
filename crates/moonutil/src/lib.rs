@@ -54,6 +54,7 @@ pub mod project;
 pub mod registry;
 pub mod render;
 pub mod resolution;
+pub mod run_handoff;
 pub mod scripts;
 pub mod shlex;
 pub mod supported_targets;
@@ -63,6 +64,7 @@ pub mod text;
 pub mod toolchain;
 pub mod user_log;
 pub mod version;
+pub mod wasm_source_map;
 
 pub use moon_dir::{MOON_HOME, MoonHomeLayout};
 pub mod workspace;
