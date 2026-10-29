@@ -1040,7 +1040,7 @@ ported_fns! {
         ctx: &mut SchannelContext,
     ) -> io::Result<HCERTCHAINENGINE> {
         if ctx.custom_root_chain_engine.is_none() {
-            let mut chain_engine = 0;
+            let mut chain_engine = std::ptr::null_mut();
             let mut chain_config: CERT_CHAIN_ENGINE_CONFIG = unsafe { std::mem::zeroed() };
             chain_config.cbSize = std::mem::size_of::<CERT_CHAIN_ENGINE_CONFIG>() as u32;
             chain_config.hExclusiveRoot = ctx
