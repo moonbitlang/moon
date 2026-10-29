@@ -128,7 +128,7 @@ logos = "0.15.1"
 globset = "0.4"
 vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
 v8 = "0.106.0"
-wasmtime = { version = "48.0.1", default-features = false, features = [
+wasmtime = { version = "48.0.7", default-features = false, features = [
     "anyhow",
     "runtime",
     "cranelift",
