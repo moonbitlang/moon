@@ -4349,6 +4349,7 @@ mod tests {
             working_directory,
             Arc::clone(&stdio),
             None,
+            Arc::clone(&environment),
         );
         #[cfg(unix)]
         let child_signal_mask = {

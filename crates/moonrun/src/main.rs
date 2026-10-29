@@ -33,6 +33,10 @@ struct Commandline {
     #[clap(allow_hyphen_values = true)]
     args: Vec<String>,
 
+    /// Run Moon/moonx descendants in this virtual process tree (experimental).
+    #[clap(long)]
+    virtual_process_tree: bool,
+
     /// Don't print stack trace
     #[clap(long)]
     no_stack_trace: bool,
@@ -127,7 +131,24 @@ fn main() -> anyhow::Result<()> {
     let _process_signals = ProcessSignals::install(signal_sender)?;
     let engine = Engine::new(engine_config);
     let module = engine.load_file(matches.path)?;
-    let outcome = engine.run_with_signal_receiver(&module, options, signal_receiver);
+    let outcome = if matches.virtual_process_tree {
+        let tree = moonrun::VirtualProcessTree::new(engine)?;
+        let root = tree.spawn_with_signal_receiver(None, &module, options, signal_receiver)?;
+        let outcome = tree.wait(root);
+        // The CLI owns the entire tree. An exiting parent leaves children
+        // with this supervisor; only claim adopted roots so live parents keep
+        // their own guest waits. Descendant status does not replace root status.
+        while let Some(orphan) = tree
+            .snapshot()
+            .into_iter()
+            .find(|process| process.parent.is_none())
+        {
+            let _ = tree.wait(orphan.pid);
+        }
+        outcome.map_err(Into::into)
+    } else {
+        engine.run_with_signal_receiver(&module, options, signal_receiver)
+    };
 
     match outcome? {
         RunOutcome::Completed => Ok(()),

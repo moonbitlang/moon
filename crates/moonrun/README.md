@@ -34,6 +34,20 @@ the MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface
 as V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy;
 both engine adapters invoke the same shared WASIp1 host operations.
 
+## Experimental virtual process tree
+
+`moonrun --virtual-process-tree program.wasm` runs the root and its recursive
+`moon run` / `moonx` children in one host process, with separate virtual PIDs,
+Run state, cwd and environments. Existing async process APIs provide spawning,
+waiting and signals. The CLI waits for descendants and returns the root's status.
+This mode currently requires V8; ordinary invocation keeps native spawning.
+
+Moon helpers still build or download artifacts with host access, then hand Wasm
+back to the tree. Child Runs inherit the parent's policy and requested
+environment/stdio. Other native commands are not yet supported in virtual mode.
+Cancellation during a build waits for the helper to exit; blocking host I/O can
+also delay teardown.
+
 ## Experimental wee8 backend
 
 The opt-in `wee8` backend uses V8's Wasm C entry points and the same public

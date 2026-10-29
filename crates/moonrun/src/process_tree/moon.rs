@@ -34,6 +34,7 @@ pub(super) fn run(
     args: &[OsString],
     mut options: RunOptions,
     signals: crate::SignalReceiver,
+    #[cfg(windows)] no_console_window: bool,
 ) -> anyhow::Result<RunOutcome> {
     let request = options
         .termination_receiver
@@ -71,6 +72,11 @@ pub(super) fn run(
                 .stdin(Stdio::from(files[0].lock().unwrap().try_clone()?))
                 .stdout(Stdio::from(files[1].lock().unwrap().try_clone()?))
                 .stderr(Stdio::from(files[2].lock().unwrap().try_clone()?));
+        }
+        #[cfg(windows)]
+        if no_console_window {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
         }
         #[cfg(unix)]
         if let Some(mask) = options.preserved_child_signal_mask {

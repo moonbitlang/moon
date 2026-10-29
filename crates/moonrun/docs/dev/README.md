@@ -185,7 +185,11 @@ arguments, cwd and optional policy, then executes it under the allocated PID.
 The tree owns the private delivery directory through Run completion; normal
 build caches stay with Moon. Helpers retain host access. Cancellation during
 preparation waits for helper exit and prevents Wasm startup; helper-group
-cancellation remains a FIXME. Guest spawning is not yet supported.
+cancellation remains a FIXME. The Run's Host Process checks guest spawn policy,
+resolves Moon/moonx against its environment and cwd, and prepares owned stdio,
+environment and policy for tree admission. Descendants join the same tree;
+policy environment provisioning reads the supplied child environment.
+Other native guest spawning remains unsupported in this mode.
 Ordinary Runs remain ambient. The tree owns
 PIDs, child relationships, and one reaper per Run, so blocked thread cleanup
 cannot delay other completions. A parent Run owns its wait Jobs and poll
@@ -194,8 +198,10 @@ weak `Waker`; the tree neither owns the parent poll nor knows its transport.
 Guest wait Jobs
 are cancellable and only consume the result when the guest reads it. Dropping an
 unread Job preserves that result. Exiting parents leave children with the
-supervisor. `Terminating` does not promise
-bounded teardown. See `tests/process_tree.rs` and `tests/guest_process_control.rs`.
+supervisor. The CLI's `--virtual-process-tree` mode waits for adopted descendants
+before exiting with the root outcome. `Terminating` does not promise bounded
+teardown. See `tests/process_tree.rs`, `tests/guest_process_control.rs` and
+`tests/recursive_moon.rs`.
 
 ## Worker cancellation
 
