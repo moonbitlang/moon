@@ -39,7 +39,10 @@ fn test_cross_compiler_does_not_receive_host_only_objects() {
         }
         // Direct object output is emitted for the host.
         assert!(
-            !output.contains("__moonbit_link_core__"),
+            !output
+                .lines()
+                .any(|line| line.contains("moonc link-core")
+                    && line.contains("__moonbit_link_core__")),
             "`moon {}` used the direct object backend with a cross compiler:\n{output}",
             args.join(" ")
         );

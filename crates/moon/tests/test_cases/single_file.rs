@@ -31,11 +31,28 @@ fn test_moon_run_single_file_dry_run() {
     // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
     .replace(" -Wno-unused-value", "");
     crate::util::normalize_host_archiver(&mut output);
+    // macOS has an additional symbol-bundle action. Check that boundary
+    // separately so the remaining dry-run snapshot stays shared with Linux.
+    let dsym_commands = output
+        .lines()
+        .filter(|line| line.contains("dsymutil"))
+        .collect::<Vec<_>>();
+    assert_eq!(dsym_commands.len(), usize::from(cfg!(target_os = "macos")));
+    if let Some(command) = dsym_commands.first() {
+        assert!(command.ends_with("./_build/single.mbtx/native/debug/build/single/single.exe"));
+        output = output
+            .lines()
+            .filter(|line| !line.contains("dsymutil"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+    }
     check(
         output.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME"),
         expect![[r#"
             moonc build-package ./single.mbtx -ignore-import-declaration -o ./_build/single.mbtx/native/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/native/release/bundle' -i '$MOON_HOME/lib/core/_build/native/release/bundle/prelude/prelude.mi:prelude' -pkg-sources moon/test/single:. -target native -g -O0 -workspace-path . -all-pkgs ./_build/single.mbtx/native/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/native/release/bundle/core.core' ./_build/single.mbtx/native/debug/build/single/single.core -main moon/test/single -o ./_build/single.mbtx/native/debug/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native -g -O0
+            cc -o ./_build/single.mbtx/native/debug/build/single/__moonbit_link_core__/single.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -Og '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' ./_build/single.mbtx/native/debug/build/single/single.c
             cc -o ./_build/single.mbtx/native/debug/build/runtime-watch_windows.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/watch_windows.c'
             cc -o ./_build/single.mbtx/native/debug/build/runtime-watch_kqueue.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/watch_kqueue.c'
             cc -o ./_build/single.mbtx/native/debug/build/runtime-watch_inotify.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/watch_inotify.c'
@@ -62,7 +79,7 @@ fn test_moon_run_single_file_dry_run() {
             cc -o ./_build/single.mbtx/native/debug/build/runtime-c_buffer.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/c_buffer.c'
             cc -o ./_build/single.mbtx/native/debug/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_ALLOW_STACKTRACE '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
             [ARCHIVER] [CREATE_ARGS] ./_build/single.mbtx/native/debug/build/libruntime.a ./_build/single.mbtx/native/debug/build/runtime-backtrace.o ./_build/single.mbtx/native/debug/build/runtime-c_buffer.o ./_build/single.mbtx/native/debug/build/runtime-dir.o ./_build/single.mbtx/native/debug/build/runtime-env.o ./_build/single.mbtx/native/debug/build/runtime-epoll.o ./_build/single.mbtx/native/debug/build/runtime-event_bus.o ./_build/single.mbtx/native/debug/build/runtime-fd_util.o ./_build/single.mbtx/native/debug/build/runtime-fs.o ./_build/single.mbtx/native/debug/build/runtime-io_unix.o ./_build/single.mbtx/native/debug/build/runtime-io_windows.o ./_build/single.mbtx/native/debug/build/runtime-iocp.o ./_build/single.mbtx/native/debug/build/runtime-kqueue.o ./_build/single.mbtx/native/debug/build/runtime-openssl.o ./_build/single.mbtx/native/debug/build/runtime-process.o ./_build/single.mbtx/native/debug/build/runtime-runtime.o ./_build/single.mbtx/native/debug/build/runtime-schannel.o ./_build/single.mbtx/native/debug/build/runtime-signal.o ./_build/single.mbtx/native/debug/build/runtime-socket.o ./_build/single.mbtx/native/debug/build/runtime-stdio.o ./_build/single.mbtx/native/debug/build/runtime-sync_io.o ./_build/single.mbtx/native/debug/build/runtime-thread_pool.o ./_build/single.mbtx/native/debug/build/runtime-utf.o ./_build/single.mbtx/native/debug/build/runtime-watch_inotify.o ./_build/single.mbtx/native/debug/build/runtime-watch_kqueue.o ./_build/single.mbtx/native/debug/build/runtime-watch_windows.o
-            cc -o ./_build/single.mbtx/native/debug/build/single/single.exe '-I$MOON_HOME/include' -g -fwrapv -fno-strict-aliasing '-ffp-contract=off' -Og '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/single.mbtx/native/debug/build/single/single.c ./_build/single.mbtx/native/debug/build/libruntime.a -lm '$MOON_HOME/lib/libbacktrace.a'
+            cc -o ./_build/single.mbtx/native/debug/build/single/single.exe -g -Og '$MOON_HOME/lib/libmoonbitrun.o' ./_build/single.mbtx/native/debug/build/single/__moonbit_link_core__/single.o ./_build/single.mbtx/native/debug/build/libruntime.a -lm '$MOON_HOME/lib/libbacktrace.a'
             ./_build/single.mbtx/native/debug/build/single/single.exe
         "#]],
     );
@@ -86,6 +103,7 @@ fn test_moon_run_single_file_dry_run() {
         expect![[r#"
             moonc build-package ./single.mbtx -ignore-import-declaration -o ./_build/single.mbtx/native/release/build/single/single.core -pkg moon/test/single -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/native/release/bundle' -i '$MOON_HOME/lib/core/_build/native/release/bundle/prelude/prelude.mi:prelude' -pkg-sources moon/test/single:. -target native -workspace-path . -all-pkgs ./_build/single.mbtx/native/release/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/native/release/bundle/core.core' ./_build/single.mbtx/native/release/build/single/single.core -main moon/test/single -o ./_build/single.mbtx/native/release/build/single/single.c -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target native
+            cc -o ./_build/single.mbtx/native/release/build/single/__moonbit_link_core__/single.o '-I$MOON_HOME/include' -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' ./_build/single.mbtx/native/release/build/single/single.c
             cc -o ./_build/single.mbtx/native/release/build/runtime-watch_windows.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/watch_windows.c'
             cc -o ./_build/single.mbtx/native/release/build/runtime-watch_kqueue.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/watch_kqueue.c'
             cc -o ./_build/single.mbtx/native/release/build/runtime-watch_inotify.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/watch_inotify.c'
@@ -112,7 +130,7 @@ fn test_moon_run_single_file_dry_run() {
             cc -o ./_build/single.mbtx/native/release/build/runtime-c_buffer.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/c_buffer.c'
             cc -o ./_build/single.mbtx/native/release/build/runtime-backtrace.o '-I$MOON_HOME/include' -g -c -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 -DMOONBIT_USE_SIMDUTF '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/runtime/backtrace.c'
             [ARCHIVER] [CREATE_ARGS] ./_build/single.mbtx/native/release/build/libruntime.a ./_build/single.mbtx/native/release/build/runtime-backtrace.o ./_build/single.mbtx/native/release/build/runtime-c_buffer.o ./_build/single.mbtx/native/release/build/runtime-dir.o ./_build/single.mbtx/native/release/build/runtime-env.o ./_build/single.mbtx/native/release/build/runtime-epoll.o ./_build/single.mbtx/native/release/build/runtime-event_bus.o ./_build/single.mbtx/native/release/build/runtime-fd_util.o ./_build/single.mbtx/native/release/build/runtime-fs.o ./_build/single.mbtx/native/release/build/runtime-io_unix.o ./_build/single.mbtx/native/release/build/runtime-io_windows.o ./_build/single.mbtx/native/release/build/runtime-iocp.o ./_build/single.mbtx/native/release/build/runtime-kqueue.o ./_build/single.mbtx/native/release/build/runtime-openssl.o ./_build/single.mbtx/native/release/build/runtime-process.o ./_build/single.mbtx/native/release/build/runtime-runtime.o ./_build/single.mbtx/native/release/build/runtime-schannel.o ./_build/single.mbtx/native/release/build/runtime-signal.o ./_build/single.mbtx/native/release/build/runtime-socket.o ./_build/single.mbtx/native/release/build/runtime-stdio.o ./_build/single.mbtx/native/release/build/runtime-sync_io.o ./_build/single.mbtx/native/release/build/runtime-thread_pool.o ./_build/single.mbtx/native/release/build/runtime-utf.o ./_build/single.mbtx/native/release/build/runtime-watch_inotify.o ./_build/single.mbtx/native/release/build/runtime-watch_kqueue.o ./_build/single.mbtx/native/release/build/runtime-watch_windows.o '$MOON_HOME/lib/moonbit_simdutf.o' '$MOON_HOME/lib/simdutf.o'
-            cc -o ./_build/single.mbtx/native/release/build/single/single.exe '-I$MOON_HOME/include' -fwrapv -fno-strict-aliasing '-ffp-contract=off' -O2 '-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC' '$MOON_HOME/lib/libmoonbitrun.o' ./_build/single.mbtx/native/release/build/single/single.c ./_build/single.mbtx/native/release/build/libruntime.a -lm '$MOON_HOME/lib/libbacktrace.a'
+            cc -o ./_build/single.mbtx/native/release/build/single/single.exe -O2 '$MOON_HOME/lib/libmoonbitrun.o' ./_build/single.mbtx/native/release/build/single/__moonbit_link_core__/single.o ./_build/single.mbtx/native/release/build/libruntime.a -lm '$MOON_HOME/lib/libbacktrace.a'
             ./_build/single.mbtx/native/release/build/single/single.exe
         "#]],
     );

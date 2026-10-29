@@ -36,7 +36,11 @@ fn test_use_cc_for_native_release() {
         assert_dry_run_graph(
             &dir,
             &["build", "--target", "native", "--sort-input", "--dry-run"],
-            expect_file!["cc_for_native_release/build_graph.jsonl.snap"],
+            if cfg!(target_os = "macos") {
+                expect_file!["cc_for_native_release/build_macos_graph.jsonl.snap"]
+            } else {
+                expect_file!["cc_for_native_release/build_graph.jsonl.snap"]
+            },
         );
         assert_dry_run_graph(
             &dir,
@@ -48,7 +52,11 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/build_debug_graph.jsonl.snap"],
+            if cfg!(target_os = "macos") {
+                expect_file!["cc_for_native_release/build_debug_macos_graph.jsonl.snap"]
+            } else {
+                expect_file!["cc_for_native_release/build_debug_graph.jsonl.snap"]
+            },
         );
     }
 
@@ -78,7 +86,11 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/run_graph.jsonl.snap"],
+            if cfg!(target_os = "macos") {
+                expect_file!["cc_for_native_release/run_macos_graph.jsonl.snap"]
+            } else {
+                expect_file!["cc_for_native_release/run_graph.jsonl.snap"]
+            },
         );
         assert_dry_run_graph(
             &dir,
@@ -91,7 +103,11 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/run_debug_graph.jsonl.snap"],
+            if cfg!(target_os = "macos") {
+                expect_file!["cc_for_native_release/run_debug_macos_graph.jsonl.snap"]
+            } else {
+                expect_file!["cc_for_native_release/run_debug_graph.jsonl.snap"]
+            },
         );
     }
 

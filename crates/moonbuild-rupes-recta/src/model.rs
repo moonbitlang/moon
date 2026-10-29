@@ -320,16 +320,15 @@ pub enum BuildPlanNode {
     /// The final runnable artifact for a target.
     ///
     /// This action exists only for native and LLVM targets, where the output
-    /// from `LinkCore` is a C file or object file that needs further compilation
-    /// and linking. Wasm and JavaScript `LinkCore` actions provide the final
+    /// from `LinkCore` needs native linking. Generated C first passes through
+    /// `CompileGeneratedC`. Wasm and JavaScript `LinkCore` actions provide the final
     /// executable artifact directly.
     MakeExecutable(BuildTarget),
 
     /// Compile generated-C `LinkCore` output into a native object.
     ///
     /// This action exists only when the Native backend emits generated C and
-    /// a consumer needs the payload as an object instead of compiling it as
-    /// part of an executable link.
+    /// a consumer needs the payload as an object for linking or archiving.
     CompileGeneratedC(BuildTarget),
 
     /// Archive a foreign-library package's payload, the C stubs it links, and

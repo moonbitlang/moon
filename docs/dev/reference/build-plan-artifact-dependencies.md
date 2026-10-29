@@ -61,7 +61,7 @@ backend actions, without copying that state into another configuration.
 The CLI also supplies a `DebugInfoRequest`, separating requested symbol detail
 from native runtime backtrace support. After selecting the payload form, Backend
 Plan resolves and stores whether MoonBit compilation emits debug information.
-`BuildCStubsInfo` and `MakeExecutableInfo` separately own their native compiler
+`BuildCStubsInfo` and `CompileGeneratedCInfo` separately own their native compiler
 debug and optimization settings. A backtrace-only request may require debug
 information for generated C without changing C stubs. Runtime backtrace support
 is resolved into `BuildRuntimeInfo`, and dSYM requirements become `GenerateDsym`
@@ -126,6 +126,11 @@ archives. A `ForeignLibrary` consumes C-stub and runtime objects directly
 rather than their archives, because static archives do not nest.
 `RuntimeObject` identifies each separately compiled runtime translation unit
 consumed by the runtime archive.
+
+For generated-C native builds, `MakeExecutable` and `ArchiveForeignLibrary`
+consume `GeneratedCObject`, provided by `CompileGeneratedC`. Only that compile
+action consumes the C form of `LinkedCore` and observes toolchain headers.
+Object-producing backends let final linking consume `LinkedCore` directly.
 
 `Executable { package, target_kind }` includes test executables: source,
 inline-test, whitebox-test, and blackbox-test targets have different

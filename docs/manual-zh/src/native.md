@@ -12,6 +12,27 @@
 Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
 `clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
 
+## C 编译缓存
+
+通过 `MOON_CC_WRAPPER` 使用 ccache、sccache 等编译缓存工具：
+
+```sh
+MOON_CC_WRAPPER=ccache moon build --target native --release
+MOON_CC=clang MOON_CC_WRAPPER=sccache moon test --target native
+```
+
+变量值是单个可执行文件名称或路径（路径可以包含空格），不是 shell 命令，不能
+附带参数。取消设置或设为空字符串即可禁用。自定义包装程序收到的第一个参数是
+所选编译器的路径，后面是编译参数；包装程序自身的选项可通过环境变量或脚本配置。
+
+Moon 对生成的 C、运行时 C 和 C stub 使用包装程序，包括外部库和 LLVM 构建中的
+C 编译步骤。每个源文件先单独编译为目标文件，再链接或归档。编译器探测、链接和
+归档不经过包装程序。该设置不改变编译器选择、后端选择或默认内存分配器。
+
+`MOON_CC` 仍然是编译器的可执行文件名称或路径；请使用 `MOON_CC_WRAPPER`，而不是
+设置 `MOON_CC="ccache clang"`。不同目录之间的缓存复用还取决于缓存工具的路径和
+调试信息设置。
+
 ## 浮点运算
 
 使用 GCC/Clang 的 Native C 编译默认通过 `-ffp-contract=off` 禁止浮点运算收缩，

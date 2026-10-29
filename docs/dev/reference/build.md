@@ -179,25 +179,25 @@ Lowering consumes these planned decisions without a separate debug option.
 See [native compiler debug information and optimization](native-c-toolchain-resolution.md#debug-information-and-optimization)
 for the distinct compiler and linker flags.
 
-When actually building a package, the pipeline has 2 or 3 main steps depending on the backend:
+When actually building a package, the pipeline depends on the backend:
 
 1. **Build** each individual package, via `moonc build-package` / `BuildPackage` node, into CoreIR.
 2. **Link** into executable, via `moonc link-core` / `LinkCore` node.
    This step reads in all CoreIR files produced by the package and all its transitive dependencies,
    and links into an executable output.
    For JS/WASM backends, this already outputs the final executable.
-3. **Make native executable**, via the native toolchain / `MakeExecutable` node.
-   For native (Native/LLVM) backends,
-   the output of `LinkCore` (C or object file) is compiled or linked,
-   together with C stubs and other build outputs,
-   to produce the final executable.
-   Non-native backends do not need this step.
+3. **Compile generated C**, via `CompileGeneratedC`, when `LinkCore` emits C.
+   This produces a `GeneratedCObject`, using one compile-only invocation.
+   Direct-object and LLVM payloads already are object files and skip this step.
+4. **Make native executable**, via the native toolchain / `MakeExecutable` node.
+   Native and LLVM backends link the payload object together with C stubs and
+   runtime archives to produce the final executable. Non-native backends skip it.
    A foreign-library package builds a static library instead; see
    [foreign libraries on native backends](#foreign-libraries-on-native-backends).
 
 macOS debug builds that emit native object code add one post-link step:
 
-4. **Generate debug symbols**, via `dsymutil` / `GenerateDsym`.
+5. **Generate debug symbols**, via `dsymutil` / `GenerateDsym`.
    This action depends on the completed executable and produces its `.dSYM`
    bundle. The linker and `dsymutil` remain separate structured commands, so
    n2 can schedule and track each tool invocation independently.

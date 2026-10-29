@@ -40,7 +40,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{
-        CExecutableRealization, WarningCondition,
+        WarningCondition,
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -51,7 +51,7 @@ use crate::{
         ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
     },
     discover::DiscoveredPackage,
-    model::{BackendConfig, BuildTarget, PackageId, TargetKind},
+    model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{is_self_coverage_lib, should_skip_coverage},
     target_layout::proof_artifact_stem,
@@ -930,11 +930,7 @@ impl<'a> LoweringContext<'a> {
         extra_inputs.push(input_file.clone());
         extra_inputs.extend(package.c_stub_header_files.iter().cloned());
 
-        BuildCommand {
-            commandline: cc_cmd.into(),
-            extra_inputs,
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
+        BuildCommand::c_compile(&info.effective_native_toolchain, cc_cmd, extra_inputs)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
@@ -1018,26 +1014,19 @@ impl<'a> LoweringContext<'a> {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native plans do not contain MakeExecutable actions")
             }
-            BackendConfig::Native { .. } => {
-                match self
-                    .plan
-                    .backend_plan()
-                    .native_mode()
-                    .executable_realization()
-                {
-                    CExecutableRealization::LinkDirectObject => {
-                        self.lower_link_new_native_exe(artifacts, target, info)
-                    }
-                    CExecutableRealization::CompileAndLinkGeneratedC => {
-                        self.lower_build_exe_regular(artifacts, target, info)
-                    }
+            BackendConfig::Native { .. } => match self.plan.backend_plan().native_mode() {
+                NativeBackendMode::DirectObject(_) => {
+                    self.lower_link_new_native_exe(artifacts, target, info)
                 }
-            }
-            BackendConfig::Llvm { .. } => self.lower_build_exe_regular(artifacts, target, info),
+                NativeBackendMode::GeneratedC => {
+                    self.lower_link_exe_regular(artifacts, target, info)
+                }
+            },
+            BackendConfig::Llvm { .. } => self.lower_link_exe_regular(artifacts, target, info),
         }
     }
 
-    /// Compile a foreign library's generated C into its payload object, e.g.
+    /// Compile a target's generated C into its payload object, e.g.
     /// for package `lib` in a release build with a GCC-like compiler:
     ///
     /// ```text
@@ -1100,11 +1089,7 @@ impl<'a> LoweringContext<'a> {
                 .expect("native lowering requires compiler paths"),
         );
 
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cc_cmd.into(),
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
+        BuildCommand::c_compile(&info.effective_native_toolchain, cc_cmd, vec![])
     }
 
     /// Archive a foreign library's payload, C stub, and runtime objects, e.g.
@@ -1206,7 +1191,10 @@ impl<'a> LoweringContext<'a> {
         // Runtime is a static archive for regular builds, so place it after the
         // linked core and C stub archives that may introduce runtime symbols.
         sources.extend(artifacts.dependency_paths_matching(|artifact| {
-            matches!(artifact, ArtifactKey::LinkedCore { .. })
+            matches!(
+                artifact,
+                ArtifactKey::LinkedCore { .. } | ArtifactKey::GeneratedCObject { .. }
+            )
         }));
 
         for package in &info.link_c_stubs {
@@ -1224,32 +1212,26 @@ impl<'a> LoweringContext<'a> {
         sources
     }
 
-    fn lower_build_exe_regular(
+    fn lower_link_exe_regular(
         &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        let _package = self.get_package(target);
-
-        // Two things needs to be done here:
-        // - compile the program (if needed)
-        // - link with runtime library & artifacts of other C stubs
+        // The generated-C payload is already compiled. Preserve the historical
+        // driver flags here because they can also affect linking (e.g. LTO).
 
         let sources = self.native_executable_dependency_paths(artifacts, info);
 
-        let config = CCConfigBuilder::default()
-            .no_sys_header(true)
-            .output_ty(CCOutputType::Executable) // TODO: support compiling to library
-            .opt_level(info.c_opt_level)
+        let config = LinkerConfigBuilder::<&Path>::default()
+            .driver_flags(info.c_flags.clone())
+            .opt_level(Some(info.c_opt_level))
             .debug_info(info.c_debug_info)
             .link_moonbitrun(true)
             .link_libbacktrace(true)
-            .define_use_shared_runtime_macro(false)
             .native_allocator(info.native_allocator)
-            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
             .build()
-            .expect("Failed to build CC configuration for executable");
+            .expect("Failed to build linker configuration for executable");
 
         let dest = artifacts.single_output_path().display().to_string();
 
@@ -1265,18 +1247,22 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let cc_cmd = make_cc_command_resolved_for_toolchain(
-            &info.effective_native_toolchain,
+        let cc_cmd = make_linker_command_resolved(
+            info.effective_native_toolchain.cc().clone(),
             config,
-            &info.c_flags,
             &info.link_args,
-            sources.iter().map(|x| x.display().to_string()),
+            &sources
+                .iter()
+                .map(|x| x.display().to_string())
+                .collect::<Vec<_>>(),
             &pkg_dir,
-            Some(&dest),
-            self.opt
+            &dest,
+            &self
+                .opt
                 .backend
                 .compiler_paths()
-                .expect("native lowering requires compiler paths"),
+                .expect("native lowering requires compiler paths")
+                .lib_path,
         );
 
         BuildCommand {

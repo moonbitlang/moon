@@ -68,16 +68,6 @@ static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
-/// A package's `link.native` compiler selection and the settings for
-/// compiling its generated-C payload.
-struct PackageNativeCompile {
-    effective_native_toolchain: Toolchain,
-    c_flags: Vec<String>,
-    c_debug_info: bool,
-    c_opt_level: CCOptLevel,
-    native_allocator: compiler_flags::NativeAllocator,
-}
-
 fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
     debug_symbols && os == OperatingSystem::MacOS
 }
@@ -1036,13 +1026,22 @@ impl<'a> BuildPlanConstructor<'a> {
         let (link_core_deps, c_stub_deps, _) = self.dfs_link_core_sources(target)?;
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
 
-        self.require_artifact(
-            node,
+        let payload = if matches!(&self.config.backend, BackendConfig::Native { .. })
+            && matches!(
+                self.res.backend.native_mode(),
+                NativeBackendMode::GeneratedC
+            ) {
+            ArtifactKey::GeneratedCObject {
+                package: target.package,
+                target_kind: target.kind,
+            }
+        } else {
             ArtifactKey::LinkedCore {
                 package: target.package,
                 target_kind: target.kind,
-            },
-        );
+            }
+        };
+        self.require_artifact(node, payload);
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
@@ -1050,7 +1049,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        let PackageNativeCompile {
+        let CompileGeneratedCInfo {
             effective_native_toolchain,
             c_flags,
             c_debug_info,
@@ -1086,13 +1085,20 @@ impl<'a> BuildPlanConstructor<'a> {
         let moonc_debug_info = self.res.backend.moonc_debug_info();
         let generate_dsym = match &self.config.backend {
             BackendConfig::Llvm { os, .. } => should_generate_llvm_dsym(moonc_debug_info, *os),
-            BackendConfig::Native { .. } => match self.res.backend.native_mode() {
+            BackendConfig::Native { os, .. } => match self.res.backend.native_mode() {
                 NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
                     mode,
                     moonc_debug_info || self.config.debug_info.runtime_backtrace,
                     &effective_native_toolchain,
                 ),
-                NativeBackendMode::GeneratedC => false,
+                // Compiling and linking in one clang invocation used to run
+                // dsymutil implicitly. With persistent objects it must be an
+                // explicit action, otherwise libbacktrace loses source lines.
+                NativeBackendMode::GeneratedC => {
+                    c_debug_info
+                        && *os == OperatingSystem::MacOS
+                        && effective_native_toolchain.cc().targets_apple_darwin()
+                }
             },
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native executable planning returns before toolchain planning")
@@ -1141,7 +1147,10 @@ impl<'a> BuildPlanConstructor<'a> {
     fn resolve_package_native_compile(
         &mut self,
         package: PackageId,
-    ) -> Result<PackageNativeCompile, BuildPlanConstructError> {
+    ) -> Result<CompileGeneratedCInfo, BuildPlanConstructError> {
+        if let Some(info) = self.package_native_compile.get(&package) {
+            return Ok(info.clone());
+        }
         let pkg = self.input.pkg_dirs.get_package(package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
@@ -1180,7 +1189,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .validate_for_cc(effective_native_toolchain.cc())
             .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
 
-        Ok(PackageNativeCompile {
+        let info = CompileGeneratedCInfo {
             effective_native_toolchain,
             c_flags,
             // The native compiler must retain the source locations emitted into
@@ -1192,7 +1201,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 OptLevel::Release => CCOptLevel::Speed,
             },
             native_allocator,
-        })
+        };
+        // Compilation and linking consume the same resolved toolchain and
+        // flags, including across a package's different test executables.
+        self.package_native_compile.insert(package, info.clone());
+        Ok(info)
     }
 
     /// Plan the native compiler action that turns generated-C linked Core
@@ -1216,23 +1229,11 @@ impl<'a> BuildPlanConstructor<'a> {
             },
         );
 
-        let PackageNativeCompile {
-            effective_native_toolchain,
-            c_flags,
-            c_debug_info,
-            c_opt_level,
-            native_allocator,
-        } = self.resolve_package_native_compile(target.package)?;
-        self.res.backend.compile_generated_c_info.insert(
-            target,
-            CompileGeneratedCInfo {
-                effective_native_toolchain,
-                c_debug_info,
-                c_opt_level,
-                c_flags,
-                native_allocator,
-            },
-        );
+        let info = self.resolve_package_native_compile(target.package)?;
+        self.res
+            .backend
+            .compile_generated_c_info
+            .insert(target, info);
 
         self.resolved_node(node);
         Ok(())
@@ -1282,7 +1283,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // system libraries, and the backtrace library to the foreign host. A
         // static archive cannot carry them.
 
-        let PackageNativeCompile {
+        let CompileGeneratedCInfo {
             effective_native_toolchain,
             native_allocator,
             ..

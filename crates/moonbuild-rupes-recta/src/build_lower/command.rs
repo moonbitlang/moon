@@ -35,6 +35,24 @@ pub(super) struct BuildCommand {
 }
 
 impl BuildCommand {
+    /// Launch one C compilation through the selected wrapper, retaining both
+    /// executables as inputs so replacing the real compiler invalidates it.
+    pub(super) fn c_compile(
+        toolchain: &Toolchain,
+        mut command: Vec<String>,
+        mut extra_inputs: Vec<PathBuf>,
+    ) -> Self {
+        if let Some(wrapper) = toolchain.cc_wrapper() {
+            extra_inputs.push(PathBuf::from(&command[0]));
+            command.insert(0, wrapper.display().to_string());
+        }
+        Self {
+            extra_inputs,
+            commandline: command.into(),
+        }
+        .with_msvc_env(toolchain)
+    }
+
     /// Create the static archive `archive` from exactly `members`.
     ///
     /// Archivers that update an existing archive in place, such as `ar -r`,
@@ -142,6 +160,47 @@ mod tests {
     use crate::execution_plan::{LoweredCommandExecution, LoweredResponseFile};
 
     use super::*;
+
+    #[test]
+    fn c_wrapper_preserves_argv_environment_and_both_tool_inputs() {
+        let compiler = PathBuf::from("toolchain with spaces/cl.exe");
+        let wrapper = PathBuf::from("cache tools/sccache.exe");
+        let toolchain = Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Msvc,
+            cc_path: compiler.display().to_string(),
+            ar_kind: ARKind::MsvcLib,
+            ar_path: "lib.exe".into(),
+            target_triple: None,
+            is_env_override: false,
+        })
+        .with_cc_wrapper(wrapper.clone())
+        .with_msvc_environment(moonutil::compiler_flags::MsvcEnvironment {
+            command_env: vec![("INCLUDE".into(), "SDK/include".into())],
+        });
+        let args = vec![
+            compiler.display().to_string(),
+            "/c".into(),
+            "source file.c".into(),
+        ];
+        let (command, inputs) = BuildCommand::c_compile(&toolchain, args.clone(), vec![])
+            .into_lowered_parts(std::iter::empty());
+        assert_eq!(
+            command.args(),
+            [vec![wrapper.display().to_string()], args].concat()
+        );
+        assert_eq!(command.env(), [("INCLUDE".into(), "SDK/include".into())]);
+        assert_eq!(
+            inputs,
+            [
+                InputObservation::File(wrapper),
+                InputObservation::File(compiler)
+            ]
+        );
+        assert_eq!(
+            command.inline_command(),
+            moonutil::shlex::join_native(command.args().iter().map(String::as_str))
+        );
+    }
 
     fn archive_with(ar_kind: ARKind, ar_path: &str) -> BuildCommand {
         let toolchain = Toolchain::from_path_probe(CC {
