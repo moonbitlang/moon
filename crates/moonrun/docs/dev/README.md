@@ -2,6 +2,10 @@
 
 ## Developer workflows
 
+- [Runtime architecture](design/runtime-architecture.md): read before changing
+  embedding interfaces, host imports, virtualized state, or authorization. It
+  defines ownership, the three host-operation layers, authority mapping, and
+  current enforcement gaps under [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
 - [Architecture tracking](architecture-tracking.md): the current ownership and
   execution milestone after recursive virtual process trees, and deferred work.
 - [Host handles](host-handles.md): registration, validation, owning tables, and

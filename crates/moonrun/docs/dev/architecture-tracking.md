@@ -6,22 +6,15 @@ process path. It is complete when helper cancellation and native execution can
 be added without redesigning Runtime state, guest imports, and supervision
 together.
 
-## Agreed direction
+## Design contract
 
-- `VirtualProcessTree` is the supervisor. It owns admission, virtual PIDs,
-  parent relationships, termination, completion, adoption, and reaping.
-- A supervised command owns preparation, artifact execution, and cleanup under
-  one stable virtual PID. A Run remains one synchronous Wasm execution.
-- Runtime owns realized Env, cwd, stdio, Handles, Host Domains, and their
-  authorization inputs. Host creation and guest derivation are distinct:
-  recording a parent does not itself inherit configuration or authority.
-- Host Domains interpret operations and authorize their complete intent. ABI
-  adapters convert values; Raw Operations implement OS or library mechanisms.
-- Process parentage and cancellation scopes are distinct relationships. Killing
-  one process must not implicitly cancel siblings or an entire build.
-- Overall authority must eventually account for every access surface, including
-  WASI, delegated resources, preparation helpers, and native execution. Current
-  Moonrun Policy coverage is not expanded merely by rearranging modules.
+[ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md)
+records the accepted direction. The
+[runtime architecture guide](design/runtime-architecture.md) owns the lasting
+requirements for library embedding, the three host-operation layers, per-Runtime
+virtualization, authority mapping, and child derivation. Its implementation
+guidance and acceptance scenarios apply to every item below. This file owns
+sequencing and completion status, not a second copy of those principles.
 
 ## Current milestone
 
@@ -37,7 +30,9 @@ PID, wait, and exit behavior. Complex executable discovery is deferred.
   builders and existing policy behavior.
 - [ ] Complete the host-creation and guest-derivation interfaces, keeping one
   authoritative source for each field and making the source of inherited state
-  and authority explicit rather than deriving either from a parent PID.
+  and authority explicit rather than deriving either from a parent PID. Make
+  the host configuration available to library callers and exercise concurrent
+  independent environments without the CLI.
 - [ ] Make the regular Host Process path prepare the operation before execution,
   with clear ownership of interpretation, authorization, and admission.
 
@@ -71,9 +66,10 @@ milestone.
    continues to require actual teardown.
 
 Concrete isolation problems on normal paths may be fixed independently. In
-particular, guest control of process-global facilities such as Winsock cleanup
-requires an ownership audit; an owned Env alone does not isolate native library
-state. These follow-ups do not all belong in the current milestone.
+particular, audit the embedding ownership of process-global facilities such as
+Winsock cleanup, Unix signal handlers, and the Windows global Job Object, plus
+diagnostic routing. An owned Env alone does not isolate native library state.
+These follow-ups do not all belong in the current milestone.
 
 ## Verification targets
 

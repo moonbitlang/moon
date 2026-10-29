@@ -50,7 +50,8 @@ _Avoid_: Native buffer, temporary buffer
 **Runtime Configuration**:
 Construction input that selects how one Runtime behaves, such as its Working
 Directory, Env initialization, stdio bindings, or process implementation. It
-does not grant permission to perform host operations.
+selects state; authority to expose that state or delegate a resource binding is
+a separate decision.
 _Avoid_: Moonrun Policy, Runtime State, global process configuration
 
 **Runtime State**:
@@ -66,6 +67,12 @@ allowed. It does not own or select Runtime State such as Env, Runtime Working
 Directory, stdio bindings, VFS configuration, child tables, or OS handles.
 Moonrun Policy does not implicitly configure or restrict WASI descriptors.
 _Avoid_: Runtime Configuration, Runtime State, WASI sandbox, virtual filesystem
+
+**Effective Authority**:
+The host effects reachable by a guest through all exposed operations and
+delegated resources, including their combinations. Moonrun Policy contributes
+to this authority alongside WASI grants and permitted helper or native execution.
+_Avoid_: Moonrun Policy, Runtime Configuration, virtual process identity
 
 **Host Domain**:
 The unique semantic owner for one family of host behavior. A Host Domain
