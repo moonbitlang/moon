@@ -11,6 +11,8 @@
   and the current limits of lexical process authorization.
 - [Architecture tracking](architecture-tracking.md): the current ownership and
   execution milestone after recursive virtual process trees, and deferred work.
+- [Authority closure](design/authority-closure.md): cross-surface filesystem
+  enforcement and the remaining child restriction and resource delegation work.
 - [Host handles](host-handles.md): registration, validation, owning tables, and
   operation-specific ownership rules.
 - [Current executable path semantics](current-exe-semantics.md): load-time path

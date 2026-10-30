@@ -123,6 +123,21 @@ use `moon run`. Their preparation interface does not expand guest spawn support.
 Recursive tests use the pinned async implementation with a private cached
 registry artifact and local scripts; no live registry dependency is introduced.
 
+## Parallel authority work
+
+Authority closure proceeds independently of command selection, preparation
+helper cancellation, and native/Node execution. The
+[workstream plan](design/authority-closure.md) records ownership and acceptance
+criteria. WASI filesystem effects now use Host Filesystem authorization and
+native execution, in addition to WASI rights and path containment. Child
+restriction composition and explicit resource delegation remain follow-ups.
+
+Host-global embedding ownership is separate: Job/process-group lifetime belongs
+with helper and native execution; signal, Winsock, and diagnostic ownership can
+be addressed independently. Authority changes include only embedding fixes
+necessary for their enforcement. Execution strategies must preserve authority
+without duplicating policy inside argument parsing or OS primitives.
+
 ## Follow-up order
 
 1. Add native process members to Engine for mixed execution. Besides delivered

@@ -91,6 +91,10 @@ impl FsRoot {
 }
 
 impl FsIntents {
+    pub(crate) fn new(read: bool, write: bool) -> Self {
+        Self { read, write }
+    }
+
     pub(crate) fn read() -> Self {
         Self {
             read: true,

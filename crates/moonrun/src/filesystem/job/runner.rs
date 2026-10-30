@@ -228,7 +228,8 @@ ported_fns! {
         new_path: OsString,
         replace: bool,
     ) -> AsyncHostResult<i64> {
-        rename_native_path(old_path, new_path, replace)?;
+        crate::filesystem::native::rename(old_path, new_path, replace,
+            crate::filesystem::native::CrossDevice::AllowCopy)?;
         Ok(0)
     }
 
@@ -892,57 +893,6 @@ fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostR
         return Err(last_native_error());
     }
     Ok(i64::from(ret))
-}
-
-#[cfg(all(unix, target_os = "linux"))]
-fn rename_native_path(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-) -> AsyncHostResult<()> {
-    let old_path = path_to_cstring(old_path)?;
-    let new_path = path_to_cstring(new_path)?;
-    let flags = if replace { 0 } else { libc::RENAME_NOREPLACE };
-    let ret = unsafe {
-        libc::syscall(
-            libc::SYS_renameat2,
-            libc::AT_FDCWD,
-            old_path.as_ptr(),
-            libc::AT_FDCWD,
-            new_path.as_ptr(),
-            flags,
-        )
-    };
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(all(unix, target_os = "macos"))]
-fn rename_native_path(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-) -> AsyncHostResult<()> {
-    let old_path = path_to_cstring(old_path)?;
-    let new_path = path_to_cstring(new_path)?;
-    let flags = if replace { 0 } else { libc::RENAME_EXCL };
-    let ret = unsafe {
-        libc::renameatx_np(
-            libc::AT_FDCWD,
-            old_path.as_ptr(),
-            libc::AT_FDCWD,
-            new_path.as_ptr(),
-            flags,
-        )
-    };
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(unix)]
@@ -1725,87 +1675,6 @@ fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostR
 }
 
 #[cfg(windows)]
-fn rename_native_path(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE,
-    };
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, DELETE, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FileRenameInfoEx, MOVEFILE_COPY_ALLOWED, MOVEFILE_REPLACE_EXISTING,
-        MoveFileExW, OPEN_EXISTING, SetFileInformationByHandle,
-    };
-
-    let old_path = path_to_wide(old_path);
-    let new_path = path_to_wide(new_path);
-    let handle: HANDLE = unsafe {
-        CreateFileW(
-            old_path.as_ptr(),
-            DELETE,
-            FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            std::ptr::null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(last_native_error());
-    }
-
-    let filename_len = new_path.len().checked_sub(1).ok_or(AsyncHostError::Inval)?;
-    let buffer_size = std::mem::size_of::<FILE_RENAME_INFO>()
-        .checked_add(filename_len * std::mem::size_of::<u16>())
-        .ok_or(AsyncHostError::Fault)?;
-    let mut buffer = vec![0u8; buffer_size];
-    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-    unsafe {
-        (*info).Anonymous.Flags = if replace { 3 } else { 0 };
-        (*info).RootDirectory = std::ptr::null_mut();
-        (*info).FileNameLength = u32::try_from(filename_len * std::mem::size_of::<u16>())
-            .map_err(|_| AsyncHostError::Fault)?;
-        std::ptr::copy_nonoverlapping(
-            new_path.as_ptr(),
-            (*info).FileName.as_mut_ptr(),
-            filename_len,
-        );
-    }
-
-    let ret = unsafe {
-        SetFileInformationByHandle(handle, FileRenameInfoEx, info.cast(), buffer_size as u32)
-    };
-    unsafe {
-        CloseHandle(handle);
-    }
-    if ret != 0 {
-        return Ok(());
-    }
-
-    let error = std::io::Error::last_os_error()
-        .raw_os_error()
-        .unwrap_or_else(|| AsyncHostError::Inval.errno());
-    if error != ERROR_INVALID_PARAMETER as i32 {
-        return Err(AsyncHostError::Native(error));
-    }
-
-    let flags = MOVEFILE_COPY_ALLOWED
-        | if replace {
-            MOVEFILE_REPLACE_EXISTING
-        } else {
-            0
-        };
-    if unsafe { MoveFileExW(old_path.as_ptr(), new_path.as_ptr(), flags) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
 fn path_to_wide(path: OsString) -> Vec<u16> {
     os_string_to_wide(path)
         .into_iter()
@@ -1926,10 +1795,11 @@ mod tests {
             old_link.clone().into_os_string(),
         )
         .unwrap();
-        rename_native_path(
+        crate::filesystem::native::rename(
             old_link.clone().into_os_string(),
             new_link.clone().into_os_string(),
             false,
+            crate::filesystem::native::CrossDevice::AllowCopy,
         )
         .unwrap();
         assert!(target.is_dir());

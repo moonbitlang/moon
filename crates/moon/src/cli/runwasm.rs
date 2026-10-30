@@ -60,8 +60,9 @@ pub(crate) struct RunWasmSubcommand {
 
     /// Experimental: pass a moonrun JSON policy file for moonbitlang/async runtime access.
     ///
-    /// The policy applies to moonbitlang/async and moonrun-owned unstable FFI;
-    /// WASI is not covered.
+    /// The policy applies to moonbitlang/async, moonrun-owned unstable FFI, and
+    /// supported WASI filesystem operations. WASI descriptor rights and preopen
+    /// limits still apply; stdio remains a separately granted resource.
     #[clap(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 

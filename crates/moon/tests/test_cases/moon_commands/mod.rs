@@ -452,7 +452,7 @@ fn test_runwasm_help_marks_policy_as_experimental() {
         "expected runwasm help to advertise only JSON policies, got:\n{help}"
     );
     assert!(
-        help.contains("WASI is not covered"),
+        help.contains("supported WASI filesystem operations"),
         "expected runwasm help to explain policy scope, got:\n{help}"
     );
 }
