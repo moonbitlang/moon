@@ -50,6 +50,7 @@ pub(crate) mod runwasm;
 pub(crate) mod search;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
+pub(crate) mod testcli;
 pub(crate) mod tool;
 pub(crate) mod tree;
 pub(crate) mod update;
@@ -148,6 +149,25 @@ pub(crate) enum MoonBuildSubcommands {
     #[clap(name = "runwasm")]
     RunWasm(RunWasmSubcommand),
     Test(TestSubcommand),
+    /// Run CLI tests with the current toolchain's mooncram
+    ///
+    /// Executes `moonrun <toolchain>/bin/mooncram.wasm -- [ARGS]...` without
+    /// loading a MoonBit project. All arguments after `testcli`, including
+    /// `--help`, `--version`, and `--`, are forwarded unchanged.
+    ///
+    /// Uses the current toolchain, including MOON_TOOLCHAIN_ROOT and
+    /// MOONRUN_OVERRIDE. Moon options such as `-C` must appear before `testcli`;
+    /// `--trace` is not supported before this command.
+    // Invocation selection retains this opaque tail before Clap runs. The
+    // argument declaration supplies help and completion metadata only.
+    #[clap(
+        name = "testcli",
+        arg = clap::Arg::new("args")
+            .value_name("ARGS")
+            .num_args(0..)
+            .help("Arguments forwarded to mooncram")
+    )]
+    TestCli,
     #[clap(hide = true)]
     Cram(CramSubcommand),
     #[clap(hide = true)]

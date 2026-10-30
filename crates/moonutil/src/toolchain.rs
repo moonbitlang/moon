@@ -30,7 +30,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use crate::binaries::{BINARIES, CachedBinaries, moon_cram_in, mooncake_in};
+pub use crate::binaries::{BINARIES, CachedBinaries, moon_cram_in, mooncake_in, moonrun_in};
 pub use crate::moon_dir::{
     MOON_DIRS, MoonDirs, abort_core_in, bin, core, core_bundle, core_bundle_in, core_core,
     core_core_in, core_package_mi_in, include, is_toolchain_root, lib, prelude_proof,

@@ -55,6 +55,7 @@ fn test_moon_help() {
               run                    Run a main package
               runwasm                Deprecated: use moon run --target wasm locally or moonx for registry packages
               test                   Test the current package
+              testcli                Run CLI tests with the current toolchain's mooncram
               clean                  Remove local build outputs or configured global caches
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol

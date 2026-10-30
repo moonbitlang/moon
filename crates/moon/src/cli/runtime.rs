@@ -110,6 +110,9 @@ fn prepare_delegate(invocation: DelegatedInvocation) -> anyhow::Result<Command> 
         DelegatedInvocation::Cram { current_dir, args } => {
             super::cram::prepare_moon_cram(current_dir.as_deref(), args)
         }
+        DelegatedInvocation::TestCli { current_dir, args } => {
+            super::testcli::prepare(current_dir.as_deref(), args)
+        }
         DelegatedInvocation::Login { current_dir } => {
             super::mooncake_adapter::prepare_direct(current_dir.as_deref(), &["login"])
         }
@@ -278,7 +281,7 @@ fn dispatch(
         ShellCompletion(command) => super::gen_shellcomp(&flags, command).map(Into::into),
         Version(command) => super::run_version(&flags, command).map(Into::into),
         Tool(command) => super::run_tool(&flags, command, output.user_log()).map(Into::into),
-        Login(_) | Register(_) | External(_) => {
+        Login(_) | Register(_) | External(_) | TestCli => {
             unreachable!("transparent delegates are selected before Moon runtime setup")
         }
     }

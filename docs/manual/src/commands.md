@@ -12,6 +12,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon run`↴](#moon-run)
 * [`moon runwasm`↴](#moon-runwasm)
 * [`moon test`↴](#moon-test)
+* [`moon testcli`↴](#moon-testcli)
 * [`moon clean`↴](#moon-clean)
 * [`moon fmt`↴](#moon-fmt)
 * [`moon doc`↴](#moon-doc)
@@ -58,6 +59,7 @@ This document contains the help content for the `moon` command-line program.
 * `run` — Run a main package
 * `runwasm` — Deprecated: use moon run --target wasm locally or moonx for registry packages
 * `test` — Test the current package
+* `testcli` — Run CLI tests with the current toolchain's mooncram
 * `clean` — Remove local build outputs or configured global caches
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
@@ -366,6 +368,22 @@ Test executables run in parallel using the available CPU count by default. Use `
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
 * `-f`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
+
+
+
+## `moon testcli`
+
+Run CLI tests with the current toolchain's mooncram
+
+Executes `moonrun <toolchain>/bin/mooncram.wasm -- [ARGS]...` without loading a MoonBit project. All arguments after `testcli`, including `--help`, `--version`, and `--`, are forwarded unchanged.
+
+Uses the current toolchain, including MOON_TOOLCHAIN_ROOT and MOONRUN_OVERRIDE. Moon options such as `-C` must appear before `testcli`; `--trace` is not supported before this command.
+
+**Usage:** `moon testcli [ARGS]...`
+
+###### **Arguments:**
+
+* `<ARGS>` — Arguments forwarded to mooncram
 
 
 
