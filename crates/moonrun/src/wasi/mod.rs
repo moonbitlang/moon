@@ -20,6 +20,9 @@
 
 pub(crate) mod imports;
 
+#[cfg(test)]
+mod authority_tests;
+
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Env, Runtime, Stdio, StdioStream};
 use rand::{RngCore, rngs::OsRng};
