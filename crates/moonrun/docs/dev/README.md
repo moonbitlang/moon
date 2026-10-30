@@ -95,6 +95,14 @@ its outcome; the backend interrupts guest execution after the borrow ends.
 Core executable-path imports access Runtime directly from shared registration
 rather than exposing Runtime through the async context.
 
+Generic stat distinguishes `Console` from other character devices. On Unix,
+handle queries use `isatty`; on Windows, path and handle queries share
+`GetConsoleMode` detection on the existing handle. Path queries retain upstream's
+metadata-only access, so a console path remains `CharDevice` when those access
+rights do not permit querying console mode. The scalar `stdio/kind_of_fd` import
+uses the same handle classification and remains usable during Wasm startup,
+before the host can access exported Guest Memory.
+
 ## V8 value imports
 
 The imports are grouped by their guest ABI:

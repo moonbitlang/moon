@@ -185,6 +185,32 @@ pkgtype(kind: "executable")
         assert_ne!(input, INVALID_HANDLE_VALUE);
         let input_resource = Arc::new(Resource::new(input));
         assert_ne!(unsafe { SetConsoleMode(input, 0) }, 0);
+        use super::super::stat::{
+            FILE_KIND_CHAR_DEVICE, FILE_KIND_CONSOLE, STAT_FILE_KIND, StatRequest,
+        };
+        let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
+        let mut by_handle = None;
+        super::super::stat::run_fstatx_job(&input_resource, request, &mut by_handle).unwrap();
+        let mut by_path = None;
+        super::super::stat::run_statx_job(None, "CONIN$".into(), request, true, &mut by_path)
+            .unwrap();
+        assert_eq!(
+            by_handle.unwrap().scalar(STAT_FILE_KIND),
+            Some(FILE_KIND_CONSOLE as u64)
+        );
+        // Match upstream: the path query opens only for metadata, so
+        // GetConsoleMode cannot recognize the console without read access.
+        assert_eq!(
+            by_path.unwrap().scalar(STAT_FILE_KIND),
+            Some(FILE_KIND_CHAR_DEVICE as u64)
+        );
+        let mut null_device = None;
+        super::super::stat::run_statx_job(None, "NUL".into(), request, true, &mut null_device)
+            .unwrap();
+        assert_eq!(
+            null_device.unwrap().scalar(STAT_FILE_KIND),
+            Some(FILE_KIND_CHAR_DEVICE as u64)
+        );
         let output = unsafe {
             CreateConsoleScreenBuffer(
                 GENERIC_READ | GENERIC_WRITE,
