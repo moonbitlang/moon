@@ -120,6 +120,10 @@ pub fn mooncake_in(current_dir: &std::path::Path) -> PathBuf {
     moon_executable_in("mooncake", "MOONCAKE_OVERRIDE", current_dir)
 }
 
+pub fn moonrun_in(current_dir: &Path) -> PathBuf {
+    moon_executable_in("moonrun", "MOONRUN_OVERRIDE", current_dir)
+}
+
 fn optional_executable(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
     if let Some(custom_path) = std::env::var_os(env_var) {
         return Some(resolve_executable_override(&custom_path));
