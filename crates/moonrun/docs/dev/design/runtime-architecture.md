@@ -196,16 +196,29 @@ For an operation that touches host state, the required flow is:
 For example, a process request includes the executable, arguments, environment,
 cwd, streams, execution kind, and child restrictions. Host Process owns their
 interpretation and authorization; Engine owns admission, preparation dispatch,
-execution, and lifecycle. Authorization and execution must
-agree on the selected executable. A later phase must not redo PATH lookup with
-a different environment. Introduce a prepared representation only when it owns
-this resolved decision; do not duplicate the same fields across peer configs.
+execution, and lifecycle. Authorization and execution must agree on the
+interpreted request. A later phase must not redo PATH lookup with a different
+environment. A prepared representation owns the resolved lookup inputs; it
+must not duplicate the same fields across peer configurations. Native Unix
+search retains a frozen candidate sequence because an actual exec failure can
+require trying the next entry, even if the first entry passed an access check.
 
-Current limits: existing Host Domains and shared registrations already provide
-much of this structure. Some imports still directly expose primitives, and
-Host Process currently splits policy checking from later configuration and
-resolution. The next migration must join those decisions at their owner rather
-than claim the final flow is already enforced everywhere.
+Host Process now has one `prepare_job` entry shared by inline and worker jobs.
+It first applies the existing lexical process policy, then captures Runtime
+cwd and caller PATH, resolves the executable search, binds streams, and selects
+native execution or virtual Moon derivation. Pending spawn jobs cannot execute;
+prepared jobs cannot accept further guest setters. Native execution consumes
+its prepared inputs once, and keeps their stream owner alive through spawn.
+Virtual derivation validates the child environment and supplies the selected
+Moon tool to Engine without consulting PATH again. Admission and completion
+remain Engine responsibilities.
+
+Current limits: process rules authorize the requested program and arguments
+(or original Windows command-line prefix), not a stable executable file
+identity. This migration does not add filesystem authorization for executable
+lookup, constrain native descendants, or expand policy coverage. Some other
+imports still directly expose primitives; the full authority model remains
+incremental.
 
 ## Virtualization and inheritance
 
@@ -256,9 +269,34 @@ child environment does not by itself replace the caller's PATH used for lookup.
 Preserve the platform's native-shaped contract; Windows process creation is not
 automatically shell or PATHEXT search. Windows executable selection and
 command-line interpretation belong in Host Process's platform-aware resolution,
-not individual FFIs. Deliberately deferred work includes complicated PATH and
+not individual FFIs.
+
+The current process lookup contract is:
+
+- Caller Runtime PATH selects the executable; the explicit child environment is
+  passed separately and does not supply lookup defaults. Ambient observes PATH
+  and cwd at job preparation; owned Env and Fixed cwd avoid those host-global
+  reads. Later environment changes do not redirect a prepared job.
+- Unix relative paths and relative or empty PATH entries use the effective child
+  cwd. Explicit paths bypass search. Missing PATH uses the platform's default
+  search list; empty PATH searches only the child cwd. Native execution tries
+  the frozen candidates with platform error handling, including Darwin's shell
+  fallback for text found through PATH. Virtual Moon selection checks ordinary
+  tool candidates without attempting multiple helper executions.
+- Windows ordinary bare-name search uses the embedding application's directory,
+  caller Runtime cwd when enabled, native system directories, and caller Runtime
+  PATH. The application and system directories are explicit native host inputs.
+  `NoDefaultCurrentDirectoryInExePath` comes from Runtime Env. Child cwd does not
+  replace caller cwd for lookup. Only an extensionless bare name receives
+  `.exe`; explicit paths are used as supplied. The selected image is passed as
+  `lpApplicationName`, with the original command line preserved.
+
+Deliberately deferred work includes complicated PATH and
 PATHEXT compatibility, special Windows paths, trusted Moon recognition, and
-stable identity across filesystem changes. Deferral does not permit introducing
+stable identity across filesystem changes. Drive-relative, rooted-without-drive,
+and device paths are currently rejected rather than resolving against hidden
+host drive state. Windows unquoted executable names containing spaces do not
+reproduce CreateProcess's successive-prefix guessing. Deferral does not permit introducing
 new host-global fallbacks on normal paths.
 
 Current implementation: `RunOptions::with_environment` selects an owned source

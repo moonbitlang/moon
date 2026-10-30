@@ -770,6 +770,11 @@ mod tests {
             }),
             Arc::new(crate::runtime::Env::owned([]).unwrap()),
         );
+        // Use an existing executable so malformed payloads are tested
+        // independently of executable-not-found errors. Validation must fail
+        // before any virtual child is admitted, even for a non-Moon image.
+        #[cfg(windows)]
+        let executable = std::env::current_exe().unwrap();
         for (argument, environment) in [("bad\0arg", "A=B"), ("ok", "=invalid")] {
             #[cfg(unix)]
             let mut job = crate::process::Job::spawn_unix(
@@ -786,7 +791,7 @@ mod tests {
             );
             #[cfg(windows)]
             let mut job = crate::process::Job::spawn_windows(
-                format!("moon {argument}").into(),
+                format!("\"{}\" {argument}", executable.display()).into(),
                 format!("{environment}\0\0").encode_utf16().collect(),
                 None,
                 None,
@@ -797,11 +802,7 @@ mod tests {
                     is_orphan: false,
                 },
             );
-            assert_eq!(process.check_job(&job), Ok(()));
-            assert_eq!(
-                process.configure_job_for_execution(&mut job),
-                Err(AsyncHostError::Inval)
-            );
+            assert_eq!(process.prepare_job(&mut job), Err(AsyncHostError::Inval));
             assert!(tree.snapshot().is_empty());
         }
     }

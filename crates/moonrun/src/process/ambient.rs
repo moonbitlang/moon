@@ -19,8 +19,8 @@
 //! Native operating-system process execution.
 //!
 //! This is the Ambient implementation behind the process module. It preserves
-//! native process behavior, including platform executable lookup, while the
-//! parent module owns policy and child provenance.
+//! native process behavior from a frozen executable plan; the parent module
+//! owns executable interpretation, policy, and child provenance.
 
 use std::ffi::OsString;
 #[cfg(unix)]
@@ -40,6 +40,7 @@ use crate::policy::PolicyInheritance;
 use crate::resource::Resource;
 use crate::resource::ResourceRef;
 
+use super::executable::Executable;
 use super::job::SpawnOptions;
 use crate::resource::ResourcePublication;
 
@@ -56,7 +57,7 @@ ported_fns! {
     #[allow(clippy::too_many_arguments)]
     #[cfg(unix)]
     pub(super) fn run_spawn_job_unix(
-        path: OsString,
+        executable: Executable,
         args: Vec<OsString>,
         env: Vec<OsString>,
         stdio: [Option<ResourceRef>; 3],
@@ -66,7 +67,7 @@ ported_fns! {
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_unix(
-            path,
+            executable,
             args,
             env,
             stdio,
@@ -84,6 +85,7 @@ ported_fns! {
     #[allow(clippy::too_many_arguments)]
     #[cfg(windows)]
     pub(super) fn run_spawn_job_windows(
+        executable: Executable,
         command_line: OsString,
         env: Vec<u16>,
         stdio: [Option<ResourceRef>; 3],
@@ -93,6 +95,7 @@ ported_fns! {
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_windows(
+            executable,
             command_line,
             env,
             stdio,
@@ -127,7 +130,7 @@ ported_fns! {
 #[cfg(unix)]
 #[allow(clippy::too_many_arguments)]
 fn spawn_process_unix(
-    path: OsString,
+    executable: Executable,
     args: Vec<OsString>,
     mut env: Vec<OsString>,
     stdio: [Option<ResourceRef>; 3],
@@ -167,13 +170,12 @@ fn spawn_process_unix(
             );
         }
         let pid = glibc_compat::spawn_with_command(
-            path,
+            executable,
             args,
             env,
             stdio,
             cwd.clone(),
             options.child_signal_mask,
-            std::env::var_os("PATH"),
             policy_transfer_fd,
         )
         .map_err(AsyncHostError::Native)?;
@@ -203,12 +205,15 @@ fn spawn_process_unix(
         );
     }
 
-    let path = unix_cstring(path)?;
+    let paths = executable
+        .candidates()
+        .iter()
+        .map(|path| unix_cstring(path.as_os_str().to_owned()))
+        .collect::<AsyncHostResult<Vec<_>>>()?;
     let mut argv_storage = Vec::with_capacity(args.len());
     for arg in args {
         argv_storage.push(unix_cstring(arg)?);
     }
-    let path = path.as_c_str();
     let mut argv = argv_storage
         .iter()
         .map(|arg| arg.as_ptr().cast_mut())
@@ -280,9 +285,12 @@ fn spawn_process_unix(
             check_spawn_errno(add_chdir_file_action(&mut file_actions, cwd.as_c_str()))?;
         }
 
-        let mut pid = 0;
-        let ret = if path.to_bytes().contains(&b'/') {
-            unsafe {
+        let mut saw_eacces = false;
+        #[cfg(not(target_os = "macos"))]
+        let mut last_error = libc::ENOENT;
+        for path in &paths {
+            let mut pid = 0;
+            let error = unsafe {
                 libc::posix_spawn(
                     &mut pid,
                     path.as_ptr(),
@@ -291,21 +299,79 @@ fn spawn_process_unix(
                     argv.as_ptr(),
                     envp.as_ptr(),
                 )
+            };
+            if error == 0 {
+                return Ok(pid);
             }
-        } else {
-            unsafe {
-                libc::posix_spawnp(
-                    &mut pid,
-                    path.as_ptr(),
-                    &file_actions,
-                    &attr,
-                    argv.as_ptr(),
-                    envp.as_ptr(),
-                )
+            if !executable.is_search() {
+                return Err(error);
             }
-        };
-        check_spawn_errno(ret)?;
-        Ok(pid)
+            // Darwin's PATH search interprets executable text files with sh.
+            // Direct paths retain posix_spawn's ENOEXEC result on every OS.
+            #[cfg(target_os = "macos")]
+            if error == libc::ENOEXEC {
+                let mut shell_argv = Vec::with_capacity(argv_storage.len() + 3);
+                shell_argv.push(
+                    argv_storage
+                        .first()
+                        .map_or(c"sh".as_ptr(), |arg| arg.as_ptr())
+                        .cast_mut(),
+                );
+                shell_argv.push(path.as_ptr().cast_mut());
+                shell_argv.extend(
+                    argv_storage
+                        .iter()
+                        .skip(1)
+                        .map(|arg| arg.as_ptr().cast_mut()),
+                );
+                shell_argv.push(std::ptr::null_mut());
+                check_spawn_errno(unsafe {
+                    libc::posix_spawn(
+                        &mut pid,
+                        c"/bin/sh".as_ptr(),
+                        &file_actions,
+                        &attr,
+                        shell_argv.as_ptr(),
+                        envp.as_ptr(),
+                    )
+                })?;
+                return Ok(pid);
+            }
+            // Retry only after attempting the actual image. An access check
+            // would miss failures such as a script's unavailable interpreter.
+            #[cfg(target_os = "macos")]
+            match error {
+                libc::E2BIG | libc::ENOMEM | libc::ETXTBSY => return Err(error),
+                libc::ELOOP | libc::ENAMETOOLONG | libc::ENOENT | libc::ENOTDIR => {}
+                error => {
+                    // Darwin distinguishes an inaccessible PATH directory
+                    // from an existing image that failed to execute.
+                    let mut metadata = unsafe { std::mem::zeroed::<libc::stat>() };
+                    if unsafe { libc::stat(path.as_ptr(), &mut metadata) } == 0 {
+                        if error != libc::EACCES {
+                            return Err(error);
+                        }
+                        saw_eacces = true;
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                match error {
+                    libc::EACCES => saw_eacces = true,
+                    libc::ENOENT
+                    | libc::ENOTDIR
+                    | libc::ESTALE
+                    | libc::ENODEV
+                    | libc::ETIMEDOUT => {}
+                    error => return Err(error),
+                }
+                last_error = error;
+            }
+        }
+        #[cfg(target_os = "macos")]
+        let last_error = libc::ENOENT;
+        Err(if saw_eacces { libc::EACCES } else { last_error })
     })();
 
     if attr_initialized {
@@ -469,6 +535,7 @@ fn add_chdir_file_action(
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 fn spawn_process_windows(
+    executable: Executable,
     command_line: OsString,
     mut env_block: Vec<u16>,
     stdio: [Option<ResourceRef>; 3],
@@ -495,6 +562,12 @@ fn spawn_process_windows(
         None => None,
     };
 
+    let mut application = executable
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .collect::<Vec<_>>();
+    application.push(0);
     let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
     command_line.push(0);
     let cwd = cwd.map(|cwd| {
@@ -626,7 +699,7 @@ fn spawn_process_windows(
     }
     let created = unsafe {
         CreateProcessW(
-            std::ptr::null(),
+            application.as_ptr(),
             command_line.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
@@ -1013,6 +1086,109 @@ mod policy_transfer_error_tests {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
+    fn spawn_for_test(
+        executable: Executable,
+        args: Vec<OsString>,
+        cwd: &Path,
+    ) -> AsyncHostResult<i64> {
+        let mut child_signal_mask = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::sigemptyset(&mut child_signal_mask) }, 0);
+        run_spawn_job_unix(
+            executable,
+            args,
+            vec!["PATH=/not-the-frozen-search-path".into()],
+            [None, None, None],
+            Some(cwd.as_os_str().to_owned()),
+            SpawnOptions { child_signal_mask },
+            None,
+            &mut None,
+        )
+    }
+
+    #[test]
+    fn frozen_search_retries_after_an_unavailable_interpreter() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first");
+        let second = directory.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        let path = std::env::join_paths([&first, &second]).unwrap();
+        // Freeze lookup before either executable exists. Only execution can
+        // decide that the first image has no usable interpreter.
+        let executable =
+            Executable::new(OsStr::new("program"), Some(&path), directory.path()).unwrap();
+        for (target, contents) in [
+            (
+                first.join("program"),
+                "#!/moonrun-missing-interpreter\nexit 99\n",
+            ),
+            (second.join("program"), "#!/bin/sh\nexit 23\n"),
+        ] {
+            std::fs::write(&target, contents).unwrap();
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let pid = spawn_for_test(executable, vec!["program".into()], directory.path()).unwrap();
+        assert_eq!(run_wait_for_process_job(None, pid as i32, false), Ok(23));
+    }
+
+    #[test]
+    fn search_preserves_permission_errors_and_direct_paths_do_not_search() {
+        let directory = tempfile::tempdir().unwrap();
+        let denied = directory.path().join("program");
+        std::fs::write(&denied, "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let path =
+            std::env::join_paths([directory.path(), &directory.path().join("missing")]).unwrap();
+        let executable =
+            Executable::new(OsStr::new("program"), Some(&path), directory.path()).unwrap();
+        assert_eq!(
+            spawn_for_test(executable, vec!["program".into()], directory.path()),
+            Err(AsyncHostError::Native(libc::EACCES))
+        );
+        let executable = Executable::new(
+            OsStr::new("missing/program"),
+            Some(directory.path().as_os_str()),
+            directory.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            spawn_for_test(executable, vec!["program".into()], directory.path()),
+            Err(AsyncHostError::Native(libc::ENOENT))
+        );
+    }
+
+    #[test]
+    fn executable_text_keeps_the_platform_search_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("program");
+        std::fs::write(&script, "exit \"$1\"\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for program in ["./program", "program"] {
+            let executable = Executable::new(
+                OsStr::new(program),
+                Some(directory.path().as_os_str()),
+                directory.path(),
+            )
+            .unwrap();
+            let result = spawn_for_test(
+                executable,
+                vec!["custom-argv-zero".into(), "23".into()],
+                directory.path(),
+            );
+            if cfg!(target_os = "macos") && program == "program" {
+                assert_eq!(
+                    run_wait_for_process_job(None, result.unwrap() as i32, false),
+                    Ok(23)
+                );
+            } else {
+                assert_eq!(result, Err(AsyncHostError::Native(libc::ENOEXEC)));
+            }
+        }
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -1058,6 +1234,7 @@ mod windows_tests {
     #[test]
     fn spawn_without_standard_handles() {
         use std::os::windows::io::AsRawHandle;
+        use std::sync::Arc;
         use windows_sys::Win32::Foundation::{INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
         use windows_sys::Win32::System::Console::{
             STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
@@ -1091,6 +1268,14 @@ mod windows_tests {
         for stream in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
             assert_ne!(unsafe { SetStdHandle(stream, missing) }, 0);
         }
+        let process = super::super::HostProcess::new(
+            None,
+            None,
+            Arc::new(crate::WorkingDirectory::Ambient),
+            Arc::new(crate::runtime::Stdio::Ambient),
+            None,
+            Arc::new(crate::runtime::Env::ambient()),
+        );
 
         // Cover an empty inheritance list and a partial stdio set, with and
         // without the child Job Object attribute.
@@ -1112,8 +1297,7 @@ mod windows_tests {
                         is_orphan,
                     },
                 );
-                job.configure_stdio(&crate::runtime::Stdio::Ambient)
-                    .unwrap();
+                process.prepare_job(&mut job).unwrap();
                 assert!(job.run().unwrap() > 0);
                 let Some(ResourcePublication::Unpublished(process)) =
                     job.take_spawn_result().unwrap()

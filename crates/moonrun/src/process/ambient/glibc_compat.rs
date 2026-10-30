@@ -25,25 +25,25 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
+use super::Executable;
 use crate::resource::ResourceRef;
 
 // This fallback takes the same native spawn inputs as the Ambient Process job.
 // Wrapping them would duplicate that representation only to satisfy Clippy.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_with_command(
-    path: OsString,
+    executable: Executable,
     args: Vec<OsString>,
     env: Vec<OsString>,
     stdio: [Option<ResourceRef>; 3],
     cwd: OsString,
     child_signal_mask: libc::sigset_t,
-    parent_path: Option<OsString>,
     inherited_policy_fd: Option<libc::c_int>,
 ) -> Result<libc::pid_t, i32> {
     let mut stdio_fds = duplicate_stdio_fds(&stdio)?;
-    let parent_path_search = ParentPathSearch::new(&path, &args, &env, parent_path.as_deref())?;
+    let prepared_exec = PreparedExec::new(&executable, &args, &env)?;
 
-    let mut command = Command::new(path);
+    let mut command = Command::new(&executable.candidates()[0]);
     if let Some((arg0, args)) = args.split_first() {
         command.arg0(arg0).args(args);
     }
@@ -98,12 +98,9 @@ pub(super) fn spawn_with_command(
             if libc::sigprocmask(libc::SIG_SETMASK, &child_signal_mask, std::ptr::null_mut()) != 0 {
                 return Err(io::Error::from_raw_os_error(last_errno()));
             }
-            // pre_exec runs after current_dir, so relative parent PATH entries
-            // are interpreted from the child's cwd just like posix_spawnp.
-            if let Some(search) = parent_path_search.as_ref() {
-                return search.exec();
-            }
-            Ok(())
+            // All paths and pointer arrays were frozen before fork. Execute
+            // here so Command never performs a second PATH search.
+            prepared_exec.exec()
         });
     }
 
@@ -163,8 +160,9 @@ fn split_env_entry(entry: &OsStr) -> Result<(&OsStr, &OsStr), i32> {
     ))
 }
 
-struct ParentPathSearch {
+struct PreparedExec {
     candidates: Vec<CString>,
+    is_search: bool,
     _argv_storage: Vec<CString>,
     argv: Vec<*const libc::c_char>,
     _env_storage: Vec<CString>,
@@ -172,38 +170,18 @@ struct ParentPathSearch {
 }
 
 // SAFETY: the raw pointers refer to immutable CString buffers owned by the
-// same value. Moving ParentPathSearch does not move those heap allocations,
+// same value. Moving PreparedExec does not move those heap allocations,
 // and the pointer arrays remain read-only until execve consumes them.
-unsafe impl Send for ParentPathSearch {}
-unsafe impl Sync for ParentPathSearch {}
+unsafe impl Send for PreparedExec {}
+unsafe impl Sync for PreparedExec {}
 
-impl ParentPathSearch {
-    fn new(
-        path: &OsStr,
-        args: &[OsString],
-        env: &[OsString],
-        parent_path: Option<&OsStr>,
-    ) -> Result<Option<Self>, i32> {
-        if path.as_bytes().contains(&b'/') {
-            return Ok(None);
-        }
-        if path.is_empty() {
-            return Err(libc::ENOENT);
-        }
-
-        // glibc's posix_spawnp searches the calling process's PATH rather
-        // than PATH from envp, and falls back to CS_PATH when it is unset.
-        let parent_path = parent_path.unwrap_or_else(|| OsStr::new("/bin:/usr/bin"));
-        let mut candidates = Vec::new();
-        for directory in parent_path.as_bytes().split(|byte| *byte == b':') {
-            let mut candidate = Vec::with_capacity(directory.len() + path.as_bytes().len() + 1);
-            candidate.extend_from_slice(directory);
-            if !directory.is_empty() {
-                candidate.push(b'/');
-            }
-            candidate.extend_from_slice(path.as_bytes());
-            candidates.push(CString::new(candidate).map_err(|_| libc::EINVAL)?);
-        }
+impl PreparedExec {
+    fn new(executable: &Executable, args: &[OsString], env: &[OsString]) -> Result<Self, i32> {
+        let candidates = executable
+            .candidates()
+            .iter()
+            .map(|path| CString::new(path.as_os_str().as_bytes()).map_err(|_| libc::EINVAL))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let argv_storage = args
             .iter()
@@ -225,22 +203,28 @@ impl ParentPathSearch {
             .collect::<Vec<_>>();
         envp.push(std::ptr::null());
 
-        Ok(Some(Self {
+        Ok(Self {
             candidates,
+            is_search: executable.is_search(),
             _argv_storage: argv_storage,
             argv,
             _env_storage: env_storage,
             envp,
-        }))
+        })
     }
 
     fn exec(&self) -> io::Result<()> {
         let mut saw_eacces = false;
+        let mut last_error = libc::ENOENT;
         for candidate in &self.candidates {
             unsafe {
                 libc::execve(candidate.as_ptr(), self.argv.as_ptr(), self.envp.as_ptr());
             }
-            match last_errno() {
+            last_error = last_errno();
+            if !self.is_search {
+                return Err(io::Error::from_raw_os_error(last_error));
+            }
+            match last_error {
                 libc::EACCES => saw_eacces = true,
                 libc::ENOENT | libc::ESTALE | libc::ENOTDIR | libc::ENODEV | libc::ETIMEDOUT => {}
                 error => return Err(io::Error::from_raw_os_error(error)),
@@ -249,7 +233,7 @@ impl ParentPathSearch {
         Err(io::Error::from_raw_os_error(if saw_eacces {
             libc::EACCES
         } else {
-            libc::ENOENT
+            last_error
         }))
     }
 }
@@ -305,11 +289,49 @@ fn last_errno() -> i32 {
 mod tests {
     use std::io::Read;
     use std::os::fd::FromRawFd;
+    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::fs::symlink;
     use std::sync::Arc;
 
     use super::*;
     use crate::resource::Resource;
+
+    #[test]
+    fn retries_frozen_candidates_but_preserves_direct_exec_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let first = tmp.path().join("first");
+        let second = tmp.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        for (directory, contents) in [
+            (&first, "#!/moonrun-missing-interpreter\nexit 99\n"),
+            (&second, "#!/bin/sh\nexit 23\n"),
+        ] {
+            let script = directory.join("program");
+            std::fs::write(&script, contents).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = std::env::join_paths([&first, &second]).unwrap();
+        for program in ["program", "first/program"] {
+            let executable = Executable::new(OsStr::new(program), Some(&path), tmp.path()).unwrap();
+            let result = spawn_with_command(
+                executable,
+                vec!["program".into()],
+                vec!["PATH=/not-the-frozen-search-path".into()],
+                [None, None, None],
+                tmp.path().as_os_str().to_owned(),
+                empty_signal_mask(),
+                None,
+            );
+            if program == "program" {
+                let status = wait(result.unwrap());
+                assert!(libc::WIFEXITED(status));
+                assert_eq!(libc::WEXITSTATUS(status), 23);
+            } else {
+                assert_eq!(result, Err(libc::ENOENT));
+            }
+        }
+    }
 
     #[test]
     fn uses_parent_path_for_lookup_and_honors_cwd() {
@@ -324,7 +346,12 @@ mod tests {
         let stdout = Arc::new(Resource::new(pipe[1]));
 
         let pid = spawn_with_command(
-            OsString::from("moonrun-sh"),
+            Executable::new(
+                OsStr::new("moonrun-sh"),
+                Some(tmp.path().as_os_str()),
+                tmp.path(),
+            )
+            .unwrap(),
             vec![
                 OsString::from("moonrun-sh"),
                 OsString::from("-c"),
@@ -334,7 +361,6 @@ mod tests {
             [None, Some(stdout.clone()), None],
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
-            Some(tmp.path().as_os_str().to_owned()),
             None,
         )
         .unwrap();
@@ -362,7 +388,7 @@ mod tests {
         let restore_mask = ThreadSignalMaskRestore(old_mask);
 
         let spawn_result = spawn_with_command(
-            OsString::from("/bin/sh"),
+            Executable::new(OsStr::new("/bin/sh"), None, tmp.path()).unwrap(),
             vec![
                 OsString::from("/bin/sh"),
                 OsString::from("-c"),
@@ -372,7 +398,6 @@ mod tests {
             [None, None, None],
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
-            None,
             None,
         );
         let mut current_mask = unsafe { std::mem::zeroed() };
@@ -405,13 +430,12 @@ mod tests {
         let stdout = Arc::new(Resource::new(pipe[1]));
 
         let error = spawn_with_command(
-            OsString::from("/moonrun-does-not-exist"),
+            Executable::new(OsStr::new("/moonrun-does-not-exist"), None, tmp.path()).unwrap(),
             vec![OsString::from("/moonrun-does-not-exist")],
             Vec::new(),
             [None, Some(stdout.clone()), None],
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
-            None,
             None,
         )
         .unwrap_err();
@@ -432,7 +456,7 @@ mod tests {
         let stdout = Arc::new(Resource::new(pipe[1]));
 
         let pid = spawn_with_command(
-            OsString::from("/bin/sh"),
+            Executable::new(OsStr::new("/bin/sh"), None, tmp.path()).unwrap(),
             vec![
                 OsString::from("moonrun-argv-zero"),
                 OsString::from("-c"),
@@ -445,7 +469,6 @@ mod tests {
             [None, Some(stdout.clone()), Some(stdout.clone())],
             tmp.path().as_os_str().to_owned(),
             empty_signal_mask(),
-            None,
             None,
         )
         .unwrap();

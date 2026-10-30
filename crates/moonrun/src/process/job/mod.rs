@@ -18,8 +18,6 @@
 
 //! Process-owned Job state submitted to moonrun's shared thread pool.
 
-#[cfg(windows)]
-use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::sync::Arc;
 
@@ -27,8 +25,9 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
 use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
-use crate::runtime::{Stdio, StdioStream, WorkingDirectory};
+use crate::runtime::{Stdio, StdioStream};
 
+use super::executable::Executable;
 use super::{HostProcess, ambient};
 
 #[derive(Debug, Clone, Copy)]
@@ -41,42 +40,56 @@ pub(crate) struct SpawnOptions {
     pub(crate) is_orphan: bool,
 }
 
+/// Guest inputs remain mutable until HostProcess prepares the operation.
+/// The child environment is independent of the caller's executable search PATH.
+#[derive(Debug, Clone)]
+struct SpawnRequest {
+    #[cfg(unix)]
+    path: OsString,
+    #[cfg(unix)]
+    args: Vec<OsString>,
+    #[cfg(unix)]
+    env: Vec<OsString>,
+    #[cfg(windows)]
+    command_line: OsString,
+    #[cfg(windows)]
+    env: Vec<u16>,
+    options: SpawnOptions,
+    stdio: [Option<ResourceRef>; 3],
+    cwd: Option<OsString>,
+}
+
+#[derive(Debug)]
+struct NativeSpawn {
+    // Keep the original argv/command line: lookup must not rewrite guest argv0
+    // or change the lexical request that the process policy authorized.
+    request: SpawnRequest,
+    // Runtime stdio Resources borrow descriptors. Pin their owner even if
+    // HostProcess is released between preparation and native execution.
+    _stdio_owner: Arc<Stdio>,
+    executable: Executable,
+    policy_inheritance: Option<crate::policy::PolicyInheritance>,
+}
+
 #[derive(Debug)]
 pub(crate) struct Job {
     kind: Kind,
 }
 
 #[derive(Debug)]
-// Unix's native signal mask makes SpawnUnix substantially larger than a Wait.
-// Keep native payloads inline; only the larger prepared Moon Run is boxed.
-#[allow(clippy::large_enum_variant)]
 enum Kind {
+    PendingSpawn(Box<SpawnRequest>),
+    NativeSpawn {
+        // Consumed once by execution; the variant retains native provenance
+        // until the result is published or its unclaimed child is revoked.
+        spawn: Option<Box<NativeSpawn>>,
+        result: Option<ResourcePublication>,
+    },
     SpawnMoon {
         request: Box<super::moon::Spawn>,
         result: Option<ResourcePublication>,
     },
     WaitForVirtualProcess(crate::process_tree::ProcessWait),
-    #[cfg(unix)]
-    SpawnUnix {
-        path: OsString,
-        args: Vec<OsString>,
-        env: Vec<OsString>,
-        options: SpawnOptions,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        policy_inheritance: Option<crate::policy::PolicyInheritance>,
-        result: Option<ResourcePublication>,
-    },
-    #[cfg(windows)]
-    SpawnWindows {
-        command_line: OsString,
-        env: Vec<u16>,
-        options: SpawnOptions,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        policy_inheritance: Option<crate::policy::PolicyInheritance>,
-        result: Option<ResourcePublication>,
-    },
     WaitForProcess {
         handle: Option<ResourceRef>,
         // Host-derived identity for policy checks; never supplied by the guest.
@@ -124,16 +137,14 @@ impl Job {
         options: SpawnOptions,
     ) -> Self {
         Self {
-            kind: Kind::SpawnUnix {
+            kind: Kind::PendingSpawn(Box::new(SpawnRequest {
                 path,
                 args,
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
-                policy_inheritance: None,
-                result: None,
-            },
+            })),
         }
     }
 
@@ -149,15 +160,13 @@ impl Job {
         options: SpawnOptions,
     ) -> Self {
         Self {
-            kind: Kind::SpawnWindows {
+            kind: Kind::PendingSpawn(Box::new(SpawnRequest {
                 command_line,
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
-                policy_inheritance: None,
-                result: None,
-            },
+            })),
         }
     }
 
@@ -181,46 +190,26 @@ impl Job {
     }
 
     pub(crate) fn set_cwd(&mut self, cwd: OsString) -> AsyncHostResult<()> {
-        match &mut self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { cwd: job_cwd, .. } => {
-                *job_cwd = Some(cwd);
-                Ok(())
-            }
-            #[cfg(windows)]
-            Kind::SpawnWindows { cwd: job_cwd, .. } => {
-                *job_cwd = Some(cwd);
-                Ok(())
-            }
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
-        }
+        let Kind::PendingSpawn(request) = &mut self.kind else {
+            return Err(AsyncHostError::Badf);
+        };
+        request.cwd = Some(cwd);
+        Ok(())
     }
 
     #[cfg(windows)]
     pub(crate) fn set_no_console_window(&mut self) -> AsyncHostResult<()> {
-        match &mut self.kind {
-            Kind::SpawnWindows { options, .. } => {
-                options.no_console_window = true;
-                Ok(())
-            }
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
-        }
+        let Kind::PendingSpawn(request) = &mut self.kind else {
+            return Err(AsyncHostError::Badf);
+        };
+        request.options.no_console_window = true;
+        Ok(())
     }
 
     pub(crate) fn take_spawn_result(&mut self) -> AsyncHostResult<Option<ResourcePublication>> {
         match &mut self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { result, .. } => Ok(result.take()),
-            #[cfg(windows)]
-            Kind::SpawnWindows { result, .. } => Ok(result.take()),
-            Kind::SpawnMoon { result, .. } => Ok(result.take()),
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
-                Err(AsyncHostError::Badf)
-            }
+            Kind::NativeSpawn { result, .. } | Kind::SpawnMoon { result, .. } => Ok(result.take()),
+            _ => Err(AsyncHostError::Badf),
         }
     }
 
@@ -229,23 +218,11 @@ impl Job {
         resource: ResourcePublication,
     ) -> AsyncHostResult<()> {
         match &mut self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { result, .. } => {
+            Kind::NativeSpawn { result, .. } | Kind::SpawnMoon { result, .. } => {
                 *result = Some(resource);
                 Ok(())
             }
-            #[cfg(windows)]
-            Kind::SpawnWindows { result, .. } => {
-                *result = Some(resource);
-                Ok(())
-            }
-            Kind::SpawnMoon { result, .. } => {
-                *result = Some(resource);
-                Ok(())
-            }
-            Kind::WaitForProcess { .. } | Kind::WaitForVirtualProcess(_) => {
-                Err(AsyncHostError::Badf)
-            }
+            _ => Err(AsyncHostError::Badf),
         }
     }
 
@@ -263,77 +240,55 @@ impl Job {
     #[cfg(test)]
     pub(crate) fn cwd(&self) -> AsyncHostResult<Option<&std::ffi::OsStr>> {
         match &self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { cwd, .. } => Ok(cwd.as_deref()),
-            #[cfg(windows)]
-            Kind::SpawnWindows { cwd, .. } => Ok(cwd.as_deref()),
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
+            Kind::PendingSpawn(request) => Ok(request.cwd.as_deref()),
+            _ => Err(AsyncHostError::Badf),
         }
     }
 
     #[cfg(all(test, windows))]
     pub(crate) fn no_console_window(&self) -> AsyncHostResult<bool> {
         match &self.kind {
-            Kind::SpawnWindows { options, .. } => Ok(options.no_console_window),
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => Err(AsyncHostError::Badf),
+            Kind::PendingSpawn(request) => Ok(request.options.no_console_window),
+            _ => Err(AsyncHostError::Badf),
         }
     }
 
     pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
-        let invokes_moonx = self.invokes_moonx();
         match &mut self.kind {
+            // No OS primitive can execute a guest request that skipped its owner.
+            Kind::PendingSpawn(_) => Err(AsyncHostError::Inval),
+            Kind::NativeSpawn { spawn, result } => {
+                let NativeSpawn {
+                    request,
+                    _stdio_owner,
+                    executable,
+                    policy_inheritance,
+                } = *spawn.take().ok_or(AsyncHostError::Inval)?;
+                #[cfg(unix)]
+                return ambient::run_spawn_job_unix(
+                    executable,
+                    request.args,
+                    request.env,
+                    request.stdio,
+                    request.cwd,
+                    request.options,
+                    policy_inheritance,
+                    result,
+                );
+                #[cfg(windows)]
+                return ambient::run_spawn_job_windows(
+                    executable,
+                    request.command_line,
+                    request.env,
+                    request.stdio,
+                    request.cwd,
+                    request.options,
+                    policy_inheritance,
+                    result,
+                );
+            }
             Kind::SpawnMoon { request, result } => request.run(result),
             Kind::WaitForVirtualProcess(wait) => wait.run(),
-            #[cfg(unix)]
-            Kind::SpawnUnix {
-                path,
-                args,
-                env,
-                options,
-                stdio,
-                cwd,
-                policy_inheritance,
-                result,
-            } => ambient::run_spawn_job_unix(
-                std::mem::take(path),
-                std::mem::take(args),
-                std::mem::take(env),
-                std::mem::take(stdio),
-                cwd.take(),
-                *options,
-                if invokes_moonx {
-                    policy_inheritance.take()
-                } else {
-                    None
-                },
-                result,
-            ),
-            #[cfg(windows)]
-            Kind::SpawnWindows {
-                command_line,
-                env,
-                options,
-                stdio,
-                cwd,
-                policy_inheritance,
-                result,
-            } => ambient::run_spawn_job_windows(
-                std::mem::take(command_line),
-                std::mem::take(env),
-                std::mem::take(stdio),
-                cwd.take(),
-                *options,
-                if invokes_moonx {
-                    policy_inheritance.take()
-                } else {
-                    None
-                },
-                result,
-            ),
             Kind::WaitForProcess {
                 handle,
                 tracked_pid: _,
@@ -353,155 +308,97 @@ impl Job {
         }
     }
 
-    pub(super) fn configure_virtual_spawn(
-        &mut self,
-        context: Option<crate::process_tree::ProcessContext>,
-        environment: &crate::runtime::Env,
-    ) -> AsyncHostResult<()> {
-        let Some(context) = context else {
-            return Ok(());
-        };
-        let request = match &self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix {
-                path,
-                args,
-                env,
-                stdio,
-                cwd,
-                options,
-                policy_inheritance,
-                ..
-            } => super::moon::Spawn::unix(
-                context,
-                path.clone(),
-                args.clone(),
-                env.clone(),
-                stdio.clone(),
-                cwd.clone(),
-                *options,
-                policy_inheritance.clone(),
-                environment,
-            )?,
-            #[cfg(windows)]
-            Kind::SpawnWindows {
-                command_line,
-                env,
-                stdio,
-                cwd,
-                options,
-                policy_inheritance,
-                ..
-            } => super::moon::Spawn::windows(
-                context,
-                command_line.clone(),
-                env.clone(),
-                stdio.clone(),
-                cwd.clone(),
-                *options,
-                policy_inheritance.clone(),
-                environment,
-            )?,
-            _ => return Ok(()),
-        };
-        self.kind = Kind::SpawnMoon {
-            request: Box::new(request),
-            result: None,
-        };
-        Ok(())
-    }
-
-    pub(super) fn configure_working_directory(&mut self, working_directory: &WorkingDirectory) {
-        match &mut self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { cwd, .. } => working_directory.configure_child_cwd(cwd),
-            #[cfg(windows)]
-            Kind::SpawnWindows { cwd, .. } => working_directory.configure_child_cwd(cwd),
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => {}
-        }
-    }
-
-    pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
-        match &mut self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { stdio, .. } => {
-                if matches!(runtime_stdio, Stdio::Owned(_)) {
-                    for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
-                        if slot.is_none() {
-                            let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
-                            *slot = Some(Arc::new(Resource::stdio_file(raw)));
-                        }
-                    }
-                }
-                Ok(())
-            }
-            #[cfg(windows)]
-            Kind::SpawnWindows { stdio, .. } => {
-                for (slot, stream) in stdio.iter_mut().zip(StdioStream::ALL) {
-                    // GUI processes may have no standard streams. Preserve
-                    // absence for CreateProcessW instead of rejecting spawn.
-                    if slot.is_none()
-                        && let Ok(raw) = runtime_stdio.raw(stream)
-                    {
-                        *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
-                    }
-                }
-                Ok(())
-            }
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => Ok(()),
-        }
-    }
-
-    pub(super) fn invokes_moonx(&self) -> bool {
+    pub(super) fn prepare(&mut self, process: &HostProcess) -> AsyncHostResult<()> {
         match &self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { path, .. } => moonutil::constants::is_moonx_executable(path),
-            #[cfg(windows)]
-            Kind::SpawnWindows { command_line, .. } => {
-                moonutil::constants::is_moonx_executable(OsStr::new(
-                    &moonutil::shlex::get_argv0_windows(&command_line.to_string_lossy()),
-                ))
-            }
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => false,
-        }
-    }
+            Kind::PendingSpawn(request) => {
+                // The existing policy authorizes the logical invocation, before
+                // lookup, handle duplication, or policy-transfer temporary I/O.
+                #[cfg(unix)]
+                process.check_spawn_unix(&request.path, &request.args)?;
+                #[cfg(windows)]
+                process.check_spawn_windows(&request.command_line)?;
 
-    pub(super) fn set_policy_inheritance(
-        &mut self,
-        inheritance: Option<crate::policy::PolicyInheritance>,
-    ) {
-        let slot = match &mut self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix {
-                policy_inheritance, ..
-            } => Some(policy_inheritance),
-            #[cfg(windows)]
-            Kind::SpawnWindows {
-                policy_inheritance, ..
-            } => Some(policy_inheritance),
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => None,
-        };
-        if let Some(slot) = slot {
-            *slot = inheritance;
-        }
-    }
-
-    pub(super) fn check_policy(&self, process: &HostProcess) -> AsyncHostResult<()> {
-        match &self.kind {
-            Kind::SpawnMoon { .. } | Kind::WaitForVirtualProcess(_) => Ok(()),
-            #[cfg(unix)]
-            Kind::SpawnUnix { path, args, .. } => process.check_spawn_unix(path.as_os_str(), args),
-            #[cfg(windows)]
-            Kind::SpawnWindows { command_line, .. } => {
-                process.check_spawn_windows(command_line.as_os_str())
+                let mut request = (**request).clone();
+                let parent_cwd = process.working_directory.current_dir().map_err(|error| {
+                    error
+                        .raw_os_error()
+                        .map_or(AsyncHostError::Io, AsyncHostError::Native)
+                })?;
+                // Snapshot cwd once along with PATH. Relative executable search
+                // uses child cwd on Unix and caller cwd on Windows. Preserve an
+                // explicit empty cwd so the native primitive can reject it.
+                request.cwd = Some(match request.cwd {
+                    Some(cwd) if cwd.is_empty() => cwd,
+                    Some(cwd) => parent_cwd.join(cwd).into_os_string(),
+                    None => parent_cwd.clone().into_os_string(),
+                });
+                let parent_path = process.environment.get("PATH".as_ref());
+                #[cfg(unix)]
+                let executable = Executable::new(
+                    &request.path,
+                    parent_path.as_deref(),
+                    request
+                        .cwd
+                        .as_deref()
+                        .filter(|cwd| !cwd.is_empty())
+                        .map(std::path::Path::new)
+                        .unwrap_or(&parent_cwd),
+                )?;
+                #[cfg(windows)]
+                let executable = Executable::new(
+                    &request.command_line,
+                    parent_path.as_deref(),
+                    &parent_cwd,
+                    process
+                        .environment
+                        .get("NoDefaultCurrentDirectoryInExePath".as_ref())
+                        .is_none(),
+                )?;
+                request.configure_stdio(&process.stdio)?;
+                self.kind = if let Some(context) = &process.context {
+                    #[cfg(unix)]
+                    let spawn = super::moon::Spawn::unix(
+                        context.clone(),
+                        executable,
+                        request.args,
+                        request.env,
+                        request.stdio,
+                        request.cwd,
+                        request.options,
+                        process.policy_inheritance.clone(),
+                    )?;
+                    #[cfg(windows)]
+                    let spawn = super::moon::Spawn::windows(
+                        context.clone(),
+                        executable,
+                        request.env,
+                        request.stdio,
+                        request.cwd,
+                        request.options,
+                        process.policy_inheritance.clone(),
+                    )?;
+                    Kind::SpawnMoon {
+                        request: Box::new(spawn),
+                        result: None,
+                    }
+                } else {
+                    let invokes_moonx =
+                        moonutil::constants::is_moonx_executable(executable.program());
+                    Kind::NativeSpawn {
+                        spawn: Some(Box::new(NativeSpawn {
+                            request,
+                            _stdio_owner: Arc::clone(&process.stdio),
+                            executable,
+                            policy_inheritance: if invokes_moonx {
+                                process.policy_inheritance.clone()
+                            } else {
+                                None
+                            },
+                        })),
+                        result: None,
+                    }
+                };
+                Ok(())
             }
             Kind::WaitForProcess {
                 handle,
@@ -509,6 +406,8 @@ impl Job {
                 pid,
                 ..
             } => process.check_wait(handle.is_some(), *tracked_pid, *pid),
+            Kind::WaitForVirtualProcess(_) => Ok(()),
+            Kind::NativeSpawn { .. } | Kind::SpawnMoon { .. } => Err(AsyncHostError::Inval),
         }
     }
 
@@ -517,19 +416,7 @@ impl Job {
             return Ok(());
         }
         match &self.kind {
-            Kind::SpawnMoon { .. } | Kind::WaitForVirtualProcess(_) => {}
-            #[cfg(unix)]
-            Kind::SpawnUnix { .. } => {
-                if ret >= 0 {
-                    process.track_spawned_child(ret as i32);
-                }
-            }
-            #[cfg(windows)]
-            Kind::SpawnWindows { .. } => {
-                if ret >= 0 {
-                    process.track_spawned_child(ret as i32);
-                }
-            }
+            Kind::NativeSpawn { .. } if ret >= 0 => process.track_spawned_child(ret as i32),
             Kind::WaitForProcess {
                 pid,
                 #[cfg(unix)]
@@ -542,6 +429,7 @@ impl Job {
                     *defer_reap,
                 )?;
             }
+            _ => {}
         }
         Ok(())
     }
@@ -550,22 +438,36 @@ impl Job {
         if err != 0 || ret < 0 {
             return;
         }
-        let unclaimed = match &self.kind {
-            #[cfg(unix)]
-            Kind::SpawnUnix { result, .. } => {
-                !matches!(result, Some(ResourcePublication::Published(_)))
-            }
-            #[cfg(windows)]
-            Kind::SpawnWindows { result, .. } => {
-                !matches!(result, Some(ResourcePublication::Published(_)))
-            }
-            Kind::SpawnMoon { .. }
-            | Kind::WaitForProcess { .. }
-            | Kind::WaitForVirtualProcess(_) => false,
-        };
-        if unclaimed {
+        if let Kind::NativeSpawn { result, .. } = &self.kind
+            && !matches!(result, Some(ResourcePublication::Published(_)))
+        {
             process.revoke_child_if_unreferenced(ret as i32);
         }
+    }
+}
+
+impl SpawnRequest {
+    fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
+        #[cfg(unix)]
+        if matches!(runtime_stdio, Stdio::Owned(_)) {
+            for (slot, stream) in self.stdio.iter_mut().zip(StdioStream::ALL) {
+                if slot.is_none() {
+                    let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
+                    *slot = Some(Arc::new(Resource::stdio_file(raw)));
+                }
+            }
+        }
+        #[cfg(windows)]
+        for (slot, stream) in self.stdio.iter_mut().zip(StdioStream::ALL) {
+            // GUI processes may have no standard streams. Preserve absence
+            // for CreateProcessW instead of rejecting spawn.
+            if slot.is_none()
+                && let Ok(raw) = runtime_stdio.raw(stream)
+            {
+                *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -577,6 +479,18 @@ fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::{Env, WorkingDirectory};
+
+    fn host(working_directory: WorkingDirectory, stdio: Stdio) -> HostProcess {
+        HostProcess::new(
+            None,
+            None,
+            Arc::new(working_directory),
+            Arc::new(stdio),
+            None,
+            Arc::new(Env::ambient()),
+        )
+    }
 
     #[cfg(unix)]
     fn spawn_job(argv0: &str, env: Vec<OsString>) -> Job {
@@ -631,8 +545,8 @@ mod tests {
             if let Some(cwd) = cwd {
                 job.set_cwd(cwd).unwrap();
             }
-            job.configure_working_directory(&working_directory);
-            let result = job.run();
+            let process = host(working_directory.clone(), Stdio::Ambient);
+            let result = process.prepare_job(&mut job).and_then(|()| job.run());
             if let Ok(pid) = result {
                 let status = Job::wait_for_process(None, None, pid as i32, false)
                     .unwrap()
@@ -678,7 +592,9 @@ mod tests {
                     child_signal_mask: unsafe { std::mem::zeroed() },
                 },
             );
-            job.configure_stdio(&stdio).unwrap();
+            host(WorkingDirectory::Ambient, stdio)
+                .prepare_job(&mut job)
+                .unwrap();
             let pid = job.run().unwrap() as i32;
             let status = Job::wait_for_process(None, None, pid, false)
                 .unwrap()
@@ -698,21 +614,96 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn direct_moonx_spawn_is_recognized_after_guest_environment() {
-        let job = spawn_job(
-            "moonx",
-            vec!["MOONRUN_INHERITED_POLICY=guest".into(), "KEEP=value".into()],
+    fn prepared_spawn_keeps_its_lookup_after_runtime_environment_changes() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        for (name, code) in [("first", 17), ("second", 29)] {
+            let bin = directory.path().join(name);
+            std::fs::create_dir(&bin).unwrap();
+            let executable = bin.join("probe");
+            std::fs::write(&executable, format!("#!/bin/sh\nexit {code}\n")).unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let environment = Arc::new(Env::owned([("PATH".into(), "first".into())]).unwrap());
+        let process = HostProcess::new(
+            None,
+            None,
+            Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
+            Arc::new(Stdio::Ambient),
+            None,
+            Arc::clone(&environment),
         );
+        let mut job = spawn_job("probe", Vec::new());
+        process.prepare_job(&mut job).unwrap();
+        environment.set("PATH".into(), "second".into()).unwrap();
+        drop(process);
+        let pid = job.run().unwrap() as i32;
+        assert_eq!(
+            Job::wait_for_process(None, None, pid, false).unwrap().run(),
+            Ok(17)
+        );
+    }
 
-        assert!(job.invokes_moonx());
+    #[test]
+    fn only_direct_moonx_invocations_prepare_policy_inheritance() {
+        let directory = tempfile::tempdir().unwrap();
+        let environment =
+            Env::owned([("PATH".into(), directory.path().as_os_str().to_owned())]).unwrap();
+        let (mut policy, _) =
+            crate::policy::load_inherited_json(br#"{"process":{"spawn":true}}"#, &environment)
+                .unwrap();
+        let process = HostProcess::new(
+            policy.take_process_policy(),
+            policy.take_policy_inheritance(),
+            Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
+            Arc::new(Stdio::Ambient),
+            None,
+            Arc::new(environment),
+        );
+        for program in ["moonx", "moon"] {
+            #[cfg(windows)]
+            std::fs::copy(
+                std::env::current_exe().unwrap(),
+                directory.path().join(format!("{program}.exe")),
+            )
+            .unwrap();
+            #[cfg(unix)]
+            let mut job = spawn_job(program, vec!["MOONRUN_INHERITED_POLICY=guest".into()]);
+            #[cfg(windows)]
+            let mut job = Job::spawn_windows(
+                program.into(),
+                vec![0, 0],
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    no_console_window: false,
+                    is_orphan: false,
+                },
+            );
+            // Native Unix argv0 is independent of the executable request.
+            #[cfg(unix)]
+            if let Kind::PendingSpawn(request) = &mut job.kind {
+                request.args[0] = "moonx".into();
+            }
+            process.prepare_job(&mut job).unwrap();
+            let Kind::NativeSpawn {
+                spawn: Some(spawn), ..
+            } = &job.kind
+            else {
+                panic!("expected native spawn")
+            };
+            assert_eq!(spawn.policy_inheritance.is_some(), program == "moonx");
+            assert_eq!(job.set_cwd("changed".into()), Err(AsyncHostError::Badf));
+        }
     }
 
     #[cfg(unix)]
     #[test]
-    fn non_moonx_spawn_does_not_inherit_policy() {
-        let job = spawn_job("moon", vec!["KEEP=value".into()]);
-
-        assert!(!job.invokes_moonx());
+    fn unprepared_spawn_cannot_execute() {
+        let mut job = spawn_job("/bin/sh", Vec::new());
+        assert_eq!(job.run(), Err(AsyncHostError::Inval));
     }
 
     #[cfg(unix)]
@@ -720,12 +711,11 @@ mod tests {
     fn ambient_stdio_preserves_native_inheritance() {
         let mut job = spawn_job("moon", Vec::new());
 
-        job.configure_stdio(&Stdio::Ambient).unwrap();
-
-        let Kind::SpawnUnix { stdio, .. } = &job.kind else {
-            unreachable!();
+        let Kind::PendingSpawn(request) = &mut job.kind else {
+            unreachable!()
         };
-        assert!(stdio.iter().all(Option::is_none));
+        request.configure_stdio(&Stdio::Ambient).unwrap();
+        assert!(request.stdio.iter().all(Option::is_none));
     }
 
     #[cfg(windows)]
@@ -747,53 +737,15 @@ mod tests {
             },
         );
 
-        job.configure_stdio(&Stdio::Ambient).unwrap();
-
-        let Kind::SpawnWindows { stdio, .. } = &job.kind else {
-            unreachable!();
+        let Kind::PendingSpawn(request) = &mut job.kind else {
+            unreachable!()
         };
-        assert!(Arc::ptr_eq(stdio[0].as_ref().unwrap(), &explicit_stdin));
-        assert!(stdio[1..].iter().all(Option::is_some));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn guest_argv0_cannot_disguise_another_executable_as_moonx() {
-        let job = Job::spawn_unix(
-            "/bin/sh".into(),
-            vec!["moonx".into()],
-            Vec::new(),
-            None,
-            None,
-            None,
-            None,
-            SpawnOptions {
-                child_signal_mask: unsafe { std::mem::zeroed() },
-            },
-        );
-
-        assert!(!job.invokes_moonx());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_embedded_quotes_cannot_bypass_moonx_inheritance() {
-        let job = Job::spawn_windows(
-            OsString::from(r#""moon"x user/module"#),
-            "moonrun_inherited_policy=guest\0KEEP=value\0\0"
-                .encode_utf16()
-                .collect(),
-            None,
-            None,
-            None,
-            None,
-            SpawnOptions {
-                no_console_window: false,
-                is_orphan: false,
-            },
-        );
-
-        assert!(job.invokes_moonx());
+        request.configure_stdio(&Stdio::Ambient).unwrap();
+        assert!(Arc::ptr_eq(
+            request.stdio[0].as_ref().unwrap(),
+            &explicit_stdin
+        ));
+        assert!(request.stdio[1..].iter().all(Option::is_some));
     }
 
     #[test]

@@ -3562,34 +3562,20 @@ impl AsyncHost {
     }
 
     fn run_policy_checked_job(filesystem: &HostFs, process: &HostProcess, job: &mut Job) {
-        if let Err(error) = Self::check_job_policy(filesystem, process, job) {
+        let preparation = match job.payload_mut() {
+            JobPayload::Filesystem(fs_job) => fs_job.check_policy(filesystem).map(|()| {
+                fs_job.configure_paths(filesystem);
+            }),
+            JobPayload::Process(process_job) => process.prepare_job(process_job),
+            _ => Ok(()),
+        };
+        if let Err(error) = preparation {
             job.set_err(error.errno());
             return;
-        }
-        if let Ok(process_job) = job.process_mut()
-            && let Err(error) = process.configure_job_for_execution(process_job)
-        {
-            job.set_err(error.errno());
-            return;
-        }
-        if let JobPayload::Filesystem(fs_job) = job.payload_mut() {
-            fs_job.configure_paths(filesystem);
         }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {
             job.set_err(error.errno());
-        }
-    }
-
-    fn check_job_policy(
-        filesystem: &HostFs,
-        process: &HostProcess,
-        job: &Job,
-    ) -> AsyncHostResult<()> {
-        match job.payload() {
-            JobPayload::Filesystem(job) => job.check_policy(filesystem),
-            JobPayload::Process(job) => process.check_job(job),
-            _ => Ok(()),
         }
     }
 
@@ -4996,6 +4982,9 @@ mod tests {
         let host = host_with_policy(&policy_file);
         let pid = 1001;
         let mut job = successful_process_job();
+        host.process
+            .prepare_job(job.process_mut().unwrap())
+            .unwrap();
         job.set_ret(i64::from(pid));
         host.process.track_owned_child(pid);
         let job = host.insert_job(job).unwrap();

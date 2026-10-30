@@ -42,7 +42,7 @@ wrappers or deprecation stages. Complex executable discovery is deferred.
   explicit empty environment. Select Native or Virtual guest process behavior
   independently of thread placement. Only Virtual host entries capture missing
   root inputs; guest derivation supplies complete Runtime inputs.
-- [ ] Make the regular Host Process path prepare the operation before execution,
+- [x] Make the regular Host Process path prepare the operation before execution,
   with clear ownership of interpretation, authorization, and admission.
 
 Each independently reviewable change should test its intended behavior through
@@ -60,30 +60,31 @@ relationships, control, and completion, so it does not retain Runtime through an
 Engine ownership cycle. The public tree wrapper and internal command module
 have been removed.
 
-This completes the library-interface and configuration slice. The general
-Host Process path still separates policy checks from final operation
-configuration and executable resolution. Its remaining work may revise the
-experimental interfaces to clarify ownership; permission coverage has not
-expanded with this refactor.
+This completes the ownership and execution milestone. Host Process now prepares
+native and virtual requests through one entry: existing lexical authorization,
+Runtime lookup inputs and child configuration, then a single-use execution
+payload. Native Unix search consumes frozen candidates; Windows receives an
+explicit image and the unchanged command line. Virtual Moon derivation uses
+the same interpreted lookup inputs. Permission coverage has not expanded.
+The remaining native execution and helper cancellation work can build on these
+boundaries without moving Runtime interpretation into ABI adapters or workers.
 
 ## Follow-up order
 
-1. Finish Host Process preparation so interpretation, authorization, and
-   admission use one resolved operation. Preserve current policy coverage.
-2. Manage preparation helpers and their compiler descendants as owned work;
+1. Manage preparation helpers and their compiler descendants as owned work;
    cancel them without admitting the delivered program afterwards. Give the CLI
    a session-level shutdown contract, including adopted descendants.
-3. Execute native programs and Node through shared supervision. Define ambient
+2. Execute native programs and Node through shared supervision. Define ambient
    versus constrained native authority and preserve artifact dependencies and
    execution location.
    Add external Moon/moonx delegation only with an explicit execution and
    authority contract behind Engine's interface.
-4. Extend total authorization and monotonic child restrictions, including WASI
+3. Extend total authorization and monotonic child restrictions, including WASI
    grants and explicit resource delegation.
-5. Complete executable lookup compatibility, Windows special paths, trusted
+4. Complete executable lookup compatibility, Windows special paths, trusted
    Moon identification, and stable file identity as required by the isolation
    contract.
-6. Add cancellation to synchronous host operations individually. Completion
+5. Add cancellation to synchronous host operations individually. Completion
    continues to require actual teardown.
 
 Concrete isolation problems on normal paths may be fixed independently. In
@@ -105,3 +106,7 @@ These follow-ups do not all belong in the current milestone.
 - `run` and `spawn` preserve the selected guest process mode; Engine clones
   share control while new Engines have independent namespaces. Explicit empty
   environments do not fall back to host values.
+- Process preparation uses caller Runtime PATH independently of child Env,
+  resolves cwd according to the platform, and preserves lexical policy denial
+  before lookup or transfer-file effects. Execution cannot reinterpret a
+  prepared request using later Runtime or ambient values.
