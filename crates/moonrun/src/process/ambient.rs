@@ -65,7 +65,7 @@ type RawFile = fd_util::stub::RawFd;
 
 ported_fns! {
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "spawn_job_worker"
     )]
     #[allow(clippy::too_many_arguments)]
@@ -93,7 +93,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "spawn_job_worker"
     )]
     #[allow(clippy::too_many_arguments)]
@@ -121,7 +121,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "wait_for_process_job_worker"
     )]
     pub(super) fn run_wait_for_process_job(

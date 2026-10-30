@@ -79,7 +79,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "read_job_worker"
     )]
     pub(super) fn run_read_job(
@@ -96,7 +96,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "write_job_worker"
     )]
     pub(super) fn run_write_job(

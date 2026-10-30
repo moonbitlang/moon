@@ -435,8 +435,8 @@ impl Worker {
 
 ported_fns! {
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_spawn_worker"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_spawn_worker"
     )]
     pub(crate) fn spawn_worker(
         first_job: WorkerJob,
@@ -448,8 +448,8 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_wake_worker"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_wake_worker"
     )]
     pub(crate) fn wake_worker(
         worker: &Worker,
@@ -459,16 +459,16 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_worker_enter_idle"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_worker_enter_idle"
     )]
     pub(crate) fn worker_enter_idle(worker: &Worker) -> Option<WorkerJob> {
         worker.take_pending()
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_cancel_worker"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_cancel_worker"
     )]
     pub(crate) fn cancel_worker_with_retry(
         worker: &Worker,
@@ -478,8 +478,8 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_free_worker"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_free_worker"
     )]
     pub(crate) fn free_worker(worker: Worker) -> Option<WorkerJob> {
         worker.join()

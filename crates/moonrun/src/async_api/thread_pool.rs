@@ -37,7 +37,7 @@ pub(super) fn free_job(context: &mut ImportContext<'_>, job: u64) -> AsyncHostRe
     context.host.free_job(job)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn job_get_ret(context: &mut ImportContext<'_>, job: u64) -> AsyncHostResult<i32> {
     context.host.with_job_mut(job, |job| {
         if job.err() == 0 && let Ok(process) = job.process_mut() {
@@ -47,7 +47,7 @@ pub(super) fn job_get_ret(context: &mut ImportContext<'_>, job: u64) -> AsyncHos
     })
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn job_get_err(context: &mut ImportContext<'_>, job: u64) -> AsyncHostResult<i32> {
     context.host.with_job(job, thread_pool::job_get_err)
 }
@@ -72,7 +72,7 @@ pub(super) fn destroy_thread_pool(context: &mut ImportContext<'_>) {
     context.host.destroy_thread_pool();
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn spawn_worker(
     context: &mut ImportContext<'_>,
     completion_id: i32,
@@ -90,12 +90,12 @@ pub(super) fn spawn_worker_with_pipe(
     context.host.spawn_worker_with_pipe(completion_id, job, writer)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn free_worker(context: &mut ImportContext<'_>, worker: u64) -> AsyncHostResult<()> {
     context.host.free_worker(worker)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn wake_worker(
     context: &mut ImportContext<'_>,
     worker: u64,
@@ -105,7 +105,7 @@ pub(super) fn wake_worker(
     context.host.wake_worker(worker, completion_id, job)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn worker_enter_idle(context: &mut ImportContext<'_>, worker: u64) -> AsyncHostResult<()> {
     context.host.worker_enter_idle(worker)
 }
@@ -121,12 +121,12 @@ pub(super) fn cancel_worker(context: &mut ImportContext<'_>, worker: u64) -> Asy
     context.host.cancel_worker(worker)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c", original = "moonbitlang_async_cancel_worker")]
+#[ported(runtime = "thread_pool.c", original = "moonbit_rt_cancel_worker")]
 pub(super) fn cancel_worker_with_retry(context: &mut ImportContext<'_>, worker: u64) -> AsyncHostResult<i32> {
     context.host.cancel_worker_with_retry(worker)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 #[cfg(unix)]
 pub(super) fn fetch_completion(
     context: &mut ImportContext<'_>,
@@ -146,7 +146,7 @@ pub(super) fn fetch_completion(
     }
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_sleep_job(
     context: &mut ImportContext<'_>,
     duration_ms: i32,
@@ -279,7 +279,7 @@ pub(super) fn get_stat_result(
     })
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_read_job(
     context: &mut ImportContext<'_>,
     fd: u64,
@@ -294,7 +294,7 @@ pub(super) fn make_read_job(
         .insert_job(FilesystemJob::read(file, len, position))
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_write_job(
     context: &mut ImportContext<'_>,
     fd: u64,
@@ -314,7 +314,7 @@ pub(super) fn make_write_job(
         .insert_job(FilesystemJob::write(file, data, position))
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_read_console_job(
     context: &mut ImportContext<'_>,
     fd: u64,
@@ -329,7 +329,7 @@ pub(super) fn make_read_console_job(
         .insert_job(FilesystemJob::read_console(file, len))
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_write_console_job(
     context: &mut ImportContext<'_>,
     fd: u64,
@@ -643,7 +643,7 @@ pub(super) fn make_inotify_add_watch_job(
     )
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_bind_job(
     context: &mut ImportContext<'_>,
     socket: u64,
@@ -655,7 +655,7 @@ pub(super) fn make_bind_job(
     context.host.make_bind_job(socket, addr)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_getaddrinfo_job(
     context: &mut ImportContext<'_>,
     host: u32,
@@ -713,8 +713,8 @@ pub(super) fn make_spawn_job_unix(
 }
 
 #[ported(
-    source = "src/internal/event_loop/thread_pool.c",
-    original = "moonbitlang_async_make_spawn_job"
+    runtime = "thread_pool.c",
+    original = "moonbit_rt_make_spawn_job"
 )]
 #[cfg(unix)]
 #[allow(clippy::too_many_arguments)]
@@ -746,8 +746,8 @@ pub(super) fn spawn_job_unix(
 }
 
 #[ported(
-    source = "src/internal/event_loop/thread_pool.c",
-    original = "moonbitlang_async_spawn_job_set_cwd"
+    runtime = "thread_pool.c",
+    original = "moonbit_rt_spawn_job_set_cwd"
 )]
 pub(super) fn spawn_job_set_cwd(
     context: &mut ImportContext<'_>,
@@ -810,8 +810,8 @@ pub(super) fn make_spawn_job_windows(
 }
 
 #[ported(
-    source = "src/internal/event_loop/thread_pool.c",
-    original = "moonbitlang_async_make_spawn_job"
+    runtime = "thread_pool.c",
+    original = "moonbit_rt_make_spawn_job"
 )]
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
@@ -848,8 +848,8 @@ pub(super) fn spawn_job_windows(
 }
 
 #[ported(
-    source = "src/internal/event_loop/thread_pool.c",
-    original = "moonbitlang_async_spawn_job_set_no_console_window"
+    runtime = "thread_pool.c",
+    original = "moonbit_rt_spawn_job_set_no_console_window"
 )]
 #[cfg(windows)]
 pub(super) fn spawn_job_set_no_console_window(
@@ -860,8 +860,8 @@ pub(super) fn spawn_job_set_no_console_window(
 }
 
 #[ported(
-    source = "src/internal/event_loop/thread_pool.c",
-    original = "moonbitlang_async_get_spawn_job_result_handle"
+    runtime = "thread_pool.c",
+    original = "moonbit_rt_get_spawn_job_result_handle"
 )]
 pub(super) fn spawn_job_get_result_handle(
     context: &mut ImportContext<'_>,
@@ -885,7 +885,7 @@ pub(super) fn get_spawn_job_result_handle_legacy(
     spawn_job_get_result_handle(context, job)
 }
 
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn make_wait_for_process_job(
     context: &mut ImportContext<'_>,
     handle: u64,

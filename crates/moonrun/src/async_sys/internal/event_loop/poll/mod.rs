@@ -219,10 +219,8 @@ mod tests {
 
     #[test]
     fn ported_symbols_reference_native_sources() {
-        let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../third_party/moonbitlang_async");
         for symbol in PORTED_SYMBOLS {
-            let source_path = async_root.join(symbol.source);
+            let source_path = symbol.root.path(symbol.source);
             let contents = std::fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
             assert!(
