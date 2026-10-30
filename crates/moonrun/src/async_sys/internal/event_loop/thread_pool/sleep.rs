@@ -23,7 +23,7 @@ use crate::async_sys::ported_fns;
 
 ported_fns! {
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "sleep_job_worker"
     )]
     pub(super) fn run_sleep_job(duration_ms: i32) {

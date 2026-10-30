@@ -18,7 +18,7 @@
 
 use super::context::ImportContext;
 #[cfg(test)]
-use super::provenance::{PortedImport, SourceLocation, SourceRoot};
+use super::provenance::{PortedImport, SourceRoot};
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
     random, runtime, signal, socket, stdio, thread_pool, time, tls,
@@ -1420,14 +1420,6 @@ mod tests {
             .expect("moonrun crate must live under crates/moonrun")
     }
 
-    fn source_path(source: SourceLocation) -> std::path::PathBuf {
-        match source.root {
-            SourceRoot::MoonbitAsync => repo_root()
-                .join("third_party/moonbitlang_async")
-                .join(source.path),
-        }
-    }
-
     fn native_symbol(import: &AsyncImport) -> String {
         let segments = import.wasm_symbol.split('/').collect::<Vec<_>>();
         let leaf = match segments.as_slice() {
@@ -1442,7 +1434,18 @@ mod tests {
         ported_import
             .native_symbol
             .map(str::to_string)
-            .unwrap_or_else(|| native_symbol(import))
+            .unwrap_or_else(|| {
+                let symbol = native_symbol(import);
+                if ported_import
+                    .sources
+                    .iter()
+                    .any(|source| source.root == SourceRoot::MoonbitRuntime)
+                {
+                    symbol.replacen("moonbitlang_async_", "moonbit_rt_", 1)
+                } else {
+                    symbol
+                }
+            })
     }
 
     fn module_leaf(module_path: &str) -> Option<&str> {
@@ -1752,7 +1755,7 @@ mod tests {
                 .expect("ported import must have a registered wasm import");
             let native_symbol = native_symbol_for(registered_import, &ported_import);
             for source in ported_import.sources {
-                let source_path = source_path(*source);
+                let source_path = source.root.path(source.path);
                 let contents = fs::read_to_string(&source_path)
                     .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
                 assert!(
@@ -1896,7 +1899,7 @@ mod tests {
                         .any(|import| import.wasm_symbol == registered_import.wasm_symbol)
                         && ported_import.sources.iter().any(|source| {
                             native_symbol == ported.native_symbol
-                                && source.root == SourceRoot::MoonbitAsync
+                                && source.root == ported.root
                                 && source.path == ported.source
                         })
                 }),

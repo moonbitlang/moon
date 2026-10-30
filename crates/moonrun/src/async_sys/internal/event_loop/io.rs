@@ -177,6 +177,7 @@ fn ported_windows_symbol(
     native_symbol: &'static str,
 ) -> crate::async_sys::PortedSymbol {
     crate::async_sys::PortedSymbol {
+        root: crate::async_sys::SourceRoot::MoonbitAsync,
         rust_module: module_path!(),
         rust_symbol,
         native_symbol,

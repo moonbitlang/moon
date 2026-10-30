@@ -23,7 +23,7 @@ use crate::resource::Resource;
 ported_fns! {
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "read_console_job_worker"
     )]
     pub(super) fn read(
@@ -74,7 +74,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "write_console_job_worker"
     )]
     pub(super) fn write(file: &Resource, data: &[u16]) -> AsyncHostResult<i64> {

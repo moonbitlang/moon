@@ -412,6 +412,7 @@ pub(super) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
                     native_symbol: import
                         .native_symbol
                         .expect("TLS ABI provenance uses explicit wasm import symbols"),
+                    root: source.root,
                     source: source.path,
                 })
         })

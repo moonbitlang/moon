@@ -1064,10 +1064,8 @@ mod tests {
 
     #[test]
     fn job_executors_reference_native_worker_symbols() {
-        let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../third_party/moonbitlang_async");
         for symbol in ported_symbols() {
-            let source_path = async_root.join(symbol.source);
+            let source_path = symbol.root.path(symbol.source);
             let contents = std::fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
             assert!(

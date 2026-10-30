@@ -17,11 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[cfg(test)]
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SourceRoot {
-    MoonbitAsync,
-}
+pub(crate) use crate::async_sys::SourceRoot;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +49,8 @@ pub(crate) struct CompatImport {
 }
 
 macro_rules! ported_imports {
+    (@root source) => { $crate::async_sys::SourceRoot::MoonbitAsync };
+    (@root runtime) => { $crate::async_sys::SourceRoot::MoonbitRuntime };
     (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
         pub(super) const PORTED_IMPORTS: &[$crate::async_api::provenance::PortedImport] = &[
@@ -69,7 +67,7 @@ macro_rules! ported_imports {
     };
     (
         @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported(source = $source_path:literal, original = $original:literal)]
+        #[ported($source_root:ident = $source_path:literal, original = $original:literal)]
         #[cfg($($cfg:tt)*)]
         $(#[$meta:meta])*
         $vis:vis fn $function:ident($($params:tt)*) $(-> $ret:ty)? $body:block
@@ -85,7 +83,7 @@ macro_rules! ported_imports {
                     native_symbol: Some($original),
                     sources: &[
                         $crate::async_api::provenance::SourceLocation {
-                            root: $crate::async_api::provenance::SourceRoot::MoonbitAsync,
+                            root: ported_imports!(@root $source_root),
                             path: $source_path,
                         },
                     ],
@@ -101,7 +99,7 @@ macro_rules! ported_imports {
     };
     (
         @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported(source = $source_path:literal, original = $original:literal)]
+        #[ported($source_root:ident = $source_path:literal, original = $original:literal)]
         $(#[$meta:meta])*
         $vis:vis fn $function:ident($($params:tt)*) $(-> $ret:ty)? $body:block
         $($rest:tt)*
@@ -115,7 +113,7 @@ macro_rules! ported_imports {
                     native_symbol: Some($original),
                     sources: &[
                         $crate::async_api::provenance::SourceLocation {
-                            root: $crate::async_api::provenance::SourceRoot::MoonbitAsync,
+                            root: ported_imports!(@root $source_root),
                             path: $source_path,
                         },
                     ],
@@ -130,7 +128,7 @@ macro_rules! ported_imports {
     };
     (
         @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported(source = $source_path:literal)]
+        #[ported($source_root:ident = $source_path:literal)]
         #[cfg($($cfg:tt)*)]
         $(#[$meta:meta])*
         $vis:vis fn $function:ident($($params:tt)*) $(-> $ret:ty)? $body:block
@@ -146,7 +144,7 @@ macro_rules! ported_imports {
                     native_symbol: None,
                     sources: &[
                         $crate::async_api::provenance::SourceLocation {
-                            root: $crate::async_api::provenance::SourceRoot::MoonbitAsync,
+                            root: ported_imports!(@root $source_root),
                             path: $source_path,
                         },
                     ],
@@ -162,7 +160,7 @@ macro_rules! ported_imports {
     };
     (
         @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported(source = $source_path:literal)]
+        #[ported($source_root:ident = $source_path:literal)]
         $(#[$meta:meta])*
         $vis:vis fn $function:ident($($params:tt)*) $(-> $ret:ty)? $body:block
         $($rest:tt)*
@@ -176,7 +174,7 @@ macro_rules! ported_imports {
                     native_symbol: None,
                     sources: &[
                         $crate::async_api::provenance::SourceLocation {
-                            root: $crate::async_api::provenance::SourceRoot::MoonbitAsync,
+                            root: ported_imports!(@root $source_root),
                             path: $source_path,
                         },
                     ],

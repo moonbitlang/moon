@@ -24,7 +24,7 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
-#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[ported(runtime = "thread_pool.c")]
 pub(super) fn get_platform(_context: &mut ImportContext<'_>) -> i32 {
     thread_pool::get_platform()
 }
