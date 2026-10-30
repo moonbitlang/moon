@@ -19,7 +19,7 @@
 mod cli;
 
 use clap::Parser;
-use cli::ProcessSignals;
+use cli::{ProcessSignals, Session};
 use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome, signal_channel};
 use std::path::PathBuf;
 
@@ -138,17 +138,27 @@ fn main() -> anyhow::Result<()> {
     }
 
     let (signal_sender, signal_receiver) = signal_channel();
-    let _process_signals = ProcessSignals::install(signal_sender)?;
+    let session = matches
+        .virtual_process_tree
+        .then(|| Session::new(signal_sender.clone()));
+    let _process_signals = match &session {
+        Some(session) => ProcessSignals::install_session(session.clone())?,
+        None => ProcessSignals::install(signal_sender)?,
+    };
     let engine = Engine::new(engine_config);
-    let outcome = if matches.virtual_process_tree {
-        let root = engine.spawn_executable_with_signal_receiver(
-            None,
-            &matches.path,
-            matches.virtual_process_kind,
-            options.with_guest_process_mode(moonrun::GuestProcessMode::Virtual),
-            signal_receiver,
-        )?;
-        let outcome = engine.wait(root);
+    let outcome = if let Some(session) = session {
+        session.attach_engine(&engine);
+        // Keep admission errors inside the session: a signal received during
+        // Engine initialization may already have closed its process namespace.
+        let outcome = engine
+            .spawn_executable_with_signal_receiver(
+                None,
+                &matches.path,
+                matches.virtual_process_kind,
+                options.with_guest_process_mode(moonrun::GuestProcessMode::Virtual),
+                signal_receiver,
+            )
+            .and_then(|root| engine.wait(root));
         // The CLI owns the entire tree. An exiting parent leaves children
         // with this supervisor; only claim adopted roots so live parents keep
         // their own guest waits. Descendant status does not replace root status.
@@ -159,7 +169,7 @@ fn main() -> anyhow::Result<()> {
         {
             let _ = engine.wait(orphan.pid);
         }
-        outcome.map_err(Into::into)
+        session.finish(outcome).map_err(Into::into)
     } else {
         engine.run_file_with_signal_receiver(matches.path, options, signal_receiver)
     };

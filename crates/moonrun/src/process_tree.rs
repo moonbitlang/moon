@@ -98,6 +98,8 @@ pub enum ProcessError {
     NotFound(VirtualPid),
     #[error("virtual parent {0} is no longer running")]
     ParentNotRunning(VirtualPid),
+    #[error("the Engine process namespace is shutting down")]
+    ShuttingDown,
     #[error("another caller is already waiting for virtual process {0}")]
     AlreadyWaiting(VirtualPid),
     #[error("spawned execution owns the Run termination receiver")]
@@ -198,7 +200,15 @@ impl ProcessCompletion {
     }
 }
 
-type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
+#[derive(Default)]
+struct TableState {
+    entries: BTreeMap<VirtualPid, Entry>,
+    // Admission and shutdown share this lock: a new execution is either
+    // included in shutdown or rejected before its thread can start.
+    shutting_down: bool,
+}
+
+type Table = Arc<Mutex<TableState>>;
 
 // A Windows spawn must pin completion before another supervisor can reap its
 // PID. Publishing the guest HANDLE later must not depend on a new PID lookup.
@@ -384,12 +394,16 @@ impl Engine {
             options.prepare_root()?;
             if virtual_process {
                 options.native_stack_budget = Some(self.guest_stack_budget()?);
+                let mut table = self.processes.0.lock().unwrap();
+                if table.shutting_down {
+                    return Err(ProcessError::ShuttingDown.into());
+                }
                 let pid = VirtualPid::allocate(&NEXT_PID)?;
                 options.runtime.process_context = Some(ProcessContext {
                     pid,
                     engine: self.clone(),
                 });
-                self.processes.0.lock().unwrap().insert(
+                table.entries.insert(
                     pid,
                     Entry {
                         info: ProcessInfo {
@@ -462,8 +476,14 @@ impl Engine {
             return Err(ProcessError::InvalidVirtualConfiguration);
         }
         let mut table = self.processes.0.lock().unwrap();
+        if table.shutting_down {
+            return Err(ProcessError::ShuttingDown);
+        }
         if let Some(parent) = parent {
-            let entry = table.get(&parent).ok_or(ProcessError::NotFound(parent))?;
+            let entry = table
+                .entries
+                .get(&parent)
+                .ok_or(ProcessError::NotFound(parent))?;
             if entry.info().state != ProcessState::Running {
                 return Err(ProcessError::ParentNotRunning(parent));
             }
@@ -512,7 +532,7 @@ impl Engine {
             #[cfg(windows)]
             completion: Arc::clone(&completion),
         };
-        table.insert(
+        table.entries.insert(
             pid,
             Entry {
                 info: ProcessInfo {
@@ -541,10 +561,35 @@ impl Engine {
         outcome: RunTermination,
     ) -> Result<bool, ProcessError> {
         let table = self.processes.0.lock().unwrap();
-        let entry = table.get(&pid).ok_or(ProcessError::NotFound(pid))?;
+        let entry = table.entries.get(&pid).ok_or(ProcessError::NotFound(pid))?;
         // Lock order is table then termination. Run completion acquires the
         // table only after execution has closed the termination channel.
         Ok(entry.terminator.terminate(outcome))
+    }
+
+    /// Close admission and request termination of every admitted execution.
+    ///
+    /// This includes adopted descendants and is shared by clones of this
+    /// Engine. The first call returns `true`; later calls return `false` and
+    /// leave the first requests intact. Existing per-process termination
+    /// requests retain their own first outcome.
+    ///
+    /// This only requests shutdown. Callers must still wait for cleanup and
+    /// reap the members they own. Native caller-thread Runs are not admitted
+    /// to the process table and are unaffected. Dropping an Engine does not
+    /// implicitly request shutdown.
+    pub fn request_shutdown(&self, outcome: RunTermination) -> bool {
+        let mut table = self.processes.0.lock().unwrap();
+        if table.shutting_down {
+            return false;
+        }
+        table.shutting_down = true;
+        // The existing table -> termination lock order also serializes with
+        // parent exit/adoption. Wake callbacks must never re-enter the table.
+        for entry in table.entries.values() {
+            entry.terminator.terminate(outcome);
+        }
+        true
     }
 
     /// Join and reap exactly once, including Run failures and thread panics.
@@ -557,7 +602,7 @@ impl Engine {
         }
         let outcome = result.take().unwrap();
         drop(result);
-        self.processes.0.lock().unwrap().remove(&pid);
+        self.processes.0.lock().unwrap().entries.remove(&pid);
         drop(claim);
         outcome
     }
@@ -569,6 +614,7 @@ impl Engine {
             .0
             .lock()
             .unwrap()
+            .entries
             .values()
             .map(Entry::info)
             .collect()
@@ -589,11 +635,11 @@ impl Drop for ProcessExitGuard {
     fn drop(&mut self) {
         let mut table = self.table.lock().unwrap();
         if self.reap_on_drop {
-            table.remove(&self.pid);
+            table.entries.remove(&self.pid);
         } else {
-            table.get_mut(&self.pid).unwrap().info.state = ProcessState::Exited;
+            table.entries.get_mut(&self.pid).unwrap().info.state = ProcessState::Exited;
         }
-        for entry in table.values_mut() {
+        for entry in table.entries.values_mut() {
             if entry.info.parent == Some(self.pid) {
                 entry.info.parent = None;
             }
@@ -613,7 +659,10 @@ impl WaitClaim {
     fn new(table: Table, pid: VirtualPid) -> Result<Self, ProcessError> {
         let completion = {
             let mut entries = table.lock().unwrap();
-            let entry = entries.get_mut(&pid).ok_or(ProcessError::NotFound(pid))?;
+            let entry = entries
+                .entries
+                .get_mut(&pid)
+                .ok_or(ProcessError::NotFound(pid))?;
             if entry.waiting {
                 return Err(ProcessError::AlreadyWaiting(pid));
             }
@@ -630,7 +679,7 @@ impl WaitClaim {
 
 impl Drop for WaitClaim {
     fn drop(&mut self) {
-        if let Some(entry) = self.table.lock().unwrap().get_mut(&self.pid) {
+        if let Some(entry) = self.table.lock().unwrap().entries.get_mut(&self.pid) {
             entry.waiting = false;
         }
     }
@@ -639,6 +688,165 @@ impl Drop for WaitClaim {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn shutdown_closes_managed_and_virtual_admission_only_in_its_engine() {
+        let engine = Engine::default();
+        assert!(engine.request_shutdown(RunTermination::Exit(17)));
+        assert!(!engine.clone().request_shutdown(RunTermination::Exit(18)));
+        assert!(matches!(
+            engine.spawn_execution(
+                None,
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |_, _, _, _| panic!("closed namespace admitted a managed execution"),
+            ),
+            Err(ProcessError::ShuttingDown)
+        ));
+        let error = engine
+            .run_inline(
+                RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                crate::signal_channel().1,
+                |_, _, _, _| panic!("closed namespace admitted a virtual inline execution"),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ProcessError>(),
+            Some(ProcessError::ShuttingDown)
+        ));
+        // Native caller-thread execution has no process-table membership.
+        assert_eq!(
+            engine
+                .run_inline(
+                    RunOptions::default(),
+                    crate::signal_channel().1,
+                    |_, _, _, _| Ok(RunOutcome::Completed),
+                )
+                .unwrap(),
+            RunOutcome::Completed
+        );
+        let other = Engine::default();
+        let child = other
+            .spawn_execution(
+                None,
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |_, _, _, _| Ok(RunOutcome::Completed),
+            )
+            .unwrap();
+        assert_eq!(other.wait(child.pid).unwrap(), RunOutcome::Completed);
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn shutdown_includes_children_before_and_after_adoption() {
+        use std::time::Duration;
+
+        for before_adoption in [true, false] {
+            let engine = Engine::default();
+            let (release, pending) = mpsc::channel();
+            let (ready, started) = mpsc::channel();
+            let mut child = None;
+            let outcome = engine
+                .run_inline(
+                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    crate::signal_channel().1,
+                    |engine, options, _, _| {
+                        let parent = options.runtime.process_context.as_ref().unwrap().pid;
+                        child = Some(
+                            engine
+                                .spawn_execution(
+                                    Some(parent),
+                                    RunOptions::default(),
+                                    crate::signal_channel().1,
+                                    move |_, _, _, termination| {
+                                        ready.send(termination.clone()).unwrap();
+                                        pending.recv_timeout(Duration::from_secs(5)).unwrap();
+                                        Ok(RunOutcome::Completed)
+                                    },
+                                )
+                                .unwrap()
+                                .pid,
+                        );
+                        let request = started.recv_timeout(Duration::from_secs(5)).unwrap();
+                        if before_adoption {
+                            assert!(engine.request_shutdown(RunTermination::Exit(31)));
+                            assert_eq!(request.get(), Some(RunTermination::Exit(31)));
+                        } else {
+                            // Ending just the parent leaves its child running.
+                            assert!(engine.terminate(parent, RunTermination::Exit(17)).unwrap());
+                            assert_eq!(request.get(), None);
+                        }
+                        Ok(RunOutcome::Completed)
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                outcome,
+                RunOutcome::Exited(if before_adoption { 31 } else { 17 })
+            );
+            let child = child.unwrap();
+            assert_eq!(engine.snapshot()[0].parent, None);
+            if !before_adoption {
+                assert!(engine.request_shutdown(RunTermination::Exit(31)));
+            }
+            assert_eq!(engine.snapshot()[0].state, ProcessState::Terminating);
+            assert!(!engine.request_shutdown(RunTermination::Exit(32)));
+            release.send(()).unwrap();
+            assert_eq!(engine.wait(child).unwrap(), RunOutcome::Exited(31));
+            assert!(engine.snapshot().is_empty());
+        }
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn concurrent_shutdown_either_includes_or_rejects_admission() {
+        use std::sync::Barrier;
+        use std::time::Duration;
+
+        let engine = Engine::default();
+        let gate = Arc::new(Barrier::new(3));
+        let (release, pending) = mpsc::channel();
+        let admission = {
+            let engine = engine.clone();
+            let gate = Arc::clone(&gate);
+            thread::spawn(move || {
+                gate.wait();
+                engine.spawn_execution(
+                    None,
+                    RunOptions::default(),
+                    crate::signal_channel().1,
+                    move |_, _, _, _| {
+                        pending.recv_timeout(Duration::from_secs(5)).unwrap();
+                        Ok(RunOutcome::Completed)
+                    },
+                )
+            })
+        };
+        let shutdown = {
+            let engine = engine.clone();
+            let gate = Arc::clone(&gate);
+            thread::spawn(move || {
+                gate.wait();
+                engine.request_shutdown(RunTermination::Exit(23))
+            })
+        };
+        gate.wait();
+        assert!(shutdown.join().unwrap());
+        match admission.join().unwrap() {
+            Ok(child) => {
+                // A request accepted before the thread starts may drop this
+                // receiver without executing the closure at all.
+                let _ = release.send(());
+                assert_eq!(engine.wait(child.pid).unwrap(), RunOutcome::Exited(23));
+            }
+            Err(ProcessError::ShuttingDown) => {}
+            Err(error) => panic!("unexpected admission error: {error}"),
+        }
+        assert!(engine.snapshot().is_empty());
+    }
 
     #[test]
     fn pid_exhaustion_never_wraps_or_reuses_an_id() {
@@ -961,7 +1169,7 @@ mod tests {
                 assert_eq!(outcome, RunTermination::Exit(7));
                 Ok(RunOutcome::Exited(7))
             });
-            entries.insert(
+            entries.entries.insert(
                 pid,
                 Entry {
                     info: ProcessInfo {
@@ -992,7 +1200,7 @@ mod tests {
             let waiter = thread::spawn(move || done.send(waiting_tree.wait(pid)).unwrap());
             // Wait until the waiter reserves the result, without permitting
             // the simulated host work to finish.
-            while !tree.processes.0.lock().unwrap()[&pid].waiting {
+            while !tree.processes.0.lock().unwrap().entries[&pid].waiting {
                 thread::yield_now();
             }
             assert_eq!(tree.snapshot()[0].state, ProcessState::Terminating);
@@ -1090,7 +1298,7 @@ mod tests {
                 )
                 .unwrap();
             run_returned.recv_timeout(Duration::from_secs(5)).unwrap();
-            let terminator = tree.processes.0.lock().unwrap()[&spawned.pid]
+            let terminator = tree.processes.0.lock().unwrap().entries[&spawned.pid]
                 .terminator
                 .clone();
             let accepted = tree
@@ -1147,7 +1355,9 @@ mod tests {
             .unwrap();
         let tree = engine;
         let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
-        let terminator = tree.processes.0.lock().unwrap()[&pid].terminator.clone();
+        let terminator = tree.processes.0.lock().unwrap().entries[&pid]
+            .terminator
+            .clone();
         let table = Arc::downgrade(&tree.processes.0);
         drop(tree);
         assert!(table.upgrade().is_some());

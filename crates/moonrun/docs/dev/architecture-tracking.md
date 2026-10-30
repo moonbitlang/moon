@@ -90,11 +90,48 @@ expanded.
 The remaining native execution and helper cancellation work can build on these
 boundaries without moving Runtime interpretation into ABI adapters or workers.
 
+## Session shutdown
+
+- [x] Close managed and Virtual admission atomically with requesting termination
+  of every admitted Engine member, including adopted descendants. Keep
+  single-member termination separate and leave result reaping to the owner.
+- [x] Let the virtual CLI finish cleanup after an unhandled signal, including
+  signals received before root admission or while waiting for adopted children.
+  Preserve ordinary non-virtual CLI signal behavior and normal orphan completion.
+
+`Engine::request_shutdown` is irreversible for its process namespace and shared
+by clones. It requests termination; `wait` still observes actual completion.
+Native caller-thread Runs have no table membership and retain their independent
+termination channels. The CLI records the first unhandled session signal,
+requests shutdown, drains adopted roots, then presents that signal as its exit.
+Repeated signals during cleanup do not bypass teardown. After finalization,
+signal handling returns to the existing process fallback.
+
 ## Follow-up order
 
 1. Manage preparation helpers and their compiler descendants as owned work;
-   cancel them without admitting the delivered program afterwards. Give the CLI
-   a session-level shutdown contract, including adopted descendants.
+   cancel them without admitting the delivered program afterwards. This remains
+   a FIXME: shutdown currently retains cancellation and waits for helper exit.
+   Prefer a Unix process group / Windows Job for ordinary noninteractive build
+   work. First narrow virtual command selection and separate it from the
+   artifact-preparation protocol. Virtual spawn currently checks only the
+   `moon`/`moonx` executable name and unconditionally adds the handoff prefix;
+   Moon accepts that prefix only for `moon run` and `moonx`. Consequently,
+   `moon build` is rejected while `moon run -` enters preparation. Ordinary
+   Native spawn does not use this dispatch. The intended scope is build
+   preparation and moonx, not general interactive Moon commands; public
+   `moon build` must retain build-only semantics. A dedicated preparation
+   entry (for example under `moon tool`) should reuse Moon's build logic and
+   moonx's existing artifact delivery without inheriting all of `moon run`'s
+   input modes. Reuse Moon's authoritative argument parser, including global
+   options and opaque argument tails, rather than duplicating its grammar in
+   moonrun. If Host Process must classify before spawning, extract the pure
+   parser for both consumers; do not add a separate probe process. Parsing and
+   execution-strategy selection remain distinct responsibilities. Deliver this
+   command-selection work separately from both session shutdown and helper
+   cancellation.
+   Do not expand this step into a Moon/n2 cooperative cancellation protocol by
+   default; n2 waits for running tasks but does not actively cancel them.
 2. Execute native programs and Node through shared supervision. Define ambient
    versus constrained native authority and preserve artifact dependencies and
    execution location.

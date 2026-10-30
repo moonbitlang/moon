@@ -18,6 +18,32 @@
 
 use moonrun::SignalSender;
 
+use super::session::Session;
+
+enum SignalTarget {
+    Run(SignalSender),
+    Session(Session),
+}
+
+impl SignalTarget {
+    fn send(&self, signal: i32) -> bool {
+        match self {
+            Self::Run(sender) => sender.send(signal) == Ok(true),
+            Self::Session(session) => session.send(signal),
+        }
+    }
+}
+
+impl ProcessSignals {
+    pub(crate) fn install(sender: SignalSender) -> std::io::Result<Self> {
+        Self::install_target(SignalTarget::Run(sender))
+    }
+
+    pub(crate) fn install_session(session: Session) -> std::io::Result<Self> {
+        Self::install_target(SignalTarget::Session(session))
+    }
+}
+
 #[cfg(unix)]
 pub(crate) struct ProcessSignals;
 
@@ -26,7 +52,7 @@ const MANAGED_SIGNALS: [i32; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
 
 #[cfg(unix)]
 impl ProcessSignals {
-    pub(crate) fn install(sender: SignalSender) -> std::io::Result<Self> {
+    fn install_target(target: SignalTarget) -> std::io::Result<Self> {
         let signals = managed_signal_set()?;
         let mut old_mask = unsafe { std::mem::zeroed::<libc::sigset_t>() };
         check_pthread_call(unsafe {
@@ -60,7 +86,7 @@ impl ProcessSignals {
                     if unsafe { libc::sigwait(&signals, &mut signal) } != 0 {
                         std::process::abort();
                     }
-                    if sender.send(signal) != Ok(true) {
+                    if !target.send(signal) {
                         if inherited_blocked_signals & (1_u32 << signal) != 0 {
                             unsafe {
                                 // Return ownership to the inherited thread
@@ -145,11 +171,11 @@ fn check_pthread_call(result: i32) -> std::io::Result<()> {
 pub(crate) struct ProcessSignals;
 
 #[cfg(windows)]
-static PROCESS_SIGNAL_TARGET: std::sync::Mutex<Option<SignalSender>> = std::sync::Mutex::new(None);
+static PROCESS_SIGNAL_TARGET: std::sync::Mutex<Option<SignalTarget>> = std::sync::Mutex::new(None);
 
 #[cfg(windows)]
 impl ProcessSignals {
-    pub(crate) fn install(sender: SignalSender) -> std::io::Result<Self> {
+    fn install_target(signal_target: SignalTarget) -> std::io::Result<Self> {
         use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 
         let mut target = PROCESS_SIGNAL_TARGET
@@ -161,7 +187,7 @@ impl ProcessSignals {
                 "moonrun process signal adapter is already installed",
             ));
         }
-        *target = Some(sender);
+        *target = Some(signal_target);
         if unsafe { SetConsoleCtrlHandler(Some(console_control_handler), 1) } == 0 {
             *target = None;
             return Err(std::io::Error::last_os_error());
@@ -177,7 +203,7 @@ unsafe extern "system" fn console_control_handler(control: u32) -> i32 {
     };
     target
         .as_ref()
-        .is_some_and(|sender| sender.send(control as i32) == Ok(true))
+        .is_some_and(|target| target.send(control as i32))
         .into()
 }
 
@@ -195,9 +221,17 @@ mod tests {
 
     #[test]
     fn inherited_blocked_signal_remains_pending_after_fallback() {
-        if std::env::var_os(BLOCKED_SIGNAL_CHILD).is_some() {
+        if let Some(mode) = std::env::var_os(BLOCKED_SIGNAL_CHILD) {
             let (sender, _receiver) = moonrun::signal_channel();
-            let _process_signals = ProcessSignals::install(sender).unwrap();
+            let _process_signals = if mode == "finished-session" {
+                let session = Session::new(sender);
+                session
+                    .finish::<()>(Ok(moonrun::RunOutcome::Completed))
+                    .unwrap();
+                ProcessSignals::install_session(session).unwrap()
+            } else {
+                ProcessSignals::install(sender).unwrap()
+            };
             assert_eq!(unsafe { libc::kill(libc::getpid(), libc::SIGINT) }, 0);
 
             // The broker thread is already running. Give the old implementation
@@ -211,35 +245,38 @@ mod tests {
             return;
         }
 
-        let mut child = Command::new(std::env::current_exe().unwrap());
-        child
-            .args(["--exact", TEST_NAME, "--nocapture"])
-            .env(BLOCKED_SIGNAL_CHILD, "1");
-        unsafe {
-            child.pre_exec(|| {
-                let mut blocked = std::mem::zeroed::<libc::sigset_t>();
-                if libc::sigemptyset(&mut blocked) != 0
-                    || libc::sigaddset(&mut blocked, libc::SIGINT) != 0
-                {
-                    return Err(std::io::Error::last_os_error());
-                }
-                let error = libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, std::ptr::null_mut());
-                if error == 0 {
-                    Ok(())
-                } else {
-                    Err(std::io::Error::from_raw_os_error(error))
-                }
-            });
-        }
+        for mode in ["run", "finished-session"] {
+            let mut child = Command::new(std::env::current_exe().unwrap());
+            child
+                .args(["--exact", TEST_NAME, "--nocapture"])
+                .env(BLOCKED_SIGNAL_CHILD, mode);
+            unsafe {
+                child.pre_exec(|| {
+                    let mut blocked = std::mem::zeroed::<libc::sigset_t>();
+                    if libc::sigemptyset(&mut blocked) != 0
+                        || libc::sigaddset(&mut blocked, libc::SIGINT) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    let error =
+                        libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, std::ptr::null_mut());
+                    if error == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::from_raw_os_error(error))
+                    }
+                });
+            }
 
-        let output = child.output().unwrap();
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            output.status.success() && stdout.contains(BLOCKED_SIGNAL_PRESERVED),
-            "blocked-signal child failed with {:?}:\nstdout:\n{}\nstderr:\n{}",
-            output.status,
-            stdout,
-            String::from_utf8_lossy(&output.stderr),
-        );
+            let output = child.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains(BLOCKED_SIGNAL_PRESERVED),
+                "blocked-signal {mode} child failed with {:?}:\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                stdout,
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
     }
 }

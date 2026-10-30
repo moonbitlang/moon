@@ -89,9 +89,12 @@ pub(crate) fn prepare_moon(
             });
         }
     }
-    // FIXME: Add cancellation of the helper and its compiler descendants as a
-    // unit (Unix process group / Windows Job Object). Until then, retain a kill
-    // request and reap the helper normally before publishing completion.
+    // FIXME: Own and cancel noninteractive build helpers and their compiler
+    // descendants as a unit (Unix process group / Windows Job Object). This is
+    // artifact preparation, not general interactive Moon command execution.
+    // Moon/n2 currently wait for tasks, not cooperatively cancel them. Until
+    // helper cancellation lands, even Engine shutdown retains the
+    // request and waits for helper exit before publishing completion.
     let status = command.status().context("failed to run Moon build helper");
     drop(command);
     if let Some(outcome) = request.get() {

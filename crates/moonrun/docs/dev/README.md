@@ -240,8 +240,23 @@ through a weak `Waker`; the table neither owns the parent poll nor knows its
 transport. Guest wait Jobs are cancellable and consume a result only when the
 guest reads it. Dropping an unread Job preserves that result. Exiting parents
 leave children with the Engine. Dropping Engine does not stop or join them; the
-embedding caller owns shutdown. The CLI's `--virtual-process-tree` mode waits
-for adopted descendants before exiting with the root outcome.
+embedding caller owns shutdown. `Engine::request_shutdown(outcome)` closes
+managed and Virtual admission under the same lock as spawning, then requests
+termination of every admitted member, including adopted descendants. Clones
+share this irreversible state; independent Engines do not. It does not join,
+reap results, or affect Native caller-thread Runs outside the process table.
+Existing per-process termination requests keep their first outcome.
+
+The CLI's `--virtual-process-tree` mode normally waits for adopted descendants
+and presents the root outcome. A signal the root does not accept instead closes
+the namespace and requests termination of all members. This covers signals
+before root admission and after root exit. The CLI retains the first unhandled
+signal, drains adopted roots, and only then presents signal termination;
+repeated signals during teardown cannot force an early host exit. Session
+finalization retires this target so later signals use the process fallback.
+Ordinary CLI execution keeps its existing signal behavior. Windows console
+close/logoff/shutdown deadlines and synchronous host calls can still limit or
+block cleanup; this interface does not promise bounded termination.
 
 Current permission coverage is unchanged. Helpers retain host access, and
 cancellation during preparation waits for helper exit before preventing Wasm

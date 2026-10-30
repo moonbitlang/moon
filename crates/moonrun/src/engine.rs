@@ -379,7 +379,9 @@ impl fmt::Debug for Module {
 /// [`GuestProcessMode::Virtual`] provides owned root state and guest process
 /// control. Parent links alone do not imply state or permission inheritance.
 /// Dropping an Engine does not terminate or join its executions; callers must
-/// explicitly terminate and wait when required.
+/// explicitly terminate and wait when required. [`Engine::request_shutdown`]
+/// closes managed and Virtual admission and requests termination of all admitted
+/// members; Native caller-thread Runs retain their independent control.
 /// OS signal capture is left to the caller; a signal channel can direct
 /// cooperative delivery to one Run.
 #[derive(Clone, Debug)]
