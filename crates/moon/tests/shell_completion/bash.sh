@@ -58,3 +58,9 @@ assert_contains "$tool_completions" embed
 
 build_completions=$(complete_moon moon build --ver)
 assert_contains "$build_completions" --verbose
+
+assert_contains "$(complete_moon moon testc)" testcli
+testcli_completions=$(complete_moon moon testcli --)
+for option in --verbose --quiet --trace --dry-run --target-dir; do
+  assert_not_contains "$testcli_completions" "$option"
+done
