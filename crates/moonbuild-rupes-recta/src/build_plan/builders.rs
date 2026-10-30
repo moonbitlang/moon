@@ -988,7 +988,12 @@ impl<'a> BuildPlanConstructor<'a> {
         let (link_core_deps, _, link_stdlib_abort) = self.dfs_link_core_sources(target)?;
 
         // The traversal has already replaced unnecessary dependencies.
+        // Injected stdlib packages are linked from their installed `.core`
+        // files, which this plan does not produce.
         for target in &link_core_deps {
+            if self.input.pkg_dirs.is_stdlib_package(target.package) {
+                continue;
+            }
             self.require_artifact(
                 node,
                 ArtifactKey::CoreIr {
@@ -1300,6 +1305,19 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    /// Whether linking a package also links the C stubs it declares. Injected
+    /// stdlib packages are never built locally, so their stubs are not either.
+    fn links_c_stubs_of(&self, package: PackageId) -> bool {
+        self.config.backend.target_backend().is_native()
+            && !self.input.pkg_dirs.is_stdlib_package(package)
+            && !self
+                .input
+                .pkg_dirs
+                .get_package(package)
+                .c_stub_files
+                .is_empty()
+    }
+
     fn dfs_link_core_sources(
         &self,
         target: BuildTarget,
@@ -1375,14 +1393,11 @@ impl<'a> BuildPlanConstructor<'a> {
                 stack.push((node, true));
 
                 // Gather dependencies (outgoing neighbors) and sort deterministically
+                //
+                // Injected stdlib packages are traversed as well, so only the
+                // stdlib packages reachable through imports are linked.
                 let mut deps: Vec<BuildTarget> = graph
                     .neighbors_directed(node, petgraph::Direction::Outgoing)
-                    .filter(|dep| {
-                        // Skip stdlib packages because they are always linked implicitly
-                        // only when stdlib is injected. When building stdlib itself, keep them.
-                        self.config.stdlib_path.is_none()
-                            || !self.input.pkg_dirs.is_stdlib_package(dep.package)
-                    })
                     .collect();
 
                 if curr == target
@@ -1425,10 +1440,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
                         // Record emitted and collect c-stub if necessary
                         emitted.insert(cur);
-                        let pkg = self.input.pkg_dirs.get_package(cur.package);
-                        if self.config.backend.target_backend().is_native()
-                            && !pkg.c_stub_files.is_empty()
-                        {
+                        if self.links_c_stubs_of(cur.package) {
                             c_stub_deps.insert(cur.package);
                         }
                         continue;
@@ -1452,8 +1464,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 emitted.insert(cur);
                 trace!(?cur, "Post-order: emitted");
 
-                if self.config.backend.target_backend().is_native() && !pkg.c_stub_files.is_empty()
-                {
+                if self.links_c_stubs_of(cur.package) {
                     c_stub_deps.insert(cur.package);
                 }
             }
