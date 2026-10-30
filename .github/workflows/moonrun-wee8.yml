@@ -21,10 +21,10 @@ name: Moonrun wee8
 on:
   push:
     branches: [main]
-    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml']
+    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
   pull_request:
     branches: [main]
-    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml']
+    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
 
 permissions:
   contents: read
@@ -54,6 +54,8 @@ jobs:
         with:
           toolchain: 1.95.0
           components: clippy, rustfmt
+      - name: Remove unused Rust toolchains
+        run: bash .github/scripts/prune-rust-toolchains.sh
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # Keep this cache separate and exclude target/, which holds libwee8.a
