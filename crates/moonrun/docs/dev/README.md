@@ -6,6 +6,9 @@
   embedding interfaces, host imports, virtualized state, or authorization. It
   defines ownership, the three host-operation layers, authority mapping, and
   current enforcement gaps under [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
+- [Process preparation](design/runtime-architecture.md#virtualization-and-inheritance):
+  caller versus child lookup inputs, frozen Unix search, explicit Windows images,
+  and the current limits of lexical process authorization.
 - [Architecture tracking](architecture-tracking.md): the current ownership and
   execution milestone after recursive virtual process trees, and deferred work.
 - [Host handles](host-handles.md): registration, validation, owning tables, and

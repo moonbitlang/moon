@@ -101,8 +101,10 @@ The environment interface owned by one Runtime and shared by MoonBit
 environment imports, WASI environment calls, temporary-directory resolution,
 and child inheritance. Provisioning rules may determine its initial contents
 and are consumed during construction. The realized Env is then Runtime State.
-Ambient retains process-environment write-through for guest-reachable effects
-that do not yet cross Env.
+Ambient retains process-environment write-through and native lookup observation
+points wherever the native primitive can express the Runtime's cwd. Owned Env is an explicit
+virtual environment and supplies lookup inputs; an absent PATH remains part of
+that state rather than falling back to the host environment.
 _Avoid_: Mutable policy, per-import environment map
 
 **Runtime Stdio**:
@@ -125,11 +127,15 @@ _Avoid_: Moonrun Policy, FFI permissions
 **Runtime Working Directory**:
 The working-directory behavior owned by one Runtime and used by cwd-dependent
 Host domains and backend adapters. `Ambient` preserves historical behavior by
-observing or inheriting the process current directory at the same execution
-points as before this seam. `Fixed` resolves relative paths against a supplied
-directory without changing process cwd. It does not grant filesystem access,
-retain a directory handle, or confine native children. New modes belong behind
-this seam rather than in individual domain call sites.
+observing or inheriting the process current directory at native execution
+points. An interpreted process lookup captures the directory when preparing
+its explicit inputs. `Fixed` resolves relative paths against a supplied
+directory without changing process cwd. It is caller-cwd virtualization,
+separate from an optional child-cwd override. Host Process uses native child
+chdir where it implements this state, or interprets executable lookup where
+the native API would still observe the host caller directory. It does not grant
+filesystem access, retain a directory handle, or confine native children. New
+modes belong behind this seam rather than in individual domain call sites.
 _Avoid_: sandbox root, virtual filesystem root, captured cwd
 
 **Host Filesystem**:
@@ -156,16 +162,25 @@ _Avoid_: V8 network, Async Host network
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed process operations. It owns Process Job payloads,
 authorization and final configuration (including cwd and default stdio),
-result interpretation, and child-process authority. Native execution stays
-behind its private Ambient Process
-implementation. The Async Host owns guest Handles and worker lifecycle; the
-thread pool only schedules Process Jobs and delivers their Completions.
+result interpretation, and child-process authority. For native execution,
+Ambient Env and Ambient cwd preserve native lookup on every platform. Linux
+can also express Fixed cwd through native child chdir; Darwin and Windows
+require explicit lookup for Fixed cwd. Owned Env requires explicit
+interpretation. Policy presence does not select this path. Virtual Moon derivation always uses explicit lookup
+inputs because Engine executes it instead of a native OS spawn. Pure candidate
+generation is separate from OS observation and execution, which stay behind
+the private Ambient Process implementation. The Async Host owns guest Handles and worker
+lifecycle; the thread pool only schedules Process Jobs and delivers their
+Completions.
 _Avoid_: V8 process, thread-pool process
 
 **Ambient Process**:
 The private operating-system implementation inside Host Process. It preserves
 native spawn, executable lookup, wait, cancellation, and error behavior while
-hiding Unix and Windows details below the Host Process seam. It is not a
+hiding Unix and Windows details below the Host Process seam. It performs OS
+observations for interpreted lookup and executes explicit plans when the
+Runtime's state requires them. It does not decide which Runtime state to use;
+pure candidate generation has no OS dependencies. It is not a
 general process adapter interface; such an interface becomes useful only when
 another execution implementation exists.
 _Avoid_: Host Process, process adapter interface, virtual process

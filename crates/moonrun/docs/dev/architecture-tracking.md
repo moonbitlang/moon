@@ -42,8 +42,14 @@ wrappers or deprecation stages. Complex executable discovery is deferred.
   explicit empty environment. Select Native or Virtual guest process behavior
   independently of thread placement. Only Virtual host entries capture missing
   root inputs; guest derivation supplies complete Runtime inputs.
-- [ ] Make the regular Host Process path prepare the operation before execution,
+- [x] Make the regular Host Process path prepare the operation before execution,
   with clear ownership of interpretation, authorization, and admission.
+- [x] Preserve native execution lookup wherever the primitive expresses the
+  Runtime state: fully Ambient on every platform, and Ambient Env with Fixed
+  cwd on Linux. Interpret Fixed cwd on Darwin and Windows instead of leaking
+  host caller-directory behavior. Separate pure lookup calculation from OS
+  observations and Host Process orchestration; interpreted Linux PATH search
+  uses one child.
 
 Each independently reviewable change should test its intended behavior through
 its execution interface. Existing virtual interfaces and tests do not impose a
@@ -60,30 +66,46 @@ relationships, control, and completion, so it does not retain Runtime through an
 Engine ownership cycle. The public tree wrapper and internal command module
 have been removed.
 
-This completes the library-interface and configuration slice. The general
-Host Process path still separates policy checks from final operation
-configuration and executable resolution. Its remaining work may revise the
-experimental interfaces to clarify ownership; permission coverage has not
-expanded with this refactor.
+This completes the ownership and execution milestone. Host Process now prepares
+native and virtual requests through one entry: existing lexical authorization,
+Runtime state interpretation and child configuration, then a single-use
+execution payload. Native lookup remains with libc or CreateProcessW when
+both Env and cwd are Ambient. Linux can also express Fixed cwd with child
+chdir. Darwin and Windows need explicit lookup for Fixed cwd because their
+native primitives still observe the host caller directory. Policy presence
+does not select this path. Owned Env supplies caller lookup inputs, including
+absent PATH; child Env is separate. Virtual Moon derivation requires a plan
+because Engine executes it instead of a native OS spawn. Interpreted lookup
+captures cwd only when relative candidates need a base or Engine needs a
+complete child configuration. Absolute lookup may inherit Ambient cwd without
+requiring a recoverable pathname. The architecture guide records the native
+reference, deliberate virtualization choices, and downstream async contract.
+
+`process/spawn.rs` owns interpretation, authorization, and binding;
+`process/lookup.rs` is pure candidate calculation with explicit inputs;
+`process/ambient/lookup.rs` supplies OS observations. The split remains inside
+the crate. Linux executes a prepared PATH search with one child and an execve
+loop, while native Ambient search stays with libc. Permission coverage has not
+expanded.
+The remaining native execution and helper cancellation work can build on these
+boundaries without moving Runtime interpretation into ABI adapters or workers.
 
 ## Follow-up order
 
-1. Finish Host Process preparation so interpretation, authorization, and
-   admission use one resolved operation. Preserve current policy coverage.
-2. Manage preparation helpers and their compiler descendants as owned work;
+1. Manage preparation helpers and their compiler descendants as owned work;
    cancel them without admitting the delivered program afterwards. Give the CLI
    a session-level shutdown contract, including adopted descendants.
-3. Execute native programs and Node through shared supervision. Define ambient
+2. Execute native programs and Node through shared supervision. Define ambient
    versus constrained native authority and preserve artifact dependencies and
    execution location.
    Add external Moon/moonx delegation only with an explicit execution and
    authority contract behind Engine's interface.
-4. Extend total authorization and monotonic child restrictions, including WASI
+3. Extend total authorization and monotonic child restrictions, including WASI
    grants and explicit resource delegation.
-5. Complete executable lookup compatibility, Windows special paths, trusted
+4. Complete executable lookup compatibility, Windows special paths, trusted
    Moon identification, and stable file identity as required by the isolation
    contract.
-6. Add cancellation to synchronous host operations individually. Completion
+5. Add cancellation to synchronous host operations individually. Completion
    continues to require actual teardown.
 
 Concrete isolation problems on normal paths may be fixed independently. In
@@ -105,3 +127,21 @@ These follow-ups do not all belong in the current milestone.
 - `run` and `spawn` preserve the selected guest process mode; Engine clones
   share control while new Engines have independent namespaces. Explicit empty
   environments do not fall back to host values.
+- Native Ambient lookup preserves platform observation timing. Native-control
+  regressions compare caller/child cwd behavior on each platform, including
+  relative PATH entries. Separate Runtime tests exercise Fixed caller cwd and
+  an independent child-cwd override; native fidelity alone does not prove cwd
+  virtualization. Selection depends on Runtime state and platform behavior,
+  not policy presence.
+- Interpreted preparation uses caller Runtime PATH independently of child Env,
+  resolves cwd according to the platform, and preserves lexical policy denial
+  before lookup or transfer-file effects. Execution does not reinterpret its
+  plan using later Runtime values. Cwd is captured only when required by the
+  plan; otherwise the native operation can inherit it. Pure lookup tests need no OS or
+  filesystem fixtures; execution tests cover Linux candidate retries within
+  one child process.
+
+- Spawn preparation failures follow async's completion/errno/free sequence;
+  result handles are read only after success. Native controls cover the Linux
+  compatibility executor's raw argv/envp and error behavior, plus Windows
+  empty and NUL-terminated native strings.

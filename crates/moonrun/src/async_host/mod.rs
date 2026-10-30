@@ -3562,34 +3562,20 @@ impl AsyncHost {
     }
 
     fn run_policy_checked_job(filesystem: &HostFs, process: &HostProcess, job: &mut Job) {
-        if let Err(error) = Self::check_job_policy(filesystem, process, job) {
+        let preparation = match job.payload_mut() {
+            JobPayload::Filesystem(fs_job) => fs_job.check_policy(filesystem).map(|()| {
+                fs_job.configure_paths(filesystem);
+            }),
+            JobPayload::Process(process_job) => process.prepare_job(process_job),
+            _ => Ok(()),
+        };
+        if let Err(error) = preparation {
             job.set_err(error.errno());
             return;
-        }
-        if let Ok(process_job) = job.process_mut()
-            && let Err(error) = process.configure_job_for_execution(process_job)
-        {
-            job.set_err(error.errno());
-            return;
-        }
-        if let JobPayload::Filesystem(fs_job) = job.payload_mut() {
-            fs_job.configure_paths(filesystem);
         }
         thread_pool::run_host_job(job);
         if let Err(error) = Self::finish_process_job(process, job) {
             job.set_err(error.errno());
-        }
-    }
-
-    fn check_job_policy(
-        filesystem: &HostFs,
-        process: &HostProcess,
-        job: &Job,
-    ) -> AsyncHostResult<()> {
-        match job.payload() {
-            JobPayload::Filesystem(job) => job.check_policy(filesystem),
-            JobPayload::Process(job) => process.check_job(job),
-            _ => Ok(()),
         }
     }
 
@@ -4593,6 +4579,361 @@ mod tests {
     }
 
     #[test]
+    fn failed_spawn_worker_reports_error_and_frees_without_a_result_handle() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy_file = directory.path().join("deny.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let program = directory.path().join("missing-executable.exe");
+        for denied in [true, false] {
+            let host = if denied {
+                host_with_policy(&policy_file)
+            } else {
+                default_host()
+            };
+            let poll = host.poll_create().unwrap();
+            let completion_source = host.init_thread_pool(poll).unwrap();
+            let resources = resource_count(&host);
+            #[cfg(unix)]
+            let spawn = ProcessJob::spawn_unix(
+                program.as_os_str().to_owned(),
+                vec![program.as_os_str().to_owned()],
+                Vec::new(),
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    child_signal_mask: unsafe { std::mem::zeroed() },
+                },
+            );
+            #[cfg(windows)]
+            let spawn = ProcessJob::spawn_windows(
+                format!("\"{}\"", program.display()).into(),
+                vec![0, 0],
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    no_console_window: true,
+                    is_orphan: true,
+                },
+            );
+            let job = host.insert_job(spawn).unwrap();
+            let worker = host.spawn_worker(42, job).unwrap();
+
+            assert_eq!(host.poll_wait(poll, 1000, &Default::default()), Ok(1));
+            #[cfg(unix)]
+            {
+                let mut memory = [0; 4];
+                assert_eq!(
+                    host.fetch_completion(memory.as_mut_slice(), completion_source, 0, 1),
+                    Ok(4)
+                );
+                assert_eq!(i32::from_le_bytes(memory), 42);
+            }
+            #[cfg(windows)]
+            {
+                let event = host.poll_get_event(poll, 0).unwrap();
+                assert_eq!(host.poll_event_fd(event).unwrap(), completion_source);
+                assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+            }
+
+            let expected_error = if denied {
+                AsyncHostError::PermissionDenied.errno()
+            } else {
+                #[cfg(unix)]
+                let error = libc::ENOENT;
+                #[cfg(windows)]
+                let error = windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND as i32;
+                error
+            };
+            // async's perform_job_in_worker raises on job.err before the spawn
+            // wrapper reads a result handle. Its deferred free must work for
+            // both preparation failure and failure in native process creation.
+            assert_eq!(host.with_job(job, |job| job.err()), Ok(expected_error));
+            assert_eq!(host.with_job(job, |job| job.ret()), Ok(-1));
+            host.free_job(job).unwrap();
+            assert_eq!(
+                host.with_job(job, |job| job.err()),
+                Err(AsyncHostError::Badf)
+            );
+            assert_eq!(resource_count(&host), resources);
+            host.free_worker(worker).unwrap();
+            host.destroy_thread_pool();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_spawn_uses_runtime_path_without_replacing_child_environment() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let caller_bin = directory.path().join("caller-bin");
+        let child_bin = directory.path().join("child-bin");
+        std::fs::create_dir(&caller_bin).unwrap();
+        std::fs::create_dir(&child_bin).unwrap();
+        let program = "moonrun-owned-path-probe";
+        for (bin, code) in [(&caller_bin, 17), (&child_bin, 29)] {
+            let executable = bin.join(program);
+            std::fs::write(
+                &executable,
+                format!(
+                    "#!/bin/sh\ntest \"$PATH\" = \"$EXPECTED_CHILD_PATH\" || exit 91\ntest \"$1\" = allowed || exit 92\nexit {code}\n"
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let environment = Env::owned([("PATH".into(), caller_bin.into_os_string())]).unwrap();
+        let (policy, _) = policy::load_inherited_json(
+            br#"{"process":{"allow":[{"program":"moonrun-owned-path-probe","args_prefix":["allowed"]}]}}"#,
+            &environment,
+        )
+        .unwrap();
+        let host = test_host(policy, environment);
+        let mut spawn: Job = ProcessJob::spawn_unix(
+            program.into(),
+            vec![program.into(), "allowed".into()],
+            vec![
+                format!("PATH={}", child_bin.display()).into(),
+                format!("EXPECTED_CHILD_PATH={}", child_bin.display()).into(),
+            ],
+            None,
+            None,
+            None,
+            None,
+            SpawnOptions {
+                child_signal_mask: unsafe { std::mem::zeroed() },
+            },
+        )
+        .into();
+
+        AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut spawn);
+        assert_eq!(spawn.err(), 0, "spawn must search the Runtime's owned PATH");
+        let mut wait: Job = host
+            .process
+            .wait_job(None, None, spawn.ret() as i32)
+            .unwrap()
+            .into();
+        AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut wait);
+        assert_eq!(wait.err(), 0);
+        assert_eq!(wait.ret(), 17, "child PATH must not select the executable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_spawn_resolves_relative_paths_at_the_fixed_child_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(directory.path()).unwrap();
+        for (cwd, code) in [(root.clone(), 17), (root.join("child"), 29)] {
+            std::fs::create_dir_all(cwd.join("bin")).unwrap();
+            let executable = cwd.join("bin/moonrun-relative-path-probe");
+            std::fs::write(
+                &executable,
+                format!("#!/bin/sh\ntest \"$PWD\" = \"$EXPECTED_CWD\" || exit 91\nexit {code}\n"),
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let host = test_host_with_working_directory(
+            Policy::allow_all(),
+            Env::owned([("PATH".into(), "bin".into())]).unwrap(),
+            WorkingDirectory::Fixed(root.clone()),
+        );
+        for (program, child_cwd, expected_cwd, expected_code) in [
+            ("moonrun-relative-path-probe", None, root.clone(), 17),
+            (
+                "moonrun-relative-path-probe",
+                Some("child"),
+                root.join("child"),
+                29,
+            ),
+            (
+                "bin/moonrun-relative-path-probe",
+                Some("child"),
+                root.join("child"),
+                29,
+            ),
+        ] {
+            let mut spawn: Job = ProcessJob::spawn_unix(
+                program.into(),
+                vec![program.into()],
+                vec![format!("EXPECTED_CWD={}", expected_cwd.display()).into()],
+                None,
+                None,
+                None,
+                child_cwd.map(Into::into),
+                SpawnOptions {
+                    child_signal_mask: unsafe { std::mem::zeroed() },
+                },
+            )
+            .into();
+            AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut spawn);
+            assert_eq!(spawn.err(), 0, "program={program}, child_cwd={child_cwd:?}");
+            let mut wait: Job = host
+                .process
+                .wait_job(None, None, spawn.ret() as i32)
+                .unwrap()
+                .into();
+            AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut wait);
+            assert_eq!(wait.err(), 0);
+            assert_eq!(wait.ret(), expected_code);
+        }
+    }
+
+    #[test]
+    fn process_spawn_denial_precedes_lookup_and_policy_transfer() {
+        const CHILD: &str = "MOONRUN_DENIED_SPAWN_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let directory = tempfile::tempdir().unwrap();
+            let missing = directory.path().join("missing");
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "async_host::tests::process_spawn_denial_precedes_lookup_and_policy_transfer",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .env("TMPDIR", &missing)
+                .env("TMP", &missing)
+                .env("TEMP", &missing)
+                .timeout(std::time::Duration::from_secs(10))
+                .assert()
+                .success();
+            return;
+        }
+
+        // The request would fail both executable lookup and inheritance-file
+        // creation. Neither failure may replace the earlier policy denial.
+        let environment =
+            Env::owned([("PATH".into(), std::env::temp_dir().into_os_string())]).unwrap();
+        let (policy, _) = policy::load_inherited_json(b"{}", &environment).unwrap();
+        let host = test_host(policy, environment);
+        #[cfg(unix)]
+        let mut spawn: Job = ProcessJob::spawn_unix(
+            "moonx".into(),
+            vec!["moonx".into()],
+            Vec::new(),
+            None,
+            None,
+            None,
+            Some(OsString::new()),
+            SpawnOptions {
+                child_signal_mask: unsafe { std::mem::zeroed() },
+            },
+        )
+        .into();
+        #[cfg(windows)]
+        let mut spawn: Job = ProcessJob::spawn_windows(
+            "moonx.exe".into(),
+            vec![0, 0],
+            None,
+            None,
+            None,
+            Some(OsString::new()),
+            SpawnOptions {
+                no_console_window: true,
+                is_orphan: true,
+            },
+        )
+        .into();
+
+        let resources = resource_count(&host);
+        AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut spawn);
+        assert_eq!(spawn.ret(), -1);
+        assert_eq!(spawn.err(), AsyncHostError::PermissionDenied.errno());
+        assert_eq!(resource_count(&host), resources);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn process_spawn_windows_uses_caller_directory_before_child_directory() {
+        use std::os::windows::ffi::OsStrExt;
+
+        const CHILD: &str = "MOONRUN_WINDOWS_SPAWN_LOOKUP_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let expected = std::path::PathBuf::from(std::env::var_os(CHILD).unwrap());
+            assert_eq!(
+                dunce::canonicalize(std::env::current_exe().unwrap().parent().unwrap()).unwrap(),
+                dunce::canonicalize(&expected).unwrap()
+            );
+            assert_eq!(
+                dunce::canonicalize(std::env::current_dir().unwrap()).unwrap(),
+                dunce::canonicalize(expected.join("child")).unwrap()
+            );
+            return;
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(directory.path()).unwrap();
+        let child_directory = root.join("child");
+        std::fs::create_dir(&child_directory).unwrap();
+        for bin in [&root, &child_directory] {
+            std::fs::copy(
+                std::env::current_exe().unwrap(),
+                bin.join("moonrun-caller-directory-probe.exe"),
+            )
+            .unwrap();
+        }
+        let host = test_host_with_working_directory(
+            Policy::allow_all(),
+            Env::owned([]).unwrap(),
+            WorkingDirectory::Fixed(root.clone()),
+        );
+        let env = [
+            format!("{CHILD}={}", root.display()),
+            format!("PATH={}", child_directory.display()),
+        ]
+        .into_iter()
+        .flat_map(|entry| {
+            OsString::from(entry)
+                .encode_wide()
+                .chain([0])
+                .collect::<Vec<_>>()
+        })
+        .chain([0])
+        .collect::<Vec<_>>();
+        // Missing Runtime PATH still permits the platform's system-directory
+        // search, but a child's cwd/PATH never replace the caller's search cwd.
+        for (command_line, expected_code) in [
+            ("cmd.exe /D /C exit 17".to_owned(), 17),
+            ("moonrun-caller-directory-probe.exe --exact async_host::tests::process_spawn_windows_uses_caller_directory_before_child_directory --nocapture".to_owned(), 0),
+            ("moonrun-caller-directory-probe --exact async_host::tests::process_spawn_windows_uses_caller_directory_before_child_directory --nocapture".to_owned(), 0),
+            (".\\moonrun-caller-directory-probe.exe --exact async_host::tests::process_spawn_windows_uses_caller_directory_before_child_directory --nocapture".to_owned(), 0),
+        ] {
+            let mut spawn: Job = ProcessJob::spawn_windows(
+                command_line.clone().into(),
+                env.clone(),
+                None,
+                None,
+                None,
+                Some("child".into()),
+                SpawnOptions { no_console_window: true, is_orphan: true },
+            )
+            .into();
+            AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut spawn);
+            assert_eq!(spawn.err(), 0, "command_line={command_line}");
+            let Some(ResourcePublication::Unpublished(handle)) =
+                spawn.process_mut().unwrap().take_spawn_result().unwrap()
+            else {
+                panic!("Windows spawn did not return a process handle");
+            };
+            let mut wait: Job = host
+                .process
+                .wait_job(Some(Arc::new(handle)), None, spawn.ret() as i32)
+                .unwrap()
+                .into();
+            AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut wait);
+            assert_eq!(wait.err(), 0);
+            assert_eq!(wait.ret(), expected_code, "command_line={command_line}");
+        }
+    }
+
+    #[test]
     fn process_policy_tracks_spawned_children_until_wait_completes() {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
@@ -4727,6 +5068,9 @@ mod tests {
         let host = host_with_policy(&policy_file);
         let pid = 1001;
         let mut job = successful_process_job();
+        host.process
+            .prepare_job(job.process_mut().unwrap())
+            .unwrap();
         job.set_ret(i64::from(pid));
         host.process.track_owned_child(pid);
         let job = host.insert_job(job).unwrap();
@@ -5085,6 +5429,9 @@ mod tests {
         std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
         let host = host_with_policy(&policy_file);
         let mut job = successful_process_job();
+        host.process
+            .prepare_job(job.process_mut().unwrap())
+            .unwrap();
         job.set_ret(i64::from(0x8000_0000u32));
 
         AsyncHost::finish_process_job(&host.process, &job).unwrap();

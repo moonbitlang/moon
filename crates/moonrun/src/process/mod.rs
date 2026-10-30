@@ -26,7 +26,11 @@
 
 mod ambient;
 mod job;
+mod lookup;
 mod moon;
+mod spawn;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -136,10 +140,6 @@ impl HostProcess {
         ));
     }
 
-    pub(crate) fn check_job(&self, job: &Job) -> AsyncHostResult<()> {
-        job.check_policy(self)
-    }
-
     pub(crate) fn wait_job(
         &self,
         handle: Option<ResourceRef>,
@@ -174,25 +174,10 @@ impl HostProcess {
         )
     }
 
-    /// Apply Runtime-owned configuration to an authorized process job.
-    ///
-    /// A spawn job already contains any cwd explicitly supplied by the guest.
-    /// The Runtime Working Directory gets the final chance to adjust that
-    /// value before worker execution. Ambient deliberately leaves it alone,
-    /// including `None`, so the operating system observes its current
-    /// directory at spawn time. Guest-supplied standard streams also remain
-    /// authoritative; the Runtime binding resolves only missing child streams
-    /// immediately before native execution.
-    pub(crate) fn configure_job_for_execution(&self, job: &mut Job) -> AsyncHostResult<()> {
-        job.configure_working_directory(&self.working_directory);
-        job.configure_stdio(&self.stdio)?;
-        // Authorization is complete, so the job may retain the immutable
-        // inheritance payload. Direct-moonx recognition, temporary-file I/O,
-        // handle duplication, and reserved env replacement stay in the spawn
-        // job.
-        job.set_policy_inheritance(self.policy_inheritance.clone());
-        job.configure_virtual_spawn(self.context.clone(), &self.environment)?;
-        Ok(())
+    /// Interpret and authorize a job once, before handing owned execution
+    /// inputs to an OS primitive or the Engine's virtual child admission.
+    pub(crate) fn prepare_job(&self, job: &mut Job) -> AsyncHostResult<()> {
+        job.prepare(self)
     }
 
     pub(crate) fn finish_job(&self, job: &Job, ret: i64, err: i32) -> AsyncHostResult<()> {
