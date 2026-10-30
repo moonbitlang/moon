@@ -48,10 +48,11 @@ pub(crate) struct Policy {
     fs: Option<FsPolicy>,
     net: Option<NetPolicy>,
     process: Option<ProcessPolicy>,
+    tty: bool,
     policy_inheritance: Option<PolicyInheritance>,
 }
 
-fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
+pub(crate) fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
     if let Some(target) = target {
         eprintln!("Sandbox policy blocked {action}: {target}");
     } else {
@@ -66,8 +67,14 @@ impl Policy {
             fs: None,
             net: None,
             process: None,
+            tty: true,
             policy_inheritance: None,
         }
+    }
+
+    /// Whether the guest may open the controlling terminal.
+    pub(crate) fn allows_tty(&self) -> bool {
+        self.tty
     }
 
     pub(crate) fn take_filesystem_policy(&mut self) -> Option<FsPolicy> {
@@ -140,6 +147,7 @@ fn realize_config(
             fs,
             net,
             process,
+            tty: config.tty,
             policy_inheritance: Some(policy_inheritance),
         },
         env_provisioning,
@@ -268,6 +276,7 @@ mod tests {
                     spawn: true,
                     ..Default::default()
                 }),
+                tty: false,
             },
             tmp.path(),
         )
@@ -409,6 +418,7 @@ fn main {}
                     spawn: true,
                     allow: Vec::new(),
                 }),
+                tty: true,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -433,6 +443,7 @@ fn main {}
         assert!(env.required_from_host.is_empty());
         assert!(env.set.is_empty());
         assert!(inherited.process.unwrap().spawn);
+        assert!(inherited.tty);
     }
 
     #[test]
@@ -485,6 +496,7 @@ fn main {}
                 net: Some(Default::default()),
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -505,6 +517,7 @@ fn main {}
                 net: None,
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -537,6 +550,7 @@ fn main {}
                 net: None,
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -557,6 +571,7 @@ fn main {}
                 net: Some(Default::default()),
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -577,6 +592,7 @@ fn main {}
                 net: None,
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -642,6 +658,34 @@ fn main {}
         check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")]).unwrap();
         #[cfg(windows)]
         check_process_spawn(policy, OsStr::new("program.exe")).unwrap();
+    }
+
+    #[test]
+    fn no_policy_allows_the_terminal() {
+        assert!(Policy::allow_all().allows_tty());
+    }
+
+    #[test]
+    fn missing_tty_denies_the_terminal_in_policy_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (policy, _) = realize_config(PolicyConfig::default(), tmp.path()).unwrap();
+
+        assert!(!policy.allows_tty());
+    }
+
+    #[test]
+    fn tty_can_allow_the_terminal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (policy, _) = realize_config(
+            PolicyConfig {
+                tty: true,
+                ..PolicyConfig::default()
+            },
+            tmp.path(),
+        )
+        .unwrap();
+
+        assert!(policy.allows_tty());
     }
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {

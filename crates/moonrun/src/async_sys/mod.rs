@@ -29,6 +29,7 @@ pub(crate) mod os_error;
 pub(crate) mod process;
 pub(crate) mod signal;
 pub(crate) mod socket;
+pub(crate) mod tty;
 
 #[cfg(test)]
 #[allow(dead_code)]

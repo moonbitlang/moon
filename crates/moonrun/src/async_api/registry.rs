@@ -21,7 +21,7 @@ use super::context::ImportContext;
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
-    random, runtime, signal, socket, stdio, thread_pool, time, tls,
+    random, runtime, signal, socket, stdio, thread_pool, time, tls, tty,
 };
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::runtime::Runtime;
@@ -1081,6 +1081,17 @@ declare_async_imports! {
     helper thread_pool::get_read_console_result(job: u64, dst: u32, offset: u32, len: u32) -> void => "thread_pool/get_read_console_result";
 
     helper thread_pool::get_read_result(job: u64, dst: u32, offset: u32, len: u32) -> void => "thread_pool/get_read_result";
+
+    // The controlling terminal, following src/tty/tty.c and
+    // src/internal/event_loop/tty.c on async's tty branch, outside the pinned revision.
+    // On Unix the guest reads the terminal Handle through the event bus. Windows
+    // console reads copy results with `get_read_console_result`.
+    helper thread_pool::make_tty_read_console_input_job(input: u64, len: u32) -> u64 => "thread_pool/make_tty_read_console_input_job";
+    helper thread_pool::tty_read_console_input_job_get_resized(job: u64) -> i32 => "thread_pool/tty_read_console_input_job_get_resized";
+    helper tty::open(dst: u32, len: u32) -> i32 => "tty/open";
+    helper tty::get_state(input: u64, output: u64, dst: u32) -> i32 => "tty/get_state";
+    helper tty::set_state(input: u64, output: u64, src: u32) -> i32 => "tty/set_state";
+    helper tty::size(output: u64) -> i64 => "tty/size";
 
     compat thread_pool::make_file_kind_by_path_job(
         parent: u64,

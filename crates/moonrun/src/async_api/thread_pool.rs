@@ -355,6 +355,37 @@ pub(super) fn make_write_console_job(
         .insert_job(FilesystemJob::write_console(file, data))
 }
 
+// Counts are UTF-16 code units, as for `make_read_console_job`. A closed
+// terminal passes an invalid Handle; like the native worker's EBADF, that
+// fails the Job instead of trapping. So does failing to create the Job's
+// cancellation event.
+pub(super) fn make_tty_read_console_input_job(
+    context: &mut ImportContext<'_>,
+    input: u64,
+    len: u32,
+) -> AsyncHostResult<u64> {
+    len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
+    let job = (|| {
+        let input = context
+            .host
+            .acquire_resource_of_class(input, ResourceClass::File)?;
+        FilesystemJob::tty_read_console_input(input, len)
+    })();
+    context.host.insert_job(filesystem_job_or_failed(job))
+}
+
+/// Whether a resize was read along with the input a console input Job
+/// returned.
+pub(super) fn tty_read_console_input_job_get_resized(
+    context: &mut ImportContext<'_>,
+    job: u64,
+) -> AsyncHostResult<i32> {
+    context
+        .host
+        .with_job(job, |job| job.filesystem()?.tty_read_console_input_resized())?
+        .map(i32::from)
+}
+
 pub(super) fn get_read_console_result(
     context: &mut ImportContext<'_>,
     job: u64,

@@ -21,6 +21,7 @@
 mod console;
 mod runner;
 mod stat;
+mod tty;
 
 pub(crate) use stat::stdio_kind;
 
@@ -117,6 +118,16 @@ enum Kind {
     WriteConsole {
         file: Option<ResourceRef>,
         data: Vec<u16>,
+    },
+    TtyReadConsoleInput {
+        input: Option<ResourceRef>,
+        // Set by cancellation, created along with the Job.
+        #[cfg(windows)]
+        cancel: ResourceRef,
+        len: u32,
+        result: Option<Vec<u16>>,
+        // A resize read along with the returned input.
+        resized: bool,
     },
     FileKindByPath {
         parent: Option<ResourceRef>,
@@ -345,6 +356,19 @@ impl Job {
         }
     }
 
+    pub(crate) fn tty_read_console_input(input: ResourceRef, len: u32) -> AsyncHostResult<Self> {
+        Ok(Self {
+            kind: Kind::TtyReadConsoleInput {
+                input: Some(input),
+                #[cfg(windows)]
+                cancel: std::sync::Arc::new(tty::make_cancel_event()?),
+                len,
+                result: None,
+                resized: false,
+            },
+        })
+    }
+
     pub(crate) fn file_kind_by_path(
         parent: Option<ResourceRef>,
         path: OsString,
@@ -538,6 +562,7 @@ impl Job {
             | Kind::Write { .. }
             | Kind::ReadConsole { .. }
             | Kind::WriteConsole { .. }
+            | Kind::TtyReadConsoleInput { .. }
             | Kind::Fsync { .. }
             | Kind::Readdir { .. } => Ok(()),
         }
@@ -611,6 +636,24 @@ impl Job {
             },
             Kind::WriteConsole { file, data } => match file.take() {
                 Some(file) => console::write(&file, data),
+                None => Err(AsyncHostError::Badf),
+            },
+            Kind::TtyReadConsoleInput {
+                input,
+                #[cfg(windows)]
+                cancel,
+                len,
+                result,
+                resized,
+            } => match input.take() {
+                Some(input) => tty::read_console_input(
+                    &input,
+                    #[cfg(windows)]
+                    cancel,
+                    *len,
+                    result,
+                    resized,
+                ),
                 None => Err(AsyncHostError::Badf),
             },
             Kind::FileKindByPath {
@@ -692,6 +735,21 @@ impl Job {
             Kind::Realpath { path, result } => {
                 runner::run_realpath_job(std::mem::take(path), result)
             }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn cancellation_resource(&self) -> Option<ResourceRef> {
+        match &self.kind {
+            Kind::TtyReadConsoleInput { cancel, .. } => Some(cancel.clone()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn tty_read_console_input_resized(&self) -> AsyncHostResult<bool> {
+        match &self.kind {
+            Kind::TtyReadConsoleInput { resized, .. } => Ok(*resized),
+            _ => Err(AsyncHostError::Badf),
         }
     }
 
@@ -819,10 +877,14 @@ impl Job {
         if job_error != 0 {
             return Ok(());
         }
-        let Kind::ReadConsole {
+        let (Kind::ReadConsole {
             result: Some(result),
             ..
-        } = &self.kind
+        }
+        | Kind::TtyReadConsoleInput {
+            result: Some(result),
+            ..
+        }) = &self.kind
         else {
             return Err(AsyncHostError::Badf);
         };

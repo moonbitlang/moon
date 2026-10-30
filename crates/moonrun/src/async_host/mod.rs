@@ -72,6 +72,7 @@ compile_error!("moonrun async wasm host currently supports only Linux, macOS, an
 compile_error!("moonrun async wasm host requires little-endian host memory");
 
 pub(crate) mod tls;
+mod tty;
 mod workers;
 
 use workers::InstanceWorkers;
@@ -1075,6 +1076,7 @@ pub(crate) struct AsyncHost {
     filesystem: Arc<HostFs>,
     environment: Arc<Env>,
     network: HostNetwork,
+    tty_allowed: bool,
     errno: Cell<i32>,
     addr_infos: RefCell<Handles<HostAddrInfo>>,
     c_buffers: RefCell<Handles<HostCBuffer>>,
@@ -1109,6 +1111,7 @@ impl AsyncHost {
         filesystem: Arc<HostFs>,
         network: HostNetwork,
         process: HostProcess,
+        tty_allowed: bool,
         keys: Rc<RefCell<HostKeys>>,
         signals: SignalReceiver,
         #[cfg(unix)] child_signal_mask: libc::sigset_t,
@@ -1117,6 +1120,7 @@ impl AsyncHost {
             filesystem,
             environment,
             network,
+            tty_allowed,
             errno: Cell::new(0),
             addr_infos: RefCell::new(Handles::new(keys.clone(), HandleKind::AddrInfo)),
             c_buffers: RefCell::new(Handles::new(keys.clone(), HandleKind::CBuffer)),
@@ -4342,6 +4346,7 @@ mod tests {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(policy.take_network_policy());
+        let tty_allowed = policy.allows_tty();
         let stdio = Arc::new(Stdio::Ambient);
         let process = HostProcess::new(
             policy.take_process_policy(),
@@ -4363,6 +4368,7 @@ mod tests {
             filesystem,
             network,
             process,
+            tty_allowed,
             Rc::new(RefCell::new(HostKeys::default())),
             crate::signal_channel().1,
             #[cfg(unix)]
@@ -4568,6 +4574,17 @@ mod tests {
             host.spawn_job_set_cwd(sleep, OsString::from("wrong-job")),
             Err(AsyncHostError::Badf)
         );
+    }
+
+    #[test]
+    fn tty_policy_denies_opening_the_terminal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let host = host_with_policy(&policy_file);
+
+        assert_eq!(host.tty_open(), Err(AsyncHostError::PermissionDenied));
+        assert!(host.leak_summary().is_none());
     }
 
     #[test]

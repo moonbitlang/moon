@@ -225,6 +225,7 @@ impl Runtime {
         let filesystem_policy = policy.take_filesystem_policy();
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();
+        let tty_allowed = policy.allows_tty();
         let policy_inheritance = policy.take_policy_inheritance();
         let working_directory = Arc::new(match config.working_directory {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
@@ -257,6 +258,7 @@ impl Runtime {
             Arc::clone(&filesystem),
             network,
             process,
+            tty_allowed,
             Rc::clone(&keys),
             signals,
             #[cfg(unix)]
