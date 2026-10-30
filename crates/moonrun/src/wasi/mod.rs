@@ -20,6 +20,10 @@
 
 pub(crate) mod imports;
 
+#[cfg(test)]
+mod authority_tests;
+
+use crate::filesystem::{FileOpenOptions, HostFs, PathError};
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Env, Runtime, Stdio, StdioStream};
 use rand::{RngCore, rngs::OsRng};
@@ -50,6 +54,7 @@ const WASI_ERRNO_NOTDIR: WasiErrno = 54;
 const WASI_ERRNO_NOTEMPTY: WasiErrno = 55;
 const WASI_ERRNO_NOTSUP: WasiErrno = 58;
 const WASI_ERRNO_PIPE: WasiErrno = 64;
+const WASI_ERRNO_XDEV: WasiErrno = 75;
 const WASI_ERRNO_NOTCAPABLE: WasiErrno = 76;
 
 const WASI_FD_STDIN: i32 = 0;
@@ -179,6 +184,7 @@ pub(crate) struct WasiContext {
     argv: Vec<Vec<u8>>,
     environment: Arc<Env>,
     stdio: Arc<Stdio>,
+    filesystem: Arc<HostFs>,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
@@ -253,6 +259,7 @@ impl WasiContext {
             argv: build_argv(wasm_file_name, args),
             environment: Arc::clone(runtime.environment()),
             stdio: Arc::clone(runtime.stdio()),
+            filesystem: Arc::clone(runtime.filesystem()),
             preopen_dir_name: preopen_name(),
             preopen_dir_host_path,
             preopen_dir_real_path,
@@ -550,6 +557,13 @@ fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<Re
     })
 }
 
+fn path_error_to_errno(error: PathError) -> WasiErrno {
+    match error {
+        PathError::Denied => WASI_ERRNO_ACCESS,
+        PathError::Io(error) => io_error_to_errno(&error),
+    }
+}
+
 fn io_error_to_errno(error: &std::io::Error) -> WasiErrno {
     match error.kind() {
         ErrorKind::NotFound => WASI_ERRNO_NOENT,
@@ -561,6 +575,7 @@ fn io_error_to_errno(error: &std::io::Error) -> WasiErrno {
         ErrorKind::DirectoryNotEmpty => WASI_ERRNO_NOTEMPTY,
         ErrorKind::WouldBlock => WASI_ERRNO_AGAIN,
         ErrorKind::BrokenPipe => WASI_ERRNO_PIPE,
+        ErrorKind::CrossesDevices => WASI_ERRNO_XDEV,
         _ => WASI_ERRNO_IO,
     }
 }
@@ -614,7 +629,11 @@ fn enforce_path_boundary(root: &Path, path: &Path, mode: PathBoundaryMode) -> Wa
             allow_missing_final,
         } => match fs::canonicalize(path) {
             Ok(real_path) => ensure_within_root(root, &real_path),
-            Err(error) if error.kind() == ErrorKind::NotFound => match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == ErrorKind::NotFound => match fs::symlink_metadata(
+                crate::filesystem::entry_before_directory_suffix(path)
+                    .as_deref()
+                    .unwrap_or(path),
+            ) {
                 Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_NOTCAPABLE),
                 Ok(_) => Err(WASI_ERRNO_NOENT),
                 Err(metadata_error) if metadata_error.kind() == ErrorKind::NotFound => {
@@ -631,6 +650,17 @@ fn enforce_path_boundary(root: &Path, path: &Path, mode: PathBoundaryMode) -> Wa
             Err(error) => Err(io_error_to_errno(&error)),
         },
         PathBoundaryMode::ParentOnly => {
+            if crate::filesystem::entry_before_directory_suffix(path).is_some() {
+                // Directory suffixes traverse the named entry. Check its target
+                // against the preopen too, including when no policy is installed.
+                return enforce_path_boundary(
+                    root,
+                    path,
+                    PathBoundaryMode::FollowFinal {
+                        allow_missing_final: true,
+                    },
+                );
+            }
             let (ancestor_path, parent_exists) = canonical_nearest_existing_ancestor(path)?;
             ensure_within_root(root, &ancestor_path)?;
             if parent_exists {
@@ -654,7 +684,7 @@ fn entry_file_type(file_type: fs::FileType) -> u8 {
     }
 }
 
-fn collect_directory_entries(path: &Path) -> WasiResult<Vec<DirectoryEntry>> {
+fn collect_directory_entries(host_entries: fs::ReadDir) -> WasiResult<Vec<DirectoryEntry>> {
     let mut entries = vec![
         DirectoryEntry {
             name: b".".to_vec(),
@@ -666,7 +696,6 @@ fn collect_directory_entries(path: &Path) -> WasiResult<Vec<DirectoryEntry>> {
         },
     ];
 
-    let host_entries = fs::read_dir(path).map_err(|_| WASI_ERRNO_IO)?;
     for entry in host_entries {
         let entry = entry.map_err(|_| WASI_ERRNO_IO)?;
         #[cfg(unix)]
@@ -786,8 +815,10 @@ pub(crate) fn path_open_impl(
         if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
             return Err(WASI_ERRNO_INVAL);
         }
-        let metadata =
-            fs::metadata(&resolved.host_path).map_err(|error| io_error_to_errno(&error))?;
+        let metadata = context
+            .filesystem
+            .metadata(&resolved.host_path)
+            .map_err(path_error_to_errno)?;
         if !metadata.is_dir() {
             return Err(WASI_ERRNO_NOTDIR);
         }
@@ -797,18 +828,20 @@ pub(crate) fn path_open_impl(
         let wants_write = (rights_base & WASI_RIGHT_FD_WRITE) != 0;
         let append = (fdflags & WASI_FDFLAG_APPEND) != 0;
 
-        let mut options = fs::OpenOptions::new();
-        options.read(wants_read || !wants_write);
-        // Rust requires write/append when O_CREAT is set. Keep rights enforcement at WASI level.
-        options.write(wants_write || append || create_requested);
-        options.append(append);
-        options.create(create_requested);
-        options.create_new((oflags & WASI_OFLAGS_EXCL) != 0);
-        options.truncate((oflags & WASI_OFLAGS_TRUNC) != 0);
-
-        let file = options
-            .open(resolved.host_path)
-            .map_err(|error| io_error_to_errno(&error))?;
+        // Preserve native open access (including read fallback and create's
+        // write access) in the same options used by HostFs authorization.
+        let options = FileOpenOptions {
+            read: wants_read || !wants_write,
+            write: wants_write || append || create_requested,
+            append,
+            create: create_requested,
+            create_new: (oflags & WASI_OFLAGS_EXCL) != 0,
+            truncate: (oflags & WASI_OFLAGS_TRUNC) != 0,
+        };
+        let file = context
+            .filesystem
+            .open_file(&resolved.host_path, options)
+            .map_err(path_error_to_errno)?;
         DescriptorKind::File(Mutex::new(file))
     };
 
@@ -844,8 +877,10 @@ pub(crate) fn path_readlink_impl(
         &resolved.host_path,
         PathBoundaryMode::ParentOnly,
     )?;
-    let link_target =
-        fs::read_link(&resolved.host_path).map_err(|error| io_error_to_errno(&error))?;
+    let link_target = context
+        .filesystem
+        .read_link(&resolved.host_path)
+        .map_err(path_error_to_errno)?;
     #[cfg(unix)]
     let link_bytes = {
         use std::os::unix::ffi::OsStrExt;
@@ -882,7 +917,10 @@ pub(crate) fn path_create_directory_impl(
         &resolved.host_path,
         PathBoundaryMode::ParentOnly,
     )?;
-    fs::create_dir(resolved.host_path).map_err(|error| io_error_to_errno(&error))
+    context
+        .filesystem
+        .create_directory(&resolved.host_path)
+        .map_err(path_error_to_errno)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -918,8 +956,10 @@ pub(crate) fn path_rename_impl(
         &new_resolved.host_path,
         PathBoundaryMode::ParentOnly,
     )?;
-    fs::rename(old_resolved.host_path, new_resolved.host_path)
-        .map_err(|error| io_error_to_errno(&error))
+    context
+        .filesystem
+        .rename(&old_resolved.host_path, &new_resolved.host_path)
+        .map_err(path_error_to_errno)
 }
 
 pub(crate) fn path_remove_directory_impl(
@@ -939,7 +979,10 @@ pub(crate) fn path_remove_directory_impl(
         &resolved.host_path,
         PathBoundaryMode::ParentOnly,
     )?;
-    fs::remove_dir(resolved.host_path).map_err(|error| io_error_to_errno(&error))
+    context
+        .filesystem
+        .remove_empty_directory(&resolved.host_path)
+        .map_err(path_error_to_errno)
 }
 
 pub(crate) fn path_unlink_file_impl(
@@ -959,7 +1002,10 @@ pub(crate) fn path_unlink_file_impl(
         &resolved.host_path,
         PathBoundaryMode::ParentOnly,
     )?;
-    fs::remove_file(resolved.host_path).map_err(|error| io_error_to_errno(&error))
+    context
+        .filesystem
+        .unlink_file(&resolved.host_path)
+        .map_err(path_error_to_errno)
 }
 
 fn parse_poll_subscriptions(
@@ -1351,7 +1397,15 @@ pub(crate) fn fd_readdir_impl(
 ) -> WasiResult<()> {
     require_fd_right(context, fd, WASI_RIGHT_FD_READDIR)?;
     let dir_path = dir_path_for_fd(context, fd)?;
-    let entries = collect_directory_entries(&dir_path)?;
+    let directory = context
+        .filesystem
+        .read_directory(&dir_path)
+        .map_err(|error| match error {
+            PathError::Denied => WASI_ERRNO_ACCESS,
+            // Preserve the existing WASI enumeration error contract for native IO.
+            PathError::Io(_) => WASI_ERRNO_IO,
+        })?;
+    let entries = collect_directory_entries(directory)?;
     let start = usize::try_from(cookie).map_err(|_| WASI_ERRNO_INVAL)?;
     let buf_len = usize::try_from(buf_len).map_err(|_| WASI_ERRNO_INVAL)?;
     let buf = checked_mut_range(memory, ptr_to_offset(buf_ptr)?, buf_len)?;
@@ -1554,11 +1608,16 @@ fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
 mod tests {
     use super::*;
 
-    fn test_context(root: &Path) -> WasiContext {
+    pub(super) fn test_context(root: &Path) -> WasiContext {
         WasiContext {
             argv: Vec::new(),
             environment: Arc::new(Env::owned([]).unwrap()),
             stdio: Arc::new(Stdio::Ambient),
+            filesystem: Arc::new(HostFs::new(
+                None,
+                Arc::new(Env::ambient()),
+                Arc::new(crate::runtime::WorkingDirectory::Ambient),
+            )),
             preopen_dir_name: preopen_name(),
             preopen_dir_host_path: root.to_path_buf(),
             preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
