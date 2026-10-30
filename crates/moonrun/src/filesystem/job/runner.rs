@@ -1834,23 +1834,52 @@ fn copy_windows_realpath_c_string_bytes(units: &[u16]) -> Box<[u8]> {
         '\\' as u16,
     ];
 
-    // GetFinalPathNameByHandleW with VOLUME_NAME_DOS returns a `\\?\` path.
-    // Match async's user-facing realpath result by normalizing `\\?\C:\...`
-    // to `C:\...` and `\\?\UNC\server\...` to `\\server\...`. Checking
-    // each complete prefix establishes the slice bounds before rewriting it.
-    // The returned string therefore uses conventional rather than verbatim
-    // Windows path syntax.
-    if units.starts_with(&VERBATIM_UNC_PREFIX) {
+    // Strip an extended prefix only when ordinary DOS parsing preserves every
+    // component. Otherwise the returned path could name a different file.
+    if units.starts_with(&VERBATIM_UNC_PREFIX) && windows_dos_path_is_exact(&units[8..]) {
         let mut normalized = units[6..].to_vec();
         normalized[0] = '\\' as u16;
         copy_wide_c_string_bytes(&normalized)
-    } else if units.starts_with(&VERBATIM_PREFIX) {
-        copy_wide_c_string_bytes(&units[VERBATIM_PREFIX.len()..])
+    } else if units.starts_with(&VERBATIM_PREFIX)
+        && !units.starts_with(&VERBATIM_UNC_PREFIX)
+        && windows_dos_path_is_exact(&units[4..])
+    {
+        copy_wide_c_string_bytes(&units[4..])
     } else {
-        // Preserve an unexpected API result rather than dropping arbitrary
-        // leading code units.
         copy_wide_c_string_bytes(units)
     }
+}
+
+#[cfg(windows)]
+fn windows_dos_path_is_exact(units: &[u16]) -> bool {
+    use windows_sys::Wdk::Storage::FileSystem::RtlIsDosDeviceName_U;
+    use windows_sys::Win32::Foundation::MAX_PATH;
+    if units.len() >= MAX_PATH as usize {
+        return false;
+    }
+    let mut path = units.to_vec();
+    path.push(0);
+    let mut start = 0;
+    while start < units.len() {
+        let end = (start..units.len())
+            .find(|&i| path[i] == '\\' as u16)
+            .unwrap_or(units.len());
+        if end == start || (path[end - 1] == u16::from(b'.') || path[end - 1] == u16::from(b' ')) {
+            return false;
+        }
+        // The NT routine accepts a NUL-terminated component. Restore separators
+        // before inspecting the next component, just as upstream does.
+        path[end] = 0;
+        let device = unsafe { RtlIsDosDeviceName_U(path[start..].as_ptr()) };
+        if end < units.len() {
+            path[end] = '\\' as u16;
+        }
+        if device != 0 {
+            return false;
+        }
+        start = end + 1;
+    }
+    true
 }
 
 #[cfg(windows)]
@@ -1934,7 +1963,7 @@ mod tests {
     }
 
     #[test]
-    fn realpath_normalizes_only_windows_verbatim_prefixes() {
+    fn realpath_preserves_windows_path_identity() {
         let normalize = |path: &str| {
             let units = path.encode_utf16().collect::<Vec<_>>();
             let bytes = copy_windows_realpath_c_string_bytes(&units);
@@ -1952,6 +1981,26 @@ mod tests {
             r"\\server\share\file"
         );
         assert_eq!(normalize(r"C:\already-normal"), r"C:\already-normal");
+        // Bare device names remain reserved across Windows versions. Names with
+        // extensions, such as NUL.txt, stopped being reserved in Windows 11.
+        for path in [
+            r"\\?\C:\dir.\file",
+            r"\\?\C:\dir \file",
+            r"\\?\C:\NUL",
+            r"\\?\C:\COM¹",
+            r"\\?\UNC\server\share\dir.\file",
+            r"\\?\UNC\server\share\file ",
+            r"\\?\UNC\server\share\NUL",
+        ] {
+            assert_eq!(normalize(path), path);
+        }
+        // Match upstream's MAX_PATH boundary, measured in UTF-16 code units.
+        for filename in ["a".repeat(252), "😀".repeat(126)] {
+            let short = format!(r"C:\dir\{filename}");
+            assert_eq!(normalize(&format!(r"\\?\{short}")), short);
+            let long = format!(r"\\?\{short}a");
+            assert_eq!(normalize(&long), long);
+        }
     }
 
     #[test]
