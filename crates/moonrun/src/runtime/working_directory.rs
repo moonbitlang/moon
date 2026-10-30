@@ -34,8 +34,9 @@ use std::path::{Path, PathBuf};
 /// Selects how one run observes and inherits a working directory.
 ///
 /// `Ambient` preserves moonrun's historical behavior: operations observe or
-/// inherit the process current directory when they execute. Process spawn
-/// captures it when HostProcess prepares the operation for execution.
+/// inherit the process current directory when they execute. HostProcess only
+/// captures a pathname when it needs to interpret virtualized lookup inputs;
+/// fully ambient spawn can inherit the underlying directory directly.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum WorkingDirectory {

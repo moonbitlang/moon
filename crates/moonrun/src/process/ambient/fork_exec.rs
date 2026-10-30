@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! glibc fallback for Ambient spawning when `posix_spawn` cannot change cwd.
+//! Linux single-child executable search and older glibc cwd fallback.
 
-use std::ffi::{CString, OsStr, OsString};
+use std::ffi::{CString, OsString};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
@@ -31,28 +31,41 @@ use crate::resource::ResourceRef;
 // This fallback takes the same native spawn inputs as the Ambient Process job.
 // Wrapping them would duplicate that representation only to satisfy Clippy.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn spawn_with_command(
+pub(super) fn spawn(
     executable: Executable,
     args: Vec<OsString>,
     env: Vec<OsString>,
     stdio: [Option<ResourceRef>; 3],
-    cwd: OsString,
+    cwd: Option<OsString>,
     child_signal_mask: libc::sigset_t,
     inherited_policy_fd: Option<libc::c_int>,
 ) -> Result<libc::pid_t, i32> {
     let mut stdio_fds = duplicate_stdio_fds(&stdio)?;
-    let prepared_exec = PreparedExec::new(&executable, &args, &env)?;
+    let plan = match executable {
+        Executable::Prepared(plan) => plan,
+        Executable::Ambient(program) => {
+            // This compatibility branch must emulate posix_spawnp's parent
+            // PATH, not Command's search through the child's environment.
+            // Keep relative paths relative: exec resolves them after child
+            // chdir, even when the inherited directory has been unlinked.
+            super::super::lookup::unix(&program, std::env::var_os("PATH").as_deref(), None)
+                .map_err(|error| match error {
+                    super::super::lookup::LookupError::EmptyProgram => libc::ENOENT,
+                    super::super::lookup::LookupError::InvalidInput => libc::EINVAL,
+                })?
+        }
+    };
+    let prepared_exec = PreparedExec::new(&plan, &args, &env)?;
 
-    let mut command = Command::new(&executable.candidates()[0]);
-    if let Some((arg0, args)) = args.split_first() {
-        command.arg0(arg0).args(args);
-    }
+    // Command supplies fork, setup, and error reporting only: pre_exec always
+    // execs or returns an error. PreparedExec owns the raw argv/envp, including
+    // duplicate environment entries and entries without '=' accepted by the
+    // native spawn ABI. Do not reinterpret them as a Command environment map.
+    let mut command = Command::new(&plan.candidates()[0]);
     command.env_clear();
-    for entry in env {
-        let (key, value) = split_env_entry(&entry)?;
-        command.env(key, value);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
     }
-    command.current_dir(cwd);
     if let Some(stdin) = stdio_fds[0].take() {
         command.stdin(Stdio::from(stdin));
     }
@@ -87,7 +100,7 @@ pub(super) fn spawn_with_command(
                 }
                 if libc::sigaction(signal, &default_action, std::ptr::null_mut()) != 0 {
                     let error = last_errno();
-                    // NPTL hides its reserved real-time signals below
+                    // The libc thread implementation reserves signals below
                     // SIGRTMIN and makes sigaction reject them with EINVAL.
                     if error != libc::EINVAL || signal >= min_realtime_signal {
                         return Err(io::Error::from_raw_os_error(error));
@@ -98,7 +111,7 @@ pub(super) fn spawn_with_command(
             if libc::sigprocmask(libc::SIG_SETMASK, &child_signal_mask, std::ptr::null_mut()) != 0 {
                 return Err(io::Error::from_raw_os_error(last_errno()));
             }
-            // All paths and pointer arrays were frozen before fork. Execute
+            // Candidates and pointer arrays were prepared before fork. Execute
             // here so Command never performs a second PATH search.
             prepared_exec.exec()
         });
@@ -148,18 +161,6 @@ fn duplicate_stdio_fds(stdio: &[Option<ResourceRef>; 3]) -> Result<[Option<Owned
     Ok(duplicates)
 }
 
-fn split_env_entry(entry: &OsStr) -> Result<(&OsStr, &OsStr), i32> {
-    let bytes = entry.as_bytes();
-    let separator = bytes
-        .iter()
-        .position(|byte| *byte == b'=')
-        .ok_or(libc::EINVAL)?;
-    Ok((
-        OsStr::from_bytes(&bytes[..separator]),
-        OsStr::from_bytes(&bytes[separator + 1..]),
-    ))
-}
-
 struct PreparedExec {
     candidates: Vec<CString>,
     is_search: bool,
@@ -176,7 +177,11 @@ unsafe impl Send for PreparedExec {}
 unsafe impl Sync for PreparedExec {}
 
 impl PreparedExec {
-    fn new(executable: &Executable, args: &[OsString], env: &[OsString]) -> Result<Self, i32> {
+    fn new(
+        executable: &super::super::lookup::LookupPlan,
+        args: &[OsString],
+        env: &[OsString],
+    ) -> Result<Self, i32> {
         let candidates = executable
             .candidates()
             .iter()
@@ -226,7 +231,9 @@ impl PreparedExec {
             }
             match last_error {
                 libc::EACCES => saw_eacces = true,
-                libc::ENOENT | libc::ESTALE | libc::ENOTDIR | libc::ENODEV | libc::ETIMEDOUT => {}
+                libc::ENOENT | libc::ENOTDIR => {}
+                #[cfg(target_env = "gnu")]
+                libc::ESTALE | libc::ENODEV | libc::ETIMEDOUT => {}
                 error => return Err(io::Error::from_raw_os_error(error)),
             }
         }
@@ -287,6 +294,7 @@ fn last_errno() -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use std::io::Read;
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::PermissionsExt;
@@ -295,6 +303,172 @@ mod tests {
 
     use super::*;
     use crate::resource::Resource;
+
+    fn prepared(program: &OsStr, path: Option<&OsStr>, cwd: &std::path::Path) -> Executable {
+        Executable::Prepared(super::super::super::lookup::unix(program, path, Some(cwd)).unwrap())
+    }
+
+    #[test]
+    fn preserves_the_native_environment_array() {
+        const CHILD: &str = "MOONRUN_RAW_ENV_CHILD";
+        let env = vec![
+            OsString::from("MOONRUN_RAW_ENV_CHILD=1"),
+            OsString::from("MOONRUN_DUP=first"),
+            OsString::from("MOONRUN_DUP=second"),
+            // Native inherited environ can contain entries without '='. The
+            // async C environment copier preserves these entries as well.
+            OsString::from("MOONRUN_BARE"),
+            OsString::from("=empty-key"),
+        ];
+        if std::env::var_os(CHILD).is_some() {
+            unsafe extern "C" {
+                static environ: *const *const libc::c_char;
+            }
+            // Inspect the raw array after exec, in an isolated test process
+            // with no environment writers. env(1) and Rust's vars_os() can
+            // filter entries, so neither is an oracle for the spawn ABI.
+            let mut actual = Vec::new();
+            unsafe {
+                let mut entry = environ;
+                while !(*entry).is_null() {
+                    actual.push(
+                        OsStr::from_bytes(std::ffi::CStr::from_ptr(*entry).to_bytes()).to_owned(),
+                    );
+                    entry = entry.add(1);
+                }
+            }
+            assert_eq!(actual, env);
+            std::process::exit(0);
+        }
+        let program = std::env::current_exe().unwrap();
+        let args = vec![
+            program.as_os_str().to_owned(),
+            "--exact".into(),
+            "process::ambient::fork_exec::tests::preserves_the_native_environment_array".into(),
+            "--nocapture".into(),
+        ];
+        let tmp = tempfile::tempdir().unwrap();
+        for executable in [
+            None,
+            Some(Executable::Ambient(program.as_os_str().to_owned())),
+            Some(prepared(program.as_os_str(), None, tmp.path())),
+        ] {
+            let pid = match executable {
+                None => native_spawn(program.as_os_str(), &args, &env, None),
+                Some(executable) => spawn(
+                    executable,
+                    args.clone(),
+                    env.clone(),
+                    [None, None, None],
+                    None,
+                    empty_signal_mask(),
+                    None,
+                ),
+            }
+            .unwrap();
+            assert_eq!(wait(pid), 0);
+        }
+    }
+
+    #[test]
+    fn accepts_an_empty_argv_like_native_spawn() {
+        // The public async process API inserts cmd as argv[0]. The raw ABI can
+        // still supply an empty array; Linux accepts it without synthesizing
+        // the executable path in this layer.
+        let native = wait(native_spawn(OsStr::new("/bin/true"), &[], &[], None).unwrap());
+        assert_eq!(native, 0);
+        let tmp = tempfile::tempdir().unwrap();
+        for executable in [
+            Executable::Ambient("/bin/true".into()),
+            prepared(OsStr::new("/bin/true"), None, tmp.path()),
+        ] {
+            let pid = spawn(
+                executable,
+                Vec::new(),
+                Vec::new(),
+                [None, None, None],
+                None,
+                empty_signal_mask(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(wait(pid), native);
+        }
+    }
+
+    #[test]
+    fn returns_native_enoexec_without_starting_a_shell() {
+        let tmp = tempfile::tempdir().unwrap();
+        let script = tmp.path().join("no-shebang");
+        std::fs::write(&script, "exit 23\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let args = vec![script.as_os_str().to_owned()];
+        let native = native_spawn(script.as_os_str(), &args, &[], None);
+        assert_eq!(native, Err(libc::ENOEXEC));
+        for executable in [
+            Executable::Ambient(script.as_os_str().to_owned()),
+            prepared(script.as_os_str(), None, tmp.path()),
+            prepared(
+                OsStr::new("no-shebang"),
+                Some(tmp.path().as_os_str()),
+                tmp.path(),
+            ),
+        ] {
+            assert_eq!(
+                spawn(
+                    executable,
+                    args.clone(),
+                    Vec::new(),
+                    [None, None, None],
+                    None,
+                    empty_signal_mask(),
+                    None,
+                ),
+                native
+            );
+        }
+    }
+
+    #[test]
+    fn ambient_spawn_does_not_require_a_name_for_the_current_directory() {
+        if std::env::var_os("MOONRUN_UNLINKED_CWD_FALLBACK").is_none() {
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "process::ambient::fork_exec::tests::ambient_spawn_does_not_require_a_name_for_the_current_directory",
+                ])
+                .env("MOONRUN_UNLINKED_CWD_FALLBACK", "1")
+                .env("PATH", "../bin")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("removed");
+        let bin = directory.path().join("bin");
+        std::fs::create_dir(&cwd).unwrap();
+        std::fs::create_dir(&bin).unwrap();
+        symlink("/bin/true", bin.join("moonrun-true")).unwrap();
+        std::env::set_current_dir(&cwd).unwrap();
+        std::fs::remove_dir(&cwd).unwrap();
+        assert!(std::env::current_dir().is_err());
+        for program in ["/bin/true", "moonrun-true"] {
+            let pid = spawn(
+                Executable::Ambient(program.into()),
+                vec![program.into()],
+                vec!["PATH=/not-the-parent-path".into()],
+                [None, None, None],
+                Some(".".into()),
+                empty_signal_mask(),
+                None,
+            )
+            .unwrap();
+            let status = wait(pid);
+            assert!(libc::WIFEXITED(status));
+            assert_eq!(libc::WEXITSTATUS(status), 0);
+        }
+    }
 
     #[test]
     fn retries_frozen_candidates_but_preserves_direct_exec_errors() {
@@ -313,13 +487,13 @@ mod tests {
         }
         let path = std::env::join_paths([&first, &second]).unwrap();
         for program in ["program", "first/program"] {
-            let executable = Executable::new(OsStr::new(program), Some(&path), tmp.path()).unwrap();
-            let result = spawn_with_command(
+            let executable = prepared(OsStr::new(program), Some(&path), tmp.path());
+            let result = spawn(
                 executable,
                 vec!["program".into()],
                 vec!["PATH=/not-the-frozen-search-path".into()],
                 [None, None, None],
-                tmp.path().as_os_str().to_owned(),
+                Some(tmp.path().as_os_str().to_owned()),
                 empty_signal_mask(),
                 None,
             );
@@ -345,13 +519,12 @@ mod tests {
         let mut reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
         let stdout = Arc::new(Resource::new(pipe[1]));
 
-        let pid = spawn_with_command(
-            Executable::new(
+        let pid = spawn(
+            prepared(
                 OsStr::new("moonrun-sh"),
                 Some(tmp.path().as_os_str()),
                 tmp.path(),
-            )
-            .unwrap(),
+            ),
             vec![
                 OsString::from("moonrun-sh"),
                 OsString::from("-c"),
@@ -359,7 +532,7 @@ mod tests {
             ],
             vec![OsString::from("PATH=/child/path")],
             [None, Some(stdout.clone()), None],
-            tmp.path().as_os_str().to_owned(),
+            Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
         )
@@ -387,8 +560,8 @@ mod tests {
         );
         let restore_mask = ThreadSignalMaskRestore(old_mask);
 
-        let spawn_result = spawn_with_command(
-            Executable::new(OsStr::new("/bin/sh"), None, tmp.path()).unwrap(),
+        let spawn_result = spawn(
+            prepared(OsStr::new("/bin/sh"), None, tmp.path()),
             vec![
                 OsString::from("/bin/sh"),
                 OsString::from("-c"),
@@ -396,7 +569,7 @@ mod tests {
             ],
             Vec::new(),
             [None, None, None],
-            tmp.path().as_os_str().to_owned(),
+            Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
         );
@@ -429,12 +602,12 @@ mod tests {
         let _reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
         let stdout = Arc::new(Resource::new(pipe[1]));
 
-        let error = spawn_with_command(
-            Executable::new(OsStr::new("/moonrun-does-not-exist"), None, tmp.path()).unwrap(),
+        let error = spawn(
+            prepared(OsStr::new("/moonrun-does-not-exist"), None, tmp.path()),
             vec![OsString::from("/moonrun-does-not-exist")],
             Vec::new(),
             [None, Some(stdout.clone()), None],
-            tmp.path().as_os_str().to_owned(),
+            Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
         )
@@ -455,8 +628,8 @@ mod tests {
         let mut reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
         let stdout = Arc::new(Resource::new(pipe[1]));
 
-        let pid = spawn_with_command(
-            Executable::new(OsStr::new("/bin/sh"), None, tmp.path()).unwrap(),
+        let pid = spawn(
+            prepared(OsStr::new("/bin/sh"), None, tmp.path()),
             vec![
                 OsString::from("moonrun-argv-zero"),
                 OsString::from("-c"),
@@ -467,7 +640,7 @@ mod tests {
                 OsString::from("MOONRUN_TEST_ENV=expected"),
             ],
             [None, Some(stdout.clone()), Some(stdout.clone())],
-            tmp.path().as_os_str().to_owned(),
+            Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
         )
@@ -487,6 +660,67 @@ mod tests {
         let mut mask = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
         mask
+    }
+
+    // An independent libc reference: pass the supplied argv/envp without
+    // Command's argument or environment interpretation.
+    fn native_spawn(
+        program: &OsStr,
+        args: &[OsString],
+        env: &[OsString],
+        stdout: Option<libc::c_int>,
+    ) -> Result<libc::pid_t, i32> {
+        let program = CString::new(program.as_bytes()).unwrap();
+        let args = args
+            .iter()
+            .map(|arg| CString::new(arg.as_bytes()).unwrap())
+            .collect::<Vec<_>>();
+        let env = env
+            .iter()
+            .map(|entry| CString::new(entry.as_bytes()).unwrap())
+            .collect::<Vec<_>>();
+        let argv = args
+            .iter()
+            .map(|arg| arg.as_ptr().cast_mut())
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect::<Vec<_>>();
+        let envp = env
+            .iter()
+            .map(|entry| entry.as_ptr().cast_mut())
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect::<Vec<_>>();
+        let mut actions = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::posix_spawn_file_actions_init(&mut actions) },
+            0
+        );
+        if let Some(stdout) = stdout {
+            assert_eq!(
+                unsafe { libc::posix_spawn_file_actions_adddup2(&mut actions, stdout, 1) },
+                0
+            );
+        }
+        let mut pid = 0;
+        let spawn_fn = if program.as_bytes().contains(&b'/') {
+            libc::posix_spawn
+        } else {
+            libc::posix_spawnp
+        };
+        let error = unsafe {
+            spawn_fn(
+                &mut pid,
+                program.as_ptr(),
+                &actions,
+                std::ptr::null(),
+                argv.as_ptr(),
+                envp.as_ptr(),
+            )
+        };
+        assert_eq!(
+            unsafe { libc::posix_spawn_file_actions_destroy(&mut actions) },
+            0
+        );
+        if error == 0 { Ok(pid) } else { Err(error) }
     }
 
     fn wait(pid: libc::pid_t) -> libc::c_int {

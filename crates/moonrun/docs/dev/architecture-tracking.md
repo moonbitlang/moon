@@ -44,6 +44,12 @@ wrappers or deprecation stages. Complex executable discovery is deferred.
   root inputs; guest derivation supplies complete Runtime inputs.
 - [x] Make the regular Host Process path prepare the operation before execution,
   with clear ownership of interpretation, authorization, and admission.
+- [x] Preserve native execution lookup wherever the primitive expresses the
+  Runtime state: fully Ambient on every platform, and Ambient Env with Fixed
+  cwd on Linux. Interpret Fixed cwd on Darwin and Windows instead of leaking
+  host caller-directory behavior. Separate pure lookup calculation from OS
+  observations and Host Process orchestration; interpreted Linux PATH search
+  uses one child.
 
 Each independently reviewable change should test its intended behavior through
 its execution interface. Existing virtual interfaces and tests do not impose a
@@ -62,10 +68,25 @@ have been removed.
 
 This completes the ownership and execution milestone. Host Process now prepares
 native and virtual requests through one entry: existing lexical authorization,
-Runtime lookup inputs and child configuration, then a single-use execution
-payload. Native Unix search consumes frozen candidates; Windows receives an
-explicit image and the unchanged command line. Virtual Moon derivation uses
-the same interpreted lookup inputs. Permission coverage has not expanded.
+Runtime state interpretation and child configuration, then a single-use
+execution payload. Native lookup remains with libc or CreateProcessW when
+both Env and cwd are Ambient. Linux can also express Fixed cwd with child
+chdir. Darwin and Windows need explicit lookup for Fixed cwd because their
+native primitives still observe the host caller directory. Policy presence
+does not select this path. Owned Env supplies caller lookup inputs, including
+absent PATH; child Env is separate. Virtual Moon derivation requires a plan
+because Engine executes it instead of a native OS spawn. Interpreted lookup
+captures cwd only when relative candidates need a base or Engine needs a
+complete child configuration. Absolute lookup may inherit Ambient cwd without
+requiring a recoverable pathname. The architecture guide records the native
+reference, deliberate virtualization choices, and downstream async contract.
+
+`process/spawn.rs` owns interpretation, authorization, and binding;
+`process/lookup.rs` is pure candidate calculation with explicit inputs;
+`process/ambient/lookup.rs` supplies OS observations. The split remains inside
+the crate. Linux executes a prepared PATH search with one child and an execve
+loop, while native Ambient search stays with libc. Permission coverage has not
+expanded.
 The remaining native execution and helper cancellation work can build on these
 boundaries without moving Runtime interpretation into ABI adapters or workers.
 
@@ -106,7 +127,21 @@ These follow-ups do not all belong in the current milestone.
 - `run` and `spawn` preserve the selected guest process mode; Engine clones
   share control while new Engines have independent namespaces. Explicit empty
   environments do not fall back to host values.
-- Process preparation uses caller Runtime PATH independently of child Env,
+- Native Ambient lookup preserves platform observation timing. Native-control
+  regressions compare caller/child cwd behavior on each platform, including
+  relative PATH entries. Separate Runtime tests exercise Fixed caller cwd and
+  an independent child-cwd override; native fidelity alone does not prove cwd
+  virtualization. Selection depends on Runtime state and platform behavior,
+  not policy presence.
+- Interpreted preparation uses caller Runtime PATH independently of child Env,
   resolves cwd according to the platform, and preserves lexical policy denial
-  before lookup or transfer-file effects. Execution cannot reinterpret a
-  prepared request using later Runtime or ambient values.
+  before lookup or transfer-file effects. Execution does not reinterpret its
+  plan using later Runtime values. Cwd is captured only when required by the
+  plan; otherwise the native operation can inherit it. Pure lookup tests need no OS or
+  filesystem fixtures; execution tests cover Linux candidate retries within
+  one child process.
+
+- Spawn preparation failures follow async's completion/errno/free sequence;
+  result handles are read only after success. Native controls cover the Linux
+  compatibility executor's raw argv/envp and error behavior, plus Windows
+  empty and NUL-terminated native strings.

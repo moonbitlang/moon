@@ -25,7 +25,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use super::SpawnOptions;
-use super::executable::Executable;
+use super::lookup::LookupPlan;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::policy::PolicyInheritance;
 use crate::process_tree::ProcessContext;
@@ -50,7 +50,8 @@ impl Spawn {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn unix(
         context: ProcessContext,
-        executable: Executable,
+        program: OsString,
+        plan: LookupPlan,
         args: Vec<OsString>,
         env: Vec<OsString>,
         stdio: [Option<ResourceRef>; 3],
@@ -75,13 +76,14 @@ impl Spawn {
             .collect::<AsyncHostResult<Vec<_>>>()?;
         // Moon selects moonx by argv[0]. Do not silently change a forged argv[0].
         if args.first().and_then(|arg| Path::new(arg).file_name())
-            != Path::new(executable.program()).file_name()
+            != Path::new(&program).file_name()
         {
             return Err(AsyncHostError::Inval);
         }
         let mut spawn = Self::prepare(
             context,
-            executable,
+            program,
+            plan,
             args.into_iter().skip(1).collect(),
             env,
             stdio,
@@ -101,7 +103,8 @@ impl Spawn {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn windows(
         context: ProcessContext,
-        executable: Executable,
+        plan: LookupPlan,
+        mut args: Vec<OsString>,
         env: Vec<u16>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
@@ -109,7 +112,7 @@ impl Spawn {
         policy: Option<PolicyInheritance>,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
-        let args = executable.arguments().to_vec();
+        let program = args.remove(0);
         let env = env
             .split(|unit| *unit == 0)
             .take_while(|entry| !entry.is_empty())
@@ -128,7 +131,7 @@ impl Spawn {
                 ))
             })
             .collect::<AsyncHostResult<Vec<_>>>()?;
-        let mut spawn = Self::prepare(context, executable, args, env, stdio, cwd, policy)?;
+        let mut spawn = Self::prepare(context, program, plan, args, env, stdio, cwd, policy)?;
         spawn.no_console_window = options.no_console_window;
         Ok(spawn)
     }
@@ -136,14 +139,15 @@ impl Spawn {
     #[allow(clippy::too_many_arguments)]
     fn prepare(
         context: ProcessContext,
-        executable: Executable,
+        program: OsString,
+        plan: LookupPlan,
         args: Vec<OsString>,
         env: Vec<(OsString, OsString)>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         policy: Option<PolicyInheritance>,
     ) -> AsyncHostResult<Self> {
-        if executable.program().as_encoded_bytes().contains(&0)
+        if program.as_encoded_bytes().contains(&0)
             || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))
         {
             return Err(AsyncHostError::Inval);
@@ -153,7 +157,7 @@ impl Spawn {
         let env = Env::owned(env)
             .map_err(|_| AsyncHostError::Inval)?
             .entries();
-        let name = Path::new(executable.program())
+        let name = Path::new(&program)
             .file_name()
             .ok_or(AsyncHostError::Inval)?;
         let moon = if cfg!(windows) {
@@ -161,7 +165,7 @@ impl Spawn {
         } else {
             name == "moon" || name == "moon.exe"
         };
-        if !moon && !moonutil::constants::is_moonx_executable(executable.program()) {
+        if !moon && !moonutil::constants::is_moonx_executable(&program) {
             #[cfg(unix)]
             return Err(AsyncHostError::Native(libc::ENOTSUP));
             #[cfg(windows)]
@@ -173,7 +177,10 @@ impl Spawn {
         if cwd.as_os_str().is_empty() {
             return Err(AsyncHostError::Inval);
         }
-        let executable = executable.resolve_for_moon()?;
+        #[cfg(unix)]
+        let executable = super::ambient::lookup::resolve_for_moon(&plan).map_err(io_error)?;
+        #[cfg(windows)]
+        let executable = super::ambient::lookup::select_image(&plan).map_err(io_error)?;
         let duplicate =
             |resource: Option<ResourceRef>, stream: StdioStream| -> AsyncHostResult<File> {
                 #[cfg(unix)]

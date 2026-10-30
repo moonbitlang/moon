@@ -19,15 +19,19 @@
 //! Process-owned Job state submitted to moonrun's shared thread pool.
 
 use std::ffi::OsString;
+#[cfg(any(windows, test))]
 use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
-use crate::runtime::{Stdio, StdioStream};
+#[cfg(test)]
+use crate::runtime::Stdio;
+#[cfg(all(test, windows))]
+use crate::runtime::StdioStream;
 
-use super::executable::Executable;
+use super::spawn::{NativeSpawn, PreparedSpawn, SpawnRequest};
 use super::{HostProcess, ambient};
 
 #[derive(Debug, Clone, Copy)]
@@ -40,37 +44,6 @@ pub(crate) struct SpawnOptions {
     pub(crate) is_orphan: bool,
 }
 
-/// Guest inputs remain mutable until HostProcess prepares the operation.
-/// The child environment is independent of the caller's executable search PATH.
-#[derive(Debug, Clone)]
-struct SpawnRequest {
-    #[cfg(unix)]
-    path: OsString,
-    #[cfg(unix)]
-    args: Vec<OsString>,
-    #[cfg(unix)]
-    env: Vec<OsString>,
-    #[cfg(windows)]
-    command_line: OsString,
-    #[cfg(windows)]
-    env: Vec<u16>,
-    options: SpawnOptions,
-    stdio: [Option<ResourceRef>; 3],
-    cwd: Option<OsString>,
-}
-
-#[derive(Debug)]
-struct NativeSpawn {
-    // Keep the original argv/command line: lookup must not rewrite guest argv0
-    // or change the lexical request that the process policy authorized.
-    request: SpawnRequest,
-    // Runtime stdio Resources borrow descriptors. Pin their owner even if
-    // HostProcess is released between preparation and native execution.
-    _stdio_owner: Arc<Stdio>,
-    executable: Executable,
-    policy_inheritance: Option<crate::policy::PolicyInheritance>,
-}
-
 #[derive(Debug)]
 pub(crate) struct Job {
     kind: Kind,
@@ -78,7 +51,7 @@ pub(crate) struct Job {
 
 #[derive(Debug)]
 enum Kind {
-    PendingSpawn(Box<SpawnRequest>),
+    PendingSpawn(Option<Box<SpawnRequest>>),
     NativeSpawn {
         // Consumed once by execution; the variant retains native provenance
         // until the result is published or its unclaimed child is revoked.
@@ -137,14 +110,14 @@ impl Job {
         options: SpawnOptions,
     ) -> Self {
         Self {
-            kind: Kind::PendingSpawn(Box::new(SpawnRequest {
+            kind: Kind::PendingSpawn(Some(Box::new(SpawnRequest {
                 path,
                 args,
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
-            })),
+            }))),
         }
     }
 
@@ -160,13 +133,13 @@ impl Job {
         options: SpawnOptions,
     ) -> Self {
         Self {
-            kind: Kind::PendingSpawn(Box::new(SpawnRequest {
+            kind: Kind::PendingSpawn(Some(Box::new(SpawnRequest {
                 command_line,
                 env,
                 options,
                 stdio: [stdin, stdout, stderr],
                 cwd,
-            })),
+            }))),
         }
     }
 
@@ -190,7 +163,7 @@ impl Job {
     }
 
     pub(crate) fn set_cwd(&mut self, cwd: OsString) -> AsyncHostResult<()> {
-        let Kind::PendingSpawn(request) = &mut self.kind else {
+        let Kind::PendingSpawn(Some(request)) = &mut self.kind else {
             return Err(AsyncHostError::Badf);
         };
         request.cwd = Some(cwd);
@@ -199,7 +172,7 @@ impl Job {
 
     #[cfg(windows)]
     pub(crate) fn set_no_console_window(&mut self) -> AsyncHostResult<()> {
-        let Kind::PendingSpawn(request) = &mut self.kind else {
+        let Kind::PendingSpawn(Some(request)) = &mut self.kind else {
             return Err(AsyncHostError::Badf);
         };
         request.options.no_console_window = true;
@@ -240,7 +213,7 @@ impl Job {
     #[cfg(test)]
     pub(crate) fn cwd(&self) -> AsyncHostResult<Option<&std::ffi::OsStr>> {
         match &self.kind {
-            Kind::PendingSpawn(request) => Ok(request.cwd.as_deref()),
+            Kind::PendingSpawn(Some(request)) => Ok(request.cwd.as_deref()),
             _ => Err(AsyncHostError::Badf),
         }
     }
@@ -248,7 +221,7 @@ impl Job {
     #[cfg(all(test, windows))]
     pub(crate) fn no_console_window(&self) -> AsyncHostResult<bool> {
         match &self.kind {
-            Kind::PendingSpawn(request) => Ok(request.options.no_console_window),
+            Kind::PendingSpawn(Some(request)) => Ok(request.options.no_console_window),
             _ => Err(AsyncHostError::Badf),
         }
     }
@@ -309,94 +282,20 @@ impl Job {
     }
 
     pub(super) fn prepare(&mut self, process: &HostProcess) -> AsyncHostResult<()> {
-        match &self.kind {
+        match &mut self.kind {
             Kind::PendingSpawn(request) => {
-                // The existing policy authorizes the logical invocation, before
-                // lookup, handle duplication, or policy-transfer temporary I/O.
-                #[cfg(unix)]
-                process.check_spawn_unix(&request.path, &request.args)?;
-                #[cfg(windows)]
-                process.check_spawn_windows(&request.command_line)?;
-
-                let mut request = (**request).clone();
-                let parent_cwd = process.working_directory.current_dir().map_err(|error| {
-                    error
-                        .raw_os_error()
-                        .map_or(AsyncHostError::Io, AsyncHostError::Native)
-                })?;
-                // Snapshot cwd once along with PATH. Relative executable search
-                // uses child cwd on Unix and caller cwd on Windows. Preserve an
-                // explicit empty cwd so the native primitive can reject it.
-                request.cwd = Some(match request.cwd {
-                    Some(cwd) if cwd.is_empty() => cwd,
-                    Some(cwd) => parent_cwd.join(cwd).into_os_string(),
-                    None => parent_cwd.clone().into_os_string(),
-                });
-                let parent_path = process.environment.get("PATH".as_ref());
-                #[cfg(unix)]
-                let executable = Executable::new(
-                    &request.path,
-                    parent_path.as_deref(),
-                    request
-                        .cwd
-                        .as_deref()
-                        .filter(|cwd| !cwd.is_empty())
-                        .map(std::path::Path::new)
-                        .unwrap_or(&parent_cwd),
-                )?;
-                #[cfg(windows)]
-                let executable = Executable::new(
-                    &request.command_line,
-                    parent_path.as_deref(),
-                    &parent_cwd,
-                    process
-                        .environment
-                        .get("NoDefaultCurrentDirectoryInExePath".as_ref())
-                        .is_none(),
-                )?;
-                request.configure_stdio(&process.stdio)?;
-                self.kind = if let Some(context) = &process.context {
-                    #[cfg(unix)]
-                    let spawn = super::moon::Spawn::unix(
-                        context.clone(),
-                        executable,
-                        request.args,
-                        request.env,
-                        request.stdio,
-                        request.cwd,
-                        request.options,
-                        process.policy_inheritance.clone(),
-                    )?;
-                    #[cfg(windows)]
-                    let spawn = super::moon::Spawn::windows(
-                        context.clone(),
-                        executable,
-                        request.env,
-                        request.stdio,
-                        request.cwd,
-                        request.options,
-                        process.policy_inheritance.clone(),
-                    )?;
-                    Kind::SpawnMoon {
-                        request: Box::new(spawn),
+                // Move guest inputs exactly once. Failed preparation cannot be
+                // retried or run as an unprepared native operation.
+                let request = request.take().ok_or(AsyncHostError::Inval)?;
+                self.kind = match process.prepare_spawn(*request)? {
+                    PreparedSpawn::Native(spawn) => Kind::NativeSpawn {
+                        spawn: Some(spawn),
                         result: None,
-                    }
-                } else {
-                    let invokes_moonx =
-                        moonutil::constants::is_moonx_executable(executable.program());
-                    Kind::NativeSpawn {
-                        spawn: Some(Box::new(NativeSpawn {
-                            request,
-                            _stdio_owner: Arc::clone(&process.stdio),
-                            executable,
-                            policy_inheritance: if invokes_moonx {
-                                process.policy_inheritance.clone()
-                            } else {
-                                None
-                            },
-                        })),
+                    },
+                    PreparedSpawn::Moon(request) => Kind::SpawnMoon {
+                        request,
                         result: None,
-                    }
+                    },
                 };
                 Ok(())
             }
@@ -443,31 +342,6 @@ impl Job {
         {
             process.revoke_child_if_unreferenced(ret as i32);
         }
-    }
-}
-
-impl SpawnRequest {
-    fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
-        #[cfg(unix)]
-        if matches!(runtime_stdio, Stdio::Owned(_)) {
-            for (slot, stream) in self.stdio.iter_mut().zip(StdioStream::ALL) {
-                if slot.is_none() {
-                    let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;
-                    *slot = Some(Arc::new(Resource::stdio_file(raw)));
-                }
-            }
-        }
-        #[cfg(windows)]
-        for (slot, stream) in self.stdio.iter_mut().zip(StdioStream::ALL) {
-            // GUI processes may have no standard streams. Preserve absence
-            // for CreateProcessW instead of rejecting spawn.
-            if slot.is_none()
-                && let Ok(raw) = runtime_stdio.raw(stream)
-            {
-                *slot = Some(Arc::new(crate::resource::Resource::stdio_file(raw)));
-            }
-        }
-        Ok(())
     }
 }
 
@@ -720,7 +594,7 @@ mod tests {
             );
             // Native Unix argv0 is independent of the executable request.
             #[cfg(unix)]
-            if let Kind::PendingSpawn(request) = &mut job.kind {
+            if let Kind::PendingSpawn(Some(request)) = &mut job.kind {
                 request.args[0] = "moonx".into();
             }
             process.prepare_job(&mut job).unwrap();
@@ -747,7 +621,7 @@ mod tests {
     fn ambient_stdio_preserves_native_inheritance() {
         let mut job = spawn_job("moon", Vec::new());
 
-        let Kind::PendingSpawn(request) = &mut job.kind else {
+        let Kind::PendingSpawn(Some(request)) = &mut job.kind else {
             unreachable!()
         };
         request.configure_stdio(&Stdio::Ambient).unwrap();
@@ -773,7 +647,7 @@ mod tests {
             },
         );
 
-        let Kind::PendingSpawn(request) = &mut job.kind else {
+        let Kind::PendingSpawn(Some(request)) = &mut job.kind else {
             unreachable!()
         };
         request.configure_stdio(&Stdio::Ambient).unwrap();

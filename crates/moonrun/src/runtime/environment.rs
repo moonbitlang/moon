@@ -22,9 +22,10 @@
 //! moonrun's legacy ambient environment or an owned provisioned environment.
 //! The ambient backing deliberately preserves the existing write-
 //! through contract, so the embedder must serialize process-environment access.
-//! HostProcess captures executable lookup inputs through this interface before
-//! execution. Native libraries can still observe the process environment
-//! directly; owned Env does not isolate those library-global effects.
+//! HostProcess uses this state for interpreted executable lookup; Ambient can
+//! delegate lookup directly to the OS. Native libraries still observe the
+//! process environment directly; owned Env does not isolate those library-global
+//! effects.
 
 use std::ffi::{OsStr, OsString};
 use std::io;

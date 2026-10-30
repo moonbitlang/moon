@@ -25,9 +25,12 @@
 //! waits within their virtual process tree.
 
 mod ambient;
-mod executable;
 mod job;
+mod lookup;
 mod moon;
+mod spawn;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

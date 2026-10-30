@@ -19,8 +19,8 @@
 //! Native operating-system process execution.
 //!
 //! This is the Ambient implementation behind the process module. It preserves
-//! native process behavior from a frozen executable plan; the parent module
-//! owns executable interpretation, policy, and child provenance.
+//! native lookup for Ambient requests and consumes explicit lookup plans for
+//! owned environments. The parent module owns policy and child provenance.
 
 use std::ffi::OsString;
 #[cfg(unix)]
@@ -40,12 +40,26 @@ use crate::policy::PolicyInheritance;
 use crate::resource::Resource;
 use crate::resource::ResourceRef;
 
-use super::executable::Executable;
 use super::job::SpawnOptions;
 use crate::resource::ResourcePublication;
 
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
-mod glibc_compat;
+#[cfg(target_os = "linux")]
+mod fork_exec;
+pub(super) mod lookup;
+
+#[cfg(unix)]
+#[derive(Debug)]
+pub(super) enum Executable {
+    Ambient(OsString),
+    Prepared(super::lookup::LookupPlan),
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+pub(super) enum Executable {
+    Ambient,
+    Prepared(std::path::PathBuf),
+}
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -158,10 +172,14 @@ fn spawn_process_unix(
         None => None,
     };
 
+    // Linux posix_spawn creates a child even when exec fails. Search in one
+    // forked child instead of creating a new process for every PATH candidate.
+    #[cfg(target_os = "linux")]
+    let needs_fork_exec = matches!(&executable, Executable::Prepared(plan) if plan.is_search());
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    if let Some(cwd) = cwd.as_ref()
-        && posix_spawn_addchdir.is_none()
-    {
+    let needs_fork_exec = needs_fork_exec || (cwd.is_some() && posix_spawn_addchdir.is_none());
+    #[cfg(target_os = "linux")]
+    if needs_fork_exec {
         if let Some(fd) = policy_transfer_fd {
             crate::async_sys::process::overwrite_process_env_var(
                 &mut env,
@@ -169,12 +187,12 @@ fn spawn_process_unix(
                 std::ffi::OsStr::new(&fd.to_string()),
             );
         }
-        let pid = glibc_compat::spawn_with_command(
+        let pid = fork_exec::spawn(
             executable,
             args,
             env,
             stdio,
-            cwd.clone(),
+            cwd,
             options.child_signal_mask,
             policy_transfer_fd,
         )
@@ -205,11 +223,21 @@ fn spawn_process_unix(
         );
     }
 
-    let paths = executable
-        .candidates()
-        .iter()
-        .map(|path| unix_cstring(path.as_os_str().to_owned()))
-        .collect::<AsyncHostResult<Vec<_>>>()?;
+    let (paths, native_lookup, search) = match executable {
+        Executable::Ambient(program) => {
+            let path = unix_cstring(program)?;
+            let search = !path.as_bytes().contains(&b'/');
+            (vec![path], true, search)
+        }
+        Executable::Prepared(plan) => {
+            let paths = plan
+                .candidates()
+                .iter()
+                .map(|path| unix_cstring(path.as_os_str().to_owned()))
+                .collect::<AsyncHostResult<Vec<_>>>()?;
+            (paths, false, plan.is_search())
+        }
+    };
     let mut argv_storage = Vec::with_capacity(args.len());
     for arg in args {
         argv_storage.push(unix_cstring(arg)?);
@@ -290,8 +318,13 @@ fn spawn_process_unix(
         let mut last_error = libc::ENOENT;
         for path in &paths {
             let mut pid = 0;
+            let spawn = if native_lookup && search {
+                libc::posix_spawnp
+            } else {
+                libc::posix_spawn
+            };
             let error = unsafe {
-                libc::posix_spawn(
+                spawn(
                     &mut pid,
                     path.as_ptr(),
                     &file_actions,
@@ -303,7 +336,7 @@ fn spawn_process_unix(
             if error == 0 {
                 return Ok(pid);
             }
-            if !executable.is_search() {
+            if native_lookup || !search {
                 return Err(error);
             }
             // Darwin's PATH search interprets executable text files with sh.
@@ -554,6 +587,25 @@ fn spawn_process_windows(
         STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
     };
 
+    let application = match executable {
+        Executable::Ambient => None,
+        Executable::Prepared(path) => {
+            let mut application = path.as_os_str().encode_wide().collect::<Vec<_>>();
+            if application.is_empty() || application.contains(&0) {
+                return Err(AsyncHostError::Inval);
+            }
+            application.push(0);
+            Some(application)
+        }
+    };
+    let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
+    // These are Win32 strings, as in async's native stubs. Leave empty input
+    // and embedded terminators to CreateProcessW; in particular the public
+    // async cwd parameter can contain NUL. Interpreted executable names are
+    // validated separately, before selecting an explicit application image.
+    command_line.push(0);
+    let cwd = cwd.map(|cwd| cwd.encode_wide().chain([0]).collect::<Vec<_>>());
+
     // As on Unix, materialize the transfer on the worker before duplicating
     // child handles. A failure therefore cannot leave a child or inherited
     // handle behind.
@@ -561,20 +613,6 @@ fn spawn_process_windows(
         Some(inheritance) => Some(inheritance.open_transfer().map_err(policy_transfer_error)?),
         None => None,
     };
-
-    let mut application = executable
-        .path()
-        .as_os_str()
-        .encode_wide()
-        .collect::<Vec<_>>();
-    application.push(0);
-    let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
-    command_line.push(0);
-    let cwd = cwd.map(|cwd| {
-        let mut cwd = cwd.encode_wide().collect::<Vec<_>>();
-        cwd.push(0);
-        cwd
-    });
     let job_object = if options.is_orphan {
         None
     } else {
@@ -699,7 +737,9 @@ fn spawn_process_windows(
     }
     let created = unsafe {
         CreateProcessW(
-            application.as_ptr(),
+            application
+                .as_ref()
+                .map_or(std::ptr::null(), |path| path.as_ptr()),
             command_line.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
@@ -1090,6 +1130,10 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
+    fn prepared(program: &OsStr, path: Option<&OsStr>, cwd: &Path) -> Executable {
+        Executable::Prepared(super::super::lookup::unix(program, path, Some(cwd)).unwrap())
+    }
+
     fn spawn_for_test(
         executable: Executable,
         args: Vec<OsString>,
@@ -1111,6 +1155,29 @@ mod tests {
 
     #[test]
     fn frozen_search_retries_after_an_unavailable_interpreter() {
+        #[cfg(target_os = "linux")]
+        {
+            if std::env::var_os("MOONRUN_SINGLE_FORK_SEARCH").is_none() {
+                // atfork callbacks cannot be unregistered. Keep the process
+                // counter isolated from unrelated tests and their children.
+                snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "process::ambient::tests::frozen_search_retries_after_an_unavailable_interpreter",
+                    ])
+                    .env("MOONRUN_SINGLE_FORK_SEARCH", "1")
+                    .timeout(std::time::Duration::from_secs(15))
+                    .assert()
+                    .success();
+                return;
+            }
+        }
+        #[cfg(target_os = "linux")]
+        static FORKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        #[cfg(target_os = "linux")]
+        unsafe extern "C" fn count_fork() {
+            FORKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let directory = tempfile::tempdir().unwrap();
         let first = directory.path().join("first");
         let second = directory.path().join("second");
@@ -1119,8 +1186,7 @@ mod tests {
         let path = std::env::join_paths([&first, &second]).unwrap();
         // Freeze lookup before either executable exists. Only execution can
         // decide that the first image has no usable interpreter.
-        let executable =
-            Executable::new(OsStr::new("program"), Some(&path), directory.path()).unwrap();
+        let executable = prepared(OsStr::new("program"), Some(&path), directory.path());
         for (target, contents) in [
             (
                 first.join("program"),
@@ -1131,8 +1197,155 @@ mod tests {
             std::fs::write(&target, contents).unwrap();
             std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            unsafe { libc::pthread_atfork(None, Some(count_fork), None) },
+            0
+        );
         let pid = spawn_for_test(executable, vec!["program".into()], directory.path()).unwrap();
         assert_eq!(run_wait_for_process_job(None, pid as i32, false), Ok(23));
+        #[cfg(target_os = "linux")]
+        assert_eq!(FORKS.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn ambient_lookup_uses_parent_path_and_child_working_directory() {
+        if std::env::var_os("MOONRUN_AMBIENT_LOOKUP_TEST").is_none() {
+            let parent_directory = tempfile::tempdir().unwrap();
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "process::ambient::tests::ambient_lookup_uses_parent_path_and_child_working_directory",
+                ])
+                .env("MOONRUN_AMBIENT_LOOKUP_TEST", "1")
+                .env("PATH", "tools")
+                .current_dir(parent_directory.path())
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+        let parent_directory = std::env::current_dir().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        for (root, exit) in [(parent_directory.as_path(), 23), (directory.path(), 42)] {
+            let tools = root.join("tools");
+            std::fs::create_dir(&tools).unwrap();
+            let script = tools.join("program");
+            std::fs::write(&script, format!("#!/bin/sh\nexit {exit}\n")).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Compare the native operation directly. HostProcess virtualization
+        // has separate tests: a child chdir alone cannot implement every
+        // platform's caller-cwd behavior.
+        let cwd = unix_cstring(directory.path().as_os_str().to_owned()).unwrap();
+        let mut actions = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe { libc::posix_spawn_file_actions_init(&mut actions) },
+            0
+        );
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        let setup =
+            invoke_add_chdir_file_action(resolve_posix_spawn_addchdir(), &mut actions, &cwd);
+        #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+        let setup = add_chdir_file_action(&mut actions, &cwd);
+        if setup == libc::ENOSYS {
+            // Older libc has no native chdir action to use as the reference;
+            // the fork_exec unit tests cover its compatibility implementation.
+            unsafe {
+                libc::posix_spawn_file_actions_destroy(&mut actions);
+            }
+            return;
+        }
+        assert_eq!(setup, 0);
+        let mut pid = 0;
+        let argv = [c"program".as_ptr().cast_mut(), std::ptr::null_mut()];
+        let envp = [
+            c"PATH=/not-the-parent-path".as_ptr().cast_mut(),
+            std::ptr::null_mut(),
+        ];
+        let error = unsafe {
+            libc::posix_spawnp(
+                &mut pid,
+                c"program".as_ptr(),
+                &actions,
+                std::ptr::null(),
+                argv.as_ptr(),
+                envp.as_ptr(),
+            )
+        };
+        unsafe {
+            libc::posix_spawn_file_actions_destroy(&mut actions);
+        }
+        assert_eq!(error, 0);
+        let native = run_wait_for_process_job(None, pid, false).unwrap();
+        assert!(matches!(native, 23 | 42));
+        let pid = spawn_for_test(
+            Executable::Ambient("program".into()),
+            vec!["program".into()],
+            directory.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            run_wait_for_process_job(None, pid as i32, false),
+            Ok(native)
+        );
+        // Successful relative lookup uses the child's directory with both
+        // native Ambient cwd and a Fixed Runtime cwd.
+        for (working_directory, child_cwd) in [
+            (
+                crate::WorkingDirectory::Fixed(directory.path().to_owned()),
+                None,
+            ),
+            (
+                crate::WorkingDirectory::Ambient,
+                Some(directory.path().as_os_str().to_owned()),
+            ),
+        ] {
+            let process = super::super::HostProcess::new(
+                None,
+                None,
+                std::sync::Arc::new(working_directory),
+                std::sync::Arc::new(crate::runtime::Stdio::Ambient),
+                None,
+                std::sync::Arc::new(crate::runtime::Env::ambient()),
+            );
+            let mut child_signal_mask = unsafe { std::mem::zeroed() };
+            assert_eq!(unsafe { libc::sigemptyset(&mut child_signal_mask) }, 0);
+            let mut job = super::super::Job::spawn_unix(
+                "program".into(),
+                vec!["program".into()],
+                vec!["PATH=/not-the-parent-path".into()],
+                None,
+                None,
+                None,
+                child_cwd,
+                SpawnOptions { child_signal_mask },
+            );
+            process.prepare_job(&mut job).unwrap();
+            let pid = job.run().unwrap();
+            process.finish_job(&job, pid, 0).unwrap();
+            assert_eq!(
+                run_wait_for_process_job(None, pid as i32, false),
+                Ok(native)
+            );
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Exercise the old-glibc cwd fallback even on a newer libc.
+            let mut mask = unsafe { std::mem::zeroed() };
+            assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
+            let pid = fork_exec::spawn(
+                Executable::Ambient("program".into()),
+                vec!["program".into()],
+                vec!["PATH=/not-the-parent-path".into()],
+                [None, None, None],
+                Some(directory.path().as_os_str().to_owned()),
+                mask,
+                None,
+            )
+            .unwrap();
+            assert_eq!(run_wait_for_process_job(None, pid, false), Ok(native));
+        }
     }
 
     #[test]
@@ -1143,18 +1356,16 @@ mod tests {
         std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o644)).unwrap();
         let path =
             std::env::join_paths([directory.path(), &directory.path().join("missing")]).unwrap();
-        let executable =
-            Executable::new(OsStr::new("program"), Some(&path), directory.path()).unwrap();
+        let executable = prepared(OsStr::new("program"), Some(&path), directory.path());
         assert_eq!(
             spawn_for_test(executable, vec!["program".into()], directory.path()),
             Err(AsyncHostError::Native(libc::EACCES))
         );
-        let executable = Executable::new(
+        let executable = prepared(
             OsStr::new("missing/program"),
             Some(directory.path().as_os_str()),
             directory.path(),
-        )
-        .unwrap();
+        );
         assert_eq!(
             spawn_for_test(executable, vec!["program".into()], directory.path()),
             Err(AsyncHostError::Native(libc::ENOENT))
@@ -1168,12 +1379,11 @@ mod tests {
         std::fs::write(&script, "exit \"$1\"\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         for program in ["./program", "program"] {
-            let executable = Executable::new(
+            let executable = prepared(
                 OsStr::new(program),
                 Some(directory.path().as_os_str()),
                 directory.path(),
-            )
-            .unwrap();
+            );
             let result = spawn_for_test(
                 executable,
                 vec!["custom-argv-zero".into(), "23".into()],
@@ -1230,6 +1440,95 @@ mod tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
+
+    #[test]
+    fn ambient_spawn_preserves_native_string_handling() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, WAIT_OBJECT_0};
+        use windows_sys::Win32::System::Threading::{
+            CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, GetExitCodeProcess,
+            PROCESS_INFORMATION, STARTUPINFOW, WaitForSingleObject,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let command = format!("\"{}\" /d /c exit 23", std::env::var("COMSPEC").unwrap());
+        let mut terminated_cwd = directory.path().as_os_str().to_owned();
+        terminated_cwd.push("\0ignored");
+        for (command_line, cwd) in [
+            (OsString::new(), None),
+            (OsString::from(format!("{command}\0ignored")), None),
+            (OsString::from(&command), Some(terminated_cwd)),
+            (OsString::from(&command), Some(OsString::new())),
+        ] {
+            let mut native_command = command_line.encode_wide().chain([0]).collect::<Vec<_>>();
+            let native_cwd = cwd
+                .as_ref()
+                .map(|cwd| cwd.encode_wide().chain([0]).collect::<Vec<_>>());
+            let env = [0u16, 0];
+            let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+            startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            let mut native: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+            let created = unsafe {
+                CreateProcessW(
+                    std::ptr::null(),
+                    native_command.as_mut_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                    CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                    env.as_ptr().cast(),
+                    native_cwd
+                        .as_ref()
+                        .map_or(std::ptr::null(), |cwd| cwd.as_ptr()),
+                    &startup,
+                    &mut native,
+                )
+            };
+            let expected = if created == 0 {
+                Err(AsyncHostError::Native(unsafe { GetLastError() } as i32))
+            } else {
+                assert_eq!(
+                    unsafe { WaitForSingleObject(native.hProcess, 10_000) },
+                    WAIT_OBJECT_0
+                );
+                let mut exit = 0;
+                assert_ne!(unsafe { GetExitCodeProcess(native.hProcess, &mut exit) }, 0);
+                unsafe {
+                    CloseHandle(native.hThread);
+                    CloseHandle(native.hProcess);
+                }
+                Ok(exit)
+            };
+            let mut result = None;
+            let actual = spawn_process_windows(
+                Executable::Ambient,
+                command_line,
+                vec![0, 0],
+                [None, None, None],
+                cwd,
+                SpawnOptions {
+                    no_console_window: true,
+                    is_orphan: true,
+                },
+                None,
+                &mut result,
+            )
+            .map(|_| {
+                let Some(ResourcePublication::Unpublished(process)) = result else {
+                    panic!("successful spawn publishes a process handle");
+                };
+                let handle = process.as_file().unwrap().as_raw_handle();
+                assert_eq!(
+                    unsafe { WaitForSingleObject(handle, 10_000) },
+                    WAIT_OBJECT_0
+                );
+                let mut exit = 0;
+                assert_ne!(unsafe { GetExitCodeProcess(handle, &mut exit) }, 0);
+                exit
+            });
+            assert_eq!(actual, expected);
+        }
+    }
 
     #[test]
     fn spawn_without_standard_handles() {

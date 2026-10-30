@@ -180,6 +180,15 @@ their semantic owner. Reuse mature dependencies where appropriate, but account
 for their implicit cwd, environment, signal, and library-global behavior.
 Consolidating every primitive into one general OS facade is not a goal.
 
+Within Host Process, [spawn.rs](../../../src/process/spawn.rs) owns request
+interpretation, authorization, and resource binding.
+[lookup.rs](../../../src/process/lookup.rs) computes executable candidates from
+explicit inputs; it has no Runtime, Policy, environment reads, filesystem
+probes, or OS calls. [ambient/lookup.rs](../../../src/process/ambient/lookup.rs)
+provides the OS observations and probes needed by that interpretation, while
+Ambient Process owns native execution. This separation is internal to the
+crate; a new crate or general process framework is not required.
+
 For an operation that touches host state, the required flow is:
 
 1. Decode the ABI, validate its memory and Handle representation, and release
@@ -190,23 +199,30 @@ For an operation that touches host state, the required flow is:
    steps with their own host effects also need an authority decision. Resource
    validity and identity checks remain necessary at the last safe moment.
 4. Execute the interpreted operation, then record the semantic result. Async
-   work retains owned inputs and acquired resources, not a recipe that later
-   re-reads ambient defaults or guest memory.
+   work retains owned inputs and acquired resources. Explicitly interpreted
+   lookup retains captured defaults; an intentionally selected native Ambient
+   operation keeps the platform's native observation points. Execution must
+   not substitute ambient values for resolved Runtime inputs or reread guest
+   memory.
 
 For example, a process request includes the executable, arguments, environment,
 cwd, streams, execution kind, and child restrictions. Host Process owns their
 interpretation and authorization; Engine owns admission, preparation dispatch,
 execution, and lifecycle. Authorization and execution must agree on the
-interpreted request. A later phase must not redo PATH lookup with a different
-environment. A prepared representation owns the resolved lookup inputs; it
-must not duplicate the same fields across peer configurations. Native Unix
-search retains a frozen candidate sequence because an actual exec failure can
-require trying the next entry, even if the first entry passed an access check.
+interpreted request. When lookup is interpreted, a later phase must not redo
+it with a different environment. A prepared representation owns the resolved
+lookup inputs; it must not duplicate the same fields across peer configurations.
+Native Ambient lookup delegates to the platform without freezing its defaults.
+Explicit Unix search retains a frozen candidate sequence because an actual
+exec failure can require trying the next entry, even if the first entry passed
+an access check.
 
 Host Process now has one `prepare_job` entry shared by inline and worker jobs.
-It first applies the existing lexical process policy, then captures Runtime
-cwd and caller PATH, resolves the executable search, binds streams, and selects
-native execution or virtual Moon derivation. Pending spawn jobs cannot execute;
+It applies the existing lexical process policy before effectful lookup,
+interprets the request using the realized Runtime state, binds streams, and
+selects native execution or virtual Moon derivation. Native requests retain
+platform lookup whenever it can express their Env and cwd; only interpreted
+lookup captures the needed Runtime inputs. Pending spawn jobs cannot execute;
 prepared jobs cannot accept further guest setters. Native execution consumes
 its prepared inputs once, and keeps their stream owner alive through spawn.
 Virtual derivation validates the child environment and supplies the selected
@@ -262,27 +278,67 @@ Guest-visible executable origin currently records a load-time pathname; see
 [current executable semantics](../current-exe-semantics.md). It is not a stable
 file identity proving which OS executable an authorization decision permits.
 
-Normal executable lookup must use explicitly selected Runtime inputs for bare
-names, absolute paths, and relative paths. Name which values come from the
-calling Runtime and which from the child's final configuration. Supplying a
-child environment does not by itself replace the caller's PATH used for lookup.
-Preserve the platform's native-shaped contract; Windows process creation is not
-automatically shell or PATHEXT search. Windows executable selection and
-command-line interpretation belong in Host Process's platform-aware resolution,
-not individual FFIs.
+Executable lookup must respect the Runtime's selected environment and working
+directory. Supplying a child environment does not by itself replace the
+caller's PATH used for lookup. A Fixed Runtime cwd is caller-cwd virtualization,
+not merely a child spawn parameter. An explicit child cwd is a separate input,
+resolved against Runtime cwd. Windows executable selection and command-line
+interpretation belong in Host Process, not individual FFIs.
 
-The current process lookup contract is:
+Preserve native operations wherever they can express that state correctly.
+Policy presence does not choose the implementation; policy provisioning can
+produce an owned Env, and that resulting state matters. Owned Env is explicitly
+virtualized, including when PATH is absent. Virtual Moon derivation always uses
+an explicit plan because it executes through Engine rather than native spawn.
+
+| Execution and Runtime state | Lookup behavior |
+| --- | --- |
+| Native with Ambient Env and Ambient cwd | Preserve libc `posix_spawnp`/direct spawn or `CreateProcessW(NULL, original_command_line)`, including native observation timing and platform differences. An explicit child-cwd argument remains a native argument. |
+| Native Linux with Ambient Env and Fixed cwd | Native child chdir precedes lookup, so libc can implement relative executable and PATH semantics directly. |
+| Native Darwin or Windows with Fixed cwd | Interpret lookup explicitly to prevent native caller-directory observations from escaping the Runtime cwd. |
+| Native with owned Env | Interpret lookup from caller Runtime PATH, independently of child Env. |
+| Virtual Moon child | Interpret lookup and provide complete child configuration before handing the selected helper to Engine. |
+
+On Unix, relative executable names and PATH entries are evaluated in the final
+child cwd. Windows instead searches using caller cwd; `lpCurrentDirectory`
+configures the child and cannot virtualize that lookup. Darwin's `posix_spawnp`
+also performs a parent `stat` of relative candidates, even after successful
+spawn. A missing parent-relative file can therefore make it report failure
+after creating the child. Fixed cwd uses absolute candidates, so executable
+selection and error handling no longer consult that unrelated host directory.
+This deliberately avoids reproducing Darwin's parent-stat quirk for virtualized
+cwd, including when an explicit child cwd differs from Runtime cwd. Pure
+Ambient execution continues to use the platform primitive unchanged.
+
+These rules follow the native implementations and interfaces:
+[glibc spawn](https://github.com/bminor/glibc/blob/master/sysdeps/unix/sysv/linux/spawni.c),
+[musl spawn](https://git.musl-libc.org/cgit/musl/tree/src/process/posix_spawn.c),
+[Darwin spawnp](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c),
+and [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
+The raw Ambient Process primitives implement these mechanisms; Host Process
+chooses which Runtime inputs require interpretation.
+
+For interpreted lookup:
 
 - Caller Runtime PATH selects the executable; the explicit child environment is
-  passed separately and does not supply lookup defaults. Ambient observes PATH
-  and cwd at job preparation; owned Env and Fixed cwd avoid those host-global
-  reads. Later environment changes do not redirect a prepared job.
+  passed separately and does not supply lookup defaults. Preparation captures
+  only the state needed for the plan. Ambient inputs needed by this path are
+  observed there; owned Env and Fixed cwd supply their own values. Later
+  environment changes do not redirect the resulting plan. Capture cwd only
+  when relative candidates need a base or Engine requires a complete child
+  configuration. Absolute candidates and an inherited or already absolute
+  child cwd do not require `getcwd`; an unlinked Ambient directory may still
+  be inherited. This freezing rule does not apply to native Ambient lookup.
 - Unix relative paths and relative or empty PATH entries use the effective child
   cwd. Explicit paths bypass search. Missing PATH uses the platform's default
-  search list; empty PATH searches only the child cwd. Native execution tries
-  the frozen candidates with platform error handling, including Darwin's shell
-  fallback for text found through PATH. Virtual Moon selection checks ordinary
-  tool candidates without attempting multiple helper executions.
+  search list; empty PATH searches only the child cwd. Execution tries the
+  frozen candidates with platform error handling, including Darwin's shell
+  fallback for text found through PATH. On Linux, prepared PATH search uses
+  one child process with an `execve` loop. This uses Rust's fork/setup/error
+  transport; it does not execute a helper binary. It is not the same cost as
+  libc's clone/vfork implementation. Native Ambient search remains
+  delegated to libc. Virtual Moon selection checks
+  ordinary tool candidates without attempting multiple helper executions.
 - Windows ordinary bare-name search uses the embedding application's directory,
   caller Runtime cwd when enabled, native system directories, and caller Runtime
   PATH. The application and system directories are explicit native host inputs.
@@ -291,13 +347,34 @@ The current process lookup contract is:
   `.exe`; explicit paths are used as supplied. The selected image is passed as
   `lpApplicationName`, with the original command line preserved.
 
+The native reference is the platform spawn behavior reachable through
+`moonbitlang/async`, not every historical implementation detail of Moonrun.
+The older-glibc cwd fallback follows the supported native spawn contract:
+raw argv/envp remain intact, GNU and musl do not start a shell on `ENOEXEC`, and
+PATH search reports the native execution error. It does not reconstruct the
+child environment as a Rust `Command` map or supply an artificial argv0. This
+corrects earlier fallback differences rather than preserving them as a second
+contract; it does not emulate every pre-2.24 glibc quirk. Windows raw command
+line and child cwd retain Win32 empty/NUL-terminated string behavior; interpreted
+executable lookup validates its inputs before selecting an image.
+
+Async waits for completion, checks Job errno, raises an OS error and frees the
+Job on failure, and only reads a spawn-result handle after success. Preparation
+and OS execution failures both follow that sequence. Reading a result handle
+after failed preparation is outside that contract and may return `Badf`; it is
+not a reason to retain a second mutable or executable request state. Check the
+MoonBit wrapper together with the C stub when deciding whether a host behavior
+change breaks callers, as required by ADR 0002.
+
 Deliberately deferred work includes complicated PATH and
 PATHEXT compatibility, special Windows paths, trusted Moon recognition, and
-stable identity across filesystem changes. Drive-relative, rooted-without-drive,
-and device paths are currently rejected rather than resolving against hidden
-host drive state. Windows unquoted executable names containing spaces do not
-reproduce CreateProcess's successive-prefix guessing. Deferral does not permit introducing
-new host-global fallbacks on normal paths.
+stable identity across filesystem changes. In interpreted lookup,
+drive-relative, rooted-without-drive, and device paths are currently rejected
+rather than resolving against hidden host drive state. Interpreted Windows
+lookup does not reproduce CreateProcess's successive-prefix guessing for
+unquoted executable names containing spaces. Native Ambient Windows execution
+continues to delegate these cases to CreateProcessW. Deferral does not permit
+introducing new host-global fallbacks for Runtime-owned inputs.
 
 Current implementation: `RunOptions::with_environment` selects an owned source
 environment; policy provisioning, when present, consumes that source. An empty

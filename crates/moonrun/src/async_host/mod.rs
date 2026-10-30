@@ -4578,6 +4578,92 @@ mod tests {
         host.free_job(job).unwrap();
     }
 
+    #[test]
+    fn failed_spawn_worker_reports_error_and_frees_without_a_result_handle() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy_file = directory.path().join("deny.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let program = directory.path().join("missing-executable.exe");
+        for denied in [true, false] {
+            let host = if denied {
+                host_with_policy(&policy_file)
+            } else {
+                default_host()
+            };
+            let poll = host.poll_create().unwrap();
+            let completion_source = host.init_thread_pool(poll).unwrap();
+            let resources = resource_count(&host);
+            #[cfg(unix)]
+            let spawn = ProcessJob::spawn_unix(
+                program.as_os_str().to_owned(),
+                vec![program.as_os_str().to_owned()],
+                Vec::new(),
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    child_signal_mask: unsafe { std::mem::zeroed() },
+                },
+            );
+            #[cfg(windows)]
+            let spawn = ProcessJob::spawn_windows(
+                format!("\"{}\"", program.display()).into(),
+                vec![0, 0],
+                None,
+                None,
+                None,
+                None,
+                SpawnOptions {
+                    no_console_window: true,
+                    is_orphan: true,
+                },
+            );
+            let job = host.insert_job(spawn).unwrap();
+            let worker = host.spawn_worker(42, job).unwrap();
+
+            assert_eq!(host.poll_wait(poll, 1000, &Default::default()), Ok(1));
+            #[cfg(unix)]
+            {
+                let mut memory = [0; 4];
+                assert_eq!(
+                    host.fetch_completion(memory.as_mut_slice(), completion_source, 0, 1),
+                    Ok(4)
+                );
+                assert_eq!(i32::from_le_bytes(memory), 42);
+            }
+            #[cfg(windows)]
+            {
+                let event = host.poll_get_event(poll, 0).unwrap();
+                assert_eq!(host.poll_event_fd(event).unwrap(), completion_source);
+                assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+            }
+
+            let expected_error = if denied {
+                AsyncHostError::PermissionDenied.errno()
+            } else {
+                #[cfg(unix)]
+                let error = libc::ENOENT;
+                #[cfg(windows)]
+                let error = windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND as i32;
+                error
+            };
+            // async's perform_job_in_worker raises on job.err before the spawn
+            // wrapper reads a result handle. Its deferred free must work for
+            // both preparation failure and failure in native process creation.
+            assert_eq!(host.with_job(job, |job| job.err()), Ok(expected_error));
+            assert_eq!(host.with_job(job, |job| job.ret()), Ok(-1));
+            host.free_job(job).unwrap();
+            assert_eq!(
+                host.with_job(job, |job| job.err()),
+                Err(AsyncHostError::Badf)
+            );
+            assert_eq!(resource_count(&host), resources);
+            host.free_worker(worker).unwrap();
+            host.destroy_thread_pool();
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_spawn_uses_runtime_path_without_replacing_child_environment() {
