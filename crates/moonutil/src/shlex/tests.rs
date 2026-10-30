@@ -1,40 +1,67 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::parse_windows_argv0;
-use super::{join_windows, split_windows};
+#[cfg(not(target_os = "windows"))]
+use super::split_native_args;
+use super::{join_windows, split_windows, split_windows_args};
+
+#[cfg(windows)]
+#[test]
+fn native_windows_arguments_preserve_unpaired_surrogates() {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    let program: Vec<_> = "C:\\Moon "
+        .encode_utf16()
+        .chain([0xd800])
+        .chain("\\moon.exe".encode_utf16())
+        .collect();
+    let argument = [b'x' as u16, 0xdc00, b' ' as u16, b'y' as u16];
+    let command = [b'"' as u16]
+        .into_iter()
+        .chain(program.iter().copied())
+        .chain("\" \"".encode_utf16())
+        .chain(argument)
+        .chain([b'"' as u16])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        super::split_windows_os(&OsString::from_wide(&command)).unwrap(),
+        [
+            OsString::from_wide(&program),
+            OsString::from_wide(&argument)
+        ]
+    );
+    for value in ["", "moon\0ignored"] {
+        assert!(super::split_windows_os(value.as_ref()).is_err());
+    }
+}
 
 fn assert_parse_tail(tail: &str, expected: &[&str]) {
-    let input = format!("program.exe {}", tail);
-    let got = split_windows(&input);
-    assert_eq!(
-        got.first().unwrap(),
-        "program.exe",
-        "argv[0] mismatch for input: {}",
-        tail
-    );
+    let got = split_windows_args(tail);
     let expected_vec: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
-    assert_eq!(
-        &got[1..],
-        expected_vec.as_slice(),
-        "argv[1..] mismatch for input: {}",
-        tail
-    );
+    assert_eq!(got, expected_vec, "argument mismatch for input: {}", tail);
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn native_argument_tail_rejects_unterminated_quote() {
+    assert_eq!(split_native_args(r#"a "unterminated"#), None);
+    assert_eq!(split_native_args("a \\"), None);
 }
 
 // MS official doc examples
@@ -82,6 +109,14 @@ fn argv0_parsing() {
     let (argv0, rest) = parse_windows_argv0(r#"C:\app.exe"#);
     assert_eq!(argv0, r#"C:\app.exe"#);
     assert_eq!(rest, "");
+
+    let (argv0, rest) = parse_windows_argv0(r#""moon"x user/module"#);
+    assert_eq!(argv0, "moonx");
+    assert_eq!(rest, " user/module");
+
+    let (argv0, rest) = parse_windows_argv0(r#"mo"onx" user/module"#);
+    assert_eq!(argv0, "moonx");
+    assert_eq!(rest, " user/module");
 }
 
 #[test]

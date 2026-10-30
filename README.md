@@ -24,3 +24,8 @@ Hello, world!
 
 To contribute, please read the contribution guidelines at
 [docs/dev](./docs/dev/README.md).
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+See [NOTICE](NOTICE) for the copyright assignment and relicensing statement.

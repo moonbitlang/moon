@@ -1,0 +1,8 @@
+import {
+  "test/import_all_with_named_alias_conflict/dep" @dep *,
+  "test/import_all_with_named_alias_conflict/dep2" @dep,
+}
+
+options(
+  "is-main": true
+)

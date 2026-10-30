@@ -1,0 +1,9 @@
+import {
+  "alice/liba/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  "proof-enabled": true,
+)

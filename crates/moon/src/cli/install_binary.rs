@@ -1,52 +1,51 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild_rupes_recta::{
-    ResolveConfig,
+    ProjectPreparationConfig,
+    build_plan::ArtifactKey,
     intent::UserIntent,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildTarget, PackageId, TargetKind},
 };
-use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
+use mooncake::{
+    pkg::{legacy_postadd, sync::SyncOutputOptions},
+    registry::{RegistryClient, path::RegistryPath},
+};
 use moonutil::{
-    cli::UniversalFlags,
-    common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
-    dirs::PackageDirs,
-    mooncakes::{ModuleName, RegistryConfig},
+    build_options::RunMode,
+    child_process::{ChildOutputMode, ManagedChildRunner},
+    cli_support::UniversalFlags,
+    constants::{MOON_MOD, MOON_MOD_JSON},
+    locks::lock_directory,
+    project::PackageDirs,
+    resolution::{ModuleName, ModuleSourceKind},
+    target::TargetBackend,
+    user_log::UserLog,
 };
-use semver::Version;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 use crate::{
-    cli::BuildFlags,
-    rr_build::{self, BuildConfig, preconfig_compile},
-    user_diagnostics::UserDiagnostics,
+    cli::{BuildFlags, registry_queries},
+    rr_build::{self},
 };
-
-/// Represents a parsed package specification from the command line.
-#[derive(Debug, Clone)]
-pub(super) struct PackageSpec {
-    pub module_name: ModuleName,
-    pub package_path: Option<String>,
-    pub version: Option<Version>,
-    pub is_wildcard: bool,
-}
 
 /// How to filter packages for installation.
 #[derive(Debug, Clone, Copy)]
@@ -105,9 +104,11 @@ impl PackageFilter {
     /// Returns true if a discovered package matches this filter.
     fn matches(&self, pkg_root_path: &Path, pkg_path_str: &str) -> bool {
         match (&self.target, self.kind) {
-            (FilterTarget::FileSystem(path), MatchKind::Exact) => pkg_root_path == *path,
+            (FilterTarget::FileSystem(path), MatchKind::Exact) => {
+                dunce::simplified(pkg_root_path) == dunce::simplified(path)
+            }
             (FilterTarget::FileSystem(prefix_path), MatchKind::Prefix) => {
-                pkg_root_path.starts_with(prefix_path)
+                moonutil::path::starts_with_equivalent_prefix(pkg_root_path, prefix_path)
             }
             (FilterTarget::PackagePath(target), MatchKind::Exact) => pkg_path_str == *target,
             (FilterTarget::PackagePath(prefix), MatchKind::Prefix) => {
@@ -163,6 +164,13 @@ impl PackageFilter {
 
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
 
+/// A GitHub directory permalink resolved to a commit archive and repository path.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct GithubPermalink {
+    pub archive_url: url::Url,
+    pub path_in_repo: Option<String>,
+}
+
 /// Returns the non-wildcard prefix for inputs ending with `/...` or `...`.
 pub(super) fn strip_wildcard_suffix(s: &str) -> Option<&str> {
     s.strip_suffix("...").map(|base| base.trim_end_matches('/'))
@@ -171,6 +179,54 @@ pub(super) fn strip_wildcard_suffix(s: &str) -> Option<&str> {
 /// Check if a string looks like a git URL.
 pub(super) fn is_git_url(s: &str) -> bool {
     GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
+/// Resolve a GitHub directory permalink to its public source archive.
+///
+/// Only full commit IDs delimit the revision and path without repository lookup.
+/// Branch/tag tree URLs must use the explicit repository URL and ref flags instead.
+pub(super) fn parse_github_permalink(source: &str) -> anyhow::Result<Option<GithubPermalink>> {
+    let Ok(mut url) = url::Url::parse(source) else {
+        return Ok(None);
+    };
+    if !matches!(url.scheme(), "http" | "https") || url.host_str() != Some("github.com") {
+        return Ok(None);
+    }
+
+    let segments = url.path_segments().unwrap().collect::<Vec<_>>();
+    let (owner, repo, tree) = match segments.as_slice() {
+        [owner, repo, "tree", tree @ ..] => (*owner, *repo, tree),
+        _ => return Ok(None),
+    };
+    anyhow::ensure!(
+        !owner.is_empty() && !repo.is_empty(),
+        "Invalid repository in tree URL"
+    );
+    anyhow::ensure!(
+        url.username().is_empty() && url.password().is_none() && url.port().is_none(),
+        "GitHub permalinks must not include credentials or a custom port"
+    );
+    let rev = tree.first().copied().unwrap_or_default();
+    anyhow::ensure!(
+        rev.len() == 40 && rev.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "Tree URLs must contain a full 40-character commit SHA; copy a permalink, or use the repository URL with PATH_IN_REPO and --branch, --tag, or --rev"
+    );
+
+    let path = tree[1..].join("/");
+    let path = percent_encoding::percent_decode_str(&path)
+        .decode_utf8()
+        .context("Tree URL path is not valid UTF-8")?;
+    anyhow::ensure!(!path.contains('\0'), "Tree URL path contains a NUL byte");
+    let path_in_repo = (!path.is_empty()).then(|| path.into_owned());
+    let archive_path = format!("/{owner}/{repo}/archive/{rev}.tar.gz");
+    url.set_path(&archive_path);
+    url.set_query(None);
+    url.set_fragment(None);
+
+    Ok(Some(GithubPermalink {
+        archive_url: url,
+        path_in_repo,
+    }))
 }
 
 /// Check if a string looks like a local filesystem path.
@@ -182,110 +238,42 @@ pub(super) fn is_local_path(s: &str) -> bool {
         || s.chars().nth(1) == Some(':') // Windows drive letter
 }
 
-pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
-    let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
-        let path = &input[..at_pos];
-        let version_str = &input[at_pos + 1..];
-        (path, Some(version_str))
-    } else {
-        (input, None)
-    };
-
-    let (path_part, is_wildcard) = if let Some(stripped) = strip_wildcard_suffix(path_part) {
-        (stripped, true)
-    } else {
-        (path_part, false)
-    };
-
-    let (parsed, version) = if let Some(version) = version {
-        let normalized = format!("{path_part}@{version}");
-        let parsed = registry_path::parse_package_at_version_path(&normalized)
-            .with_context(|| format!("Invalid package path `{input}`"))?;
-        let version = Version::parse(&parsed.version)
-            .with_context(|| format!("Invalid version `{}`", parsed.version))?;
-        (
-            registry_path::InstallStylePath {
-                module: parsed.module,
-                package: parsed.package,
-            },
-            Some(version),
-        )
-    } else {
-        let parsed = registry_path::parse_install_style_path(path_part)
-            .with_context(|| format!("Invalid package path `{input}`"))?;
-        (parsed, None)
-    };
-
-    Ok(PackageSpec {
-        module_name: parsed.module,
-        package_path: Some(parsed.package),
-        version,
-        is_wildcard,
-    })
-}
-
 /// Install a binary package from the registry.
 pub(super) fn install_binary(
     cli: &UniversalFlags,
-    spec: &PackageSpec,
+    path: &RegistryPath,
     install_dir: &Path,
     install_all: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let quiet = cli.quiet;
-    let output = UserDiagnostics::from_flags(cli);
-
-    let index_dir = moonutil::moon_dir::index();
-    let registry_config = RegistryConfig::load();
-    let had_index = index_dir.exists();
-
-    match mooncake::update::update(&index_dir, &registry_config) {
-        Ok(_) => {
-            output.info("Updated registry index");
-        }
-        Err(e) => {
-            if had_index {
-                output.warn(format!(
-                    "Failed to update registry index, using cached index: {}",
-                    e
-                ));
-            } else {
-                return Err(e).context("Failed to update registry index");
-            }
-        }
-    }
-
-    let registry = OnlineRegistry::mooncakes_io();
-    let version = if let Some(v) = &spec.version {
-        v.clone()
-    } else {
-        let module_info = registry
-            .get_latest_version(&spec.module_name)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Module `{}` not found in registry", spec.module_name)
-            })?;
-        module_info.version.clone().ok_or_else(|| {
-            anyhow::anyhow!("Module `{}` has no version information", spec.module_name)
-        })?
-    };
-
-    output.info(format!("Installing {}@{}", spec.module_name, version));
+    let registry = RegistryClient::configured(user_log);
+    let allow_remote = true;
+    let module = registry_queries::resolve_module(
+        &registry,
+        path.module_request()?,
+        allow_remote,
+        user_log,
+    )?;
+    user_log.info(format!("Installing {}@{}", module.name(), module.version()));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
 
-    registry.install_to(&spec.module_name, &version, module_dir, quiet)?;
+    registry.materialize_source_to(&module, module_dir, user_log)?;
+    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
+    legacy_postadd::run(module_dir, &child)?;
 
-    let filter =
-        PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
+    let filter = PackageFilter::package_path(path.package.clone(), install_all);
 
     let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
     build_and_install_packages(
         cli,
-        &spec.module_name,
+        module.name(),
         module_dir,
         package_dirs,
         install_dir,
         filter,
+        user_log,
     )
 }
 
@@ -295,6 +283,7 @@ pub(super) fn install_from_local(
     local_path: &Path,
     install_dir: &Path,
     install_all: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let input_path = dunce::canonicalize(local_path).with_context(|| {
         format!(
@@ -303,9 +292,14 @@ pub(super) fn install_from_local(
         )
     })?;
 
-    let module_dirs = cli
+    let project = cli
         .source_tgt_dir
-        .source_module_package_dirs(&input_path)?
+        .query_from(&input_path, cli.workspace_env.clone())?
+        .select(user_log)?;
+    let module_root = project
+        .context()
+        .selected_module()
+        .map(|module| module.root)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
@@ -314,18 +308,20 @@ pub(super) fn install_from_local(
                 MOON_MOD_JSON
             )
         })?;
+    let package_dirs = project.package_dirs()?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
+    let module = moonutil::manifest::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(input_path, install_all);
 
     build_and_install_packages(
         cli,
         &module_name,
-        &module_dirs.module_root,
-        module_dirs.package_dirs,
+        &module_root,
+        package_dirs,
         install_dir,
         filter,
+        user_log,
     )
 }
 
@@ -349,16 +345,15 @@ pub(super) fn install_from_git(
     path_in_repo: Option<&str>,
     install_dir: &Path,
     install_all: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(cli);
-
-    output.info(format!("Cloning `{}`...", git_url));
+    user_log.info(format!("Cloning `{}`...", git_url));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let clone_dir = tmp_dir.path();
 
     // Clone the repository
-    let mut clone_cmd = std::process::Command::new(moonutil::BINARIES.git_or_default());
+    let mut clone_cmd = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default());
     clone_cmd.arg("clone");
 
     match git_ref {
@@ -386,7 +381,7 @@ pub(super) fn install_from_git(
 
     // If rev specified, checkout to that commit
     if let GitRef::Rev(rev) = git_ref {
-        let status = std::process::Command::new(moonutil::BINARIES.git_or_default())
+        let status = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default())
             .current_dir(clone_dir)
             .args(["checkout", rev])
             .status()
@@ -397,17 +392,93 @@ pub(super) fn install_from_git(
         }
     }
 
-    // Determine the target path within the cloned repo
+    install_from_repository(
+        cli,
+        clone_dir,
+        path_in_repo,
+        install_dir,
+        install_all,
+        user_log,
+    )
+}
+
+/// Install the public archive selected by a GitHub commit permalink.
+pub(super) fn install_from_github_archive(
+    cli: &UniversalFlags,
+    archive_url: &url::Url,
+    path_in_repo: Option<&str>,
+    install_dir: &Path,
+    install_all: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    user_log.info(format!("Downloading `{archive_url}`..."));
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(format!("moon/{}", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .context("Failed to create GitHub archive HTTP client")?;
+    let response = client
+        .get(archive_url.clone())
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context(
+            "Failed to download GitHub source archive; only public repositories are supported",
+        )?;
+    let temporary = tempfile::tempdir().context("Failed to create temporary directory")?;
+    let repository_dir = unpack_github_archive(response, temporary.path())?;
+    install_from_repository(
+        cli,
+        &repository_dir,
+        path_in_repo,
+        install_dir,
+        install_all,
+        user_log,
+    )
+    .context("Failed to install from the GitHub source archive")
+}
+
+fn unpack_github_archive(
+    archive: impl std::io::Read,
+    destination: &Path,
+) -> anyhow::Result<PathBuf> {
+    // Let the archive library enforce extraction containment and preserve file
+    // modes and symlinks. GitHub's export-ignore/export-subst choices are retained.
+    tar::Archive::new(flate2::read::GzDecoder::new(archive))
+        .unpack(destination)
+        .context("Failed to extract GitHub source archive")?;
+    let entries = std::fs::read_dir(destination)?.collect::<Result<Vec<_>, _>>()?;
+    // GitHub wraps the snapshot in one directory, whose name can change after a
+    // repository rename. Do not reconstruct that name from the pasted URL.
+    let [root] = entries.as_slice() else {
+        bail!("GitHub source archive must contain exactly one repository directory");
+    };
+    anyhow::ensure!(
+        root.file_type()?.is_dir(),
+        "GitHub source archive root must be a directory"
+    );
+    Ok(root.path())
+}
+
+fn install_from_repository(
+    cli: &UniversalFlags,
+    repository_dir: &Path,
+    path_in_repo: Option<&str>,
+    install_dir: &Path,
+    install_all: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    // Select packages by filesystem path in either a checkout or an archive.
     let target_path = if let Some(repo_path) = path_in_repo {
         let repo_path = repo_path.trim_matches('/');
         let repo_path = repo_path.trim_end_matches("/...").trim_end_matches("...");
         if repo_path.is_empty() {
-            clone_dir.to_path_buf()
+            repository_dir.to_path_buf()
         } else {
-            clone_dir.join(repo_path)
+            repository_dir.join(repo_path)
         }
     } else {
-        clone_dir.to_path_buf()
+        repository_dir.to_path_buf()
     };
 
     // Check if target path exists
@@ -424,9 +495,9 @@ pub(super) fn install_from_git(
             path_in_repo.unwrap_or("")
         )
     })?;
-    let clone_dir =
-        dunce::canonicalize(clone_dir).context("Failed to resolve cloned repository")?;
-    if !target_path.starts_with(&clone_dir) {
+    let repository_dir =
+        dunce::canonicalize(repository_dir).context("Failed to resolve repository root")?;
+    if !target_path.starts_with(&repository_dir) {
         bail!(
             "Path `{}` escapes repository root",
             path_in_repo.unwrap_or("")
@@ -440,7 +511,7 @@ pub(super) fn install_from_git(
             anyhow::anyhow!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON)
         })?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
+    let module = moonutil::manifest::read_module_desc_file_in_dir(&module_dirs.module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(target_path, install_all);
 
@@ -451,7 +522,180 @@ pub(super) fn install_from_git(
         module_dirs.package_dirs,
         install_dir,
         filter,
+        user_log,
     )
+}
+
+struct SelectedPackage {
+    pkg_id: PackageId,
+    full_pkg_name: String,
+    binary_name: String,
+}
+
+struct PreparedNativeBuild {
+    target_dir: PathBuf,
+    resolved_project: moonbuild_rupes_recta::resolve::ResolvedProject,
+    selected_packages: Vec<SelectedPackage>,
+}
+
+fn prepare_native_build(
+    cli: &UniversalFlags,
+    module_name: &ModuleName,
+    module_dir: &Path,
+    package_dirs: PackageDirs,
+    sync_output: SyncOutputOptions,
+    filter: PackageFilter,
+    user_log: &UserLog,
+) -> anyhow::Result<PreparedNativeBuild> {
+    let module_dir = dunce::canonicalize(module_dir).with_context(|| {
+        format!(
+            "Failed to resolve module directory `{}`",
+            module_dir.display()
+        )
+    })?;
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+        false,
+        false,
+        false,
+        cli.workspace_env.clone(),
+    )
+    .with_sync_output(sync_output);
+    let synced_modules = moonbuild_rupes_recta::sync_module_dependencies(
+        &preparation_config,
+        &package_dirs,
+        user_log,
+    )?;
+    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
+        &preparation_config,
+        synced_modules,
+        &[moonutil::target::TargetBackend::Native],
+        user_log,
+    )?;
+    let target_dir = package_dirs.target_dir;
+
+    let main_module_id = resolved_project
+        .local_modules()
+        .iter()
+        .copied()
+        .find(|&module_id| {
+            matches!(
+                resolved_project.module_graph.module_source(module_id).source(),
+                ModuleSourceKind::Local(path) if path == &module_dir
+            )
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Module `{}` at path `{}` was not resolved as a local project module",
+                module_name,
+                module_dir.display()
+            )
+        })?;
+    let Some(all_pkgs) = resolved_project
+        .pkg_dirs
+        .packages_for_module(main_module_id)
+    else {
+        bail!(
+            "No packages found in module at path `{}`",
+            module_dir.display()
+        );
+    };
+
+    let mut selected_packages: Vec<SelectedPackage> = Vec::new();
+
+    for (pkg_path, &pkg_id) in all_pkgs {
+        let pkg = resolved_project.pkg_dirs.get_package(pkg_id);
+        if !pkg.raw.is_main {
+            continue;
+        }
+
+        let pkg_path_str = pkg_path.to_string();
+
+        let matched = filter.matches(&pkg.root_path, &pkg_path_str);
+
+        if matched {
+            selected_packages.push(SelectedPackage {
+                pkg_id,
+                full_pkg_name: pkg.fqn.to_string(),
+                binary_name: pkg.fqn.short_alias().to_owned(),
+            });
+        }
+    }
+
+    if selected_packages.is_empty() {
+        return Err(filter.no_match_error(module_name, &module_dir));
+    }
+
+    Ok(PreparedNativeBuild {
+        target_dir,
+        resolved_project,
+        selected_packages,
+    })
+}
+
+fn build_selected_package(
+    cli: &UniversalFlags,
+    prepared: &PreparedNativeBuild,
+    pkg: &SelectedPackage,
+    user_log: &UserLog,
+) -> anyhow::Result<Option<PathBuf>> {
+    let quiet = cli.quiet;
+    std::fs::create_dir_all(&prepared.target_dir).context("Failed to create build directory")?;
+
+    user_log.info(format!("Building `{}`...", pkg.full_pkg_name));
+
+    let _lock = lock_directory(&prepared.target_dir, user_log)?;
+    let build_flags = BuildFlags {
+        release: true,
+        warn_list: Some("-a".to_string()),
+        ..BuildFlags::default()
+    };
+
+    let compile_config = rr_build::prepare_resolved_build(
+        cli,
+        &build_flags,
+        TargetBackend::Native,
+        &prepared.target_dir,
+        RunMode::Build,
+        user_log,
+        &prepared.resolved_project,
+    )?;
+    let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+        compile_config,
+        user_log,
+        intent,
+        prepared.resolved_project.clone(),
+        build_flags.jobs,
+        false,
+        false,
+    )?;
+
+    rr_build::generate_all_pkgs_json(&build_meta)?;
+
+    let result = moonbuild::execution::execute_build(
+        &build_flags.execution_config(&cli.unstable_feature, cli.verbose),
+        build_graph,
+        &prepared.target_dir,
+        user_log,
+    )?;
+    if !result.successful() {
+        result.print_info(quiet, "building").ok();
+        user_log.error(format!("Failed to build `{}`", pkg.full_pkg_name));
+        return Ok(None);
+    }
+    result.print_info(quiet, "building").ok();
+
+    let target = BuildTarget {
+        package: pkg.pkg_id,
+        kind: TargetKind::Source,
+    };
+    Ok(Some(
+        build_meta.artifacts[&ArtifactKey::Executable {
+            package: target.package,
+            target_kind: target.kind,
+        }][0]
+            .clone(),
+    ))
 }
 
 /// Build matching packages and install binaries using RR build engine.
@@ -462,72 +706,24 @@ fn build_and_install_packages(
     package_dirs: PackageDirs,
     install_dir: &Path,
     filter: PackageFilter,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
-    let output = UserDiagnostics::from_flags(cli);
-    let source_dir = package_dirs.source_dir;
-    let target_dir = package_dirs.target_dir;
-    let mooncakes_dir = package_dirs.mooncakes_dir;
-
-    let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
-
-    let main_module_id = resolve_output.local_modules()[0];
-    let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
-        bail!(
-            "No packages found in module at path `{}`",
-            module_dir.display()
-        );
-    };
-
-    struct SelectedPackage {
-        pkg_id: PackageId,
-        full_pkg_name: String,
-        binary_name: String,
-    }
-
-    let mut selected_packages: Vec<SelectedPackage> = Vec::new();
-
-    for (pkg_path, &pkg_id) in all_pkgs {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        if !pkg.raw.is_main {
-            continue;
-        }
-
-        let pkg_path_str = pkg_path.to_string();
-
-        let matched = filter.matches(&pkg.root_path, &pkg_path_str);
-
-        if matched {
-            let binary_name = pkg_path_str
-                .rsplit('/')
-                .next()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&module_name.unqual)
-                .to_string();
-            let full_pkg_name = if pkg_path_str.is_empty() {
-                module_name.to_string()
-            } else {
-                format!("{}/{}", module_name, pkg_path_str)
-            };
-            selected_packages.push(SelectedPackage {
-                pkg_id,
-                full_pkg_name,
-                binary_name,
-            });
-        }
-    }
-
-    if selected_packages.is_empty() {
-        return Err(filter.no_match_error(module_name, module_dir));
-    }
+    let prepared = prepare_native_build(
+        cli,
+        module_name,
+        module_dir,
+        package_dirs,
+        SyncOutputOptions::default(),
+        filter,
+        user_log,
+    )?;
 
     if cli.dry_run {
         let mut dry_run_count = 0;
-        for pkg in &selected_packages {
-            if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
-                output.error(format!(
+        for pkg in &prepared.selected_packages {
+            if moonutil::toolchain::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
+                user_log.error(format!(
                     "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                     pkg.binary_name
                 ));
@@ -561,94 +757,27 @@ fn build_and_install_packages(
         )
     })?;
 
-    std::fs::create_dir_all(&target_dir).context("Failed to create build directory")?;
     let mut installed_count = 0;
 
-    for pkg in selected_packages {
+    for pkg in &prepared.selected_packages {
         // Check if binary name would overwrite a reserved toolchain binary
-        if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
-            output.error(format!(
+        if moonutil::toolchain::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
+            user_log.error(format!(
                 "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                 pkg.binary_name
             ));
             continue;
         }
 
-        output.info(format!("Building `{}`...", pkg.full_pkg_name));
-
-        let build_flags = BuildFlags {
-            release: true,
-            warn_list: Some("-a".to_string()),
-            ..BuildFlags::default()
-        };
-        let preconfig = preconfig_compile(
-            &moonutil::mooncakes::sync::AutoSyncFlags { frozen: false },
-            cli,
-            &build_flags,
-            Some(TargetBackend::Native),
-            &target_dir,
-            RunMode::Build,
-        );
-
-        let output = UserDiagnostics::from_flags(cli);
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            &target_dir,
-            output,
-            &resolve_output,
-        )?;
-        let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
-        let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-            preconfig,
-            &cli.unstable_feature,
-            &target_dir,
-            output,
-            planning_context,
-            intent,
-            resolve_output.clone(),
-        )?;
-
-        let _lock = FileLock::lock(&target_dir)?;
-        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
-
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
-            build_graph,
-            &target_dir,
-        )?;
-        if !result.successful() {
-            result.print_info(quiet, "building").ok();
-            output.error(format!("Failed to build `{}`", pkg.full_pkg_name));
+        let Some(binary_src) = build_selected_package(cli, &prepared, pkg, user_log)? else {
             continue;
-        }
-        result.print_info(quiet, "building").ok();
-
-        let target = BuildTarget {
-            package: pkg.pkg_id,
-            kind: TargetKind::Source,
         };
-        let binary_src =
-            build_meta.artifacts[&BuildPlanNode::MakeExecutable(target)].artifacts[0].clone();
         let dst_name = if cfg!(windows) {
             format!("{}.exe", pkg.binary_name)
         } else {
             pkg.binary_name.clone()
         };
-        let binary_dst = install_dir.join(dst_name);
-
-        std::fs::copy(&binary_src, &binary_dst).with_context(|| {
-            format!(
-                "Failed to copy binary from `{}` to `{}`",
-                binary_src.display(),
-                binary_dst.display()
-            )
-        })?;
+        let binary_dst = install_file_atomically(&binary_src, install_dir, &dst_name)?;
 
         #[cfg(unix)]
         {
@@ -675,6 +804,52 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// Copy `src` into `install_dir/dst_name` by writing to a sibling tempfile
+/// and atomically replacing the destination command entry.
+///
+/// `moon install --bin <dir>` manages `<dir>/<binary>`, so an existing
+/// destination path is replaced rather than opened and overwritten in place.
+/// This avoids exposing a partially written executable and avoids platform
+/// traps such as macOS code-signature cache kills after truncating a Mach-O
+/// binary that has already been executed.
+///
+/// The tempfile is created inside `install_dir` so the final persist is a
+/// same-filesystem replacement. `src` is copied rather than moved because the
+/// caller owns the build artifact; for `moon install`, it must remain in
+/// `_build` for subsequent no-op commands.
+pub(crate) fn install_file_atomically(
+    src: &Path,
+    install_dir: &Path,
+    dst_name: impl AsRef<Path>,
+) -> anyhow::Result<PathBuf> {
+    let dst = install_dir.join(dst_name);
+
+    let tmp_path = tempfile::NamedTempFile::new_in(install_dir)
+        .with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?
+        .into_temp_path();
+
+    std::fs::copy(src, &tmp_path).with_context(|| {
+        format!(
+            "Failed to copy binary from `{}` to `{}`",
+            src.display(),
+            tmp_path.display()
+        )
+    })?;
+    debug!(src = %src.display(), "staged via copy");
+
+    tmp_path
+        .persist(&dst)
+        .map_err(|err| err.error)
+        .with_context(|| format!("Failed to install binary to `{}`", dst.display()))?;
+    debug!(dst = %dst.display(), "installed via rename");
+    Ok(dst)
 }
 
 #[cfg(test)]
@@ -739,63 +914,181 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_package_spec_basic() {
-        // Basic user/module
-        let spec = parse_package_spec("user/module").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert_eq!(spec.package_path, Some(String::new()));
-        assert_eq!(spec.version, None);
-        assert!(!spec.is_wildcard);
-
-        // user/module/package
-        let spec = parse_package_spec("user/module/cmd/main").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
-        assert!(!spec.is_wildcard);
+    fn github_permalink_archive_and_paths() {
+        let rev = "0123456789abcdef0123456789abcdef01234567";
+        for scheme in ["http", "https"] {
+            for (suffix, path) in [
+                ("", None),
+                ("/", None),
+                ("/cmd/tool", Some("cmd/tool")),
+                ("/cmd/...", Some("cmd/...")),
+                (
+                    "/hello%20world/%E4%BD%A0%E5%A5%BD+%2520?plain=1#files",
+                    Some("hello world/你好+%20"),
+                ),
+            ] {
+                let parsed = parse_github_permalink(&format!(
+                    "{scheme}://github.com/owner/repo/tree/{rev}{suffix}"
+                ))
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    parsed,
+                    GithubPermalink {
+                        archive_url: format!(
+                            "{scheme}://github.com/owner/repo/archive/{rev}.tar.gz"
+                        )
+                        .parse()
+                        .unwrap(),
+                        path_in_repo: path.map(str::to_owned),
+                    }
+                );
+            }
+        }
     }
 
     #[test]
-    fn test_parse_package_spec_with_version() {
-        let spec = parse_package_spec("user/module@1.0.0").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert_eq!(spec.version.unwrap().to_string(), "1.0.0");
-        assert!(!spec.is_wildcard);
-
-        let spec = parse_package_spec("user/module/cmd/main@2.3.4").unwrap();
-        assert_eq!(spec.package_path, Some("cmd/main".to_string()));
-        assert_eq!(spec.version.unwrap().to_string(), "2.3.4");
+    fn github_permalink_requires_full_commit() {
+        for tree in [
+            "",
+            "main/cmd/tool",
+            "feature/new-ui/cmd/tool",
+            "v1.0.0",
+            "01234567/cmd/tool",
+            "0123456789abcdef0123456789abcdef0123456g/cmd/tool",
+        ] {
+            let error =
+                parse_github_permalink(&format!("https://github.com/owner/repo/tree/{tree}"))
+                    .unwrap_err();
+            assert!(error.to_string().contains("full 40-character commit SHA"));
+        }
     }
 
     #[test]
-    fn test_parse_package_spec_wildcard() {
-        // user/module/...
-        let spec = parse_package_spec("user/module/...").unwrap();
-        assert_eq!(spec.module_name.username, "user");
-        assert_eq!(spec.module_name.unqual, "module");
-        assert!(spec.is_wildcard);
-        assert_eq!(spec.package_path, Some(String::new()));
-
-        // user/module/cmd/...
-        let spec = parse_package_spec("user/module/cmd/...").unwrap();
-        assert!(spec.is_wildcard);
-        assert_eq!(spec.package_path, Some("cmd".to_string()));
-
-        // Alternate syntax: user/module...
-        let spec = parse_package_spec("user/module...").unwrap();
-        assert!(spec.is_wildcard);
+    fn github_permalink_rejects_invalid_path_encoding() {
+        for path in ["%FF", "cmd/%00tool"] {
+            assert!(parse_github_permalink(&format!(
+                "https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/{path}"
+            )).is_err());
+        }
     }
 
     #[test]
-    fn test_parse_package_spec_invalid() {
-        // Too few components
-        assert!(parse_package_spec("user").is_err());
-        assert!(parse_package_spec("single").is_err());
+    fn github_permalink_rejects_credentials_and_custom_ports() {
+        for authority in [
+            "user@github.com",
+            "user:secret@github.com",
+            "github.com:1234",
+        ] {
+            assert!(parse_github_permalink(&format!(
+                "https://{authority}/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool"
+            )).is_err());
+        }
+    }
 
-        // Invalid version
-        assert!(parse_package_spec("user/module@invalid").is_err());
+    #[test]
+    fn github_archive_rejects_invalid_layout() {
+        for paths in [vec![], vec!["file"], vec!["one/file", "two/file"]] {
+            let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            let mut archive = tar::Builder::new(gzip);
+            for path in paths {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(0);
+                header.set_mode(0o644);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, path, std::io::empty())
+                    .unwrap();
+            }
+            let archive = archive.into_inner().unwrap().finish().unwrap();
+            let destination = tempfile::tempdir().unwrap();
+            assert!(unpack_github_archive(archive.as_slice(), destination.path()).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn github_archive_preserves_executables_and_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(gzip);
+        let mut file = tar::Header::new_gnu();
+        file.set_size(4);
+        file.set_mode(0o755);
+        file.set_cksum();
+        archive
+            .append_data(&mut file, "renamed-repository/script", &b"exit"[..])
+            .unwrap();
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        archive
+            .append_link(&mut link, "renamed-repository/alias", "script")
+            .unwrap();
+        let archive = archive.into_inner().unwrap().finish().unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let root = unpack_github_archive(archive.as_slice(), destination.path()).unwrap();
+
+        assert_eq!(root, destination.path().join("renamed-repository"));
+        assert_eq!(std::fs::read(root.join("alias")).unwrap(), b"exit");
+        assert_eq!(
+            std::fs::read_link(root.join("alias")).unwrap(),
+            Path::new("script")
+        );
+        assert_eq!(
+            std::fs::metadata(root.join("script"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn github_archive_rejects_writes_through_escaping_symlinks() {
+        let destination = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(gzip);
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        archive
+            .append_link(&mut link, "repo/escape", outside.path())
+            .unwrap();
+        let mut file = tar::Header::new_gnu();
+        file.set_size(0);
+        file.set_mode(0o644);
+        file.set_cksum();
+        archive
+            .append_data(&mut file, "repo/escape/file", std::io::empty())
+            .unwrap();
+        let archive = archive.into_inner().unwrap().finish().unwrap();
+
+        assert!(unpack_github_archive(archive.as_slice(), destination.path()).is_err());
+        assert!(!outside.path().join("file").exists());
+    }
+
+    #[test]
+    fn github_permalink_leaves_other_sources_unchanged() {
+        for source in [
+            "https://github.com/owner/repo",
+            "https://github.com/owner/repo.git",
+            "git@github.com:owner/repo.git",
+            "https://gitcode.com/owner/repo",
+            "https://gitcode.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool",
+            "https://gitcode.com/owner/repo/-/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool",
+            "https://example.com/owner/repo/tree/main/cmd/tool",
+            "./cmd/tool",
+            "user/module/pkg",
+        ] {
+            assert!(parse_github_permalink(source).unwrap().is_none());
+        }
     }
 
     #[test]
@@ -808,6 +1101,15 @@ mod tests {
             &test_path(&["repo", "examples", "native", "cards"]),
             "native/cards"
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_prefix_filter_matches_long_canonical_descendants() {
+        let filter = PackageFilter::filesystem(PathBuf::from(r"C:\repo"), true);
+        let long = PathBuf::from(r"\\?\C:\repo").join("segment\\".repeat(40));
+        assert!(filter.matches(&long, "unused"));
+        assert!(!filter.matches(Path::new(r"\\?\C:\repository\pkg"), "unused"));
     }
 
     #[test]
@@ -833,5 +1135,93 @@ mod tests {
             "native/pixeladventure",
         ));
         assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
+    }
+
+    #[test]
+    fn install_file_atomically_fresh_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::write(&src, b"hello world").unwrap();
+
+        let dst = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hello world");
+        assert_eq!(std::fs::read(&src).unwrap(), b"hello world");
+    }
+
+    #[test]
+    fn install_file_atomically_overwrites_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+
+        let installed = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        assert_eq!(installed, dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&src).unwrap(), b"new contents");
+
+        // The build artifact must remain in place and no staging tempfile
+        // should remain behind.
+        let siblings: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        let mut siblings = siblings;
+        siblings.sort();
+        assert_eq!(
+            siblings,
+            vec![
+                std::ffi::OsString::from("dst"),
+                std::ffi::OsString::from("src")
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_file_atomically_replaces_existing_inode() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+        let old_ino = std::fs::metadata(&dst).unwrap().ino();
+
+        let installed = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        let new_ino = std::fs::metadata(&dst).unwrap().ino();
+        assert_eq!(installed, dst);
+        assert_ne!(old_ino, new_ino);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&src).unwrap(), b"new contents");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_file_atomically_replaces_destination_symlink_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let target = dir.path().join("target");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&target, b"old contents").unwrap();
+        std::os::unix::fs::symlink(&target, &dst).unwrap();
+
+        let installed = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        assert_eq!(installed, dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&target).unwrap(), b"old contents");
+        assert!(
+            !std::fs::symlink_metadata(&dst)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
 }

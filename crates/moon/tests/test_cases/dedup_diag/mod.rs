@@ -16,7 +16,7 @@ fn test_dedup_diag() {
     check(
         out,
         expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'","context":"2 |fn f() -> Unit {/n3 |  let a = 1/n4 |/n"}
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     )
@@ -30,7 +30,7 @@ fn test_diagnostic_limit_output_json() {
     check(
         out,
         expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'","context":"2 |fn f() -> Unit {/n3 |  let a = 1/n4 |  let b = 2/n"}
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );

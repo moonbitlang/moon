@@ -1,18 +1,18 @@
 # moon: The build system and package manager for MoonBit.
-# Copyright (C) 2024 International Digital Economy Academy
+# Copyright (C) 2026 International Digital Economy Academy
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,39 +20,82 @@
 name = "moonrun"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
 readme = "README.md"
 rust-version.workspace = true
 
+[features]
+default = ["v8"]
+v8 = ["dep:v8"]
+wasmtime = ["dep:wasmtime"]
+wee8 = ["dep:wee8", "dep:wasmparser"]
+
 [dependencies]
 anyhow.workspace = true
+dunce.workspace = true
 clap.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 serde_json_lenient.workspace = true
-rand = "0.8.5"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-v8 = "0.106.0"
+tempfile.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+libsqlite3-sys.workspace = true
+slotmap.workspace = true
+toml = { workspace = true, features = ["parse", "serde", "std"] }
+moonutil.workspace = true
+rand.workspace = true
+v8 = { workspace = true, optional = true }
+wasmtime = { workspace = true, optional = true }
+wee8 = { workspace = true, optional = true }
+wasmparser = { version = "=0.258.0", default-features = false, features = ["std"], optional = true }
+
+[target."cfg(not(windows))".dependencies]
+openssl.workspace = true
+openssl-probe.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
 
 [target."cfg(windows)".dependencies.windows-sys]
-version = "0.59.0"
+workspace = true
 features = [
     "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
     "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_SystemServices",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
 ]
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
-snapbox.workspace = true
-moon-test-util = { path = "../moon-test-util" }
-moonutil.workspace = true
-tempfile.workspace = true
+dunce.workspace = true
+escargot.workspace = true
+moon-test-util.workspace = true
+regex.workspace = true
+snapbox = { workspace = true, features = ["cmd"] }
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
+wat.workspace = true
 
 [[bin]]
 name = "moonrun"

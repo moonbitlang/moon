@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -21,7 +21,7 @@ pub(crate) mod prebuild_output;
 
 use anyhow::Context;
 use colored::*;
-use moonutil::common::is_watch_relevant_project_file;
+use moonutil::constants::is_watch_relevant_project_file;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use std::collections::HashSet;
@@ -48,26 +48,25 @@ struct AdditionalWatchPaths {
     watched_paths: HashSet<PathBuf>,
 }
 
-/// Run a watcher that watches on `watch_dir`, and calls `run` when a file
-/// changes. The watcher ignores changes in `original_target_dir`, and will
-/// repopulate `target_dir` if it is deleted.
+/// Watch the source tree and call `run` when a relevant input changes.
 pub(crate) fn watching(
     run: impl Fn() -> anyhow::Result<WatchOutput>,
-    watch_dir: &Path,
-    source_dir: &Path,
-    target_dir: &Path,
+    watch_root: &Path,
+    ignored_subtree: &Path,
 ) -> anyhow::Result<i32> {
     // Initial run
     debug!(
-        watch_dir = %watch_dir.display(),
-        target_dir = %target_dir.display(),
+        watch_root = %watch_root.display(),
         "Initial run before starting watcher"
     );
     let mut additional_paths = run_and_print(&run);
 
     // Setup watcher
     let (tx, rx) = std::sync::mpsc::channel();
-    debug!("Creating file watcher with default config");
+    debug!(
+        backend = ?RecommendedWatcher::kind(),
+        "Creating file watcher with default config"
+    );
     let mut watcher = RecommendedWatcher::new(tx, Config::default())
         .context("Failed to create a directory watcher")?;
 
@@ -80,7 +79,7 @@ pub(crate) fn watching(
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            ctrlc::set_handler(moonutil::common::dialoguer_ctrlc_handler)
+            ctrlc::set_handler(moonutil::cli_support::dialoguer_ctrlc_handler)
                 .expect("Error setting Ctrl-C handler");
             debug!("Ctrl-C handler registered for watch mode");
         }
@@ -91,54 +90,63 @@ pub(crate) fn watching(
         // main thread
         info!(
             "Starting to watch directory '{}' recursively",
-            watch_dir.display()
+            watch_root.display()
         );
         watcher
-            .watch(watch_dir, RecursiveMode::Recursive)
-            .with_context(|| format!("Failed to watch directory: '{}'", watch_dir.display()))?;
+            .watch(watch_root, RecursiveMode::Recursive)
+            .with_context(|| format!("Failed to watch directory: '{}'", watch_root.display()))?;
+        info!(
+            backend = ?RecommendedWatcher::kind(),
+            "Using file watcher backend"
+        );
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
         const DEBOUNCE_TIME: Duration = Duration::from_millis(300);
         debug!("Watcher loop started (debounce = {:?})", DEBOUNCE_TIME);
         while let Ok(res) = rx.recv() {
-            let Ok(evt) = res else {
-                warn!(?res, "Watcher event channel returned an error");
-                continue;
+            let evt = match res {
+                Ok(evt) => {
+                    log_watch_event(&evt);
+                    evt
+                }
+                Err(err) => {
+                    warn!(error = ?err, "Watcher event channel returned an error");
+                    continue;
+                }
             };
 
             // Debounce events
             let mut evt_list = vec![evt];
             let start = std::time::Instant::now();
             while start.elapsed() < DEBOUNCE_TIME {
-                if let Ok(Ok(evt)) = rx.recv_timeout(DEBOUNCE_TIME.saturating_sub(start.elapsed()))
-                {
-                    evt_list.push(evt);
+                match rx.recv_timeout(DEBOUNCE_TIME.saturating_sub(start.elapsed())) {
+                    Ok(Ok(evt)) => {
+                        log_watch_event(&evt);
+                        evt_list.push(evt);
+                    }
+                    Ok(Err(err)) => {
+                        warn!(error = ?err, "Watcher event channel returned an error");
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
 
             debug!("Debounced {} filesystem event(s)", evt_list.len());
-            match check_rerun_trigger(target_dir, source_dir, &evt_list, &additional_paths) {
-                Err(e) => {
-                    error!(error = ?e, "Error while handling file change");
-                    println!(
-                        "{:?}\n{}",
-                        e,
-                        "Had errors, waiting for filesystem changes...".red().bold(),
-                    );
-                    continue;
-                }
-                Ok(false) => {
-                    trace!("No rerun triggered after checking events");
-                    continue;
-                }
-                Ok(true) => {
-                    debug!("Rerun triggered; executing task");
-                    additional_paths = run_and_print(&run);
-                }
+            if !check_rerun_trigger(watch_root, ignored_subtree, &evt_list, &additional_paths) {
+                trace!("No rerun triggered after checking events");
+                continue;
             }
+
+            debug!("Rerun triggered; executing task");
+            additional_paths = run_and_print(&run);
         }
     }
     Ok(0)
+}
+
+fn log_watch_event(event: &notify::Event) {
+    debug!(event = ?event, "Received filesystem event");
 }
 
 /// Check if the event kind is relevant for a rebuild/rerun.
@@ -167,11 +175,11 @@ fn is_event_relevant(event: &notify::Event) -> bool {
 
 /// Determine if we should rerun based on the event. Returns true if we should rerun.
 fn check_rerun_trigger(
-    target_dir: &Path,
     repo_root: &Path,
+    ignored_subtree: &Path,
     event_lst: &[notify::Event],
     additional_paths: &AdditionalWatchPaths,
-) -> anyhow::Result<bool> {
+) -> bool {
     debug!(
         "Evaluating {} filesystem event(s) for relevance",
         event_lst.len()
@@ -183,39 +191,33 @@ fn check_rerun_trigger(
 
     if relevant_events.is_empty() {
         trace!("No relevant changes detected; skipping run");
-        return Ok(false);
+        return false;
     }
 
-    let trigger = check_paths(repo_root, additional_paths, &relevant_events);
+    let trigger = check_paths(
+        repo_root,
+        ignored_subtree,
+        additional_paths,
+        &relevant_events,
+    );
     debug!("Have we triggered a rebuild?: {}", trigger);
-
-    // prevent the case that the whole target_dir was deleted
-    // FIXME: legacy code, might not need it
-    if !target_dir.exists() {
-        warn!(
-            "Target directory '{}' missing; recreating it",
-            target_dir.display()
-        );
-        std::fs::create_dir_all(target_dir).with_context(|| {
-            format!(
-                "Failed to create target directory: '{}'",
-                target_dir.display()
-            )
-        })?;
-    }
-
-    Ok(trigger)
+    trigger
 }
 
 // Check the paths in the events against the ignore rules.
 fn check_paths(
     repo_root: &Path,
+    ignored_subtree: &Path,
     additional_paths: &AdditionalWatchPaths,
     relevant_events: &[&notify::Event],
 ) -> bool {
     // Check if any of the relevant events are in ignored dirs.
     // Note: `_build/` and `.mooncakes/` are always ignored by default.
     let mut ignore_builder = filter_files::FileFilterBuilder::new(repo_root);
+    // Only a proper descendant can be filtered as part of the watched tree.
+    // An equal or ancestor directory would also suppress source events.
+    let filters_output_subtree = watch_path_starts_with(ignored_subtree, repo_root)
+        && !watch_path_starts_with(repo_root, ignored_subtree);
 
     for evt in relevant_events {
         for path in &evt.paths {
@@ -228,6 +230,17 @@ fn check_paths(
             }
 
             let explicitly_watched = path_matches(&additional_paths.watched_paths, path);
+
+            if !explicitly_watched
+                && filters_output_subtree
+                && watch_path_starts_with(path, ignored_subtree)
+            {
+                trace!(
+                    "Ignoring event for path '{}' because it is in the output directory",
+                    path.display()
+                );
+                continue;
+            }
 
             // Filter to source/config files that can affect RR planning/builds.
             // Note: A file removal will render `path.is_file()` false, but we
@@ -265,6 +278,8 @@ fn check_paths(
 
     false
 }
+
+use moonutil::path::starts_with_equivalent_prefix as watch_path_starts_with;
 
 fn path_matches(paths: &HashSet<PathBuf>, path: &Path) -> bool {
     if paths.contains(path) {
@@ -347,7 +362,7 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> Additiona
 mod tests {
     use super::*;
 
-    use moonutil::common::{BUILD_DIR, MOON_WORK};
+    use moonutil::constants::MOON_WORK;
     use notify::event::{CreateKind, Event, EventKind};
 
     fn build_event(path: &Path) -> notify::Event {
@@ -358,19 +373,19 @@ mod tests {
         }
     }
 
+    fn check_events(
+        root: &Path,
+        events: &[notify::Event],
+        additional_paths: &AdditionalWatchPaths,
+    ) -> bool {
+        let ignored_subtree = root.join("_build");
+        check_rerun_trigger(root, &ignored_subtree, events, additional_paths)
+    }
+
     #[test]
     fn rerun_not_triggered_when_no_relevant_events() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let target_dir = temp_dir.path().join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
-
-        let result = check_rerun_trigger(
-            &target_dir,
-            temp_dir.path(),
-            &[],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(temp_dir.path(), &[], &AdditionalWatchPaths::default());
 
         assert!(!result);
     }
@@ -381,21 +396,13 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         fs::write(root.join(".gitignore"), "ignored.txt\n").unwrap();
         let file = root.join("ignored.txt");
         fs::write(&file, "data").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(!result);
     }
@@ -406,23 +413,53 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/main.mbt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "stuff").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_when_output_directory_is_not_a_strict_descendant() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let watch_root = root.join("project");
+        let disjoint_output = root.join("target");
+
+        let file = watch_root.join("src/main.mbt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::create_dir_all(&disjoint_output).unwrap();
+        fs::write(&file, "stuff").unwrap();
+
+        let event = build_event(&file);
+        let additional_paths = AdditionalWatchPaths::default();
+
+        for output_dir in [
+            root.as_path(),
+            watch_root.as_path(),
+            disjoint_output.as_path(),
+        ] {
+            let output_dir = fs::canonicalize(output_dir).unwrap();
+            let result = check_rerun_trigger(
+                &watch_root,
+                &output_dir,
+                std::slice::from_ref(&event),
+                &additional_paths,
+            );
+
+            assert!(
+                result,
+                "output directory '{}' suppressed a source event",
+                output_dir.display()
+            );
+        }
     }
 
     #[test]
@@ -431,20 +468,12 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join(MOON_WORK);
         fs::write(&file, "members = [\"./app\"]").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
     }
@@ -455,73 +484,67 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("main/moon.pkg");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "is-main = true").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
     }
 
     #[test]
-    fn rerun_triggered_for_moonlex_input() {
+    fn rerun_triggered_when_legacy_moonlex_input_changes() {
         use std::fs;
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/main/lexer.mbl");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "rule token = parse").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
+
+        fs::remove_file(&file).unwrap();
+        let removed =
+            notify::Event::new(EventKind::Remove(notify::event::RemoveKind::File)).add_path(file);
+        assert!(check_events(
+            root,
+            &[removed],
+            &AdditionalWatchPaths::default()
+        ));
     }
 
     #[test]
-    fn rerun_triggered_for_moonyacc_input() {
+    fn rerun_triggered_when_legacy_moonyacc_input_changes() {
         use std::fs;
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/main/parser.mby");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "%%").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
+
+        fs::remove_file(&file).unwrap();
+        let removed =
+            notify::Event::new(EventKind::Remove(notify::event::RemoveKind::File)).add_path(file);
+        assert!(check_events(
+            root,
+            &[removed],
+            &AdditionalWatchPaths::default()
+        ));
     }
 
     #[test]
@@ -530,8 +553,6 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/lib/input.txt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -539,18 +560,110 @@ mod tests {
         fs::write(&file, "data").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
+        let result = check_events(
             root,
             &[event],
             &AdditionalWatchPaths {
-                ignored_paths: HashSet::new(),
                 watched_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
+                ..AdditionalWatchPaths::default()
             },
-        )
-        .unwrap();
+        );
 
         assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_explicitly_watched_prebuild_input_in_output_directory() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+
+        let file = root.join("target/input.txt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "data").unwrap();
+        let ignored_subtree = fs::canonicalize(file.parent().unwrap()).unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(
+            &root,
+            &ignored_subtree,
+            &[event],
+            &AdditionalWatchPaths {
+                watched_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
+                ..AdditionalWatchPaths::default()
+            },
+        );
+
+        assert!(result);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rerun_ignored_for_verbatim_output_directory_events() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let output_dir = root.join("target");
+        let long_relative = "segment\\".repeat(40);
+        fs::create_dir_all(output_dir.join(&long_relative)).unwrap();
+        let ignored_subtree = fs::canonicalize(&output_dir).unwrap();
+
+        for kind in [
+            EventKind::Create(CreateKind::Folder),
+            EventKind::Remove(notify::event::RemoveKind::Folder),
+        ] {
+            if kind.is_remove() {
+                fs::remove_dir_all(&output_dir).unwrap();
+            }
+            // Test both spellings and a descendant beyond MAX_PATH, including
+            // after the complete subtree has disappeared from the filesystem.
+            for path in [
+                output_dir.clone(),
+                ignored_subtree.clone(),
+                output_dir.join(&long_relative),
+                ignored_subtree.join(&long_relative),
+            ] {
+                let event = Event::new(kind).add_path(path);
+                assert!(!check_rerun_trigger(
+                    &root,
+                    &ignored_subtree,
+                    &[event],
+                    &AdditionalWatchPaths::default(),
+                ));
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn watch_containment_accepts_drive_and_unc_prefix_spellings() {
+        for (ordinary, verbatim) in [
+            (r"C:\project", r"\\?\C:\project"),
+            (r"\\server\share\project", r"\\?\UNC\server\share\project"),
+        ] {
+            for base in [ordinary, verbatim] {
+                for path in [ordinary, verbatim] {
+                    let descendant = Path::new(path).join("segment\\".repeat(40));
+                    assert!(watch_path_starts_with(Path::new(path), Path::new(base)));
+                    assert!(watch_path_starts_with(&descendant, Path::new(base)));
+                    assert!(!watch_path_starts_with(Path::new(base), &descendant));
+                    assert!(!watch_path_starts_with(
+                        Path::new(&format!("{path}-sibling")),
+                        Path::new(base),
+                    ));
+                }
+            }
+        }
+        assert!(!watch_path_starts_with(
+            Path::new(r"\\?\D:\project\target"),
+            Path::new(r"C:\project"),
+        ));
+        assert!(!watch_path_starts_with(
+            Path::new(r"\\?\UNC\server\other-share\project\target"),
+            Path::new(r"\\server\share\project"),
+        ));
     }
 
     #[test]
@@ -559,24 +672,20 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/lib/input.txt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "data").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
+        let result = check_events(
             root,
             &[event],
             &AdditionalWatchPaths {
-                ignored_paths: HashSet::new(),
                 watched_paths: HashSet::from_iter([root.join("./src/lib/input.txt")]),
+                ..AdditionalWatchPaths::default()
             },
-        )
-        .unwrap();
+        );
 
         assert!(result);
     }
@@ -587,24 +696,20 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/lib/generated.mbt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "fn generated() {}").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
+        let result = check_events(
             root,
             &[event],
             &AdditionalWatchPaths {
                 ignored_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
-                watched_paths: HashSet::new(),
+                ..AdditionalWatchPaths::default()
             },
-        )
-        .unwrap();
+        );
 
         assert!(!result);
     }
@@ -615,51 +720,47 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
 
         let file = root.join("src/lib/generated.mbt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "fn generated() {}").unwrap();
 
         let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
+        let result = check_events(
             root,
             &[event],
             &AdditionalWatchPaths {
                 ignored_paths: HashSet::from_iter([root.join("./src/lib/generated.mbt")]),
-                watched_paths: HashSet::new(),
+                ..AdditionalWatchPaths::default()
             },
-        )
-        .unwrap();
+        );
 
         assert!(!result);
     }
 
     #[test]
-    fn rerun_target_dir_recreated_when_missing() {
+    fn rerun_ignored_when_configured_output_directory_is_removed() {
+        use std::fs;
+
         let temp_dir = tempfile::tempdir().unwrap();
-        let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let output_dir = root.join("target");
+        fs::create_dir_all(&output_dir).unwrap();
+        let ignored_subtree = normalize_watch_path(&output_dir);
+        fs::remove_dir(&output_dir).unwrap();
 
-        let file = root.join("src/main.mbt");
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, "stuff").unwrap();
-
-        let event = build_event(&file);
-
-        assert!(!target_dir.exists());
-
+        let event = notify::Event {
+            kind: EventKind::Remove(notify::event::RemoveKind::Folder),
+            paths: vec![ignored_subtree.clone()],
+            attrs: Default::default(),
+        };
         let result = check_rerun_trigger(
-            &target_dir,
-            root,
+            &root,
+            &ignored_subtree,
             &[event],
             &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
+        );
 
-        assert!(result);
-        assert!(target_dir.exists());
+        assert!(!result);
     }
 }

@@ -1,110 +1,45 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
+//! Lowers the normalized action plan into an executor-neutral Execution Plan.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::path::PathBuf;
 
-use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{
-    common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel, mooncakes::ModuleSource,
-};
-use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
 use crate::{
-    ResolveOutput,
+    CompileConfig, ResolvedProject,
     build_plan::BuildPlan,
-    model::{Artifacts, BuildPlanNode, NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
-    pkg_name::OptionalPackageFQNWithSource,
+    execution_plan::{ExecutionPlan, ExecutionPlanBuilder},
 };
 
-pub mod artifact;
+mod command;
 mod compiler;
 mod context;
 mod lower_aux;
 mod lower_build;
-mod utils;
+mod moonc_command;
 
-pub use utils::{build_ins, build_n2_fileloc, build_outs};
+pub use crate::execution_plan::{LoweredCommand, LoweredCommandExecution, LoweredResponseFile};
 
-use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
-use context::BuildPlanLowerContext;
-
-/// Knobs to tweak during build. Affects behaviors during lowering.
-pub struct BuildOptions {
-    pub main_module: Option<ModuleSource>,
-    pub target_dir_root: PathBuf,
-    // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    pub target_backend: RunBackend,
-    pub native_target: Option<NativeTarget>,
-    pub tcc_run: Option<TccRunConfig>,
-    pub os: OperatingSystem,
-    pub opt_level: OptLevel,
-    pub action: RunMode,
-
-    // Detailed configuration -- some of them might live better in configs
-    pub debug_symbols: bool,
-    pub enable_coverage: bool,
-    pub output_wat: bool,
-    pub moonc_output_json: bool,
-    pub docs_serve: bool,
-    pub warning_condition: WarningCondition,
-    pub info_no_alias: bool,
-    pub wasi_link: bool,
-
-    // Environments
-    /// Only `Some` if we import standard library.
-    pub stdlib_path: Option<PathBuf>,
-    pub runtime_dot_c_path: PathBuf,
-    pub compiler_paths: CompilerPaths,
-}
-
-impl BuildOptions {
-    pub fn use_tcc_run(&self) -> bool {
-        let use_tcc_run = self.tcc_run.is_some();
-        debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
-        debug_assert!(!use_tcc_run || self.native_target.is_none());
-        use_tcc_run
-    }
-
-    pub fn executable_artifact(&self, legacy_behavior: bool) -> ExecutableArtifact {
-        match self.target_backend {
-            RunBackend::Wasm => ExecutableArtifact::Wasm {
-                use_wat: self.output_wat,
-            },
-            RunBackend::WasmGC => ExecutableArtifact::WasmGC {
-                use_wat: self.output_wat,
-            },
-            RunBackend::Js => ExecutableArtifact::Js,
-            RunBackend::Native if self.use_tcc_run() => ExecutableArtifact::TccRunResponseFile,
-            RunBackend::Native => ExecutableArtifact::NativeExecutable {
-                os: self.os,
-                legacy_behavior,
-            },
-            RunBackend::Llvm => ExecutableArtifact::LlvmExecutable {
-                os: self.os,
-                legacy_behavior,
-            },
-        }
-    }
-}
+use command::BuildCommand;
+use context::LoweringContext;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WarningCondition {
@@ -116,159 +51,926 @@ pub enum WarningCondition {
     Allow,
 }
 
-/// An error that may be raised during build plan lowering
+/// An error that may be raised during action plan lowering.
 #[derive(thiserror::Error, Debug)]
 pub enum LoweringError {
-    #[error(
-        "An error was reported by n2 (the build graph executor), \
-        when lowering for package {package}, build node {node:?}"
-    )]
-    N2 {
-        package: OptionalPackageFQNWithSource,
-        node: BuildPlanNode,
-        source: anyhow::Error,
+    #[error("moonc response files cannot represent argument {index}: {reason}")]
+    MooncResponseFile { index: usize, reason: &'static str },
+
+    #[error("failed to parse built-in :embed prebuild arguments: unterminated quote or escape")]
+    MalformedEmbedArguments,
+
+    #[error("failed to inspect MoonBit toolchain include directory {path}")]
+    ToolchainInclude {
+        path: PathBuf,
+        source: walkdir::Error,
     },
-    #[error("Failed to resolve native C toolchain for runtime")]
-    RuntimeNativeToolchain(#[source] anyhow::Error),
 }
 
-/// Structured command argv keyed by each generated output path.
-pub type CommandArgMap = BTreeMap<PathBuf, Vec<String>>;
-
-pub struct LoweringResult {
-    /// The lowered n2 build graph.
-    pub build_graph: N2Graph,
-
-    /// Structured argv for lowered commands that are represented as argument
-    /// vectors before they are rendered into n2 command strings.
-    pub command_args_by_output: CommandArgMap,
-
-    /// The list of artifacts corresponding to the root input nodes.
-    ///
-    /// Rationale for being a map: users (especially tests) need to look up
-    /// artifacts corresponding to specific nodes for rebuilding.
-    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
-}
-
-/// The command to execute for n2.
-///
-/// # How n2 handles commandlines
-///
-/// N2 (and ninja) use different conventions for handling commandlines on
-/// different platforms.
-///
-/// - On Unix-like platforms, the command string will be fed into `sh -c`. Thus,
-///   shell features like variable expansion are supported.
-/// - On Windows, the command string will be directly passed to
-///   `CreateProcessA`. No shell features are supported.
-///
-/// For most build commands, this is not an issue. All executables and argument
-/// paths are absolute paths, and there's no shell features involved.
-///
-/// However, for prebuild commands, the commandline is expected to be copied
-/// verbatim (with minimal resolving) to the generated build script. Thus,
-/// splitting, resolving and quoting again may lead to e.g. shell features being
-/// lost.
-///
-/// Thus, we're currently providing a `Verbatim` variant to handle such cases.
-///
-/// # Future improvements
-///
-/// Future design might want to omit shell features entirely for better
-/// cross-platform consistency. Env var expansion are already used by some
-/// libraries, so maintainers must be careful not to break those while doing so.
-///
-/// An idea is to use unix-style shell splitting and expansion everywhere,
-/// performing the env var expansion ourselves during build graph execution
-/// time. Other shell features should be disallowed. The result will then be
-/// handled like `Args` native to the platform.
-#[derive(Debug, Clone)]
-enum Commandline {
-    /// This commandline will be joined using the platform's default convention.
-    Args(Vec<String>),
-
-    /// This verbatim string will be plugged into the build graph as-is.
-    /// Use with caution.
-    ///
-    /// This variant currently is only used in prebuild commands.
-    Verbatim(String),
-}
-
-impl From<Vec<String>> for Commandline {
-    fn from(v: Vec<String>) -> Self {
-        Commandline::Args(v)
-    }
-}
-
-impl Commandline {
-    /// Convert this to the string representation expected by n2.
-    fn to_n2_string(&self) -> String {
-        match self {
-            Commandline::Args(args) => {
-                moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
-            }
-            Commandline::Verbatim(s) => s.clone(),
-        }
-    }
-}
-
-/// Represents the essential information needed to construct an [`Build`] value
-/// that cannot be derived fromthe build plan graph.
-struct BuildCommand {
-    /// The **extra** input files needed for this command, **in addition to**
-    /// the artifacts of the build steps this command depends on.
-    extra_inputs: Vec<PathBuf>,
-
-    /// The command to execute.
-    commandline: Commandline,
-}
-
-/// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
+/// Lower a normalized action plan into an executor-neutral Execution Plan.
 #[instrument(skip_all)]
 pub fn lower_build_plan(
-    resolve_output: &ResolveOutput,
-    build_plan: &BuildPlan,
-    opt: &BuildOptions,
-) -> Result<LoweringResult, LoweringError> {
-    info!("Starting build plan lowering to n2 graph");
+    resolved_project: &ResolvedProject,
+    plan: &BuildPlan,
+    opt: &CompileConfig,
+) -> Result<ExecutionPlan, LoweringError> {
+    info!("Starting action plan lowering to execution plan");
     debug!(
-        "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
-        opt.target_backend, opt.opt_level, opt.debug_symbols
+        "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
+        opt.backend.target_backend(),
+        opt.opt_level,
+        plan.backend_plan().moonc_debug_info()
     );
 
-    let layout = LegacyLayoutBuilder::default()
-        .target_base_dir(opt.target_dir_root.to_owned())
-        .main_module(opt.main_module.clone())
-        .stdlib_dir(opt.stdlib_path.clone())
-        .opt_level(opt.opt_level)
-        .run_mode(opt.action)
-        .build()
-        .expect("Failed to build legacy layout");
+    let mut ctx = LoweringContext::new(resolved_project, plan, opt);
+    let mut execution = ExecutionPlanBuilder::default();
 
-    let mut ctx = BuildPlanLowerContext::new(layout, resolve_output, build_plan, opt);
-
-    for node in build_plan.all_nodes() {
-        debug!("Lowering build node: {:?}", node);
-        ctx.lower_node(node)?;
+    for action_key in plan.all_actions() {
+        debug!("Lowering action: {:?}", action_key);
+        ctx.lower_action(&action_key, &mut execution)?;
     }
 
-    let mut out_artifcts = IndexMap::with_capacity(build_plan.input_nodes().len());
-    for n in build_plan.input_nodes() {
-        let mut a = vec![];
-        ctx.append_all_artifacts_of(*n, &mut a);
-        out_artifcts.insert(
-            *n,
-            Artifacts {
-                node: *n,
-                artifacts: a,
+    let mut execution = execution.finish(plan.requested_artifacts().cloned());
+    execution.mark_dependency_artifacts(resolved_project);
+    Ok(execution)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashSet,
+        path::{Path, PathBuf},
+    };
+
+    use indexmap::IndexSet;
+    use moonutil::{
+        build_options::RunMode,
+        compiler_flags::{
+            ARKind, CC, CCKind, CompilerPaths, MsvcEnvironment, NativeAllocator, Toolchain,
+        },
+        cond_expr::OptLevel,
+        manifest::MoonMod,
+        package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
+        resolution::{
+            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
+        },
+        target::TargetBackend,
+        toolchain::BINARIES,
+    };
+
+    use crate::{
+        build_plan::{
+            ArtifactKey, BuildCStubsInfo, BuildPlan, BuildPlanActionKey, BuildRuntimeInfo,
+            BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+        },
+        discover::{DiscoverResult, DiscoveredPackage},
+        model::{
+            BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
+            NativeTarget, OperatingSystem, TargetKind,
+        },
+        pkg_name::{PackageFQN, PackagePath},
+        pkg_solve::PackageRelations,
+        resolve::ResolvedProject,
+        target_layout::{ArtifactPathResolver, ExecutableArtifact, TargetLayout, TargetLayoutMode},
+    };
+
+    use super::*;
+
+    #[test]
+    fn non_native_artifact_options_need_no_host_configuration() {
+        let (resolved_project, _) = single_package_resolve_output();
+        let plan = BuildPlan::default();
+        for backend in [
+            BackendConfig::Wasm {
+                use_wat: false,
+                wasi_link: false,
+                new_allocator: false,
+                collect_ref_cycle: false,
             },
+            BackendConfig::WasmGc { use_wat: false },
+            BackendConfig::Js,
+        ] {
+            let artifact_paths = ArtifactPathResolver::new(
+                TargetLayout::new(
+                    PathBuf::from("_build"),
+                    TargetLayoutMode::Workspace,
+                    OptLevel::Debug,
+                    RunMode::Build,
+                ),
+                None,
+            );
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                debug_info: Default::default(),
+                warn_list: None,
+                artifact_paths,
+                backend,
+                opt_level: OptLevel::Debug,
+                action: RunMode::Build,
+                enable_coverage: false,
+                moonc_output_json: false,
+                docs_serve: false,
+                warning_condition: WarningCondition::Default,
+                info_no_alias: false,
+                stdlib_path: None,
+            };
+
+            let context = LoweringContext::new(&resolved_project, &plan, &options);
+            assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
+        }
+    }
+
+    fn module(name: &str) -> ModuleSource {
+        ModuleSource::local_path(
+            name.parse::<ModuleName>()
+                .expect("test module name should parse"),
+            PathBuf::from(format!("/tmp/{name}")),
+            DEFAULT_VERSION.clone(),
+        )
+        .expect("test module should have a valid version")
+    }
+
+    fn moon_mod(name: &str) -> MoonMod {
+        MoonMod {
+            name: name.to_string(),
+            version: None,
+            private: None,
+            deps: Default::default(),
+            readme: None,
+            repository: None,
+            license: None,
+            keywords: None,
+            description: None,
+            compile_flags: None,
+            link_flags: None,
+            checksum: None,
+            source: None,
+            rule: None,
+            ext: Default::default(),
+            warn_list: None,
+            include: None,
+            exclude: None,
+            preferred_target: None,
+            supported_targets: None,
+            scripts: None,
+            __moonbit_unstable_prebuild: None,
+        }
+    }
+
+    fn supported_targets() -> IndexSet<TargetBackend> {
+        TargetBackend::all().iter().copied().collect()
+    }
+
+    fn moon_pkg(supported_targets: IndexSet<TargetBackend>) -> MoonPkg {
+        MoonPkg {
+            name: None,
+            experimental: false,
+            allow_experimental_packages: None,
+            is_main: false,
+            force_link: false,
+            sub_package: None,
+            imports: Vec::new(),
+            wbtest_imports: Vec::new(),
+            test_imports: Vec::new(),
+            formatter: MoonPkgFormatter {
+                ignore: Default::default(),
+            },
+            link: None,
+            warn_list: None,
+            proof_enabled: false,
+            use_async_io: false,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets,
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+            local_rules: None,
+        }
+    }
+
+    fn msvc_toolchain() -> Toolchain {
+        Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Msvc,
+            cc_path: "msvc/bin/cl.exe".to_string(),
+            ar_kind: ARKind::MsvcLib,
+            ar_path: "msvc/bin/lib.exe".to_string(),
+            target_triple: None,
+            is_env_override: false,
+        })
+        .with_msvc_environment(MsvcEnvironment {
+            command_env: vec![
+                ("INCLUDE".to_string(), "crt/include;sdk/include".to_string()),
+                ("LIB".to_string(), "crt/lib;sdk/lib".to_string()),
+            ],
+        })
+    }
+
+    fn build_target_info() -> BuildTargetInfo {
+        BuildTargetInfo {
+            regular_files: Vec::new(),
+            mbtp_files: Vec::new(),
+            whitebox_files: Vec::new(),
+            doctest_files: Vec::new(),
+            warn_list: None,
+            specified_no_mi: false,
+            patch_file: None,
+            why3_config: None,
+            proof_prelude: PathBuf::from("proof-prelude"),
+            check_mi_against: None,
+            value_tracing: false,
+        }
+    }
+
+    fn single_package_resolve_output() -> (ResolvedProject, BuildTarget) {
+        single_package_resolve_output_with_module(moon_mod("username/hello"))
+    }
+
+    fn connect_artifact(
+        plan: &mut BuildPlan,
+        consumer: BuildPlanNode,
+        provider: BuildPlanNode,
+        artifact: ArtifactKey,
+    ) {
+        plan.test_require_artifact(consumer, artifact.clone());
+        plan.test_provide_artifact(provider, artifact);
+    }
+
+    fn single_package_resolve_output_with_module(
+        module_info: MoonMod,
+    ) -> (ResolvedProject, BuildTarget) {
+        let module_source = module("username/hello");
+        let (modules, module_id) =
+            ModuleDependencyGraph::only_one_module(module_source.clone(), module_info.clone());
+        let package_path = PackagePath::new("main").expect("test package path should parse");
+        let supported_targets = supported_targets();
+        let package = DiscoveredPackage {
+            root_path: PathBuf::from("main"),
+            module: module_id,
+            fqn: PackageFQN::new(module_source, package_path.clone()),
+            single_file_source_kind: None,
+            manifest_path: Some(PathBuf::from("main/moon.pkg.json")),
+            raw: Box::new(moon_pkg(supported_targets.clone())),
+            supported_targets_decl: SupportedTargetsDeclKind::Omitted,
+            effective_supported_targets: supported_targets,
+            source_files: Vec::new(),
+            mbt_md_files: Vec::new(),
+            mbtp_files: Vec::new(),
+            c_stub_files: vec![PathBuf::from("main/native/stub.c")],
+            c_stub_header_files: vec![PathBuf::from("main/native/stub.h")],
+            virtual_mbti_files: Vec::new(),
+            is_stdlib: false,
+        };
+
+        let mut packages = DiscoverResult::default();
+        packages.test_register_module(module_id, module_info);
+        let package_id = packages.test_add_package(module_id, package_path, package);
+        let mut module_dirs = DirSyncResult::default();
+        module_dirs.insert(module_id, PathBuf::from("/tmp/username/hello"));
+
+        (
+            ResolvedProject {
+                discovered: crate::resolve::DiscoveredProject {
+                    module_graph: modules,
+                    module_dirs,
+                    pkg_dirs: packages,
+                    enable_coverage: false,
+                },
+                package_relations: moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&b| (b, PackageRelations::default()))
+                    .collect(),
+            },
+            package_id.build_target(TargetKind::Source),
+        )
+    }
+
+    fn command_arg_has_normalized_suffix(command: &[String], suffix: &str) -> bool {
+        command
+            .iter()
+            .any(|arg| arg.replace('\\', "/").ends_with(suffix))
+    }
+
+    fn input_paths_for_command(
+        plan: &crate::execution_plan::ExecutionPlan,
+        matches: impl Fn(&[String]) -> bool,
+    ) -> Vec<PathBuf> {
+        let action = plan
+            .action_ids()
+            .map(|id| plan.action(id))
+            .find(|action| matches(action.command().args()))
+            .expect("matching lowered command should be present");
+        action.inputs().to_vec()
+    }
+
+    #[test]
+    fn opaque_module_flags_make_compiler_actions_ineligible() {
+        let mut module_info = moon_mod("username/hello");
+        module_info.compile_flags = Some(vec!["-include".to_string(), "config.mbt".to_string()]);
+        module_info.link_flags = Some(vec!["-custom-link-input=layout.txt".to_string()]);
+        let (resolved_project, target) = single_package_resolve_output_with_module(module_info);
+        let check_node = BuildPlanNode::Check(target);
+        let link_core_node = BuildPlanNode::LinkCore(target);
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(check_node);
+        plan.test_add_node(link_core_node);
+        plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_provide_artifact(
+            check_node,
+            ArtifactKey::CheckMi {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        plan.test_provide_artifact(
+            link_core_node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        plan.test_insert_link_core_info(
+            target,
+            LinkCoreInfo {
+                linked_order: Vec::new(),
+                link_stdlib_abort: false,
+            },
+        );
+
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Build,
+            ),
+            None,
+        );
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            debug_info: Default::default(),
+            warn_list: None,
+            artifact_paths: artifact_paths.clone(),
+            backend: BackendConfig::WasmGc { use_wat: false },
+            opt_level: OptLevel::Debug,
+            action: RunMode::Build,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            info_no_alias: false,
+            stdlib_path: None,
+        };
+
+        let mut context = LoweringContext::new(&resolved_project, &plan, &options);
+        let mut execution = ExecutionPlanBuilder::default();
+        let nodes = [check_node, link_core_node];
+        let actions = nodes
+            .into_iter()
+            .map(|node| {
+                let action = BuildPlanActionKey::Backend(node);
+                context
+                    .lower_action(&action, &mut execution)
+                    .expect("lowering should succeed")
+            })
+            .collect::<Vec<_>>();
+        let execution = execution.finish([]);
+        for (node, action) in nodes.into_iter().zip(actions) {
+            assert!(
+                !execution.action(action).is_cache_eligible(),
+                "{node:?} should be ineligible"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
+    fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
+        let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
+        let include_dir = toolchain_dir.path().join("include");
+        std::fs::create_dir_all(include_dir.join("internal")).expect("create header directory");
+        let toolchain_headers = [
+            include_dir.join("moonbit.h"),
+            include_dir.join("internal/runtime.h"),
+        ];
+        for header in &toolchain_headers {
+            std::fs::write(header, "/* test header */").expect("write test header");
+        }
+        let (resolved_project, target) = single_package_resolve_output();
+        let runtime_node = BuildPlanNode::BuildRuntimeLib;
+        let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
+        let c_stub_node = BuildPlanNode::BuildCStub(target.package, 0);
+        let c_stubs_node = BuildPlanNode::ArchiveOrLinkCStubs(target.package);
+        let build_core_node = BuildPlanNode::BuildCore(target);
+        let link_core_node = BuildPlanNode::LinkCore(target);
+        let exe_node = BuildPlanNode::MakeExecutable(target);
+        let toolchain = msvc_toolchain();
+
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(runtime_node);
+        plan.test_add_node(runtime_object_node);
+        plan.test_add_node(c_stub_node);
+        plan.test_add_node(c_stubs_node);
+        plan.test_add_node(build_core_node);
+        plan.test_add_node(link_core_node);
+        plan.test_add_node(exe_node);
+        connect_artifact(
+            &mut plan,
+            c_stubs_node,
+            c_stub_node,
+            ArtifactKey::CStubObject {
+                package: target.package,
+                source: PathBuf::from("native/stub.c"),
+            },
+        );
+        connect_artifact(
+            &mut plan,
+            runtime_node,
+            runtime_object_node,
+            ArtifactKey::RuntimeObject {
+                source: PathBuf::from("runtime.c"),
+            },
+        );
+        let core_ir = ArtifactKey::CoreIr {
+            package: target.package,
+            target_kind: target.kind,
+        };
+        connect_artifact(&mut plan, link_core_node, build_core_node, core_ir);
+        connect_artifact(
+            &mut plan,
+            exe_node,
+            link_core_node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        connect_artifact(
+            &mut plan,
+            exe_node,
+            runtime_node,
+            ArtifactKey::RuntimeLibrary,
+        );
+        connect_artifact(
+            &mut plan,
+            exe_node,
+            c_stubs_node,
+            ArtifactKey::CStubLibrary {
+                package: target.package,
+            },
+        );
+        plan.test_provide_artifact(
+            exe_node,
+            ArtifactKey::Executable {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_insert_link_core_info(
+            target,
+            LinkCoreInfo {
+                linked_order: vec![target],
+                link_stdlib_abort: false,
+            },
+        );
+        plan.test_insert_c_stubs_info(
+            target.package,
+            BuildCStubsInfo {
+                effective_native_toolchain: toolchain.clone(),
+                debug_info: false,
+                opt_level: moonutil::compiler_flags::OptLevel::None,
+                cc_flags: vec!["/FIgenerated-config.h".to_string()],
+                link_args: Vec::new(),
+            },
+        );
+        plan.test_insert_runtime_info(BuildRuntimeInfo {
+            effective_native_toolchain: toolchain.clone(),
+            enable_backtrace: false,
+            source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            native_allocator: NativeAllocator::Default,
+        });
+        plan.test_insert_make_executable_info(
+            target,
+            MakeExecutableInfo {
+                effective_native_toolchain: toolchain.clone(),
+                c_debug_info: false,
+                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
+                c_flags: Vec::new(),
+                link_args: vec![
+                    moonutil::compiler_flags::NativeLinkArg::Library("dep".into()),
+                    moonutil::compiler_flags::NativeLinkArg::SearchPath("pkg/lib".into()),
+                ],
+                link_c_stubs: vec![target.package],
+                native_allocator: NativeAllocator::Default,
+            },
+        );
+
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Build,
+            ),
+            None,
+        );
+        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
+            NativeTarget::X86_64PcWindowsMsvc,
+        ));
+        plan.test_backend_plan_mut()
+            .test_set_native_mode(Some(native_mode));
+        let options = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            debug_export_build_plan: false,
+            debug_info: Default::default(),
+            warn_list: None,
+            artifact_paths: artifact_paths.clone(),
+            backend: BackendConfig::Native {
+                direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
+                collect_ref_cycle: false,
+                allocator: NativeAllocator::Default,
+                os: OperatingSystem::Windows,
+                compiler_paths: CompilerPaths {
+                    include_path: include_dir.display().to_string(),
+                    lib_path: toolchain_dir.path().join("lib").display().to_string(),
+                },
+            },
+            opt_level: OptLevel::Debug,
+            action: RunMode::Build,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            info_no_alias: false,
+            stdlib_path: None,
+        };
+
+        let execution =
+            lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
+        let custom_input_actions = execution
+            .action_ids()
+            .filter(|id| {
+                execution.action(*id).outputs().iter().any(|path| {
+                    matches!(
+                        execution
+                            .declared_output(path)
+                            .and_then(|output| output.artifact()),
+                        Some(ArtifactKey::CStubObject { .. } | ArtifactKey::Executable { .. })
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(custom_input_actions.len(), 2);
+        for action in custom_input_actions {
+            assert!(
+                !execution.action(action).is_cache_eligible(),
+                "C stub flags and native link inputs can refer to undeclared files"
+            );
+        }
+
+        let lowered = execution;
+        let exe_path = artifact_paths.target_layout().executable_of_build_target(
+            &resolved_project.pkg_dirs,
+            &target,
+            ExecutableArtifact::NativeExecutable,
+        );
+        let command = lowered
+            .action(
+                lowered
+                    .declared_output(&exe_path)
+                    .expect("output should have a producer")
+                    .producer(),
+            )
+            .command()
+            .args();
+
+        assert!(command.iter().any(|arg| arg == "msvc/bin/cl.exe"));
+        assert!(command.iter().any(|arg| arg == "/subsystem:console"));
+        assert!(command.iter().any(|arg| arg == "/LIBPATH:pkg/lib"));
+        assert!(command.iter().any(|arg| arg == "dep.lib"));
+        assert!(command.iter().any(|arg| arg == "libcmt.lib"));
+        assert!(command.iter().any(|arg| arg == "kernel32.lib"));
+        assert!(command_arg_has_normalized_suffix(
+            command,
+            "username/hello/main/libmain.lib"
+        ));
+        assert!(command_arg_has_normalized_suffix(
+            command,
+            "native/debug/build/libruntime.lib"
+        ));
+        let c_stub_position = command
+            .iter()
+            .position(|arg| {
+                arg.replace('\\', "/")
+                    .ends_with("username/hello/main/libmain.lib")
+            })
+            .expect("C stub archive should be linked");
+        let runtime_position = command
+            .iter()
+            .position(|arg| {
+                arg.replace('\\', "/")
+                    .ends_with("native/debug/build/libruntime.lib")
+            })
+            .expect("runtime archive should be linked");
+        assert!(c_stub_position < runtime_position);
+
+        let runtime_compile_command = lowered
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
+            .find(|command| command_arg_has_normalized_suffix(command, "runtime.c"))
+            .expect("runtime compile command args should be captured");
+        assert!(command_arg_has_normalized_suffix(
+            runtime_compile_command,
+            "native/debug/build/runtime-runtime.obj"
+        ));
+        assert!(
+            runtime_compile_command
+                .iter()
+                .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_C_STANDARD_FLAG)
+        );
+
+        let runtime_archive_command = lowered
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
+            .find(|command| {
+                command.iter().any(|arg| arg == "msvc/bin/lib.exe")
+                    && command_arg_has_normalized_suffix(
+                        command,
+                        "native/debug/build/libruntime.lib",
+                    )
+            })
+            .expect("runtime archive command args should be captured");
+        assert!(command_arg_has_normalized_suffix(
+            runtime_archive_command,
+            "native/debug/build/libruntime.lib"
+        ));
+        assert!(command_arg_has_normalized_suffix(
+            runtime_archive_command,
+            "native/debug/build/runtime-runtime.obj"
+        ));
+
+        let stub_compile_command = lowered
+            .action_ids()
+            .map(|id| lowered.action(id).command().args())
+            .find(|command| command_arg_has_normalized_suffix(command, "main/native/stub.c"))
+            .expect("C stub compile command args should be captured");
+        assert!(
+            stub_compile_command
+                .iter()
+                .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
+        );
+        assert!(
+            stub_compile_command
+                .iter()
+                .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_C_STANDARD_FLAG)
+        );
+
+        let moonc_inputs = input_paths_for_command(&lowered, |command| {
+            command.get(1).map(String::as_str) == Some("build-package")
+        });
+        assert_eq!(
+            moonc_inputs
+                .iter()
+                .filter(|input| input.as_path() == dunce::simplified(&BINARIES.moonc))
+                .count(),
+            1
+        );
+
+        let compiler_inputs = input_paths_for_command(&lowered, |command| {
+            command_arg_has_normalized_suffix(command, "main/native/stub.c")
+        });
+        assert_eq!(
+            compiler_inputs
+                .iter()
+                .filter(|input| input.as_path() == Path::new(toolchain.cc().cc_path()))
+                .count(),
+            1
+        );
+        assert!(
+            compiler_inputs
+                .iter()
+                .any(|input| input == Path::new("main/native/stub.h")),
+            "package-local C headers should be inputs of every C-stub action"
+        );
+        for header in toolchain_headers {
+            assert!(
+                compiler_inputs.contains(&header),
+                "Moon toolchain header should be a native compiler input: {}",
+                header.display()
+            );
+        }
+
+        let archiver_inputs = input_paths_for_command(&lowered, |command| {
+            command.first().map(String::as_str) == Some(toolchain.cc().ar_path.as_str())
+        });
+        assert_eq!(
+            archiver_inputs
+                .iter()
+                .filter(|input| input.as_path() == Path::new(&toolchain.cc().ar_path))
+                .count(),
+            1
+        );
+
+        let msvc_env_build = lowered
+            .action_ids()
+            .map(|id| lowered.action(id).command())
+            .find(|command| command.env().iter().any(|(key, _)| key == "INCLUDE"))
+            .expect("MSVC build should carry command environment");
+        assert!(
+            msvc_env_build
+                .env()
+                .iter()
+                .any(|(key, value)| key == "LIB" && value == "crt/lib;sdk/lib")
         );
     }
 
-    info!("Build plan lowering completed successfully");
-    Ok(LoweringResult {
-        build_graph: ctx.graph,
-        command_args_by_output: ctx.command_args_by_output,
-        artifacts: out_artifcts,
-    })
+    #[test]
+    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
+    fn macos_debug_link_and_dsymutil_are_separate_structured_actions() {
+        let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
+        let libbacktrace = toolchain_dir.path().join("libbacktrace.a");
+        std::fs::write(&libbacktrace, "").expect("write test runtime library");
+        let compiler_paths = CompilerPaths {
+            include_path: "/toolchain/include".into(),
+            lib_path: toolchain_dir.path().display().to_string(),
+        };
+        let (resolved_project, target) = single_package_resolve_output();
+        let executable_node = BuildPlanNode::MakeExecutable(target);
+        let dsym_node = BuildPlanNode::GenerateDsym(target);
+        let dsymutil = PathBuf::from("/toolchain/bin/dsymutil");
+
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(executable_node);
+        plan.test_add_node(dsym_node);
+        connect_artifact(
+            &mut plan,
+            dsym_node,
+            executable_node,
+            ArtifactKey::Executable {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+        plan.test_request_artifact(ArtifactKey::Executable {
+            package: target.package,
+            target_kind: target.kind,
+        });
+        plan.test_insert_make_executable_info(
+            target,
+            MakeExecutableInfo {
+                c_debug_info: true,
+                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
+                effective_native_toolchain: Toolchain::from_path_probe(CC {
+                    cc_kind: CCKind::Clang,
+                    cc_path: "/toolchain/bin/clang".to_string(),
+                    ar_kind: ARKind::AppleLibtool,
+                    ar_path: "/toolchain/bin/libtool".to_string(),
+                    // An unprobed target counts as the host, so the host-only
+                    // libbacktrace.a is linked on every test host.
+                    target_triple: None,
+                    is_env_override: false,
+                }),
+                c_flags: Vec::new(),
+                link_args: Vec::new(),
+                link_c_stubs: Vec::new(),
+                native_allocator: NativeAllocator::Default,
+            },
+        );
+        plan.test_insert_dsymutil(dsymutil.clone());
+
+        for backend in [
+            BackendConfig::Llvm {
+                allocator: NativeAllocator::Default,
+                os: OperatingSystem::MacOS,
+                compiler_paths: compiler_paths.clone(),
+            },
+            BackendConfig::Native {
+                direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
+                collect_ref_cycle: false,
+                allocator: NativeAllocator::Default,
+                os: OperatingSystem::MacOS,
+                compiler_paths: compiler_paths.clone(),
+            },
+        ] {
+            plan.test_backend_plan_mut().test_set_native_mode(
+                matches!(backend, BackendConfig::Native { .. }).then_some(
+                    NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                        NativeTarget::Aarch64AppleDarwin,
+                    )),
+                ),
+            );
+            let artifact_paths = ArtifactPathResolver::new(
+                TargetLayout::new(
+                    PathBuf::from("_build"),
+                    TargetLayoutMode::Workspace,
+                    OptLevel::Debug,
+                    RunMode::Build,
+                ),
+                None,
+            );
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                debug_info: Default::default(),
+                warn_list: None,
+                artifact_paths: artifact_paths.clone(),
+                backend,
+                opt_level: OptLevel::Debug,
+                action: RunMode::Build,
+                enable_coverage: false,
+                moonc_output_json: false,
+                docs_serve: false,
+                warning_condition: WarningCondition::Default,
+                info_no_alias: false,
+                stdlib_path: None,
+            };
+
+            let lowered = lower_build_plan(&resolved_project, &plan, &options)
+                .expect("lowering should succeed");
+            let context = LoweringContext::new(&resolved_project, &plan, &options);
+            let executable = artifact_paths.target_layout().executable_of_build_target(
+                &resolved_project.pkg_dirs,
+                &target,
+                context.artifact_path_options().executable,
+            );
+            let dsym_bundle = artifact_paths.target_layout().dsym_bundle_of_build_target(
+                &resolved_project.pkg_dirs,
+                &target,
+                context.artifact_path_options().executable,
+            );
+
+            let link_args = lowered
+                .action(
+                    lowered
+                        .declared_output(&executable)
+                        .expect("output should have a producer")
+                        .producer(),
+                )
+                .command()
+                .args();
+            assert_eq!(
+                link_args.first().map(String::as_str),
+                Some("/toolchain/bin/clang")
+            );
+            assert!(!link_args.iter().any(|arg| arg == "&&"));
+            assert!(link_args.contains(&libbacktrace.display().to_string()));
+            let link_inputs = input_paths_for_command(&lowered, |command| {
+                command.first().map(String::as_str) == Some("/toolchain/bin/clang")
+            });
+            assert!(
+                link_inputs.contains(&libbacktrace),
+                "the library from the supplied compiler paths must be a linker input"
+            );
+            let dsym_output = lowered
+                .declared_output(&dsym_bundle)
+                .expect("dSYM bundle should be declared");
+            let dsym_action = lowered.action(dsym_output.producer());
+            assert_eq!(
+                dsym_action.command().args(),
+                [
+                    dsymutil.display().to_string(),
+                    executable.display().to_string()
+                ],
+            );
+            assert!(
+                lowered
+                    .default_output_paths()
+                    .contains(&dsym_bundle.as_path()),
+                "an unconsumed dSYM output should remain an execution root"
+            );
+            let dsym_inputs = dsym_action
+                .inputs()
+                .iter()
+                .map(PathBuf::as_path)
+                .collect::<HashSet<_>>();
+
+            assert_eq!(
+                dsym_inputs,
+                HashSet::from([dsymutil.as_path(), executable.as_path()])
+            );
+
+            assert_eq!(
+                lowered
+                    .requested_artifact_paths()
+                    .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
+                    .collect::<Vec<_>>(),
+                vec![(
+                    ArtifactKey::Executable {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                    vec![executable]
+                )]
+            );
+        }
+    }
 }

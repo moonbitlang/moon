@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -22,7 +22,8 @@ use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use indexmap::IndexSet;
 use log::debug;
-use moonutil::common::TargetBackend;
+use moonutil::package::AllowExperimentalPackages;
+use moonutil::target::TargetBackend;
 use petgraph::visit::IntoNodeIdentifiers;
 
 use crate::{
@@ -30,10 +31,10 @@ use crate::{
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::{
         DepEdge,
-        model::{DepRelationship, ImportLoop, SolveError},
+        model::{ImportLoop, PackageRelations, PackageResolutionError},
     },
-    user_warning::UserWarning,
 };
+use moonutil::user_log::UserLog;
 
 use super::model::MultipleError;
 
@@ -41,12 +42,12 @@ use super::model::MultipleError;
 ///
 /// This function checks the following:
 /// - No loops (except test imports, which don't currently have a workaround)
-/// - Aliases are unique within one package
+/// - Named aliases are unique within one package
 pub(super) fn verify(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
-    user_warnings: &mut Vec<UserWarning>,
-) -> Result<(), SolveError> {
+    user_log: &UserLog,
+) -> Result<(), PackageResolutionError> {
     debug!("Verifying package dependency graph integrity");
 
     let mut errs = vec![];
@@ -60,14 +61,16 @@ pub(super) fn verify(
     debug!("Done uniqueness verification");
     verify_no_forbidden_internal_imports(dep, packages, &mut errs);
     debug!("Done internal import verification");
-    warn_main_package_dependencies(dep, packages, user_warnings);
+    warn_main_package_dependencies(dep, packages, user_log);
     debug!("Done main package deprecation warnings");
+    warn_experimental_package_dependencies(dep, packages, user_log);
+    debug!("Done experimental package warnings");
 
     debug!("Package dependency graph verification completed successfully");
     if errs.is_empty() {
         Ok(())
     } else {
-        Err(SolveError::Multiple(MultipleError(errs)))
+        Err(PackageResolutionError::Multiple(MultipleError(errs)))
     }
 }
 
@@ -75,7 +78,7 @@ pub(super) fn verify(
 ///
 /// `verify` must run first so the graph is guaranteed to have no import loops.
 pub(super) fn compute_realizable_supported_targets(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
 ) -> HashMap<BuildTarget, IndexSet<TargetBackend>> {
     let graph = &dep.dep_graph;
@@ -108,7 +111,10 @@ pub(super) fn compute_realizable_supported_targets(
 
 /// Verify there's no loops within the dependency graph. If there's any import
 /// loop, return an error.
-fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<(), SolveError> {
+fn verify_no_loop(
+    packages: &DiscoverResult,
+    dep: &PackageRelations,
+) -> Result<(), PackageResolutionError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
     // Work stack.
@@ -142,7 +148,7 @@ fn verify_no_loop(packages: &DiscoverResult, dep: &DepRelationship) -> Result<()
                     .chain([node])
                     .map(|x| packages.fqn(x.package))
                     .collect();
-                return Err(SolveError::ImportLoop {
+                return Err(PackageResolutionError::ImportLoop {
                     loop_path: ImportLoop(loop_path),
                 });
             }
@@ -186,11 +192,11 @@ impl WorkStackItem {
     }
 }
 
-/// Verify that there's no duplicated alias for each build node within the graph.
+/// Verify that there's no duplicated named alias for each build node within the graph.
 fn verify_no_duplicated_alias(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
-    errs: &mut Vec<SolveError>,
+    errs: &mut Vec<PackageResolutionError>,
 ) {
     for node in dep.dep_graph.node_identifiers() {
         // The alias map for the current node
@@ -200,11 +206,16 @@ fn verify_no_duplicated_alias(
             .dep_graph
             .edges_directed(node, petgraph::Direction::Outgoing)
         {
+            // `*` imports names unqualified; the compiler resolves those names.
+            if edge.short_alias == "*" {
+                continue;
+            }
+
             match map.entry(&edge.short_alias) {
                 Entry::Occupied(e) => {
                     let (first_to, first_edge) = e.get();
 
-                    errs.push(SolveError::ConflictingImportAlias {
+                    errs.push(PackageResolutionError::ConflictingImportAlias {
                         alias: edge.short_alias.to_string(),
                         package_node: node,
                         package_fqn: packages.fqn(node.package).into(),
@@ -227,9 +238,9 @@ fn verify_no_duplicated_alias(
 
 /// Verify no forbidden internal imports between package pairs.
 fn verify_no_forbidden_internal_imports(
-    dep: &DepRelationship,
+    dep: &PackageRelations,
     packages: &DiscoverResult,
-    errs: &mut Vec<SolveError>,
+    errs: &mut Vec<PackageResolutionError>,
 ) {
     // De-duplicate by (importer package, dependency package) so we don't spam
     // errors for different target kinds of the same package pair.
@@ -253,7 +264,7 @@ fn verify_no_forbidden_internal_imports(
             let dependency_path = dependency_pkg.fqn.package();
 
             if !importer_path.can_import(dependency_path, same_module) {
-                errs.push(SolveError::InternalImportForbidden {
+                errs.push(PackageResolutionError::InternalImportForbidden {
                     importer_node: from,
                     importer: packages.fqn(from.package).into(),
                     dependency_node: to,
@@ -264,10 +275,43 @@ fn verify_no_forbidden_internal_imports(
     }
 }
 
-fn warn_main_package_dependencies(
-    dep: &DepRelationship,
+fn warn_experimental_package_dependencies(
+    dep: &PackageRelations,
     packages: &DiscoverResult,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
+) {
+    // Source imports also create test-target edges. Warn once per package pair,
+    // excluding the implicit dependency from a package's tests to its own source.
+    let mut seen = HashSet::new();
+    for (from, to, _) in dep.dep_graph.all_edges() {
+        if from.package == to.package || !seen.insert((from.package, to.package)) {
+            continue;
+        }
+        let dependency = packages.get_package(to.package);
+        if !dependency.raw.experimental {
+            continue;
+        }
+        let importer = packages.get_package(from.package);
+        let dependency_name = dependency.fqn.to_string();
+        let allowed = match &importer.raw.allow_experimental_packages {
+            Some(AllowExperimentalPackages::Bool(allowed)) => *allowed,
+            Some(AllowExperimentalPackages::Packages(names)) => names.contains(&dependency_name),
+            None => false,
+        };
+        if !allowed {
+            user_log.warn(format!(
+                "Package `{}` depends on experimental package `{dependency_name}`. \
+Set `options(\"allow-experimental-packages\": [\"{dependency_name}\"])` in the importing package's moon.pkg to acknowledge this dependency.",
+                importer.fqn,
+            ));
+        }
+    }
+}
+
+fn warn_main_package_dependencies(
+    dep: &PackageRelations,
+    packages: &DiscoverResult,
+    user_log: &UserLog,
 ) {
     let mut seen: HashSet<(PackageId, PackageId, TargetKind)> = HashSet::new();
 
@@ -304,7 +348,7 @@ fn warn_main_package_dependencies(
                 _ => unreachable!("only package import fields should reach this warning"),
             };
 
-            user_warnings.push(UserWarning::new(format!(
+            user_log.warn(format!(
                 "Package `{}` depends on main package `{}` via `{}` in package directory \"{}\". \
 This dependency will become an error in a future release. \
 Move reusable APIs into a non-main package and keep main packages as entrypoints.",
@@ -312,7 +356,7 @@ Move reusable APIs into a non-main package and keep main packages as entrypoints
                 dependency_pkg.fqn,
                 import_field,
                 importer_pkg.root_path.display(),
-            )));
+            ));
         }
     }
 }

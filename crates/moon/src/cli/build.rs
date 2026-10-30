@@ -1,46 +1,52 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::FileLock;
-use moonutil::common::RunMode;
-use moonutil::common::TargetBackend;
-use moonutil::common::lower_surface_targets;
-use moonutil::dirs::PackageDirs;
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonbuild_rupes_recta::pkg_name::PackageFQN;
+use moonutil::build_options::RunMode;
+use moonutil::cache::{CacheKind, resolve_cache_root};
+use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
+use moonutil::locks::lock_directory;
+use moonutil::project::PackageDirs;
+use moonutil::target::TargetBackend;
+use moonutil::target::lower_surface_targets;
+use moonutil::user_log::UserLog;
+use serde::Serialize;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
+    BackendPlanSelection, TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
     group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
     select_packages, select_supported_packages,
 };
 use crate::rr_build;
-use crate::rr_build::BuildConfig;
+
 use crate::rr_build::CalcUserIntentOutput;
-use crate::rr_build::preconfig_compile;
-use crate::user_diagnostics::UserDiagnostics;
-use crate::watch::WatchOutput;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
-use crate::watch::watching;
+use crate::watch::{WatchOutput, watching};
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -60,9 +66,14 @@ impl ResolvedBuildSelection {
 }
 
 /// Build the current package
+///
+/// A successful build also lists each executable and foreign library it built
+/// on stdout, with its package, target backend and absolute path. `--quiet`
+/// does not hide the list. With `--output-json`, each one is an `artifact`
+/// JSON message instead.
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct BuildSubcommand {
-    /// Paths to the packages that should be built.
+    /// Paths to the packages that should be built, or one standalone `.mbtx` file.
     #[clap(name = "PATH", conflicts_with("package"))]
     pub path: Vec<PathBuf>,
 
@@ -82,76 +93,170 @@ pub(crate) struct BuildSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = cli
+pub(crate) fn run_build(
+    cli: &UniversalFlags,
+    cmd: BuildSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let targets = lower_surface_targets(&cmd.build_flags.target);
+    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon build")? {
+        anyhow::ensure!(
+            !cmd.watch,
+            "standalone `.mbtx` `moon build` does not support `--watch`"
+        );
+        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        return run_build_for_single_file_rr(
+            cli,
+            &cmd,
+            &single_file.input_path,
+            &single_file.package_dirs,
+            &targets,
+            output,
+        );
+    }
+
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
+        .select(output.user_log())?
         .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_build_internal(
-            cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            None,
-        );
+        return run_build_internal(cli, &cmd, &dirs, None, output);
     }
-    let surface_targets = cmd.build_flags.target.clone();
-    let targets = lower_surface_targets(&surface_targets);
+    // Watch reruns must synchronize and resolve fresh project state each time.
+    if cmd.watch {
+        let mut ret_value = 0;
+        for t in targets {
+            let x = run_build_internal(cli, &cmd, &dirs, Some(t), output)
+                .context(format!("failed to run build for target {t:?}"))?;
+            ret_value = ret_value.max(x);
+        }
+        return Ok(ret_value);
+    }
 
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_build_internal(
-            cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            Some(t),
-        )
-        .context(format!("failed to run build for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+    let discovered = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    Ok(ret_value)
+    let result =
+        run_build_rr_from_discovered(cli, &cmd, &dirs, false, &targets, discovered, output)
+            .with_context(|| match targets.as_slice() {
+                [target] => format!("failed to run build for target {target:?}"),
+                _ => format!("failed to run build for targets {targets:?}"),
+            })?;
+    Ok(if result.ok { 0 } else { 1 })
+}
+
+/// Resolve one standalone `.mbtx` input and build it for every selected Target Backend.
+#[allow(clippy::too_many_arguments)]
+fn run_build_for_single_file_rr(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    single_file_path: &Path,
+    dirs: &PackageDirs,
+    selected_target_backends: &[TargetBackend],
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        ..
+    } = dirs;
+    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
+
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    )
+    .with_dependency_source_cache(
+        resolve_cache_root(CacheKind::DependencySources)
+            .context("Failed to resolve the module dependency graph")?,
+    );
+    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+        &preparation_config,
+        dirs,
+        single_file_path,
+        true,
+        user_log,
+    )?;
+    let target_backends = rr_build::single_file_target_backends(
+        &discovered,
+        selected_target_backends,
+        backend,
+        user_log,
+    );
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
+
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(target_dir, user_log)?;
+    }
+
+    let package = rr_build::local_packages(&resolved)
+        .next()
+        .context("single-file project must resolve exactly one local package")?;
+    let mut planned_runs = Vec::with_capacity(target_backends.len());
+    for target_backend in target_backends {
+        let compile_config = rr_build::prepare_resolved_build(
+            cli,
+            &cmd.build_flags,
+            target_backend,
+            target_dir,
+            RunMode::Build,
+            user_log,
+            &resolved,
+        )?;
+        planned_runs.push(rr_build::plan_resolved_build_from_intent(
+            compile_config,
+            user_log,
+            vec![UserIntent::Build(package)].into(),
+            resolved.clone(),
+            cmd.build_flags.jobs,
+            cmd.auto_sync_flags.frozen,
+            cli.dry_run,
+        )?);
+    }
+
+    let ok = execute_planned_builds(cli, cmd, planned_runs, source_dir, target_dir, output)?;
+    Ok(if ok { 0 } else { 1 })
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_build_internal(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let f = |watch: bool| {
-        run_build_rr(
-            cli,
-            cmd,
-            source_dir,
-            target_dir,
-            mooncakes_dir,
-            project_manifest_path,
-            watch,
-            selected_target_backend,
-        )
-    };
+    let f = |watch: bool| run_build_rr(cli, cmd, dirs, watch, selected_target_backend, output);
 
     if cmd.watch {
-        watching(|| f(true), source_dir, source_dir, target_dir)
+        watching(|| f(true), &dirs.source_dir, &dirs.target_dir)
     } else {
         f(false).map(|output| if output.ok { 0 } else { 1 })
     }
+}
+
+fn sync_and_discover_build_project(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    );
+    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 /// Run the build routine in RR backend
@@ -162,65 +267,72 @@ fn run_build_internal(
 fn run_build_rr(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    dirs: &PackageDirs,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
-        cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
+    let discovered = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
+    }
+    run_build_rr_from_discovered(
+        cli,
+        cmd,
+        dirs,
+        watch,
+        selected_target_backend.as_slice(),
+        discovered,
+        output,
     )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
+}
+
+/// Plans and executes a build from a discovered project.
+///
+/// The caller must hold the target-directory lock for a non-dry-run build.
+#[allow(clippy::too_many_arguments)]
+fn run_build_rr_from_discovered(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    dirs: &PackageDirs,
+    watch: bool,
+    selected_target_backends: &[TargetBackend],
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
+    output: &CommandOutput,
+) -> anyhow::Result<WatchOutput> {
+    let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        ..
+    } = dirs;
     let prebuild_list = if watch {
-        rr_get_prebuild_watch_paths(&resolve_output)
+        rr_get_prebuild_watch_paths(&discovered)
     } else {
         PrebuildWatchPaths {
             ignored_paths: Vec::new(),
             watched_paths: Vec::new(),
         }
     };
-    let planned_runs = plan_build_rr_from_resolved_all(
+    let planned_runs = plan_build_rr_from_discovered(
         cli,
         cmd,
-        source_dir,
         target_dir,
-        selected_target_backend,
-        resolve_output,
+        selected_target_backends,
+        discovered,
+        user_log,
     )?;
 
-    let ok = if cli.dry_run {
-        for (build_meta, build_graph) in planned_runs {
-            rr_build::print_dry_run(
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            );
-        }
-        true
-    } else {
-        let _lock = FileLock::lock(target_dir)?;
-        let cfg = BuildConfig::from_flags(
-            &cmd.build_flags,
-            &cli.unstable_feature,
-            cli.verbose,
-            UserDiagnostics::from_flags(cli),
-        );
-        let mut ok = true;
-        for (build_meta, build_graph) in planned_runs {
-            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Build)?;
-            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
-            result.print_info(cli.quiet, "building")?;
-            ok &= result.successful();
-        }
-        ok
-    };
+    if planned_runs.is_empty() {
+        return Ok(WatchOutput {
+            ok: true,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
+        });
+    }
+
+    let ok = execute_planned_builds(cli, cmd, planned_runs, source_dir, target_dir, output)?;
     Ok(WatchOutput {
         ok,
         additional_ignored_paths: prebuild_list.ignored_paths,
@@ -228,214 +340,350 @@ fn run_build_rr(
     })
 }
 
+/// Run the planned builds, or print their commands in a dry run.
+///
+/// A successful build then reports its outputs; see [`built_outputs`].
+fn execute_planned_builds(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    planned_runs: Vec<(BuildMeta, BuildInput)>,
+    source_dir: &Path,
+    target_dir: &Path,
+    output: &CommandOutput,
+) -> anyhow::Result<bool> {
+    let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
+    if cli.dry_run {
+        output.write_result(|writer| {
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
+            rr_build::write_dry_run(writer, &build_input, source_dir)?;
+            Ok::<_, std::io::Error>(())
+        })?;
+        return Ok(true);
+    }
+
+    for build_meta in &build_metas {
+        rr_build::generate_all_pkgs_json(build_meta)?;
+    }
+    let build_input = BuildInput::compose(build_inputs)?;
+    let config = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose);
+    let result =
+        moonbuild::execution::execute_build(&config, build_input, target_dir, output.user_log())?;
+    result.print_info(cli.quiet, "building")?;
+    let outputs = built_outputs(&build_metas);
+    output.write_result(|writer| {
+        if cmd.build_flags.output_json {
+            write_built_outputs_json(writer, &outputs)
+        } else {
+            write_built_outputs_table(writer, &outputs)
+        }
+    })?;
+    Ok(result.successful())
+}
+
+/// An executable or foreign library that a build produced.
+struct BuiltOutput<'a> {
+    package: &'a PackageFQN,
+    target_backend: TargetBackend,
+    path: &'a Path,
+}
+
+/// The executables and foreign libraries the builds produced, in the order of
+/// the selected target backends.
+///
+/// These are the outputs users consume outside moon. Other requested
+/// artifacts, such as a library package's `.core` file, are build
+/// intermediates and are not listed.
+fn built_outputs(build_metas: &[BuildMeta]) -> Vec<BuiltOutput<'_>> {
+    let mut outputs = Vec::new();
+    for build_meta in build_metas {
+        let target_backend = build_meta.target_backend();
+        for (artifact, paths) in &build_meta.artifacts {
+            let (ArtifactKey::Executable { package, .. } | ArtifactKey::ForeignLibrary { package }) =
+                artifact
+            else {
+                continue;
+            };
+            let package = &build_meta
+                .resolved_project
+                .pkg_dirs
+                .get_package(*package)
+                .fqn;
+            outputs.extend(paths.iter().map(|path| BuiltOutput {
+                package,
+                target_backend,
+                path: dunce::simplified(path),
+            }));
+        }
+    }
+    outputs
+}
+
+/// Write the built outputs as a table of package, target backend and path,
+/// with the path last so it is easy to copy:
+///
+/// ```text
+/// Artifacts:
+///   username/foreign/lib  native  /p/_build/native/release/build/lib/lib.a
+/// ```
+fn write_built_outputs_table(
+    writer: &mut dyn Write,
+    outputs: &[BuiltOutput<'_>],
+) -> std::io::Result<()> {
+    if outputs.is_empty() {
+        return Ok(());
+    }
+    let packages: Vec<String> = outputs.iter().map(|o| o.package.to_string()).collect();
+    let package_width = packages.iter().map(String::len).max().unwrap_or_default();
+    let backend_width = outputs
+        .iter()
+        .map(|o| o.target_backend.to_flag().len())
+        .max()
+        .unwrap_or_default();
+    writeln!(writer, "Artifacts:")?;
+    for (output, package) in outputs.iter().zip(&packages) {
+        writeln!(
+            writer,
+            "  {package:<package_width$}  {:<backend_width$}  {}",
+            output.target_backend.to_flag(),
+            output.path.display()
+        )?;
+    }
+    Ok(())
+}
+
+/// One built output in the `--output-json` stream, next to the compiler's
+/// `diagnostic` messages.
+#[derive(Serialize)]
+struct BuiltOutputMessage<'a> {
+    #[serde(rename = "$message_type")]
+    message_type: &'static str,
+    package: String,
+    target_backend: &'static str,
+    path: &'a Path,
+}
+
+/// Write each built output as an `artifact` JSON message on its own line.
+fn write_built_outputs_json(
+    writer: &mut dyn Write,
+    outputs: &[BuiltOutput<'_>],
+) -> std::io::Result<()> {
+    for output in outputs {
+        let message = BuiltOutputMessage {
+            message_type: "artifact",
+            package: output.package.to_string(),
+            target_backend: output.target_backend.to_flag(),
+            path: output.path,
+        };
+        serde_json::to_writer(&mut *writer, &message)?;
+        writeln!(writer)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn plan_build_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    target_backend: TargetBackend,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        selected_target_backend,
+        target_backend,
         target_dir,
         RunMode::Build,
-    );
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
+        user_log,
+        &resolved_project,
     )?;
     let intent = calc_user_intent(
         &cmd.path,
         cmd.package.as_deref(),
-        &resolve_output,
-        planning_context.target_backend(),
-        output,
+        &resolved_project,
+        compile_config.backend.target_backend(),
+        user_log,
     )?;
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
-        resolve_output,
+        resolved_project,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_build_rr_from_resolved_with_scope(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     scoped_packages: Vec<PackageId>,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(target_backend),
+        target_backend,
         target_dir,
         RunMode::Build,
-    );
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
+        user_log,
+        &resolved_project,
     )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
     let intent = calc_user_intent_from_scoped_packages(
-        &resolve_output,
+        &resolved_project,
         &scoped_packages,
-        planning_context.target_backend(),
-    )?;
+        compile_config.backend.target_backend(),
+    );
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
-        resolve_output,
+        resolved_project,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_build_rr_from_selection(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
     selection: ResolvedBuildSelection,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(target_backend),
+        target_backend,
         target_dir,
         RunMode::Build,
-    );
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
+        user_log,
+        &resolved_project,
     )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         selection.into_user_intent(),
-        resolve_output,
+        resolved_project,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
-pub(crate) fn plan_build_rr_from_resolved_all(
+/// Selects backend plans, resolves packages, then plans each selected backend.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn plan_build_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    _source_dir: &Path,
     target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
-) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
-    if let Some(target_backend) = selected_target_backend {
-        if has_explicit_build_selector(cmd) {
-            let packages = resolve_selected_build_packages(
-                &resolve_output,
-                cmd,
-                Some(target_backend),
-                UserDiagnostics::from_flags(cli),
-            )?;
-            if packages.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            return plan_build_rr_from_selection(
-                cli,
-                cmd,
-                target_dir,
-                target_backend,
-                resolve_output,
-                ResolvedBuildSelection { packages },
-            )
-            .map(|plan| vec![plan]);
-        }
-
-        return plan_build_rr_from_resolved(
-            cli,
-            cmd,
-            target_dir,
-            Some(target_backend),
-            resolve_output,
-        )
-        .map(|plan| vec![plan]);
-    }
-
-    let selections = resolve_build_target_selections(
-        &resolve_output,
-        cmd,
-        None,
-        UserDiagnostics::from_flags(cli),
-    )?;
-
-    if has_explicit_build_selector(cmd) {
-        return selections
-            .into_iter()
-            .map(|selection| {
-                // Raw user selector paths/package names have already been
-                // resolved into PackageIds. RR will read build-model paths
-                // from ResolveOutput instead of reinterpreting those selectors.
-                plan_build_rr_from_selection(
-                    cli,
-                    cmd,
-                    target_dir,
-                    selection.target_backend,
-                    resolve_output.clone(),
-                    ResolvedBuildSelection {
-                        packages: selection.packages,
-                    },
-                )
-            })
-            .collect();
-    }
-
-    if selections.is_empty() {
-        return plan_build_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
-            .map(|plan| vec![plan]);
-    }
-
+    selected_target_backends: &[TargetBackend],
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
+    let selections = select_build_plans(&discovered, cmd, selected_target_backends, user_log)?;
+    let target_backends = selections
+        .iter()
+        .map(|selection| selection.target_backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections
         .into_iter()
         .map(|selection| {
-            plan_build_rr_from_resolved_with_scope(
+            plan_build_rr_for_selection(
                 cli,
                 cmd,
                 target_dir,
-                selection.target_backend,
-                resolve_output.clone(),
-                selection.packages,
+                selection,
+                resolved_project.clone(),
+                user_log,
             )
         })
         .collect()
+}
+
+fn select_build_plans(
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
+    cmd: &BuildSubcommand,
+    selected_target_backends: &[TargetBackend],
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<BackendPlanSelection>> {
+    if selected_target_backends.is_empty() {
+        let selections = resolve_build_target_selections(discovered, cmd, None, user_log)?;
+        if selections.is_empty() && !has_explicit_build_selector(cmd) {
+            return Ok(vec![BackendPlanSelection::command_selector(
+                rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+            )]);
+        }
+        return Ok(selections.into_iter().map(Into::into).collect());
+    }
+
+    let mut plans = Vec::new();
+    for &target_backend in selected_target_backends {
+        if has_explicit_build_selector(cmd) {
+            let selections =
+                resolve_build_target_selections(discovered, cmd, Some(target_backend), user_log)?;
+            plans.extend(selections.into_iter().map(Into::into));
+        } else {
+            plans.push(BackendPlanSelection::command_selector(target_backend));
+        }
+    }
+    Ok(plans)
+}
+
+fn plan_build_rr_for_selection(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    target_dir: &Path,
+    selection: BackendPlanSelection,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let BackendPlanSelection {
+        target_backend,
+        packages,
+    } = selection;
+    match packages {
+        None => plan_build_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            target_backend,
+            resolved_project,
+            user_log,
+        ),
+        // Raw user selector paths/package names have already been resolved
+        // into PackageIds. RR uses those resolved identities.
+        Some(packages) if has_explicit_build_selector(cmd) => plan_build_rr_from_selection(
+            cli,
+            cmd,
+            target_dir,
+            target_backend,
+            resolved_project,
+            ResolvedBuildSelection { packages },
+            user_log,
+        ),
+        Some(packages) => plan_build_rr_from_resolved_with_scope(
+            cli,
+            cmd,
+            target_dir,
+            target_backend,
+            resolved_project,
+            packages,
+            user_log,
+        ),
+    }
 }
 
 fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
@@ -443,14 +691,14 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 }
 
 fn resolve_build_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages =
-            resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), output)?;
+            resolve_selected_build_packages(discovered, cmd, Some(target_backend), user_log)?;
         if packages.is_empty() {
             return Ok(Vec::new());
         }
@@ -460,15 +708,15 @@ fn resolve_build_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_build_packages(resolve_output, cmd, None, output)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_build_packages(discovered, cmd, None, user_log)?;
+    let mut selections = group_packages_by_preferred_backend(discovered, selected);
 
     for selection in &mut selections {
         selection.packages = selection
             .packages
             .iter()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .filter(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend))
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
@@ -477,17 +725,17 @@ fn resolve_build_target_selections(
 }
 
 fn resolve_selected_build_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &BuildSubcommand,
     target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, output);
+            return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
         }
-        return Ok(select_packages(&cmd.path, output, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+        return Ok(select_packages(&cmd.path, user_log, |dir| {
+            filter_pkg_by_dir(discovered, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
@@ -496,21 +744,21 @@ fn resolve_selected_build_packages(
 
     if let Some(package_filter) = cmd.package.as_deref() {
         let pkgs = match_packages_by_name_rr(
-            resolve_output,
-            resolve_output.local_modules(),
+            discovered,
+            discovered.local_modules(),
             package_filter,
-            output,
+            user_log,
         );
         if let Some(target_backend) = target_backend {
-            ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+            ensure_packages_support_backend(discovered, pkgs.iter().copied(), target_backend)?;
         }
         return Ok(pkgs);
     }
 
-    Ok(rr_build::local_packages(resolve_output)
+    Ok(rr_build::local_packages(discovered)
         .filter(|&pkg_id| {
             target_backend
-                .is_none_or(|backend| package_supports_backend(resolve_output, pkg_id, backend))
+                .is_none_or(|backend| package_supports_backend(discovered, pkg_id, backend))
         })
         .collect())
 }
@@ -522,13 +770,13 @@ fn resolve_selected_build_packages(
 fn calc_user_intent(
     path_filters: &[PathBuf],
     package_filter: Option<&str>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !path_filters.is_empty() {
         let selected =
-            select_supported_packages(resolve_output, path_filters, target_backend, output)?;
+            select_supported_packages(discovered, path_filters, target_backend, user_log)?;
         Ok(selected
             .into_iter()
             .map(UserIntent::Build)
@@ -536,35 +784,35 @@ fn calc_user_intent(
             .into())
     } else if let Some(package_filter) = package_filter {
         let pkgs = match_packages_by_name_rr(
-            resolve_output,
-            resolve_output.local_modules(),
+            discovered,
+            discovered.local_modules(),
             package_filter,
-            output,
+            user_log,
         );
-        ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+        ensure_packages_support_backend(discovered, pkgs.iter().copied(), target_backend)?;
         Ok(pkgs
             .into_iter()
             .map(UserIntent::Build)
             .collect::<Vec<_>>()
             .into())
     } else {
-        calc_user_intent_from_scoped_packages(
-            resolve_output,
-            &rr_build::local_packages(resolve_output)
-                .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+        Ok(calc_user_intent_from_scoped_packages(
+            discovered,
+            &rr_build::local_packages(discovered)
+                .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
                 .collect::<Vec<_>>(),
             target_backend,
-        )
+        ))
     }
 }
 
 fn calc_user_intent_from_scoped_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     supported_packages: &[PackageId],
     target_backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> CalcUserIntentOutput {
     let linkable_pkgs = get_linkable_pkgs(
-        resolve_output,
+        discovered,
         target_backend,
         supported_packages.iter().copied(),
     );
@@ -573,7 +821,7 @@ fn calc_user_intent_from_scoped_packages(
             .iter()
             .copied()
             .filter(|&pkg_id| {
-                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                let pkg = discovered.pkg_dirs.get_package(pkg_id);
                 !pkg.is_stdlib
             })
             .map(UserIntent::Build)
@@ -581,17 +829,17 @@ fn calc_user_intent_from_scoped_packages(
     } else {
         linkable_pkgs.into_iter().map(UserIntent::Build).collect()
     };
-    Ok(intents.into())
+    intents.into()
 }
 
 fn get_linkable_pkgs(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     packages: impl Iterator<Item = PackageId>,
 ) -> Vec<PackageId> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = discovered.pkg_dirs.get_package(pkg_id);
         if pkg.raw.force_link
             || pkg
                 .raw

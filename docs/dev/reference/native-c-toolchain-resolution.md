@@ -8,8 +8,25 @@ The resolved toolchain has three roles:
 - linker driver (also `cc_path`)
 - archiver (`ar_path`)
 
+After source selection, package overrides, and platform-specific selection are complete,
+Moon resolves the effective toolchain's compiler and archiver through the shared
+`moonutil::toolchain` executable resolver. The result contains concrete absolute executable paths.
+Every effective native toolchain exposed to build lowering satisfies this invariant, so command
+construction consumes the resolved paths without performing PATH lookup.
+
+If either executable cannot be resolved, toolchain resolution fails immediately with an error that
+identifies the missing compiler or archiver role. TCC uses the same resolved executable path for
+both roles because archiving is performed with `tcc -ar`.
+
 Moon does not resolve a standalone linker executable such as `ld` or `lld-link` in this path.
 Linking is performed through the selected compiler driver.
+
+`dsymutil` is a post-link debug-symbol tool, not a fourth C-toolchain role.
+When planning an LLVM macOS debug build, an AArch64 Apple direct-object debug
+build, or a generated-C macOS build with debug information and an Apple-targeting
+compiler, Moon resolves `dsymutil` through the same shared executable resolver and
+stores its concrete absolute path as planning metadata for the `GenerateDsym`
+action. Other builds do not resolve it.
 
 ## Standard C Pipeline
 
@@ -22,9 +39,9 @@ The ordinary C pipeline is:
 When a user runs `clang foo.c -o foo`, these steps are usually fused by one compiler-driver
 invocation. When a user runs `clang -c foo.c -o foo.o`, the pipeline stops after object generation.
 
-Moon uses both modes:
+Moon models these steps separately:
 
-- it compiles some C files directly to object files
+- it compiles each C source directly to an object file
 - it invokes the compiler driver again for final linking
 - it sometimes invokes a separate archiver to group multiple object files into a static archive
 
@@ -33,52 +50,167 @@ Moon uses both modes:
 For native-oriented backends, the final artifact may involve multiple inputs:
 
 - the output of `moonc link-core`
-- the runtime implementation built from `runtime.c`
-- package-level C stubs declared in `moon.pkg.json`
+- the runtime implementation built from the C translation units under `lib/runtime/`
+- the selected native allocator support object, when required
+- package-level C stubs declared in `moon.pkg`
 
 The high-level build flow is documented in `build.md`:
 
 1. `BuildPackage`
 2. `LinkCore`
-3. `MakeExecutable`
+3. `CompileGeneratedC`, when `LinkCore` emits C
+4. `MakeExecutable`
 
 For native backends, `LinkCore` emits:
 
-- a generated C file for the Native backend
+- a generated C file for the generated-C native backend
 - an object file for the LLVM backend
+- an object file for a direct object native target
+
+Generated C always passes through `CompileGeneratedC`, which provides a
+`GeneratedCObject` consumed by executable linking or foreign-library archiving.
+The compile command takes one C source and emits one `.o` or `.obj`, allowing
+compiler caches to reuse the result independently of final link inputs.
 
 Package C stubs are handled separately:
 
 1. each `stub.c` is compiled to an object file
-2. usually, all stub object files in the package are archived together
+2. all stub object files in the package are archived together
 3. the final executable links against that per-package archive
 
-`NativeTccRun` is the exception: instead of creating a static archive, Moon links the stub objects
-into a shared library so `tcc -run` can load them at runtime.
+The runtime uses the same explicit multi-step shape for ordinary native builds:
+
+1. each shipped `lib/runtime/*.c` translation unit is compiled independently
+2. for release builds, supported prebuilt SIMDUTF objects are enabled and
+   archived with the runtime objects into one static library
+3. the final executable links against that runtime library
+
+`MOONBIT_ALLOCATOR` may override the native runtime allocator:
+
+- unset on Linux and macOS with a non-MSVC, non-TCC compiler that targets the
+  host and was not selected through `MOON_CC`: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC` and link `libmoonbitrun.o`
+- unset on other native toolchains: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
+- `mimalloc`: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC` and link `libmoonbitrun.o`;
+  fail during planning when that support object is unavailable for the selected
+  platform or toolchain, including Windows, TCC, and compilers for another target
+- `system`: compile the runtime with
+  `-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM` and do not link `libmoonbitrun.o`
+
+### Host-only prebuilt objects
+
+The MoonBit lib directory ships `libmoonbitrun.o`, the SIMDUTF objects
+(`moonbit_simdutf.o` and `simdutf.o`), and, on some hosts, `libbacktrace.a`.
+These objects are built for the machine that runs Moon. `CC::targets_host()`
+compares the architecture, operating system, and ABI of the probed target
+triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
+targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
+require no ABI component. Windows does not compare the ABI, because the shipped
+objects are not used there and the MSVC toolchain policy selects the ABI.
+When they differ, Moon does not link `libmoonbitrun.o` or `libbacktrace.a`,
+and it does not define `MOONBIT_USE_SIMDUTF` or archive the SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
+backtraces depend on `libbacktrace.a`, so Moon also does not define
+`MOONBIT_ALLOW_STACKTRACE` for such a compiler. A compiler whose target triple
+cannot be probed is treated as targeting the host.
+
+The supported cross-compilation route is the global `MOON_CC` override, which
+selects the compiler for the shared runtime, every package's C stubs, and the
+final link. A package-level `cc` does not retarget the shared runtime or the C
+stubs of its dependencies, so a compiler selected that way must stay
+compatible with those inputs. The per-toolchain checks above do not make
+package-level cross-compilation supported. A target selected only through
+`cc-flags` is not visible to the probe.
+
+Moon passes the `MOONBIT_ALLOCATOR` macro when compiling the shipped runtime
+sources and the C file emitted by `moonc link-core`, so that a program inlines
+the same allocator as the runtime it links against. It is not passed when
+compiling package C stubs.
+
+`MOON_COLLECT_REF_CYCLE=1` enables trial-deletion reference cycle collection.
+It is disabled when unset or set to any other value. For the Native backend,
+Moon defines `MOONBIT_TRIAL_DELETION=1` when compiling the shipped runtime,
+generated C, and package C stubs, using `-D` or `/D` for the selected toolchain.
+This setting works with both native allocators and both generated C and direct
+object output. It does not change Native payload selection. Direct object
+output uses the compiler's cycle-capable allocation bookkeeping and the shared
+native runtime; it does not need an additional `moonc` flag. LLVM runtime builds
+do not enable it.
+
+During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
+when the split runtime directory is absent.
 
 This is why Moon needs both a compiler driver and an archiver.
+
+## Debug information and optimization
+
+Moon's CLI profile and debug-information policy are described in
+[Default CLI profiles](build.md#default-cli-profiles). Compiler options with the
+same spelling are not interchangeable across the build stages:
+
+- `moonc build-package` and `moonc link-core` receive `-g` for MoonBit debug
+  information and `-O0` for the debug optimization profile. For generated C,
+  `link-core -g` preserves accurate MoonBit locations in C `#line` directives.
+  Direct-object source-backtrace requests add `-stacktrace` separately from
+  `-O0`; full-debug requests continue to use `-g`.
+- Compiling that C requires native debug information as well, so the C compiler
+  can retain those locations in the executable. GCC-like compilers use `-g`;
+  MSVC uses `/Z7`.
+- Direct-object executable linking does not compile the MoonBit program as C
+  and does not receive C debug or optimization settings. Required macOS dSYM
+  generation is a separate planned action.
+
+The native compiler actions have distinct settings:
+
+| Action | Debug information | Default optimization for GCC-like compilers |
+| --- | --- | --- |
+| Generated-C program | Enabled for source-backtrace or full-debug requests | Debug profile: `-Og`; release profile: `-O2` |
+| C stub | Enabled only for full-debug requests, independently of Native payload form | Full debug: `-Og`; otherwise debug profile: `-O0`, release profile: `-O2` |
+| Runtime C | Always enabled | `-O2` |
+
+The C-stub rule preserves the existing behavior, including `-Og` for stubs under
+`--release --no-strip`. MSVC uses `/Od` for the two debug optimization settings
+and `/O2` for speed optimization. User-provided C compiler flags suppress Moon's
+default C optimization flags, but do not suppress its requested debug flags.
+
+`MOONBIT_ALLOW_STACKTRACE` controls the runtime reporter separately from debug
+information in compiled code. `--strip` suppresses requested program debug
+information; this path does not run a stripping tool or erase the runtime's
+own debug information.
+
+## Floating-point semantics
+
+GCC-compatible drivers receive `-ffp-contract=off` to preserve separate
+floating-point rounding by default. This applies to generated C, runtime C,
+and C stubs, independently of optimization level and unrelated user flags.
+MSVC-compatible drivers and TCC retain their compiler defaults.
+
+This C compiler flag does not configure MoonBit direct-object or LLVM code
+generation.
 
 ## Resolution Layers
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.
 
-There are three sources of C toolchain selection:
-
-1. global environment override
-2. package-level override
-3. default auto-detection
-
-When a native build step chooses its compiler, the current precedence is:
+For the regular native pipeline, compiler selection uses this precedence:
 
 1. `MOON_CC` / `MOON_AR`
 2. package-level override (`link.native.cc` or `link.native.stub_cc`)
-3. detected default toolchain
+3. Windows only: MSVC discovery through `find-msvc-tools`
+4. PATH probing: `cc`, then `gcc`, then `clang`
+
+`effective_native_toolchain()` applies environment and package overrides before automatic
+selection. `detected_default_native_toolchain()` tries Windows MSVC discovery before the
+cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in `detect_cc_on_path()`.
+
+The Windows MSVC direct object native target uses `windows_msvc_native_toolchain()` instead.
+It requires a cl-compatible driver, warns and ignores an incompatible `MOON_CC`, and has no
+GCC-like fallback.
 
 ## Global Environment Override
 
 - If `MOON_CC` is set, Moon uses it as the compiler for the regular native pipeline.
-- `NativeTccRun` is the exception: its run-driver build step and runtime launcher always use the
-  internal `tcc`, so `MOON_CC` does not affect those steps.
 - If `MOON_AR` is set together with `MOON_CC`, Moon passes it into compiler resolution for the
   regular native pipeline.
 - For `cc`, `gcc`, and `clang`, that means the resolved archiver path comes from `MOON_AR`.
@@ -86,11 +218,27 @@ When a native build step chooses its compiler, the current precedence is:
 - For `tcc`, Moon still uses `tcc -ar`, so `MOON_AR` is ignored.
 - `MOON_CC` takes precedence over package-level compiler overrides.
 
-This override is global to the current Moon invocation, except for the `NativeTccRun` tool choice.
+This override is global to the current Moon invocation.
+
+## C compiler wrapper
+
+`MOON_CC_WRAPPER` optionally names one compiler-wrapper executable, such as
+`ccache` or `sccache`. An empty value disables it. The complete value is treated
+as an executable name or path, without shell parsing or embedded arguments.
+The wrapper is resolved once, lazily when a native toolchain is needed, and
+stored separately from `cc_path` in each effective `Toolchain`.
+
+C compilation lowering emits `<wrapper> <compiler> <arguments>` for generated
+C, C stubs, and runtime translation units. Both executable files are explicit
+Execution Action inputs, and the toolchain's command environment is preserved.
+Compiler probes, executable linking, and archiving use their underlying tools
+directly. `MOON_CC_WRAPPER` does not count as a compiler override and therefore
+does not change ABI, allocator, or backend-selection policy. Commands without
+native toolchain actions do not resolve or invoke it.
 
 ## Package-Level Override
 
-`moon.pkg.json` may specify native compiler overrides:
+`moon.pkg` may specify native compiler overrides:
 
 - `link.native.cc`
 - `link.native.stub_cc`
@@ -104,13 +252,21 @@ other toolchain families.
 ## Default Auto-Detection
 
 When `MOON_CC` is unset and no package-specific override is being applied to that step, Moon probes
-for a default native toolchain in this order:
+for a default native toolchain.
 
-1. `cl`
-2. `cc`
-3. `gcc`
-4. `clang`
-5. internal `tcc`
+On Windows, Moon first tries to discover an MSVC toolchain environment for the current 64-bit host
+architecture using `find-msvc-tools`. The discovery target is
+`x86_64-pc-windows-msvc` on x64 Windows hosts and `aarch64-pc-windows-msvc` on ARM64 Windows hosts.
+Moon does not model cross compilation in this path. This discovery is needed so generated-C builds
+can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or on non-Windows
+hosts, Moon falls back to PATH probing in this order:
+
+1. `cc`
+2. `gcc`
+3. `clang`
+
+Moon does not fall back to a bundled compiler. If no system toolchain is
+available, planning fails with the tool-resolution error.
 
 ## Compiler Kind Detection
 
@@ -131,9 +287,21 @@ Filename text is preserved when Moon later needs a case-preserving fallback path
 
 ## Archiver Resolution
 
-### MSVC (`cl`)
+Selected `lib` and `llvm-lib` executables use MSVC-style librarian options
+even when the compiler's target probe is unavailable. In particular, a plain
+Clang override with an explicit `MOON_AR` keeps the librarian's command syntax
+without requiring a successfully probed MSVC target triple.
 
-- Archiver is `lib.exe`.
+### MSVC (`cl` and `clang-cl`)
+
+- Archiver is `lib.exe`. A path-like `clang-cl` installation falls back to its sibling
+  `llvm-lib.exe` when `lib.exe` is absent.
+- For a bare MSVC override such as `cl.exe`, Moon uses the discovered full paths for both
+  `cl.exe` and `lib.exe`. The discovered command environment is attached separately and is not
+  relied on to locate either executable.
+- A path-like MSVC override uses its sibling librarian (`lib.exe`, or `llvm-lib.exe` for
+  `clang-cl` when `lib.exe` is absent) and does not inherit the environment from a separately
+  discovered toolchain. The configured environment must already support that toolchain.
 
 ### TCC
 
@@ -163,6 +331,16 @@ Moon validates compiler-reported tools before using them:
 
 This avoids trusting nonexistent `ar` reports on installations where only `llvm-ar` is available.
 
+For a plain Clang driver that targets the MSVC ABI, Moon prefers the compiler-reported
+`llvm-lib` when it is available. This keeps Clang's GCC-style compiler-driver syntax separate from
+the MSVC-style librarian syntax.
+
+### Apple targets
+
+On macOS, a compiler that reports an Apple Darwin target uses the active Apple `libtool` reported
+by `xcrun --find libtool`. Both Xcode and the Command Line Tools provide this tool. An explicit
+`MOON_AR` remains an override for `cc`, `gcc`, and plain `clang`.
+
 ## Toolchain Families and Compatibility
 
 The main compatibility boundary is not simply "same operating system" or "same machine".
@@ -174,6 +352,8 @@ In practice, the important dimensions are:
 - object format
 - ABI and runtime ecosystem
 - command-line style of the selected tool driver
+- required command environment
+- CRT policy on MSVC
 
 Examples:
 
@@ -183,6 +363,62 @@ Examples:
 
 This matters because two tools may both run on Windows while still expect different flags,
 different runtime libraries, or different default link behavior.
+
+Moon keeps MSVC discovery environment values such as `PATH`, `INCLUDE`, `LIB`, and `LIBPATH` as
+command environment. These values are not equivalent to simply appending more `/I` or `/LIBPATH`
+flags: the driver and SDK tools use the full environment contract.
+
+Moon currently uses focused predicates for the compatibility checks it needs, rather than a general
+"native build contract" that validates every C compiler involved in a build. This keeps fake
+toolchains, dry runs, and package-level escape hatches working unless a concrete build step requires
+a stricter tool.
+
+The generated-C native backend does not require MSVC. If a user explicitly sets `MOON_CC` or
+`link.native.cc`, Moon keeps using that compiler for the generated-C path. Package-level
+`link.native.stub_cc` is resolved independently for that package's C stubs. Moon does not preflight
+whether an independently configured stub compiler is link-compatible with the executable compiler;
+incompatible objects or archives fail naturally when the final linker consumes them.
+
+Native payload selection is internal to RR build planning. `BackendConfig::Native`
+contains the allocator choice, cycle-collection setting, and a direct-object
+candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
+Direct object output is enabled by default on macOS AArch64, Linux x86_64,
+and Windows x86_64 unless `MOONBIT_NEW_NATIVE=0` is set. Other values, including
+`1`, preserve that default; unsupported hosts still use generated C. Release
+builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set. Direct
+objects are emitted for the host, so a `MOON_CC` compiler that does not target
+the host (see `CC::targets_host()`) also selects generated C. The CLI checks
+this after it expands the user intent to requested artifacts, and only for a
+debug build that has a direct-object candidate and requests a native
+executable. It then clears the candidate. Other commands, such as `moon check`,
+library-only builds, and `moon test --outline`, do not probe the compiler.
+Callers do not supply the final payload
+mode. The planner derives it from requested artifacts, the build profile, and
+that explicit candidate, without reading the process environment. It stores the
+mode once in its private Backend Plan metadata; toolchain selection and lowering
+consume that same derived value.
+
+Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
+They also remain on the compiler-driver link invocation for compatibility with
+flags that affect both stages, such as sanitizers and LTO. `cc-link-flags` apply
+only to linking. The package's native settings are resolved once during planning
+and shared by its compilation and linking actions.
+If any selected executable package sets these flags, Moon uses the generated-C native backend
+instead of direct object output so the configured flags are not skipped.
+This native payload form is currently selected once per invocation, so one such package makes every
+selected executable in that invocation use generated C. This scope also keeps the invocation-wide
+runtime product and package-wide C-stub products on one compatible native toolchain and realization.
+Selecting the payload form per executable requires those shared products to be keyed by their
+effective native toolchain and realization; changing only `LinkCore` and `MakeExecutable` would
+allow incompatible shared artifacts in mixed-mode builds.
+
+The direct object native target `x86_64-pc-windows-msvc` is stricter: it requires selecting a
+`cl`-compatible compiler driver and preserving the discovered Visual Studio command environment.
+
+The MSVC CRT policy is a separate axis from the ABI family. Moon currently forces the static CRT
+flag `/MT` for `cl`-style compile commands, matching the default MSVC runtime library list that uses
+`libcmt.lib`. `/MD` is not currently modeled as a selectable policy. `/LD` is not a CRT policy; it
+is emitted when the requested output type is a shared library.
 
 ## Flags Depend on Both Tool and Target
 
@@ -202,13 +438,33 @@ This is why Moon records both:
 - the resolved compiler family
 - the probed target triple
 
+`uses_msvc_cli()` identifies the cl-compatible command-line interface used by
+`cl` and `clang-cl`. `uses_msvc_abi()` also covers plain Clang targeting MSVC,
+which still accepts GCC-style command-line arguments.
+
 The `-lm` behavior belongs to this semantic layer, not just to executable lookup.
+
+Build planning keeps native link inputs as an ordered list of `NativeLinkArg`
+values: library names, search paths, and opaque user arguments. Manifest and
+prebuild flags are tokenized once; arguments are not regrouped or deduplicated
+across package boundaries. The native command builders render this list using
+the already selected compiler driver, without reselecting the toolchain.
+
+Module-level prebuild `link_libs` and `link_search_paths` are rendered in that
+driver's syntax. `cl` and `clang-cl` receive `<name>.lib` and `/LIBPATH:<path>`;
+GCC-like drivers receive `-l<name>` and `-L<path>`. Plain `clang` keeps GCC-style
+arguments even when its target triple contains `msvc`: the driver translates
+library names and search paths for the Windows linker. Opaque `link_flags` remain
+the script's responsibility and must match the selected driver.
 
 ## Compile, Link, and Archive Usage
 
 ### Compile
 
 `make_cc_command*` uses `cc_path` for compile steps (`-c` or `/c`) and backend-specific flags.
+MSVC-style compile commands pass `/std:c11` and `/bigobj`. The latter raises the
+object-file section limit for large generated C files. Both flags apply to
+generated C, C stubs, and runtime C, including when user compiler flags are set.
 For TCC on macOS, Moon also passes the active SDK `usr/lib` path reported by
 `xcrun --sdk macosx --show-sdk-path` when it resolves to an existing directory.
 If `xcrun` is missing or returns an unusable path, Moon omits the extra `-L` flag instead of
@@ -221,6 +477,12 @@ failing command construction.
 - MSVC style: `cl ... /link ...`
 - GCC or Clang style: `<cc> ... -o ...`
 
+MSVC executable and shared-library commands place linker options, including
+prebuild library search paths, after `/link`. Object inputs and any retained
+compiler-driver flags stay before that separator. The `/MT` CRT policy applies
+when compiling the objects. Generated-C and direct-object linking both follow
+this ordering; prebuild scripts do not need to insert `/link`.
+
 `-lm` is added only when the selected compiler is full-featured gcc-like and the probed target
 triple does not contain `msvc`.
 
@@ -228,9 +490,42 @@ triple does not contain `msvc`.
 
 `make_archiver_command*` uses resolved `ar_path`:
 
-- `lib.exe` for MSVC
-- `ar` or `llvm-ar` for gcc-like toolchains
+- `lib.exe` or `llvm-lib` for MSVC-style librarians
+- `libtool -static` for Apple Darwin targets on macOS
+- `ar` or `llvm-ar` for remaining gcc-like toolchains
 - `tcc -ar` for TCC
+
+Apple `libtool` receives `-no_warning_for_no_symbols` so object files without
+symbols, such as conditionally empty C stubs, do not produce warnings.
+
+`libtool`, `lib.exe`, and `llvm-lib` create an archive from the complete member list passed by
+Moon. GNU- and LLVM-style `ar rcs`, and TCC's equivalent archive mode, update an existing archive
+and can retain members that are no longer present in the input list. Moon classifies this behavior
+from the resolved `ARKind`, not from the host OS.
+
+Archive output paths are stable for every archiver. Build lowering invokes Apple libtool and
+MSVC-style librarians directly because they recreate the archive from the complete input list.
+For update-style archivers, lowering runs the resolved archiver through
+`moon tool archive --output <archive> -- <archiver argv>`, which deletes the previous archive
+before the archiver runs. The archive is then always created from exactly the current members.
+Because Moon is that action's executable, lowering records the archiver as an explicit input.
+
+### Generate macOS debug symbols
+
+For LLVM macOS debug builds, AArch64 Apple direct-object debug builds, and
+generated-C macOS builds with debug information and an Apple-targeting compiler, Moon
+models debug-symbol generation as a separate `GenerateDsym` action:
+
+1. `MakeExecutable` invokes the resolved compiler driver and produces the executable.
+2. `GenerateDsym` depends on that executable, invokes the resolved `dsymutil`,
+   and produces `<executable>.dSYM`.
+
+The commands are not joined with `&&`. This keeps the linker invocation as
+structured argv, makes the executable-to-dSYM dependency explicit, and records
+the `dsymutil` executable as an n2 file input.
+
+Generated-C builds need this explicit action after separating compilation from
+linking: Clang no longer runs `dsymutil` implicitly when it links only objects.
 
 ## Maintenance Notes
 

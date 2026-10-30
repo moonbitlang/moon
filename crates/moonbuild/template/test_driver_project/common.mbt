@@ -2,12 +2,49 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 ///|
+// The shared driver must also compile in core's builtin and whitebox tests
+// without importing JSON. Use builtin operations rather than MoonBit
+// string-literal escaping. Copy unescaped runs in bulk; ASCII escape boundaries
+// cannot split a UTF-16 surrogate pair.
+fn moonbit_test_driver_internal_escape_json(value : String) -> String {
+  let buf = @moonbitlang/core/prelude.StringBuilder(
+    size_hint=value.length() * 2 + 4,
+  )
+  buf.write_char('"')
+  let mut start = 0
+  for i in 0..<value.length() {
+    let code = value[i]
+    if code == '"' || code == '\\' || code < 0x20 {
+      buf.write_substring(value, start, i - start)
+      match code {
+        '"' => buf.write_string("\\\"")
+        '\\' => buf.write_string("\\\\")
+        '\b' => buf.write_string("\\b")
+        '\t' => buf.write_string("\\t")
+        '\n' => buf.write_string("\\n")
+        '\u{c}' => buf.write_string("\\f")
+        '\r' => buf.write_string("\\r")
+        _ => {
+          buf.write_string("\\u00")
+          buf.write_char(if code < 0x10 { '0' } else { '1' })
+          buf.write_substring("0123456789abcdef", code.to_int() & 0xf, 1)
+        }
+      }
+      start = i + 1
+    }
+  }
+  buf.write_substring(value, start, value.length() - start)
+  buf.write_char('"')
+  buf.to_string()
+}
+
+///|
 #cfg(any(target="native", target="llvm"))
-fn string_get(s : String, index : Int) -> Int = "%string_get"
+fn string_get(s : String, index : Int32) -> Int32 = "%string_get"
 
 ///|
 #cfg(not(target="js"))
-fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
+fn moonbit_unsafe_char_from_int(x : Int32) -> Char = "%identity"
 
 ///|
 #cfg(any(target="native", target="llvm"))
@@ -16,6 +53,69 @@ const MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE = true
 ///|
 #cfg(not(any(target="native", target="llvm")))
 const MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE = false
+
+///|
+#cfg(all(any(target="native", target="llvm"), platform="windows"))
+priv struct MoonBitTestDriverInternalOsString(String)
+
+///|
+#cfg(all(any(target="native", target="llvm"), not(platform="windows")))
+priv struct MoonBitTestDriverInternalOsString(Bytes)
+
+///|
+#cfg(all(any(target="native", target="llvm"), platform="windows"))
+fn MoonBitTestDriverInternalOsString::to_string(
+  self : MoonBitTestDriverInternalOsString,
+) -> String {
+  self.0
+}
+
+///|
+#cfg(all(any(target="native", target="llvm"), not(platform="windows")))
+fn MoonBitTestDriverInternalOsString::to_string(
+  self : MoonBitTestDriverInternalOsString,
+) -> String {
+  let bytes = self.0
+  let res = @moonbitlang/core/prelude.StringBuilder()
+  let len = bytes.length()
+  let mut i = 0
+  while i < len {
+    let mut c = bytes[i].to_int()
+    if c < 0x80 {
+      res.write_char(moonbit_unsafe_char_from_int(c))
+      i += 1
+    } else if c < 0xE0 {
+      if i + 1 >= len {
+        break
+      }
+      c = ((c & 0x1F) << 6) | (bytes[i + 1].to_int() & 0x3F)
+      res.write_char(moonbit_unsafe_char_from_int(c))
+      i += 2
+    } else if c < 0xF0 {
+      if i + 2 >= len {
+        break
+      }
+      c = ((c & 0x0F) << 12) |
+        ((bytes[i + 1].to_int() & 0x3F) << 6) |
+        (bytes[i + 2].to_int() & 0x3F)
+      res.write_char(moonbit_unsafe_char_from_int(c))
+      i += 3
+    } else {
+      if i + 3 >= len {
+        break
+      }
+      c = ((c & 0x07) << 18) |
+        ((bytes[i + 1].to_int() & 0x3F) << 12) |
+        ((bytes[i + 2].to_int() & 0x3F) << 6) |
+        (bytes[i + 3].to_int() & 0x3F)
+      c -= 0x10000
+      res.write_char(moonbit_unsafe_char_from_int((c >> 10) + 0xD800))
+      res.write_char(moonbit_unsafe_char_from_int((c & 0x3FF) + 0xDC00))
+      i += 4
+    }
+  }
+  res.to_string()
+}
 
 // =========================================================
 // ================== BEGIN WASM SPECIFIC ==================
@@ -49,7 +149,7 @@ fn moonbit_test_driver_internal_begin_read_string(
 #cfg(any(target="wasm", target="wasm-gc"))
 fn moonbit_test_driver_internal_string_read_char(
   handle : MoonbitTestDriverInternalStringReadHandle,
-) -> Int = "__moonbit_fs_unstable" "string_read_char"
+) -> Int32 = "__moonbit_fs_unstable" "string_read_char"
 
 ///|
 #cfg(any(target="wasm", target="wasm-gc"))
@@ -66,7 +166,7 @@ fn fixedarray_to_bytes(arr : FixedArray[Byte]) -> Bytes = "%identity"
 fn moonbit_test_driver_internal_string_from_extern(
   e : MoonbitTestDriverInternalExternString,
 ) -> String {
-  let buf = FixedArray::make(512, Byte::default())
+  let buf = FixedArray::make(512, b'\x00')
   let mut len = 0
   let handle = moonbit_test_driver_internal_begin_read_string(e)
   while true {
@@ -96,68 +196,13 @@ fn moonbit_test_driver_internal_string_from_extern(
 ///|
 #cfg(any(target="native", target="llvm"))
 fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude.Array[
-  (String, Int),
+  (String, Int32),
 ] {
-  fn moonbit_test_driver_internal_parse_int_(s : String) -> Int {
+  fn moonbit_test_driver_internal_parse_int_(s : String) -> Int32 {
     let mut res = 0
     let len = s.length()
-    for i = 0; i < len; i = i + 1 {
+    for i in 0..<len {
       res = res * 10 + (string_get(s, i) - '0')
-    }
-    res
-  }
-
-  fn moonbit_test_driver_internal_utf8_bytes_to_mbt_string(
-    bytes : Bytes,
-  ) -> String {
-    let res = @moonbitlang/core/prelude.StringBuilder::new()
-    let len = bytes.length()
-    let mut i = 0
-    while i < len {
-      let mut c = bytes[i].to_int()
-      if c < 0x80 {
-        res.write_char(moonbit_unsafe_char_from_int(c))
-        i += 1
-      } else if c < 0xE0 {
-        if i + 1 >= len {
-          break
-        }
-        c = ((c & 0x1F) << 6) | (bytes[i + 1].to_int() & 0x3F)
-        res.write_char(moonbit_unsafe_char_from_int(c))
-        i += 2
-      } else if c < 0xF0 {
-        if i + 2 >= len {
-          break
-        }
-        c = ((c & 0x0F) << 12) |
-          ((bytes[i + 1].to_int() & 0x3F) << 6) |
-          (bytes[i + 2].to_int() & 0x3F)
-        res.write_char(moonbit_unsafe_char_from_int(c))
-        i += 3
-      } else {
-        if i + 3 >= len {
-          break
-        }
-        c = ((c & 0x07) << 18) |
-          ((bytes[i + 1].to_int() & 0x3F) << 12) |
-          ((bytes[i + 2].to_int() & 0x3F) << 6) |
-          (bytes[i + 3].to_int() & 0x3F)
-        c -= 0x10000
-        res.write_char(moonbit_unsafe_char_from_int((c >> 10) + 0xD800))
-        res.write_char(moonbit_unsafe_char_from_int((c & 0x3FF) + 0xDC00))
-        i += 4
-      }
-    }
-    res.to_string()
-  }
-
-  fn moonbit_test_driver_internal_get_cli_args_internal() -> @moonbitlang/core/prelude.Array[
-    String,
-  ] {
-    let tmp = moonbit_test_driver_internal_get_cli_args_ffi()
-    let res = @moonbitlang/core/prelude.Array::new(capacity=tmp.length())
-    for i = 0; i < tmp.length(); i = i + 1 {
-      res.push(moonbit_test_driver_internal_utf8_bytes_to_mbt_string(tmp[i]))
     }
     res
   }
@@ -183,9 +228,9 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
   }
 
   let file_and_index = []
-  let cli_args = moonbit_test_driver_internal_get_cli_args_internal()
+  let cli_args = moonbit_test_driver_internal_get_cli_args_ffi()
   let test_args = moonbit_test_driver_internal_split_mbt_string(
-    cli_args[1],
+    cli_args[1].to_string(),
     '/',
   )
   for arg in test_args {
@@ -197,7 +242,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
     )
     let start = moonbit_test_driver_internal_parse_int_(start_and_end[0])
     let end = moonbit_test_driver_internal_parse_int_(start_and_end[1])
-    for i = start; i < end; i = i + 1 {
+    for i in start..<end {
       file_and_index.push((file, i))
     }
   }
@@ -206,7 +251,9 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
 
 ///|
 #cfg(any(target="native", target="llvm"))
-fn moonbit_test_driver_internal_get_cli_args_ffi() -> FixedArray[Bytes] = "$moonbit.get_cli_args"
+extern "C" fn moonbit_test_driver_internal_get_cli_args_ffi() -> FixedArray[
+  MoonBitTestDriverInternalOsString,
+] = "moonbit_rt_get_cli_args"
 
 // =========================================================
 // =============== END NATIVE/LLVM SPECIFIC ================
@@ -230,10 +277,11 @@ extern "js" fn MoonBitTestDriverInternalTestEntry::filename(
 
 ///|
 #cfg(target="js")
-extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int =
+extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int32 =
   #| (entry) => entry[1]
 
 ///|
+/// JavaScript error captured by the generated test driver.
 pub(all) suberror MoonBitTestDriverInternalJsError {
   MoonBitTestDriverInternalJsError(String)
 }

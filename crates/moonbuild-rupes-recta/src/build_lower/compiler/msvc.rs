@@ -1,0 +1,202 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! MSVC-specific command helpers for the direct native backend.
+
+use std::path::Path;
+
+use moonutil::compiler_flags::{
+    MsvcCrtPolicy, NativeAllocator, NativeLinkArg, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
+    WINDOWS_MSVC_DEFAULT_LIBS,
+};
+
+pub(crate) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
+    toolchain
+        .msvc_environment()
+        .map(|environment| environment.command_env().to_vec())
+        .unwrap_or_default()
+}
+
+pub(crate) fn compile_runtime_command(
+    toolchain: &Toolchain,
+    source: &Path,
+    dest: &Path,
+    moon_include_path: &str,
+    crt: MsvcCrtPolicy,
+    native_allocator: NativeAllocator,
+    collect_ref_cycle: bool,
+) -> Vec<String> {
+    let mut command = vec![
+        toolchain.cc_command_path(),
+        "/nologo".to_string(),
+        WINDOWS_MSVC_C_STANDARD_FLAG.to_string(),
+        "/bigobj".to_string(),
+        "/utf-8".to_string(),
+        "/wd4819".to_string(),
+        "/c".to_string(),
+        "/Z7".to_string(),
+        "/O2".to_string(),
+        crt.compiler_flag().to_string(),
+        format!("/Fo{}", dunce::simplified(dest).display()),
+        format!(
+            "/I{}",
+            dunce::simplified(Path::new(moon_include_path)).display()
+        ),
+    ];
+    command.push(format!(
+        "/DMOONBIT_ALLOCATOR={}",
+        native_allocator.moonbit_allocator_macro(toolchain.cc(), false)
+    ));
+    if collect_ref_cycle {
+        command.push("/DMOONBIT_TRIAL_DELETION=1".to_string());
+    }
+    command.push(dunce::simplified(source).display().to_string());
+    command
+}
+
+pub(crate) fn link_executable_command(
+    toolchain: &Toolchain,
+    sources: &[String],
+    link_args: &[NativeLinkArg],
+    dest: &str,
+    lib_path: &str,
+) -> Vec<String> {
+    let mut command = vec![
+        toolchain.cc_command_path(),
+        "/nologo".to_string(),
+        format!("/Fe{}", dunce::simplified(Path::new(dest)).display()),
+    ];
+    command.extend(
+        sources
+            .iter()
+            .map(|source| dunce::simplified(Path::new(source)).display().to_string()),
+    );
+    command.push("/link".to_string());
+    command.extend([
+        "/nologo".to_string(),
+        "/subsystem:console".to_string(),
+        format!("/LIBPATH:{lib_path}"),
+    ]);
+    command.extend(link_args.iter().map(|arg| arg.render(toolchain.cc())));
+    command.extend(WINDOWS_MSVC_DEFAULT_LIBS.iter().map(|lib| lib.to_string()));
+    command
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use moonutil::compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain};
+
+    use super::*;
+
+    fn fake_msvc_toolchain() -> Toolchain {
+        Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Msvc,
+            cc_path: "cl.exe".to_string(),
+            ar_kind: ARKind::MsvcLib,
+            ar_path: "lib.exe".to_string(),
+            target_triple: None,
+            is_env_override: false,
+        })
+        .with_msvc_environment(MsvcEnvironment {
+            command_env: vec![
+                ("INCLUDE".to_string(), "crt/include;sdk/include".to_string()),
+                ("LIB".to_string(), "crt/lib;sdk/lib".to_string()),
+            ],
+        })
+    }
+
+    #[test]
+    fn runtime_compile_command_uses_command_env_for_msvc_environment() {
+        for collect_ref_cycle in [false, true] {
+            let command = compile_runtime_command(
+                &fake_msvc_toolchain(),
+                Path::new("runtime.c"),
+                Path::new("runtime.obj"),
+                "moon/include",
+                MsvcCrtPolicy::StaticMt,
+                NativeAllocator::Default,
+                collect_ref_cycle,
+            );
+
+            assert!(command.iter().any(|arg| arg == "/Imoon/include"));
+            assert!(
+                command
+                    .iter()
+                    .any(|arg| arg == WINDOWS_MSVC_C_STANDARD_FLAG)
+            );
+            assert!(
+                command
+                    .iter()
+                    .any(|arg| arg == MsvcCrtPolicy::StaticMt.compiler_flag())
+            );
+            assert!(
+                command
+                    .iter()
+                    .any(|arg| arg == "/DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
+            );
+            assert_eq!(
+                command
+                    .iter()
+                    .any(|arg| arg == "/DMOONBIT_TRIAL_DELETION=1"),
+                collect_ref_cycle
+            );
+        }
+    }
+
+    #[test]
+    fn executable_link_command_uses_command_env_for_msvc_environment() {
+        let command = link_executable_command(
+            &fake_msvc_toolchain(),
+            &["main.obj".to_string(), "runtime.obj".to_string()],
+            &[
+                NativeLinkArg::Library("custom".into()),
+                NativeLinkArg::SearchPath("custom libs".into()),
+                NativeLinkArg::Opaque("/DEBUG".into()),
+            ],
+            "main.exe",
+            "moon/lib",
+        );
+
+        assert_eq!(
+            command,
+            [
+                "cl.exe",
+                "/nologo",
+                "/Femain.exe",
+                "main.obj",
+                "runtime.obj",
+                "/link",
+                "/nologo",
+                "/subsystem:console",
+                "/LIBPATH:moon/lib",
+                "custom.lib",
+                "/LIBPATH:custom libs",
+                "/DEBUG",
+                "libcmt.lib",
+                "oldnames.lib",
+                "kernel32.lib",
+                "shell32.lib",
+                "user32.lib",
+                "dbghelp.lib",
+                "uuid.lib",
+            ]
+        );
+    }
+}

@@ -7,13 +7,26 @@ fn normalized_path(value: &serde_json::Value) -> &str {
 #[test]
 fn implement_third_party1() {
     let dir = TestDir::new("virtual_pkg2.in/p");
-    assert_dry_run_graph(
-        &dir,
-        ["check", ".", "--dry-run"],
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "moon.pkg", "pkg.mbti"]
+        .map(|path| (path, std::fs::read(dir.join("v").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "username/v", "0.1.0", &files);
+    build_graph::assert(
+        moon_cmd(&dir).env("MOON_HOME", moon_home.path()).args([
+            "check",
+            "--target",
+            "wasm-gc",
+            ".",
+            "--dry-run",
+        ]),
         expect_file!["./check_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["check", "."]);
+    let s = get_stderr_with_envs(
+        &dir,
+        ["check", "--target", "wasm-gc"],
+        [("MOON_HOME", moon_home.path())],
+    );
     check(
         s,
         expect![[r#"
@@ -21,9 +34,10 @@ fn implement_third_party1() {
         "#]],
     );
 
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
-            .unwrap();
+    let packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap(),
+    )
+    .unwrap();
     let packages = packages_json["packages"].as_array().unwrap();
 
     let implementor = packages
@@ -76,17 +90,29 @@ fn implement_third_party1() {
 #[test]
 fn implement_third_party2() {
     let dir = TestDir::new("virtual_pkg2.in/p");
-    assert_dry_run_graph(
-        &dir,
-        ["build", "--dry-run"],
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "moon.pkg", "pkg.mbti"]
+        .map(|path| (path, std::fs::read(dir.join("v").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "username/v", "0.1.0", &files);
+    build_graph::assert(
+        moon_cmd(&dir).env("MOON_HOME", moon_home.path()).args([
+            "build",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+        ]),
         expect_file!["./build_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["build"]);
+    let s = get_stderr_with_envs(
+        &dir,
+        ["build", "--target", "wasm-gc"],
+        [("MOON_HOME", moon_home.path())],
+    );
     check(
         s,
         expect![[r#"
-        Finished. moon: ran 2 tasks, now up to date
-    "#]],
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 }

@@ -1,26 +1,27 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::path::PathBuf;
 
 use moonbuild_rupes_recta::discover::discover_packages;
-use moonutil::common::read_module_desc_file_in_dir;
-use moonutil::mooncakes::{DirSyncResult, ModuleSource, result::ResolvedEnv};
+use moonutil::manifest::read_module_desc_file_in_dir;
+use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource};
+use moonutil::user_log::UserLog;
 
 fn fixture_dir(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -34,13 +35,14 @@ fn fixture_dir(name: &str) -> PathBuf {
 fn discover_skips_nested_module_with_moon_mod() {
     let root = fixture_dir("module_dsl_skip_nested");
     let module = read_module_desc_file_in_dir(&root).expect("read module");
-    let source = ModuleSource::from_local_module(&module, &root);
-    let (resolved, module_id) = ResolvedEnv::only_one_module(source, module);
+    let source = ModuleSource::from_local_module(&module, &root).unwrap();
+    let (resolved, module_id) = ModuleDependencyGraph::only_one_module(source, module);
 
     let mut dirs = DirSyncResult::new();
     dirs.insert(module_id, root.clone());
 
-    let discovered = discover_packages(&resolved, &dirs).expect("discover packages");
+    let discovered = discover_packages(&resolved, &dirs, &UserLog::new(log::LevelFilter::Error))
+        .expect("discover packages");
     let mut packages = discovered
         .all_packages(false)
         .map(|(_, pkg)| pkg.fqn.to_string())

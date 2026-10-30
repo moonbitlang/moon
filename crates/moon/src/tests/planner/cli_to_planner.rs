@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -31,7 +31,6 @@ fn command_string_run_parses_as_expected() {
             UniversalFlags {
                 source_tgt_dir: SourceTargetDirs {
                     cwd: None,
-                    manifest_path: None,
                     target_dir: None,
                 },
                 workspace_env: Auto,
@@ -39,7 +38,6 @@ fn command_string_run_parses_as_expected() {
                 verbose: false,
                 trace: false,
                 dry_run: false,
-                build_graph: false,
                 unstable_feature: FeatureGate {
                     rr_export_module_graph: false,
                     rr_export_package_graph: false,
@@ -51,6 +49,7 @@ fn command_string_run_parses_as_expected() {
                 },
             },
             RunSubcommand {
+                handoff: None,
                 package_or_mbt_file: None,
                 command: Some(
                     "fn main { println(\"hello\") }",
@@ -63,7 +62,6 @@ fn command_string_run_parses_as_expected() {
                     strip: false,
                     no_strip: false,
                     target: [],
-                    serial: false,
                     enable_coverage: false,
                     sort_input: false,
                     output_wat: false,
@@ -77,6 +75,8 @@ fn command_string_run_parses_as_expected() {
                     diagnostic_limit: None,
                 },
                 args: [],
+                moonrun_policy: None,
+                virtual_process_tree: false,
                 auto_sync_flags: AutoSyncFlags {
                     frozen: false,
                 },
@@ -113,6 +113,22 @@ fn run_diagnostic_limit_parses() {
 }
 
 #[test]
+fn run_wasm_policy_parses() {
+    let (_, cmd) = parse_run_command(&[
+        "run",
+        "--wasm-policy",
+        "moonrun-policy.json",
+        "-e",
+        r#"fn main { println("hello") }"#,
+    ]);
+
+    assert_eq!(
+        cmd.moonrun_policy.as_deref(),
+        Some(std::path::Path::new("moonrun-policy.json"))
+    );
+}
+
+#[test]
 fn native_target_dry_run_test_command_parses_as_expected() {
     let (cli, cmd) =
         parse_test_command(&["test", "--target", "native", "--dry-run", "--sort-input"]);
@@ -122,7 +138,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
             UniversalFlags {
                 source_tgt_dir: SourceTargetDirs {
                     cwd: None,
-                    manifest_path: None,
                     target_dir: None,
                 },
                 workspace_env: Auto,
@@ -130,7 +145,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 verbose: false,
                 trace: false,
                 dry_run: true,
-                build_graph: false,
                 unstable_feature: FeatureGate {
                     rr_export_module_graph: false,
                     rr_export_package_graph: false,
@@ -152,7 +166,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     target: [
                         Native,
                     ],
-                    serial: false,
                     enable_coverage: false,
                     sort_input: true,
                     output_wat: false,
@@ -165,6 +178,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     render_no_loc: Error,
                     diagnostic_limit: None,
                 },
+                moonrun_policy: None,
                 package: None,
                 file: None,
                 index: None,
@@ -180,7 +194,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 outline: false,
                 test_failure_json: false,
                 patch_file: None,
-                doc_test: false,
                 path: [],
                 include_skipped: false,
                 filter: None,
@@ -196,6 +209,22 @@ fn test_diagnostic_limit_parses_without_update() {
 
     assert_eq!(cmd.build_flags.diagnostic_limit, Some(10));
     assert!(!cmd.update);
+}
+
+#[test]
+fn test_wasm_policy_parses() {
+    let (_, cmd) = parse_test_command(&[
+        "test",
+        "--wasm-policy",
+        "moonrun-policy.json",
+        "--target",
+        "wasm",
+    ]);
+
+    assert_eq!(
+        cmd.moonrun_policy.as_deref(),
+        Some(std::path::Path::new("moonrun-policy.json"))
+    );
 }
 
 #[test]

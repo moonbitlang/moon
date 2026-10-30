@@ -1,25 +1,25 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::common::TargetBackend;
+use crate::target::TargetBackend;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum OptLevel {
@@ -38,6 +38,13 @@ impl OptLevel {
 
     pub fn all() -> &'static [Self] {
         &[Self::Release, Self::Debug]
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Release => "release",
+            Self::Debug => "debug",
+        }
     }
 }
 
@@ -66,7 +73,7 @@ impl CondExpr {
         match self {
             CondExpr::Atom(atom) => match atom {
                 Atom::OptLevel(level) => level == &opt_level,
-                Atom::Target(backend) => backend == &target_backend,
+                Atom::Target(backend) => target_backend.matches_file_target(*backend),
             },
             CondExpr::Condition(op, exprs) => match op {
                 LogicOp::And => exprs.iter().all(|x| x.eval(opt_level, target_backend)),
@@ -154,6 +161,49 @@ fn test_001() {
     };
     assert!(b.eval(OptLevel::Debug, TargetBackend::Js));
     assert!(b.eval(OptLevel::Debug, TargetBackend::Wasm));
+}
+
+#[test]
+fn native_file_condition_matches_llvm() {
+    for (source, expected_backends) in [
+        (
+            r#""native""#,
+            vec![TargetBackend::Native, TargetBackend::LLVM],
+        ),
+        (r#""llvm""#, vec![TargetBackend::LLVM]),
+        (
+            r#"["not", "native"]"#,
+            vec![
+                TargetBackend::Wasm,
+                TargetBackend::WasmGC,
+                TargetBackend::Js,
+            ],
+        ),
+        (
+            r#"["not", "llvm"]"#,
+            vec![
+                TargetBackend::Wasm,
+                TargetBackend::WasmGC,
+                TargetBackend::Js,
+                TargetBackend::Native,
+            ],
+        ),
+    ] {
+        let expr: CondExpr = serde_json_lenient::from_str(source).unwrap();
+        let metadata = expr.to_compile_condition();
+        assert_eq!(metadata.backend, expected_backends, "{source}");
+        for &optlevel in OptLevel::all() {
+            for &backend in TargetBackend::all() {
+                let expected = expected_backends.contains(&backend);
+                assert_eq!(
+                    expr.eval(optlevel, backend),
+                    expected,
+                    "{source}: {backend}"
+                );
+                assert_eq!(metadata.eval(optlevel, backend), expected);
+            }
+        }
+    }
 }
 
 #[test]

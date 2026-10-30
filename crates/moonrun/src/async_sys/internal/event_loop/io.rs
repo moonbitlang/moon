@@ -1,0 +1,185 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+#[cfg(unix)]
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
+use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::async_sys::ported_fns;
+
+#[cfg(unix)]
+fn last_native_error() -> AsyncHostError {
+    AsyncHostError::Native(
+        std::io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
+    )
+}
+
+ported_fns! {
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_init_WSA"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn init_wsa() -> i32 {
+        use windows_sys::Win32::Networking::WinSock::{WSADATA, WSAStartup};
+
+        let mut data = std::mem::MaybeUninit::<WSADATA>::uninit();
+        unsafe { WSAStartup(0x0202, data.as_mut_ptr()) }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_cleanup_WSA"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn cleanup_wsa() -> i32 {
+        unsafe { windows_sys::Win32::Networking::WinSock::WSACleanup() }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/io_unix.c",
+        original = "moonbitlang_async_read"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn read(fd: RawFd, buf: &mut [u8]) -> AsyncHostResult<usize> {
+        let ret = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+        if ret < 0 {
+            Err(last_native_error())
+        } else {
+            usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/io_unix.c",
+        original = "moonbitlang_async_write"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn write(fd: RawFd, buf: &[u8]) -> AsyncHostResult<usize> {
+        let ret = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
+        if ret < 0 {
+            Err(last_native_error())
+        } else {
+            usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_errno_is_read_EOF"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn errno_is_read_eof(errno: i32) -> bool {
+        use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF};
+
+        errno == ERROR_HANDLE_EOF as i32 || errno == ERROR_BROKEN_PIPE as i32
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+    #[cfg(not(windows))]
+    {
+        PORTED_SYMBOLS.to_vec()
+    }
+
+    #[cfg(windows)]
+    {
+        let mut symbols = PORTED_SYMBOLS.to_vec();
+        symbols.extend_from_slice(&[
+            ported_windows_symbol(
+                "make_file_read_io_result",
+                "moonbitlang_async_make_file_read_io_result",
+            ),
+            ported_windows_symbol(
+                "make_file_write_io_result",
+                "moonbitlang_async_make_file_write_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_read_io_result",
+                "moonbitlang_async_make_socket_read_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_write_io_result",
+                "moonbitlang_async_make_socket_write_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_with_addr_read_io_result",
+                "moonbitlang_async_make_socket_with_addr_read_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_with_addr_write_io_result",
+                "moonbitlang_async_make_socket_with_addr_write_io_result",
+            ),
+            ported_windows_symbol(
+                "make_connect_io_result",
+                "moonbitlang_async_make_connect_io_result",
+            ),
+            ported_windows_symbol(
+                "make_accept_io_result",
+                "moonbitlang_async_make_accept_io_result",
+            ),
+            ported_windows_symbol("free_io_result", "moonbitlang_async_free_io_result"),
+            ported_windows_symbol(
+                "io_result_get_event",
+                "moonbitlang_async_io_result_get_event",
+            ),
+            ported_windows_symbol("cancel_io_result", "moonbitlang_async_cancel_io_result"),
+            ported_windows_symbol(
+                "io_result_get_status",
+                "moonbitlang_async_io_result_get_status",
+            ),
+            ported_windows_symbol("read_io_result", "moonbitlang_async_read"),
+            ported_windows_symbol(
+                "read_dir_changes_io_result",
+                "moonbitlang_async_read_dir_changes",
+            ),
+            ported_windows_symbol("write_io_result", "moonbitlang_async_write"),
+            ported_windows_symbol("connect_io_result", "moonbitlang_async_connect"),
+            ported_windows_symbol(
+                "setup_connected_socket",
+                "moonbitlang_async_setup_connected_socket",
+            ),
+            ported_windows_symbol("accept_io_result", "moonbitlang_async_accept"),
+            ported_windows_symbol(
+                "get_accept_peer_addr",
+                "moonbitlang_async_get_accept_peer_addr",
+            ),
+            ported_windows_symbol(
+                "setup_accepted_socket",
+                "moonbitlang_async_setup_accepted_socket",
+            ),
+        ]);
+        symbols
+    }
+}
+
+#[cfg(all(test, windows))]
+fn ported_windows_symbol(
+    rust_symbol: &'static str,
+    native_symbol: &'static str,
+) -> crate::async_sys::PortedSymbol {
+    crate::async_sys::PortedSymbol {
+        rust_module: module_path!(),
+        rust_symbol,
+        native_symbol,
+        source: "src/internal/event_loop/io_windows.c",
+    }
+}

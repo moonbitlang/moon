@@ -1,33 +1,120 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::{net::Ipv4Addr, path::PathBuf, sync::OnceLock, time::Duration};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
 
 fn moon_cmd() -> snapbox::cmd::Command {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
-    snapbox::cmd::Command::new("cargo")
-        .arg("run")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(manifest_path)
-        .arg("--bin")
-        .arg("moon")
-        .arg("--")
+    snapbox::cmd::Command::new(moon_bin())
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+}
+
+fn moon_bin() -> &'static PathBuf {
+    static MOON_BIN: OnceLock<PathBuf> = OnceLock::new();
+    MOON_BIN.get_or_init(|| {
+        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
+        // `moon` is a host tool. Keep Cargo's default target layout so it can
+        // reuse artifacts from the outer Cargo invocation.
+        escargot::CargoBuild::new()
+            .manifest_path(manifest_path)
+            .bin("moon")
+            .current_release()
+            .run()
+            .expect("failed to build moon")
+            .path()
+            .to_owned()
+    })
+}
+
+#[test]
+#[ignore = "run in CI when Moonrun or upstream async changes"]
+fn test_moonrun_against_upstream_async() {
+    let async_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .unwrap()
+        .join("third_party/moonbitlang_async");
+    let build_dir = async_dir.join("_build");
+    std::fs::create_dir_all(&build_dir).expect("failed to create async test build dir");
+    let target_dir = tempfile::Builder::new()
+        .prefix("moon-test-target-")
+        .tempdir_in(&build_dir)
+        .expect("failed to create async test target dir");
+    let moon = moon_bin();
+    let path = std::env::join_paths(
+        std::iter::once(
+            moon.parent()
+                .expect("test moon binary should have a parent directory")
+                .to_path_buf(),
+        )
+        .chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .expect("failed to put the test moon binary on PATH");
+
+    // The process and file-lock tests assert subsecond child-output ordering.
+    // Build their native helpers before starting the async tests; a first lazy
+    // compilation can otherwise overlap those deadlines and strand a pipe reader.
+    moon_cmd()
+        .current_dir(&async_dir)
+        .args([
+            "build",
+            "test_programs",
+            "--debug",
+            "--target",
+            "native",
+            "--target-dir",
+            "_build/test_programs",
+        ])
+        .assert()
+        .success();
+
+    // Upstream tests build native helpers through child `moon build` commands.
+    // Their artifact tables inherit stdout. Normalize only those leading tables;
+    // unexpected output, the exact test totals and unsuccessful exits still fail.
+    let mut redactions = snapbox::Redactions::new();
+    redactions
+        .insert(
+            "[HELPER_BUILD_OUTPUT]",
+            regex::Regex::new(
+                r"\A(?:Artifacts:\n(?:  moonbitlang/async_test_programs/[a-z_]+  native  [^\n]+\n)+)+",
+            )
+            .expect("valid native helper artifact pattern"),
+        )
+        .expect("valid native helper artifact redaction");
+    moon_cmd()
+        .with_assert(snapbox::Assert::new().redact_with(redactions))
+        .current_dir(&async_dir)
+        .env("MOON_OVERRIDE", moon)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("PATH", path)
+        .arg("--target-dir")
+        .arg(target_dir.path())
+        // Upstream process tests assert subsecond child-output ordering.
+        // Avoid competing test packages delaying child startup past those gaps.
+        .args(["test", "--target", "wasm", "--no-parallelize"])
+        .assert()
+        .success()
+        .stdout_eq("[HELPER_BUILD_OUTPUT]Total tests: 587, passed: 587, failed: 0.\n");
 }
 
 struct TestDir(moon_test_util::test_dir::TestDir);
@@ -67,10 +154,62 @@ fn test_moonrun_version() {
 }
 
 #[test]
+fn test_moonrun_stack_trace_preserves_wasm_location() {
+    let dir = tempfile::tempdir().unwrap();
+    let wasm_path = dir.path().join("trap.wasm");
+    let wasm = wat::parse_str(r#"(module (func $crash (export "_start") unreachable))"#).unwrap();
+    std::fs::write(&wasm_path, wasm).unwrap();
+
+    for source_map in [None, Some("invalid source map")] {
+        if let Some(source_map) = source_map {
+            std::fs::write(dir.path().join("trap.wasm.map"), source_map).unwrap();
+        }
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .arg(&wasm_path)
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+RuntimeError: unreachable
+    at crash ([..]0x[..])
+
+"#]]);
+    }
+
+    std::fs::write(
+        dir.path().join("trap.wasm.map"),
+        r#"{"sources":["main.mbt"],"mappings":"AAAA"}"#,
+    )
+    .unwrap();
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_path)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+RuntimeError: unreachable
+    at crash main.mbt:1 ([..]0x[..])
+
+"#]]);
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_path)
+        .arg("--no-stack-trace")
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("RuntimeError: unreachable\n");
+}
+
+#[test]
 fn test_moonrun_wasm_stack_trace() {
     let dir = TestDir::new("test_stack_trace.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let main_wasm = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
     let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
@@ -96,10 +235,9 @@ fn test_moonrun_wasm_stack_trace() {
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -108,9 +246,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -119,9 +256,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -130,9 +266,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -141,10 +276,9 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -153,8 +287,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @username/hello/main.panic_with_result [..]/main/main.mbt[LINE_NUMBER]
-    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.panic_with_result [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at __moonbit_main [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
 
 "#]]);
 
@@ -164,6 +298,29 @@ RuntimeError: unreachable
         .assert()
         .failure()
         .stderr_eq("RuntimeError: unreachable\n");
+}
+
+#[test]
+fn test_moonrun_help_describes_policy_shape() {
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg("--help")
+        .assert()
+        .success();
+    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
+
+    assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
+    assert!(stdout.contains("JSON policy file"));
+    assert!(!stdout.contains("TOML"));
+    assert!(stdout.contains("deny-by-default mode"));
+    assert!(stdout.contains(r#""from_host": ["*"]"#));
+    assert!(stdout.contains(r#""read": ["*"]"#));
+    assert!(stdout.contains(r#""spawn": true"#));
+    assert!(stdout.contains(r#"net.connect containing "api.deepseek.com:443""#));
+    assert!(stdout.contains("Hostname connect rules also permit DNS lookup"));
+    assert!(stdout.contains("process.allow entries match the exact requested program"));
+    assert!(stdout.contains("Omitting args_prefix allows any arguments"));
+    assert!(stdout.contains("logical request, not the executable eventually selected"));
+    assert!(stdout.contains("ambient filesystem, network, and process access"));
 }
 
 #[test]
@@ -187,22 +344,23 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
     let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
     let assert = snapbox::Assert::new().redact_with(redactions);
 
+    // The native exception callback adds no JavaScript frame, so both engines
+    // now retain the outer Wasm test-driver frame.
     moon_test_case(&dir, &["--filter", "stacktrace test abort closure"])
         .with_assert(assert.clone())
         .assert()
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
-    at throw
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute.wrapper [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
@@ -213,16 +371,14 @@ Total tests: 1, passed: 0, failed: 1.
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
-    at throw
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt[LINE_NUMBER]
-    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER]
-    at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute_wrapper/[..] [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
+    at @username/hello/main.moonbit_test_driver_internal_execute.wrapper [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER] ([..]0x[..])
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
@@ -232,7 +388,11 @@ Total tests: 1, passed: 0, failed: 1.
 fn test_moon_run_with_cli_args() {
     let dir = TestDir::new("test_cli_args.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
     // `argv` passed to CLI is:
@@ -269,10 +429,753 @@ fn test_moon_run_with_cli_args() {
 }
 
 #[test]
+fn test_moonrun_current_exe_absolutizes_relative_module_path() {
+    let dir = TestDir::new("test_current_exe.in");
+    // Resolve Unix cwd symlinks, but do not introduce a Windows verbatim prefix.
+    let load_dir = dunce::canonicalize(&dir).unwrap();
+    let built_module = load_dir.join("_build/wasm/debug/test/main/main.blackbox_test.wasm");
+
+    moon_cmd()
+        .current_dir(&load_dir)
+        .args(["test", "main", "--target", "wasm", "--build-only"])
+        .assert()
+        .success();
+
+    let module_paths = [
+        PathBuf::from("executable/main.wasm"),
+        PathBuf::from("路径-\u{10000}/程序.wasm"),
+        // Filesystems such as APFS reject these names; exercise them on Linux.
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            PathBuf::from(std::ffi::OsString::from_vec(
+                b"non-utf8-\xff/module-\xfe.wasm".to_vec(),
+            ))
+        },
+    ];
+    for relative_path in module_paths {
+        let module_path = std::path::absolute(load_dir.join(&relative_path)).unwrap();
+        std::fs::create_dir_all(module_path.parent().unwrap()).unwrap();
+        std::fs::copy(&built_module, &module_path).unwrap();
+
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .current_dir(&load_dir)
+            .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+            .env("MOONRUN_TEST_CURRENT_EXE", module_path.to_string_lossy().as_ref())
+            .env(
+                "MOONRUN_TEST_CURRENT_EXE_DIR",
+                module_path.parent().unwrap().to_string_lossy().as_ref(),
+            )
+            .arg("--test-args")
+            .arg(
+                r#"{"package":"username/current_exe/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+            )
+            .arg(&relative_path)
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"main_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"main_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+
+"#]])
+            .stderr_eq("");
+    }
+}
+
+#[test]
+fn test_moonrun_exits_with_guest_exit_code() {
+    let dir = TestDir::new("test_cli_args.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm-gc/debug/build/main/main.wasm"))
+        .arg("--")
+        .arg("exit-7")
+        .assert()
+        .code(7)
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+fn moonrun_library_returns_guest_exit_without_terminating_embedder() {
+    let dir = TestDir::new("test_cli_args.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    let wasm = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    let engine = moonrun::Engine::default();
+    let options = || {
+        moonrun::RunOptions::default()
+            .with_args(["exit-7"])
+            .with_working_directory(moonrun::WorkingDirectory::Ambient)
+    };
+
+    assert_eq!(
+        engine.run_file(&wasm, options()).unwrap(),
+        moonrun::RunOutcome::Exited(7)
+    );
+    assert_eq!(
+        engine.run_file(&wasm, options()).unwrap(),
+        moonrun::RunOutcome::Exited(7)
+    );
+}
+
+#[test]
+fn moonrun_observes_each_process_working_directory() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_working_directory_instances.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_working_directory_instances.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["test", "main", "--target", "wasm", "--build-only"])
+        .assert()
+        .success();
+
+    let wasm = dir.path().join(
+        "_build/wasm/debug/test/moon/working_directory_instances/main/main.blackbox_test.wasm",
+    );
+    for marker in ["first", "second"] {
+        let instance = dir.path().join(marker);
+        std::fs::create_dir(&instance).unwrap();
+        std::fs::write(instance.join("input.txt"), marker).unwrap();
+
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .current_dir(&instance)
+            .arg("--test-args")
+            .arg(
+                r#"{"package":"moon/working_directory_instances/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
+            )
+            .arg(&wasm)
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"main_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"main_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+
+"#]])
+            .stderr_eq("");
+
+        assert_eq!(
+            std::fs::read_to_string(instance.join("output.txt")).unwrap(),
+            marker
+        );
+        assert_eq!(
+            std::fs::canonicalize(PathBuf::from(
+                std::fs::read_to_string(instance.join("cwd.txt")).unwrap(),
+            ))
+            .unwrap(),
+            std::fs::canonicalize(instance).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn moonrun_library_compiles_modules_when_loading() {
+    let wasm = tempfile::Builder::new()
+        .prefix("invalid.")
+        .suffix(".wasm")
+        .tempfile()
+        .unwrap();
+    std::fs::write(wasm.path(), b"not WebAssembly").unwrap();
+
+    let error = moonrun::Engine::default()
+        .load_file(wasm.path())
+        .unwrap_err();
+
+    assert!(format!("{error:#}").contains("failed to compile"));
+}
+
+#[test]
+fn engine_backends_run_compiler_generated_tests() {
+    let dir = TestDir::new("test_driver.in");
+    for target in ["wasm", "wasm-gc"] {
+        for profile in ["debug", "release"] {
+            moon_cmd()
+                .current_dir(&dir)
+                .args(["test", "--target", target, "--build-only"])
+                .arg(format!("--{profile}"))
+                .assert()
+                .success();
+
+            snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .args(["--no-stack-trace", "--test-args"])
+                .arg(r#"{"package":"moon/test_driver","file_and_index":[["driver_test.mbt",[{"start":0,"end":3}]]]}"#)
+                .arg(dir.join(&format!("_build/{target}/{profile}/test/test_driver.blackbox_test.wasm")))
+                .assert()
+                .success()
+                .stdout_eq(snapbox::str![[r#"
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"driver_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"driver_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"driver_test.mbt","index":1}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"driver_test.mbt","index":1,"message":"Error"}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"driver_test.mbt","index":2}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"driver_test.mbt","index":2,"message":""}
+----- END MOON TEST RESULT -----
+
+"#]])
+                .stderr_eq(if target == "wasm" {
+                    "expected test failure\n"
+                } else {
+                    ""
+                });
+        }
+    }
+}
+
+#[test]
+fn engine_backends_run_both_wasm_profiles_and_js_strings() {
+    let dir = TestDir::new("test_engine_backend.in");
+
+    for target in ["wasm", "wasm-gc"] {
+        moon_cmd()
+            .current_dir(&dir)
+            .args(["build", "--target", target])
+            .assert()
+            .success();
+    }
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["test", "js_string", "--target", "wasm-gc", "--build-only"])
+        .assert()
+        .success();
+
+    let engine = moonrun::Engine::default();
+    let plain_wasm = dir.join("_build/wasm/debug/build/plain/plain.wasm");
+    let plain_module = engine.load_file(&plain_wasm).unwrap();
+    std::fs::remove_file(plain_wasm).unwrap();
+    assert_eq!(
+        engine
+            .run(&plain_module, moonrun::RunOptions::default())
+            .unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+    assert_eq!(
+        engine
+            .run(&plain_module, moonrun::RunOptions::default())
+            .unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+
+    let exit_wasm = dir.join("_build/wasm-gc/debug/build/exit/exit.wasm");
+    assert_eq!(
+        engine
+            .run_file(&exit_wasm, moonrun::RunOptions::default())
+            .unwrap(),
+        moonrun::RunOutcome::Exited(7)
+    );
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm-gc/debug/build/js_string/js_string.wasm"))
+        .assert()
+        .success()
+        .stdout_eq("hello from imported constants\n11\nfalse\n")
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm-gc/debug/build/time/time.wasm"))
+        .assert()
+        .success()
+        .stdout_eq("true\ntrue\n")
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg("--test-args")
+        .arg(
+            r#"{"package":"moon/engine_backend/js_string","file_and_index":[["main_wbtest.mbt",[{"start":0,"end":1}]]]}"#,
+        )
+        .arg(dir.join(
+            "_build/wasm-gc/debug/test/js_string/js_string.whitebox_test.wasm",
+        ))
+        .assert()
+        .success()
+        .stdout_eq(concat!(
+            "----- BEGIN MOON TEST RESULT -----\n",
+            r#"{"type":"start","file":"main_wbtest.mbt","index":0}"#,
+            "\n----- END MOON TEST RESULT -----\n",
+            "----- BEGIN MOON TEST RESULT -----\n",
+            r#"{"type":"result","file":"main_wbtest.mbt","index":0,"message":""}"#,
+            "\n----- END MOON TEST RESULT -----\n",
+        ))
+        .stderr_eq("");
+}
+
+#[test]
+fn engine_backends_run_compiler_generated_ffi_bytes() {
+    let dir = TestDir::new("test_engine_backend.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .env("MOONC_INTERNAL_PARAMS", "use_ffi_bytes=1|")
+        .args(["build", "ffi_bytes", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm-gc/debug/build/ffi_bytes/ffi_bytes.wasm"))
+        .assert()
+        .success()
+        .stdout_eq("A\n")
+        .stderr_eq("");
+}
+
+#[test]
+fn engine_backends_share_the_sqlite_wasm_adapter() {
+    let wasm = wat::parse_str(
+        r#"(module
+            (import "moonbitlang/sqlite" "sqlite3_null_handle"
+                (func $null_handle (result i64)))
+            (import "moonbitlang/sqlite" "sqlite3_open_v2"
+                (func $open (param i32 i32 i32 i32 i64) (result i32)))
+            (import "moonbitlang/sqlite" "sqlite3_close"
+                (func $close (param i64) (result i32)))
+            (memory (export "memory") 1)
+            (data (i32.const 16) ":memory:")
+            (func (export "_start") (local $null i64)
+                call $null_handle
+                local.set $null
+                i32.const 16
+                i32.const 8
+                i32.const 8
+                i32.const 6
+                local.get $null
+                call $open
+                if unreachable end
+                i32.const 8
+                i64.load
+                call $close
+                if unreachable end))"#,
+    )
+    .unwrap();
+    let engine = moonrun::Engine::default();
+    let module = engine.compile("sqlite-adapter.wasm", wasm).unwrap();
+
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
+fn engine_backends_share_the_js_byte_adapter() {
+    let wasm = wat::parse_str(
+        r#"(module
+            (import "ffi-bytes" "memory" (memory 1))
+            (import "ffi-bytes" "new"
+                (func $new (param i32) (result (ref extern))))
+            (import "ffi-bytes" "set"
+                (func $set (param externref i32 i32)))
+            (import "ffi-bytes" "get"
+                (func $get (param externref i32) (result i32)))
+            (import "ffi-bytes" "length"
+                (func $length (param externref) (result i32)))
+            (import "ffi-bytes" "asString"
+                (func $as_string (param externref i32 i32) (result (ref extern))))
+            (func (export "_start") (local $bytes externref)
+                i32.const 4
+                call $new
+                local.set $bytes
+                local.get $bytes i32.const 0 i32.const 300 call $set
+                local.get $bytes i32.const 0 call $get
+                i32.const 44
+                i32.ne
+                if unreachable end
+                local.get $bytes i32.const 0 i32.const 65 call $set
+                local.get $bytes i32.const 1 i32.const 0 call $set
+                local.get $bytes i32.const 2 i32.const 66 call $set
+                local.get $bytes i32.const 3 i32.const 0 call $set
+                local.get $bytes
+                call $length
+                i32.const 4
+                i32.ne
+                if unreachable end
+                local.get $bytes
+                i32.const 0
+                i32.const 4
+                call $as_string
+                drop))"#,
+    )
+    .unwrap();
+    let wasm_file = tempfile::Builder::new()
+        .prefix("ffi-bytes.")
+        .suffix(".wasm")
+        .tempfile()
+        .unwrap();
+    std::fs::write(wasm_file.path(), wasm).unwrap();
+    let output = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(wasm_file.path())
+        .assert()
+        .success();
+
+    output.stdout_eq("");
+}
+
+#[test]
+fn engine_backends_share_the_memory_sanitizer_adapter() {
+    let wasm = wat::parse_str(
+        r#"(module
+            (import "moonbit:ffi/memory-sanitizer" "register-object-alloc"
+                (func $alloc (param i32 i32)))
+            (import "moonbit:ffi/memory-sanitizer" "register-object-free"
+                (func $free (param i32)))
+            (import "moonbit:ffi/memory-sanitizer" "object-is-valid"
+                (func $valid (param i32) (result i32)))
+            (func (export "_start")
+                i32.const 16
+                i32.const 32
+                call $alloc
+                i32.const 32
+                call $valid
+                i32.eqz
+                if unreachable end
+                i32.const 32
+                call $free
+                i32.const 32
+                call $valid
+                if unreachable end))"#,
+    )
+    .unwrap();
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile("memory-sanitizer-adapter.wasm", wasm)
+        .unwrap();
+
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
+fn engine_backends_share_the_async_host_adapter() {
+    let wasm = wat::parse_str(
+        r#"(module
+            (import "moonbitlang/async" "time/get_ms_since_epoch"
+                (func $now (result i64)))
+            (import "moonbitlang/async" "random/fill"
+                (func $random_fill (param i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "_start")
+                call $now
+                i64.eqz
+                if unreachable end
+                i32.const 16
+                i32.const 32
+                call $random_fill
+                if unreachable end))"#,
+    )
+    .unwrap();
+    let engine = moonrun::Engine::default();
+    let module = engine.compile("async-adapter.wasm", wasm).unwrap();
+
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn moonrun_library_runs_multiple_modules_with_caller_owned_scheduling() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_concurrent_http_instances.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_concurrent_http_instances.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let first_readiness = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let second_readiness = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let first_readiness_port = first_readiness.local_addr().unwrap().port();
+    let second_readiness_port = second_readiness.local_addr().unwrap().port();
+
+    let wasm_path = dir
+        .path()
+        .join("_build/wasm/debug/build/moon/concurrent_http_instances/main/main.wasm");
+    let wasm = std::fs::read(&wasm_path).unwrap();
+    std::fs::remove_file(&wasm_path).unwrap();
+    let engine = moonrun::Engine::default();
+    let first_module = engine.compile("first-http-module", &wasm).unwrap();
+    let second_module = engine.compile("second-http-module", &wasm).unwrap();
+    let first_engine = engine.clone();
+    let first_run = tokio::task::spawn_blocking(move || {
+        first_engine.run(
+            &first_module,
+            moonrun::RunOptions::default()
+                .with_args([first_readiness_port.to_string(), "first".to_owned()]),
+        )
+    });
+    let second_run = tokio::task::spawn_blocking(move || {
+        engine.run(
+            &second_module,
+            moonrun::RunOptions::default()
+                .with_args([second_readiness_port.to_string(), "second".to_owned()]),
+        )
+    });
+
+    let (first_port, second_port) = tokio::join!(
+        wait_for_guest_port(&first_readiness, "first module"),
+        wait_for_guest_port(&second_readiness, "second module")
+    );
+    let (first_response, second_response) = tokio::join!(request(first_port), request(second_port));
+    assert!(first_response.starts_with("HTTP/1.1 200"));
+    assert!(first_response.contains("first"));
+    assert!(second_response.starts_with("HTTP/1.1 200"));
+    assert!(second_response.contains("second"));
+
+    assert_eq!(
+        first_run.await.unwrap().unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+    assert_eq!(
+        second_run.await.unwrap().unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+async fn wait_for_guest_port(listener: &TcpListener, module: &str) -> u16 {
+    tokio::time::timeout(Duration::from_secs(10), async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut port = String::new();
+        stream.read_to_string(&mut port).await.unwrap();
+        port.parse().unwrap()
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{module} did not report readiness"))
+}
+
+async fn request(port: u16) -> String {
+    tokio::time::timeout(Duration::from_secs(5), async move {
+        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    })
+    .await
+    .unwrap_or_else(|_| panic!("HTTP instance on port {port} did not respond"))
+}
+
+#[test]
+fn test_moonrun_async_host_exit_returns_guest_exit_code() {
+    let dir = TestDir::new("test_async_exit.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm/debug/build/main/main.wasm"))
+        .assert()
+        .code(9)
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moonrun_async_host_signal_termination_is_scoped_to_wasm_run() {
+    let dir = TestDir::new("test_async_signal_termination.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let output = std::process::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm/debug/build/main/main.wasm"))
+        .output()
+        .expect("run wasm signal termination fixture");
+
+    assert_eq!(output.stdout, b"");
+    assert_eq!(output.stderr, b"");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(output.status.signal(), Some(libc::SIGINT));
+    }
+    #[cfg(windows)]
+    assert_eq!(output.status.code(), Some(0xC000_013A_u32 as i32));
+}
+
+#[test]
+fn test_moonrun_async_main_preserves_signal_termination() {
+    use std::io::{BufRead, Read};
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    use std::sync::mpsc::{RecvTimeoutError, sync_channel};
+    use std::time::{Duration, Instant};
+
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_async_signal_main.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_async_signal_main.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir
+        .path()
+        .join("_build/wasm/debug/build/moon/async_signal_main/main/main.wasm");
+    let mut command = std::process::Command::new(snapbox::cmd::cargo_bin!("moonrun"));
+    command
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg(wasm_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
+    let mut child = command.spawn().expect("start async wasm main");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (ready_tx, ready_rx) = sync_channel(1);
+    let stdout_thread = std::thread::spawn({
+        let stdout = child.stdout.take().expect("capture stdout");
+        move || {
+            let mut stdout = std::io::BufReader::new(stdout);
+            let mut ready = String::new();
+            let result = stdout.read_line(&mut ready);
+            let _ = ready_tx.send((result, ready));
+            stdout
+        }
+    });
+    let ready = match ready_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok((Ok(_), ready)) => ready,
+        Ok((Err(error), _)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_thread.join();
+            panic!("failed to read async wasm main readiness: {error}");
+        }
+        Err(RecvTimeoutError::Timeout) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_thread.join();
+            panic!("async wasm main did not become ready before timeout");
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_thread.join();
+            panic!("async wasm main readiness reader stopped unexpectedly");
+        }
+    };
+    let mut stdout = stdout_thread.join().expect("join readiness reader");
+    if ready != "ready\n" {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("unexpected async wasm main readiness output: {ready:?}");
+    }
+
+    #[cfg(unix)]
+    assert_eq!(
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGINT) },
+        0
+    );
+    #[cfg(windows)]
+    assert_ne!(
+        unsafe {
+            windows_sys::Win32::System::Console::GenerateConsoleCtrlEvent(
+                windows_sys::Win32::System::Console::CTRL_BREAK_EVENT,
+                child.id(),
+            )
+        },
+        0
+    );
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait for async wasm main") {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("async wasm main did not terminate after cancellation signal");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    let mut remaining_stdout = String::new();
+    stdout
+        .read_to_string(&mut remaining_stdout)
+        .expect("read remaining stdout");
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .expect("capture stderr")
+        .read_to_string(&mut stderr)
+        .expect("read stderr");
+    assert_eq!(remaining_stdout, "cleanup\n");
+    assert_eq!(stderr, "");
+    #[cfg(unix)]
+    assert_eq!(status.signal(), Some(libc::SIGINT));
+    #[cfg(windows)]
+    assert_eq!(status.code(), Some(0xC000_013A_u32 as i32));
+}
+
+#[test]
 fn test_moon_run_with_read_bytes_from_stdin() {
     let dir = TestDir::new("test_read_bytes.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
 
@@ -295,7 +1198,11 @@ fn test_moon_run_with_read_bytes_from_stdin() {
 fn test_moon_run_with_is_windows() {
     let dir = TestDir::new("test_os_platform_detection");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
 
@@ -308,6 +1215,726 @@ fn test_moon_run_with_is_windows() {
         } else {
             "0\n"
         });
+}
+
+#[test]
+fn test_moon_run_with_async_host_imports() {
+    let dir = TestDir::new("test_async_host.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n");
+}
+
+#[test]
+fn sqlite_jobs_use_public_completion_pipes_from_moonbit() {
+    let dir = TestDir::new("test_sqlite_async.in");
+    let upstream = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../third_party/moonbitlang_async");
+    // Exercise SQLite against the pinned async implementation using only its
+    // public APIs, without patching its scheduler or package visibility.
+    moon_test_util::test_dir::copy_tree(&upstream.join("src"), &dir.join("async/src"), false)
+        .unwrap();
+    std::fs::copy(upstream.join("moon.mod"), dir.join("async/moon.mod")).unwrap();
+    moon_test_util::test_dir::copy_tree(&dir.join("test"), &dir.join("async/src/test"), false)
+        .unwrap();
+    moon_cmd()
+        .current_dir(dir.join("async"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .args(["test", "--target", "wasm", "src/test"])
+        .timeout(std::time::Duration::from_secs(60))
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 7, passed: 7, failed: 0.\n");
+}
+
+#[test]
+fn test_moon_run_with_sqlite_ffi_imports() {
+    let dir = TestDir::new("test_sqlite_ffi.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+    std::fs::create_dir(dir.join("allowed")).unwrap();
+    std::fs::create_dir(dir.join("denied")).unwrap();
+    let policy_file = dir.join("policy.toml");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n")
+        .stderr_eq(snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/database.sqlite"
+
+"#]]);
+
+    assert!(dir.join("allowed/database.sqlite").exists());
+    assert!(!dir.join("denied/database.sqlite").exists());
+
+    let leaked_wasm = dir.join("_build/wasm/debug/build/leak/leak.wasm");
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("RUST_BACKTRACE", "0")
+        .arg(&leaked_wasm)
+        .assert()
+        .failure()
+        .stdout_eq("leaked\n");
+    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
+    assert!(
+        stderr.contains("moonrun Runtime leaked host state: sqlite(databases=1)"),
+        "expected SQLite leak assertion in stderr, got:\n{stderr}"
+    );
+
+    let invalid_handle_wasm =
+        dir.join("_build/wasm/debug/build/invalid_handle/invalid_handle.wasm");
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&invalid_handle_wasm)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbitlang/sqlite.sqlite3_close failed: InvalidHandle
+...
+"#]]);
+
+    let entered_mutex_wasm = dir.join("_build/wasm/debug/build/entered_mutex/entered_mutex.wasm");
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&entered_mutex_wasm)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbitlang/sqlite.sqlite3_close failed: Fault
+...
+"#]]);
+}
+
+#[test]
+fn test_sqlite_binding_order() {
+    let dir = TestDir::new("test_sqlite_ffi.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .args(["test", "main", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 3, passed: 3, failed: 0.\n");
+}
+
+#[test]
+fn test_moon_run_with_async_stdio_imports() {
+    let dir = TestDir::new("test_async_stdio.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg(&wasm_file)
+        .stdin("stdio input\n")
+        .assert()
+        .success()
+        .stdout_eq("stdout-ok\n")
+        .stderr_eq("stderr-ok\n");
+}
+
+#[test]
+fn test_moon_run_with_memory_sanitizer_imports() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n");
+}
+
+#[test]
+fn test_moon_run_memory_sanitizer_reports_demangled_alloc_stack() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/duplicate_alloc/duplicate_alloc.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbit:ffi/memory-sanitizer.register-object-alloc failed: object 2048 is already live with size 16
+previous allocation stack:
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/duplicate_alloc.allocate_once
+    at __moonbit_main
+...
+"#]]);
+}
+
+#[test]
+fn test_moon_run_memory_sanitizer_reports_double_free() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/double_free/double_free.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbit:ffi/memory-sanitizer.register-object-free failed: invalid object 4096
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_free ([..]0x[..])
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_free ([..]0x[..])
+    at @moonbit/ffi-memory-sanitizer-test/double_free.free_twice ([..]0x[..])
+    at __moonbit_main ([..]0x[..])
+...
+"#]]);
+}
+
+#[test]
+fn test_moon_run_memory_sanitizer_reports_leaks() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/leak/leak.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: moonrun memory sanitizer detected 1 leaked object (16 bytes)
+leaked object 8192 (16 bytes)
+allocation stack:
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/leak.leak_object
+    at __moonbit_main
+...
+"#]]);
+}
+
+#[test]
+fn moonrun_ambient_path_lookup_observes_guest_environment_mutation() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_ambient_process_path.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_ambient_process_path.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    let ambient_path_bin = dir.path().join("ambient-path-bin");
+    std::fs::create_dir(&ambient_path_bin).expect("create ambient PATH directory");
+    std::fs::copy(
+        snapbox::cmd::cargo_bin!("moonrun"),
+        ambient_path_bin.join(if cfg!(windows) {
+            "moonrun-path-command.exe"
+        } else {
+            "moonrun-path-command"
+        }),
+    )
+    .expect("copy PATH lookup command");
+
+    // The command exists only on the PATH written by the guest test.
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("MOONRUN_TEST_PATH", ambient_path_bin)
+        .args(["test", "main", "--target", "wasm"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+}
+
+#[test]
+fn test_moon_run_policy_with_workspace_async_fs() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_policy_workspace.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_policy_workspace.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+    let wasm_file = |package: &str| {
+        std::fs::canonicalize(dir.path().join(format!(
+            "_build/wasm/debug/build/moon/policy_workspace/{package}/{package}.wasm"
+        )))
+        .unwrap()
+    };
+    let fs_allow_wasm = wasm_file("fs_allow");
+    let fs_deny_read_wasm = wasm_file("fs_deny_read");
+    let env_get_wasm = wasm_file("env_get");
+    // Moonx runs cached artifacts as ordinary programs. This probe cannot be a
+    // test executable because a MoonBit test driver does nothing without
+    // moonrun's --test-args selection.
+    let env_marker_wasm = wasm_file("env_marker");
+    let detach_moonx_wasm = wasm_file("detach_moonx");
+    let env_mutate_wasm = wasm_file("env_mutate");
+    let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
+    let process_env_wasm = wasm_file("process_env");
+    let policy_file = std::fs::canonicalize(dir.path().join("policy.toml")).unwrap();
+    let deny_all_policy_file = std::fs::canonicalize(dir.path().join("deny-all.toml")).unwrap();
+    let process_any_args_policy_file =
+        std::fs::canonicalize(dir.path().join("process-any-args.toml")).unwrap();
+    let process_prefix_deny_policy_file =
+        std::fs::canonicalize(dir.path().join("process-prefix-deny.toml")).unwrap();
+
+    #[cfg(not(windows))]
+    let fs_deny_read_stderr = snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/secret.txt"
+OSError("[..]@fs.open()[..]denied/secret.txt[..]Permission denied")
+
+"#]];
+    #[cfg(windows)]
+    let fs_deny_read_stderr = snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/secret.txt"
+OSError("[..]@fs.open()[..]denied/secret.txt[..]Access is denied.")
+
+"#]];
+    #[cfg(not(windows))]
+    let env_mutate_stdout = "runtime override\nmissing\n/first/\n/second/\n/tmp/\n";
+    #[cfg(windows)]
+    let env_mutate_stdout = "runtime override\nmissing\nC:/First\\\nC:/Second\\\nmissing\n";
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&fs_allow_wasm)
+        .assert()
+        .success()
+        .stdout_eq("workspace input\n|workspace sandbox policy\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&env_get_wasm)
+        .assert()
+        .success()
+        .stdout_eq("configured by policy\n");
+
+    // Policy construction keeps its canonical inheritance payload in memory.
+    // A Run that never spawns moonx therefore works even when the platform temp
+    // directory is itself the Runtime Working Directory.
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(std::env::temp_dir())
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&env_get_wasm)
+        .assert()
+        .success()
+        .stdout_eq("configured by policy\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&env_mutate_wasm)
+        .assert()
+        .success()
+        .stdout_eq(snapbox::Data::text(env_mutate_stdout).raw());
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOONRUN_HIDDEN_ENV", "host secret")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq(if cfg!(windows) {
+            "MOONRUN_POLICY_ENV=configured by policy\n"
+        } else {
+            "configured by policy|\n"
+        });
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOONRUN_HIDDEN_ENV", "host secret")
+        .arg("--policy")
+        .arg(&process_any_args_policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq(if cfg!(windows) {
+            "MOONRUN_POLICY_ENV=configured by policy\n"
+        } else {
+            "configured by policy|\n"
+        });
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOONRUN_POLICY_ENV", "host value")
+        .arg("--policy")
+        .arg(&deny_all_policy_file)
+        .arg(&env_get_wasm)
+        .assert()
+        .success()
+        .stdout_eq("missing\n");
+
+    let moon_home = tempfile::TempDir::new().expect("create inherited-policy MOON_HOME");
+    let cached_wasm = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cached_wasm.parent().unwrap()).unwrap();
+    std::fs::copy(&env_marker_wasm, &cached_wasm).unwrap();
+
+    let bin_dir = tempfile::TempDir::new().expect("create inherited-policy bin directory");
+    let moonx = bin_dir
+        .path()
+        .join(if cfg!(windows) { "moonx.exe" } else { "moonx" });
+    std::fs::hard_link(moon_bin(), &moonx).unwrap_or_else(|_| {
+        std::fs::copy(moon_bin(), &moonx).expect("copy moon binary as moonx");
+    });
+    let path = std::env::join_paths(std::iter::once(bin_dir.path().to_path_buf()).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .expect("put moonx on PATH");
+    let inherited_policy = dir.path().join("inherited-policy.toml");
+    std::fs::write(
+        &inherited_policy,
+        r#"
+[env]
+from_host = ["*"]
+
+[env.set]
+MOONRUN_INHERITED_POLICY = "guest"
+MOONRUN_POLICY_ENV = "inherited"
+
+[fs]
+write = ["*"]
+
+[process]
+spawn = true
+"#,
+    )
+    .unwrap();
+
+    // The blackbox test removes this directory through the guest filesystem,
+    // then verifies that the following direct moonx spawn reports the policy-
+    // transfer failure instead of creating a child.
+    let policy_transfer_temp = tempfile::TempDir::new().expect("create policy transfer temp");
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("PATH", &path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .env("TMPDIR", policy_transfer_temp.path())
+        .env("TMP", policy_transfer_temp.path())
+        .env("TEMP", policy_transfer_temp.path())
+        .args([
+            "test",
+            "--package",
+            "moon/policy_workspace/spawn_moonx_error",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+        ])
+        .arg(&inherited_policy)
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .env("PATH", &path)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+        .args([
+            "test",
+            "--package",
+            "moon/policy_workspace/spawn_moonx",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+        ])
+        .arg(&inherited_policy)
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
+
+    #[cfg(any(unix, windows))]
+    {
+        // Each moonx-named wrapper announces itself over TCP and waits for the
+        // test to release it. The test does not send that release until the
+        // parent moonrun has exited, so the detached lifetime boundary is an
+        // event in the protocol rather than a filesystem timing assumption.
+        let wrapper_dir =
+            tempfile::TempDir::new().expect("create detached moonx wrapper directory");
+        let wrapper = wrapper_dir
+            .path()
+            .join(format!("moonx{}", std::env::consts::EXE_SUFFIX));
+        let wrapper_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/detached_moonx_wrapper.rs");
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let status = std::process::Command::new(rustc)
+            .arg("--edition=2021")
+            .arg(wrapper_source)
+            .arg("-o")
+            .arg(&wrapper)
+            .status()
+            .expect("compile detached moonx wrapper");
+        assert!(status.success(), "failed to compile detached moonx wrapper");
+
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .expect("bind detached moonx synchronization listener");
+        listener
+            .set_nonblocking(true)
+            .expect("make detached moonx listener nonblocking");
+        let server = listener
+            .local_addr()
+            .expect("read detached moonx listener address")
+            .to_string();
+        let detached_path = std::env::join_paths(
+            std::iter::once(wrapper_dir.path().to_path_buf()).chain(std::env::split_paths(&path)),
+        )
+        .expect("put detached moonx wrapper on PATH");
+        let log = dir.path().join("detached-moonx");
+
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .current_dir(dir.path())
+            .env("PATH", detached_path)
+            .env("MOON_HOME", moon_home.path())
+            .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+            .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+            .env("MOON_TEST_REAL_MOONX", &moonx)
+            .env("MOON_TEST_DETACH_SERVER", server)
+            .env("MOON_TEST_DETACH_LOG", &log)
+            .arg("--policy")
+            .arg(&inherited_policy)
+            .arg(&detach_moonx_wasm)
+            .assert()
+            .success()
+            .stdout_eq("")
+            .stderr_eq("");
+
+        let logs = || {
+            (0..2)
+                .map(|index| {
+                    let path = log.with_file_name(format!("detached-moonx-{index}.log"));
+                    let contents = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|error| format!("<failed to read: {error}>"));
+                    format!("{}:\n{contents}", path.display())
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        // Time only bounds a broken test. Every successful transition below
+        // is driven by a byte received from the process on the other side.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut children = Vec::with_capacity(2);
+        while children.len() < 2 {
+            match listener.accept() {
+                Ok((stream, _)) => children.push(stream),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        panic!("detached moonx did not connect before timeout\n{}", logs());
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("failed to accept detached moonx: {error}\n{}", logs()),
+            }
+        }
+
+        for child in &mut children {
+            child
+                .set_nonblocking(false)
+                .expect("make detached moonx connection blocking");
+            child
+                .set_read_timeout(Some(Duration::from_secs(60)))
+                .expect("set detached moonx read timeout");
+            child
+                .set_write_timeout(Some(Duration::from_secs(60)))
+                .expect("set detached moonx write timeout");
+            let mut ready = [0];
+            std::io::Read::read_exact(child, &mut ready).unwrap_or_else(|error| {
+                panic!("detached moonx did not become ready: {error}\n{}", logs())
+            });
+            assert_eq!(ready, [b'R'], "unexpected detached moonx handshake");
+        }
+
+        for child in &mut children {
+            std::io::Write::write_all(child, b"G").unwrap_or_else(|error| {
+                panic!("failed to release detached moonx: {error}\n{}", logs())
+            });
+        }
+        for child in &mut children {
+            let mut result = [0];
+            std::io::Read::read_exact(child, &mut result).unwrap_or_else(|error| {
+                panic!(
+                    "detached moonx did not report completion: {error}\n{}",
+                    logs()
+                )
+            });
+            assert_eq!(
+                result,
+                [b'S'],
+                "detached moonx failed after its parent exited\n{}",
+                logs()
+            );
+        }
+    }
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&process_prefix_deny_policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq("spawn denied\n")
+        .stderr_eq("Sandbox policy blocked process spawn\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&deny_all_policy_file)
+        .arg(&listen_implicit_bind_wasm)
+        .assert()
+        .success()
+        .stdout_eq("listen denied\n")
+        .stderr_eq(snapbox::str![[r#"
+Sandbox policy blocked network bind: "0.0.0.0:0"
+
+"#]]);
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&deny_all_policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq("spawn denied\n")
+        .stderr_eq("Sandbox policy blocked process spawn\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&fs_deny_read_wasm)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(fs_deny_read_stderr);
+}
+
+#[test]
+fn test_moon_run_async_host_leak_check_env() {
+    let dir = TestDir::new("test_async_host_leak_check.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env_remove(MOONBIT_ASYNC_CHECK_FD_LEAK)
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("leaked\n")
+        .stderr_eq("");
+
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("RUST_BACKTRACE", "0")
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("leaked\n");
+    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
+    assert!(
+        stderr.contains("moonrun Runtime leaked host state: async(polls=1"),
+        "expected async host leak assertion in stderr, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_moon_run_with_async_host_invalid_c_buffer_traps() {
+    let dir = TestDir::new("test_async_host_invalid_c_buffer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbitlang/async.c_buffer/c_buffer_get failed: Badf
+...
+"#]]);
 }
 
 #[test]

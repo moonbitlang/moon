@@ -23,8 +23,9 @@ Workspace support is meant to provide one consistent model for:
 3. deciding whether the command needs one selected member module or the whole
    selected project
 
-The design intentionally avoids a separate enum like "project mode". The source
-of truth is the selected manifest path itself.
+The selected project is represented explicitly. A module selection carries its
+module manifest path; a workspace selection carries one completed workspace
+layout.
 
 ## Manifest Model
 
@@ -33,34 +34,46 @@ Moon accepts one workspace manifest format:
 - `moon.work`
   - the current DSL form
 
+A module manifest may use either supported form:
+
+- `moon.mod`
+  - the current DSL form
+- `moon.mod.json`
+  - the legacy JSON form
+
 A workspace manifest defines:
 
 - `members`
   - the module directories contained by the workspace
-- `preferred_target`
-  - an optional default backend for the workspace
 
 Workspace members are canonicalized relative to the workspace root and deduped.
+Project discovery reads the selected `moon.work` and resolves its members once;
+dependency sync, package discovery, and workspace maintenance receive that
+completed layout instead of reopening the manifest. `preferred_target` in
+`moon.work` is deprecated: commands warn once when they select that layout, but
+they do not use it for backend selection. `moon fmt` removes it. Use
+module-level `preferred_target` instead.
 
-The workspace root may or may not also contain a `moon.mod.json`.
+The workspace root may or may not also contain a module manifest.
 
 ## Selection Result
 
-`SourceTargetDirs` resolves command input into:
+`ProjectQuery` resolves command input into a `SelectedProject` containing:
 
-- `project_manifest_path`
-  - one of `moon.mod.json` or `moon.work`
-- `project_root`
-  - the parent directory of `project_manifest_path`
-- `module_dir`
-  - `Some(member_dir)` when a command selected a module inside a workspace
-  - `None` when a command selected a workspace root directly
+- a `ProjectContext`, with:
+  - `project_manifest_path`: one of `moon.mod`, `moon.mod.json`, or `moon.work`
+  - `project_root`: the parent directory of `project_manifest_path`
+  - `module_dir`: `Some(member_dir)` when the selected workspace explicitly
+    lists the module containing the command's start point, including a
+    colocated root module; otherwise `None`
+- a completed workspace layout when `project_manifest_path` is `moon.work`,
+  containing the parsed manifest and canonical member directories
 
-The intended interpretation is simple:
+When commands create `PackageDirs`, this becomes a `ProjectManifest` value:
 
-- `project_manifest_path = moon.mod.json`
+- `ProjectManifest::Module(path)`
   - single-module behavior
-- `project_manifest_path = moon.work`
+- `ProjectManifest::Workspace(layout)`
   - workspace behavior
 
 `module_dir` is orthogonal:
@@ -88,6 +101,7 @@ Representative examples:
 - `moon test`
 - `moon fmt`
 - `moon info`
+- `moon update` with `MOON_REGISTRY_API=1` (registry metadata only)
 
 When the selected manifest is a workspace manifest, these commands operate on
 the whole workspace. They can be run from:
@@ -112,8 +126,8 @@ All of them operate on the selected project rather than a single member, but
 - they accept package/path selectors across the selected project,
 - they may split one invocation into multiple backend-specific runs when
   `--target` is omitted,
-- and they use `module preferred_target -> workspace preferred_target ->
-  default backend` to decide those runs.
+- and they use `module preferred_target -> default backend` to decide those
+  runs.
 
 That makes them more than just "project-scoped"; they are the current
 workspace-wide target-planning commands.
@@ -139,18 +153,37 @@ These commands are still workspace-aware:
 - they keep workspace-local build layout
 - they use the selected member as the operation target
 
+Machine-readable `moon tree --json` output derives each `workspace_member`
+value from the selected workspace layout, including workspaces with one member.
+The human tree preserves its historical display convention and adds
+`[workspace member]` only when the resolution has multiple workspace roots;
+that text marker is not the authoritative membership signal.
+
 But they are not workspace-wide commands.
 
 At a workspace root, they fail unless Moon can determine a member module from
 context. In practice, that means:
 
-- running them directly at the workspace root is not supported
+- running them directly at the workspace root is supported when that root also
+  contains a module manifest and `moon.work` explicitly lists `.` as a member
+- running them at any other workspace root is not supported
 - running them from a member directory is supported
 - passing `-C <member>` is supported
 
 This is why `publish`, `package`, `doc`, and `prove` only work for one selected
 module at a time today. There is no "publish the whole workspace" or "generate
 docs for the whole workspace" mode in the current design.
+
+In workspaces with multiple members, proof outputs use
+`_build/verif/<module>/<package>/`. For example, the root packages of `a/b` and
+`a/b/v2` write their reports to `_build/verif/a/b/b.proof.json` and
+`_build/verif/a/b/v2/b.proof.json`. Generated WhyML files, proof interfaces, and
+dependency search paths use the same package directory.
+
+`moon doc` also selects its Target Backend from that member module's
+`preferred_target`, falling back to the default backend when it is absent.
+Preferences from unrelated workspace members do not affect documentation
+planning.
 
 ### Workspace Maintenance Commands
 
@@ -179,7 +212,8 @@ Their model is different from normal project commands:
 The current design supports:
 
 - workspace roots that contain only `moon.work`
-- workspace roots that also contain `moon.mod.json`
+- workspace roots that also contain a module manifest
+- selecting a colocated root module when `moon.work` explicitly lists `.`
 - selecting a member module from inside the member directory
 - selecting a member module with `-C <member>`
 - whole-workspace `build` / `check` / `test` / `fmt` / `info`
@@ -189,27 +223,25 @@ The current design supports:
 
 The current design does not support:
 
-- an implicit default member at workspace root for member-scoped commands
+- an implicit default member at workspace root for member-scoped commands;
+  selecting a colocated root module requires an explicit `.` member
 - workspace-wide `publish`
 - workspace-wide `package`
 - workspace-wide `doc`
 - workspace-wide `prove`
 - workspace-wide `add` / `remove` / `tree`
 
-Those commands need a selected member and will fail at workspace root with the
-"cannot infer a target module in workspace" error.
+Those commands need a selected member. At a workspace root without a colocated
+module explicitly listed as `.`, they fail with the "cannot infer a target
+module in workspace" error.
 
 ## Selection Inputs
 
 Project selection depends on:
 
 - the working directory after `-C`
-- `--manifest-path`
 - `MOON_WORK`
 - `MOON_NO_WORKSPACE` (deprecated fallback)
-
-`--manifest-path` pins manifest resolution, but does not change the process
-working directory.
 
 ## `MOON_WORK`
 
@@ -233,8 +265,8 @@ With `MOON_WORK=off`:
 With `MOON_WORK=<path-to-moon.work>`:
 
 - project-scoped commands use that workspace even outside the workspace tree
-- if the current or explicitly selected `moon.mod.json` is not a workspace
-  member, Moon fails instead of silently falling back
+- if the module selected from the current directory is not a workspace member,
+  Moon fails instead of silently falling back
 
 ## `MOON_NO_WORKSPACE`
 
@@ -257,63 +289,19 @@ The algorithm is:
 
 1. Canonicalize the current directory.
 2. If `MOON_WORK=off` is enabled:
-   - find the nearest ancestor containing `moon.mod.json`
+   - find the nearest ancestor containing `moon.mod` or `moon.mod.json`
    - if found, select that module manifest
    - otherwise, fail because workspace mode is disabled and no module exists
 3. If `MOON_WORK` points to a `moon.work` file:
    - select that workspace manifest
-   - if the nearest ancestor `moon.mod.json` exists and is not a workspace
-     member, fail
+   - if the nearest ancestor module exists and is not a workspace member, fail
 4. Otherwise, walk ancestors from nearest to farthest and look for applicable
    workspace manifests.
 5. If an applicable workspace manifest is found, select that workspace
    manifest.
 6. If no applicable workspace is found, fall back to the nearest ancestor
-   `moon.mod.json`.
+   module manifest.
 7. If neither exists, fail with "not in a Moon project".
-
-`--manifest-path` still exists as a deprecated compatibility flag for
-non-`run` commands, but the public recommendation is to use `-C` instead.
-
-## Selection With `--manifest-path`
-
-`--manifest-path` accepts exactly:
-
-- `moon.mod.json`
-- `moon.work`
-
-The selected manifest path is canonicalized first.
-
-### `--manifest-path <...>/moon.mod.json`
-
-This means "start from this module".
-
-- if `MOON_WORK=off` is enabled, the command stays in single-module mode
-- otherwise, Moon may still promote to an enclosing applicable workspace
-
-This is important: `--manifest-path moon.mod.json` does not mean "force
-single-module mode". It means "select this module as the starting point".
-
-If an enclosing workspace applies, the command keeps:
-
-- `project_manifest_path = workspace manifest`
-- `project_root = workspace root`
-- `module_dir = selected module`
-
-That is how member-scoped commands can act on one member while still using the
-workspace's local dependency graph.
-
-### `--manifest-path <...>/moon.work`
-
-This means "start from this workspace root", but only when workspace mode is
-enabled.
-
-If `MOON_WORK=off` is enabled:
-
-- Moon ignores the workspace manifest
-- Moon falls back to the nearest ancestor `moon.mod.json`, if any
-- otherwise the command fails because workspace mode is disabled and no module
-  is available
 
 ## How Moon Decides Whether A Workspace Applies
 
@@ -328,32 +316,46 @@ This preserves the intended precedence:
 - a nearer applicable workspace should win
 - a farther workspace may still apply later if it explicitly lists the selected
   module as a member
-- an unrelated outer `moon.mod.json` must not make Moon skip a nearer workspace
+- an unrelated outer module manifest must not make Moon skip a nearer workspace
   that should still apply
+
+This differs from Go workspace discovery. Go selects the nearest ancestor
+`go.work` whenever workspace mode is enabled, even when the module containing
+the working directory is not listed. Moon instead lets a module boundary reject
+unrelated ancestor workspaces.
+
+After selecting a workspace, Moon exposes a selected module to member-scoped
+commands only when that workspace explicitly lists the module.
 
 This matters for layouts like:
 
 ```text
 outer/
-  moon.mod.json
+  moon.mod
   ws/
     moon.work
     app/
-      moon.mod.json
+      moon.mod
 ```
 
 From `outer/ws`, the nearer workspace should win while workspace mode is
 enabled.
 
 With `MOON_WORK=off`, the workspace is ignored and selection falls back to
-the nearest ancestor module, which is `outer/moon.mod.json`.
+the nearest ancestor module, which is `outer/moon.mod`.
 
-## Colocated `moon.work` And `moon.mod.json`
+## Colocated `moon.work` And A Module Manifest
 
 If a directory contains both:
 
-- with workspace mode enabled, Moon may select the workspace manifest
-- with `MOON_WORK=off`, Moon must select `moon.mod.json` instead
+- with workspace mode enabled, Moon selects the workspace manifest
+- if the workspace lists the colocated module, that module is also selected for
+  member-scoped commands
+- otherwise, Moon warns that the module is not a workspace member; workspace-wide
+  commands still use the workspace, while member-scoped commands cannot infer a
+  target module from that directory; the warning is a User Log and is suppressed
+  by `--quiet`
+- with `MOON_WORK=off`, Moon must select the colocated module manifest instead
 
 This was the bug shape that motivated the recent cleanup of workspace
 selection.
@@ -363,15 +365,13 @@ selection.
 | Start point / flags | Result |
 | --- | --- |
 | workspace root + `build` / `check` / `test` / `fmt` / `info` | operate on the whole workspace |
-| workspace root + `add` / `remove` / `tree` / `package` / `publish` / `doc` / `prove` | error: no target member can be inferred |
+| workspace root with a module manifest whose `moon.work` lists `.` + member-scoped command | target the colocated module and keep workspace context |
+| any other workspace root + member-scoped command | error: no target member can be inferred |
 | member directory + member-scoped command | target that member and keep workspace context |
 | `-C app` | start from `app`, then allow workspace promotion |
 | `-C app` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
 | `moon run path/to/app` from outside the project | discover the project from `path/to/app` |
-| `--manifest-path app/moon.mod.json` | start from `app`, then allow workspace promotion |
-| `--manifest-path app/moon.mod.json` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
-| `--manifest-path moon.work` | select the workspace manifest |
-| inside workspace member + `MOON_WORK=off` | ignore the workspace and use the nearest ancestor `moon.mod.json` |
+| inside workspace member + `MOON_WORK=off` | ignore the workspace and use the nearest ancestor module manifest |
 | workspace root with no module + `MOON_WORK=off` | error: workspace mode is disabled and no module is available |
 | anywhere + `MOON_WORK=/abs/path/to/moon.work` | pin selection to that workspace |
 | `moon work sync` outside a workspace | error: requires `moon.work` |

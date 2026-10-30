@@ -1,7 +1,0 @@
-{
-  "test-import": [
-    "native_1/lib",
-    "native_2/libb"
-  ],
-  "native-stub": ["stub.c"]
-}

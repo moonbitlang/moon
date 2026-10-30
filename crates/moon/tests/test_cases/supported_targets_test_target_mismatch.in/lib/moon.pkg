@@ -1,0 +1,9 @@
+supported_targets = "js+native"
+
+import {
+  "supported/test-target-mismatch/nativedep",
+} for "wbtest"
+
+import {
+  "supported/test-target-mismatch/nativedep",
+} for "test"

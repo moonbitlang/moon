@@ -1,0 +1,5 @@
+# Own Resources Behind Boundary Handles
+
+Moonrun will keep MoonBit ABI values as opaque Handles, resolve Resource Handles at the Async API boundary into Acquired Resources, and let Jobs carry those references rather than guest `u64` handles, raw OS fd/HANDLE values, or duplicated OS handles. This preserves Native Behavior for valid MoonBit async programs while protecting moonrun from Untrusted Guests: closing a Resource Handle removes future guest reachability immediately, and any already-submitted Job may finish through the Resource it already acquired.
+
+The original bug class was passing duplicated fd/HANDLE values to workers when the async contract was sharing one opened Resource. The guiding rule is strict native behavior on the normal path, with defensive checks only at the boundary: validate the guest's Resource Handle, validate the Resource Class required by the operation, acquire a host-owned reference, and then run the Job on that reference. Future capability policy belongs to the acquired Resource payload rather than to separate Handle namespaces.

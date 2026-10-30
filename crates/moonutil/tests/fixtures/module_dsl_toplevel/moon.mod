@@ -7,5 +7,6 @@ repository = "https://example.com/toplevel"
 license = "Apache-2.0"
 keywords = ["moonbit", "dsl"]
 description = "Module metadata"
+source = "src"
 preferred_target = "js"
 supported_targets = "js"

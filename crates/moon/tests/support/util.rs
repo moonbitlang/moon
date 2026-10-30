@@ -1,25 +1,34 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use expect_test::Expect;
-use moonutil::{common::StringExt, compiler_flags};
+use moonutil::{compiler_flags, target::TargetBackend, text::StringExt};
+#[cfg(unix)]
+use regex::Regex;
+use sha2::{Digest, Sha256};
+
+static MOONRUN_BIN: OnceLock<PathBuf> = OnceLock::new();
 
 pub(crate) fn check<S: AsRef<str>>(actual: S, expect: Expect) {
     expect.assert_eq(actual.as_ref())
@@ -29,37 +38,126 @@ pub(crate) fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
 }
 
+pub(crate) fn moonrun_bin() -> PathBuf {
+    MOONRUN_BIN
+        .get_or_init(|| {
+            // `moonrun` is a host tool. Keep Cargo's default target layout so
+            // it can reuse artifacts from the outer Cargo invocation.
+            escargot::CargoBuild::new()
+                .manifest_path(
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moonrun/Cargo.toml"),
+                )
+                .bin("moonrun")
+                .current_release()
+                .run()
+                .expect("failed to build moonrun")
+                .path()
+                .to_owned()
+        })
+        .clone()
+}
+
+#[cfg(unix)]
+pub(crate) fn normalize_host_archiver(s: &mut String) {
+    static ARCHIVE_WRAPPER: OnceLock<Regex> = OnceLock::new();
+    static HOST_ARCHIVER: OnceLock<snapbox::Redactions> = OnceLock::new();
+    static ARCHIVE_CREATE_ARGS: OnceLock<snapbox::Redactions> = OnceLock::new();
+
+    // Hosts whose `ar` updates archives in place run it through
+    // `moon tool archive`, while macOS runs `libtool` directly.
+    // Drop that wrapper so host-archiver snapshots match on both.
+    let archive_wrapper = ARCHIVE_WRAPPER.get_or_init(|| {
+        Regex::new(r"moon tool archive --output \S+ -- ((?:/usr/bin/)?ar )")
+            .expect("valid archive wrapper regex")
+    });
+    *s = archive_wrapper.replace_all(s, "$1").into_owned();
+
+    let host_archiver = HOST_ARCHIVER.get_or_init(|| {
+        let mut redactions = snapbox::Redactions::new();
+        redactions
+            .insert("[ARCHIVER]", "/usr/bin/libtool")
+            .expect("valid libtool redaction");
+        redactions
+            .insert("[ARCHIVER]", "/usr/bin/ar")
+            .expect("valid ar redaction");
+        #[cfg(target_os = "macos")]
+        if let Ok(output) = std::process::Command::new("xcrun")
+            .args(["--find", "libtool"])
+            .output()
+            && output.status.success()
+            && let Some(libtool) = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .map(str::trim)
+        {
+            redactions
+                .insert("[ARCHIVER]", libtool.to_owned())
+                .expect("valid xcrun libtool redaction");
+        }
+        redactions
+            .insert(
+                "[ARCHIVER]",
+                Regex::new(r"(?m)^(?<redacted>libtool|ar) ")
+                    .expect("valid bare archiver command regex"),
+            )
+            .expect("valid bare archiver redaction");
+        redactions
+    });
+    *s = host_archiver.redact(s);
+
+    // Redact create arguments only after a recognized host archiver. A build
+    // graph can also contain an explicit package archiver whose arguments must
+    // remain visible in the snapshot.
+    let archive_create_args = ARCHIVE_CREATE_ARGS.get_or_init(|| {
+        let mut redactions = snapbox::Redactions::new();
+        redactions
+            .insert(
+                "[CREATE_ARGS]",
+                Regex::new(
+                    r"\[ARCHIVER\] (?<redacted>-static -no_warning_for_no_symbols -o|-r -c -s)",
+                )
+                .expect("valid archive create arguments regex"),
+            )
+            .expect("valid archive create arguments redaction");
+        redactions
+    });
+    *s = archive_create_args.redact(s);
+}
+
 pub(crate) fn toolchain_root_for_tests() -> PathBuf {
     if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
         return PathBuf::from(path);
     }
 
-    let moonc =
-        dunce::canonicalize(&*moonutil::BINARIES.moonc).unwrap_or(moonutil::BINARIES.moonc.clone());
+    let moonc = dunce::canonicalize(&*moonutil::toolchain::BINARIES.moonc)
+        .unwrap_or(moonutil::toolchain::BINARIES.moonc.clone());
     if let Some(bin_dir) = moonc.parent()
         && bin_dir.file_name().is_some_and(|name| name == "bin")
         && let Some(root) = bin_dir.parent()
-        && moonutil::moon_dir::is_toolchain_root(root)
+        && moonutil::toolchain::is_toolchain_root(root)
     {
         return root.to_path_buf();
     }
 
-    moonutil::moon_dir::toolchain_root()
+    moonutil::toolchain::toolchain_root()
 }
 
 pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
-    let s = moonutil::BINARIES
-        .all_moon_bins()
-        .iter()
-        .fold(s.to_string(), |s, (name, path)| {
-            let path = match *name {
-                #[allow(deprecated)]
-                "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
-                _ => path.clone(),
-            };
-            s.replace(path.to_string_lossy().as_ref(), name)
-        });
+    let s = if let Some(path) = MOONRUN_BIN.get() {
+        let path = path.to_string_lossy();
+        let s = s.replace(path.as_ref(), "moonrun");
+        s.replace(path.replace('\\', "/").as_str(), "moonrun")
+    } else {
+        s
+    };
+    // Match the extended spelling before its ordinary suffix. Apply the same
+    // JSON-backslash normalization used above to the canonical root.
+    let canonical_root = std::fs::canonicalize(dir.as_ref()).unwrap();
+    let canonical_root = canonical_root.to_string_lossy();
+    let s = s.replace(canonical_root.as_ref(), "$ROOT");
+    let s = s.replace(&canonical_root.replace("\\\\", "\\"), "$ROOT");
+    let s = s.replace(&canonical_root.replace('\\', "/"), "$ROOT");
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()
@@ -71,10 +169,10 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(&path_str2, "$ROOT");
     let toolchain_root = toolchain_root_for_tests();
-    let moon_home = moonutil::moon_dir::home();
+    let moon_home = moonutil::MOON_HOME.root();
     let show_toolchain_root = match (
         dunce::canonicalize(&toolchain_root),
-        dunce::canonicalize(&moon_home),
+        dunce::canonicalize(moon_home),
     ) {
         (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
         _ => toolchain_root != moon_home,
@@ -110,7 +208,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
-    let s = if let Ok(toolchain) = compiler_flags::default_native_toolchain(None) {
+    let s = if let Ok(toolchain) = compiler_flags::default_native_toolchain() {
         let cc = toolchain.cc();
         let s = s.replace(&cc.ar_path, cc.ar_name());
         s.replace(&cc.cc_path, cc.cc_name())
@@ -119,7 +217,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     };
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
     let s = s.replace("moon.exe", "moon");
-    let s = moonutil::BINARIES
+    let s = moonutil::toolchain::BINARIES
         .node
         .as_ref()
         .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
@@ -127,8 +225,87 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
+fn core_bundle_for_tests(backend: TargetBackend) -> PathBuf {
+    // Match the toolchain root forwarded by `moon_cmd`; the parent process may
+    // have resolved its own toolchain before the test discovers `moonc`.
+    let core_root = std::env::var_os("MOON_CORE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| toolchain_root_for_tests().join("lib").join("core"));
+    moonutil::toolchain::core_bundle_in(&core_root, backend)
+}
+
+/// Return the installed core package interfaces, ordered by package path.
+///
+/// Core bundles contain one interface per package at
+/// `<package path>/<last package segment>.mi`.
+pub(crate) fn core_package_interfaces(backend: TargetBackend) -> Vec<(String, PathBuf)> {
+    let bundle = core_bundle_for_tests(backend);
+    let mut interfaces = walkdir::WalkDir::new(&bundle)
+        .into_iter()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| {
+            entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "mi")
+        })
+        .map(|entry| {
+            let artifact = entry.into_path();
+            let relative = artifact.strip_prefix(&bundle).unwrap();
+            let package = relative.parent().unwrap();
+            assert_eq!(
+                relative.file_stem(),
+                package.file_name(),
+                "core interface must follow `<package>/<package>.mi`"
+            );
+
+            (package.to_string_lossy().replace('\\', "/"), artifact)
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !interfaces.is_empty(),
+        "installed core bundle contains no package interfaces"
+    );
+    interfaces.sort();
+    interfaces
+}
+
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     moon_test_util::test_dir::copy_tree(src, dest, true)
+}
+
+pub(crate) fn cache_registry_package(
+    moon_home: &Path,
+    name: &str,
+    version: &str,
+    files: &[(&str, Vec<u8>)],
+) -> (PathBuf, PathBuf) {
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, contents) in files {
+        archive
+            .start_file(*path, zip::write::FileOptions::default())
+            .unwrap();
+        archive.write_all(contents).unwrap();
+    }
+    let zip = archive.finish().unwrap().into_inner();
+
+    let layout = moonutil::MoonHomeLayout::new(moon_home.to_path_buf());
+    let module_name: moonutil::resolution::ModuleName = name.into();
+    let version = version.parse().unwrap();
+    let zip_path = layout.registry_source_archive_path(&module_name, &version);
+    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
+    std::fs::write(&zip_path, &zip).unwrap();
+
+    let index_path = layout.registry_index_file(&module_name);
+    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index_path,
+        format!(
+            "{{\"name\":\"{name}\",\"version\":\"{version}\",\"checksum\":\"{:x}\"}}\n",
+            Sha256::digest(&zip)
+        ),
+    )
+    .unwrap();
+
+    (zip_path, index_path)
 }
 
 #[track_caller]
@@ -211,6 +388,55 @@ mod tests {
     use super::{assert_command_matches, replace_dir};
     use expect_test::expect;
 
+    #[cfg(unix)]
+    #[test]
+    fn normalize_host_archiver_keeps_platform_choices_visible() {
+        let mut apple_command =
+            "/usr/bin/libtool -static -no_warning_for_no_symbols -o output.a input.o".to_string();
+        super::normalize_host_archiver(&mut apple_command);
+        assert_eq!(apple_command, "[ARCHIVER] [CREATE_ARGS] output.a input.o");
+
+        let mut ar_command = "/usr/bin/ar -r -c -s output.a input.o".to_string();
+        super::normalize_host_archiver(&mut ar_command);
+        assert_eq!(ar_command, "[ARCHIVER] [CREATE_ARGS] output.a input.o");
+
+        let mut custom_archiver = "stubar -r -c -s output.a input.o".to_string();
+        super::normalize_host_archiver(&mut custom_archiver);
+        assert_eq!(custom_archiver, "stubar -r -c -s output.a input.o");
+
+        let mut multiline =
+            "previous command\nlibtool -static -no_warning_for_no_symbols -o output.a input.o"
+                .to_string();
+        super::normalize_host_archiver(&mut multiline);
+        assert_eq!(
+            multiline,
+            "previous command\n[ARCHIVER] [CREATE_ARGS] output.a input.o"
+        );
+
+        for input in ["/usr/bin/libtool", "/usr/bin/ar"] {
+            let mut input = input.to_string();
+            super::normalize_host_archiver(&mut input);
+            assert_eq!(input, "[ARCHIVER]");
+        }
+
+        for wrapped_host_ar in [
+            "moon tool archive --output out.a -- /usr/bin/ar -r -c -s out.a in.o",
+            "moon tool archive --output out.a -- ar -r -c -s out.a in.o",
+        ] {
+            let mut wrapped_host_ar = wrapped_host_ar.to_string();
+            super::normalize_host_archiver(&mut wrapped_host_ar);
+            assert_eq!(wrapped_host_ar, "[ARCHIVER] [CREATE_ARGS] out.a in.o");
+        }
+
+        let mut wrapped_custom_ar =
+            "moon tool archive --output out.a -- stubar -r -c -s out.a in.o".to_string();
+        super::normalize_host_archiver(&mut wrapped_custom_ar);
+        assert_eq!(
+            wrapped_custom_ar,
+            "moon tool archive --output out.a -- stubar -r -c -s out.a in.o"
+        );
+    }
+
     #[test]
     fn replace_dir_replaces_forward_slash_root_paths() {
         let dir = tempfile::tempdir().unwrap();
@@ -224,6 +450,23 @@ mod tests {
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_dir_replaces_verbatim_root_before_ordinary_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = std::fs::canonicalize(dir.path())
+            .unwrap()
+            .join("_build")
+            .join("main.mi");
+        for spelling in [
+            path.to_string_lossy().replace('\\', "\\\\"),
+            path.display().to_string(),
+            path.to_string_lossy().replace('\\', "/"),
+        ] {
+            assert_eq!(replace_dir(&spelling, dir.path()), "$ROOT/_build/main.mi");
+        }
     }
 
     #[test]

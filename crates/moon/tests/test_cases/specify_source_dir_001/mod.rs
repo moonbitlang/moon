@@ -3,30 +3,27 @@ use super::*;
 #[test]
 fn test_specify_source_dir_001() {
     let dir = TestDir::new("specify_source_dir_001.in");
-    assert_dry_run_graph(
-        &dir,
-        ["check", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["check", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["check_graph.jsonl.snap"],
     );
-    assert_dry_run_graph(
-        &dir,
-        ["build", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["build_graph.jsonl.snap"],
     );
-    assert_dry_run_graph(
-        &dir,
-        ["test", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["test", "--target", "wasm-gc", "--dry-run", "--sort-input"]),
         expect_file!["test_graph.jsonl.snap"],
     );
     check(
-        get_stderr(&dir, ["check", "--sort-input"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
     #[cfg(unix)]
     {
-        let p = dir.join("_build/packages.json");
+        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -74,6 +71,11 @@ fn test_specify_source_dir_001() {
                       "mbt-md-files": {},
                       "deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
@@ -81,12 +83,22 @@ fn test_specify_source_dir_001() {
                       ],
                       "wbtest-deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
                         }
                       ],
                       "test-deps": [
+                        {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
                         {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
@@ -103,8 +115,10 @@ fn test_specify_source_dir_001() {
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi",
                         "-pkg",
                         "username/hello/lib",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "library",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -129,10 +143,12 @@ fn test_specify_source_dir_001() {
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi",
                         "-pkg",
                         "username/hello/lib_blackbox_test",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "library",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi:lib",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -179,6 +195,11 @@ fn test_specify_source_dir_001() {
                       "mbt-md-files": {},
                       "deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
@@ -191,12 +212,22 @@ fn test_specify_source_dir_001() {
                       ],
                       "wbtest-deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
                         }
                       ],
                       "test-deps": [
+                        {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
                         {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
@@ -213,11 +244,12 @@ fn test_specify_source_dir_001() {
                         "$ROOT/_build/wasm-gc/debug/check/main/main.mi",
                         "-pkg",
                         "username/hello/main",
-                        "-is-main",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "executable",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi:lib",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -241,12 +273,14 @@ fn test_specify_source_dir_001() {
                         "$ROOT/_build/wasm-gc/debug/check/main/main.blackbox_test.mi",
                         "-pkg",
                         "username/hello/main_blackbox_test",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "library",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi:lib",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/main/main.mi:main",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -276,19 +310,19 @@ fn test_specify_source_dir_001() {
         )
     }
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
     check(
-        get_stdout(&dir, ["test"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        get_stdout(&dir, ["run", "./src/main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "./src/main"]),
         expect![[r#"
             Hello, world!
         "#]],

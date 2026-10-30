@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -47,8 +47,6 @@ pub struct UniversalFlags {
     pub verbose: bool,
 
     /// Trace the execution of the program
-    // The module `n2::trace` doesn't suppose parallelism now, so `--trace`
-    // should be used in conjunction with `--serial` and `--no-parallelize`.
     #[clap(long, global = true)]
     pub trace: bool,
 
@@ -56,23 +54,21 @@ pub struct UniversalFlags {
     #[clap(long, global = true)]
     pub dry_run: bool,
 
-    #[clap(long, global = true, conflicts_with = "dry_run", hide = true)]
-    pub build_graph: bool,
-
     /// Unstable flags to MoonBuild.
     #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
     pub unstable_feature: Box<crate::features::FeatureGate>,
 }
 
 impl UniversalFlags {
-    /// Collect deprecation warnings for deprecated flags.
-    pub fn deprecation_warnings(&self) -> Vec<&'static str> {
-        let mut warnings = Vec::new();
-        if self.build_graph {
-            warnings.push(
-                "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead",
-            );
-        }
-        warnings
+    pub fn user_log_level(&self) -> log::LevelFilter {
+        crate::user_log::user_log_level(self.verbose, self.quiet)
     }
+}
+
+pub fn dialoguer_ctrlc_handler() {
+    // Fix cursor disappears after ctrc+c
+    // https://github.com/console-rs/dialoguer/issues/77
+    let term = dialoguer::console::Term::stdout();
+    let _ = term.show_cursor();
+    std::process::exit(1);
 }

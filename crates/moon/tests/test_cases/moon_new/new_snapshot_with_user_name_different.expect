@@ -127,9 +127,7 @@ fn main {
 //   "moonbitlang/wow" @lib,
 // }
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")
 
 === ./moon.mod ===
 // Learn more about moon.mod configuration:
@@ -154,6 +152,8 @@ repository = ""
 license = "Apache-2.0"
 
 keywords = []
+
+preferred_target = "wasm"
 
 description = ""
 

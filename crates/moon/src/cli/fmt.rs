@@ -1,30 +1,32 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use moonbuild::execution::{BuildConfig, BuildInput};
+use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::Context;
-use moonbuild_rupes_recta::fmt::FmtConfig;
-use moonutil::{common::BlockStyle, dirs::PackageDirs};
+use moonbuild_rupes_recta::fmt::{FmtConfig, build_execution_plan_for_fmt_file};
+use moonutil::{
+    command_output::CommandOutput, locks::lock_directory, path_normalizer::PathNormalizer,
+};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
-use crate::rr_build::{self, BuildConfig, plan_fmt};
-use crate::user_diagnostics::UserDiagnostics;
+use crate::rr_build::{self, plan_fmt};
 
 use super::UniversalFlags;
 
@@ -39,15 +41,15 @@ pub(crate) struct FmtSubcommand {
     #[clap(long)]
     pub sort_input: bool,
 
-    /// Add separator between each segments
-    #[clap(long, value_enum, num_args=0..=1, default_missing_value = "true")]
-    pub block_style: Option<BlockStyle>,
-
     /// Warn if code is not properly formatted
     #[clap(long, conflicts_with = "check")]
     pub warn: bool,
 
-    /// Paths to package directories or files inside packages to format
+    /// Paths to packages, files selecting their containing package, or standalone `.mbtx` scripts
+    ///
+    /// An explicit `.mbtx` path formats only that script, with or without a surrounding project.
+    /// Multiple scripts and package paths can be combined. Without paths, standalone scripts
+    /// are excluded from package formatting. `--check` fails if a selected script needs formatting.
     #[clap(name = "PATH")]
     pub path: Vec<PathBuf>,
 
@@ -56,64 +58,125 @@ pub(crate) struct FmtSubcommand {
     pub args: Vec<String>,
 }
 
-pub(crate) fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
-    run_fmt_rr(cli, cmd)
+pub(crate) fn run_fmt(
+    cli: &UniversalFlags,
+    cmd: FmtSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    run_fmt_rr(cli, cmd, output)
 }
 
-fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        project_manifest_path,
-        ..
-    } = cli
-        .source_tgt_dir
-        .query(cli.workspace_env.clone())?
-        .package_dirs()?;
-
-    let output = UserDiagnostics::from_flags(cli);
-    let resolved =
-        moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, project_manifest_path.as_deref())
-            .context("Failed to resolve environment")?;
-
-    let mut selected_packages = Vec::new();
-
-    for (_, pkg_id) in select_packages(&cmd.path, output, |dir| {
-        filter_pkg_by_dir_for_fmt(&resolved, dir)
-    })? {
-        selected_packages.push(pkg_id);
-    }
-
-    if !cmd.path.is_empty() && selected_packages.is_empty() {
-        return Ok(0);
-    }
-
+fn run_fmt_rr(
+    cli: &UniversalFlags,
+    cmd: FmtSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let fmt_config = FmtConfig {
-        block_style: cmd.block_style.unwrap_or_default().is_line(),
         check_only: cmd.check,
         warn_only: cmd.warn,
         extra_args: cmd.args.clone(),
         migrate_moon_mod_json: cli.unstable_feature.rr_moon_mod,
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
-    let (graph, user_warnings) = plan_fmt(
-        &resolved,
-        &fmt_config,
-        &source_dir,
-        &target_dir,
-        &selected_packages,
-        project_manifest_path.as_deref(),
-    )?;
-    for message in &user_warnings {
-        output.user_message(message);
+    let (scripts, package_paths): (Vec<_>, Vec<_>) = cmd
+        .path
+        .iter()
+        .partition(|path| path.extension().is_some_and(|ext| ext == "mbtx"));
+    let script_dry_run_root = (cli.dry_run && !scripts.is_empty())
+        .then(std::env::current_dir)
+        .transpose()?;
+
+    // Plan every explicit input before executing anything. Standalone scripts
+    // bypass package discovery and dependency resolution, even inside a project.
+    let mut plans = Vec::new();
+    let mut seen_scripts = HashSet::new();
+    for path in scripts {
+        let script = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        anyhow::ensure!(
+            script.file_path.is_file(),
+            "formatter input `{}` must be a file",
+            path.display()
+        );
+        if !seen_scripts.insert(script.file_path.clone()) {
+            continue;
+        }
+        let execution_plan = build_execution_plan_for_fmt_file(
+            &fmt_config,
+            &script.file_path,
+            &script.package_dirs.target_dir,
+        )?;
+        let normalizer = script_dry_run_root.as_deref().map(|root| {
+            PathNormalizer::new(root).with_relative_paths(
+                root,
+                std::iter::once(script.file_path.as_path())
+                    .chain(execution_plan.default_output_paths()),
+            )
+        });
+        plans.push((
+            script.package_dirs,
+            BuildInput::new(execution_plan, None),
+            normalizer,
+        ));
     }
 
-    if cli.dry_run {
-        rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
-        Ok(0)
-    } else {
-        let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir)?;
-        res.print_info(cli.quiet, "formatting")?;
-        Ok(res.return_code_for_success())
+    if cmd.path.is_empty() || !package_paths.is_empty() {
+        let dirs = cli
+            .source_tgt_dir
+            .query(cli.workspace_env.clone())?
+            .select(user_log)?
+            .package_dirs()?;
+        let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(
+            &dirs.source_dir,
+            &dirs.project_manifest,
+            user_log,
+        )
+        .context("Failed to resolve environment")?;
+        let selected_packages = select_packages(&package_paths, user_log, |dir| {
+            filter_pkg_by_dir_for_fmt(&resolved, dir)
+        })?
+        .into_iter()
+        .map(|(_, pkg_id)| pkg_id)
+        .collect::<Vec<_>>();
+
+        if package_paths.is_empty() || !selected_packages.is_empty() {
+            let build_input = plan_fmt(
+                &resolved,
+                &fmt_config,
+                &dirs.target_dir,
+                &selected_packages,
+                &dirs.project_manifest,
+                user_log,
+            )?;
+            plans.push((dirs, build_input, None));
+        }
     }
+
+    for (dirs, build_input, normalizer) in plans {
+        if cli.dry_run {
+            output.write_result(|writer| {
+                if let Some(normalizer) = &normalizer {
+                    rr_build::write_dry_run_with_normalizer(
+                        writer,
+                        &build_input,
+                        &dirs.source_dir,
+                        normalizer,
+                    )
+                } else {
+                    rr_build::write_dry_run(writer, &build_input, &dirs.source_dir)
+                }
+            })?;
+            continue;
+        }
+        std::fs::create_dir_all(&dirs.target_dir)?;
+        let _lock = lock_directory(&dirs.target_dir, user_log)?;
+        let res = moonbuild::execution::execute_build(
+            &BuildConfig::default(),
+            build_input,
+            &dirs.target_dir,
+            user_log,
+        )?;
+        res.print_info(cli.quiet, "formatting")?;
+    }
+    Ok(0)
 }

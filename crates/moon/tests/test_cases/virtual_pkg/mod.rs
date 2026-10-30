@@ -7,20 +7,23 @@ fn test_virtual_pkg() {
     let virtual_pkg = dir.join("virtual");
 
     check(
-        get_stdout(&virtual_pkg, ["run", "main", "--dry-run"]),
+        get_stdout(
+            &virtual_pkg,
+            ["run", "--target", "wasm-gc", "main", "--dry-run"],
+        ),
         expect![[r#"
-            moonc build-interface ./lib3/pkg.mbti -o ./_build/wasm-gc/debug/build/lib3/lib3.mi -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
-            moonc build-interface ./lib1/pkg.mbti -o ./_build/wasm-gc/debug/build/lib1/lib1.mi -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/lib1/lib1.mi:lib1 -i ./_build/wasm-gc/debug/build/lib3/lib3.mi:lib3 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./lib4/hello.mbt -o ./_build/wasm-gc/debug/build/lib4/lib4.core -pkg username/hello/lib4 -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib4:./lib4 -target wasm-gc -g -O0 -source-map -check-mi ./_build/wasm-gc/debug/build/lib3/lib3.mi -impl-virtual -pkg-sources username/hello/lib3:./lib3 -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./dummy_lib/hello.mbt -o ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core -pkg username/hello/dummy_lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/dummy_lib:./dummy_lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./lib2/hello.mbt -o ./_build/wasm-gc/debug/build/lib2/lib2.core -pkg username/hello/lib2 -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.mi:dummy_lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g -O0 -source-map -check-mi ./_build/wasm-gc/debug/build/lib1/lib1.mi -impl-virtual -pkg-sources username/hello/lib1:./lib1 -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core ./_build/wasm-gc/debug/build/lib2/lib2.core ./_build/wasm-gc/debug/build/lib4/lib4.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/dummy_lib:./dummy_lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/lib4:./lib4 -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
-            moonrun ./_build/wasm-gc/debug/build/main/main.wasm --
+            moonc build-interface ./lib3/pkg.mbti -o ./_build/wasm-gc/debug/build/lib3/lib3.mi -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -virtual -error-format json
+            moonc build-interface ./lib1/pkg.mbti -o ./_build/wasm-gc/debug/build/lib1/lib1.mi -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -virtual -error-format json
+            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib1/lib1.mi:lib1 -i ./_build/wasm-gc/debug/build/lib3/lib3.mi:lib3 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./lib4/hello.mbt -o ./_build/wasm-gc/debug/build/lib4/lib4.core -pkg username/hello/lib4 -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib4:./lib4 -target wasm-gc -g -O0 -source-map -check-mi ./_build/wasm-gc/debug/build/lib3/lib3.mi -impl-virtual -pkg-sources username/hello/lib3:./lib3 -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./dummy_lib/hello.mbt -o ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core -pkg username/hello/dummy_lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/dummy_lib:./dummy_lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./lib2/hello.mbt -o ./_build/wasm-gc/debug/build/lib2/lib2.core -pkg username/hello/lib2 -pkg-type library -i ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.mi:dummy_lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -g -O0 -source-map -check-mi ./_build/wasm-gc/debug/build/lib1/lib1.mi -impl-virtual -pkg-sources username/hello/lib1:./lib1 -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/dummy_lib/dummy_lib.core ./_build/wasm-gc/debug/build/lib2/lib2.core ./_build/wasm-gc/debug/build/lib4/lib4.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources username/hello/dummy_lib:./dummy_lib -pkg-sources username/hello/lib2:./lib2 -pkg-sources username/hello/lib4:./lib4 -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
     check(
-        get_stdout(&virtual_pkg, ["run", "main"]),
+        get_stdout(&virtual_pkg, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             another impl for f1 in lib2: 1
             another impl for f2 in lib2: 2
@@ -28,7 +31,10 @@ fn test_virtual_pkg() {
         "#]],
     );
     check(
-        get_stdout(&virtual_pkg, ["test", "--no-parallelize"]),
+        get_stdout(
+            &virtual_pkg,
+            ["test", "--target", "wasm-gc", "--no-parallelize"],
+        ),
         expect![[r#"
             bb test
             default impl for f1 in lib1: 1
@@ -45,7 +51,7 @@ fn test_virtual_pkg() {
 
     let user = dir.join("user");
     check(
-        get_stdout(&user, ["run", "main"]),
+        get_stdout(&user, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             user impl for f1 in lib: 1
             user impl for f2 in lib: 2
@@ -55,11 +61,20 @@ fn test_virtual_pkg() {
     check(
         get_err_stdout(&user, ["test", "--no-parallelize"])
             .lines()
-            .take(10)
+            .take(19)
             .collect::<Vec<_>>()
             .join("\n")
             + "\n",
         expect![[r#"
+            bb test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
+            internal test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
+            wb test
+            default impl for f1 in lib1: 1
+            another impl for f3 in lib4
             bb test
             default impl for f1 in lib1: 1
             another impl for f3 in lib4

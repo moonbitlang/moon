@@ -1,0 +1,326 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use super::*;
+
+#[test]
+fn test_moon_doc_dry_run() {
+    let dir = TestDir::new("moon_doc.in");
+    check(
+        get_stdout(&dir, ["doc", "--dry-run"]),
+        expect![[r#"
+            moonc check ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./src/main/main.mbt -o ./_build/wasm-gc/debug/check/main/main.mi -pkg username/hello/main -pkg-type executable -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./src/main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moondoc . -o ./_build/doc -std-path '$MOON_HOME/lib/core' -packages-json ./_build/wasm-gc/debug/check/packages.json
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_doc_dry_run_filters_packages_by_backend() {
+    let dir = TestDir::new("moon_doc_backend_filter.in");
+    let output = get_stdout(&dir, ["doc", "--dry-run"]);
+
+    assert!(output.contains("./src/lib/lib.mbt"), "stdout: {output}");
+    assert!(
+        !output.contains("./src/native/native.mbt"),
+        "stdout: {output}"
+    );
+
+    assert_success(&dir, ["doc"]);
+    assert!(
+        !dir.join("_build/wasm/debug/check/native/native.mi")
+            .exists()
+    );
+}
+
+#[test]
+fn test_moon_doc_uses_selected_module_preferred_backend() {
+    let dir = TestDir::new("moon_doc_workspace_preferred.in");
+    let selected_member = dir.join("js");
+
+    let output = get_stdout(&selected_member, ["doc", "--dry-run"]);
+    let stderr = get_stderr(&selected_member, ["doc", "--dry-run"]);
+
+    assert!(output.contains("./js/src/lib/lib.mbt"), "stdout: {output}");
+    assert!(output.contains("./_build/js/"), "stdout: {output}");
+    assert!(output.contains("-target js"), "stdout: {output}");
+    assert!(
+        !output.contains("./native/src/lib/lib.mbt"),
+        "stdout: {output}"
+    );
+    assert!(
+        !stderr.contains("Multiple local modules specify different preferred targets"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_moon_doc() {
+    let dir = TestDir::new("moon_doc.in");
+    std::fs::create_dir_all(dir.join("_build")).unwrap();
+    std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
+    std::fs::write(packages_index_path(&dir), "existing check index").unwrap();
+    let _ = get_stderr(&dir, ["doc"]);
+    assert_eq!(
+        read(packages_selector_path(&dir)),
+        "existing check selector"
+    );
+    assert_eq!(read(packages_index_path(&dir)), "existing check index");
+    check(
+        read(dir.join("_build/doc/username/hello/lib/members.md")),
+        expect![[r#"
+            # Documentation
+            |Value|description|
+            |---|---|
+            |[hello](#hello)||
+
+            ## hello
+
+            ```moonbit
+            :::source,username/hello/lib/hello.mbt,1:::fn hello() -> String
+            ```
+
+        "#]],
+    );
+    check(
+        read(dir.join("_build/doc/username/hello/main/members.md")),
+        expect!["# Documentation"],
+    );
+    check(
+        read(dir.join("_build/doc/username/hello/_sidebar.md")),
+        expect![[r#"
+            - [username/hello](username/hello/)
+            - **In this module**
+              - [lib](username/hello/lib/members)
+              - [main](username/hello/main/members)
+            - **Dependencies**
+              - [moonbitlang/core](moonbitlang/core/)"#]],
+    );
+}
+
+#[test]
+fn test_moon_doc_rejects_moon_mod_json() {
+    let dir = TestDir::new("moon_doc.in");
+    std::fs::remove_file(dir.join("moon.mod")).unwrap();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{ "name": "username/hello", "source": "src" }"#,
+    )
+    .unwrap();
+
+    check(
+        get_err_stderr(&dir, ["doc", "--dry-run"]),
+        expect![[r#"
+            Error: `moon doc` does not support the deprecated `moon.mod.json` manifest; run `moon fmt` to migrate it to `moon.mod` first
+        "#]],
+    );
+}
+
+#[test]
+fn test_moonfmt() {
+    let dir = TestDir::new("general.in");
+    let oneline = r#"pub fn hello() -> String { "Hello, world!" }"#;
+
+    std::fs::write(dir.join("src/lib/hello.mbt"), oneline).unwrap();
+
+    let out = std::process::Command::new("moonfmt")
+        .args(["./src/lib/hello.mbt"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let out = String::from_utf8(out.stdout).unwrap().replace_crlf_to_lf();
+    check(
+        &out,
+        expect![[r#"
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
+    );
+
+    check(
+        read(dir.join("src/lib/hello.mbt")),
+        expect![[r#"pub fn hello() -> String { "Hello, world!" }"#]],
+    );
+
+    let out = std::process::Command::new("moonfmt")
+        .args(["-i", "./src/lib/hello.mbt"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let _ = String::from_utf8(out.stdout).unwrap();
+    check(
+        read(dir.join("src/lib/hello.mbt")),
+        expect![[r#"
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
+    );
+
+    std::fs::write(dir.join("src/lib/hello.mbt"), oneline).unwrap();
+    check(
+        read(dir.join("src/lib/hello.mbt")),
+        expect![[r#"pub fn hello() -> String { "Hello, world!" }"#]],
+    );
+
+    let out = std::process::Command::new("moonfmt")
+        .args(["-i", "./src/lib/hello.mbt", "-o", "./src/lib/hello.txt"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let _ = String::from_utf8(out.stdout).unwrap();
+    check(
+        read(dir.join("src/lib/hello.mbt")),
+        expect![[r#"
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
+    );
+    check(
+        read(dir.join("src/lib/hello.txt")),
+        expect![[r#"
+            ///|
+            pub fn hello() -> String {
+              "Hello, world!"
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_diff_mbti() {
+    let dir = TestDir::new("diff_mbti.in");
+    let content = get_stdout(&dir, ["info", "--target", "all"]);
+    assert!(content.contains("$ROOT/_build/wasm/debug/check/lib/lib.mbti"));
+    assert!(content.contains("$ROOT/_build/js/debug/check/lib/lib.mbti"));
+    assert!(content.contains("-pub fn aaa() -> String"));
+    assert!(content.contains("+pub fn a() -> String"));
+    assert!(dir.join("src/lib").join(MBTI_GENERATED).exists());
+}
+
+#[test]
+fn moon_info_specific_package() {
+    let dir = TestDir::new("moon_new/plain");
+
+    // exact match
+    get_stdout(&dir, ["info", "--package", "moon_new/main"]);
+    assert!(dir.join("main/").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("lib/").join(MBTI_GENERATED).exists());
+
+    // fuzzy match
+    get_stdout(&dir, ["info", "--package", "lib"]);
+    assert!(dir.join("lib/").join(MBTI_GENERATED).exists());
+
+    let content = get_err_stderr(&dir, ["info", "--package", "moon_new/does_not_exist"]);
+    assert!(content.contains("package `moon_new/does_not_exist` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)"));
+}
+
+#[test]
+fn merge_doc_test_and_md_test() {
+    let dir = TestDir::new("all_kind_test.in");
+
+    let check_output = get_stderr(&dir, ["check"]);
+    println!("CHECK OUTPUT:\n{}", check_output);
+
+    assert!(check_output.contains("unused_in_lib_md_test"));
+    assert!(check_output.contains("unused_in_lib_doc_test"));
+
+    assert!(get_err_stdout(&dir, ["test"]).contains("Total tests: 9, passed: 6, failed: 3."));
+
+    // should be ok if run with update
+    get_stdout(&dir, ["test", "-u"]);
+
+    // Positional file path should run internal test & doc test in that file
+    check(
+        get_stdout(&dir, ["test", "lib/hello.mbt", "--sort-input"])
+            .split("\n")
+            .collect::<Vec<&str>>()
+            .iter()
+            .take(5)
+            .next_back()
+            .unwrap(),
+        expect!["Total tests: 4, passed: 4, failed: 0."],
+    );
+    // -i should run internal test only
+    check(
+        get_stdout(&dir, ["test", "lib/hello.mbt", "-i", "0"]),
+        expect![[r#"
+            internal test 1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    // --doc-index should run doc test only
+    check(
+        get_stdout(&dir, ["test", "lib/hello.mbt", "--doc-index", "0"]),
+        expect![[r#"
+            doc test 1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    // should run bb test only
+    check(
+        get_stdout(&dir, ["test", "lib/hello_test.mbt", "-i", "0"]),
+        expect![[r#"
+            blackbox test 1
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+    // doc test is ignored for _test.mbt & .mbt.md
+    {
+        check(
+            get_stdout(
+                &dir,
+                [
+                    "test",
+                    "-p",
+                    "lib",
+                    "--file",
+                    "hello_test.mbt",
+                    "--doc-index",
+                    "0",
+                ],
+            ),
+            expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+        );
+        check(
+            get_stdout(
+                &dir,
+                [
+                    "test",
+                    "-p",
+                    "lib",
+                    "--file",
+                    "README.mbt.md",
+                    "--doc-index",
+                    "0",
+                ],
+            ),
+            expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+        );
+    }
+}

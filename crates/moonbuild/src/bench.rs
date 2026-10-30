@@ -1,24 +1,25 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use indexmap::IndexMap;
-use moonutil::common::*;
-use moonutil::module::MoonModJSON;
+use moonutil::constants::MOON_PKG_JSON;
+use moonutil::manifest::MoonModJSON;
+use moonutil::manifest::{write_module_json_to_file, write_package_json_to_file};
 use moonutil::package::{MoonPkgJSON, PkgJSONImport};
 use std::fs;
 use std::path::Path;
@@ -102,7 +103,10 @@ pub fn f() -> Unit {{
             }
             let pkg = MoonPkgJSON {
                 name: None,
+                experimental: None,
+                allow_experimental_packages: None,
                 is_main: None,
+                pkgtype: None,
                 import: if import.is_empty() {
                     None
                 } else {
@@ -125,11 +129,10 @@ pub fn f() -> Unit {{
                 virtual_pkg: None,
                 implement: None,
                 overrides: None,
-                sub_package: None,
                 max_concurrent_tests: None,
                 regex_backend: None,
             };
-            moonutil::common::write_package_json_to_file(&pkg, &moon_pkg).unwrap();
+            write_package_json_to_file(&pkg, &moon_pkg).unwrap();
         }
     }
 }
@@ -144,8 +147,8 @@ pub fn write(config: &Config, base_dir: &Path) {
     let module = MoonModJSON {
         name: "build_matrix".to_string(),
         version: None,
+        private: None,
         deps: None,
-        bin_deps: None,
         readme: None,
         repository: None,
         license: None,
@@ -170,7 +173,7 @@ pub fn write(config: &Config, base_dir: &Path) {
 
         __moonbit_unstable_prebuild: None,
     };
-    moonutil::common::write_module_json_to_file(&module, base_dir).unwrap();
+    write_module_json_to_file(&module, base_dir).unwrap();
     fs::create_dir_all(base_dir.join("main")).unwrap();
     let mut main_content = String::new();
     main_content.push_str("fn main {\n");
@@ -204,7 +207,10 @@ pub fn write(config: &Config, base_dir: &Path) {
 
     let pkg = MoonPkgJSON {
         name: None,
+        experimental: None,
+        allow_experimental_packages: None,
         is_main: Some(true),
+        pkgtype: None,
         import: if import.is_empty() {
             None
         } else {
@@ -227,11 +233,9 @@ pub fn write(config: &Config, base_dir: &Path) {
         virtual_pkg: None,
         implement: None,
         overrides: None,
-        sub_package: None,
         max_concurrent_tests: None,
         regex_backend: None,
     };
 
-    moonutil::common::write_package_json_to_file(&pkg, &base_dir.join("main").join(MOON_PKG_JSON))
-        .unwrap();
+    write_package_json_to_file(&pkg, &base_dir.join("main").join(MOON_PKG_JSON)).unwrap();
 }

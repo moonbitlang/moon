@@ -1,0 +1,151 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use std::ffi::{c_int, c_void};
+
+use libsqlite3_sys as ffi;
+
+use super::{SqliteHost, SqliteHostError, SqliteHostResult};
+
+// `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
+// its generated bindings. The bundled SQLite library still exports them.
+unsafe extern "C" {
+    fn sqlite3_bind_text16(
+        statement: *mut ffi::sqlite3_stmt,
+        index: c_int,
+        value: *const c_void,
+        byte_length: c_int,
+        destructor: ffi::sqlite3_destructor_type,
+    ) -> c_int;
+}
+
+impl SqliteHost {
+    pub(crate) fn bind_null(&self, statement: u64, index: i32) -> SqliteHostResult<i32> {
+        let statement = self.statement(statement)?;
+        Ok(unsafe { ffi::sqlite3_bind_null(statement.pointer.as_ptr(), index) })
+    }
+
+    pub(crate) fn bind_int64(
+        &self,
+        statement: u64,
+        index: i32,
+        value: i64,
+    ) -> SqliteHostResult<i32> {
+        let statement = self.statement(statement)?;
+        Ok(unsafe { ffi::sqlite3_bind_int64(statement.pointer.as_ptr(), index, value) })
+    }
+
+    pub(crate) fn bind_double(
+        &self,
+        statement: u64,
+        index: i32,
+        value: f64,
+    ) -> SqliteHostResult<i32> {
+        let statement = self.statement(statement)?;
+        Ok(unsafe { ffi::sqlite3_bind_double(statement.pointer.as_ptr(), index, value) })
+    }
+
+    /// Bind native-endian UTF-16 and make SQLite copy it before returning.
+    pub(crate) fn bind_text16(
+        &self,
+        statement: u64,
+        index: i32,
+        value: &[u16],
+    ) -> SqliteHostResult<i32> {
+        let byte_length = value
+            .len()
+            .checked_mul(size_of::<u16>())
+            .ok_or(SqliteHostError::Overflow)?;
+        let byte_length = i32::try_from(byte_length).map_err(|_| SqliteHostError::Overflow)?;
+        let statement = self.statement(statement)?;
+        Ok(unsafe {
+            sqlite3_bind_text16(
+                statement.pointer.as_ptr(),
+                index,
+                value.as_ptr().cast(),
+                byte_length,
+                ffi::SQLITE_TRANSIENT(),
+            )
+        })
+    }
+
+    /// Bind bytes and make SQLite copy them before returning.
+    pub(crate) fn bind_blob(
+        &self,
+        statement: u64,
+        index: i32,
+        value: &[u8],
+    ) -> SqliteHostResult<i32> {
+        let length = i32::try_from(value.len()).map_err(|_| SqliteHostError::Overflow)?;
+        let statement = self.statement(statement)?;
+        Ok(unsafe {
+            ffi::sqlite3_bind_blob(
+                statement.pointer.as_ptr(),
+                index,
+                value.as_ptr().cast(),
+                length,
+                ffi::SQLITE_TRANSIENT(),
+            )
+        })
+    }
+
+    pub(crate) fn clear_bindings(&self, statement: u64) -> SqliteHostResult<i32> {
+        let statement = self.statement(statement)?;
+        // A busy VM's result registers may hold static references to bound
+        // text or blobs. Require a reset before releasing those bindings.
+        if unsafe { ffi::sqlite3_stmt_busy(statement.pointer.as_ptr()) } != 0 {
+            return Ok(ffi::SQLITE_MISUSE);
+        }
+        Ok(unsafe { ffi::sqlite3_clear_bindings(statement.pointer.as_ptr()) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sqlite::tests::{host, open_memory, utf16le};
+
+    #[test]
+    fn clear_bindings_rejects_a_busy_statement_and_preserves_its_row() {
+        let host = host();
+        let database = open_memory(&host);
+        let sql = utf16le("SELECT ?1");
+        let statement = host
+            .prepare16_v2(database, &sql)
+            .unwrap()
+            .statement
+            .unwrap();
+        let text = utf16le("bound text long enough to require allocation");
+
+        assert_eq!(host.bind_text16(statement, 1, &text), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.step(statement), Ok(ffi::SQLITE_ROW));
+        assert_eq!(host.clear_bindings(statement), Ok(ffi::SQLITE_MISUSE));
+
+        let mut output = vec![0xffff; text.len()];
+        assert_eq!(
+            host.copy_column_text16(statement, 0, &mut output),
+            Ok(text.len() as u32)
+        );
+        assert_eq!(output, text);
+
+        assert_eq!(host.reset(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.clear_bindings(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.finalize(statement), Ok(ffi::SQLITE_OK));
+        assert_eq!(host.close(database), Ok(ffi::SQLITE_OK));
+    }
+}

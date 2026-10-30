@@ -1,18 +1,18 @@
 # moon: The build system and package manager for MoonBit.
-# Copyright (C) 2024 International Digital Economy Academy
+# Copyright (C) 2026 International Digital Economy Academy
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,6 +20,7 @@
 name = "moon"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
 exclude = [".github/*", ".vscode/*"]
 readme = "README.md"
 rust-version.workspace = true
@@ -27,12 +28,13 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anstream.workspace = true
+anstyle.workspace = true
 moonbuild.workspace = true
 mooncake.workspace = true
 moonutil.workspace = true
 moonbuild-rupes-recta.workspace = true
 
-n2.workspace = true
 semver.workspace = true
 clap.workspace = true
 anyhow.workspace = true
@@ -40,7 +42,6 @@ colored.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
 serde_json.workspace = true
-dialoguer.workspace = true
 dunce.workspace = true
 ctrlc.workspace = true
 home.workspace = true
@@ -48,6 +49,7 @@ which.workspace = true
 chrono.workspace = true
 log.workspace = true
 walkdir.workspace = true
+notify.workspace = true
 tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
 clap_complete.workspace = true
@@ -58,8 +60,12 @@ tempfile.workspace = true
 shlex.workspace = true
 derive_builder.workspace = true
 sha2.workspace = true
-similar.workspace = true
+blake3.workspace = true
+percent-encoding.workspace = true
 reqwest.workspace = true
+flate2.workspace = true
+tar.workspace = true
+url.workspace = true
 
 ignore.workspace = true
 
@@ -67,7 +73,11 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-chrome.workspace = true
 
+[target."cfg(target_os = \"macos\")".dependencies]
+libc.workspace = true
+
 [target."cfg(windows)".dependencies.windows-sys]
+workspace = true
 features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -75,27 +85,17 @@ features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
 ]
-version = "0.59.0"
-
-[target."cfg(not(target_os = \"macos\"))".dependencies]
-notify = "6.1.1"
-
-[target."cfg(target_os = \"macos\")".dependencies]
-notify = { version = "6.1.1", default-features = false, features = ["crossbeam-channel", "macos_kqueue"] }
-
-[target."cfg(windows)".dependencies]
-junction = "1"
 
 [dev-dependencies]
-tempfile = "3.6.0"
-snapbox.workspace = true
+regex.workspace = true
+snapbox = { workspace = true, features = ["regex"] }
 expect-test.workspace = true
-clap-markdown = "0.1.4"
+escargot.workspace = true
+clap-markdown.workspace = true
 similar.workspace = true
-colored.workspace = true
 libc.workspace = true
-moonbuild-debug.workspace = true
-moon-test-util = { path = "../moon-test-util" }
+moon-test-util.workspace = true
+zip.workspace = true
 
 
 [[bin]]

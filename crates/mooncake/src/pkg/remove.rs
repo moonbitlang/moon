@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,15 +20,20 @@ use anyhow::bail;
 use std::{path::Path, sync::Arc};
 
 use moonutil::{
-    common::{MOON_MOD, read_module_desc_file_in_dir, write_module_json_to_file},
-    module::convert_module_to_mod_json,
+    constants::MOON_MOD,
+    manifest::{
+        convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
+    },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
+    project::ProjectManifest,
+    resolution::ModuleName,
+    user_log::UserLog,
 };
 
 use crate::{
     pkg::roots_for_selected_module,
     registry,
-    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
 /// Remove a dependency
@@ -40,35 +45,27 @@ pub struct RemoveSubcommand {
 }
 
 pub fn remove(
-    project_root: &Path,
     module_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    username: &str,
-    pkgname: &str,
+    project_manifest: &ProjectManifest,
+    name: &ModuleName,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
-    let dep_name = format!("{username}/{pkgname}");
+    let dep_name = name.to_string();
     let removed = m.deps.shift_remove(&dep_name);
     if removed.is_none() {
-        bail!(
-            "the dependency `{}/{}` could not be found",
-            username,
-            pkgname,
-        )
+        bail!("the dependency `{dep_name}` could not be found")
     }
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(
-        project_root,
-        module_dir,
-        Arc::clone(&m),
-        project_manifest_path,
-    )?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
 
-    let resolve_cfg = ResolveConfig {
-        registry: registry::default_registry(),
+    let registry = registry::default_registry(user_log);
+    let module_resolution_config = ModuleResolutionConfig {
+        registry: &registry,
         inject_std: false, // no need to inject
+        warn_deprecated: true,
     };
-    resolve_with_default_env_and_resolver(&resolve_cfg, roots)?;
+    resolve_modules(&module_resolution_config, roots, user_log)?;
 
     if module_dir.join(MOON_MOD).exists() {
         patch_module_dsl_to_file(

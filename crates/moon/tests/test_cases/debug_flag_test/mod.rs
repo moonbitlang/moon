@@ -1,18 +1,33 @@
+#[cfg(unix)]
 use expect_test::expect;
 
-use crate::{TestDir, dry_run_utils::line_with, get_stdout, util::check};
+use crate::{TestDir, dry_run_utils::line_with, get_stdout};
 
 #[cfg(unix)]
-use crate::get_err_stderr;
+use crate::{get_err_stderr, util::check};
 
 #[test]
 fn run_dry_run_uses_selected_profile_for_runtime_artifact() {
     let dir = TestDir::new("debug_flag_test");
 
-    let default_run = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
+    let default_run = get_stdout(
+        &dir,
+        ["run", "--target", "wasm-gc", "main", "--dry-run", "--nostd"],
+    );
     assert_moonrun_line(&default_run, false);
 
-    let release_run = get_stdout(&dir, ["run", "main", "--dry-run", "--release", "--nostd"]);
+    let release_run = get_stdout(
+        &dir,
+        [
+            "run",
+            "--target",
+            "wasm-gc",
+            "main",
+            "--dry-run",
+            "--release",
+            "--nostd",
+        ],
+    );
     assert_moonrun_line(&release_run, true);
 }
 
@@ -122,28 +137,12 @@ fn cli_reports_selector_conflicts_before_planning() {
         embed_mode_stderr.contains("cannot be used with"),
         "stderr: {embed_mode_stderr}"
     );
-
-    let build_binary_dep_stderr = get_err_stderr(
-        &dir,
-        [
-            "tool",
-            "build-binary-dep",
-            "hello",
-            "--all-pkgs",
-            "--install-path",
-            "bin",
-        ],
-    );
-    assert!(
-        build_binary_dep_stderr.contains("cannot be used with"),
-        "stderr: {build_binary_dep_stderr}"
-    );
 }
 
 #[test]
 fn check_path_selector_smoke() {
     let dir = TestDir::new("debug_flag_test");
-    let check_with_path_selector = get_stdout(&dir, ["check", "lib", "--no-mi", "--dry-run"]);
+    let check_with_path_selector = get_stdout(&dir, ["check", "lib", "--dry-run"]);
     assert!(
         check_with_path_selector.contains("moonc check"),
         "stdout: {check_with_path_selector}"
@@ -151,18 +150,6 @@ fn check_path_selector_smoke() {
 
     #[cfg(unix)]
     {
-        let stderr = get_err_stderr(&dir, ["check", "lib", "main", "--no-mi", "--dry-run"]);
-        assert!(
-            stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
-            "stderr: {stderr}"
-        );
-
-        let stderr = get_err_stderr(&dir, ["check", "notes", "--no-mi", "--dry-run"]);
-        assert!(
-            stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
-            "stderr: {stderr}"
-        );
-
         let stderr = get_err_stderr(
             &dir,
             ["check", "notes", "--patch-file", "patch.json", "--dry-run"],
@@ -183,7 +170,7 @@ fn build_explicit_empty_selection_does_not_expand_to_workspace() {
 
 fn assert_moonrun_line(output: &str, release: bool) {
     let empty: &[&str] = &[];
-    let line = line_with(output, "moonrun", empty);
+    let line = line_with(output, "$MOONRUN_OVERRIDE", empty);
     let target_prefix = if release {
         "_build/wasm-gc/release/"
     } else {

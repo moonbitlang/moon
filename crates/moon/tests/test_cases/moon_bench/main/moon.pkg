@@ -1,0 +1,5 @@
+import {
+  "moonbench/lib",
+}
+
+pkgtype(kind: "executable")

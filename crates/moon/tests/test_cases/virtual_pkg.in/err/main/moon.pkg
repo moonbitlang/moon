@@ -1,0 +1,9 @@
+import {
+  "username/hello/lib1",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  overrides: ["username/hello/lib2"],
+)

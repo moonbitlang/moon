@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -24,34 +24,33 @@ use std::{
 
 use anyhow::{Context, bail};
 use moonutil::{
-    common::{
-        MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
-        warn_if_shadowed_manifest, write_module_json_to_file,
-    },
+    constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
-    module::{MoonMod, convert_module_to_mod_json},
+    manifest::{
+        MoonMod, convert_module_to_mod_json, read_module_desc_file_in_dir, warn_module_manifest,
+        write_module_json_to_file,
+    },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
-    mooncakes::{
-        ModuleId, ModuleName, ModuleSource,
-        result::{
-            DependencyEdge, DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules,
-        },
+    project::{
+        MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
-    workspace::{
-        MoonWork, canonical_workspace_module_dirs, read_workspace, workspace_manifest_path,
-        write_workspace,
+    resolution::{
+        DependencyEdge, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource,
+        ModuleSourceKind, ResolvedModule, ResolvedRootModules,
     },
+    user_log::UserLog,
 };
 
 use crate::{
     registry,
-    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
 pub fn init_workspace(
     workspace_root: &Path,
     paths: &[PathBuf],
     quiet: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     if let Some(workspace_path) = workspace_manifest_path(workspace_root) {
         bail!(
@@ -65,7 +64,7 @@ pub fn init_workspace(
     } else {
         let mut use_paths = BTreeSet::new();
         for path in paths {
-            let member_dir = resolve_workspace_member(path)?;
+            let member_dir = resolve_workspace_member(path, user_log)?;
             use_paths.insert(workspace_use_path(workspace_root, &member_dir));
         }
         use_paths.into_iter().collect()
@@ -86,45 +85,28 @@ pub fn init_workspace(
     Ok(0)
 }
 
-pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> anyhow::Result<i32> {
-    let existing = read_workspace(workspace_root)?;
-    let preferred_target = match existing.as_ref() {
-        Some(workspace) => workspace.preferred_target,
-        None => None,
+pub fn use_workspace(
+    target: WorkspaceEditTarget,
+    paths: &[PathBuf],
+    quiet: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let (workspace_root, preferred_target, mut use_paths, mut member_dirs, existed) = match target {
+        WorkspaceEditTarget::CreateAt(root) => (root, None, Vec::new(), BTreeSet::new(), false),
+        WorkspaceEditTarget::Existing(workspace) => (
+            workspace.root().to_path_buf(),
+            workspace.manifest().preferred_target,
+            workspace.manifest().use_paths.clone(),
+            workspace.members().iter().cloned().collect(),
+            true,
+        ),
     };
-
-    let mut use_paths = Vec::new();
-    let mut member_dirs = BTreeSet::new();
-    if let Some(workspace) = existing.as_ref() {
-        for use_path in &workspace.use_paths {
-            let member_dir = if use_path.is_absolute() {
-                use_path.to_path_buf()
-            } else {
-                workspace_root.join(use_path)
-            };
-            let member_dir = dunce::canonicalize(&member_dir).with_context(|| {
-                format!(
-                    "failed to resolve workspace member `{}` from `{}`",
-                    use_path.display(),
-                    workspace_root.display()
-                )
-            })?;
-            if !member_dir.is_dir() {
-                bail!(
-                    "workspace member `{}` is not a directory",
-                    use_path.display()
-                );
-            }
-            member_dirs.insert(member_dir);
-            use_paths.push(use_path.clone());
-        }
-    }
 
     let previous_len = use_paths.len();
     for path in paths {
-        let member_dir = resolve_workspace_member(path)?;
+        let member_dir = resolve_workspace_member(path, user_log)?;
         if member_dirs.insert(member_dir.clone()) {
-            use_paths.push(workspace_use_path(workspace_root, &member_dir));
+            use_paths.push(workspace_use_path(&workspace_root, &member_dir));
         }
     }
 
@@ -132,13 +114,13 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
         use_paths,
         preferred_target,
     };
-    write_workspace(workspace_root, &workspace).context(format!(
+    write_workspace(&workspace_root, &workspace).context(format!(
         "failed to write `{}`",
         workspace_root.join(MOON_WORK).display()
     ))?;
 
     if !quiet {
-        if existing.is_none() {
+        if !existed {
             println!("Created {}", MOON_WORK);
         } else if workspace.use_paths.len() == previous_len {
             println!("{} is already up to date", MOON_WORK);
@@ -150,16 +132,14 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
     Ok(0)
 }
 
-pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
-    let workspace = read_workspace(source_dir)?.context(format!(
-        "`moon work sync` requires `{}` at `{}`",
-        MOON_WORK,
-        source_dir.display()
-    ))?;
-    let member_dirs = canonical_workspace_module_dirs(source_dir, &workspace)?;
-    let roots = workspace_roots(&member_dirs)?;
-    let resolved_env = resolve_workspace(roots)?;
-    let updated = sync_workspace_manifests(&resolved_env)?;
+pub fn sync_workspace(
+    workspace: &WorkspaceLayout,
+    quiet: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let roots = workspace_roots(workspace.members(), user_log)?;
+    let module_graph = resolve_workspace(roots, user_log)?;
+    let updated = sync_workspace_manifests(&module_graph)?;
 
     if !quiet {
         if updated.is_empty() {
@@ -167,7 +147,7 @@ pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
         } else {
             println!("Synced workspace manifests:");
             for path in updated {
-                let display = path.strip_prefix(source_dir).unwrap_or(&path);
+                let display = path.strip_prefix(workspace.root()).unwrap_or(&path);
                 println!("{}", display.display());
             }
         }
@@ -176,17 +156,16 @@ pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
     Ok(0)
 }
 
-fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
+fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<PathBuf> {
     let member_dir = dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve workspace member `{}`", path.display()))?;
     if !member_dir.is_dir() {
         bail!("workspace member `{}` is not a directory", path.display());
     }
-    warn_if_shadowed_manifest(
+    warn_module_manifest(
         &member_dir,
-        MOON_MOD_JSON,
-        MOON_MOD,
         &format!("at module root '{}'", member_dir.display()),
+        user_log,
     );
     read_module_desc_file_in_dir(&member_dir).with_context(|| {
         format!(
@@ -211,7 +190,10 @@ fn workspace_use_path(workspace_root: &Path, member_dir: &Path) -> PathBuf {
     PathBuf::from(".").join(relative)
 }
 
-fn resolve_workspace(roots: ResolvedRootModules) -> anyhow::Result<ResolvedEnv> {
+fn resolve_workspace(
+    roots: ResolvedRootModules,
+    user_log: &UserLog,
+) -> anyhow::Result<ModuleDependencyGraph> {
     let mut includes_core = false;
     for (_, module) in roots.iter() {
         if module.module_info().name == MOONBITLANG_CORE {
@@ -224,66 +206,62 @@ fn resolve_workspace(roots: ResolvedRootModules) -> anyhow::Result<ResolvedEnv> 
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
 
-    let resolve_config = ResolveConfig {
-        registry: registry::default_registry(),
+    let registry = registry::default_registry(user_log);
+    let module_resolution_config = ModuleResolutionConfig {
+        registry: &registry,
         inject_std: !includes_core,
+        warn_deprecated: true,
     };
-    resolve_with_default_env_and_resolver(&resolve_config, roots).map_err(Into::into)
+    resolve_modules(&module_resolution_config, roots, user_log).map_err(Into::into)
 }
 
-fn workspace_roots(member_dirs: &[PathBuf]) -> anyhow::Result<ResolvedRootModules> {
+fn workspace_roots(
+    member_dirs: &[PathBuf],
+    user_log: &UserLog,
+) -> anyhow::Result<ResolvedRootModules> {
     let mut roots = ResolvedRootModules::with_key();
 
     for member_dir in member_dirs {
-        warn_if_shadowed_manifest(
+        warn_module_manifest(
             member_dir,
-            MOON_MOD_JSON,
-            MOON_MOD,
             &format!("at module root '{}'", member_dir.display()),
+            user_log,
         );
         let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
-        let source = moonutil::mooncakes::ModuleSource::from_local_module(&module, member_dir);
+        let source = ModuleSource::from_local_module(&module, member_dir)?;
         roots.insert(ResolvedModule::new(source, module));
     }
 
     Ok(roots)
 }
 
-fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<PathBuf>> {
+fn sync_workspace_manifests(module_graph: &ModuleDependencyGraph) -> anyhow::Result<Vec<PathBuf>> {
     let mut updated = Vec::new();
 
-    for &id in resolved_env.input_module_ids() {
-        let module_dir = local_module_dir(resolved_env.module_source(id)).context(format!(
+    for &id in module_graph.input_module_ids() {
+        let module_dir = local_module_dir(module_graph.module_source(id)).context(format!(
             "workspace root `{}` is not backed by a local path",
-            resolved_env.module_source(id)
+            module_graph.module_source(id)
         ))?;
 
-        let mut module = Arc::unwrap_or_clone(Arc::clone(resolved_env.module_info(id)));
-        let (regular_deps_changed, bin_deps_changed) =
-            sync_manifest_versions(resolved_env, id, &mut module)?;
-        if !regular_deps_changed && !bin_deps_changed {
+        let mut module = Arc::unwrap_or_clone(Arc::clone(module_graph.module_info(id)));
+        if !sync_manifest_versions(module_graph, id, &mut module)? {
             continue;
         }
 
         let manifest_path = if module_dir.join(MOON_MOD).exists() {
             let manifest_path = module_dir.join(MOON_MOD);
-            if bin_deps_changed {
-                let new_json = convert_module_to_mod_json(module);
-                patch_module_dsl_to_file(module_dir, MoonModPatch::Rewrite(new_json))
-                    .context(format!("failed to write `{}`", manifest_path.display()))?;
-            } else if regular_deps_changed {
-                let versions = module
-                    .deps
-                    .iter()
-                    .filter_map(|(name, dep)| {
-                        dep.version()
-                            .cloned()
-                            .map(|version| (name.clone(), version))
-                    })
-                    .collect::<indexmap::IndexMap<_, _>>();
-                patch_module_dsl_to_file(module_dir, MoonModPatch::UpdateImportItems(versions))
-                    .context(format!("failed to write `{}`", manifest_path.display()))?;
-            }
+            let versions = module
+                .deps
+                .iter()
+                .filter_map(|(name, dep)| {
+                    dep.version()
+                        .cloned()
+                        .map(|version| (name.clone(), version))
+                })
+                .collect::<indexmap::IndexMap<_, _>>();
+            patch_module_dsl_to_file(module_dir, MoonModPatch::UpdateImportItems(versions))
+                .context(format!("failed to write `{}`", manifest_path.display()))?;
             manifest_path
         } else {
             let manifest_path = module_dir.join(MOON_MOD_JSON);
@@ -301,55 +279,41 @@ fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<Pa
 
 fn local_module_dir(source: &ModuleSource) -> Option<&Path> {
     match source.source() {
-        moonutil::mooncakes::ModuleSourceKind::Local(path) => Some(path.as_path()),
+        ModuleSourceKind::Local(path) => Some(path.as_path()),
         _ => None,
     }
 }
 
 fn sync_manifest_versions(
-    resolved_env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     id: ModuleId,
     module: &mut MoonMod,
-) -> anyhow::Result<(bool, bool)> {
+) -> anyhow::Result<bool> {
     let mut regular_deps_changed = false;
 
     for (dep_name, dep) in &mut module.deps {
-        regular_deps_changed |=
-            sync_source_dependency(resolved_env, id, dep_name, DependencyKind::Regular, dep)?;
+        regular_deps_changed |= sync_source_dependency(module_graph, id, dep_name, dep)?;
     }
 
-    let mut bin_deps_changed = false;
-    for (dep_name, dep) in module.bin_deps.iter_mut().flat_map(|deps| deps.iter_mut()) {
-        bin_deps_changed |= sync_source_dependency(
-            resolved_env,
-            id,
-            dep_name,
-            DependencyKind::Binary,
-            &mut dep.common,
-        )?;
-    }
-
-    Ok((regular_deps_changed, bin_deps_changed))
+    Ok(regular_deps_changed)
 }
 
 fn sync_source_dependency(
-    resolved_env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     id: ModuleId,
     dep_name: &str,
-    kind: DependencyKind,
     dep: &mut SourceDependencyInfo,
 ) -> anyhow::Result<bool> {
     let dep_name: ModuleName = dep_name.into();
     let dep_key = DependencyEdge {
         name: dep_name.clone(),
-        kind,
     };
-    let dep_id = resolved_env.dep_with_key(id, &dep_key).context(format!(
+    let dep_id = module_graph.dep_with_key(id, &dep_key).context(format!(
         "resolved workspace graph is missing direct dependency `{}` for `{}`",
         dep_name,
-        resolved_env.module_source(id)
+        module_graph.module_source(id)
     ))?;
-    let version = Some(resolved_env.module_source(dep_id).version().clone());
+    let version = Some(module_graph.module_source(dep_id).version().clone());
 
     if dep.version() == version.as_ref() {
         return Ok(false);

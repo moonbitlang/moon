@@ -1,34 +1,39 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use moonutil::{
-    cli::UniversalFlags,
-    common::{FileLock, RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
-    dirs::PackageDirs,
-    mooncakes::sync::AutoSyncFlags,
+    build_options::RunMode,
+    cli_support::AutoSyncFlags,
+    cli_support::UniversalFlags,
+    command_output::CommandOutput,
+    locks::lock_directory,
+    project::PackageDirs,
+    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
+    user_log::UserLog,
 };
 use std::path::Path;
 use tracing::instrument;
 
-use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
-use crate::user_diagnostics::UserDiagnostics;
+use crate::rr_build::{self, CalcUserIntentOutput};
 
 use super::BuildFlags;
 
@@ -48,15 +53,15 @@ pub(crate) struct BundleSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = cli
+pub(crate) fn run_bundle(
+    cli: UniversalFlags,
+    cmd: BundleSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
+        .select(output.user_log())?
         .package_dirs()?;
 
     let mut surface_targets = cmd.build_flags.target.clone();
@@ -65,194 +70,196 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
     }
 
     if surface_targets.is_empty() {
-        return run_bundle_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            None,
-        );
+        return run_bundle_internal(&cli, &cmd, &dirs, None, output);
     }
 
     let targets = lower_surface_targets(&surface_targets);
-
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_bundle_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            Some(t),
-        )
-        .context(format!("failed to run bundle for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+    let discovered = sync_and_discover_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
     }
-    Ok(ret_value)
-}
-
-#[instrument(skip_all)]
-pub(crate) fn run_bundle_internal(
-    cli: &UniversalFlags,
-    cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    selected_target_backend: Option<TargetBackend>,
-) -> anyhow::Result<i32> {
-    run_bundle_internal_rr(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-        selected_target_backend,
+    run_bundle_rr_from_discovered(&cli, &cmd, &dirs, &targets, discovered, output).with_context(
+        || match targets.as_slice() {
+            [target] => format!("failed to run bundle for target {target:?}"),
+            _ => format!("failed to run bundle for targets {targets:?}"),
+        },
     )
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_bundle_internal(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    dirs: &PackageDirs,
+    selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    run_bundle_internal_rr(cli, cmd, dirs, selected_target_backend, output)
+}
+
+#[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_bundle_internal_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let (build_meta, build_graph) = plan_bundle_rr(
+    let discovered = sync_and_discover_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
+    }
+    run_bundle_rr_from_discovered(
         cli,
         cmd,
+        dirs,
+        selected_target_backend.as_slice(),
+        discovered,
+        output,
+    )
+}
+
+/// Plans and executes a bundle from a discovered project.
+///
+/// The caller must hold the target-directory lock for a non-dry-run build.
+fn run_bundle_rr_from_discovered(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    dirs: &PackageDirs,
+    selected_target_backends: &[TargetBackend],
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    let PackageDirs {
         source_dir,
         target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-        selected_target_backend,
+        ..
+    } = dirs;
+    let planned_runs = plan_bundle_rr_from_discovered(
+        cli,
+        cmd,
+        target_dir,
+        selected_target_backends,
+        discovered,
+        user_log,
     )?;
 
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        output.write_result(|writer| {
+            let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+            let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
+            rr_build::write_dry_run(writer, &build_input, source_dir)
+        })?;
         Ok(0)
     } else {
-        let _lock = FileLock::lock(target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle)?;
-        // Generate metadata for IDE & bundler
-        rr_build::generate_metadata(
-            source_dir,
-            target_dir,
-            &build_meta,
-            &build_graph,
-            RunMode::Bundle,
-            None,
-        )?;
+        for (build_meta, _) in &planned_runs {
+            rr_build::generate_all_pkgs_json(build_meta)?;
+        }
+        let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
+        let build_input = BuildInput::compose(build_inputs)?;
 
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &cmd.build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
-            build_graph,
+        let result = moonbuild::execution::execute_build(
+            &cmd.build_flags
+                .execution_config(&cli.unstable_feature, cli.verbose),
+            build_input,
             target_dir,
+            user_log,
         )?;
         result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }
 }
 
-pub(crate) fn plan_bundle_rr(
+fn sync_and_discover_bundle_project(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    selected_target_backend: Option<TargetBackend>,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
-    plan_bundle_rr_from_resolved(
-        cli,
-        cmd,
-        target_dir,
-        selected_target_backend,
-        resolve_output,
-    )
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
+    let preparation_config =
+        moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+            cmd.auto_sync_flags.frozen,
+            !cmd.build_flags.std(),
+            cmd.build_flags.enable_coverage,
+            cli.workspace_env.clone(),
+        );
+    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
-pub(crate) fn plan_bundle_rr_from_resolved(
+/// Selects backends, resolves packages, then plans one bundle per backend.
+pub(crate) fn plan_bundle_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let preconfig = bundle_preconfig(cli, cmd, target_dir, selected_target_backend);
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
-    )?;
-    let intent = bundle_user_intent(&resolve_output);
-    rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
-        intent,
-        resolve_output,
-    )
+    selected_target_backends: &[TargetBackend],
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
+    let target_backends = if selected_target_backends.is_empty() {
+        vec![rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default()]
+    } else {
+        selected_target_backends.to_vec()
+    };
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
+    target_backends
+        .into_iter()
+        .map(|target_backend| {
+            plan_bundle_rr_from_resolved(
+                cli,
+                cmd,
+                target_dir,
+                target_backend,
+                resolved_project.clone(),
+                user_log,
+            )
+        })
+        .collect()
 }
 
-fn bundle_preconfig(
+fn plan_bundle_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-) -> rr_build::CompilePreConfig {
-    let mut preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
+    target_backend: TargetBackend,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let mut compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        selected_target_backend,
+        target_backend,
         target_dir,
         RunMode::Bundle,
-    );
-    preconfig.warning_condition = if cmd.build_flags.deny_warn {
+        user_log,
+        &resolved_project,
+    )?;
+    compile_config.warning_condition = if cmd.build_flags.deny_warn {
         WarningCondition::Deny
     } else {
         WarningCondition::Allow
     };
-    preconfig
+    let intent = bundle_user_intent(&resolved_project);
+    rr_build::plan_resolved_build_from_intent(
+        compile_config,
+        user_log,
+        intent,
+        resolved_project,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
+    )
 }
 
 fn bundle_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
 ) -> CalcUserIntentOutput {
-    resolve_output
+    discovered
         .local_modules()
         .iter()
         .map(|&module| UserIntent::Bundle(module))

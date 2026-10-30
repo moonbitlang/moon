@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,19 +20,19 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::bail;
 use moonutil::{
-    common::{is_moon_mod_exist, is_moon_pkg_exist},
-    moon_dir,
-    mooncakes::{Credentials, validate_username},
+    MOON_HOME,
+    constants::{is_moon_mod_exist, is_moon_pkg_exist},
+    registry::{Credentials, validate_username},
+    user_log::UserLog,
 };
 
 use super::UniversalFlags;
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Read the existing username from the credentials file
-fn get_existing_username(output: UserDiagnostics) -> Option<String> {
-    let credentials_path = moon_dir::credentials_json();
+fn get_existing_username(user_log: &UserLog) -> Option<String> {
+    let credentials_path = MOON_HOME.credentials_path();
     if !credentials_path.exists() {
-        output.warn(
+        user_log.warn(
             "Using default username. You may login with `moon login` to store your username, or provide one with `--user <username>`.",
         );
         return None;
@@ -44,7 +44,7 @@ fn get_existing_username(output: UserDiagnostics) -> Option<String> {
         if let Ok(credentials) = serde_json_lenient::from_reader::<_, Credentials>(reader) {
             return credentials.username;
         } else {
-            output.warn(
+            user_log.warn(
                 "Using default username. You may relogin with `moon login` to store your username, or provide one with `--user <username>`.",
             );
         }
@@ -67,9 +67,11 @@ pub(crate) struct NewSubcommand {
     pub name: Option<String>,
 }
 
-pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(cli);
-
+pub(crate) fn run_new(
+    cli: &UniversalFlags,
+    cmd: NewSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for new")
     }
@@ -82,7 +84,7 @@ pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Resul
 
     let username = cmd
         .user
-        .or_else(|| get_existing_username(output))
+        .or_else(|| get_existing_username(user_log))
         .unwrap_or("username".to_string());
     validate_username(&username).map_err(|e| anyhow::anyhow!(e))?;
 
@@ -104,19 +106,21 @@ pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Resul
                 .unwrap_or_else(|| "hello".to_string())
         }
     };
-    if project_name
-        .chars()
-        .any(|c| !c.is_ascii_alphanumeric() && c != '_')
-    {
+    let mut name_chars = project_name.chars();
+    let has_valid_start = name_chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let has_valid_rest = name_chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if !has_valid_start || !has_valid_rest {
         bail!(
-            "Project name {} contains invalid characters. Only alphanumeric characters and underscore are allowed.",
+            "Project name {} contains invalid characters. Names must match package id syntax: start with an ASCII letter or underscore, followed by ASCII letters, digits, dashes, or underscores.",
             project_name
         );
     }
 
     // Warn about reserved suffixes that may cause template files to be misrecognized
     if project_name.ends_with("_test") || project_name.ends_with("_wbtest") {
-        output.warn(format!(
+        user_log.warn(format!(
             "Project name '{}' ends with a reserved suffix. \
              In MoonBit, files ending with '_test.mbt' or '_wbtest.mbt' are treated as test files. \
              Template files in this project may be incorrectly recognized as test files.",

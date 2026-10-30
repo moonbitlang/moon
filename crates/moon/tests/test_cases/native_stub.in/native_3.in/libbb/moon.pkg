@@ -1,0 +1,8 @@
+import {
+  "native_1/lib",
+  "native_2/libb",
+} for "test"
+
+options(
+  "native-stub": [ "stub.c" ],
+)

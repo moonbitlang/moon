@@ -32,8 +32,8 @@
 0033	text_segment_excceed	Text segment exceed the line or column limits.
 0034	implicit_use_builtin	Implicit use of definitions from `moonbitlang/core/builtin`.
 0035	reserved_keyword	Reserved keyword.
-0036	loop_label_shadowing	Loop label shadows another label.
-0037	unused_loop_label	Unused loop label.
+0036	block_label_shadowing	Block label shadows another label.
+0037	unused_block_label	Unused block label.
 0038	missing_invariant	For-loop is missing an invariant.
 0039	missing_reasoning	For-loop is missing a proof_reasoning.
 0040	multiline_string_escape	Deprecated escape sequence in multiline string.
@@ -68,6 +68,22 @@
 0073	unnecessary_annotation	unnecessary type annotation
 0074	missing_doc	Missing documentation for public definition
 0075	unnecessary_view_op	Unnecessary `[:]` view operator
-0076	lexmatch_first_match	Using `lexmatch` with first-match semantics.
-0077	lexmatch_longest_match	Using `lexmatch` with longest-match semantics.
 0078	result_error_return	Using `Result[T, E]` where `E` is an error type.
+0079	implicit_impl_as_method	`impl` implicitly promoted as method
+0080	regex_match_missing_before	Missing `before` binding in `regex match`.
+0081	regex_match_missing_after	Missing `after` binding in `regex match`.
+0082	ambiguous_braces	Ambiguous `{}` braces.
+0083	type_param_method	Calling method of type parameter in a deprecated way.
+0084	unqualified_record	Struct literal in a `let` binding without a type prefix.
+0085	unlabelled_break_in_labelled_loop	Unlabelled `break` directly inside a labelled loop.
+0086	unlabelled_continue_in_labelled_loop	Unlabelled `continue` directly inside a labelled loop.
+0087	guard_inexhaustive	`guard` condition is not exhaustive and may panic.
+0088	guard_redundant_bang	Redundant `!` on an exhaustive `guard`.
+0089	guard_redundant_else	Redundant `else` on an exhaustive `guard`.
+0090	unused_lexcase	`lexmatch`/`lexscan` branch that can never be selected because other branches takes precedence or its pattern matches nothing.
+0091	unused_errdefer	unused `errdefer` statement
+0092	fragile_catch_all	fragile `catch` handler that can be converted to `defer` or `errdefer`
+0093	unknown_constr_pat_on_exhaustive_type	using `TypeName::..` pattern on a type not marked with `#non_exhaustive`
+0094	unknown_intrinsic	`#intrinsic` attribute names an unknown intrinsic.
+0095	nan_pattern	Pattern on a NaN constant, which never matches.
+0096	unfenced_import	Deprecated import declarations outside frontmatter.

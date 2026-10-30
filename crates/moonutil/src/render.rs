@@ -1,32 +1,44 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    common::{DiagnosticLevel, PatchJSON, line_col_to_byte_idx},
-    error_code_docs::get_error_code_doc,
-};
+use crate::{error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel};
+
+#[derive(Debug, Deserialize)]
+pub struct PatchJSON {
+    pub drops: Vec<String>,
+    pub patches: Vec<PatchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchItem {
+    pub name: String,
+    pub content: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MooncDiagnostic {
@@ -108,22 +120,100 @@ impl Position {
             col: col.parse::<usize>().ok()?,
         })
     }
+}
 
-    pub fn calculate_offset(&self, content: &str) -> Option<usize> {
-        if self.line == 0 || self.col == 0 {
+struct DiagnosticSource {
+    display_filename: String,
+    source: ariadne::Source,
+    line_offsets: Vec<usize>,
+}
+
+impl DiagnosticSource {
+    fn new(display_filename: String, content: String) -> Self {
+        // Compiler columns and Ariadne spans count Unicode scalar values.
+        // Only LF starts a compiler line; Ariadne also recognizes other
+        // separators, so its line table cannot replace this index.
+        let line_offsets = std::iter::once(0)
+            .chain(
+                content
+                    .chars()
+                    .enumerate()
+                    .filter_map(|(offset, ch)| (ch == '\n').then_some(offset + 1)),
+            )
+            .collect();
+        Self {
+            display_filename,
+            source: ariadne::Source::from(content),
+            line_offsets,
+        }
+    }
+
+    fn calculate_offset(&self, position: &Position) -> Option<usize> {
+        let line_offset = self.line_offsets.get(position.line.checked_sub(1)?)?;
+        let offset = line_offset.checked_add(position.col.checked_sub(1)?)?;
+        (offset <= self.source.len()).then_some(offset)
+    }
+}
+
+/// Source text and indexes shared by one batch of rendered diagnostics.
+///
+/// Create a fresh cache for each batch so subsequent builds observe file edits.
+#[derive(Default)]
+pub struct DiagnosticSources {
+    // Keep disk-only source-map reads separate from patch-enabled lookups.
+    files: HashMap<(PathBuf, Option<PathBuf>), Option<DiagnosticSource>>,
+    source_maps: HashMap<String, Option<SourceMap>>,
+}
+
+impl DiagnosticSources {
+    fn get_file(
+        &mut self,
+        path: impl AsRef<Path>,
+        patch_file: Option<&PathBuf>,
+    ) -> Option<&DiagnosticSource> {
+        let path = path.as_ref();
+        self.files
+            .entry((path.to_owned(), patch_file.cloned()))
+            .or_insert_with(|| {
+                let (content, display_filename) = std::fs::read_to_string(path)
+                    .map(|content| (content, path.display().to_string()))
+                    .ok()
+                    .or_else(|| {
+                        patch_file.and_then(|patch_file| {
+                            MooncDiagnostic::get_content_and_filename_from_diagnostic_patch_file(
+                                patch_file,
+                                path.to_str()?,
+                            )
+                        })
+                    })?;
+                Some(DiagnosticSource::new(display_filename, content))
+            })
+            .as_ref()
+    }
+
+    fn remap(
+        &mut self,
+        path: &str,
+        start_offset: usize,
+        end_offset: usize,
+    ) -> Option<(PathBuf, usize, usize)> {
+        let path_to_map_json = format!("{path}.map.json");
+        let map = self
+            .source_maps
+            .entry(path_to_map_json.clone())
+            .or_insert_with(|| {
+                let content = std::fs::read_to_string(&path_to_map_json).ok()?;
+                serde_json_lenient::from_str::<SourceMap>(&content).ok()
+            })
+            .as_ref()?;
+        let map_path = Path::new(&path_to_map_json);
+        let (source1, start_offset) = map.to_original(start_offset, map_path)?;
+        let (source2, end_offset) = map.to_original(end_offset, map_path)?;
+        if source1 != source2 {
             return None;
         }
-        let line_index = line_index::LineIndex::new(content);
-        let byte_based_index =
-            line_col_to_byte_idx(&line_index, self.line as u32 - 1, self.col as u32 - 1)?;
-
-        let res = content
-            .char_indices()
-            .enumerate()
-            .find(|(_, (byte_offset, _))| *byte_offset == byte_based_index)
-            .map(|(i, _)| i)
-            .unwrap_or(usize::from(line_index.len()));
-        Some(res)
+        self.get_file(&source1, None)?;
+        Some((source1, start_offset, end_offset))
     }
 }
 
@@ -191,6 +281,7 @@ impl MooncDiagnostic {
         &self,
         use_fancy: bool,
         check_patch_file: Option<&PathBuf>,
+        sources: &mut DiagnosticSources,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
     ) -> Option<ReportKind<'static>> {
@@ -224,40 +315,24 @@ impl MooncDiagnostic {
             return Some(kind);
         }
 
-        let source_file_path = diagnostic.path.clone();
-        let (source_file_content, display_filename) =
-            match std::fs::read_to_string(&source_file_path) {
-                Ok(content) => (content, source_file_path.clone()),
-                Err(_) => {
-                    // if the source file is not found, try to get the content from the check patch file
-                    match check_patch_file.and_then(|f| {
-                        Self::get_content_and_filename_from_diagnostic_patch_file(
-                            f,
-                            &diagnostic.path,
-                        )
-                    }) {
-                        Some((content, filename)) => (content, filename),
-                        None => {
-                            eprintln!(
-                                "failed to read file `{}`, [{}] {}: {}",
-                                source_file_path,
-                                diagnostic.formatted_error_code(),
-                                diagnostic.level,
-                                diagnostic.message
-                            );
-                            return Some(kind);
-                        }
-                    }
-                }
-            };
+        let Some(source) = sources.get_file(&diagnostic.path, check_patch_file) else {
+            eprintln!(
+                "failed to read file `{}`, [{}] {}: {}",
+                diagnostic.path,
+                diagnostic.formatted_error_code(),
+                diagnostic.level,
+                diagnostic.message
+            );
+            return Some(kind);
+        };
 
         let (start_position, end_position) = diagnostic.loc.as_range();
-        let Some(start_offset) = start_position.calculate_offset(&source_file_content) else {
+        let Some(start_offset) = source.calculate_offset(start_position) else {
             error!("failed to calculate start offset for diagnostic");
             bail_print_original()?;
             return None;
         };
-        let Some(end_offset) = end_position.calculate_offset(&source_file_content) else {
+        let Some(end_offset) = source.calculate_offset(end_position) else {
             error!("failed to calculate end offset for diagnostic");
             bail_print_original()?;
             return None;
@@ -265,34 +340,25 @@ impl MooncDiagnostic {
 
         // Remapping if there's .map.json file
         // TODO: log reasons for `.map.json` exists but not works.
-        let path_to_map_json = PathBuf::from(source_file_path + ".map.json");
-        let mapped = std::fs::read_to_string(&path_to_map_json)
-            .ok()
-            .and_then(|content| {
-                let map = serde_json_lenient::from_str::<SourceMap>(&content).ok()?;
-
-                let (source1, start_pos) = map.to_original(start_offset, &path_to_map_json)?;
-                let (source2, end_pos) = map.to_original(end_offset, &path_to_map_json)?;
-
-                if source1 != source2 {
-                    return None;
-                }
-
-                std::fs::read_to_string(&source1)
-                    .ok()
-                    .map(|content| (content, source1.display().to_string(), start_pos, end_pos))
+        let (source_path, start_offset, end_offset, patch_file) = sources
+            .remap(&diagnostic.path, start_offset, end_offset)
+            .map(|(path, start, end)| (path, start, end, None))
+            .unwrap_or_else(|| {
+                (
+                    PathBuf::from(&diagnostic.path),
+                    start_offset,
+                    end_offset,
+                    check_patch_file,
+                )
             });
-
-        let (source_file_content, display_filename, start_offset, end_offset) = mapped.unwrap_or((
-            source_file_content,
-            display_filename,
-            start_offset,
-            end_offset,
-        ));
+        let source = sources
+            .get_file(&source_path, patch_file)
+            .expect("diagnostic source was already loaded");
+        let display_filename = &source.display_filename;
 
         let mut report_builder =
-            ariadne::Report::build(kind, (&display_filename, start_offset..end_offset)).with_label(
-                ariadne::Label::new((&display_filename, start_offset..end_offset))
+            ariadne::Report::build(kind, (display_filename, start_offset..end_offset)).with_label(
+                ariadne::Label::new((display_filename, start_offset..end_offset))
                     .with_message((&diagnostic.message).fg(color))
                     .with_color(color),
             );
@@ -317,10 +383,10 @@ impl MooncDiagnostic {
                 report_builder.with_config(ariadne::Config::default().with_color(false));
         }
 
-        match report_builder.finish().eprint((
-            &display_filename,
-            ariadne::Source::from(source_file_content),
-        )) {
+        match report_builder
+            .finish()
+            .eprint((display_filename, &source.source))
+        {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("internal rendering error: {e:?}");
@@ -328,71 +394,6 @@ impl MooncDiagnostic {
         };
 
         Some(kind)
-    }
-
-    pub fn render(
-        content: &str,
-        use_fancy: bool,
-        check_patch_file: Option<PathBuf>,
-        explain: bool,
-        render_no_loc_level: DiagnosticLevel,
-        source_dir: &Path,
-        target_dir: &Path,
-    ) -> Option<ReportKind<'static>> {
-        let bail_print_original = || {
-            eprintln!("{content}");
-            None
-        };
-        let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
-            Ok(d) => d,
-            Err(_) => bail_print_original()?,
-        };
-
-        // a workaround for rendering the diagnostaic and error in generated test driver file correctly
-        'fail_to_get_source: {
-            if diagnostic.path.contains("__generated_driver_for_") {
-                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir) else {
-                    error!(
-                        "when working around driver file path issue, failed to read module.desc file in source dir: {}",
-                        source_dir.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-                let source = file.source;
-                let source_code_dir = match source {
-                    Some(source) => source_dir.join(source),
-                    None => source_dir.to_owned(),
-                };
-
-                // Normalize source dir. Work around when `source_dir` ends with `.`
-                let Ok(source_code_dir) = dunce::canonicalize(&source_code_dir) else {
-                    warn!(
-                        "when working around driver file path issue, failed to canonicalize source code dir: {}",
-                        source_code_dir.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-                let diag_path: &Path = diagnostic.path.as_ref();
-                let Ok(rel_path) = diag_path.strip_prefix(&source_code_dir) else {
-                    warn!(
-                        "when working around driver file path issue, failed to strip prefix {} from {}",
-                        source_code_dir.display(),
-                        diag_path.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-
-                let mbt_file_path = target_dir.join(rel_path);
-                diagnostic.path = mbt_file_path.display().to_string();
-            }
-        }
-
-        diagnostic.render_diagnostics(
-            use_fancy,
-            check_patch_file.as_ref(),
-            explain,
-            render_no_loc_level,
-        )
     }
 
     fn get_content_and_filename_from_diagnostic_patch_file(
@@ -430,30 +431,4 @@ impl MooncDiagnostic {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn render_accepts_no_location_diagnostic_json() {
-        // Stable compiler repro: run `moonc check` on any valid `.mbt` file and
-        // pass that same existing non-`.mi` file to `-check-mi`. This emits a
-        // no-location diagnostic with `path: ""` and `loc: "0:0-0:0"`.
-        let diagnostic_json = r#"{"$message_type":"diagnostic","level":"error","error_code":4049,"path":"","loc":"0:0-0:0","message":"Magic number mismatch"}"#;
-
-        let diagnostic = serde_json_lenient::from_str::<MooncDiagnostic>(diagnostic_json).unwrap();
-        assert!(diagnostic.path.is_empty());
-
-        let rendered = MooncDiagnostic::render(
-            diagnostic_json,
-            false,
-            None,
-            false,
-            DiagnosticLevel::Error,
-            Path::new("."),
-            Path::new("."),
-        );
-
-        assert!(rendered.is_some());
-    }
-}
+mod tests;

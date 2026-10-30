@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -24,7 +24,7 @@ use std::{
 };
 
 use arcstr::ArcStr;
-use moonutil::mooncakes::{ModuleName, ModuleSource};
+use moonutil::resolution::{ModuleName, ModuleSource};
 use relative_path::RelativePath;
 
 pub const PACKAGE_SEGMENT_SEP: char = '/';
@@ -59,18 +59,27 @@ impl PackageFQN {
     }
 
     /// Get the short name alias for this fully-qualified name.
+    /// A module's root package omits its major-version suffix from the alias.
     pub fn short_alias(&self) -> &str {
-        self.package
-            .short_name()
-            .unwrap_or_else(|| self.module.name().last_segment())
+        self.package.short_name().unwrap_or_else(|| {
+            let name = self.module.name();
+            if matches!(name.major_version_suffix(), Ok(Some(_))) {
+                name.unqual.split_once('/').expect("version suffix").0
+            } else {
+                name.last_segment()
+            }
+        })
     }
 
     /// Same as [`Self::short_alias`], but returns a ref-counted substring,
     /// preventing the frequent cloning of [`String`]s when converting to string.
     pub fn short_alias_owned(&self) -> arcstr::Substr {
-        self.package
-            .short_name_owned()
-            .unwrap_or_else(|| self.module.name().last_segment_owned())
+        let name = if self.package.is_empty() {
+            &self.module.name().unqual
+        } else {
+            &self.package.value
+        };
+        name.substr_from(self.short_alias())
     }
 
     pub fn segments(&self) -> impl Iterator<Item = &str> {
@@ -137,7 +146,7 @@ pub fn write_package_fqn_to<W: std::fmt::Write>(
 
 /// A wrapper around [`PackageFQN`] that displays the module source and version
 /// information instead of just the module name when formatted.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PackageFQNWithSource {
     fqn: PackageFQN,
 }
@@ -174,7 +183,7 @@ impl From<PackageFQN> for PackageFQNWithSource {
 }
 
 /// An optional wrapper around [`PackageFQNWithSource`] that displays "unknown" when None.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OptionalPackageFQNWithSource {
     inner: Option<PackageFQNWithSource>,
 }
@@ -639,6 +648,35 @@ mod test {
         let package = assert_valid_pkg_path("core");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.short_alias(), "core");
+    }
+
+    #[test]
+    fn major_version_root_alias_omits_suffix() {
+        for (module, package, alias) in [
+            ("a/b/v2@2.0.0", "", "b"),
+            ("a/b/v3@3.0.0-beta.1", "", "b"),
+            ("a/b/v2@2.0.0", "c", "c"),
+            ("a/b@0.1.0", "v2", "v2"),
+            ("a/b@0.1.0", "v2/c", "c"),
+            ("a/b/v02@0.1.0", "", "v02"),
+            ("a/b/nested/v2@0.1.0", "", "v2"),
+        ] {
+            let fqn = mk_fqn(module, package);
+            assert_eq!(fqn.short_alias(), alias, "{module}/{package}");
+            assert_eq!(fqn.short_alias_owned(), alias, "{module}/{package}");
+        }
+
+        let module = ModuleSource::from_local_module(
+            &moonutil::manifest::MoonMod {
+                name: "a/b/v2".into(),
+                ..Default::default()
+            },
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let fqn = PackageFQN::new(module, PackagePath::new("").unwrap());
+        assert_eq!(fqn.short_alias(), "b");
+        assert_eq!(fqn.short_alias_owned(), "b");
     }
 
     fn mk_fqn(module: &str, pkg_path: &str) -> PackageFQN {

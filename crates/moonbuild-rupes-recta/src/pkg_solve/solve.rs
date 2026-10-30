@@ -1,59 +1,66 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use log::{debug, trace};
-use moonutil::common::MOONBITLANG_COVERAGE;
-use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
+use moonutil::constants::{
+    MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE, MOONBITLANG_COVERAGE,
+};
+use moonutil::resolution::{ModuleDependencyGraph, ModuleId};
+use moonutil::target::TargetBackend;
 use tracing::info;
 
-use super::model::{DepEdge, DepRelationship, SolveError};
+use super::model::{DepEdge, PackageRelations, PackageResolutionError};
 use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
     pkg_solve::model::VirtualUser,
-    user_warning::UserWarning,
 };
+use moonutil::user_log::UserLog;
 
-/// A grouped environment for resolving dependencies.
-struct ResolveEnv<'a> {
-    modules: &'a ResolvedEnv,
+/// Working state for constructing package imports and virtual-package relationships.
+struct PackageGraphBuilder<'a> {
+    modules: &'a ModuleDependencyGraph,
     packages: &'a DiscoverResult,
-    res: DepRelationship,
+    relations: PackageRelations,
     inject_coverage: bool,
-    user_warnings: Vec<UserWarning>,
+    backend: TargetBackend,
+    user_log: &'a UserLog,
 }
 
 pub(super) fn solve_only(
-    modules: &ResolvedEnv,
+    modules: &ModuleDependencyGraph,
     packages: &DiscoverResult,
     enable_coverage: bool,
-) -> Result<(DepRelationship, Vec<UserWarning>), SolveError> {
+    backend: TargetBackend,
+    user_log: &UserLog,
+) -> Result<PackageRelations, PackageResolutionError> {
     debug!(
         "Building dependency resolution structures for {} packages",
         packages.package_count()
     );
 
-    let mut env = ResolveEnv {
+    let mut builder = PackageGraphBuilder {
         modules,
         packages,
-        res: DepRelationship::default(),
+        relations: PackageRelations::default(),
         inject_coverage: enable_coverage,
-        user_warnings: Vec::new(),
+        backend,
+        user_log,
     };
 
     debug!("Processing packages for dependency resolution");
@@ -64,7 +71,7 @@ pub(super) fn solve_only(
         };
 
         for &pid in pkgs.values() {
-            solve_one_package_virtual_impl(&mut env, mid, pid)?;
+            solve_one_package_virtual_impl(&mut builder, mid, pid)?;
         }
     }
 
@@ -76,21 +83,19 @@ pub(super) fn solve_only(
 
         trace!("Processing packages for module {:?}", mid);
         for &pid in pkgs.values() {
-            solve_one_package(&mut env, mid, pid)?;
+            solve_one_package(&mut builder, mid, pid)?;
         }
     }
     debug!("Processed packages");
 
-    let ResolveEnv {
-        res, user_warnings, ..
-    } = env;
+    let PackageGraphBuilder { relations, .. } = builder;
 
     debug!(
         "Dependency resolution completed with {} nodes and {} edges",
-        res.dep_graph.node_count(),
-        res.dep_graph.edge_count()
+        relations.dep_graph.node_count(),
+        relations.dep_graph.edge_count()
     );
-    Ok((res, user_warnings))
+    Ok(relations)
 }
 
 /// Solve the virtual package implementation (and only this field) for a given package.
@@ -100,11 +105,11 @@ pub(super) fn solve_only(
 /// information of other packages. Thus, we need to ensure all virtual
 /// implementations are resolved before we start the main solving pass.
 fn solve_one_package_virtual_impl(
-    env: &mut ResolveEnv<'_>,
+    builder: &mut PackageGraphBuilder<'_>,
     mid: ModuleId,
     pid: PackageId,
-) -> Result<(), SolveError> {
-    let pkg_data = env.packages.get_package(pid);
+) -> Result<(), PackageResolutionError> {
+    let pkg_data = builder.packages.get_package(pid);
     trace!(
         "Solving virtual package implementations for package {:?} in module {:?}: {}",
         pid,
@@ -114,15 +119,15 @@ fn solve_one_package_virtual_impl(
 
     let v_impl = pkg_data.raw.implement.as_deref();
     if let Some(v_impl) = v_impl {
-        let (impl_pid, impl_data) = resolve_import_raw(env, mid, pid, v_impl)?;
+        let (impl_pid, impl_data) = resolve_import_raw(builder, mid, pid, v_impl)?;
 
         if !impl_data.is_virtual() {
-            return Err(SolveError::ImplementTargetNotVirtual {
+            return Err(PackageResolutionError::ImplementTargetNotVirtual {
                 package: pkg_data.fqn.clone().into(),
                 implements: impl_data.fqn.clone().into(),
             });
         }
-        env.res.virt_impl.insert(pid, impl_pid);
+        builder.relations.virt_impl.insert(pid, impl_pid);
     }
 
     Ok(())
@@ -130,23 +135,17 @@ fn solve_one_package_virtual_impl(
 
 /// Solve related dependency information for one package.
 fn solve_one_package(
-    env: &mut ResolveEnv,
+    builder: &mut PackageGraphBuilder<'_>,
     mid: ModuleId,
     pid: PackageId,
-) -> Result<(), SolveError> {
-    let pkg_data = env.packages.get_package(pid);
+) -> Result<(), PackageResolutionError> {
+    let pkg_data = builder.packages.get_package(pid);
     trace!(
         "Solving package {:?} in module {:?}: {}",
         pid,
         mid,
         pkg_data.fqn.package()
     );
-
-    let mut resolve = |import, kind| {
-        let resolved = resolve_import(env, mid, pid, import)?;
-        add_dep_edges_for_import(env, pid, resolved, kind);
-        Ok(())
-    };
 
     // Gotcha: This part adds import edges based on different fields of the
     // package declaration, i.e. given each import list (regular imports,
@@ -157,40 +156,41 @@ fn solve_one_package(
     // The reason for this is mainly the efficiency. Adding the same import into
     // multiple targets reduces redundant calculation about the alias,
 
-    // regular imports
-    trace!("Processing regular imports");
-    for import in &pkg_data.raw.imports {
-        resolve(import, TargetKind::Source)?;
-    }
-    // white box tests
-    trace!("Processing whitebox test imports");
-    for import in &pkg_data.raw.wbtest_imports {
-        resolve(import, TargetKind::WhiteboxTest)?;
-    }
-    // black box tests
-    trace!("Processing blackbox test imports");
-    for import in &pkg_data.raw.test_imports {
-        resolve(import, TargetKind::BlackboxTest)?;
-    }
-    // subpackage
-    if let Some(sub) = &pkg_data.raw.sub_package {
-        trace!("Processing subpackage imports");
-        for import in &sub.import {
-            resolve(import, TargetKind::SubPackage)?;
+    let import_groups = [
+        (&pkg_data.raw.imports, TargetKind::Source),
+        (&pkg_data.raw.wbtest_imports, TargetKind::WhiteboxTest),
+        (&pkg_data.raw.test_imports, TargetKind::BlackboxTest),
+    ]
+    .into_iter()
+    .chain(
+        pkg_data
+            .raw
+            .sub_package
+            .as_ref()
+            .map(|sub| (&sub.import, TargetKind::SubPackage)),
+    );
+    for (imports, kind) in import_groups {
+        trace!("Processing {:?} imports", kind);
+        for import in imports {
+            if !import.supports_backend(builder.backend) {
+                continue;
+            }
+            let resolved = resolve_import(builder, mid, pid, import)?;
+            add_dep_edges_for_import(builder, pid, resolved, kind);
         }
     }
 
     // Black box tests also add the source package as an import
-    insert_black_box_dep(env, pid, pkg_data);
+    insert_black_box_dep(builder, pid, pkg_data);
 
-    inject_prelude_usage(env, pid);
-    if env.inject_coverage {
-        inject_core_coverage_usage(env, pid);
+    inject_implicit_stdlib_usage(builder, pid);
+    if builder.inject_coverage {
+        inject_core_coverage_usage(builder, pid);
     }
 
-    let virtual_info = resolve_virtual_usages(env, pid, pkg_data)?;
+    let virtual_info = resolve_virtual_usages(builder, pid, pkg_data)?;
     if let Some(vu) = virtual_info {
-        env.res.virtual_users.insert(pid, vu);
+        builder.relations.virtual_users.insert(pid, vu);
     }
 
     trace!("Completed solving package {:?}", pid);
@@ -202,7 +202,11 @@ fn solve_one_package(
 /// The dependency edge will be created with the default short alias of the
 /// source package. If this duplicates with any existing alias, print a warning
 /// and replace the duplicated one's alias with its full name.
-fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &DiscoveredPackage) {
+fn insert_black_box_dep(
+    builder: &mut PackageGraphBuilder<'_>,
+    pid: PackageId,
+    pkg_data: &DiscoveredPackage,
+) {
     let short_alias = pkg_data.fqn.short_alias_owned();
     let mut violating = None;
 
@@ -211,7 +215,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
     // FIXME: Should this live here or in `verify.rs`?
     // But `verify.rs` should be immutable, which means we can't do the
     // replacement immediately when we find a violation.
-    for (f, t, edge) in env.res.dep_graph.edges_directed(
+    for (f, t, edge) in builder.relations.dep_graph.edges_directed(
         pid.build_target(TargetKind::BlackboxTest),
         petgraph::Direction::Outgoing,
     ) {
@@ -233,8 +237,8 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
     // an error, so resolving it doesn't make much sense (and it fixes/hides the
     // error instead).
     if let Some((f, t, edge)) = violating {
-        let violating_pkg = env.packages.get_package(t.package);
-        env.user_warnings.push(UserWarning::new(format!(
+        let violating_pkg = builder.packages.get_package(t.package);
+        builder.user_log.warn(format!(
             "Duplicate alias `{}` at \"{}\". \
              \"test-import\" will automatically add \"import\" and current \
              package as dependency so you don't need to add it manually. \
@@ -245,29 +249,31 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
             pkg_data.fqn.short_alias(),
             pkg_data.config_path().display(),
             violating_pkg.fqn
-        )));
+        ));
         // replace the existing one's alias with its full name
         let new_alias = arcstr::format!("{}", violating_pkg.fqn);
         trace!(
             "Replacing existing alias '{}' with '{}' for package {:?}",
             edge.short_alias, new_alias, t.package
         );
-        env.res.dep_graph.add_edge(
+        builder.relations.dep_graph.add_edge(
             f,
             t,
             DepEdge {
                 short_alias: new_alias.substr(..),
+                import_all: edge.import_all,
                 kind: edge.kind,
             },
         );
     }
 
     // Finally, add the edge from black box test to source package
-    env.res.dep_graph.add_edge(
+    builder.relations.dep_graph.add_edge(
         pid.build_target(TargetKind::BlackboxTest),
         pid.build_target(TargetKind::Source),
         DepEdge {
             short_alias,
+            import_all: false,
             kind: TargetKind::BlackboxTest,
         },
     );
@@ -278,19 +284,20 @@ struct ResolvedImport<'a> {
     package_id: PackageId,
     target_is_subpackage: bool,
     short_alias: &'a str,
+    import_all: bool,
 }
 
 /// Resolve one import item for a given package.
 #[allow(clippy::too_many_arguments)]
 fn resolve_import<'a>(
-    env: &mut ResolveEnv<'a>,
+    builder: &mut PackageGraphBuilder<'a>,
     mid: ModuleId,
     pid: PackageId,
     import: &'a moonutil::package::Import,
-) -> Result<ResolvedImport<'a>, SolveError> {
+) -> Result<ResolvedImport<'a>, PackageResolutionError> {
     let import_source = import.get_path();
 
-    let (import_pid, imported) = resolve_import_raw(env, mid, pid, import_source)?;
+    let (import_pid, imported) = resolve_import_raw(builder, mid, pid, import_source)?;
 
     // A virtual package implementation cannot be imported
     if imported.is_virtual_impl() {
@@ -298,17 +305,22 @@ fn resolve_import<'a>(
             "Import '{}' is a virtual package, cannot be imported directly",
             import_source
         );
-        return Err(SolveError::CannotImportVirtualImplementation {
-            package: env.packages.fqn(pid).clone().into(),
+        return Err(PackageResolutionError::CannotImportVirtualImplementation {
+            package: builder.packages.fqn(pid).clone().into(),
             dependency: imported.fqn.clone().into(),
         });
     }
 
-    let short_alias = match import {
-        moonutil::package::Import::Simple(_) => imported.fqn.short_alias(),
-        moonutil::package::Import::Alias { alias, .. } => alias
-            .as_deref()
-            .unwrap_or_else(|| imported.fqn.short_alias()),
+    let (short_alias, import_all) = match import {
+        moonutil::package::Import::Simple(_) => (imported.fqn.short_alias(), false),
+        moonutil::package::Import::Alias {
+            alias, import_all, ..
+        } => (
+            alias
+                .as_deref()
+                .unwrap_or_else(|| imported.fqn.short_alias()),
+            *import_all,
+        ),
     };
     let is_import_target_subpackage = match import {
         moonutil::package::Import::Simple(_) => false,
@@ -316,38 +328,39 @@ fn resolve_import<'a>(
     };
 
     trace!(
-        "Import alias determined as '{}', is_subpackage={}",
-        short_alias, is_import_target_subpackage
+        "Import alias determined as '{}', import_all={}, is_subpackage={}",
+        short_alias, import_all, is_import_target_subpackage
     );
 
     Ok(ResolvedImport {
         package_id: import_pid,
         target_is_subpackage: is_import_target_subpackage,
         short_alias,
+        import_all,
     })
 }
 
 /// Resolve a package from its import source string, with minimal validation.
 fn resolve_import_raw<'a>(
-    env: &mut ResolveEnv<'a>,
+    builder: &mut PackageGraphBuilder<'a>,
     mid: ModuleId,
     pid: PackageId,
     import_source: &str,
-) -> Result<(PackageId, &'a DiscoveredPackage), SolveError> {
+) -> Result<(PackageId, &'a DiscoveredPackage), PackageResolutionError> {
     trace!("Resolving import '{}' for package {:?}", import_source, pid);
 
-    let Some(import_pid) = env.packages.get_package_id_by_name(import_source) else {
+    let Some(import_pid) = builder.packages.get_package_id_by_name(import_source) else {
         debug!(
             "Import '{}' not found in reverse mapping for package {:?}",
             import_source, pid
         );
-        return Err(SolveError::ImportNotFound {
+        return Err(PackageResolutionError::ImportNotFound {
             import: import_source.to_owned(),
-            package_fqn: env.packages.fqn(pid).into(),
+            package_fqn: builder.packages.fqn(pid).into(),
         });
     };
 
-    let imported = env.packages.get_package(import_pid);
+    let imported = builder.packages.get_package(import_pid);
     let import_mid = imported.module;
 
     trace!(
@@ -355,15 +368,21 @@ fn resolve_import_raw<'a>(
         import_source, import_mid, import_pid
     );
 
-    if import_mid != mid && env.modules.graph().edge_weight(mid, import_mid).is_none() {
+    if import_mid != mid
+        && builder
+            .modules
+            .graph()
+            .edge_weight(mid, import_mid)
+            .is_none()
+    {
         debug!(
             "Import '{}' module {:?} not imported by current module {:?}",
             import_source, import_mid, mid
         );
-        return Err(SolveError::ImportNotImportedByModule {
+        return Err(PackageResolutionError::ImportNotImportedByModule {
             import: imported.fqn.clone().into(),
-            module: env.modules.module_source(mid).clone(),
-            pkg: env.packages.get_package(pid).fqn.package().clone(),
+            module: builder.modules.module_source(mid).clone(),
+            pkg: builder.packages.get_package(pid).fqn.package().clone(),
         });
     }
 
@@ -372,7 +391,7 @@ fn resolve_import_raw<'a>(
 
 /// Insert dependency edges for one resolved import.
 fn add_dep_edges_for_import(
-    env: &mut ResolveEnv,
+    builder: &mut PackageGraphBuilder,
     pid: PackageId,
     import: ResolvedImport,
     import_source_kind: TargetKind,
@@ -394,15 +413,16 @@ fn add_dep_edges_for_import(
         let package = pid.build_target(*package_target);
 
         trace!(
-            "Adding edge: {:?} -> {:?} (short alias: '{}')",
-            package, dependency, import.short_alias
+            "Adding edge: {:?} -> {:?} (short alias: '{}', import_all={})",
+            package, dependency, import.short_alias, import.import_all
         );
 
-        env.res.dep_graph.add_edge(
+        builder.relations.dep_graph.add_edge(
             package,
             dependency,
             DepEdge {
                 short_alias: import.short_alias.into(),
+                import_all: import.import_all,
                 kind: import_source_kind,
             },
         );
@@ -433,18 +453,18 @@ fn dep_edge_source_from_targets(kind: TargetKind) -> &'static [TargetKind] {
 /// Resolve the virtual package usages for a specific package, and returns the
 /// side table to insert of needed.
 fn resolve_virtual_usages(
-    env: &mut ResolveEnv,
+    builder: &mut PackageGraphBuilder,
     pid: PackageId,
     pkg: &DiscoveredPackage,
-) -> Result<Option<VirtualUser>, SolveError> {
+) -> Result<Option<VirtualUser>, PackageResolutionError> {
     // For each override, check its implementation
     let mut v_user: Option<VirtualUser> = None;
     for over in pkg.raw.overrides.iter().flatten() {
-        let (over_pid, over_pkg) = resolve_import_raw(env, pkg.module, pid, over)?;
+        let (over_pid, over_pkg) = resolve_import_raw(builder, pkg.module, pid, over)?;
 
         // Check if it's implementing a virtual package
-        let Some(&over_target) = env.res.virt_impl.get(over_pid) else {
-            return Err(SolveError::OverrideNotImplementor {
+        let Some(&over_target) = builder.relations.virt_impl.get(over_pid) else {
+            return Err(PackageResolutionError::OverrideNotImplementor {
                 package: pkg.fqn.clone().into(),
                 virtual_override: over_pkg.fqn.clone().into(),
             });
@@ -453,10 +473,10 @@ fn resolve_virtual_usages(
         // Insert this override into user graph
         let user = v_user.get_or_insert_with(Default::default);
         if let Some(existing) = user.overrides.insert(over_target, over_pid) {
-            return Err(SolveError::VirtualOverrideConflict {
+            return Err(PackageResolutionError::VirtualOverrideConflict {
                 package: pkg.fqn.clone().into(),
-                virtual_pkg: env.packages.fqn(over_target).into(),
-                first_override: env.packages.fqn(existing).into(),
+                virtual_pkg: builder.packages.fqn(over_target).into(),
+                first_override: builder.packages.fqn(existing).into(),
                 second_override: over_pkg.fqn.clone().into(),
             });
         }
@@ -474,11 +494,14 @@ use crate::special_cases::{CORE_MODULE_TUPLE, is_self_coverage_lib, should_skip_
 /// - the coverage package itself and builtin (self-coverage libs)
 /// - packages that should skip coverage entirely
 /// - blackbox tests (legacy behavior doesn't link coverage there)
-fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
-    let pkg = env.packages.get_package(pid);
+fn inject_core_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
+    let pkg = builder.packages.get_package(pid);
 
     // Resolve coverage package id
-    let Some(cov_pid) = env.packages.get_package_id_by_name(MOONBITLANG_COVERAGE) else {
+    let Some(cov_pid) = builder
+        .packages
+        .get_package_id_by_name(MOONBITLANG_COVERAGE)
+    else {
         return;
     };
 
@@ -495,25 +518,28 @@ fn inject_core_coverage_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
         TargetKind::WhiteboxTest,
         TargetKind::BlackboxTest,
     ] {
-        env.res.dep_graph.add_edge(
+        builder.relations.dep_graph.add_edge(
             pid.build_target(kind),
             cov_pid.build_target(TargetKind::Source),
             DepEdge {
                 short_alias: "coverage".into(),
+                import_all: false,
                 kind,
             },
         );
     }
 }
 
-/// Inject the dependency to `moonbitlang/core/prelude` for every non-stdlib package.
+/// Inject the dependencies to `moonbitlang/core/prelude` and
+/// `moonbitlang/core/builtin` for every non-stdlib package.
 ///
 /// The prelude package provides common definitions that should be available to all
-/// user packages without explicit import.
-fn inject_prelude_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
-    let pkg = env.packages.get_package(pid);
+/// user packages without explicit import. `builtin` is injected as well because
+/// of how prelude re-exports types; see the comment on its entry below.
+fn inject_implicit_stdlib_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
+    let pkg = builder.packages.get_package(pid);
 
-    // Skip stdlib packages - they don't need prelude injected
+    // Skip stdlib packages - they import what they need explicitly
     if pkg.is_stdlib {
         return;
     }
@@ -523,29 +549,45 @@ fn inject_prelude_usage(env: &mut ResolveEnv<'_>, pid: PackageId) {
         return;
     }
 
-    // Resolve prelude package id
-    let Some(prelude_pid) = env
-        .packages
-        .get_package_id_by_name("moonbitlang/core/prelude")
-    else {
-        return; // no-std scenario
-    };
+    trace!("Injecting implicit stdlib usage for package {:?}", pid);
 
-    trace!("Injecting prelude usage for package {:?}", pid);
-
-    for &kind in &[
-        TargetKind::Source,
-        TargetKind::InlineTest,
-        TargetKind::WhiteboxTest,
-        TargetKind::BlackboxTest,
+    for (name, alias) in [
+        (MOONBITLANG_CORE_PRELUDE, "prelude"),
+        // Prelude re-exports types defined in `builtin` (e.g.
+        // `pub using @builtin {type Failure}`), but a type's constructors
+        // stay with its definition. Without `-std-path`, `moonc` only sees
+        // `builtin.mi` through an explicit `-i`, so constructors such as
+        // `Failure(..)` would be unresolved unless `builtin` is imported too.
+        // Keep builtin's full name as its alias so user imports can use
+        // `builtin` without colliding with the implicit dependency.
+        (MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_BUILTIN),
     ] {
-        env.res.dep_graph.add_edge(
-            pid.build_target(kind),
-            prelude_pid.build_target(TargetKind::Source),
-            DepEdge {
-                short_alias: "prelude".into(),
-                kind,
-            },
-        );
+        let Some(implicit_pid) = builder.packages.get_package_id_by_name(name) else {
+            continue; // no-std scenario
+        };
+        for &kind in &[
+            TargetKind::Source,
+            TargetKind::InlineTest,
+            TargetKind::WhiteboxTest,
+            TargetKind::BlackboxTest,
+        ] {
+            let (from, to) = (
+                pid.build_target(kind),
+                implicit_pid.build_target(TargetKind::Source),
+            );
+            // An explicit import keeps the alias the user chose.
+            if builder.relations.dep_graph.contains_edge(from, to) {
+                continue;
+            }
+            builder.relations.dep_graph.add_edge(
+                from,
+                to,
+                DepEdge {
+                    short_alias: alias.into(),
+                    import_all: false,
+                    kind,
+                },
+            );
+        }
     }
 }

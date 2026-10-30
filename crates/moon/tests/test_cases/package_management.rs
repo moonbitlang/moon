@@ -1,0 +1,1091 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use super::*;
+
+#[test]
+fn package_and_publish_delegate_for_each_module_visibility() {
+    let dir = TestDir::new_empty();
+    let executable = dir.join(format!("fake-mooncake{}", std::env::consts::EXE_SUFFIX));
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_mooncake.rs");
+    snapbox::cmd::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .args(["--edition=2021"])
+        .arg(source)
+        .arg("-o")
+        .arg(&executable)
+        .assert()
+        .success();
+
+    for (index, manifest) in [
+        r#"
+name = "test/internal"
+"#,
+        r#"
+name = "test/internal"
+private = false
+"#,
+        r#"
+name = "test/internal"
+private = true
+"#,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let module_dir = dir.join(format!("module-{index}"));
+        std::fs::create_dir(&module_dir).unwrap();
+        std::fs::write(module_dir.join("moon.mod"), manifest).unwrap();
+        for command in ["package", "publish"] {
+            for dry_run in [false, true] {
+                moon_cmd(&module_dir)
+                    .env("MOONCAKE_OVERRIDE", &executable)
+                    .args([command, "--frozen", "--quiet"])
+                    .args(dry_run.then_some("--dry-run"))
+                    .assert()
+                    .success()
+                    .stdout_eq("backend result\n")
+                    .stderr_eq("backend notice\n");
+                let (flags, payload): (serde_json::Value, serde_json::Value) =
+                    serde_json::from_slice(
+                        &std::fs::read(module_dir.join("handoff.json")).unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(flags["dry_run"], dry_run);
+                assert_eq!(flags["quiet"], true);
+                assert_eq!(
+                    payload[if command == "publish" {
+                        "Publish"
+                    } else {
+                        "Package"
+                    }]["auto_sync_flags"]["frozen"],
+                    true
+                );
+                assert_eq!(
+                    std::fs::read_to_string(module_dir.join("moon.mod")).unwrap(),
+                    manifest
+                );
+            }
+        }
+    }
+
+    std::fs::write(dir.join("moon.work"), "members = [\".\", \"member\"]\n").unwrap();
+    std::fs::create_dir_all(dir.join("member/src")).unwrap();
+    for member_private in [true, false] {
+        std::fs::write(
+            dir.join("moon.mod"),
+            format!("name = \"test/root\"\nprivate = {}\n", !member_private),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("member/moon.mod"),
+            format!("name = \"test/member\"\nprivate = {member_private}\n"),
+        )
+        .unwrap();
+        moon_cmd(&dir)
+            .env("MOONCAKE_OVERRIDE", &executable)
+            .args(["-C", "member/src", "publish", "--dry-run"])
+            .assert()
+            .success()
+            .stdout_eq("backend result\n")
+            .stderr_eq("backend notice\n");
+        assert!(dir.join("member/src/handoff.json").is_file());
+    }
+}
+
+#[test]
+fn private_module_supports_local_build_and_test() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/internal\"\nprivate = true\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(
+        dir.join("lib.mbt"),
+        "pub fn value() -> Int { 42 }\n\ntest { assert_eq(value(), 42) }\n",
+    )
+    .unwrap();
+    for command in ["check", "build", "test"] {
+        moon_cmd(&dir).args([command]).assert().success();
+    }
+}
+
+#[test]
+fn dependency_commands_reject_invalid_coordinates_before_registry_access() {
+    let dir = TestDir::new_empty();
+    let manifest = "name = \"test/main\"\n";
+    std::fs::write(dir.join("moon.mod"), manifest).unwrap();
+    let moon_home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        moon_home.path().join("config.json"),
+        serde_json::json!({
+            "registry": "https://registry.invalid",
+            "index": moon_home.path().join("missing-index"),
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    for command in ["add", "remove"] {
+        for coordinate in [
+            "alice//tools",
+            "alice/tools/../other",
+            "alice/tools#fragment",
+        ] {
+            moon_cmd(&dir)
+                .env("MOON_HOME", moon_home.path())
+                .args([command, coordinate])
+                .assert()
+                .failure()
+                .stdout_eq("")
+                .stderr_eq("Error: path contains an invalid component\n");
+        }
+    }
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["remove", "alice/tools@1.0.0"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("Error: `moon remove` expects a module name without a version\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        manifest
+    );
+}
+
+#[test]
+fn dependency_commands_preserve_nested_module_names() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/main\"\nimport {\n  \"alice/nested/tools@1.0.0\",\n}\n",
+    )
+    .unwrap();
+    let moon_home = tempfile::tempdir().unwrap();
+    cache_registry_package(
+        moon_home.path(),
+        "alice/nested/tools",
+        "1.2.3-beta.1+build",
+        &[(
+            "moon.mod",
+            b"name = \"alice/nested/tools\"\nversion = \"1.2.3-beta.1+build\"\n".to_vec(),
+        )],
+    );
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args([
+            "add",
+            "--upgrade",
+            "--no-update",
+            "alice/nested/tools@1.2.3-beta.1+build",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("Using cached alice/nested/tools@1.2.3-beta.1+build\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        "name = \"test/main\"\nimport {\n  \"alice/nested/tools@1.2.3-beta.1+build\",\n}\n",
+    );
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["remove", "alice/nested/tools"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+    let module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
+    assert!(module.deps.is_empty());
+}
+
+#[test]
+fn major_version_modules_coexist_in_projects_and_scripts() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::tempdir().unwrap();
+    for (name, version, source) in [
+        ("a/b", "1.0.0", "pub fn value() -> Int { 1 }\n"),
+        ("a/b/v2", "2.0.0", "pub fn value() -> String { \"v2\" }\n"),
+    ] {
+        cache_registry_package(
+            moon_home.path(),
+            name,
+            version,
+            &[
+                (
+                    "moon.mod",
+                    format!("name = \"{name}\"\nversion = \"{version}\"\n").into_bytes(),
+                ),
+                ("moon.pkg", b"".to_vec()),
+                ("lib.mbt", source.as_bytes().to_vec()),
+            ],
+        );
+    }
+    std::fs::write(dir.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    for module in ["a/b", "a/b/v2"] {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["add", "--no-update", module])
+            .assert()
+            .success();
+    }
+    let module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
+    assert_eq!(module.deps.len(), 2);
+    assert_eq!(module.deps["a/b"].version().unwrap().to_string(), "1.0.0");
+    assert_eq!(
+        module.deps["a/b/v2"].version().unwrap().to_string(),
+        "2.0.0"
+    );
+    assert!(dir.join(".mooncakes/a/b/moon.mod").is_file());
+    assert!(dir.join(".mooncakes/a/b+v2/moon.mod").is_file());
+
+    // Both default aliases and explicitly duplicated aliases are rejected
+    // during dependency solving, before any compiler command is emitted.
+    for imports in [
+        r#"
+import {
+  "a/b",
+  "a/b/v2",
+}
+"#,
+        r#"
+import {
+  "a/b" @b,
+  "a/b/v2" @b,
+}
+"#,
+    ] {
+        std::fs::write(
+            dir.join("moon.pkg"),
+            format!("{imports}\npkgtype(kind: \"executable\")\n"),
+        )
+        .unwrap();
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["check", "--dry-run"])
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+Error: Failed to calculate build plan
+
+Caused by:
+    0: Failed to solve package relationship
+    1: Multiple errors occurred during package solving:
+       Error 1: Conflicting import alias: Both a/b@1.0.0 (Source) and a/b/v2@2.0.0 (Source) are imported into test/app@0.0.0 with the same alias 'b'.
+...
+"#]]);
+    }
+
+    std::fs::write(
+        dir.join("moon.pkg"),
+        r#"import {
+  "a/b" @legacy,
+  "a/b/v2",
+}
+
+pkgtype(kind: "executable")"#,
+    )
+    .unwrap();
+    let main = "fn main {\n  println(@legacy.value())\n  println(@b.value())\n}\n";
+    std::fs::write(dir.join("main.mbt"), main).unwrap();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["run", ".", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq("1\nv2\n");
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["check"])
+        .assert()
+        .success();
+
+    // The package identity remains versioned; only the -i alias becomes b.
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["build", "--dry-run", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonc build-package ./.mooncakes/a/b+v2/lib.mbt [..] -pkg a/b/v2 -pkg-type library [..]
+moonc build-package ./.mooncakes/a/b/lib.mbt [..] -pkg a/b -pkg-type library [..]
+moonc build-package ./main.mbt [..] -pkg test/app [..] -i ./_build/wasm-gc/debug/build/.mooncakes/a/b/v2/b.mi:b -i ./_build/wasm-gc/debug/build/.mooncakes/a/b/b.mi:legacy [..]
+moonc link-core [..] -main test/app [..]
+
+"#]]);
+
+    for (filename, imports) in [
+        (
+            "pinned.mbtx",
+            "import { \"a/b@1.0.0\" @legacy, \"a/b/v2@2.0.0\" }\n",
+        ),
+        ("latest.mbtx", "import { \"a/b\" @legacy, \"a/b/v2\" }\n"),
+    ] {
+        std::fs::write(dir.join(filename), format!("{imports}{main}")).unwrap();
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["run", filename, "--target", "wasm-gc"])
+            .assert()
+            .success()
+            .stdout_eq("1\nv2\n");
+    }
+}
+
+#[test]
+fn major_version_mismatch_does_not_modify_manifest() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path(), "a/b/v2", "1.5.0", &[]);
+    std::fs::write(dir.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    for coordinate in ["a/b/v2@1.5.0", "a/b/v2"] {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args(["add", "--no-update", coordinate])
+            .assert()
+            .failure()
+            .stderr_eq("Error: module `a/b/v2` requires major version 2, but got 1.5.0\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+            "name = \"test/app\"\n"
+        );
+    }
+}
+
+#[test]
+fn major_version_mismatch_is_reported_before_registry_update() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::tempdir().unwrap();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    // An accidental index update would fail with a Git error. The malformed
+    // coordinate must be rejected before the registry is consulted.
+    std::fs::write(
+        moon_home.path().join("config.json"),
+        serde_json::json!({
+            "registry": "https://registry.invalid",
+            "index": moon_home.path().join("missing-index"),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    for command in ["add", "fetch", "install"] {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .args([command, "a/b/v2@1.5.0"])
+            .assert()
+            .failure()
+            .stderr_eq(if command == "install" {
+                "Error: Invalid package path `a/b/v2@1.5.0`\n\nCaused by:\n    module `a/b/v2` requires major version 2, but got 1.5.0\n"
+            } else {
+                "Error: module `a/b/v2` requires major version 2, but got 1.5.0\n"
+            });
+    }
+}
+
+#[test]
+fn deprecate_delegates_without_a_project() {
+    let dir = TestDir::new_empty();
+    let subdir = dir.join("subdir");
+    std::fs::create_dir(&subdir).unwrap();
+    let executable = format!("./fake-mooncake{}", std::env::consts::EXE_SUFFIX);
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_mooncake.rs");
+    snapbox::cmd::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg("--edition=2021")
+        .arg(source)
+        .arg("-o")
+        .arg(subdir.join(&executable))
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args([
+            "-C",
+            "subdir",
+            "deprecate",
+            "Owner/module",
+            "--reason",
+            "Use Owner/replacement",
+            "--quiet",
+        ])
+        .env("MOONCAKE_OVERRIDE", executable)
+        .assert()
+        .success()
+        .stdout_eq("backend result\n")
+        .stderr_eq("backend notice\n");
+    let (flags, command): (serde_json::Value, serde_json::Value) =
+        serde_json::from_slice(&std::fs::read(subdir.join("handoff.json")).unwrap()).unwrap();
+    assert_eq!(flags["dry_run"], false);
+    assert_eq!(flags["build_graph"], false);
+    assert_eq!(flags["quiet"], true);
+    assert_eq!(flags["source_tgt_dir"]["cwd"], serde_json::Value::Null);
+    assert_eq!(
+        command,
+        serde_json::json!({"Deprecate": {
+            "module": "Owner/module",
+            "reason": "Use Owner/replacement",
+            "undo": false,
+        }})
+    );
+}
+
+// TODO: Re-enable when published lijunchen/hello2 and its lijunchen/hello
+// dependency use moon.mod and moon.pkg instead of JSON manifests.
+/*
+#[test]
+fn mooncakes_io_smoke_test() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
+    let dir = TestDir::new("hello");
+    let _ = get_stdout(&dir, ["update"]);
+    let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
+    check(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        expect![[r#"name = "hello"
+import {
+  "lijunchen/hello2@0.1.0",
+}
+"#]],
+    );
+    let _ = get_stdout(&dir, ["remove", "lijunchen/hello2"]);
+    check(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        expect![[r#"name = "hello"
+import {
+  }
+"#]],
+    );
+    let _ = get_stdout(&dir, ["add", "lijunchen/hello2@0.1.0"]);
+    std::fs::write(
+        dir.join("main/main.mbt"),
+        r#"fn main {
+  println(@lib.hello2())
+}
+"#,
+    )
+    .unwrap();
+
+    let mooncakes_dir = dir.as_ref().join(".mooncakes");
+
+    moonutil::manifest::read_module_desc_file_in_dir(
+        &mooncakes_dir.join("lijunchen").join("hello"),
+    )
+    .unwrap();
+
+    std::fs::remove_dir_all(&mooncakes_dir).unwrap();
+    let assert = moon_cmd(&dir).arg("check").assert().success();
+    let output = assert.get_output();
+    assert!(output.stdout.is_empty());
+    let mut lines = std::str::from_utf8(&output.stderr)
+        .unwrap()
+        .lines()
+        .filter(|line| line.starts_with("Using cached "))
+        .collect::<Vec<_>>();
+    lines.sort();
+    check(
+        lines.join("\n"),
+        expect![[r#"
+            Using cached lijunchen/hello2@0.1.0
+            Using cached lijunchen/hello@0.1.0"#]],
+    );
+
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"import {
+  "lijunchen/hello2/lib",
+}
+
+pkgtype(kind: "executable")"#,
+    )
+    .unwrap();
+
+    std::fs::remove_dir_all(&mooncakes_dir).unwrap();
+    let assert = moon_cmd(&dir).args(["run", "main"]).assert().success();
+    check(
+        std::str::from_utf8(&assert.get_output().stdout).unwrap(),
+        expect![[r#"
+            Hello, world!Hello, world2!
+        "#]],
+    );
+    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
+    assert!(
+        !stderr.contains("Using cached ") && !stderr.contains("Downloading "),
+        "moon run should keep dependency sync quiet by default, got:\n{stderr}"
+    );
+}
+*/
+
+#[test]
+#[ignore = "where to download mooncake?"]
+fn mooncake_cli_smoke_test() {
+    let dir = TestDir::new("hello.in");
+    let out = moon_process_cmd(&dir)
+        .env("RUST_BACKTRACE", "0")
+        .args(["publish"])
+        .output()
+        .unwrap();
+    let s = std::str::from_utf8(&out.stderr).unwrap().to_string();
+    assert!(s.contains("failed to open credentials file"));
+}
+
+#[test]
+fn test_moon_update_reclones_for_different_registry_url() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let moon_home = dir;
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home)
+        .args(["update"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("Registry index cloned successfully\nSymbols updated successfully\n");
+
+    let registry_index = moonutil::MoonHomeLayout::new(dir.to_path_buf()).registry_index_dir();
+    let _ = std::process::Command::new("git")
+        .args([
+            "-C",
+            registry_index.to_str().unwrap(),
+            "remote",
+            "set-url",
+            "origin",
+            "whatever",
+        ])
+        .output()
+        .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home)
+        .args(["update"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq(
+            "Registry index remote does not match the configured URL, re-cloning\nRegistry index re-cloned successfully\nSymbols updated successfully\n",
+        );
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home)
+        .args(["update", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moon_package_list() {
+    let dir = TestDir::new("test_publish.in");
+    check(
+        get_stderr(&dir, ["package", "--list"]),
+        expect![[r#"
+            Running moon check ...
+            Finished. moon: ran 4 tasks, now up to date
+            Check passed
+            README.md
+            moon.mod
+            src/lib/hello.mbt
+            src/lib/hello_test.mbt
+            src/lib/moon.pkg
+            src/main/main.mbt
+            src/main/moon.pkg
+            Package to $ROOT/_build/publish/username-hello-0.1.0.zip
+        "#]],
+    );
+}
+
+#[test]
+fn test_upgrade() -> anyhow::Result<()> {
+    if std::env::var("CI").is_err() {
+        return Ok(());
+    }
+    let tmp_dir = tempfile::TempDir::new()?;
+    let _ = std::process::Command::new(moon_bin())
+        .env("MOON_HOME", tmp_dir.path().to_str().unwrap())
+        .env("MOON_TOOLCHAIN_ROOT", tmp_dir.path().to_str().unwrap())
+        .arg("upgrade")
+        .arg("--force")
+        .arg("--non-interactive")
+        .arg("--base-url")
+        .arg("https://cli.moonbitlang.com")
+        .output()?;
+    #[cfg(unix)]
+    let xs = [
+        tmp_dir.path().join("bin").join("moon").exists(),
+        tmp_dir.path().join("bin").join("moonc").exists(),
+    ];
+    #[cfg(windows)]
+    let xs = [
+        tmp_dir.path().join("bin").join("moon.exe").exists(),
+        tmp_dir.path().join("bin").join("moonc.exe").exists(),
+    ];
+    check(format!("{xs:?}"), expect!["[true, true]"]);
+    Ok(())
+}
+
+#[test]
+fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new()?;
+    let toolchain_root = tempfile::TempDir::new()?;
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "upgrade",
+            "--force",
+            "--non-interactive",
+            "--base-url",
+            "https://example.invalid",
+        ],
+        [
+            ("MOON_HOME", moon_home.path().to_str().unwrap()),
+            (
+                "MOON_TOOLCHAIN_ROOT",
+                toolchain_root.path().to_str().unwrap(),
+            ),
+        ],
+    );
+
+    assert!(stderr.contains("moon upgrade only supports toolchains installed under MOON_HOME."));
+    assert!(stderr.contains(
+        "Please upgrade this installation with the package manager or installer that owns the toolchain."
+    ));
+    Ok(())
+}
+
+// TODO: Re-enable when a published lijunchen/test_postadd version uses
+// moon.mod and moon.pkg instead of JSON manifests.
+/*
+#[test]
+fn test_postadd_script() {
+    if std::env::var("CI").is_err() {
+        return;
+    }
+    let dir = TestDir::new("test_postadd_script.in");
+    let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
+    assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
+
+    let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
+
+    let out = moon_process_cmd(&dir)
+        .env("MOON_IGNORE_POSTADD", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .args(["add", "lijunchen/test_postadd"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8(out.stderr).unwrap();
+    assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
+}
+*/
+
+#[test]
+fn test_fetch_and_binary_install_run_legacy_postadd() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");
+    let registry = tempfile::TempDir::new().expect("failed to create temporary registry");
+    let registry_index = registry.path().join("git/index");
+    std::fs::create_dir_all(registry_index.parent().unwrap()).unwrap();
+    let output = std::process::Command::new("git")
+        .args(["init", "--bare", "--initial-branch=main"])
+        .arg(&registry_index)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to initialize local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let local_index =
+        moonutil::MoonHomeLayout::new(moon_home.path().to_path_buf()).registry_index_dir();
+    std::fs::create_dir_all(local_index.parent().unwrap()).unwrap();
+    let output = std::process::Command::new("git")
+        .arg("clone")
+        .arg(&registry_index)
+        .arg(&local_index)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to clone local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let moon_path = std::env::join_paths(
+        std::iter::once(
+            moon_bin()
+                .parent()
+                .expect("test moon binary should have a parent directory")
+                .to_path_buf(),
+        )
+        .chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .expect("test PATH should be valid");
+    let manifest = br#"name = "testuser/postadd"
+version = "1.0.0"
+source = "src"
+options(scripts: { "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/generated.mbt --name generated" })
+"#.to_vec();
+    cache_registry_package(
+        moon_home.path(),
+        "testuser/postadd",
+        "1.0.0",
+        &[
+            ("moon.mod", manifest),
+            (
+                "src/tool/moon.pkg",
+                br#"
+pkgtype(kind: "executable")
+"#
+                .to_vec(),
+            ),
+            ("src/tool/generated.txt", b"42".to_vec()),
+            (
+                "src/tool/main.mbt",
+                br#"fn main { println(generated) }"#.to_vec(),
+            ),
+        ],
+    );
+    let output = std::process::Command::new("git")
+        .current_dir(&local_index)
+        .args(["add", "."])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let output = std::process::Command::new("git")
+        .current_dir(&local_index)
+        .args([
+            "-c",
+            "user.name=Moon Test",
+            "-c",
+            "user.email=moon-test@example.com",
+            "commit",
+            "-m",
+            "Add fixture package",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to commit local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = std::process::Command::new("git")
+        .current_dir(&local_index)
+        .args(["push", "origin", "main"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "failed to publish local registry index:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(
+        moon_home.path().join("config.json"),
+        serde_json::json!({
+            "registry": "https://registry.invalid",
+            "index": registry_index,
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("PATH", &moon_path)
+        .args(["fetch", "--no-update", "testuser/postadd@1.0.0"])
+        .assert()
+        .success();
+    assert!(
+        dir.join(".repos/testuser/postadd/1.0.0/src/tool/generated.mbt")
+            .is_file()
+    );
+
+    let bin_dir = dir.join("bin");
+    let install = moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("PATH", &moon_path)
+        .args(["install", "testuser/postadd/tool@1.0.0", "--bin"])
+        .arg(&bin_dir)
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&install.get_output().stderr);
+    assert!(
+        stderr.contains("Registry index updated successfully"),
+        "local registry update did not succeed:\n{stderr}"
+    );
+    #[cfg(unix)]
+    assert!(bin_dir.join("tool").is_file());
+    #[cfg(windows)]
+    assert!(bin_dir.join("tool.exe").is_file());
+}
+
+/// A registry whose cached latest is 1.0.0 and remote latest is 1.1.0.
+/// Both source archives are cached, so only metadata freshness affects selection.
+struct RegistryQueryFixture {
+    project: TestDir,
+    home: tempfile::TempDir,
+    remote: tempfile::TempDir,
+}
+
+impl RegistryQueryFixture {
+    fn new() -> Self {
+        let project = TestDir::new_empty();
+        let home = tempfile::tempdir().unwrap();
+        let remote = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.join("moon.mod"),
+            "name = \"test/app\"\nimport { \"test/tool@0.1.0\" }\n",
+        )
+        .unwrap();
+        let records = ["1.0.0", "1.1.0"].map(|version| {
+            let (_, index) = cache_registry_package(
+                home.path(),
+                "test/tool",
+                version,
+                &[
+                    (
+                        "moon.mod",
+                        format!("name = \"test/tool\"\nversion = \"{version}\"\n").into_bytes(),
+                    ),
+                    ("moon.pkg", b"pkgtype(kind: \"executable\")\n".to_vec()),
+                    ("main.mbt", b"fn main { println(42) }\n".to_vec()),
+                ],
+            );
+            std::fs::read_to_string(index).unwrap()
+        });
+        let layout = moonutil::MoonHomeLayout::new(home.path().to_path_buf());
+        let local_index = layout.registry_index_file(&"test/tool".into());
+        std::fs::write(local_index, &records[0]).unwrap();
+        let remote_index = remote.path().join("index");
+        std::fs::create_dir_all(remote_index.join("user/test")).unwrap();
+        std::fs::write(remote_index.join("user/test/tool.index"), records.concat()).unwrap();
+        for args in [
+            vec!["init", "--quiet", "--initial-branch=main"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=Moon Test",
+                "-c",
+                "user.email=moon-test@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "publish versions",
+            ],
+        ] {
+            snapbox::cmd::Command::new("git")
+                .current_dir(&remote_index)
+                .args(args)
+                .assert()
+                .success();
+        }
+        std::fs::write(
+            home.path().join("config.json"),
+            serde_json::json!({
+                "api": "http://127.0.0.1:1",
+                "download": "http://127.0.0.1:1",
+                "symbols": "http://127.0.0.1:1/symbols.zip",
+                "index": remote_index,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        Self {
+            project,
+            home,
+            remote,
+        }
+    }
+
+    fn command(&self, args: &[&str]) -> snapbox::cmd::Command {
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&self.project)
+            .env("MOON_HOME", self.home.path())
+            .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+            .env("MOON_DEP_CACHE", "off")
+            .args(args)
+    }
+
+    fn assert_selected(&self, command: &str, version: &str) {
+        match command {
+            "add" => {
+                let manifest =
+                    moonutil::manifest::read_module_desc_file_in_dir(self.project.as_ref())
+                        .unwrap();
+                assert_eq!(
+                    manifest.deps["test/tool"].version().unwrap().to_string(),
+                    version
+                );
+                let installed = moonutil::manifest::read_module_desc_file_in_dir(
+                    &self.project.join(".mooncakes/test/tool"),
+                )
+                .unwrap();
+                assert_eq!(installed.version.unwrap().to_string(), version);
+            }
+            "fetch" => assert!(
+                self.project
+                    .join(format!(".repos/test/tool/{version}/moon.mod"))
+                    .is_file()
+            ),
+            // Installation runs in a temporary source tree; its selected version
+            // is asserted in the command's log rather than a persistent manifest.
+            "install" => {}
+            _ => unreachable!(),
+        }
+    }
+
+    fn disconnect(&self) {
+        std::fs::rename(
+            self.remote.path().join("index"),
+            self.remote.path().join("unavailable"),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn registry_commands_query_current_latest() {
+    for args in [
+        vec!["add", "test/tool"],
+        vec!["add", "--upgrade", "test/tool"],
+        vec!["fetch", "test/tool"],
+        vec!["install", "--dry-run", "-v", "test/tool"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        if args[0] == "add" && !args.contains(&"--upgrade") {
+            std::fs::write(fixture.project.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+        }
+        let result = fixture.command(&args).assert().success();
+        if args[0] == "install" {
+            result.stderr_eq("...\nInstalling test/tool@1.1.0\n...");
+        }
+        fixture.assert_selected(args[0], "1.1.0");
+    }
+}
+
+#[test]
+fn registry_commands_no_update_use_cached_latest() {
+    for args in [
+        vec!["add", "--upgrade", "--no-update", "test/tool"],
+        vec!["fetch", "--no-update", "test/tool"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        fixture.disconnect();
+        fixture
+            .command(&args)
+            .assert()
+            .success()
+            .stderr_eq("Using cached test/tool@1.0.0\n");
+        fixture.assert_selected(args[0], "1.0.0");
+    }
+}
+
+#[test]
+fn registry_commands_warn_before_using_cached_latest() {
+    for args in [
+        vec!["add", "--upgrade", "test/tool"],
+        vec!["fetch", "test/tool"],
+        vec!["install", "--dry-run", "-v", "test/tool"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        fixture.disconnect();
+        let result = fixture.command(&args).assert().success().stderr_eq(
+            "...\nWarning: failed to query latest version of test/tool, using cached version 1.0.0: [..]\n..."
+        );
+        if args[0] == "install" {
+            result.stderr_eq("...\nInstalling test/tool@1.0.0\n...");
+        }
+        fixture.assert_selected(args[0], "1.0.0");
+    }
+}
+
+#[test]
+fn pinned_registry_commands_do_not_select_latest() {
+    for args in [
+        vec!["add", "test/tool@1.0.0"],
+        vec!["add", "--upgrade", "test/tool@1.0.0"],
+        vec!["fetch", "test/tool@1.0.0"],
+        vec!["install", "--dry-run", "-v", "test/tool@1.0.0"],
+    ] {
+        let fixture = RegistryQueryFixture::new();
+        if args[0] == "add" && !args.contains(&"--upgrade") {
+            std::fs::write(fixture.project.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+        }
+        let result = fixture.command(&args).assert().success();
+        if args[0] == "install" {
+            result.stderr_eq("...\nInstalling test/tool@1.0.0\n...");
+        }
+        fixture.assert_selected(args[0], "1.0.0");
+        let layout = moonutil::MoonHomeLayout::new(fixture.home.path().to_path_buf());
+        assert!(
+            std::fs::read_to_string(layout.registry_index_file(&"test/tool".into()))
+                .unwrap()
+                .contains("1.1.0")
+        );
+    }
+}
+
+#[test]
+fn add_upgrade_can_add_a_new_dependency() {
+    let fixture = RegistryQueryFixture::new();
+    std::fs::write(fixture.project.join("moon.mod"), "name = \"test/app\"\n").unwrap();
+    fixture
+        .command(&["add", "--upgrade", "test/tool@1.1.0"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    fixture.assert_selected("add", "1.1.0");
+}
+
+#[test]
+fn add_upgrade_resolves_before_writing_manifest() {
+    let fixture = RegistryQueryFixture::new();
+    let manifest = fixture.project.join("moon.mod");
+    let original = std::fs::read_to_string(&manifest).unwrap();
+
+    // The archive is cached, but the local index does not know this version.
+    // --no-update must still validate it and leave the declaration untouched.
+    fixture.command(&["add", "--upgrade", "--no-update", "test/tool@1.1.0"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("...\n[..]Failed to resolve registry dependency `test/tool` for module `test/app`: version `1.1.0` was not found in the registry\n...");
+    assert_eq!(std::fs::read_to_string(&manifest).unwrap(), original);
+    assert!(!fixture.project.join(".mooncakes/test/tool").exists());
+
+    // Allowing a refresh discovers the release and installs it before writing.
+    fixture
+        .command(&["add", "--upgrade", "test/tool@1.1.0"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    fixture.assert_selected("add", "1.1.0");
+}

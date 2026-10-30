@@ -23,8 +23,70 @@ There are 4 kinds of source files within each package:
   and does not to any below belong to this kind.
 - **Whitebox test**. These files are suffixed `_wbtest.mbt`.
 - **Blackbox test**. These files are suffixed `_test.mbt`.
-- **C stub**. These are C files manually specified in `moon.pkg.json`,
+- **C stub**. These are C files manually specified in `moon.pkg`,
   and recognized by the build system to be built.
+
+Standalone inputs are represented as synthetic single-file packages. Their
+source format is recorded while resolving the input. In particular, an
+original `.mbtx` input is kept as a regular, unconditional source file. Both
+`moonc build-package` and `moonc check` receive `-ignore-import-declaration`
+when lowering that synthetic package. This does not make `.mbtx` a source
+extension discovered in ordinary packages.
+
+`moon build <file.mbtx>` and `moon check <file.mbtx>` always select this
+standalone representation, even when the file is located under an ordinary
+package root. Each command accepts one standalone `.mbtx` path and supports
+single- and multi-backend target selection; watch mode remains project-only.
+All standalone-file commands use `<source-dir>/_build/<filename>` as their
+default target directory, including the complete extension in `<filename>`, so
+differently named inputs in one source directory do not share synthetic package
+artifacts or incremental build state. With `--target-dir <dir>`, the target
+directory is `<dir>/<filename>`; the option relocates the target root without
+adding source-path identity, so callers are responsible for using distinct
+target roots for equal filenames from different source directories.
+Private `.mooncakes` dependencies also live under that per-script target root,
+so standalone commands do not install dependencies beside the source file.
+
+### Windows artifact paths
+
+Moon creates the selected build root and resolves it with
+`std::fs::canonicalize` before assigning artifact locations. Source discovery
+also preserves the canonical prefix on its existing scan root, and standalone
+inputs preserve it on their parent directory. Existing toolchain roots are
+canonicalized before appending toolchain paths. On Windows this establishes
+extended-length syntax (`\\?\`) even when the root is short.
+
+Keep that prefix throughout internal path construction: a short root can grow
+into a long descendant, including an output that does not exist yet. Internal
+artifact paths retain the same identity in clean and incremental builds.
+
+At tool boundaries, apply `dunce::simplified` to the complete path argument.
+This removes an unnecessary prefix when safe and preserves long or otherwise
+verbatim-only paths. Use the same rule for compiler sources, dependencies,
+outputs, runtime entrypoints, native inputs/outputs, and documentation files.
+Compiler arguments are rendered before selecting inline or response-file
+transport; the response-file argument follows the same rule. No filesystem
+canonicalization or absolute-path resolution takes place in argument builders.
+Opaque user flags are passed through without trying to interpret embedded paths.
+
+Keep intermediate native output directories prefixed when the driver will
+append object filenames. Other consumer directory options retain their explicit
+boundary handling; support for long descendants ultimately requires support in
+the receiving tool. The execution graph registers and looks up original paths,
+while user package selectors compare compatible spellings.
+
+Watcher containment checks treat ordinary and verbatim drive/UNC prefixes as
+equivalent. This comparison does not alter artifact paths or require event paths
+to exist, so a removed output subtree remains ignored.
+
+Consumer support still limits some commands. MSVC needs short source-file
+arguments simplified and does not accept long generated-C inputs. Node 22
+rejects long verbatim entrypoint paths. `moondoc` joins package paths with `/`,
+which is invalid beneath a verbatim Windows prefix, so its output directory is
+a compatibility exception: Moon simplifies it where possible to preserve ordinary
+documentation builds. Long documentation paths still fail during output directory
+creation, after the compiler has produced the package interface. Windows tests
+distinguish these downstream failures from MoonBit compiler output creation.
 
 ### Build targets
 
@@ -43,21 +105,24 @@ each with its own list of source files (and thus acting like an actual "package"
 
 The detailed semantics of tests are in [the corresponding section](#building-tests).
 
-[^subpkg]: There's a 5th one, "subpackage", which is currently unused. We'll ignore it for now.
+[^subpkg]: The internal `SubPackage` target kind is reserved for future work on
+    dependency cycles. Package manifests no longer expose `sub-package`
+    declarations or import flags; these are ignored like other unknown fields.
+    Source-subset selection and linking are not implemented.
 
 [architecture]: ./arch.md
 
 ### Imports
 
-The imported packages are specified in the `import` field in `moon.pkg.json`,
+The imported packages are specified in `import { ... }` blocks in `moon.pkg`,
 and are available to all three build targets.
 Test targets (whitebox and blackbox) can also have imports that are not used in regular targets,
-specified in an additional import field named `wbtest-import` and `test-import`.
+specified in `import { ... } for "wbtest"` and `import { ... } for "test"` blocks.
 
-Main packages (`is-main: true`) are on a stricter migration path:
+Executable packages (`pkgtype(kind: "executable")`) are on a stricter migration path:
 
 - Release N warns when another package depends on a main package through
-  `import`, `wbtest-import`, or `test-import`.
+  regular, whitebox-test, or blackbox-test imports.
 - Release N+1 will reject such dependencies as hard errors.
 
 The intended structure is to keep a main package as an entrypoint only,
@@ -88,22 +153,78 @@ default optimization profile by subcommand:
 - `moon bench` and `moon bundle` use the release profile.
 
 This policy is centralized in `BuildFlags::effective_profile()` in
-`crates/moon/src/cli.rs`. Individual commands may still layer additional
-symbol or strip behavior on top of that default profile.
+`crates/moon/src/build_flags.rs`. The CLI adapter's
+`rr_build::prepare_resolved_build()` converts those flags and the resolved
+backend into `DebugInfoRequest`, selecting requested symbol detail and native
+runtime backtrace support separately. A default `moon run` for the Native target
+backend requests source backtraces. After selecting the Native Payload Form,
+backend planning retains MoonBit debug information for generated C and omits it
+for direct object output, which uses `-O0 -stacktrace` for unoptimized code
+and lightweight stack-trace metadata.
+The generated-C compiler step separately retains the source locations emitted
+by MoonBit. This includes C output selected by
+`MOONBIT_NEW_NATIVE=0`, an unsupported direct-object host, a `MOON_CC` compiler
+for another target, or package C compiler flags. Explicit `--debug` or `--no-strip` retains full debug information, while
+`--strip` and ordinary release builds omit it.
 
-When actually building a package, the pipeline has 2 or 3 steps depending on the backend to use:
+A debug-profile `moon run --strip` still requests native runtime backtrace
+support, without requesting program debug information. The CLI captures that distinction
+in `DebugInfoRequest`; planning and lowering do not infer it again from the run
+mode or profile. Backend Plan owns the MoonBit compiler's debug-information
+decision. C-stub and executable action metadata each own their native compiler
+debug and optimization settings; selecting generated C does not enable C-stub
+debug information. Runtime build metadata owns whether to enable the reporter,
+and `GenerateDsym` action membership records any required macOS symbol generation.
+Lowering consumes these planned decisions without a separate debug option.
+See [native compiler debug information and optimization](native-c-toolchain-resolution.md#debug-information-and-optimization)
+for the distinct compiler and linker flags.
+
+When actually building a package, the pipeline depends on the backend:
 
 1. **Build** each individual package, via `moonc build-package` / `BuildPackage` node, into CoreIR.
 2. **Link** into executable, via `moonc link-core` / `LinkCore` node.
    This step reads in all CoreIR files produced by the package and all its transitive dependencies,
    and links into an executable output.
    For JS/WASM backends, this already outputs the final executable.
-3. **Make native executable**, via C compiler / `MakeExecutable` node.
-   For native (Native/LLVM) backends,
-   the output of `LinkCore` (C or object file) is compile/link by a C compiler,
-   together with C stubs and other build outputs,
-   to produce the final executable.
-   Non-native backends do not need this step.
+3. **Compile generated C**, via `CompileGeneratedC`, when `LinkCore` emits C.
+   This produces a `GeneratedCObject`, using one compile-only invocation.
+   Direct-object and LLVM payloads already are object files and skip this step.
+4. **Make native executable**, via the native toolchain / `MakeExecutable` node.
+   Native and LLVM backends link the payload object together with C stubs and
+   runtime archives to produce the final executable. Non-native backends skip it.
+   A foreign-library package builds a static library instead; see
+   [foreign libraries on native backends](#foreign-libraries-on-native-backends).
+
+macOS debug builds that emit native object code add one post-link step:
+
+5. **Generate debug symbols**, via `dsymutil` / `GenerateDsym`.
+   This action depends on the completed executable and produces its `.dSYM`
+   bundle. The linker and `dsymutil` remain separate structured commands, so
+   n2 can schedule and track each tool invocation independently.
+
+After a successful build, `moon build` lists each requested `Executable` and
+`ForeignLibrary` artifact on stdout, in the order of the selected target
+backends. Each row shows the package, the target backend and the absolute
+path, last so it is easy to copy:
+
+```text
+Artifacts:
+  username/demo/cmd/main  wasm-gc  /p/_build/wasm-gc/debug/build/cmd/main/main.wasm
+  username/foreign/lib    native   /p/_build/native/release/build/lib/lib.a
+```
+
+The list is a Command Result, so `--quiet` does not hide it. It reads the same
+whether or not stdout is a terminal; programs use `--output-json`, which
+writes each artifact as a JSON line next to the compiler's `diagnostic`
+messages:
+
+```json
+{"$message_type":"artifact","package":"username/foreign/lib","target_backend":"native","path":"/p/_build/native/release/build/lib/lib.a"}
+```
+
+Other requested artifacts, such as a library package's CoreIR, are build
+intermediates and are not listed. A dry run lists commands instead, and a
+failed build lists nothing.
 
 A package needs all its transitive dependencies' interface files to be built
 before running `BuildPackage` for any of its build targets.
@@ -135,8 +256,18 @@ containing all compiled MoonBit code for the package to build:
 
 - For JS, WASM and WASM-GC backend,
   this is the final executable to use: A JavaScript or WASM file.
-- The Native backend outputs a C file to be compiled with a C compiler.
+- The Native backend outputs either generated C or a direct object file,
+  according to the selected Native Payload Form.
 - The LLVM backend outputs an object file to be linked with the system library.
+
+Release-profile binary WASM and WASM-GC outputs carry a human-readable module
+name in the optional WebAssembly `name` custom section. The name identifies the
+package being linked as `module/package@version` when its module manifest
+declares a version, or as `module/package` otherwise. Release-profile test build
+targets use the owning source package's identity rather than a synthetic
+test-target suffix. This name is debugging information that tools may strip or
+rewrite; it is not trusted provenance. Moon does not request this name for debug
+builds or plain WAT output.
 
 ### Example
 
@@ -176,18 +307,68 @@ As you may be able to see, `BuildPackage` of C and D s shared between the two bu
 
 MoonBit allows native-backend programs to compile some C files alongside MoonBit code,
 called **C stubs**.
-These files are per-package, specified in `moon.pkg.json`.
+These files are per-package, specified in `moon.pkg`.
 MoonBit code might reference the functions defined in them in e.g. `extern "C" fn`s.
 
 Compiling C stubs of a package involves 3 steps:
 
 1. `BuildCStub` -- The C files are compiled independently using a C compiler.
-   They do not have any dependency on their own.
-2. `ArchiveOrLinkCStubs` -- All C stubs in a package is archived using AR.
-   If [TCC-run mode](./tcc-run.md) is enabled, this instead links the C stubs.
-   This is out of scope of a regular compilation.
+   Each action conservatively tracks every package-local `.h`, `.hh`, `.hpp`,
+   and `.hxx` file because MoonBuild does not interpret transitive `#include`
+   directives. Dot-prefixed directories, ignored generated directories, and
+   nested module or package roots are outside the Package File Set, so headers
+   under those boundaries are not discovered automatically.
+2. `ArchiveOrLinkCStubs` -- All C stubs in a package are archived using AR.
 3. For every package that transitively depends on this package with C stubs,
    the archived compilation output is added to the input list of `MakeExecutable`.
+
+### Native runtime
+
+For ordinary native builds, each C translation unit shipped under the
+toolchain's `lib/runtime/` directory is compiled by a `BuildRuntimeObject`
+node. `BuildRuntimeLib` archives those objects into one static library, which
+is shared by every `MakeExecutable` node in the build plan. Release builds also
+enable and archive supported prebuilt SIMDUTF objects. Toolchains with only the
+legacy `lib/runtime.c` layout remain supported as a one-object archive.
+Static archives are always created from their complete member list. An
+update-style archiver runs through `moon tool archive`, which
+deletes the previous archive first, so adding, removing, or renaming a runtime
+translation unit, or changing the selected SIMDUTF members, cannot leave a
+removed member behind. See
+[archive commands](native-c-toolchain-resolution.md#archive) for which archivers this
+applies to.
+
+### Foreign libraries on native backends
+
+A package declared with `pkgtype(kind: "foreign_library")` (or the legacy
+`link: true`) and no `main` is built for a foreign host. On Native and LLVM,
+`moon build` requests a `ForeignLibrary` artifact, provided by
+`ArchiveForeignLibrary`, and plans no executable link. Wasm and JS still
+request the package's `Executable`, which their `LinkCore` provides; moving
+them to `ForeignLibrary` is a pending change marked in the intent code.
+
+`ArchiveForeignLibrary` creates one static archive whose members are objects,
+because static archives do not nest:
+
+1. the MoonBit payload: the `LinkCore` object for direct-object Native and
+   LLVM, or for generated-C Native the object a `CompileGeneratedC` action
+   compiles from the generated C with the package's `cc-flags`;
+2. the C stub objects of every package the payload links, in link order;
+3. the native runtime objects and, in release builds, the selected SIMDUTF
+   objects;
+4. `libmoonbitrun.o` when the selected allocator links it.
+
+The archive shares its stem with the package's executable, such as
+`lib.a` or `lib.lib` for package `lib`, so it never collides with the
+package's `lib{package}` C stub archive. Like the runtime archive, it is
+created from exactly its current members, with update-style archivers run
+through `moon tool archive`. Objects from different packages may share a file
+name, such as two `stub.o`. Each supported archiver keeps every input of a
+newly created archive, so both become members.
+
+The archive cannot carry link flags. `link.native.cc-link-flags`, prebuild
+link arguments, system libraries, and, for builds with runtime backtraces,
+`libbacktrace.a` remain the foreign host's responsibility.
 
 ### Reading and writing MBTI interfaces
 
@@ -209,13 +390,10 @@ MoonBit allows some files in the source directory to be generated at compile tim
 These are called **prebuild tasks**,
 and executed in a form similar to Makefiles.
 Each task may have a list of input and outputs file, and a command line to execute.
-It is represented by the `RunPrebuild` build plan node.
-
-For simplicity reasons, the dependency between prebuild tasks and other tasks
-is currently tracked by the build graph executor (n2), and not in the build plan.
-This is currently the only exception in the build plan graph.
-
-Prebuild tasks are expected to execute before any other build commands.
+Custom tasks are stored in a package prebuild
+subplan rather than the backend dependency graph. They are lowered into the
+same n2 graph, where matching physical input and output paths establish their
+dependencies. See [Prebuild](prebuild.md) for the detailed lifecycle.
 
 ## Building tests
 
@@ -228,12 +406,12 @@ In detail:
 - **Whitebox tests** are tests written in files suffixed with `_wbtest`.
   These tests are compiled alongside the source code,
   and can see the package-private symbols in the source code.
-  They get additional imports from the `wbtest-imports` in package config.
+  They get additional imports from `import { ... } for "wbtest"` blocks.
 
 - **Blackbox tests** are tests written in files suffixed with `_test`,
   as well as in the doc comments in the source code.
   These tests can only see the public symbols exported from the package.
-  They get additional imports from the `test-imports` in package config.
+  They get additional imports from `import { ... } for "test"` blocks.
 
   Implementation-wise, they form a package that depend on the source package,
   but gets special treatments to be able to import symbols in the source package
@@ -287,22 +465,32 @@ and then generate a test driver and related metadata.
 Both files are generated per-build-target via `moon generate-test-driver` (`GenerateTestInfo`).
 The driver is used in `BuildPackage` like a regular source file.
 
-## Glossary of major build plan nodes
+## Glossary of major Build Plan actions
 
-The following is a table
+Backend build-plan nodes and package prebuild actions are peer action kinds.
+`TargetKind` appears only inside backend nodes for which it has meaning.
 
 | Build plan node                 | Command                     | Outputs               | Dependencies                               | Note                                           |
 | ------------------------------- | --------------------------- | --------------------- | ------------------------------------------ | ---------------------------------------------- |
 | `Check(BuildTarget)`            | `moonc check`               | `.mi`                 | source files, `.mi` of dependency packages | Typecheck the target                           |
 | `BuildPackage(BuildTarget)`     | `moonc build-package`       | `.mi`, `.core`        | same as above                              | Build the target                               |
 | `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
-| `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs                | Compiles/links the final executable (optional) |
+| `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
+| `GenerateDsym(BuildTarget)`     | `dsymutil`                  | `.dSYM` bundle        | executable                                 | Generates macOS debug symbols (optional)       |
+| `CompileGeneratedC(BuildTarget)` | C compiler                 | object file           | generated-C `LinkCore` output              | Compiles a foreign library's payload           |
+| `ArchiveForeignLibrary(PackageId)` | archiver                 | static library        | payload, C stub and runtime objects        | Builds a native foreign library                |
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
+| `BuildRuntimeObject(int)`       | C compiler                  | object file           | N/A                                        | Builds one runtime translation unit            |
+| `BuildRuntimeLib`               | archiver or C compiler      | runtime library       | runtime objects, release SIMDUTF objects    | Collects the native runtime                    |
 | `GenerateMbti(BuildTarget)`     | `mooninfo`                  | `.mbti`               | `.mi`                                      | Get text repr of `.mi`                         |
 | `GenerateTestInfo(BuildTarget)` | `moon generate-test-driver` | test driver, metadata | source files                               | Generate the test driver and metadata          |
+| `GenerateNodeTestPackageConfig(PackageId)` | `moon tool generate-node-test-package-config` | `package.json` | N/A | Create a type-neutral Node package boundary |
 | `BuildVirtual(PackageId)`       | `moonc build-interface`     | `.mi`                 | `.mbti`                                    | Get interface from `.mbti`                     |
-| `RunPrebuild(PackageId, int)`   | User-defined                | user-defined          | user-defined                               | Run a user-defined prebuild task               |
+
+`PackagePrebuildKey` identifies custom actions by their manifest declaration
+position because a valid command may have no output or the same outputs as
+another command.
 
 ## Solving import loops
 

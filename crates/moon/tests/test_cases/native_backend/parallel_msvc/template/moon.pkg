@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/core/hashmap",
+  "moonbitlang/core/random",
+  "moonbitlang/core/sorted_map",
+}

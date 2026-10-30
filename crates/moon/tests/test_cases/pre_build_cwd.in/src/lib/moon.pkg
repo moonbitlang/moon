@@ -1,0 +1,9 @@
+rule(
+  name: "generate",
+  command: ":embed --text -i cwd-marker.txt -o $output --name cwd_marker",
+)
+dev_build(
+  rule: "generate",
+  input: "input.txt",
+  output: "generated.mbt",
+)

@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,23 +20,26 @@
 
 use std::{
     collections::BTreeSet,
+    io::Write,
     path::{Path, PathBuf},
 };
 
+use anstyle::{AnsiColor, Style};
 use anyhow::Context;
-use colored::Colorize;
 use indexmap::IndexMap;
+use moonbuild::BuildMeta;
 use moonbuild::expect::write_diff;
-use moonbuild_rupes_recta::{
-    ResolveOutput,
-    model::{BuildPlanNode, PackageId},
-    pkg_name::PackageFQN,
-};
-use moonutil::common::{MBTI_GENERATED, TargetBackend};
+use moonbuild_rupes_recta::{DiscoveredProject, model::PackageId, pkg_name::PackageFQN};
+use moonutil::target::TargetBackend;
 use sha2::Digest;
 use tracing::error;
 
-use crate::{filter::preferred_target_backend_for_package, rr_build::BuildMeta};
+use crate::filter::preferred_target_backend_for_package;
+use crate::rr_build::{generated_mbti_artifacts, generated_mbti_dest};
+
+const REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
+const ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();
+const PATH_STYLE: Style = AnsiColor::BrightBlack.on_default();
 
 pub(super) struct InfoOutputPlan {
     packages: IndexMap<PackageId, PackageOutputPlan>,
@@ -96,20 +99,19 @@ impl<'a> PackageOutputGroup<'a> {
 }
 
 pub(super) fn plan_info_outputs(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> InfoOutputPlan {
     let mut planned = IndexMap::new();
 
     for package_id in packages {
         planned.entry(package_id).or_insert_with(|| {
-            let pkg = resolve_output.pkg_dirs.get_package(package_id);
-            let canonical_backend =
-                preferred_target_backend_for_package(resolve_output, package_id);
+            let pkg = discovered.pkg_dirs.get_package(package_id);
+            let canonical_backend = preferred_target_backend_for_package(discovered, package_id);
 
             PackageOutputPlan::new_from_fqn(
                 &pkg.fqn,
-                pkg.root_path.join(MBTI_GENERATED),
+                generated_mbti_dest(discovered, package_id),
                 canonical_backend,
             )
         });
@@ -122,7 +124,7 @@ pub(super) fn plan_info_outputs(
 ///
 /// 1. Module's `preferred-backend` (if set in `moon.mod.json`)
 /// 2. Workspace's `preferred-backend` (if set in `moon.work`)
-/// 3. `wasm-gc` (default fallback)
+/// 3. `wasm` (default fallback)
 ///
 /// Note: If a package's `supported-targets` does NOT include the canonical backend,
 /// no `.mbti` file will be written. Users should set `preferred-backend` on the
@@ -189,6 +191,7 @@ pub(super) fn report_info_outputs<'a>(
     plan: &'a InfoOutputPlan,
     it: impl Iterator<Item = &'a (TargetBackend, BuildMeta)>,
     requested_backends: &[TargetBackend],
+    writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     if requested_backends.is_empty() {
         return Ok(());
@@ -197,7 +200,7 @@ pub(super) fn report_info_outputs<'a>(
     let requested_backends = requested_backends.iter().copied().collect::<BTreeSet<_>>();
 
     for (_package, group) in collect_package_output_groups(plan, it) {
-        report_info_output_for_package(&requested_backends, &group)?;
+        report_info_output_for_package(&requested_backends, &group, writer)?;
     }
 
     Ok(())
@@ -214,20 +217,10 @@ fn collect_package_output_groups<'a>(
         .collect::<IndexMap<_, _>>();
 
     for (backend, meta) in it {
-        for (&node, artifact) in &meta.artifacts {
-            let BuildPlanNode::GenerateMbti(target) = node else {
-                continue;
-            };
-            let Some(group) = transposed.get_mut(&target.package) else {
-                continue;
-            };
-
-            assert!(
-                artifact.artifacts.len() == 1,
-                "mbti generation should only produce one artifact"
-            );
-            let mbti_path = artifact.artifacts.first().unwrap();
-            group.insert(*backend, mbti_path);
+        for (package, mbti_path) in generated_mbti_artifacts(meta) {
+            if let Some(group) = transposed.get_mut(&package) {
+                group.insert(*backend, mbti_path);
+            }
         }
     }
 
@@ -274,6 +267,7 @@ fn read_backend_contents<'a>(
 fn report_info_output_for_package(
     requested_backends: &BTreeSet<TargetBackend>,
     group: &PackageOutputGroup,
+    writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let backend_contents = read_backend_contents(group)?;
     let requested_outputs = requested_backends
@@ -305,15 +299,17 @@ fn report_info_output_for_package(
     }
 
     if canonical.is_some() {
-        println!(
+        writeln!(
+            writer,
             "#\n# Package {} has diverging interfaces across backends:",
             group.plan.pkg_name
-        );
+        )?;
     } else {
-        println!(
+        writeln!(
+            writer,
             "#\n# Package {} has requested interfaces different from canonical backend {:?}:",
             group.plan.pkg_name, canonical_backend
-        );
+        )?;
     }
 
     for (hash, backends) in hash_groups {
@@ -325,31 +321,29 @@ fn report_info_output_for_package(
             .get(&backends[0])
             .context("Backend output not found")?;
 
-        println!("#\n# ---");
-        println!(
-            "{} {} {:?} {}",
-            "---".bright_red(),
-            group.plan.pkg_name,
-            canonical_backend,
-            baseline_file_label.bright_black(),
-        );
+        writeln!(writer, "#\n# ---")?;
+        writeln!(
+            writer,
+            "{REMOVED_STYLE}---{REMOVED_STYLE:#} {} {:?} {PATH_STYLE}{}{PATH_STYLE:#}",
+            group.plan.pkg_name, canonical_backend, baseline_file_label,
+        )?;
         for backend in &backends {
             let actual = backend_contents
                 .get(backend)
                 .context("Backend output not found")?;
-            println!(
-                "{} {} {:?} {}",
-                "+++".bright_green(),
+            writeln!(
+                writer,
+                "{ADDED_STYLE}+++{ADDED_STYLE:#} {} {:?} {PATH_STYLE}({}){PATH_STYLE:#}",
                 group.plan.pkg_name,
                 backend,
-                format!("({})", actual.filename.display()).bright_black(),
-            );
+                actual.filename.display(),
+            )?;
         }
 
-        write_diff(baseline_content, &actual.content, 1, 2, std::io::stdout())?;
+        write_diff(baseline_content, &actual.content, 1, 2, &mut *writer)?;
     }
 
-    println!("# ------");
+    writeln!(writer, "# ------")?;
     Ok(())
 }
 

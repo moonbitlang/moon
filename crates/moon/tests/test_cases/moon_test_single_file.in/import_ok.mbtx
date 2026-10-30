@@ -1,6 +1,8 @@
+----
 import {
-  "moonbitlang/x@0.4.38/stack",
+  "moonbitlang/x@0.5.5/stack",
 }
+----
 
 fn use_stack() -> Unit {
   let _ : @stack.Stack[Int] = @stack.Stack::new()

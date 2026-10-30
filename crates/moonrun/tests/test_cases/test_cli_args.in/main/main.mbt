@@ -1,25 +1,38 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 fn main {
-  @debug.to_string(get_args()) |> println
+  check_lossless_utf16_round_trip()
+  let args = get_args()
+  let reader_args = get_args_from_reader()
+  if args.length() != reader_args.length() {
+    abort("String-array reader returned the wrong number of arguments")
+  }
+  for i in 0..<args.length() {
+    if args[i] != reader_args[i] {
+      abort("String-array reader returned different arguments")
+    }
+  }
+  if args.length() > 1 && args[1] == "exit-7" {
+    exit_with_code(7)
+  }
+  @debug.to_string(args) |> println
 }
-
 
 fn env_get_var(s : ExternString) -> ExternString = "__moonbit_fs_unstable" "env_get_var"
 
@@ -68,6 +81,28 @@ fn JSArray::op_get(self : JSArray, idx : Int) -> JSValue {
   return array_get(self, idx)
 }
 
+#external
+type StringArrayReadHandle
+
+fn begin_read_string_array(arr : JSArray) -> StringArrayReadHandle = "__moonbit_fs_unstable" "begin_read_string_array"
+
+fn string_array_read_string(handle : StringArrayReadHandle) -> ExternString = "__moonbit_fs_unstable" "string_array_read_string"
+
+fn finish_read_string_array(handle : StringArrayReadHandle) = "__moonbit_fs_unstable" "finish_read_string_array"
+
+fn get_args_from_reader() -> Array[String] {
+  let handle = begin_read_string_array(args_get())
+  let result = []
+  while true {
+    let value = string_from_extern(string_array_read_string(handle))
+    if value == "ffi_end_of_/string_array" {
+      break
+    }
+    result.push(value)
+  }
+  finish_read_string_array(handle)
+  result
+}
 
 
 #external
@@ -82,6 +117,8 @@ type ExternString
 fn begin_create_string() -> StringCreateHandle = "__moonbit_fs_unstable" "begin_create_string"
 
 fn string_append_char(handle : StringCreateHandle, ch : Char) = "__moonbit_fs_unstable" "string_append_char"
+
+fn string_append_code_unit(handle : StringCreateHandle, code_unit : Int) = "__moonbit_fs_unstable" "string_append_char"
 
 fn finish_create_string(handle : StringCreateHandle) -> ExternString = "__moonbit_fs_unstable" "finish_create_string"
 
@@ -99,6 +136,24 @@ fn string_read_char(handle : StringReadHandle) -> Int = "__moonbit_fs_unstable" 
 
 fn finish_read_string(handle : StringReadHandle) = "__moonbit_fs_unstable" "finish_read_string"
 
+fn check_lossless_utf16_round_trip() -> Unit {
+  let builder = begin_create_string()
+  let expected = [0x61, 0xd800, 0x62, 0xdc00, 0xd83d, 0xde00]
+  for code_unit in expected {
+    string_append_code_unit(builder, code_unit)
+  }
+  let reader = begin_read_string(finish_create_string(builder))
+  for code_unit in expected {
+    if string_read_char(reader) != code_unit {
+      abort("Extern string did not preserve its UTF-16 code units")
+    }
+  }
+  if string_read_char(reader) != -1 {
+    abort("Extern string reader did not stop at the end")
+  }
+  finish_read_string(reader)
+}
+
 fn string_from_extern(e : ExternString) -> String {
   let buf = @buffer.new()
   let handle = begin_read_string(e)
@@ -107,7 +162,7 @@ fn string_from_extern(e : ExternString) -> String {
     if ch == -1 {
       break
     } else {
-      buf.write_char(Char::from_int(ch))
+      buf.write_char_utf16le(Char::from_int(ch))
     }
   }
   finish_read_string(handle)

@@ -1,26 +1,30 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::cli::UniversalFlags;
-use moonutil::common::{
-    DriverKind, MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,
-    MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE, MooncGenTestInfo, TargetBackend,
+use moonutil::cli_support::UniversalFlags;
+use moonutil::{
+    constants::{
+        MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,
+        MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE,
+    },
+    target::TargetBackend,
+    test_metadata::{DriverKind, MooncGenTestInfo},
 };
 use std::ffi::OsStr;
 use std::io::{Read, Write};
@@ -78,6 +82,10 @@ pub(crate) struct GenerateTestDriverSubcommand {
     /// Max concurrent tests for `async test`
     #[clap(long)]
     max_concurrent_tests: Option<u32>,
+
+    /// Package that provides the async test runtime
+    #[clap(long)]
+    async_runtime_package: String,
 }
 
 fn moonc_gen_test_info(
@@ -97,7 +105,7 @@ fn moonc_gen_test_info(
         DriverKind::Blackbox => Some("-include-doctests"),
         _ => None,
     };
-    let mut generated = std::process::Command::new(&*moonutil::BINARIES.moonc)
+    let mut generated = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonc)
         .arg("gen-test-info")
         .arg("-json")
         .args(files)
@@ -117,14 +125,17 @@ fn moonc_gen_test_info(
     generated
         .stdout
         .take()
-        .unwrap()
+        .context("failed to capture `moonc gen-test-info` stdout")?
         .read_to_string(&mut out)
         .with_context(|| gen_error_message(files))?;
     generated.wait()?;
 
     // when mauanlly execute command to generate test driver, we need to create the parent directory
-    if !output_path.parent().unwrap().exists() {
-        std::fs::create_dir_all(output_path.parent().unwrap())?;
+    let output_parent = output_path
+        .parent()
+        .with_context(|| format!("output path `{}` has no parent", output_path.display()))?;
+    if !output_parent.exists() {
+        std::fs::create_dir_all(output_parent)?;
     }
 
     let test_info_json_path = output_path;
@@ -149,7 +160,7 @@ fn moonc_gen_test_info(
     fn gen_error_message(files: &[PathBuf]) -> String {
         format!(
             "failed to execute `{:?} gen-test-info {}`",
-            moonutil::BINARIES.moonc,
+            moonutil::toolchain::BINARIES.moonc,
             files
                 .iter()
                 .map(|it| it.to_string_lossy())
@@ -193,6 +204,7 @@ pub(crate) fn generate_test_driver(
         cmd.bench,
         cmd.coverage_package_override.as_deref(),
         cmd.max_concurrent_tests,
+        &cmd.async_runtime_package,
     );
     std::fs::write(&cmd.output_driver, generated_content)?;
 
@@ -244,6 +256,31 @@ const TEMPLATE_WITH_BENCH_ARGS: &str = include_str!(concat!(
     "/../moonbuild/template/test_driver_project/template_with_bench_args.mbt"
 ));
 
+fn replace_template_initializer(template: &str, name: &str, replacement: &str) -> String {
+    let marker = format!("// REPLACE ME: {name}");
+    let mut markers = template.match_indices(&marker);
+    let marker_start = markers
+        .next()
+        .unwrap_or_else(|| panic!("missing test driver template marker `{marker}`"))
+        .0;
+    assert!(
+        markers.next().is_none(),
+        "test driver template marker `{marker}` appears more than once"
+    );
+
+    let initializer_start = template[..marker_start]
+        .rfind('=')
+        .map(|position| position + 1)
+        .unwrap_or_else(|| panic!("test driver template marker `{marker}` has no initializer"));
+
+    let mut result = String::with_capacity(template.len() + replacement.len());
+    result.push_str(&template[..initializer_start]);
+    result.push(' ');
+    result.push_str(replacement);
+    result.push_str(&template[marker_start + marker.len()..]);
+    result
+}
+
 fn generate_driver(
     data: &MooncGenTestInfo,
     pkgname: &str,
@@ -251,6 +288,7 @@ fn generate_driver(
     enable_bench: bool,
     coverage_package_override: Option<&str>,
     max_concurrent_tests: Option<u32>,
+    async_runtime_package: &str,
 ) -> String {
     // Driver selection : determine which templates to include
     let has_no_args = data.no_args_tests.values().any(|v| !v.is_empty());
@@ -267,65 +305,51 @@ fn generate_driver(
 
     if enable_bench {
         if has_bench_args {
-            template.push_str(
-                TEMPLATE_WITH_BENCH_ARGS
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_WITH_BENCH_ARGS,
+                "moonbit_test_driver_internal_with_bench_args_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
+            ));
         }
     } else {
         if has_no_args {
-            template.push_str(
-                TEMPLATE_NO_ARGS
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_NO_ARGS,
+                "moonbit_test_driver_internal_no_args_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
+            ));
         }
         if has_with_args {
-            template.push_str(
-                TEMPLATE_WITH_ARGS
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_WITH_ARGS,
+                "moonbit_test_driver_internal_with_args_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
+            ));
         }
         if has_any_async {
-            template.push_str(
-                TEMPLATE_ASYNC_RUNTIME
-                    .replace(
-                        "0 // REPLACE ME: moonbit_test_driver_internal_max_concurrent_tests",
-                        &format!("{}", max_concurrent_tests.unwrap_or(10)),
-                    )
-                    .as_str(),
+            let async_runtime_template = adapt_async_runtime_references(
+                TEMPLATE_ASYNC_RUNTIME.to_string(),
+                async_runtime_package,
             );
+            template.push_str(&replace_template_initializer(
+                &async_runtime_template,
+                "moonbit_test_driver_internal_max_concurrent_tests",
+                &max_concurrent_tests.unwrap_or(10).to_string(),
+            ));
         }
         if has_no_args_async {
-            template.push_str(
-                TEMPLATE_NO_ARGS_ASYNC
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.async_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_NO_ARGS_ASYNC,
+                "moonbit_test_driver_internal_async_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.async_tests),
+            ));
         }
         if has_with_args_async {
-            template.push_str(
-                TEMPLATE_WITH_ARGS_ASYNC
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args",
-                        &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_WITH_ARGS_ASYNC,
+                "moonbit_test_driver_internal_async_tests_with_args",
+                &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
+            ));
         }
     }
 
@@ -355,6 +379,14 @@ fn generate_driver(
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
+    adapt_core_references_for_package(template, pkgname)
+}
+
+fn adapt_async_runtime_references(template: String, async_runtime_package: &str) -> String {
+    template.replace("@moonbitlang/async.", &format!("@{async_runtime_package}."))
+}
+
+fn adapt_core_references_for_package(template: String, pkgname: &str) -> String {
     if pkgname == MOONBITLANG_CORE_BUILTIN {
         template.replace(&format!("@{MOONBITLANG_CORE_PRELUDE}."), "")
     } else if pkgname.starts_with(MOONBITLANG_CORE) {
@@ -411,4 +443,98 @@ fn test_base16() {
         expect!["28297b7d5b5d2e2b2d2a2f3d27225c7c7e5f3a"],
     );
     check("filename.mbt", expect!["66696c656e616d652e6d6274"]);
+}
+
+#[test]
+fn empty_test_sections_are_not_rendered() {
+    use indexmap::IndexMap;
+
+    let empty = IndexMap::new();
+    let data = MooncGenTestInfo {
+        no_args_tests: empty.clone(),
+        with_args_tests: empty.clone(),
+        with_bench_args_tests: empty.clone(),
+        async_tests: empty.clone(),
+        async_tests_with_args: empty,
+    };
+
+    let generated = generate_driver(
+        &data,
+        "username/test",
+        false,
+        false,
+        None,
+        None,
+        "moonbitlang/core/async",
+    );
+    assert!(!generated.contains("REPLACE ME:"));
+}
+
+#[test]
+fn test_driver_template_replacement_depends_only_on_marker() {
+    let template = "let value : Int = any_valid_placeholder() // REPLACE ME: generated_value\n";
+
+    assert_eq!(
+        replace_template_initializer(template, "generated_value", "42"),
+        "let value : Int = 42\n"
+    );
+}
+
+#[test]
+fn formatted_test_driver_templates_have_replaceable_initializers() {
+    for (template, name) in [
+        (
+            TEMPLATE_NO_ARGS,
+            "moonbit_test_driver_internal_no_args_tests",
+        ),
+        (
+            TEMPLATE_WITH_ARGS,
+            "moonbit_test_driver_internal_with_args_tests",
+        ),
+        (
+            TEMPLATE_NO_ARGS_ASYNC,
+            "moonbit_test_driver_internal_async_tests",
+        ),
+        (
+            TEMPLATE_WITH_ARGS_ASYNC,
+            "moonbit_test_driver_internal_async_tests_with_args",
+        ),
+        (
+            TEMPLATE_WITH_BENCH_ARGS,
+            "moonbit_test_driver_internal_with_bench_args_tests",
+        ),
+    ] {
+        let replaced = replace_template_initializer(template, name, "Default::default()");
+        assert!(replaced.contains("] = Default::default()\n"));
+        assert!(!replaced.contains("REPLACE ME:"));
+    }
+}
+
+#[test]
+fn test_driver_default_reference_is_adapted_for_core_packages() {
+    const INITIALIZER: &str =
+        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())";
+
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), "username/test"),
+        INITIALIZER
+    );
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_PRELUDE),
+        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/builtin.Default::default())"
+    );
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_BUILTIN),
+        "MoonBitTestDriverInternalTestMap(Default::default())"
+    );
+}
+
+#[test]
+fn async_runtime_references_use_selected_package() {
+    let template = "@moonbitlang/async.run_async_main(() => ())".to_string();
+
+    assert_eq!(
+        adapt_async_runtime_references(template, "moonbitlang/core/async"),
+        "@moonbitlang/core/async.run_async_main(() => ())"
+    );
 }

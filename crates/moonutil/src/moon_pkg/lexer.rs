@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -38,6 +38,8 @@ pub type Loc = Range<Pos>;
 #[logos(skip(r"//[^\n\r]*"))] // Skip single-line comments
 #[logos(skip(r"[ \t\f]+"))]
 pub enum Token {
+    #[token("#cfg", with_span)]
+    CFG(Loc),
     #[token("[", with_span)]
     LBRACKET(Loc),
     #[token("]", with_span)]
@@ -58,6 +60,8 @@ pub enum Token {
     RPAREN(Loc),
     #[token(";", with_span)]
     SEMI(Loc),
+    #[token("*", with_span)]
+    STAR(Loc),
     #[token("true", with_span)]
     TRUE(Loc),
     #[token("false", with_span)]
@@ -66,15 +70,18 @@ pub enum Token {
     FOR(Loc),
     #[regex(r#""([^"\\]|\\.)*""#, with_string)]
     STRING((Loc, String)),
-    #[regex(r"-?[0-9]+", with_int)]
-    INT((Loc, i32)),
+    #[regex(r"-?[0-9]+", with_lexeme)]
+    INT((Loc, String)),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", with_lexeme)]
     LIDENT((Loc, String)),
     #[token("as", with_span)]
     AS(Loc),
     #[token("import", with_span)]
     IMPORT(Loc),
-    #[regex(r"@[a-zA-Z_][a-zA-Z0-9_/]*", with_package_name)]
+    #[regex(
+        r"@[a-zA-Z_][a-zA-Z0-9_-]*(/[a-zA-Z_][a-zA-Z0-9_-]*)*",
+        with_package_name
+    )]
     PACKAGENAME((Loc, String)),
     EOF(Loc),
 }
@@ -107,13 +114,6 @@ fn with_lexeme<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
     let loc = get_loc(lex);
     let lexme = s.to_string();
     (loc, lexme)
-}
-
-fn with_int<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, i32) {
-    let s = lex.slice();
-    let loc = get_loc(lex);
-    let i = s.parse::<i32>().unwrap(); // Safe because regex ensures valid integer
-    (loc, i)
 }
 
 fn with_string<'a>(lex: &mut Lexer<'a, Token>) -> Result<(Loc, String), ()> {
@@ -167,6 +167,7 @@ fn with_package_name<'a>(lex: &mut Lexer<'a, Token>) -> (Loc, String) {
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
+    CFG,
     LBRACKET,
     RBRACKET,
     COMMA,
@@ -177,6 +178,7 @@ pub enum TokenKind {
     LPAREN,
     RPAREN,
     SEMI,
+    STAR,
     TRUE,
     FALSE,
     FOR,
@@ -192,7 +194,8 @@ pub enum TokenKind {
 impl Token {
     pub fn range(&self) -> &Loc {
         match self {
-            Token::LBRACKET(r)
+            Token::CFG(r)
+            | Token::LBRACKET(r)
             | Token::RBRACKET(r)
             | Token::COMMA(r)
             | Token::COLON(r)
@@ -202,6 +205,7 @@ impl Token {
             | Token::LPAREN(r)
             | Token::RPAREN(r)
             | Token::SEMI(r)
+            | Token::STAR(r)
             | Token::TRUE(r)
             | Token::FALSE(r)
             | Token::FOR(r)
@@ -216,6 +220,7 @@ impl Token {
     }
     pub fn kind(&self) -> TokenKind {
         match self {
+            Token::CFG(_) => TokenKind::CFG,
             Token::LBRACKET(_) => TokenKind::LBRACKET,
             Token::RBRACKET(_) => TokenKind::RBRACKET,
             Token::COMMA(_) => TokenKind::COMMA,
@@ -226,6 +231,7 @@ impl Token {
             Token::LPAREN(_) => TokenKind::LPAREN,
             Token::RPAREN(_) => TokenKind::RPAREN,
             Token::SEMI(_) => TokenKind::SEMI,
+            Token::STAR(_) => TokenKind::STAR,
             Token::TRUE(_) => TokenKind::TRUE,
             Token::FALSE(_) => TokenKind::FALSE,
             Token::FOR(_) => TokenKind::FOR,
@@ -243,6 +249,7 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Token::CFG(_) => write!(f, "#cfg"),
             Token::LBRACKET(_) => write!(f, "["),
             Token::RBRACKET(_) => write!(f, "]"),
             Token::COMMA(_) => write!(f, ","),
@@ -253,6 +260,7 @@ impl Display for Token {
             Token::LPAREN(_) => write!(f, "("),
             Token::RPAREN(_) => write!(f, ")"),
             Token::SEMI(_) => write!(f, ";"),
+            Token::STAR(_) => write!(f, "*"),
             Token::TRUE(_) => write!(f, "true"),
             Token::FALSE(_) => write!(f, "false"),
             Token::FOR(_) => write!(f, "for"),
@@ -728,6 +736,21 @@ options(
 }
 
 #[test]
+fn tokenize_package_name_with_dash() {
+    let tokens = tokenize(r#"import { "path/to/pkg" @pkg-A }"#).unwrap();
+    assert!(matches!(
+        &tokens[3],
+        Token::PACKAGENAME((_, alias)) if alias == "pkg-A"
+    ));
+}
+
+#[test]
+fn tokenize_import_all_alias() {
+    let tokens = tokenize(r#"import { "path/to/pkg" * }"#).unwrap();
+    assert!(matches!(&tokens[3], Token::STAR(_)));
+}
+
+#[test]
 fn test_comment_lexing() {
     // Single-line comments should be skipped
     let input = r#"
@@ -892,4 +915,13 @@ fn test_escape_sequences() {
         )
     "#]]
     .assert_debug_eq(&tokens);
+}
+
+#[test]
+fn tokenize_preserves_integer_lexemes() {
+    let tokens = tokenize("18446744073709551616").unwrap();
+    assert!(matches!(
+        &tokens[0],
+        Token::INT((_, value)) if value == "18446744073709551616"
+    ));
 }

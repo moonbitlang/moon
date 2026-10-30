@@ -1,28 +1,30 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
 use moonutil::{
-    common::{TargetBackend, TestIndexRange, lower_surface_targets},
-    dirs::PackageDirs,
-    mooncakes::sync::AutoSyncFlags,
+    build_options::TestIndexRange,
+    cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
+    project::PackageDirs,
+    target::{TargetBackend, lower_surface_targets},
 };
-use std::path::Path;
+use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use super::{BuildFlags, UniversalFlags};
@@ -33,18 +35,23 @@ pub(crate) struct BenchSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
-    /// Run test in the specified package
+    /// Run benchmarks in the specified package
     #[clap(short, long, num_args(1..))]
     pub package: Option<Vec<String>>,
 
-    /// Run test in the specified file. Only valid when `--package` is also specified.
+    /// Run benchmarks in the specified file. Only valid when `--package` is also specified.
     #[clap(short, long, requires("package"))]
     pub file: Option<String>,
 
-    /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
-    /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
-    #[clap(short, long, requires("file"))]
+    /// Run only the index-th benchmark in the file. Accepts a single index or a left-inclusive
+    /// right-exclusive range like `0-2`. Only valid when a single file is selected.
+    #[clap(short, long)]
     pub index: Option<TestIndexRange>,
+
+    /// Run benchmarks for a filesystem path. `PATH` may point to a package
+    /// directory or a file inside a package.
+    #[clap(conflicts_with_all = ["file", "package"], name = "PATH")]
+    pub path: Vec<PathBuf>,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
@@ -59,49 +66,40 @@ pub(crate) struct BenchSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = cli
+pub(crate) fn run_bench(
+    cli: UniversalFlags,
+    cmd: BenchSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
+        .select(output.user_log())?
         .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_bench_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            None,
-            None,
-        );
+        return run_bench_internal(&cli, &cmd, &dirs, false, None, output);
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
-    let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
-
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_bench_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            display_backend_hint,
-            Some(t),
-        )
-        .context(format!("failed to run bench for target {t:?}"))?;
-        ret_value = ret_value.max(x);
-    }
-    Ok(ret_value)
+    let display_backend_hint = targets.len() > 1;
+    let bench_cmd: super::TestLikeSubcommand<'_> = (&cmd).into();
+    super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
+    let discovered =
+        super::sync_and_discover_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
+    super::run_test_or_bench_from_discovered(
+        &cli,
+        &bench_cmd,
+        &dirs,
+        display_backend_hint,
+        &targets,
+        discovered,
+        output,
+    )
+    .with_context(|| match targets.as_slice() {
+        [target] => format!("failed to run bench for target {target:?}"),
+        _ => format!("failed to run bench for targets {targets:?}"),
+    })
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -109,21 +107,17 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
 fn run_bench_internal(
     cli: &UniversalFlags,
     cmd: &BenchSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    display_backend_hint: Option<()>,
+    dirs: &PackageDirs,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     super::run_test_or_bench_internal(
         cli,
         cmd.into(),
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
+        dirs,
         display_backend_hint,
         selected_target_backend,
+        output,
     )
 }

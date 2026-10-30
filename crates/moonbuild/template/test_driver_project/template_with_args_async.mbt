@@ -4,13 +4,17 @@
 ///|
 let moonbit_test_driver_internal_async_tests_with_args : MoonBitTestDriverInternalTestMap[
   async (@moonbitlang/core/test.Test) -> Unit,
-] = {} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args
+] = MoonBitTestDriverInternalTestMap(
+  @moonbitlang/core/prelude.Default::default(),
+) // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args
 
 ///|
+#warnings("-unnecessary_annotation")
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with fn run_test(
   async_tests,
   filename,
   index,
+  handle_start,
   handle_result,
   error_to_string,
 ) {
@@ -26,7 +30,8 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with f
       }
     }
     async_tests.push(() => {
-      try f(@moonbitlang/core/test.new(name)) catch {
+      handle_start()
+      try f(@moonbitlang/core/test.Test(name)) catch {
         err if MoonBit_Async_Test_Driver_Impl::is_being_cancelled() => raise err
         err => handle_result(name, error_to_string(err), false)
       } noraise {

@@ -1,31 +1,35 @@
 use super::*;
 
 fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) -> String {
-    let path_str = dunce::canonicalize(dir)
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
+    let mut all_pkgs: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
+    let packages = all_pkgs["packages"].as_array_mut().unwrap();
+    let mut actual_core_packages = packages
+        .iter()
+        .filter(|package| package["root"] == "moonbitlang/core")
+        .map(|package| {
+            (
+                package["rel"].as_str().unwrap().to_owned(),
+                PathBuf::from(package["artifact"].as_str().unwrap()),
+            )
+        })
+        .collect::<Vec<_>>();
+    actual_core_packages.sort();
+    // Metadata lists every discovered package, including packages unsupported
+    // on WasmGC. Only packages supported by this backend have bundled interfaces.
+    for interface in core_package_interfaces(TargetBackend::WasmGC) {
+        assert!(
+            actual_core_packages.binary_search(&interface).is_ok(),
+            "all_pkgs.json is missing the installed core package interface {interface:?}"
+        );
+    }
 
-    let json_content = std::fs::read_to_string(json_path).unwrap();
+    // Standard library membership follows the installed toolchain and is
+    // unrelated to the indirect project dependencies covered here.
+    packages.retain(|package| package["root"] != "moonbitlang/core");
+    let json_content = serde_json::to_string_pretty(&all_pkgs).unwrap() + "\n";
 
-    // Normalize Windows paths: replace backslashes with forward slashes
-    // In JSON, Windows paths are escaped (e.g., "C:\\Users\\..."), so we replace "\\" with "/"
-    // For the canonical path, we replace single "\" with "/"
-    let normalized_path = path_str.replace('\\', "/");
-    let normalized_json = json_content.replace("\\\\", "/");
-
-    // Replace the project path with $ROOT
-    let normalized_json = normalized_json.replace(&normalized_path, "$ROOT");
-
-    // Replace the MOON_HOME path with $MOON_HOME
-    normalized_json.replace(
-        &moonutil::moon_dir::home()
-            .to_str()
-            .unwrap()
-            .replace('\\', "/"),
-        "$MOON_HOME",
-    )
+    replace_dir(&json_content, dir)
 }
 
 #[test]
@@ -35,10 +39,10 @@ fn test_all_pkgs() {
     // check
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["check"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
-        Finished. moon: ran 10 tasks, now up to date
-    "#]],
+            Finished. moon: ran 16 tasks, now up to date
+        "#]],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
@@ -47,7 +51,7 @@ fn test_all_pkgs() {
     // build
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 7 tasks, now up to date
         "#]],
@@ -59,7 +63,7 @@ fn test_all_pkgs() {
     // run
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stdout(&dir, ["run", "cmd/main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "cmd/main"]),
         expect![[r#"
         42
         42
@@ -72,7 +76,7 @@ fn test_all_pkgs() {
     // test
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stdout(&dir, ["test"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             Total tests: 2, passed: 2, failed: 0.
         "#]],
@@ -84,9 +88,9 @@ fn test_all_pkgs() {
     // info
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["info"]),
+        get_stderr(&dir, ["info", "--target", "wasm-gc"]),
         expect![[r#"
-            Finished. moon: ran 10 tasks, now up to date
+            Finished. moon: ran 16 tasks, now up to date
         "#]],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
@@ -97,13 +101,37 @@ fn test_all_pkgs() {
 #[test]
 fn test_indirect_dep_bundle() {
     let dir = TestDir::new("indirect_dep.in/indirect_dep2");
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "moon.pkg", "sub.mbt", "p/moon.pkg", "p/src.mbt"]
+        .map(|path| (path, std::fs::read(dir.join("sub").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "username/sub", "0.1.0", &files);
     // bundle
     let _ = get_stdout(&dir, ["clean"]);
+    std::fs::create_dir_all(dir.join("_build")).unwrap();
+    std::fs::write(packages_selector_path(&dir), "existing check selector").unwrap();
+    std::fs::write(packages_index_path(&dir), "existing check index").unwrap();
     check(
-        get_stderr(&dir, ["bundle"]),
+        get_stderr_with_envs(
+            &dir,
+            ["bundle", "--target", "wasm-gc"],
+            [("MOON_HOME", moon_home.path())],
+        ),
         expect![[r#"
+            Using cached username/sub@0.1.0
             Finished. moon: ran 7 tasks, now up to date
         "#]],
+    );
+    assert_eq!(
+        std::fs::read_to_string(packages_selector_path(&dir)).unwrap(),
+        "existing check selector"
+    );
+    assert_eq!(
+        std::fs::read_to_string(packages_index_path(&dir)).unwrap(),
+        "existing check index"
+    );
+    assert!(
+        !dir.join("_build/wasm-gc/release/bundle/packages.json")
+            .exists()
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/release/bundle/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);

@@ -1,35 +1,42 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
-use mooncake::pkg::{
-    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
+use anyhow::{Context, bail};
+use mooncake::{
+    pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand},
+    registry::{
+        RegistryClient,
+        path::{ModuleNotFound, parse_install_package_path, parse_module_path},
+    },
 };
 use moonutil::{
-    dirs::{PackageDirs, ProjectContext},
-    moon_dir,
-    mooncakes::{ModuleName, RegistryConfig},
+    constants::MOD_NAME_STDLIB,
+    project::{PackageDirs, ProjectContext},
+    user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
 
-use super::UniversalFlags;
+use super::{UniversalFlags, registry_queries};
 
-fn require_selected_module(project: &ProjectContext, command: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn require_selected_module(
+    project: &ProjectContext,
+    command: &str,
+) -> anyhow::Result<PathBuf> {
     project
         .selected_module()
         .map(|module| module.root.clone())
@@ -41,10 +48,9 @@ fn require_selected_module(project: &ProjectContext, command: &str) -> anyhow::R
         })
 }
 use super::install_binary::{
-    GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
-    parse_package_spec, strip_wildcard_suffix,
+    GitRef, install_binary, install_from_git, install_from_github_archive, install_from_local,
+    is_git_url, is_local_path, parse_github_permalink, strip_wildcard_suffix,
 };
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Returns the local filesystem path used for wildcard local install.
 fn local_wildcard_path(source: &str) -> Option<PathBuf> {
@@ -63,39 +69,19 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
-    // If no package path and no local path, use legacy behavior
-    if cmd.source.is_none() && cmd.path.is_none() {
-        output.warn(
-            "`moon install` without arguments is deprecated and will be removed in a future version. \
-             Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
-        );
-        let PackageDirs {
-            source_dir,
-            mooncakes_dir,
-            ..
-        } = cli
-            .source_tgt_dir
-            .query(cli.workspace_env.clone())?
-            .package_dirs()?;
-        return mooncake::pkg::install::install(
-            &source_dir,
-            &mooncakes_dir,
-            cli.quiet,
-            cli.verbose,
-            true,
-        );
-    }
-
-    let install_dir = cmd.bin.unwrap_or_else(moon_dir::user_bin);
+pub(crate) fn install_cli(
+    cli: UniversalFlags,
+    cmd: InstallSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let install_dir = cmd.bin.unwrap_or_else(|| moonutil::MOON_HOME.bin_dir());
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
     // Explicit --path takes priority
     if let Some(local_path) = cmd.path {
         let local_path_str = local_path.to_string_lossy();
         if strip_wildcard_suffix(local_path_str.as_ref()).is_some() {
-            output.warn(format!(
+            user_log.warn(format!(
                 "`--path` does not support wildcard selectors like `{}`",
                 local_path_str
             ));
@@ -104,10 +90,12 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
                 local_path_str
             );
         }
-        return install_from_local(&cli, &local_path, &install_dir, false);
+        return install_from_local(&cli, &local_path, &install_dir, false, user_log);
     }
 
-    let source = cmd.source.unwrap();
+    let source = cmd.source.ok_or_else(|| {
+        anyhow::anyhow!("`moon install` expects a package, local path, or git URL")
+    })?;
 
     // Local path install
     // These checks can't be done in clap because we need to inspect the value of source
@@ -121,10 +109,43 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         }
         let (local_path, install_all) = local_wildcard_path(&source)
             .map_or((PathBuf::from(source.as_str()), false), |base| (base, true));
-        return install_from_local(&cli, Path::new(&local_path), &install_dir, install_all);
+        return install_from_local(
+            &cli,
+            Path::new(&local_path),
+            &install_dir,
+            install_all,
+            user_log,
+        );
     }
 
-    // Git URL install
+    // GitHub browser permalinks select archives; ordinary Git URLs retain the
+    // existing repository transport and revision flags.
+    if let Some(permalink) = parse_github_permalink(&source)? {
+        if has_git_ref {
+            anyhow::bail!(
+                "--rev, --branch, and --tag must not be used with a tree permalink; the URL already selects a commit"
+            );
+        }
+        if cmd.path_in_repo.is_some() && permalink.path_in_repo.is_some() {
+            anyhow::bail!(
+                "PATH_IN_REPO must not be used when SOURCE already contains a /tree/... path"
+            );
+        }
+        let path_in_repo = cmd
+            .path_in_repo
+            .as_deref()
+            .or(permalink.path_in_repo.as_deref());
+        let install_all = path_in_repo.is_some_and(|s| strip_wildcard_suffix(s).is_some());
+        return install_from_github_archive(
+            &cli,
+            &permalink.archive_url,
+            path_in_repo,
+            &install_dir,
+            install_all,
+            user_log,
+        );
+    }
+
     if is_git_url(&source) {
         let install_all = cmd
             .path_in_repo
@@ -146,6 +167,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
             cmd.path_in_repo.as_deref(),
             &install_dir,
             install_all,
+            user_log,
         );
     }
 
@@ -156,129 +178,70 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     if cmd.path_in_repo.is_some() {
         anyhow::bail!("Path in repo can only be used with git URLs");
     }
-    let spec = parse_package_spec(&source)?;
-    let install_all = spec.is_wildcard;
-    install_binary(&cli, &spec, &install_dir, install_all)
+    let (path, install_all) = parse_install_package_path(&source)
+        .with_context(|| format!("Invalid package path `{source}`"))?;
+    install_binary(&cli, &path, &install_dir, install_all, user_log)
 }
 
-pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
-    let module_dir = require_selected_module(&project, "remove")?;
+pub(crate) fn remove_cli(
+    cli: UniversalFlags,
+    cmd: RemoveSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let module_dir = require_selected_module(project.context(), "remove")?;
     let PackageDirs {
-        source_dir: project_root,
-        project_manifest_path,
-        ..
-    } = query.package_dirs()?;
-    let package_path = cmd.package_path;
-    let parts: Vec<&str> = package_path.splitn(2, '/').collect();
-    if parts.len() != 2 {
-        bail!("registry module name must be in the form of <author>/<module_name>");
+        project_manifest, ..
+    } = project.package_dirs()?;
+    let path = parse_module_path(&cmd.package_path)?;
+    if path.version.is_some() {
+        bail!("`moon remove` expects a module name without a version");
     }
-    let username = parts[0];
-    let pkgname = parts[1];
-    mooncake::pkg::remove::remove(
-        &project_root,
-        &module_dir,
-        project_manifest_path.as_deref(),
-        username,
-        pkgname,
+    mooncake::pkg::remove::remove(&module_dir, &project_manifest, &path.module, user_log)
+}
+
+pub(crate) fn add_cli(
+    cli: UniversalFlags,
+    cmd: AddSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let module_dir = require_selected_module(project.context(), "add")?;
+    let dirs = project.package_dirs()?;
+
+    let path = parse_module_path(&cmd.package_path)?;
+    if path.module == MOD_NAME_STDLIB {
+        user_log.warn(format!("no need to add `{MOD_NAME_STDLIB}` as dependency"));
+        return Ok(0);
+    }
+
+    let registry = RegistryClient::configured(user_log);
+    let allow_remote = !cmd.no_update;
+    let module = registry_queries::resolve_module(
+        &registry,
+        path.module_request()?,
+        allow_remote,
+        user_log,
     )
-}
-
-pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
-    let module_dir = require_selected_module(&project, "add")?;
-    let PackageDirs {
-        source_dir: project_root,
-        mooncakes_dir,
-        project_manifest_path,
-        ..
-    } = query.package_dirs()?;
-
-    // Update registry index by default (issue #963).
-    // - `--no-update` keeps the previous behavior.
-    // - If an index already exists, update failures are treated as warnings so users can proceed
-    //   with the existing local index.
-    let index_dir = moonutil::moon_dir::index();
-    let mut index_updated = false;
-    if !cmd.no_update && (!cmd.upgrade || !cmd.package_path.contains('@')) {
-        let had_index = index_dir.exists();
-        let registry_config = RegistryConfig::load();
-        match mooncake::update::update(&index_dir, &registry_config) {
-            Ok(_) => index_updated = true,
-            Err(e) => {
-                if had_index {
-                    output.warn(format!(
-                        "failed to update registry index, continuing with existing index: {e}"
-                    ));
-                } else {
-                    return Err(e);
-                }
-            }
+    .map_err(|error| {
+        if !allow_remote && error.is::<ModuleNotFound>() {
+            let hint = if registry.uses_http_metadata() {
+                "No cached latest version; retry without `--no-update` to query the registry."
+            } else {
+                "Please consider running `moon update` to update the index."
+            };
+            error.context(hint)
+        } else {
+            error
         }
-    }
-
-    let package_path = cmd.package_path;
-
-    let parts: Vec<&str> = package_path.splitn(2, '@').collect();
-
-    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 {
-        bail!("registry module name must be in the form of <author>/<module_name>[@<version>]");
-    }
-    let username = author_pkg[0];
-    let pkgname = author_pkg[1];
-    let pkg_name = ModuleName {
-        username: username.into(),
-        unqual: pkgname.into(),
-    };
-
-    if cmd.upgrade && cmd.bin {
-        bail!("--bin cannot be used with --upgrade");
-    }
-
-    if parts.len() == 2 {
-        let version: &str = parts[1];
-        let version = version.parse()?;
-        mooncake::pkg::add::add(
-            &project_root,
-            &module_dir,
-            project_manifest_path.as_deref(),
-            &mooncakes_dir,
-            &pkg_name,
-            cmd.bin,
-            &version,
-            cli.quiet,
-            cmd.upgrade,
-        )
-    } else {
-        mooncake::pkg::add::add_latest(
-            &project_root,
-            &module_dir,
-            project_manifest_path.as_deref(),
-            &mooncakes_dir,
-            &pkg_name,
-            cmd.bin,
-            cli.quiet,
-            index_updated,
-            cmd.upgrade,
-        )
-    }
-}
-
-pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
-    let module_dir = require_selected_module(&project, "tree")?;
-    let PackageDirs {
-        source_dir: project_root,
-        project_manifest_path,
-        ..
-    } = query.package_dirs()?;
-    mooncake::pkg::tree::tree(&project_root, &module_dir, project_manifest_path.as_deref())
+    })?;
+    mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.upgrade, user_log)
 }
 
 #[cfg(test)]

@@ -44,7 +44,7 @@ fn test_expect_test() -> anyhow::Result<()> {
     expect![[r#"
         test "hello" {
           let buf = @buffer.new()
-          buf.write_string("just\ntest")
+          buf.write_string_utf16le("just\ntest")
           inspect(buf, content=(
             
             #|just
@@ -54,7 +54,7 @@ fn test_expect_test() -> anyhow::Result<()> {
 
         test "not-buf" {
           let notbuf = @buffer.new()
-          notbuf.write_string("haha")
+          notbuf.write_string_utf16le("haha")
           inspect(notbuf, content=(
             #|haha
           ))

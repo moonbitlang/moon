@@ -1,0 +1,5 @@
+import {
+  "username/check_fmt" @lib,
+}
+
+pkgtype(kind: "executable")

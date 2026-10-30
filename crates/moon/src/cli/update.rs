@@ -1,35 +1,101 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use moonutil::mooncakes::RegistryConfig;
+use mooncake::registry::RegistryClient;
+use moonutil::command_output::CommandOutput;
 
 use super::UniversalFlags;
 
-/// Update the package registry index
+/// Refresh registry metadata and report dependency updates
+///
+/// With MOON_REGISTRY_API=1, refresh the selected module or workspace's exact
+/// dependency versions and query each module's current latest version. Report
+/// available updates and deprecation status without changing declarations,
+/// downloading sources, or running build hooks. Partial refresh failures return
+/// a nonzero exit status; successful refreshes remain cached.
+///
+/// Otherwise, synchronize the Git registry index and symbols as before. This
+/// mode also works outside a project.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct UpdateSubcommand {}
 
-pub(crate) fn update_cli(cli: UniversalFlags, _cmd: UpdateSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn update_cli(
+    cli: UniversalFlags,
+    _cmd: UpdateSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for update")
     }
-    let registry_config = RegistryConfig::load();
-    let target_dir = moonutil::moon_dir::index();
-    mooncake::update::update(&target_dir, &registry_config)
+    let registry = RegistryClient::configured(output.user_log());
+    if !registry.uses_http_metadata() {
+        registry.sync(output.user_log())?;
+        return Ok(0);
+    }
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(output.user_log())?
+        .package_dirs()?;
+    let updates =
+        mooncake::pkg::update::update(&project.project_manifest, &registry, output.user_log())?;
+    let mut failures = Vec::new();
+    output.write_result(|writer| -> anyhow::Result<()> {
+        if updates.is_empty() {
+            writeln!(writer, "No registry dependencies to refresh.")?;
+        }
+        for update in &updates {
+            write!(writer, "{}: ", update.module)?;
+            match &update.latest {
+                Ok(latest) => {
+                    write!(writer, "latest {latest}")?;
+                    if latest > update.module.version() {
+                        write!(writer, " (update available)")?;
+                    }
+                }
+                Err(error) => {
+                    write!(writer, "latest refresh failed")?;
+                    failures.push(format!("  {} latest: {error:#}", update.module.name()));
+                }
+            }
+            match &update.status {
+                Ok(status) if status.yanked => {
+                    write!(writer, "; deprecated")?;
+                    let reason =
+                        anstream::adapter::strip_str(status.yanked_reason.as_deref().unwrap_or(""))
+                            .to_string();
+                    if !reason.trim().is_empty() {
+                        write!(writer, ": {}", reason.trim())?;
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    write!(writer, "; status refresh failed")?;
+                    failures.push(format!("  {}: {error:#}", update.module));
+                }
+            }
+            writeln!(writer)?;
+        }
+        Ok(())
+    })?;
+    if !failures.is_empty() {
+        bail!("registry refresh incomplete:\n{}", failures.join("\n"));
+    }
+    Ok(0)
 }

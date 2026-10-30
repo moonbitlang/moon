@@ -1,141 +1,26 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use ariadne::ReportKind;
 use colored::Colorize;
-use n2::progress::{DumbConsoleProgress, FancyConsoleProgress, Progress};
-use n2::terminal;
 use std::io::Write;
 
 use crate::runtest::TestStatistics;
-use moonutil::common::MbtTestInfo;
-
-#[allow(clippy::type_complexity)]
-pub fn create_progress_console(
-    callback: Option<Box<dyn Fn(&str) + Send>>,
-    verbose: bool,
-    suppress_progress: bool,
-) -> Box<dyn Progress> {
-    if !suppress_progress && terminal::use_fancy() {
-        Box::new(FancyConsoleProgress::new(verbose, callback))
-    } else {
-        Box::new(DumbConsoleProgress::new(verbose, callback))
-    }
-}
-
-fn render_result(result: &N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
-    match result.n_tasks_executed {
-        None => {
-            eprintln!(
-                "Failed with {} warnings, {} errors.",
-                result.n_warnings, result.n_errors
-            );
-            anyhow::bail!("failed when {mode} project");
-        }
-        Some(n_tasks) => {
-            if !quiet {
-                let finished = "Finished.".green().bold();
-                let warnings_errors = format_warnings_errors(result.n_warnings, result.n_errors);
-
-                match n_tasks {
-                    0 => {
-                        eprintln!("{finished} moon: no work to do{warnings_errors}");
-                    }
-                    n => {
-                        let task_plural = if n == 1 { "" } else { "s" };
-                        eprintln!(
-                            "{finished} moon: ran {n} task{task_plural}, now up to date{warnings_errors}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(0)
-}
-
-fn format_warnings_errors(n_warnings: usize, n_errors: usize) -> String {
-    if n_warnings > 0 || n_errors > 0 {
-        format!(" ({n_warnings} warnings, {n_errors} errors)")
-    } else {
-        String::new()
-    }
-}
-
-#[derive(Default)]
-pub struct ResultCatcher {
-    pub content_writer: Vec<String>, // todo: might be better to directly write to string
-    pub n_warnings: usize,
-    pub n_errors: usize,
-}
-
-impl ResultCatcher {
-    pub fn append_content(&mut self, s: impl Into<String>, report: Option<ReportKind>) {
-        self.content_writer.push(s.into());
-        match report {
-            Some(ReportKind::Error) => self.n_errors += 1,
-            Some(ReportKind::Warning) => self.n_warnings += 1,
-            _ => {}
-        }
-    }
-
-    pub fn append_kind(&mut self, kind: Option<ReportKind>) {
-        match kind {
-            Some(ReportKind::Error) => self.n_errors += 1,
-            Some(ReportKind::Warning) => self.n_warnings += 1,
-            _ => {}
-        }
-    }
-
-    pub fn append_diag(&mut self, diag: &moonutil::render::MooncDiagnostic) {
-        if diag.level == "error" {
-            self.n_errors += 1;
-        } else if diag.level == "warning" {
-            self.n_warnings += 1;
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct N2RunStats {
-    /// Number of build tasks executed, `None` means build failure
-    pub n_tasks_executed: Option<usize>,
-
-    pub n_errors: usize,
-    pub n_warnings: usize,
-}
-
-impl N2RunStats {
-    /// Whether the run was successful (i.e. didn't fail to execute).
-    pub fn successful(&self) -> bool {
-        self.n_tasks_executed.is_some()
-    }
-
-    /// Get the return code that should be returned to the shell.
-    pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() { 0 } else { 1 }
-    }
-
-    pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
-        render_result(self, quiet, mode)?;
-        Ok(())
-    }
-}
+use moonutil::test_metadata::MbtTestInfo;
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct TestArgs {

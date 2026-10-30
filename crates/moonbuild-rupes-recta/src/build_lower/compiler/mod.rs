@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -23,10 +23,13 @@ mod build_interface;
 mod build_package;
 mod bundle_core;
 mod check;
+mod gen_node_test_package_config;
 mod gen_test_driver;
 mod link_core;
+mod moon_archive;
 mod moondoc;
 mod mooninfo;
+pub(super) mod msvc;
 mod prove;
 
 use std::borrow::Cow;
@@ -41,8 +44,10 @@ pub(super) use self::build_interface::*;
 pub(super) use self::build_package::*;
 pub(super) use self::bundle_core::*;
 pub(super) use self::check::*;
+pub(super) use self::gen_node_test_package_config::*;
 pub(super) use self::gen_test_driver::*;
 pub(super) use self::link_core::*;
+pub(super) use self::moon_archive::*;
 pub(super) use self::moondoc::*;
 pub(super) use self::mooninfo::*;
 pub(super) use self::prove::*;
@@ -69,21 +74,37 @@ pub(super) struct MiDependency<'a> {
     /// An optional alias for the package, to be used when referencing symbols
     /// declared in this package. Also see: [`PackageFQN::short_alias`].
     pub alias: Option<Cow<'a, str>>,
+    /// Whether this dependency imports all names unqualified.
+    pub import_all: bool,
 }
 
 impl<'a> MiDependency<'a> {
     pub(super) fn to_alias_arg(&self) -> String {
         if let Some(alias) = &self.alias {
-            format!("{}:{}", self.path.display(), alias)
+            let alias = if self.import_all {
+                format!("*{alias}")
+            } else {
+                alias.to_string()
+            };
+            format!("{}:{}", dunce::simplified(&self.path).display(), alias)
         } else {
-            format!("{}:{}", self.path.display(), self.path.display())
+            format!(
+                "{}:{}",
+                dunce::simplified(&self.path).display(),
+                dunce::simplified(&self.path).display()
+            )
         }
     }
 
-    pub(super) fn new(path: impl Into<Cow<'a, Path>>, alias: impl Into<Cow<'a, str>>) -> Self {
+    pub(super) fn new(
+        path: impl Into<Cow<'a, Path>>,
+        alias: impl Into<Cow<'a, str>>,
+        import_all: bool,
+    ) -> Self {
         Self {
             path: path.into(),
             alias: Some(alias.into()),
+            import_all,
         }
     }
 
@@ -92,6 +113,7 @@ impl<'a> MiDependency<'a> {
         Self {
             path: path.into(),
             alias: None,
+            import_all: false,
         }
     }
 }
@@ -169,7 +191,11 @@ pub(super) struct PackageSource<'a> {
 
 impl<'a> PackageSource<'a> {
     pub(super) fn to_arg(&self) -> String {
-        format!("{}:{}", self.package_name, self.source_dir.display())
+        format!(
+            "{}:{}",
+            self.package_name,
+            dunce::simplified(&self.source_dir).display()
+        )
     }
 }
 
@@ -194,6 +220,8 @@ pub(super) struct CompilationFlags {
     pub no_opt: bool,
     /// Include debug symbols (adds -g)
     pub symbols: bool,
+    /// Include lightweight direct-native backtrace metadata (adds -stacktrace)
+    pub stacktrace: bool,
     /// Emit source map file for supported backends (JS and WASM)
     pub source_map: bool,
     /// Enable code coverage instrumentation.
@@ -233,7 +261,11 @@ pub(super) trait CmdlineAbstraction {
 
     /// Build the full command with executable and arguments.
     fn build_command(&self, executable: impl AsRef<OsStr>) -> Vec<String> {
-        let mut args = vec![executable.as_ref().to_string_lossy().into_owned()];
+        let mut args = vec![
+            dunce::simplified(Path::new(executable.as_ref()))
+                .to_string_lossy()
+                .into_owned(),
+        ];
         self.to_args(&mut args);
         args
     }

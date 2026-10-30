@@ -1,0 +1,3 @@
+name = "moonbitlang/hello"
+
+version = "0.1.0"

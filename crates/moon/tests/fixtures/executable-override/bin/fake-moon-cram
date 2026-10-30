@@ -1,0 +1,2 @@
+#!/bin/sh
+printf 'fake-moon-cram-argv0=%s\n' "$0"

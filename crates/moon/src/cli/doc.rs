@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,16 +20,18 @@ use std::path::Path;
 
 use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::common::{FileLock, RunMode};
-use moonutil::dirs::PackageDirs;
-use moonutil::mooncakes::{ModuleId, sync::AutoSyncFlags};
+use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
+use moonutil::constants::MOON_MOD_JSON;
+use moonutil::project::PackageDirs;
+use moonutil::resolution::ModuleId;
+use moonutil::{build_options::RunMode, locks::lock_directory, user_log::UserLog};
 use tracing::instrument;
 
 use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
-use crate::rr_build::{self, BuildConfig, preconfig_compile};
-use crate::user_diagnostics::UserDiagnostics;
+use crate::rr_build::{self};
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
@@ -59,19 +61,22 @@ pub(crate) struct DocSubcommand {
 
 #[instrument(skip_all)]
 #[allow(deprecated)]
-pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+pub(crate) fn run_doc(
+    cli: UniversalFlags,
+    cmd: DocSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     if let Some(symbol) = cmd.symbol.as_deref() {
-        return run_doc_query(symbol, output);
+        return run_doc_query(symbol, output.user_log());
     }
 
-    run_doc_rr(cli, cmd)
+    run_doc_rr(cli, cmd, output)
 }
 
 #[instrument(skip_all)]
-fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
-    output.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
-    let query_result = std::process::Command::new(&*moonutil::BINARIES.moon_ide)
+fn run_doc_query(symbol: &str, user_log: &UserLog) -> anyhow::Result<i32> {
+    user_log.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
+    let query_result = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_ide)
         .arg("doc")
         .arg(symbol)
         .stdout(std::process::Stdio::inherit())
@@ -88,94 +93,96 @@ fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
-    let doc_source_dir = project
+pub(crate) fn run_doc_rr(
+    cli: UniversalFlags,
+    cmd: DocSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
+    let selected_module = project
+        .context()
         .selected_module()
-        .map(|module| module.root.clone())
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "`moon doc` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> doc ...`.",
-                project.root().display(),
+                project.context().root().display(),
             )
         })?;
+    if selected_module.manifest_path.ends_with(MOON_MOD_JSON) {
+        bail!(
+            "`moon doc` does not support the deprecated `moon.mod.json` manifest; run `moon fmt` to migrate it to `moon.mod` first"
+        );
+    }
+    let dirs = project.package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = query.package_dirs()?;
+        ..
+    } = &dirs;
 
-    // FIXME: This is copied from `moon check`'s code. Share code if possible.
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        &cli,
-        &BuildFlags::default(),
-        None,
-        &target_dir,
-        RunMode::Check,
+    // Choose the member-scoped documentation backend before resolving packages.
+    let build_flags = BuildFlags::default();
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !build_flags.std(),
+        build_flags.enable_coverage,
+        cli.workspace_env.clone(),
     );
-    preconfig.docs_serve = cmd.serve;
-
-    let resolve_cfg = preconfig
-        .resolve_config()
-        .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
-
-    let output = UserDiagnostics::from_flags(&cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        &target_dir,
-        output,
-        &resolve_output,
+    let synced_modules =
+        moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
+    let discovered = moonbuild_rupes_recta::discover_synced_project(
+        &preparation_config,
+        synced_modules,
+        user_log,
     )?;
-    let module_id = selected_doc_module_id(&resolve_output, &doc_source_dir)?;
+    let module_id = selected_doc_module_id(&discovered, &selected_module.root)?;
+    let target_backend = discovered
+        .module_info(module_id)
+        .preferred_target
+        .unwrap_or_default();
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
+
+    let mut compile_config = rr_build::prepare_resolved_build(
+        &cli,
+        &build_flags,
+        target_backend,
+        target_dir,
+        RunMode::Check,
+        user_log,
+        &resolved_project,
+    )?;
+    compile_config.docs_serve = cmd.serve;
     let intent = vec![UserIntent::Doc(module_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        &target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
-        resolve_output,
+        resolved_project,
+        build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
     // Early exit for dry-run
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            &source_dir,
-            &target_dir,
-        );
+        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(&target_dir)?;
+    let lock = lock_directory(target_dir, user_log)?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
-    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
+    rr_build::generate_all_pkgs_json(&build_meta)?;
     // Generate metadata for `moondoc`
-    rr_build::generate_metadata(
-        &doc_source_dir,
-        &target_dir,
-        &build_meta,
-        &build_graph,
-        RunMode::Check,
-        None,
-    )?;
+    rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(
-        &BuildFlags::default(),
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(&cli),
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+    let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
+    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
     if !result.successful() {
@@ -183,7 +190,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     }
 
     // Release lock before serving (no writes beyond this point)
-    drop(_lock);
+    drop(lock);
     // Serve
     if cmd.serve {
         let static_dir = target_dir.join("doc");
@@ -193,10 +200,9 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
                 static_dir.display()
             );
         }
-        let module_id = selected_doc_module_id(&build_meta.resolve_output, &doc_source_dir)?;
         let full_name = build_meta
-            .resolve_output
-            .module_rel
+            .resolved_project
+            .module_graph
             .module_source(module_id)
             .name()
             .to_string();
@@ -207,15 +213,15 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
 }
 
 fn selected_doc_module_id(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     selected_module_dir: &Path,
 ) -> anyhow::Result<ModuleId> {
-    resolve_output
+    discovered
         .local_modules()
         .iter()
         .copied()
         .find(|&module_id| {
-            resolve_output
+            discovered
                 .module_dirs
                 .get(module_id)
                 .is_some_and(|module_dir| module_dir == selected_module_dir)

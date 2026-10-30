@@ -1,0 +1,3 @@
+package "virtual_artifact_lifecycle/virtual"
+
+fn value() -> Int

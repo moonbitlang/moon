@@ -8,6 +8,7 @@ fn test_query_not_in_project() {
     let output = output
         .lines()
         .map(|line| line.trim_end())
+        .map(|line| line.replace("@test.assert_eq", "assert_eq"))
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
@@ -48,7 +49,7 @@ fn test_query_in_project() {
         output,
         expect![[r#"
             package "username/proj" // username/proj@0.1.0
-            pub fn fib(Int) -> Int64
+            pub fn fib(Int32) -> Int64
         "#]],
     );
 }

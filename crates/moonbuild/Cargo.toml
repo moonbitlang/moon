@@ -1,18 +1,18 @@
 # moon: The build system and package manager for MoonBit.
-# Copyright (C) 2024 International Digital Economy Academy
+# Copyright (C) 2026 International Digital Economy Academy
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,15 +20,20 @@
 name = "moonbuild"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arcstr.workspace = true
-moonutil.workspace = true
-mooncake.workspace = true
 n2.workspace = true
+ariadne.workspace = true
+blake3.workspace = true
+tracing.workspace = true
+anstream.workspace = true
+anstyle.workspace = true
+moonutil.workspace = true
+moonbuild-rupes-recta.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
@@ -36,37 +41,26 @@ anyhow.workspace = true
 colored.workspace = true
 dunce.workspace = true
 indexmap.workspace = true
-petgraph.workspace = true
-walkdir.workspace = true
-tempfile.workspace = true
 ctrlc.workspace = true
 similar.workspace = true
 line-index.workspace = true
-which.workspace = true
-home.workspace = true
 tokio.workspace = true
-self-replace.workspace = true
 text-size.workspace = true
-log.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 hyper-staticfile.workspace = true
 http.workspace = true
 dialoguer.workspace = true
 reqwest.workspace = true
-semver.workspace = true
-chrono.workspace = true
-zip.workspace = true
-thiserror.workspace = true
-rand.workspace = true
-json-structural-diff = { version = "0.1.0", features = ["colorize"] }
+json-structural-diff.workspace = true
 base64.workspace = true
-shlex.workspace = true
 serde_json.workspace = true
-regex.workspace = true
-ariadne.workspace = true
-handlebars = { version = "6.3.2", default-features = false }
+handlebars.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
 
 [dev-dependencies]
-expect-test.workspace = true
+tempfile.workspace = true
+
+[target."cfg(windows)".dependencies]
+self-replace.workspace = true
+tempfile.workspace = true

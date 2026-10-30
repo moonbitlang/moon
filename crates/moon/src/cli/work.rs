@@ -1,25 +1,27 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::path::PathBuf;
 
 use anyhow::bail;
-use moonutil::dirs::{PackageDirs, WorkRootSelection};
+use moonutil::constants::MOON_WORK;
+use moonutil::project::WorkspaceEditTarget;
+use moonutil::user_log::UserLog;
 
 use super::UniversalFlags;
 
@@ -53,40 +55,48 @@ pub(crate) struct WorkUseSubcommand {
     pub paths: Vec<PathBuf>,
 }
 
-pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn work_cli(
+    cli: UniversalFlags,
+    cmd: WorkSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     match cmd.command {
         WorkSubcommands::Init(cmd) => {
             if cli.dry_run {
                 bail!("dry-run is not supported for work init")
             }
 
-            let workspace_root = work_root(&cli, WorkRootSelection::CreateWorkspace)?;
-            mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet)
+            let workspace_root = cli.source_tgt_dir.workspace_creation_root()?;
+            mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet, user_log)
         }
         WorkSubcommands::Use(cmd) => {
             if cli.dry_run {
                 bail!("dry-run is not supported for work use")
             }
 
-            let workspace_root = work_root(&cli, WorkRootSelection::ReuseExistingWorkspace)?;
-            mooncake::pkg::use_workspace(&workspace_root, &cmd.paths, cli.quiet)
+            let target = cli
+                .source_tgt_dir
+                .workspace_edit_target(cli.workspace_env.clone(), user_log)?;
+            mooncake::pkg::use_workspace(target, &cmd.paths, cli.quiet, user_log)
         }
         WorkSubcommands::Sync => {
             if cli.dry_run {
                 bail!("dry-run is not supported for work sync")
             }
 
-            let PackageDirs { source_dir, .. } = cli
+            let target = cli
                 .source_tgt_dir
-                .query(cli.workspace_env.clone())?
-                .package_dirs()?;
-            mooncake::pkg::sync_workspace(&source_dir, cli.quiet)
+                .workspace_edit_target(cli.workspace_env.clone(), user_log)?;
+            match target {
+                WorkspaceEditTarget::Existing(workspace) => {
+                    mooncake::pkg::sync_workspace(&workspace, cli.quiet, user_log)
+                }
+                WorkspaceEditTarget::CreateAt(root) => Err(anyhow::anyhow!(
+                    "`moon work sync` requires `{}` at `{}`",
+                    MOON_WORK,
+                    root.display()
+                )),
+            }
         }
     }
-}
-
-fn work_root(cli: &UniversalFlags, selection: WorkRootSelection) -> anyhow::Result<PathBuf> {
-    Ok(cli
-        .source_tgt_dir
-        .work_root(selection, cli.workspace_env.clone())?)
 }

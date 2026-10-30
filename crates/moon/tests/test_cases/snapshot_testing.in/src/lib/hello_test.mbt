@@ -6,5 +6,5 @@ test "hello" {
 
 test "snapshot in blackbox test" (it : @test.Test) {
   it.write(@lib.hello())
-  it.snapshot!(filename="003.txt")
+  it.snapshot(filename="003.txt")
 }

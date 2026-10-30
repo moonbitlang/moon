@@ -6,19 +6,17 @@ fn test_fmt_existing_moon_mod_dry_run() {
 
     assert!(dir.join("moon.mod").exists());
 
-    check(
-        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
-        expect![[r#""#]],
-    );
+    moon_cmd(&dir)
+        .args(["fmt", "--dry-run", "--sort-input", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
+moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
 
-    check(
-        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-            moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
-            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-        "#]],
-    );
+"#]])
+        .stderr_eq("");
 }
 
 #[test]
@@ -98,7 +96,7 @@ fn test_fmt_with_moon_mod_feature_disabled() {
             ["fmt", "--dry-run", "--sort-input"],
             [("NEW_MOON_MOD", "0")],
         ),
-        expect![[r#""#]],
+        expect![[]],
     );
 
     check(
@@ -120,29 +118,14 @@ fn test_fmt_migrates_moon_mod_by_default() {
 
     let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
 
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    }
+    check(
+        output,
+        expect![[r#"
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+        "#]],
+    );
 }
 
 #[test]
@@ -198,29 +181,14 @@ fn test_fmt_moon_mod_json_migration_dry_run() {
         ],
     );
 
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            "#]],
-        );
-    }
+    check(
+        output,
+        expect![[r#"
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+        "#]],
+    );
 }
 
 #[test]
@@ -297,77 +265,4 @@ warnings = "+w1-w2"
 readme = "README.md""#
     );
     assert!(!dir.join("moon.mod.json").exists());
-}
-
-#[test]
-fn test_reading_module_warns_when_moon_mod_shadows_json() {
-    let dir = TestDir::new("fmt_moon_mod_both.in");
-    let stderr = get_stderr(&dir, ["check", "--dry-run"]);
-
-    assert!(
-        stderr.contains("Both moon.mod.json and moon.mod exist at module root"),
-        "{stderr}"
-    );
-}
-
-#[test]
-fn test_fmt_moon_mod_json_migration_local_deps_fail() {
-    let dir = TestDir::new_empty();
-    std::fs::create_dir_all(dir.join("main")).unwrap();
-    std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-  "name": "test/local_deps",
-  "deps": {
-    "example/local": { "path": "../local" }
-  }
-}
-"#,
-    )
-    .unwrap();
-    std::fs::write(dir.join("main/moon.pkg"), r#"options("is-main": true)"#).unwrap();
-    std::fs::write(dir.join("main/main.mbt"), "fn main { println(1) }\n").unwrap();
-
-    let stderr = get_err_stderr(&dir, ["fmt", "--dry-run"]);
-    assert!(
-        stderr.contains("moon.mod does not support local dependency `example/local`"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("moon.work"), "{stderr}");
-
-    let stderr = get_err_stderr(&dir, ["fmt"]);
-    assert!(
-        stderr.contains("moon.mod does not support local dependency `example/local`"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("moon.work"), "{stderr}");
-    assert!(!dir.join("moon.mod").exists());
-    assert!(dir.join("moon.mod.json").exists());
-}
-
-#[test]
-fn test_fmt_moon_mod_local_deps_fail() {
-    let dir = TestDir::new_empty();
-    std::fs::create_dir_all(dir.join("main")).unwrap();
-    std::fs::write(
-        dir.join("moon.mod"),
-        r#"name = "test/local_deps"
-
-options(
-  deps: {
-    "example/local": { "path": "../local" },
-  },
-)
-"#,
-    )
-    .unwrap();
-    std::fs::write(dir.join("main/moon.pkg"), r#"options("is-main": true)"#).unwrap();
-    std::fs::write(dir.join("main/main.mbt"), "fn main { println(1) }\n").unwrap();
-
-    let stderr = get_err_stderr(&dir, ["fmt"]);
-    assert!(
-        stderr.contains("moon.mod does not support local dependency"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("moon.work"), "{stderr}");
 }

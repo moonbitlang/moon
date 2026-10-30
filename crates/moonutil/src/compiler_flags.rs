@@ -1,24 +1,23 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
-use colored::Colorize;
 use derive_builder::Builder;
 use std::{
     env,
@@ -27,24 +26,61 @@ use std::{
     process::Command,
 };
 
-const ENV_MOON_CC: &str = "MOON_CC";
-const ENV_MOON_AR: &str = "MOON_AR";
+mod archiver;
+mod gcc_like;
+mod msvc;
+mod tcc;
 
+pub use archiver::make_archiver_command_resolved;
+#[cfg(all(test, target_os = "macos"))]
+use gcc_like::resolve_apple_libtool_path;
+use gcc_like::{
+    add_cc_common_libraries, add_cc_specific_flags as add_cc_gcc_like_specific_flags,
+    add_linker_common_libraries,
+};
+#[cfg(all(test, windows))]
+use msvc::windows_msvc_host_target_triple;
+pub use msvc::{
+    WINDOWS_MSVC_C_STANDARD_FLAG, WINDOWS_MSVC_DEFAULT_LIBS, WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+    has_incompatible_windows_msvc_env_override, resolve_windows_msvc_toolchain,
+    windows_msvc_native_toolchain,
+};
+use msvc::{
+    add_cc_linker_flags as add_cc_msvc_linker_flags,
+    add_cc_runtime_flags as add_cc_msvc_runtime_flags,
+    add_cc_specific_flags as add_cc_msvc_specific_flags,
+    add_linker_runtime as add_linker_msvc_runtime,
+    add_linker_specific_flags as add_linker_msvc_specific_flags, default_librarian,
+};
+#[cfg(windows)]
+use msvc::{discovered_windows_msvc_toolchain, resolve_msvc_toolchain_override};
+#[cfg(test)]
+use msvc::{ensure_windows_msvc_compatible, windows_msvc_toolchain_with_package_override};
+use tcc::{
+    add_cc_specific_flags as add_cc_tcc_specific_flags,
+    add_macos_sdk_library_path as add_tcc_macos_sdk_library_path,
+};
+
+const ENV_MOON_CC: &str = "MOON_CC";
+const ENV_MOON_CC_WRAPPER: &str = "MOON_CC_WRAPPER";
+const ENV_MOON_AR: &str = "MOON_AR";
+const ENV_MOONBIT_ALLOCATOR: &str = "MOONBIT_ALLOCATOR";
 #[derive(Copy, Clone, Debug)]
 pub enum CCKind {
-    Msvc,     // cl.exe
+    Msvc,     // cl-compatible driver, such as cl.exe or clang-cl.exe
     SystemCC, // cc
     Gcc,      // gcc
     Clang,    // clang
     Tcc,      // tcc
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ARKind {
-    MsvcLib, // lib.exe
-    GnuAr,   // ar
-    LlvmAr,  // llvm-ar
-    TccAr,   // tcc -ar
+    MsvcLib, // lib.exe or llvm-lib
+    AppleLibtool,
+    GnuAr,  // ar
+    LlvmAr, // llvm-ar
+    TccAr,  // tcc -ar
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +91,33 @@ pub struct CC {
     pub ar_path: String,
     pub target_triple: Option<String>,
     pub is_env_override: bool, // Whether the cc is set by env MOON_CC
+}
+
+/// One native link input, kept in order until command construction.
+///
+/// Library names and search paths are driver-independent. Opaque arguments are
+/// already tokenized user flags and must match the selected driver.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeLinkArg {
+    Library(String),
+    SearchPath(PathBuf),
+    Opaque(String),
+}
+
+impl NativeLinkArg {
+    /// Render at the compiler-driver boundary. MSVC command builders must place
+    /// these arguments after `/link`, once all compiler options are complete.
+    pub fn render(&self, cc: &CC) -> String {
+        // Driver syntax is independent of the target ABI: plain clang still
+        // expects GCC-style library options when targeting MSVC.
+        match self {
+            Self::Library(name) if cc.uses_msvc_cli() => format!("{name}.lib"),
+            Self::Library(name) => format!("-l{name}"),
+            Self::SearchPath(path) if cc.uses_msvc_cli() => format!("/LIBPATH:{}", path.display()),
+            Self::SearchPath(path) => format!("-L{}", path.display()),
+            Self::Opaque(arg) => arg.clone(),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -68,6 +131,107 @@ pub enum ToolchainSource {
 pub struct Toolchain {
     cc: CC,
     source: ToolchainSource,
+    msvc_environment: Option<MsvcEnvironment>,
+    /// A resolved launcher for C compilation only. Compiler identity, probes,
+    /// linking, and archiving continue to use the underlying tools.
+    cc_wrapper: Option<PathBuf>,
+}
+
+/// Environment variables required by a discovered MSVC toolchain.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MsvcEnvironment {
+    pub command_env: Vec<(String, String)>,
+}
+
+impl MsvcEnvironment {
+    pub fn command_env(&self) -> &[(String, String)] {
+        &self.command_env
+    }
+}
+
+/// MSVC CRT policy shared by runtime, C stubs, and final linking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MsvcCrtPolicy {
+    StaticMt,
+}
+
+impl MsvcCrtPolicy {
+    pub fn compiler_flag(self) -> &'static str {
+        match self {
+            Self::StaticMt => WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+        }
+    }
+}
+
+/// ABI family carried by a native compiler/linker selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeAbiFamily {
+    Msvc,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NativeAllocator {
+    #[default]
+    Default,
+    Mimalloc,
+    System,
+}
+
+impl NativeAllocator {
+    pub fn from_env() -> anyhow::Result<Self> {
+        match env::var(ENV_MOONBIT_ALLOCATOR) {
+            Ok(value) => Self::parse(&value),
+            Err(env::VarError::NotPresent) => Ok(Self::Default),
+            Err(env::VarError::NotUnicode(value)) => anyhow::bail!(
+                "{ENV_MOONBIT_ALLOCATOR} must be valid Unicode, got `{}`",
+                value.to_string_lossy()
+            ),
+        }
+    }
+
+    fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "mimalloc" => Ok(Self::Mimalloc),
+            "system" => Ok(Self::System),
+            _ => anyhow::bail!(
+                "invalid {ENV_MOONBIT_ALLOCATOR} value `{value}`; expected `mimalloc` or `system`"
+            ),
+        }
+    }
+
+    /// The `MOONBIT_ALLOCATOR` macro value for every translation unit that
+    /// includes `moonbit.h`: the shipped runtime sources and the C emitted by
+    /// `moonc link-core`. Both must agree, otherwise the program inlines a
+    /// different allocator than the runtime it links against.
+    pub fn moonbit_allocator_macro(self, cc: &CC, link_moonbitrun: bool) -> &'static str {
+        match self {
+            Self::Default if link_moonbitrun && self.should_link_moonbitrun(cc) => {
+                "MOONBIT_ALLOCATOR_MIMALLOC"
+            }
+            Self::Default => "MOONBIT_ALLOCATOR_SYSTEM",
+            Self::Mimalloc => "MOONBIT_ALLOCATOR_MIMALLOC",
+            Self::System => "MOONBIT_ALLOCATOR_SYSTEM",
+        }
+    }
+
+    pub fn validate_for_cc(self, cc: &CC) -> anyhow::Result<()> {
+        if self == Self::Mimalloc && !cc.can_link_libmoonbitrun_o() {
+            anyhow::bail!(
+                "{ENV_MOONBIT_ALLOCATOR}=mimalloc is unavailable with native compiler `{}` on this platform",
+                cc.cc_path
+            );
+        }
+        Ok(())
+    }
+
+    fn should_link_moonbitrun(self, cc: &CC) -> bool {
+        match self {
+            Self::Default => cc.is_libmoonbitrun_o_available(),
+            Self::Mimalloc => cc.can_link_libmoonbitrun_o(),
+            Self::System => false,
+        }
+    }
 }
 
 impl Toolchain {
@@ -75,6 +239,8 @@ impl Toolchain {
         Self {
             cc,
             source: ToolchainSource::EnvOverride,
+            msvc_environment: None,
+            cc_wrapper: None,
         }
     }
 
@@ -82,6 +248,8 @@ impl Toolchain {
         Self {
             cc,
             source: ToolchainSource::PathProbe,
+            msvc_environment: None,
+            cc_wrapper: None,
         }
     }
 
@@ -89,14 +257,8 @@ impl Toolchain {
         Self {
             cc,
             source: ToolchainSource::PackageOverride,
-        }
-    }
-
-    pub fn from_cc(cc: CC) -> Self {
-        if cc.is_env_override {
-            Toolchain::from_env_override(cc)
-        } else {
-            Toolchain::from_path_probe(cc)
+            msvc_environment: None,
+            cc_wrapper: None,
         }
     }
 
@@ -108,21 +270,59 @@ impl Toolchain {
         self.source
     }
 
+    pub fn abi_family(&self) -> NativeAbiFamily {
+        if self.cc.uses_msvc_cli() || self.cc.targets_msvc() {
+            NativeAbiFamily::Msvc
+        } else {
+            NativeAbiFamily::Other
+        }
+    }
+
+    /// Whether the toolchain uses the MSVC ABI, independently of its CLI syntax.
+    pub fn uses_msvc_abi(&self) -> bool {
+        self.abi_family() == NativeAbiFamily::Msvc
+    }
+
+    /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
+    pub fn uses_msvc_cli(&self) -> bool {
+        self.cc.uses_msvc_cli()
+    }
+
+    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
+        self.uses_msvc_cli().then_some(MsvcCrtPolicy::StaticMt)
+    }
+
+    pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
+        self.msvc_environment = Some(environment);
+        self
+    }
+
+    pub fn msvc_environment(&self) -> Option<&MsvcEnvironment> {
+        self.msvc_environment.as_ref()
+    }
+
+    pub fn cc_command_path(&self) -> String {
+        self.cc.cc_path.clone()
+    }
+
+    pub fn cc_wrapper(&self) -> Option<&Path> {
+        self.cc_wrapper.as_deref()
+    }
+
+    /// Attach an already resolved executable without changing compiler selection.
+    pub fn with_cc_wrapper(mut self, wrapper: PathBuf) -> Self {
+        self.cc_wrapper = Some(wrapper);
+        self
+    }
+
     pub fn with_package_override(&self, package_cc: Option<&CC>) -> Toolchain {
         match (self.source, package_cc) {
-            (ToolchainSource::EnvOverride, Some(_)) => {
-                static WARN_ONCE: std::sync::Once = std::sync::Once::new();
-                WARN_ONCE.call_once(|| {
-                    eprintln!(
-                        "{}: Both MOON_CC environment variable and user-specified CC are provided. \
-                        MOON_CC takes precedence.",
-                        "Warning".yellow().bold(),
-                    );
-                });
-                self.clone()
-            }
+            (ToolchainSource::EnvOverride, Some(_)) => self.clone(),
             (ToolchainSource::EnvOverride, None) | (_, None) => self.clone(),
-            (_, Some(package_cc)) => Toolchain::from_package_override(package_cc.clone()),
+            (_, Some(package_cc)) => Toolchain {
+                cc_wrapper: self.cc_wrapper.clone(),
+                ..Toolchain::from_package_override(package_cc.clone())
+            },
         }
     }
 }
@@ -140,6 +340,114 @@ const CAN_USE_MOONBITRUN: bool = false;
 // backend still needs a no-stdlib runtime build there, plus an /MT vs /MD call.
 const CAN_USE_SIMDUTF: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
+/// Whether a target triple names the given host architecture and operating
+/// system, as reported by `std::env::consts::{ARCH, OS}`, with the default
+/// ABI of that host.
+fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
+    let triple = triple.to_ascii_lowercase();
+    let mut components = triple.split('-');
+    let arch = match components.next().unwrap_or_default() {
+        "arm64" | "arm64e" => "aarch64",
+        "amd64" => "x86_64",
+        "i386" | "i486" | "i586" | "i686" => "x86",
+        arch => arch,
+    };
+    if arch != host_arch {
+        return false;
+    }
+    // OS components can carry a version, as in `darwin25.6.0` or `mingw32`.
+    let os_matches = components.by_ref().any(|component| {
+        let os = match component.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+            "darwin" | "macos" | "macosx" => "macos",
+            "mingw" | "cygwin" => "windows",
+            os => os,
+        };
+        os == host_os
+    });
+    if !os_matches {
+        return false;
+    }
+    // The component after the OS names the ABI, as in `gnu`, `gnux32` or
+    // `musl`. Host-only objects use glibc on Linux and no named ABI on other
+    // Unix hosts. On Windows they are not used, and the MSVC toolchain
+    // policy selects the ABI, so the ABI is not compared there.
+    match (host_os, components.next()) {
+        ("windows", _) | (_, None) => true,
+        ("linux", Some(abi)) => abi == "gnu",
+        (_, Some(_)) => false,
+    }
+}
+
+fn is_path_like_tool(tool: &str) -> bool {
+    let path = Path::new(tool);
+    let has_parent = path
+        .parent()
+        .is_some_and(|parent| !parent.as_os_str().is_empty());
+    path.is_absolute() || has_parent
+}
+
+fn resolve_native_toolchain_executables_with(
+    mut toolchain: Toolchain,
+    resolve_executable: impl Fn(&str) -> anyhow::Result<PathBuf>,
+) -> anyhow::Result<Toolchain> {
+    let compiler = toolchain.cc.cc_path.clone();
+    toolchain.cc.cc_path = resolve_executable(&compiler)
+        .with_context(|| format!("failed to resolve native compiler executable `{compiler}`"))?
+        .display()
+        .to_string();
+
+    if toolchain.cc.is_tcc() {
+        tcc::resolve_archiver_path(&mut toolchain.cc);
+        return Ok(toolchain);
+    }
+
+    let archiver = toolchain.cc.ar_path.clone();
+    toolchain.cc.ar_path = resolve_executable(&archiver)
+        .with_context(|| format!("failed to resolve native archiver executable `{archiver}`"))?
+        .display()
+        .to_string();
+    Ok(toolchain)
+}
+
+/// Finalizes the effective native toolchain after source selection and overrides.
+/// Toolchains returned across this boundary always contain concrete executable paths.
+fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<Toolchain> {
+    #[cfg(windows)]
+    let toolchain = if toolchain.cc.uses_msvc_cli() && !is_path_like_tool(&toolchain.cc.cc_path) {
+        let discovered = resolve_windows_msvc_toolchain()?;
+        resolve_msvc_toolchain_override(toolchain, &discovered)
+    } else {
+        toolchain
+    };
+
+    let mut toolchain = resolve_native_toolchain_executables_with(toolchain, |tool| {
+        crate::toolchain::resolve_executable(tool)
+    })?;
+    toolchain.cc_wrapper = ENV_CC_WRAPPER
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error:#}"))?
+        .clone();
+    Ok(toolchain)
+}
+
+// Resolve only when a native toolchain is actually needed. Lightweight commands
+// such as `moon check` must not require an installed compiler wrapper.
+static ENV_CC_WRAPPER: std::sync::LazyLock<anyhow::Result<Option<PathBuf>>> =
+    std::sync::LazyLock::new(|| {
+        let wrapper = match env::var(ENV_MOON_CC_WRAPPER) {
+            Ok(wrapper) if !wrapper.is_empty() => wrapper,
+            Ok(_) | Err(env::VarError::NotPresent) => return Ok(None),
+            Err(error) => return Err(error).context(ENV_MOON_CC_WRAPPER),
+        };
+        crate::toolchain::resolve_executable(&wrapper)
+            .with_context(|| {
+                format!(
+                    "failed to resolve C compiler wrapper `{wrapper}` from {ENV_MOON_CC_WRAPPER}"
+                )
+            })
+            .map(Some)
+    });
+
 impl CC {
     pub fn cc_name(&self) -> &'static str {
         match self.cc_kind {
@@ -154,10 +462,17 @@ impl CC {
     pub fn ar_name(&self) -> &'static str {
         match self.ar_kind {
             ARKind::MsvcLib => "lib.exe",
+            ARKind::AppleLibtool => "libtool",
             ARKind::GnuAr => "ar",
             ARKind::LlvmAr => "llvm-ar",
             ARKind::TccAr => "tcc",
         }
+    }
+
+    /// Whether invoking this archiver can leave members from an existing archive
+    /// that are absent from the current input list.
+    pub fn archiver_updates_existing_archive(&self) -> bool {
+        matches!(self.ar_kind, ARKind::GnuAr | ARKind::LlvmAr | ARKind::TccAr)
     }
 
     pub fn cc_path(&self) -> &str {
@@ -244,79 +559,20 @@ impl CC {
         }
     }
 
-    fn probe_prog_name(cc_path: &Path, name: &str) -> Option<String> {
-        let output = Command::new(cc_path)
-            .arg(format!("-print-prog-name={name}"))
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let prog = String::from_utf8_lossy(&output.stdout);
-        let prog = prog.lines().next()?.trim();
-        (!prog.is_empty()).then(|| prog.to_string())
-    }
-
-    fn resolve_reported_prog_path(prog: &str) -> Option<String> {
-        let prog_path = Path::new(prog);
-        let has_non_empty_parent = prog_path
-            .parent()
-            .is_some_and(|parent| !parent.as_os_str().is_empty());
-
-        if prog_path.is_absolute() || has_non_empty_parent {
-            if prog_path.is_file() {
-                return Some(prog.to_string());
-            }
-
-            #[cfg(windows)]
-            if prog_path.extension().is_none() {
-                let exe_path = prog_path.with_extension("exe");
-                if exe_path.is_file() {
-                    return Some(exe_path.display().to_string());
-                }
-            }
-
-            return None;
-        }
-
-        which::which(prog)
-            .ok()
-            .map(|path| path.display().to_string())
-    }
-
-    fn probe_existing_prog_name(cc_path: &Path, name: &str) -> Option<String> {
-        let prog = CC::probe_prog_name(cc_path, name)?;
-        CC::resolve_reported_prog_path(&prog)
-    }
-
-    fn is_llvm_ar_name(ar_name_or_path: &str) -> bool {
-        let file_name = Path::new(ar_name_or_path)
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or(ar_name_or_path)
-            .to_ascii_lowercase();
-        CC::strip_exe_suffix(&file_name) == "llvm-ar"
-    }
     pub fn try_from_cc_path_and_kind(
         ar_name: &str,
         cc_path: &Path,
         cc_kind: CCKind,
     ) -> anyhow::Result<Self> {
-        let (ar_kind, ar_path) = match cc_kind {
-            CCKind::Msvc => (ARKind::MsvcLib, CC::resolve_tool_path(cc_path, "lib")),
-            CCKind::SystemCC => (ARKind::GnuAr, CC::resolve_tool_path(cc_path, ar_name)),
-            CCKind::Gcc => (ARKind::GnuAr, CC::resolve_tool_path(cc_path, ar_name)),
-            CCKind::Clang => {
-                let ar_kind = if CC::is_llvm_ar_name(ar_name) {
-                    ARKind::LlvmAr
-                } else {
-                    ARKind::GnuAr
-                };
-                (ar_kind, CC::resolve_tool_path(cc_path, ar_name))
-            }
-            CCKind::Tcc => (ARKind::TccAr, cc_path.display().to_string()),
-        };
         let target_triple = CC::probe_target_triple(cc_path, cc_kind);
+        let (ar_kind, ar_path) = match cc_kind {
+            CCKind::Msvc => (ARKind::MsvcLib, default_librarian(cc_path)),
+            CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => (
+                CC::classify_gcc_like_archiver(ar_name, target_triple.as_deref()),
+                CC::resolve_tool_path(cc_path, ar_name),
+            ),
+            CCKind::Tcc => tcc::default_archiver(cc_path),
+        };
         Ok(CC::new(
             cc_kind,
             cc_path.display().to_string(),
@@ -339,8 +595,6 @@ impl CC {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Clang)
         } else if stem.ends_with("tcc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Tcc)
-        } else if stem.ends_with("cc") {
-            CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
         } else {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
@@ -354,7 +608,7 @@ impl CC {
         let stem = CC::strip_exe_suffix(&name_lower);
         let replaced_ar =
             |s: &str| CC::replace_compiler_suffix(&name, s, "ar").unwrap_or_else(|| "ar".into());
-        if stem.ends_with("cl") {
+        let cc = if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
         } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
@@ -373,7 +627,8 @@ impl CC {
         } else {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind("ar", &path, CCKind::SystemCC)
-        }
+        }?;
+        Ok(cc.with_default_platform_archiver())
     }
 
     fn try_from_detected_path(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
@@ -389,6 +644,7 @@ impl CC {
             CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
         };
         CC::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
+            .map(CC::with_default_platform_archiver)
     }
 
     pub fn is_gcc_like(&self) -> bool {
@@ -402,7 +658,8 @@ impl CC {
         matches!(self.cc_kind, CCKind::SystemCC | CCKind::Gcc | CCKind::Clang)
     }
 
-    pub fn is_msvc(&self) -> bool {
+    /// Whether the compiler accepts the cl-compatible CLI, including clang-cl.
+    pub fn uses_msvc_cli(&self) -> bool {
         matches!(self.cc_kind, CCKind::Msvc)
     }
 
@@ -410,10 +667,29 @@ impl CC {
         matches!(self.cc_kind, CCKind::Tcc)
     }
 
+    /// Whether the probed target triple identifies the MSVC ABI.
     pub fn targets_msvc(&self) -> bool {
         self.target_triple
             .as_deref()
             .is_some_and(|target| target.contains("msvc"))
+    }
+
+    pub fn targets_apple_darwin(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_some_and(|target| target.contains("apple-darwin"))
+    }
+
+    /// Whether the compiler builds for the machine and ABI that run Moon.
+    ///
+    /// The prebuilt objects in the MoonBit lib directory (`libmoonbitrun.o`,
+    /// the simdutf objects and `libbacktrace.a`) are built for that machine,
+    /// so a cross compiler must not link them. A compiler whose target triple
+    /// could not be probed is assumed to target the host.
+    pub fn targets_host(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_none_or(|triple| triple_matches_host(triple, env::consts::ARCH, env::consts::OS))
     }
 
     pub fn should_link_libm(&self) -> bool {
@@ -421,21 +697,21 @@ impl CC {
     }
 
     pub fn can_use_simdutf(&self) -> bool {
-        CAN_USE_SIMDUTF && !self.is_tcc()
+        CAN_USE_SIMDUTF
+            && !self.is_tcc()
+            && !self.uses_msvc_cli()
+            && !self.targets_msvc()
+            && self.targets_host()
+    }
+
+    pub fn can_link_libmoonbitrun_o(&self) -> bool {
+        CAN_USE_MOONBITRUN && !self.uses_msvc_cli() && !self.is_tcc() && self.targets_host()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
         // If users set MOON_CC, we believe they know what they are doing
         // And we conservatively disable libmoonbitrun.o
-        CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
-    }
-
-    // Constructors for TCC toolchain
-
-    /// Create a CC configured for the internal TCC shipped with Moon.
-    /// Resolves MOON_DIRS.internal_tcc_path via which::which.
-    pub fn internal_tcc() -> anyhow::Result<Self> {
-        try_internal_tcc()
+        self.can_link_libmoonbitrun_o() && !self.is_env_override
     }
 }
 
@@ -471,14 +747,15 @@ fn detect_path_candidate(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<CC> 
         .with_context(|| format!("failed to use C compiler at {}", cc_path.display()))
 }
 
-fn detect_system_cc() -> anyhow::Result<CC> {
-    let mut errors = Vec::new();
-    for (name, kind) in [
-        ("cl", CCKind::Msvc),
+fn detect_cc_on_path() -> anyhow::Result<CC> {
+    // MSVC discovery separately resolves the target architecture and command environment.
+    let candidates = [
         ("cc", CCKind::SystemCC),
         ("gcc", CCKind::Gcc),
         ("clang", CCKind::Clang),
-    ] {
+    ];
+    let mut errors = Vec::new();
+    for (name, kind) in candidates {
         let Ok(cc_path) = which::which(name) else {
             continue;
         };
@@ -489,7 +766,8 @@ fn detect_system_cc() -> anyhow::Result<CC> {
     }
 
     if errors.is_empty() {
-        anyhow::bail!("no system C compiler found; tried cl, cc, gcc, clang")
+        let names = candidates.map(|(name, _)| name).join(", ");
+        anyhow::bail!("no system C compiler found; tried {names}")
     }
     anyhow::bail!(
         "failed to resolve system C compiler candidates: {}",
@@ -497,20 +775,8 @@ fn detect_system_cc() -> anyhow::Result<CC> {
     )
 }
 
-fn detect_internal_tcc() -> anyhow::Result<CC> {
-    let cc_path = which::which(&MOON_DIRS.internal_tcc_path).with_context(|| {
-        format!(
-            "internal tcc not found at {}",
-            MOON_DIRS.internal_tcc_path.display()
-        )
-    })?;
-    detect_path_candidate(&cc_path, CCKind::Tcc)
-}
-
-static DETECTED_SYSTEM_CC: std::sync::LazyLock<anyhow::Result<CC>> =
-    std::sync::LazyLock::new(detect_system_cc);
-static DETECTED_INTERNAL_TCC: std::sync::LazyLock<anyhow::Result<CC>> =
-    std::sync::LazyLock::new(detect_internal_tcc);
+static DETECTED_CC_ON_PATH: std::sync::LazyLock<anyhow::Result<CC>> =
+    std::sync::LazyLock::new(detect_cc_on_path);
 
 fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result<CC> {
     result
@@ -519,42 +785,41 @@ fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result
         .map_err(|e| anyhow::anyhow!("{e:#}"))
 }
 
-pub fn try_system_cc() -> anyhow::Result<CC> {
-    cached_cc(&DETECTED_SYSTEM_CC)
+pub fn try_cc_on_path() -> anyhow::Result<CC> {
+    cached_cc(&DETECTED_CC_ON_PATH)
 }
 
-pub fn try_internal_tcc() -> anyhow::Result<CC> {
-    cached_cc(&DETECTED_INTERNAL_TCC)
+fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
+    #[cfg(windows)]
+    {
+        if let Ok(toolchain) = discovered_windows_msvc_toolchain() {
+            return Ok(toolchain);
+        }
+    }
+
+    try_cc_on_path().map(Toolchain::from_path_probe)
 }
 
-pub fn has_cc_env_override() -> bool {
-    env::var_os(ENV_MOON_CC).is_some()
-}
-
-pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
+fn selected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
-    match try_system_cc() {
-        Ok(cc) => Ok(Toolchain::from_path_probe(cc)),
-        Err(err) => match internal_tcc_fallback {
-            Some(internal_tcc) => Ok(Toolchain::from_path_probe(internal_tcc.clone())),
-            None => Err(err),
-        },
-    }
+    detected_default_native_toolchain()
 }
 
-pub fn effective_native_toolchain(
-    package_cc: Option<&CC>,
-    internal_tcc_fallback: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc));
-    }
-    if let Some(package_cc) = package_cc {
-        return Ok(Toolchain::from_package_override(package_cc.clone()));
-    }
-    default_native_toolchain(internal_tcc_fallback)
+pub fn default_native_toolchain() -> anyhow::Result<Toolchain> {
+    resolve_native_toolchain_executables(selected_default_native_toolchain()?)
+}
+
+pub fn effective_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+    let selected = if let Some(env_cc) = ENV_CC.as_ref() {
+        Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
+    } else if let Some(package_cc) = package_cc {
+        Toolchain::from_package_override(package_cc.clone())
+    } else {
+        selected_default_native_toolchain()?
+    };
+    resolve_native_toolchain_executables(selected)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -564,7 +829,7 @@ pub enum OutputType {
     Executable, // .exe or no extension
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OptLevel {
     Speed,
     Size,
@@ -583,7 +848,8 @@ pub struct CCConfig {
     // TCC cannot link libmoonbitrun.o
     pub link_moonbitrun: bool,
     #[builder(default = false)]
-    // Link libbacktrace.a from the configured MoonBit lib path if it exists.
+    // Link libbacktrace.a from the configured MoonBit lib path if it exists
+    // and the compiler targets the host.
     pub link_libbacktrace: bool,
     // Define MOONBIT_NATIVE_NO_SYS_HEADER
     // Usually used with TCC
@@ -596,12 +862,6 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Define MOONBIT_ALLOW_STACKTRACE
     pub allow_stacktrace: bool,
-    #[builder(default = false)]
-    // Define __TINYC__
-    pub define_tinyc_macro: bool,
-    #[builder(default = false)]
-    // Preserve frame pointers for backtrace walkers.
-    pub preserve_frame_pointer: bool,
     // Define MOONBIT_USE_SHARED_RUNTIME
     // It's non-op on Linux and MacOS
     // But on Windows, it will mark runtime function declarations
@@ -611,21 +871,39 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Define MOONBIT_USE_SIMDUTF.
     pub use_simdutf: bool,
+    #[builder(default = false)]
+    // Define MOONBIT_TRIAL_DELETION=1 for native runtime and program compilation.
+    pub collect_ref_cycle: bool,
+    #[builder(default)]
+    // Select native runtime allocator when this command participates in
+    // runtime compilation or native executable linking.
+    pub native_allocator: Option<NativeAllocator>,
 }
 
 #[derive(Clone, Builder)]
 #[builder(setter(into))]
 pub struct LinkerConfig<P: AsRef<Path>> {
+    /// Compiler-driver options that also affect linking, before MSVC's `/link`.
+    #[builder(default)]
+    pub driver_flags: Vec<String>,
+    #[builder(default = false)]
+    pub debug_info: bool,
+    /// Retain the generated-C/LLVM driver's optimization policy for LTO.
+    #[builder(default)]
+    pub opt_level: Option<OptLevel>,
     #[builder(default = false)]
     pub link_moonbitrun: bool,
     #[builder(default = false)]
-    // Link libbacktrace.a from the configured MoonBit lib path if it exists.
+    // Link libbacktrace.a from the configured MoonBit lib path if it exists
+    // and the compiler targets the host.
     pub link_libbacktrace: bool,
     #[builder(default = OutputType::Executable)]
     pub output_ty: OutputType,
     #[builder(default = None)]
     // This is the parent directory to the shared runtime library
     pub link_shared_runtime: Option<P>,
+    #[builder(default)]
+    pub native_allocator: NativeAllocator,
 }
 
 #[derive(Clone, Builder)]
@@ -633,24 +911,12 @@ pub struct LinkerConfig<P: AsRef<Path>> {
 pub struct ArchiverConfig {
     #[builder(default = false)]
     pub archive_moonbitrun: bool,
-}
-
-/// Resolve the C compiler to use from global state
-pub fn resolve_cc(cc: &CC, user_cc: Option<&CC>) -> CC {
-    if ENV_CC.is_some() && user_cc.is_some() {
-        eprintln!(
-            "{}: Both MOON_CC environment variable and user-specified CC are provided. \
-            MOON_CC takes precedence.",
-            "Warning".yellow().bold(),
-        );
-    }
-    ENV_CC
-        .clone()
-        .unwrap_or_else(|| user_cc.cloned().unwrap_or_else(|| cc.clone()))
+    #[builder(default)]
+    pub native_allocator: NativeAllocator,
 }
 
 // Struct to hold path configuration for commands
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompilerPaths {
     pub include_path: String,
     pub lib_path: String,
@@ -671,83 +937,18 @@ impl CompilerPaths {
     }
 }
 
-// Helper functions for archiver command building
-fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
-    if cc.is_msvc() {
-        buf.push("/nologo".to_string());
-        buf.push(format!("/Out:{dest}"));
-    } else if cc.is_tcc() {
-        // tcc don't have separate ar command
-        // just use tcc -ar
-        buf.push("-ar".to_string());
-        buf.push("rcs".to_string());
-        buf.push(dest.to_string());
-    } else if cc.is_full_featured_gcc_like() {
-        buf.push("-r".to_string());
-        buf.push("-c".to_string());
-        buf.push("-s".to_string());
-        buf.push(dest.to_string());
-    } else {
-        panic!("Unsupported archiver");
-    }
-}
-
-// Archiver compiler-specific handling for moonbitrun
-fn add_archiver_moonbitrun_with_warnings(
+fn moonbitrun_object(
     cc: &CC,
-    buf: &mut Vec<String>,
-    config: &ArchiverConfig,
-    paths: &CompilerPaths,
-) {
-    if cc.is_libmoonbitrun_o_available() && config.archive_moonbitrun {
-        if cc.is_tcc() {
-            eprintln!(
-                "{}: Cannot archive libmoonbitrun.o when using tcc",
-                "Warning".yellow().bold(),
-            );
-        } else {
-            buf.push(
-                Path::new(&paths.lib_path)
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
-        }
-    }
-}
-
-pub fn make_archiver_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: ArchiverConfig,
-    src: &[S],
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let paths = CompilerPaths::from_moon_dirs();
-    make_archiver_command_resolved(resolved_cc, config, src, dest, &paths)
-}
-
-pub fn make_archiver_command_resolved<S>(
-    cc: CC,
-    config: ArchiverConfig,
-    src: &[S],
-    dest: &str,
-    paths: &CompilerPaths,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let mut buf = vec![cc.ar_path.clone()];
-
-    add_archiver_flags(&cc, &mut buf, dest);
-    add_archiver_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
-
-    buf
+    enabled: bool,
+    native_allocator: NativeAllocator,
+    lib_path: &str,
+) -> Option<String> {
+    (enabled && native_allocator.should_link_moonbitrun(cc)).then(|| {
+        Path::new(lib_path)
+            .join("libmoonbitrun.o")
+            .display()
+            .to_string()
+    })
 }
 
 // Helper functions for linker command building
@@ -757,17 +958,20 @@ fn add_linker_output_flags(
     config: &LinkerConfig<impl AsRef<Path>>,
     dest: &str,
 ) {
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::SharedLib | OutputType::Executable => {
                 // /F(executable)
-                buf.push(format!("/Fe{dest}"));
+                buf.push(format!(
+                    "/Fe{}",
+                    dunce::simplified(Path::new(dest)).display()
+                ));
             }
             _ => panic!("Linker only supports shared lib, executable and static lib"),
         }
     } else if cc.is_gcc_like() {
         buf.push("-o".to_string());
-        buf.push(dest.to_string());
+        buf.push(dunce::simplified(Path::new(dest)).display().to_string());
     }
 }
 
@@ -779,7 +983,10 @@ fn add_linker_library_paths<P: AsRef<Path>>(
 ) {
     if cc.is_tcc() {
         add_tcc_macos_sdk_library_path(buf);
-        buf.push(format!("-L{lpath}"));
+        buf.push(format!(
+            "-L{}",
+            dunce::simplified(Path::new(lpath)).display()
+        ));
     }
     if cc.is_gcc_like()
         && let Some(dyn_lib_path) = config.link_shared_runtime.as_ref()
@@ -791,7 +998,7 @@ fn add_linker_library_paths<P: AsRef<Path>>(
 fn add_linker_intermediate_dir_flags(cc: &CC, buf: &mut Vec<String>, dest_dir: &str) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         // /F(object)
         buf.push(format!("/Fo{dest_dir}\\"));
     }
@@ -803,7 +1010,7 @@ fn add_linker_shared_lib_flags(
     config: &LinkerConfig<impl AsRef<Path>>,
 ) {
     if config.output_ty == OutputType::SharedLib {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
@@ -812,104 +1019,24 @@ fn add_linker_shared_lib_flags(
     }
 }
 
-// Linker compiler-specific flags
-fn add_linker_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    if cc.is_msvc() {
-        buf.push("/nologo".to_string());
-    }
-}
-
 // Linker compiler-specific handling for moonbitrun
-fn add_linker_moonbitrun_with_warnings(
+fn add_linker_moonbitrun(
     cc: &CC,
     buf: &mut Vec<String>,
     config: &LinkerConfig<impl AsRef<Path>>,
     lpath: &str,
 ) {
-    if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
-        if cc.is_tcc() {
-            eprintln!(
-                "{}: Cannot link libmoonbitrun.o when using tcc",
-                "Warning".yellow().bold(),
-            );
-        } else {
-            buf.push(
-                Path::new(lpath)
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
-        }
+    if let Some(object) =
+        moonbitrun_object(cc, config.link_moonbitrun, config.native_allocator, lpath)
+    {
+        buf.push(dunce::simplified(Path::new(&object)).display().to_string());
     }
-}
-
-fn add_linker_common_libraries<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-) {
-    if cc.is_gcc_like() {
-        if cc.should_link_libm() {
-            buf.push("-lm".to_string());
-        }
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
-        }
-    }
-}
-
-fn add_linker_msvc_runtime<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-    lpath: &str,
-) {
-    if cc.is_msvc() {
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push(
-                dyn_lib_path
-                    .as_ref()
-                    .join("libruntime.lib")
-                    .display()
-                    .to_string(),
-            );
-        }
-        buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
-    }
-}
-
-pub fn make_linker_command<S, P>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: LinkerConfig<P>,
-    user_link_flags: &[S],
-    src: &[S],
-    dest_dir: &str,
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-    P: AsRef<Path>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
-    make_linker_command_resolved(
-        resolved_cc,
-        config,
-        user_link_flags,
-        src,
-        dest_dir,
-        dest,
-        lib_path,
-    )
 }
 
 pub fn make_linker_command_resolved<S, P>(
     cc: CC,
     config: LinkerConfig<P>,
-    user_link_flags: &[S],
+    link_args: &[NativeLinkArg],
     src: &[S],
     dest_dir: &str,
     dest: &str,
@@ -924,26 +1051,44 @@ where
     add_linker_library_paths(&cc, &mut buf, &config, lpath);
     add_linker_intermediate_dir_flags(&cc, &mut buf, dest_dir);
     add_linker_shared_lib_flags(&cc, &mut buf, &config);
+    add_cc_debug_flags(&cc, &mut buf, config.debug_info);
+    if let Some(opt_level) = config.opt_level {
+        add_cc_optimization_flags(&cc, &mut buf, opt_level, !config.driver_flags.is_empty());
+    }
 
     // Linker compiler-specific flags
     add_linker_msvc_specific_flags(&cc, &mut buf);
 
-    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config, lpath);
+    add_linker_moonbitrun(&cc, &mut buf, &config, lpath);
 
-    buf.extend(src.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(src.iter().map(|s| {
+        dunce::simplified(Path::new(s.as_ref()))
+            .display()
+            .to_string()
+    }));
 
     add_linker_common_libraries(&cc, &mut buf, &config);
+    buf.extend(config.driver_flags.iter().cloned());
     add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
 
-    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
     if config.link_libbacktrace {
-        let libbacktrace_path = Path::new(lpath).join("libbacktrace.a");
-        if libbacktrace_path.exists() {
-            buf.push(libbacktrace_path.display().to_string());
-        }
+        add_libbacktrace(&cc, &mut buf, lpath);
     }
 
     buf
+}
+
+/// Link `libbacktrace.a` from the MoonBit lib path if it exists. The archive
+/// is prebuilt for the host, so a compiler for another target skips it.
+fn add_libbacktrace(cc: &CC, buf: &mut Vec<String>, lib_path: &str) {
+    if !cc.targets_host() {
+        return;
+    }
+    let libbacktrace_path = Path::new(lib_path).join("libbacktrace.a");
+    if libbacktrace_path.exists() {
+        buf.push(dunce::simplified(&libbacktrace_path).display().to_string());
+    }
 }
 
 // Helper functions for CC command building
@@ -951,64 +1096,48 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     let Some(dest) = dest else {
         return;
     };
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         match config.output_ty {
             OutputType::Object => {
-                buf.push(format!("/Fo{dest}"));
+                buf.push(format!(
+                    "/Fo{}",
+                    dunce::simplified(Path::new(dest)).display()
+                ));
             }
             OutputType::SharedLib | OutputType::Executable => {
-                buf.push(format!("/Fe{dest}"));
+                buf.push(format!(
+                    "/Fe{}",
+                    dunce::simplified(Path::new(dest)).display()
+                ));
             }
         }
     } else if cc.is_gcc_like() {
         buf.push("-o".to_string());
-        buf.push(dest.to_string());
+        buf.push(dunce::simplified(Path::new(dest)).display().to_string());
     }
 }
-
-#[cfg(target_os = "macos")]
-fn resolve_macos_sdk_lib_path() -> Option<PathBuf> {
-    let output = Command::new("xcrun")
-        .args(["--sdk", "macosx", "--show-sdk-path"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let sdk_root = String::from_utf8_lossy(&output.stdout);
-    let sdk_root = sdk_root.lines().next()?.trim();
-    if sdk_root.is_empty() {
-        return None;
-    }
-
-    let sdk_lib_path = Path::new(sdk_root).join("usr").join("lib");
-    sdk_lib_path.is_dir().then_some(sdk_lib_path)
-}
-
-#[cfg(target_os = "macos")]
-static MACOS_SDK_LIB_PATH: std::sync::LazyLock<Option<PathBuf>> =
-    std::sync::LazyLock::new(resolve_macos_sdk_lib_path);
-
-#[cfg(target_os = "macos")]
-fn add_tcc_macos_sdk_library_path(buf: &mut Vec<String>) {
-    if let Some(sdk_lib_path) = MACOS_SDK_LIB_PATH.as_ref() {
-        buf.push(format!("-L{}", sdk_lib_path.display()));
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn add_tcc_macos_sdk_library_path(_buf: &mut Vec<String>) {}
 
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
-    if cc.is_msvc() {
-        buf.push(format!("/I{ipath}"));
+    if cc.uses_msvc_cli() {
+        buf.push(format!(
+            "/I{}",
+            dunce::simplified(Path::new(ipath)).display()
+        ));
     } else if cc.is_tcc() {
-        buf.push(format!("-I{ipath}"));
+        buf.push(format!(
+            "-I{}",
+            dunce::simplified(Path::new(ipath)).display()
+        ));
         add_tcc_macos_sdk_library_path(buf);
-        buf.push(format!("-L{lpath}"));
+        buf.push(format!(
+            "-L{}",
+            dunce::simplified(Path::new(lpath)).display()
+        ));
     } else if cc.is_gcc_like() {
-        buf.push(format!("-I{ipath}"));
+        buf.push(format!(
+            "-I{}",
+            dunce::simplified(Path::new(ipath)).display()
+        ));
     }
 }
 
@@ -1020,16 +1149,16 @@ fn add_cc_intermediate_dir_flags(
 ) {
     // MSVC may throw intermediate files into current directory
     // Explicitly set the output directory of these files
-    if cc.is_msvc() && config.output_ty != OutputType::Object {
+    if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
         buf.push(format!("/Fo{dest_dir}\\"));
     }
 }
 
-fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if config.debug_info {
+fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, debug_info: bool) {
+    if debug_info {
         if cc.is_gcc_like() {
             buf.push("-g".to_string());
-        } else if cc.is_msvc() {
+        } else if cc.uses_msvc_cli() {
             buf.push("/Z7".to_string());
         }
     }
@@ -1037,7 +1166,7 @@ fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
 fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::SharedLib {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/LD".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
@@ -1048,7 +1177,7 @@ fn add_cc_shared_lib_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
 
 fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     if config.output_ty == OutputType::Object {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/c".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-c".to_string());
@@ -1056,80 +1185,37 @@ fn add_cc_compile_only_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) 
     }
 }
 
-// Compiler-specific flags grouped together
-fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
-    if !cc.is_msvc() {
-        return;
-    }
-
-    // MSVC-specific misc options
-    if !has_user_flags {
-        buf.push("/utf-8".to_string());
-        buf.push("/wd4819".to_string());
-    }
-    buf.push("/nologo".to_string());
-}
-
-fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    // the below flags are needed, ref: https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
-    if cc.is_full_featured_gcc_like() {
-        buf.push("-fwrapv".to_string());
-        buf.push("-fno-strict-aliasing".to_string());
-        // Apple clang is usually detected as SystemCC on macOS.
-        if matches!(cc.cc_kind, CCKind::Clang)
-            || (cfg!(target_os = "macos") && matches!(cc.cc_kind, CCKind::SystemCC))
-        {
-            buf.push("-Wno-unused-value".to_string());
-        }
-    }
-}
-
-fn add_cc_tcc_specific_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if !cc.is_tcc() {
-        return;
-    }
-
-    if config.no_sys_header {
-        buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
-    } else {
-        eprintln!(
-            "{}: Use tcc without set MOONBIT_NATIVE_NO_SYS_HEADER.",
-            "Warning".yellow().bold(),
-        );
-    }
-}
-
 fn add_cc_optimization_flags(
     cc: &CC,
     buf: &mut Vec<String>,
-    config: &CCConfig,
+    opt_level: OptLevel,
     has_user_flags: bool,
 ) {
     if !has_user_flags {
-        match config.opt_level {
+        match opt_level {
             OptLevel::Speed => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/O2".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O2".to_string());
                 }
             }
             OptLevel::Size => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Os".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Os".to_string());
                 }
             }
             OptLevel::Debug => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Od".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-Og".to_string());
                 }
             }
             OptLevel::None => {
-                if cc.is_msvc() {
+                if cc.uses_msvc_cli() {
                     buf.push("/Od".to_string());
                 } else if cc.is_full_featured_gcc_like() {
                     buf.push("-O0".to_string());
@@ -1140,24 +1226,18 @@ fn add_cc_optimization_flags(
 }
 
 fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.is_msvc() {
-        if config.allow_stacktrace {
-            buf.push("/DMOONBIT_ALLOW_STACKTRACE".to_string());
-        }
-        if config.define_tinyc_macro {
-            buf.push("/D__TINYC__".to_string());
-        }
+    let prefix = if cc.uses_msvc_cli() {
+        "/D"
     } else if cc.is_gcc_like() {
-        if config.allow_stacktrace {
-            buf.push("-DMOONBIT_ALLOW_STACKTRACE".to_string());
-        }
-        if config.define_tinyc_macro {
-            buf.push("-D__TINYC__".to_string());
-        }
+        "-D"
+    } else {
+        return;
+    };
+    if config.allow_stacktrace {
+        buf.push(format!("{prefix}MOONBIT_ALLOW_STACKTRACE"));
     }
-
-    if config.preserve_frame_pointer && cc.is_full_featured_gcc_like() {
-        buf.push("-fno-omit-frame-pointer".to_string());
+    if config.collect_ref_cycle {
+        buf.push(format!("{prefix}MOONBIT_TRIAL_DELETION=1"));
     }
 }
 
@@ -1165,7 +1245,7 @@ fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig
     // always set this even if user cc flags are set
     // user cannot easily know when we use shared runtime
     if config.define_use_shared_runtime_macro {
-        if cc.is_msvc() {
+        if cc.uses_msvc_cli() {
             buf.push("/DMOONBIT_USE_SHARED_RUNTIME".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-fPIC".to_string());
@@ -1179,76 +1259,37 @@ fn add_cc_simdutf_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
         return;
     }
 
-    if cc.is_msvc() {
+    if cc.uses_msvc_cli() {
         buf.push("/DMOONBIT_USE_SIMDUTF".to_string());
     } else if cc.is_gcc_like() {
         buf.push("-DMOONBIT_USE_SIMDUTF".to_string());
     }
 }
 
+fn add_cc_allocator_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+    let Some(native_allocator) = config.native_allocator else {
+        return;
+    };
+
+    let allocator_macro = native_allocator.moonbit_allocator_macro(cc, config.link_moonbitrun);
+
+    if cc.uses_msvc_cli() {
+        buf.push(format!("/DMOONBIT_ALLOCATOR={allocator_macro}"));
+    } else if cc.is_gcc_like() {
+        buf.push(format!("-DMOONBIT_ALLOCATOR={allocator_macro}"));
+    }
+}
+
 // CC compiler-specific handling for moonbitrun
-fn add_cc_moonbitrun_with_warnings(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &CCConfig,
-    paths: &CompilerPaths,
-) {
-    if config.output_ty != OutputType::Object
-        && config.link_moonbitrun
-        && cc.is_libmoonbitrun_o_available()
-    {
-        if cc.is_tcc() {
-            eprintln!(
-                "{}: Cannot link libmoonbitrun.o when using tcc",
-                "Warning".yellow().bold(),
-            );
-        } else {
-            buf.push(
-                Path::new(&paths.lib_path)
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
-        }
+fn add_cc_moonbitrun(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, paths: &CompilerPaths) {
+    if let Some(object) = moonbitrun_object(
+        cc,
+        config.output_ty != OutputType::Object && config.link_moonbitrun,
+        config.native_allocator.unwrap_or_default(),
+        &paths.lib_path,
+    ) {
+        buf.push(dunce::simplified(Path::new(&object)).display().to_string());
     }
-}
-
-fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.should_link_libm() && config.output_ty != OutputType::Object {
-        buf.push("-lm".to_string());
-    }
-}
-
-fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
-    if cc.is_msvc() && config.output_ty != OutputType::Object {
-        buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
-    }
-}
-
-pub fn make_cc_command<S>(
-    cc: CC,
-    user_cc: Option<CC>,
-    config: CCConfig,
-    cc_flags: &[S],
-    src: impl IntoIterator<Item = impl Into<String>>,
-    intermediate_dir: &str,
-    dest: &str,
-) -> Vec<String>
-where
-    S: AsRef<str>,
-{
-    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let paths = CompilerPaths::from_moon_dirs();
-    make_cc_command_resolved(
-        resolved_cc,
-        config,
-        cc_flags,
-        src,
-        intermediate_dir,
-        Some(dest),
-        &paths,
-    )
 }
 
 /// Build a C compiler command after the caller has already selected the exact
@@ -1256,7 +1297,7 @@ where
 ///
 /// Use this when there are no extra link-only flags. It still may produce a
 /// link command when `config.output_ty` is `Executable` or `SharedLib`; the
-/// name only means there is no separate `user_link_flags` input.
+/// name only means there is no separate `link_args` input.
 pub fn make_cc_command_resolved<S>(
     cc: CC,
     config: CCConfig,
@@ -1269,11 +1310,11 @@ pub fn make_cc_command_resolved<S>(
 where
     S: AsRef<str>,
 {
-    make_cc_command_resolved_with_link_flags(
+    make_cc_command_resolved_with_link_args(
         cc,
         config,
         cc_flags,
-        &[] as &[&str],
+        &[],
         src,
         intermediate_dir,
         dest,
@@ -1281,21 +1322,21 @@ where
     )
 }
 
-/// Build a C compiler-driver command with separate compile and link flag inputs.
+/// Build a C compiler-driver command with separate compile flags and structured link inputs.
 ///
 /// `resolved` means this function does not consult `MOON_CC`, package CC
 /// overrides, or global `MOON_HOME` paths. Callers pass the effective `CC` and
 /// `CompilerPaths` decided by build planning/lowering.
 ///
 /// `cc_flags` are compile-driver flags. Non-empty C flags are treated as user
-/// overrides and suppress default optimization flags. `user_link_flags` are
-/// appended only for the link step and do not suppress compiler defaults.
+/// overrides and suppress default optimization flags. `link_args` do not
+/// suppress compiler defaults; callers pass an empty slice for compile-only output.
 #[allow(clippy::too_many_arguments)]
-pub fn make_cc_command_resolved_with_link_flags<S, L>(
+pub fn make_cc_command_resolved_with_link_args<S>(
     cc: CC,
     config: CCConfig,
     cc_flags: &[S],
-    user_link_flags: &[L],
+    link_args: &[NativeLinkArg],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
     dest: Option<&str>,
@@ -1303,9 +1344,67 @@ pub fn make_cc_command_resolved_with_link_flags<S, L>(
 ) -> Vec<String>
 where
     S: AsRef<str>,
-    L: AsRef<str>,
 {
-    let mut buf = vec![cc.cc_path.clone()];
+    make_cc_command_resolved_with_link_args_and_toolchain(
+        None,
+        cc,
+        config,
+        cc_flags,
+        link_args,
+        src,
+        intermediate_dir,
+        dest,
+        paths,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn make_cc_command_resolved_for_toolchain<S>(
+    toolchain: &Toolchain,
+    config: CCConfig,
+    cc_flags: &[S],
+    link_args: &[NativeLinkArg],
+    src: impl IntoIterator<Item = impl Into<String>>,
+    intermediate_dir: &str,
+    dest: Option<&str>,
+    paths: &CompilerPaths,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+{
+    make_cc_command_resolved_with_link_args_and_toolchain(
+        Some(toolchain),
+        toolchain.cc().clone(),
+        config,
+        cc_flags,
+        link_args,
+        src,
+        intermediate_dir,
+        dest,
+        paths,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn make_cc_command_resolved_with_link_args_and_toolchain<S>(
+    toolchain: Option<&Toolchain>,
+    cc: CC,
+    config: CCConfig,
+    cc_flags: &[S],
+    link_args: &[NativeLinkArg],
+    src: impl IntoIterator<Item = impl Into<String>>,
+    intermediate_dir: &str,
+    dest: Option<&str>,
+    paths: &CompilerPaths,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+{
+    let mut buf = vec![
+        toolchain
+            .map(Toolchain::cc_command_path)
+            .unwrap_or_else(|| cc.cc_path.clone()),
+    ];
 
     // If user C flags are set, we only set necessary flags
     // that are tightly coupled with the paths and output types
@@ -1316,7 +1415,7 @@ where
     add_cc_output_flags(&cc, &mut buf, &config, dest);
     add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
     add_cc_intermediate_dir_flags(&cc, &mut buf, &config, intermediate_dir);
-    add_cc_debug_flags(&cc, &mut buf, &config);
+    add_cc_debug_flags(&cc, &mut buf, config.debug_info);
     add_cc_shared_lib_flags(&cc, &mut buf, &config);
     add_cc_compile_only_flags(&cc, &mut buf, &config);
 
@@ -1325,30 +1424,57 @@ where
     add_cc_gcc_like_specific_flags(&cc, &mut buf);
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
-    add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
+    add_cc_optimization_flags(&cc, &mut buf, config.opt_level, has_user_flags);
     add_cc_build_system_flags(&cc, &mut buf, &config);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
     add_cc_simdutf_flags(&cc, &mut buf, &config);
-    add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
+    add_cc_allocator_flags(&cc, &mut buf, &config);
+    add_cc_moonbitrun(&cc, &mut buf, &config, paths);
 
-    buf.extend(src.into_iter().map(|s| s.into()));
+    // MSVC rejects verbatim source arguments even when the files are short.
+    // Simplify only these complete file arguments; keep output directories
+    // verbatim because the compiler appends intermediate filenames.
+    buf.extend(src.into_iter().map(|s| {
+        let path = s.into();
+        dunce::simplified(Path::new(&path)).display().to_string()
+    }));
 
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(cc_flags.iter().map(|s| s.as_ref().to_string()));
-    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
-    if config.link_libbacktrace && config.output_ty != OutputType::Object {
-        let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
-        if libbacktrace_path.exists() {
-            buf.push(libbacktrace_path.display().to_string());
-        }
-    }
+    add_cc_msvc_runtime_flags(&cc, toolchain, &mut buf);
+    // Finish compiler options before /link; MSVC otherwise ignores linker
+    // options such as prebuild-provided /LIBPATH entries.
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
-
+    buf.extend(link_args.iter().map(|arg| arg.render(&cc)));
+    if config.link_libbacktrace && config.output_ty != OutputType::Object {
+        add_libbacktrace(&cc, &mut buf, &paths.lib_path);
+    }
     buf
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn native_toolchain_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/native-toolchain")
+    }
+
+    fn test_executable_name(name: &str) -> String {
+        if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// A target triple that names the machine running the tests.
+    fn host_triple() -> String {
+        let os = match env::consts::OS {
+            "macos" => "apple-darwin",
+            os => os,
+        };
+        format!("{}-unknown-{os}", env::consts::ARCH)
+    }
 
     fn fake_cc(kind: CCKind, target_triple: Option<&str>) -> CC {
         CC {
@@ -1361,6 +1487,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn archive_membership_fingerprint_is_limited_to_update_style_archivers() {
+        let mut cc = fake_cc(CCKind::SystemCC, None);
+
+        for ar_kind in [ARKind::GnuAr, ARKind::LlvmAr, ARKind::TccAr] {
+            cc.ar_kind = ar_kind;
+            assert!(cc.archiver_updates_existing_archive());
+        }
+        for ar_kind in [ARKind::AppleLibtool, ARKind::MsvcLib] {
+            cc.ar_kind = ar_kind;
+            assert!(!cc.archiver_updates_existing_archive());
+        }
+    }
+
     fn executable_cc_config() -> CCConfig {
         CCConfig {
             debug_info: false,
@@ -1370,11 +1510,769 @@ mod tests {
             output_ty: OutputType::Executable,
             opt_level: OptLevel::Speed,
             allow_stacktrace: false,
-            define_tinyc_macro: false,
-            preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
+            collect_ref_cycle: false,
+            native_allocator: None,
         }
+    }
+
+    #[test]
+    fn gcc_like_floating_point_defaults_preserve_separate_rounding() {
+        let paths = CompilerPaths {
+            include_path: "include".into(),
+            lib_path: "lib".into(),
+        };
+        for kind in [
+            CCKind::SystemCC,
+            CCKind::Gcc,
+            CCKind::Clang,
+            CCKind::Msvc,
+            CCKind::Tcc,
+        ] {
+            for opt_level in [
+                OptLevel::None,
+                OptLevel::Debug,
+                OptLevel::Speed,
+                OptLevel::Size,
+            ] {
+                for output_ty in [
+                    OutputType::Object,
+                    OutputType::Executable,
+                    OutputType::SharedLib,
+                ] {
+                    for user_flags in [vec![], vec!["-DUSER_OPTION=1"]] {
+                        let command = make_cc_command_resolved_with_link_args(
+                            fake_cc(kind, None),
+                            CCConfig {
+                                opt_level,
+                                output_ty,
+                                ..executable_cc_config()
+                            },
+                            &user_flags,
+                            &[],
+                            ["main.c"],
+                            "build/main",
+                            Some("build/main/output"),
+                            &paths,
+                        );
+                        assert_eq!(
+                            command.iter().any(|flag| flag == "-ffp-contract=off"),
+                            !matches!(kind, CCKind::Msvc | CCKind::Tcc),
+                            "unexpected floating-point defaults: {command:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_allocator_parses_environment_values() {
+        assert_eq!(
+            NativeAllocator::parse("mimalloc").unwrap(),
+            NativeAllocator::Mimalloc
+        );
+        assert_eq!(
+            NativeAllocator::parse("system").unwrap(),
+            NativeAllocator::System
+        );
+        assert!(NativeAllocator::parse("malloc").is_err());
+    }
+
+    #[test]
+    fn collect_ref_cycle_flag_is_independent_of_user_compiler_flags() {
+        let paths = CompilerPaths {
+            include_path: "moon/include".into(),
+            lib_path: "moon/lib".into(),
+        };
+        for kind in [CCKind::Gcc, CCKind::Clang, CCKind::Msvc, CCKind::Tcc] {
+            let cc = fake_cc(kind, None);
+            let prefix = if cc.uses_msvc_cli() { "/D" } else { "-D" };
+            let user_flag = format!("{prefix}USER_OPTION=1");
+            for enabled in [false, true] {
+                let mut config = executable_cc_config();
+                config.collect_ref_cycle = enabled;
+                let command = make_cc_command_resolved(
+                    cc.clone(),
+                    config,
+                    &[&user_flag],
+                    ["program.c"],
+                    "build",
+                    Some("program.exe"),
+                    &paths,
+                );
+                assert!(command.contains(&user_flag));
+                assert_eq!(
+                    command.contains(&format!("{prefix}MOONBIT_TRIAL_DELETION=1")),
+                    enabled,
+                    "{command:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_mimalloc_rejects_toolchains_without_support_object() {
+        let msvc = fake_cc(CCKind::Msvc, Some("x86_64-pc-windows-msvc"));
+        let tcc = fake_cc(CCKind::Tcc, None);
+
+        assert!(NativeAllocator::Mimalloc.validate_for_cc(&msvc).is_err());
+        assert!(NativeAllocator::Mimalloc.validate_for_cc(&tcc).is_err());
+        assert!(NativeAllocator::System.validate_for_cc(&msvc).is_ok());
+        assert!(NativeAllocator::Default.validate_for_cc(&tcc).is_ok());
+    }
+
+    #[test]
+    fn runtime_allocator_flag_is_emitted_for_gcc_like_runtime_compile() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.output_ty = OutputType::Object;
+        config.native_allocator = Some(NativeAllocator::Mimalloc);
+
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[],
+            ["runtime.c"],
+            "build/runtime",
+            Some("build/runtime/runtime.o"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn allocator_flag_is_emitted_for_generated_program_c() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::Default);
+
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
+            config,
+            &[] as &[&str],
+            &[],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[test]
+    fn system_allocator_flag_is_emitted_for_generated_program_c() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::System);
+
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn default_allocator_runtime_macro_follows_moonbitrun_fallback() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.output_ty = OutputType::Object;
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::Default);
+
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
+            config,
+            &[] as &[&str],
+            &[],
+            ["runtime.c"],
+            "build/runtime",
+            Some("build/runtime/runtime.o"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_MIMALLOC")
+        );
+    }
+
+    #[test]
+    fn default_allocator_runtime_macro_uses_system_when_moonbitrun_is_suppressed() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.output_ty = OutputType::Object;
+        config.link_moonbitrun = true;
+        config.native_allocator = Some(NativeAllocator::Default);
+        let mut cc = fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu"));
+        cc.is_env_override = true;
+
+        let command = make_cc_command_resolved_with_link_args(
+            cc,
+            config,
+            &[] as &[&str],
+            &[],
+            ["runtime.c"],
+            "build/runtime",
+            Some("build/runtime/runtime.o"),
+            &paths,
+        );
+
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOCATOR=MOONBIT_ALLOCATOR_SYSTEM")
+        );
+    }
+
+    #[test]
+    fn system_allocator_suppresses_moonbitrun_link_input() {
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
+                link_moonbitrun: true,
+                link_libbacktrace: false,
+                output_ty: OutputType::Executable,
+                link_shared_runtime: None,
+                native_allocator: NativeAllocator::System,
+            },
+            &[],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            "custom-lib",
+        );
+
+        assert!(!command.iter().any(|flag| flag.contains("libmoonbitrun.o")));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn explicit_mimalloc_links_moonbitrun_for_env_compiler() {
+        let mut cc = fake_cc(CCKind::Gcc, Some(&host_triple()));
+        cc.is_env_override = true;
+
+        let command = make_linker_command_resolved(
+            cc,
+            LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
+                link_moonbitrun: true,
+                link_libbacktrace: false,
+                output_ty: OutputType::Executable,
+                link_shared_runtime: None,
+                native_allocator: NativeAllocator::Mimalloc,
+            },
+            &[],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            "custom-lib",
+        );
+
+        let libmoonbitrun_arg = Path::new("custom-lib")
+            .join("libmoonbitrun.o")
+            .display()
+            .to_string();
+        assert!(command.iter().any(|arg| arg == &libmoonbitrun_arg));
+    }
+
+    #[test]
+    fn detects_apple_darwin_target_triple() {
+        assert!(fake_cc(CCKind::Clang, Some("arm64-apple-darwin25.5.0")).targets_apple_darwin());
+        assert!(fake_cc(CCKind::Gcc, Some("aarch64-apple-darwin")).targets_apple_darwin());
+        assert!(!fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")).targets_apple_darwin());
+        assert!(!fake_cc(CCKind::Gcc, None).targets_apple_darwin());
+    }
+
+    #[test]
+    fn detects_msvc_target_triple() {
+        assert!(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).targets_msvc());
+        assert!(fake_cc(CCKind::Gcc, Some("aarch64-pc-windows-msvc")).targets_msvc());
+        assert!(!fake_cc(CCKind::Gcc, Some("x86_64-w64-windows-gnu")).targets_msvc());
+        assert!(!fake_cc(CCKind::Gcc, None).targets_msvc());
+    }
+
+    #[test]
+    fn explicit_archiver_names_select_the_matching_cli() {
+        for target in [
+            None,
+            Some("x86_64-pc-windows-msvc"),
+            Some("aarch64-pc-windows-msvc"),
+        ] {
+            for archiver in ["lib", "LIB.ExE", "llvm-lib", "C:/LLVM/bin/LLVM-LIB.exe"] {
+                assert_eq!(
+                    CC::classify_gcc_like_archiver(archiver, target),
+                    ARKind::MsvcLib,
+                    "archiver: {archiver}, target: {target:?}"
+                );
+            }
+        }
+        assert_eq!(
+            CC::classify_gcc_like_archiver(
+                "/Applications/Xcode.app/usr/bin/libtool",
+                Some("arm64-apple-darwin")
+            ),
+            ARKind::AppleLibtool
+        );
+        assert_eq!(
+            CC::classify_gcc_like_archiver("llvm-ar", Some("x86_64-unknown-linux-gnu")),
+            ARKind::LlvmAr
+        );
+        assert_eq!(
+            CC::classify_gcc_like_archiver("ar", Some("x86_64-unknown-linux-gnu")),
+            ARKind::GnuAr
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_msvc_host_target_triple_matches_supported_64_bit_arch() {
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            windows_msvc_host_target_triple().as_deref(),
+            Some("x86_64-pc-windows-msvc")
+        );
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            windows_msvc_host_target_triple().as_deref(),
+            Some("aarch64-pc-windows-msvc")
+        );
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        assert_eq!(windows_msvc_host_target_triple(), None);
+    }
+
+    #[test]
+    fn windows_msvc_compatibility_rejects_gnu_toolchains() {
+        assert!(ensure_windows_msvc_compatible(&fake_cc(CCKind::Msvc, None)).is_ok());
+        assert!(
+            ensure_windows_msvc_compatible(&fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")))
+                .is_err()
+        );
+        assert!(
+            ensure_windows_msvc_compatible(&fake_cc(CCKind::Gcc, Some("x86_64-w64-windows-gnu")))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn toolchain_detects_msvc_abi_and_crt_policy() {
+        let mut cc = fake_cc(CCKind::Msvc, None);
+        cc.cc_path = "cl.exe".to_string();
+        cc.ar_kind = ARKind::MsvcLib;
+        cc.ar_path = "lib.exe".to_string();
+
+        let toolchain = Toolchain::from_path_probe(cc);
+
+        assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
+        assert!(toolchain.uses_msvc_abi());
+        assert!(toolchain.uses_msvc_cli());
+        assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
+        assert_eq!(
+            toolchain
+                .msvc_crt_policy()
+                .expect("MSVC toolchain has CRT policy")
+                .compiler_flag(),
+            WINDOWS_MSVC_STATIC_RUNTIME_FLAG
+        );
+    }
+
+    #[test]
+    fn toolchain_tracks_msvc_abi_without_cl_driver_crt_policy() {
+        let toolchain =
+            Toolchain::from_path_probe(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")));
+
+        assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
+        assert!(toolchain.uses_msvc_abi());
+        assert!(!toolchain.uses_msvc_cli());
+        assert_eq!(toolchain.msvc_crt_policy(), None);
+    }
+
+    #[test]
+    fn compiler_wrapper_does_not_override_toolchain_selection() {
+        let toolchain = Toolchain::from_path_probe(fake_cc(CCKind::Clang, None));
+        let wrapped = toolchain
+            .clone()
+            .with_cc_wrapper(PathBuf::from("/tools/ccache"));
+        assert_eq!(wrapped.source(), toolchain.source());
+        assert_eq!(wrapped.cc().cc_path, toolchain.cc().cc_path);
+        assert_eq!(wrapped.cc().ar_path, toolchain.cc().ar_path);
+        assert_eq!(
+            wrapped.cc().is_libmoonbitrun_o_available(),
+            toolchain.cc().is_libmoonbitrun_o_available()
+        );
+        let overridden = wrapped.with_package_override(Some(&fake_cc(CCKind::Gcc, None)));
+        assert!(matches!(overridden.cc().cc_kind, CCKind::Gcc));
+        assert_eq!(overridden.cc_wrapper(), wrapped.cc_wrapper());
+    }
+
+    #[test]
+    fn linker_preserves_driver_flags_before_msvc_linker_arguments() {
+        let config = LinkerConfigBuilder::<&Path>::default()
+            .driver_flags(vec!["/GL".to_string()])
+            .debug_info(true)
+            .opt_level(Some(OptLevel::Speed))
+            .build()
+            .unwrap();
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Msvc, None),
+            config,
+            &[NativeLinkArg::SearchPath(PathBuf::from("libraries"))],
+            &["program.obj"],
+            "output",
+            "program.exe",
+            "runtime",
+        );
+        let separator = command.iter().position(|arg| arg == "/link").unwrap();
+        assert!(command[..separator].iter().any(|arg| arg == "/GL"));
+        assert!(command[..separator].iter().any(|arg| arg == "/Z7"));
+        assert!(
+            command[separator..]
+                .iter()
+                .any(|arg| arg == "/LIBPATH:libraries")
+        );
+        assert!(!command.iter().any(|arg| arg == "/c" || arg == "/O2"));
+    }
+
+    #[test]
+    fn bare_package_override_resolves_compiler_and_archiver_from_search_path() {
+        let fixture = native_toolchain_fixture();
+        let bin = fixture.join("bin");
+        let compiler_name = test_executable_name("fake-gcc");
+        let archiver_name = test_executable_name("fake-ar");
+        let compiler = bin.join(&compiler_name);
+        let archiver = bin.join(&archiver_name);
+
+        let mut cc = fake_cc(CCKind::Gcc, None);
+        cc.cc_path = compiler_name;
+        cc.ar_path = archiver_name;
+        let toolchain = resolve_native_toolchain_executables_with(
+            Toolchain::from_package_override(cc),
+            |tool| {
+                which::which_in(tool, Some(bin.as_os_str()), std::env::current_dir()?)
+                    .map_err(anyhow::Error::from)
+            },
+        )
+        .expect("resolve bare package override from test search path");
+
+        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
+        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+        assert!(Path::new(&toolchain.cc().ar_path).is_absolute());
+    }
+
+    #[test]
+    fn missing_native_compiler_reports_its_role_during_resolution() {
+        let bin = native_toolchain_fixture().join("bin");
+        let archiver = bin.join(test_executable_name("fake-ar"));
+
+        let mut cc = fake_cc(CCKind::Gcc, None);
+        cc.cc_path = bin
+            .join(test_executable_name("missing-gcc"))
+            .display()
+            .to_string();
+        cc.ar_path = archiver.display().to_string();
+        let err = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect_err("missing compiler should fail toolchain resolution");
+
+        assert!(
+            format!("{err:#}").contains("native compiler executable"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn missing_native_archiver_reports_its_role_during_resolution() {
+        let bin = native_toolchain_fixture().join("bin");
+        let compiler = bin.join(test_executable_name("fake-gcc"));
+
+        let mut cc = fake_cc(CCKind::Gcc, None);
+        cc.cc_path = compiler.display().to_string();
+        cc.ar_path = bin
+            .join(test_executable_name("missing-ar"))
+            .display()
+            .to_string();
+        let err = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect_err("missing archiver should fail toolchain resolution");
+
+        assert!(
+            format!("{err:#}").contains("native archiver executable"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn tcc_uses_one_resolved_executable_for_compiler_and_archiver() {
+        let tcc = native_toolchain_fixture()
+            .join("bin")
+            .join(test_executable_name("fake-tcc"));
+
+        let mut cc = fake_cc(CCKind::Tcc, None);
+        cc.cc_path = tcc.display().to_string();
+        cc.ar_kind = ARKind::TccAr;
+        cc.ar_path = "unresolved-tcc-archiver".to_string();
+        let toolchain = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect("resolve TCC toolchain");
+
+        assert_eq!(toolchain.cc().cc_path, toolchain.cc().ar_path);
+        assert_eq!(Path::new(&toolchain.cc().cc_path), tcc);
+        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+    }
+
+    #[test]
+    fn windows_msvc_package_override_preserves_env_override_precedence() {
+        let fixture = native_toolchain_fixture();
+        let compiler = fixture.join("env/env-cl.exe");
+        let archiver = fixture.join("env/env-lib.exe");
+
+        let mut env_cc = fake_cc(CCKind::Msvc, None);
+        env_cc.cc_path = compiler.display().to_string();
+        env_cc.ar_kind = ARKind::MsvcLib;
+        env_cc.ar_path = archiver.display().to_string();
+        env_cc.is_env_override = true;
+        let resolved =
+            Toolchain::from_env_override(env_cc).with_msvc_environment(MsvcEnvironment {
+                command_env: vec![("INCLUDE".to_string(), "env/include".to_string())],
+            });
+        let mut package_cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
+        package_cc.cc_path = "clang.exe".to_string();
+
+        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
+            .expect("MOON_CC-style source should ignore package cc");
+
+        assert_eq!(toolchain.source(), ToolchainSource::EnvOverride);
+        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
+        assert_eq!(
+            toolchain
+                .msvc_environment()
+                .expect("env toolchain keeps MSVC environment")
+                .command_env(),
+            &[("INCLUDE".to_string(), "env/include".to_string())]
+        );
+    }
+
+    #[test]
+    fn bare_windows_msvc_package_override_uses_discovered_tool_paths() {
+        let fixture = native_toolchain_fixture();
+        let compiler = fixture.join("msvc/bin/cl.exe");
+        let archiver = fixture.join("msvc/bin/lib.exe");
+
+        let discovered_cc = CC::try_from_path(&compiler.display().to_string())
+            .expect("parse discovered MSVC compiler path");
+        let resolved =
+            Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
+                command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
+            });
+        let package_cc = CC::try_from_path("cl.exe").expect("parse bare MSVC package override");
+
+        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
+            .expect("bare cl.exe package override should remain MSVC-compatible");
+
+        assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
+        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+        assert_eq!(Path::new(&toolchain.cc_command_path()), compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
+        assert!(toolchain.msvc_environment().is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bare_windows_msvc_resolution_uses_discovery() {
+        let cc = CC::try_from_path("cl.exe").expect("parse bare MSVC override");
+        let toolchain = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect("resolve bare MSVC override through discovery");
+
+        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+        assert!(Path::new(&toolchain.cc().cc_path).is_file());
+        assert!(Path::new(&toolchain.cc().ar_path).is_absolute());
+        assert!(Path::new(&toolchain.cc().ar_path).is_file());
+        assert!(toolchain.msvc_environment().is_some());
+    }
+
+    #[test]
+    fn path_like_windows_msvc_package_override_keeps_its_own_toolchain() {
+        let fixture = native_toolchain_fixture();
+        let discovered_compiler = fixture.join("msvc/bin/cl.exe");
+        let custom_compiler = fixture.join("custom/bin/cl.exe");
+        let custom_archiver = fixture.join("custom/bin/lib.exe");
+
+        let discovered_cc = CC::try_from_path(&discovered_compiler.display().to_string())
+            .expect("parse discovered MSVC compiler path");
+        let resolved =
+            Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
+                command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
+            });
+        let package_cc = CC::try_from_path(&custom_compiler.display().to_string())
+            .expect("parse path-like package override");
+
+        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
+            .expect("path-like package override should remain MSVC-compatible");
+
+        assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
+        assert_eq!(Path::new(&toolchain.cc().cc_path), custom_compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), custom_archiver);
+        assert_eq!(toolchain.msvc_environment(), None);
+    }
+
+    #[test]
+    fn windows_msvc_compiler_keeps_archiver_in_the_same_tool_directory() {
+        let cc = CC::try_from_path_with_ar("custom/x64/cl.exe", "custom/arm/lib.exe")
+            .expect("parse MSVC compiler with independent archiver override");
+
+        assert_eq!(cc.cc_path, "custom/x64/cl.exe");
+        assert_eq!(normalize_path_separators(&cc.ar_path), "custom/x64/lib.exe");
+    }
+
+    #[test]
+    fn clang_cl_uses_sibling_llvm_lib_when_lib_is_absent() {
+        let dir = tempfile::tempdir().expect("create temporary tool directory");
+        let clang_cl = dir.path().join("clang-cl.exe");
+        let llvm_lib = dir.path().join("llvm-lib.exe");
+        std::fs::write(&clang_cl, []).expect("create fake clang-cl");
+        std::fs::write(&llvm_lib, []).expect("create fake llvm-lib");
+
+        let cc = CC::try_from_path(&clang_cl.display().to_string()).expect("parse clang-cl");
+
+        assert_eq!(cc.ar_kind, ARKind::MsvcLib);
+        assert_eq!(Path::new(&cc.ar_path), llvm_lib);
+    }
+
+    #[test]
+    fn archiver_flags_follow_the_resolved_archiver_kind() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut apple_cc = fake_cc(CCKind::Clang, Some("arm64-apple-darwin"));
+        apple_cc.ar_kind = ARKind::AppleLibtool;
+        apple_cc.ar_path = "libtool".to_string();
+        assert_eq!(
+            make_archiver_command_resolved(
+                apple_cc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &["runtime.o"],
+                "runtime.a",
+                &paths,
+            ),
+            [
+                "libtool",
+                "-static",
+                "-no_warning_for_no_symbols",
+                "-o",
+                "runtime.a",
+                "runtime.o"
+            ]
+            .map(str::to_string)
+        );
+
+        let mut clang_msvc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
+        clang_msvc.ar_kind = ARKind::MsvcLib;
+        clang_msvc.ar_path = "llvm-lib.exe".to_string();
+        assert_eq!(
+            make_archiver_command_resolved(
+                clang_msvc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &["runtime.obj"],
+                "runtime.lib",
+                &paths,
+            ),
+            ["llvm-lib.exe", "/nologo", "/Out:runtime.lib", "runtime.obj"].map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn msvc_toolchain_adds_mt_to_cc_command() {
+        let mut cc = fake_cc(CCKind::Msvc, None);
+        cc.cc_path = "cl.exe".to_string();
+        cc.ar_kind = ARKind::MsvcLib;
+        cc.ar_path = "lib.exe".to_string();
+        let toolchain = Toolchain::from_path_probe(cc);
+        let paths = CompilerPaths {
+            include_path: "moon/include".to_string(),
+            lib_path: "moon/lib".to_string(),
+        };
+
+        let command = make_cc_command_resolved_for_toolchain(
+            &toolchain,
+            CCConfigBuilder::default()
+                .no_sys_header(true)
+                .link_moonbitrun(false)
+                .output_ty(OutputType::Object)
+                .define_use_shared_runtime_macro(false)
+                .build()
+                .expect("MSVC command config should build"),
+            &["/MD"],
+            &[],
+            ["stub.c".to_string()],
+            "pkg",
+            Some("stub.obj"),
+            &paths,
+        );
+
+        let md_position = command
+            .iter()
+            .position(|arg| arg == "/MD")
+            .expect("test command should include user runtime flag");
+        let mt_position = command
+            .iter()
+            .position(|arg| arg == WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
+            .expect("test command should force static runtime flag");
+        assert!(mt_position > md_position);
     }
 
     #[test]
@@ -1386,11 +2284,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.no_sys_header = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Tcc, None),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -1405,12 +2303,16 @@ mod tests {
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Tcc, None),
             LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
                 link_moonbitrun: false,
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
                 link_shared_runtime: None,
+                native_allocator: NativeAllocator::Default,
             },
-            &[] as &[&str],
+            &[],
             &["main.o"],
             "build/main",
             "build/main/main",
@@ -1429,9 +2331,10 @@ mod tests {
         };
 
         let command = make_archiver_command_resolved(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
             ArchiverConfig {
                 archive_moonbitrun: true,
+                native_allocator: NativeAllocator::Default,
             },
             &["stub.o"],
             "libstub.a",
@@ -1454,10 +2357,14 @@ mod tests {
         assert!(!cc_flags.iter().any(|f| f == "-lm"));
 
         let linker_config = LinkerConfig::<&Path> {
+            driver_flags: vec![],
+            debug_info: false,
+            opt_level: None,
             link_moonbitrun: false,
             link_libbacktrace: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
+            native_allocator: NativeAllocator::Default,
         };
         let mut linker_flags = vec![];
         add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
@@ -1473,10 +2380,14 @@ mod tests {
         assert!(cc_flags.iter().any(|f| f == "-lm"));
 
         let linker_config = LinkerConfig::<&Path> {
+            driver_flags: vec![],
+            debug_info: false,
+            opt_level: None,
             link_moonbitrun: false,
             link_libbacktrace: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
+            native_allocator: NativeAllocator::Default,
         };
         let mut linker_flags = vec![];
         add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
@@ -1486,10 +2397,155 @@ mod tests {
     #[test]
     fn simdutf_requires_supported_host_and_non_tcc_compiler() {
         assert_eq!(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf(),
+            fake_cc(CCKind::Gcc, Some(&host_triple())).can_use_simdutf(),
             CAN_USE_SIMDUTF
         );
         assert!(!fake_cc(CCKind::Tcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf());
+        assert!(!fake_cc(CCKind::Msvc, None).can_use_simdutf());
+        assert!(!fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).can_use_simdutf());
+    }
+
+    #[test]
+    fn target_triple_matches_host_arch_and_os() {
+        for triple in [
+            "arm64-apple-darwin25.6.0",
+            "aarch64-apple-darwin",
+            "aarch64-unknown-macos",
+            "arm64-apple-macosx14.0.0",
+        ] {
+            assert!(triple_matches_host(triple, "aarch64", "macos"), "{triple}");
+        }
+        for triple in [
+            "x86_64-linux-gnu",
+            "x86_64-unknown-linux-gnu",
+            "amd64-pc-linux-gnu",
+            "x86_64-redhat-linux",
+        ] {
+            assert!(triple_matches_host(triple, "x86_64", "linux"), "{triple}");
+        }
+        assert!(triple_matches_host(
+            "x86_64-w64-mingw32",
+            "x86_64",
+            "windows"
+        ));
+        assert!(triple_matches_host(
+            "x86_64-pc-windows-msvc",
+            "x86_64",
+            "windows"
+        ));
+
+        assert!(!triple_matches_host(
+            "x86_64-apple-darwin",
+            "aarch64",
+            "macos"
+        ));
+        assert!(!triple_matches_host(
+            "x86_64-unknown-linux-musl",
+            "aarch64",
+            "macos"
+        ));
+        assert!(!triple_matches_host(
+            "aarch64-linux-musl",
+            "x86_64",
+            "linux"
+        ));
+        assert!(!triple_matches_host(
+            "x86_64-w64-windows-gnu",
+            "x86_64",
+            "linux"
+        ));
+        assert!(!triple_matches_host(
+            "arm64-apple-ios17.0",
+            "aarch64",
+            "macos"
+        ));
+        assert!(!triple_matches_host(
+            "aarch64-macos-none",
+            "aarch64",
+            "macos"
+        ));
+        for triple in [
+            "x86_64-unknown-linux-gnux32",
+            "x86_64-unknown-linux-musl",
+            "x86_64-linux-android",
+        ] {
+            assert!(!triple_matches_host(triple, "x86_64", "linux"), "{triple}");
+        }
+    }
+
+    /// A Linux target triple whose architecture differs from the test host.
+    fn foreign_triple() -> &'static str {
+        if env::consts::ARCH == "x86_64" {
+            "aarch64-unknown-linux-musl"
+        } else {
+            "x86_64-unknown-linux-musl"
+        }
+    }
+
+    #[test]
+    fn cross_compiler_does_not_use_host_prebuilt_objects() {
+        let cc = fake_cc(CCKind::Gcc, Some(foreign_triple()));
+        assert!(!cc.targets_host());
+        assert!(!cc.can_use_simdutf());
+        assert!(!cc.can_link_libmoonbitrun_o());
+        assert!(!cc.is_libmoonbitrun_o_available());
+        assert!(NativeAllocator::Mimalloc.validate_for_cc(&cc).is_err());
+
+        assert!(fake_cc(CCKind::Gcc, Some(&host_triple())).targets_host());
+        assert!(fake_cc(CCKind::Gcc, None).targets_host());
+    }
+
+    #[test]
+    fn cross_compiler_does_not_link_host_libbacktrace() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "moonutil-cross-libbacktrace-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("create temp lib dir");
+        let libbacktrace_path = temp_dir.join("libbacktrace.a");
+        std::fs::write(&libbacktrace_path, b"").expect("create temp libbacktrace.a");
+        let libbacktrace_arg = libbacktrace_path.display().to_string();
+
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: temp_dir.display().to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_libbacktrace = true;
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some(foreign_triple())),
+            config,
+            &[] as &[&str],
+            &[],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+        assert!(!command.iter().any(|flag| flag == &libbacktrace_arg));
+
+        let linker_config = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .link_libbacktrace(true)
+            .output_ty(OutputType::Executable)
+            .build()
+            .expect("build linker config");
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Gcc, Some(foreign_triple())),
+            linker_config,
+            &[],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            &temp_dir.display().to_string(),
+        );
+        assert!(!command.iter().any(|flag| flag == &libbacktrace_arg));
+
+        std::fs::remove_dir_all(temp_dir).expect("remove temp lib dir");
     }
 
     #[test]
@@ -1499,11 +2555,11 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             executable_cc_config(),
             &[] as &[&str],
-            &["-lcustom"],
+            &[NativeLinkArg::Opaque("-lcustom".into())],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -1521,11 +2577,11 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Msvc, None),
             executable_cc_config(),
             &["/O2"],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main.exe"),
@@ -1533,9 +2589,165 @@ mod tests {
         );
 
         assert!(command.iter().any(|flag| flag == "/nologo"));
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == WINDOWS_MSVC_C_STANDARD_FLAG)
+        );
         assert!(command.iter().any(|flag| flag == "/O2"));
         assert!(!command.iter().any(|flag| flag == "/utf-8"));
         assert!(!command.iter().any(|flag| flag == "/wd4819"));
+    }
+
+    #[test]
+    fn native_link_args_use_driver_syntax() {
+        let paths = CompilerPaths {
+            include_path: "moon/include".into(),
+            lib_path: "moon/lib".into(),
+        };
+        let link_args = [
+            NativeLinkArg::Opaque("custom dir/custom.lib".into()),
+            NativeLinkArg::Library("SDL3".into()),
+            NativeLinkArg::SearchPath("SDL libs".into()),
+            NativeLinkArg::Library("SDL3".into()),
+        ];
+
+        for (driver, kind, triple, expected) in [
+            (
+                "clang.exe",
+                CCKind::Clang,
+                Some("x86_64-pc-windows-msvc"),
+                ["custom dir/custom.lib", "-lSDL3", "-LSDL libs", "-lSDL3"],
+            ),
+            (
+                "clang.exe",
+                CCKind::Clang,
+                Some("x86_64-w64-windows-gnu"),
+                ["custom dir/custom.lib", "-lSDL3", "-LSDL libs", "-lSDL3"],
+            ),
+            (
+                "cl.exe",
+                CCKind::Msvc,
+                None,
+                [
+                    "custom dir/custom.lib",
+                    "SDL3.lib",
+                    "/LIBPATH:SDL libs",
+                    "SDL3.lib",
+                ],
+            ),
+            (
+                "clang-cl.exe",
+                CCKind::Msvc,
+                None,
+                [
+                    "custom dir/custom.lib",
+                    "SDL3.lib",
+                    "/LIBPATH:SDL libs",
+                    "SDL3.lib",
+                ],
+            ),
+        ] {
+            let mut cc = fake_cc(kind, triple);
+            cc.cc_path = driver.into();
+            let toolchain = Toolchain::from_path_probe(cc.clone());
+            let generated_c = make_cc_command_resolved_for_toolchain(
+                &toolchain,
+                executable_cc_config(),
+                &[] as &[&str],
+                &link_args,
+                ["main.c"],
+                "build",
+                Some("build/main.exe"),
+                &paths,
+            );
+            let link_only = make_linker_command_resolved(
+                cc,
+                LinkerConfig::<&Path> {
+                    driver_flags: vec![],
+                    debug_info: false,
+                    opt_level: None,
+                    link_moonbitrun: false,
+                    link_libbacktrace: false,
+                    output_ty: OutputType::Executable,
+                    link_shared_runtime: None,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &link_args,
+                &["main.obj"],
+                "build",
+                "build/main.exe",
+                &paths.lib_path,
+            );
+
+            for command in [generated_c, link_only] {
+                let start = command.len() - expected.len();
+                assert_eq!(
+                    &command[start..],
+                    expected,
+                    "driver: {driver}, target: {triple:?}, command: {command:?}"
+                );
+                if toolchain.uses_msvc_cli() {
+                    let link = command.iter().position(|arg| arg == "/link").unwrap();
+                    assert!(link < start, "{command:?}");
+                } else {
+                    assert!(!command.iter().any(|arg| arg == "/link"), "{command:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn msvc_cc_link_flags_follow_link_separator() {
+        let paths = CompilerPaths {
+            include_path: "moon/include".to_string(),
+            lib_path: "moon/lib".to_string(),
+        };
+
+        for driver in ["cl.exe", "clang-cl.exe"] {
+            for output_ty in [OutputType::Executable, OutputType::SharedLib] {
+                let mut cc = fake_cc(CCKind::Msvc, None);
+                cc.cc_path = driver.to_string();
+                let toolchain = Toolchain::from_path_probe(cc);
+                let mut config = executable_cc_config();
+                config.output_ty = output_ty;
+                let command = make_cc_command_resolved_for_toolchain(
+                    &toolchain,
+                    config,
+                    &["/O2"],
+                    &[
+                        NativeLinkArg::Library("SDL3".into()),
+                        NativeLinkArg::SearchPath("SDL libs".into()),
+                        NativeLinkArg::Opaque("/DEBUG".into()),
+                    ],
+                    ["main.c"],
+                    "build",
+                    Some("build/main.exe"),
+                    &paths,
+                );
+
+                let link = command
+                    .iter()
+                    .position(|arg| arg == "/link")
+                    .expect("MSVC link command needs /link");
+                for arg in ["main.c", "/O2", "/MT"] {
+                    assert!(
+                        command[..link].iter().any(|flag| flag == arg),
+                        "{command:?}"
+                    );
+                }
+                assert_eq!(
+                    &command[link + 1..],
+                    [
+                        "/LIBPATH:moon/lib",
+                        "SDL3.lib",
+                        "/LIBPATH:SDL libs",
+                        "/DEBUG"
+                    ],
+                    "driver: {driver}, command: {command:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1543,12 +2755,16 @@ mod tests {
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Msvc, None),
             LinkerConfig::<&Path> {
+                driver_flags: vec![],
+                debug_info: false,
+                opt_level: None,
                 link_moonbitrun: false,
                 link_libbacktrace: false,
                 output_ty: OutputType::Executable,
                 link_shared_runtime: None,
+                native_allocator: NativeAllocator::Default,
             },
-            &["/DEBUG"],
+            &[NativeLinkArg::Opaque("/DEBUG".into())],
             &["main.obj"],
             "build",
             "build/main.exe",
@@ -1557,6 +2773,33 @@ mod tests {
 
         assert!(command.iter().any(|flag| flag == "/nologo"));
         assert!(command.iter().any(|flag| flag == "/DEBUG"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn msvc_simplifies_short_inputs_but_preserves_long_paths_and_output_directories() {
+        let short_source = r"\\?\C:\build\main.c";
+        let long_source = format!(r"\\?\C:\build\{}main.c", "segment\\".repeat(40));
+        let output_dir = r"\\?\C:\build";
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Msvc, None),
+            executable_cc_config(),
+            &[] as &[&str],
+            &[],
+            [short_source, &long_source],
+            output_dir,
+            Some(r"\\?\C:\build\main.exe"),
+            &CompilerPaths {
+                include_path: "include".into(),
+                lib_path: "lib".into(),
+            },
+        );
+
+        assert!(command.iter().any(|arg| arg == r"C:\build\main.c"));
+        assert!(!command.iter().any(|arg| arg == short_source));
+        assert!(command.contains(&long_source));
+        assert!(command.contains(&format!("/Fo{output_dir}\\")));
+        assert!(command.contains(&r"/FeC:\build\main.exe".to_owned()));
     }
 
     #[test]
@@ -1568,11 +2811,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.allow_stacktrace = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build",
             Some("build/runtime.o"),
@@ -1608,11 +2851,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.link_libbacktrace = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
-            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+        let command = make_cc_command_resolved_with_link_args(
+            fake_cc(CCKind::Gcc, Some(&host_triple())),
             config,
             &[] as &[&str],
-            &["-lcustom"],
+            &[NativeLinkArg::Opaque("-lcustom".into())],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -1643,11 +2886,11 @@ mod tests {
         let mut config = executable_cc_config();
         config.use_simdutf = true;
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
             &[] as &[&str],
-            &[] as &[&str],
+            &[],
             ["runtime.c"],
             "build",
             Some("build/runtime.o"),
@@ -1694,11 +2937,11 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_resolved_with_link_flags(
+        let command = make_cc_command_resolved_with_link_args(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             executable_cc_config(),
             &["-O3"],
-            &[] as &[&str],
+            &[],
             ["main.c"],
             "build/main",
             Some("build/main/main"),
@@ -1713,6 +2956,12 @@ mod tests {
     fn try_from_path_recognizes_clang_exe() {
         let cc = CC::try_from_path("C:/llvm/bin/clang.exe").expect("parse clang.exe");
         assert!(matches!(cc.cc_kind, CCKind::Clang));
+    }
+
+    #[test]
+    fn try_from_path_recognizes_clang_cl_exe_as_msvc() {
+        let cc = CC::try_from_path("C:/llvm/bin/clang-cl.exe").expect("parse clang-cl.exe");
+        assert!(matches!(cc.cc_kind, CCKind::Msvc));
     }
 
     fn normalize_path_separators(path: &str) -> String {
@@ -1754,7 +3003,103 @@ mod tests {
         };
 
         let cc = CC::try_from_path(clang_path_str).expect("parse real clang path");
+        if cc.targets_msvc() {
+            assert_eq!(cc.ar_kind, ARKind::MsvcLib);
+            assert_eq!(
+                cc.ar_path,
+                CC::probe_existing_prog_name(&clang_path, "llvm-lib")
+                    .expect("resolve Clang-reported llvm-lib")
+            );
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if cc.targets_apple_darwin() {
+            assert_eq!(cc.ar_kind, ARKind::AppleLibtool);
+            assert_eq!(
+                Path::new(&cc.ar_path),
+                resolve_apple_libtool_path().expect("resolve Apple libtool")
+            );
+            return;
+        }
         assert_eq!(cc.ar_path, CC::resolve_tool_path(&clang_path, &reported_ar));
+    }
+
+    #[test]
+    fn llvm_lib_archives_real_msvc_object_with_or_without_target_metadata() {
+        let tools = which::which("clang").ok().and_then(|clang| {
+            CC::probe_existing_prog_name(&clang, "llvm-lib").map(|llvm_lib| (clang, llvm_lib))
+        });
+        let Some((clang, llvm_lib)) = tools else {
+            if cfg!(windows) {
+                panic!("Windows CI requires clang and llvm-lib");
+            }
+            eprintln!("skipping MSVC archive test: clang and llvm-lib are unavailable");
+            return;
+        };
+
+        // Compile a header-free MSVC object so the test needs no Windows SDK
+        // and can exercise the real tools on any host.
+        let dir = tempfile::tempdir().expect("create compiler working directory");
+        std::fs::write(
+            dir.path().join("answer.c"),
+            "int answer(void) { return 42; }\n",
+        )
+        .expect("write C source");
+        let target_flag = "--target=x86_64-pc-windows-msvc";
+        let target = Command::new(&clang)
+            .args([target_flag, "-dumpmachine"])
+            .output()
+            .expect("probe Clang target");
+        assert!(target.status.success(), "{target:?}");
+        let target = String::from_utf8(target.stdout)
+            .expect("Clang target is UTF-8")
+            .trim()
+            .to_string();
+        let compiled = Command::new(&clang)
+            .current_dir(dir.path())
+            .args([target_flag, "-c", "answer.c", "-o", "answer.o"])
+            .output()
+            .expect("compile MSVC object");
+        assert!(compiled.status.success(), "{compiled:?}");
+
+        // Missing probe metadata must not change the selected librarian's CLI.
+        for target in [Some(target.as_str()), None] {
+            let cc = CC::new(
+                CCKind::Clang,
+                clang.display().to_string(),
+                CC::classify_gcc_like_archiver(&llvm_lib, target),
+                llvm_lib.clone(),
+                target.map(str::to_string),
+            );
+            let command = make_archiver_command_resolved(
+                cc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                    native_allocator: NativeAllocator::Default,
+                },
+                &["answer.o"],
+                "answer.lib",
+                &CompilerPaths {
+                    include_path: ".".to_string(),
+                    lib_path: ".".to_string(),
+                },
+            );
+            let archived = Command::new(&command[0])
+                .current_dir(dir.path())
+                .args(&command[1..])
+                .output()
+                .expect("run Moon's archive command");
+            assert!(archived.status.success(), "{command:?}: {archived:?}");
+
+            let members = Command::new(&llvm_lib)
+                .current_dir(dir.path())
+                .args(["/list", "answer.lib"])
+                .output()
+                .expect("inspect archive members");
+            assert!(members.status.success(), "{members:?}");
+            assert_eq!(String::from_utf8_lossy(&members.stdout).trim(), "answer.o");
+            std::fs::remove_file(dir.path().join("answer.lib")).expect("remove checked archive");
+        }
     }
 
     #[cfg(windows)]

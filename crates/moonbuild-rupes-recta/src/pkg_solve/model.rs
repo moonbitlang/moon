@@ -1,26 +1,26 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::collections::HashMap;
 
 use indexmap::IndexSet;
-use moonutil::common::TargetBackend;
-use moonutil::mooncakes::ModuleSource;
+use moonutil::resolution::ModuleSource;
+use moonutil::target::TargetBackend;
 use petgraph::prelude::DiGraphMap;
 use slotmap::SparseSecondaryMap;
 
@@ -31,9 +31,12 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct DepEdge {
-    /// The short alias for this import item. This should be unique among all
+    /// The named alias for this import item. Named aliases must be unique among
     /// imports available to the current build target.
     pub short_alias: arcstr::Substr,
+    /// Whether this dependency imports all names unqualified in addition to
+    /// exposing the package through `short_alias`.
+    pub import_all: bool,
     /// The kind of the import, whether it's a imported for source, test, or others.
     pub kind: TargetKind,
 }
@@ -49,9 +52,9 @@ pub struct VirtualUser {
     pub overrides: SparseSecondaryMap<PackageId, PackageId>,
 }
 
-/// The dependency relationship between build targets
+/// Imports between package build targets, virtual-package associations, and backend support.
 #[derive(Clone, Debug, Default)]
-pub struct DepRelationship {
+pub struct PackageRelations {
     /// A graph with build targets as nodes and dependency relationship as edges.
     ///
     /// The edges should point from dependent (downstream) to dependency (upstream).
@@ -77,7 +80,7 @@ pub struct DepRelationship {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SolveError {
+pub enum PackageResolutionError {
     #[error("Cannot find import '{import}' in {package_fqn}")]
     ImportNotFound {
         import: String,
@@ -170,7 +173,7 @@ pub enum SolveError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub struct MultipleError(pub Vec<SolveError>);
+pub struct MultipleError(pub Vec<PackageResolutionError>);
 
 impl std::fmt::Display for MultipleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

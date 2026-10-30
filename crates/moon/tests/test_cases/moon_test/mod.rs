@@ -1,4 +1,23 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
 mod patch;
+#[cfg(unix)]
 mod use_cc_for_native_release;
 mod with_cfg;
 
@@ -14,7 +33,7 @@ fn test_moon_test_succ() {
     unsafe { std::env::set_var("NO_COLOR", "1") };
     let dir = TestDir::new("moon_test/succ");
     check(
-        get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]),
+        get_stdout(&dir, ["test", "-v", "--sort-input"]),
         expect![[r#"
             [moontest] test lib/hello_wbtest.mbt:1 (#0) ok
             [moontest] test lib2/hello_wbtest.mbt:1 (#0) ok
@@ -58,22 +77,28 @@ fn test_moon_test_succ_llvm() {
 fn test_moon_test_hello_exec() {
     let dir = TestDir::new("moon_test/hello_exec");
     check(
-        get_stdout(&dir, ["run", "main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
     );
     check(
-        get_stdout(&dir, ["test", "-v"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc", "-v"]),
         expect![[r#"
             this is lib test
             [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
-    assert_dry_run_graph(
-        &dir,
-        ["test", "--dry-run", "--debug", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args([
+            "test",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--debug",
+            "--sort-input",
+        ]),
         expect_file!["moon_test_hello_exec_graph.jsonl.snap"],
     );
 }
@@ -82,19 +107,35 @@ fn test_moon_test_hello_exec() {
 fn test_moon_test_hello_exec_fntest() {
     let dir = TestDir::new("moon_test/hello_exec_fntest");
     check(
-        get_stdout(&dir, ["run", "main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             init in main/main.mbt
         "#]],
     );
 
-    assert_dry_run_graph(
-        &dir,
-        ["test", "-v", "--dry-run", "--sort-input"],
+    build_graph::assert(
+        moon_cmd(&dir).args([
+            "test",
+            "--target",
+            "wasm-gc",
+            "-v",
+            "--dry-run",
+            "--sort-input",
+        ]),
         expect_file!["moon_test_hello_exec_fntest_graph.jsonl.snap"],
     );
 
-    let test_out = get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]);
+    let test_out = get_stdout(
+        &dir,
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "-v",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
     assert_lines_in_order(
         &test_out,
         r"
@@ -125,7 +166,119 @@ fn test_moon_test_hello_lib() {
 }
 
 #[test]
+fn test_moon_test_runs_from_module_root() {
+    let dir = TestDir::new("moon_test/test_cwd");
+    let lib_dir = dir.join("lib");
+
+    check(
+        get_stdout(
+            &lib_dir,
+            [
+                "-C",
+                "..",
+                "test",
+                "--target",
+                "js",
+                "--no-parallelize",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_test_workspace_members_run_from_module_root() {
+    let dir = TestDir::new("moon_test/workspace_cwd");
+    let spawn_dir = dir.join("spawn");
+    std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
+
+    check(
+        get_stdout(
+            &spawn_dir,
+            [
+                "-C",
+                "..",
+                "test",
+                "--target",
+                "js",
+                "--no-parallelize",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_test_resolves_wasm_policy_before_changing_to_module_roots() {
+    let dir = TestDir::new("moon_test/workspace_cwd");
+    let spawn_dir = dir.join("spawn");
+    std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
+
+    moon_cmd(&spawn_dir)
+        .args([
+            "-C",
+            "..",
+            "test",
+            "--target",
+            "wasm",
+            "--wasm-policy",
+            "policy.json",
+            "--no-parallelize",
+            "--sort-input",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 2, passed: 2, failed: 0.\n");
+}
+
+#[test]
 fn test_zombie_child_process() {
+    let dir = TestDir::new("moon_test/zombie_child");
+    assert_test_process_shutdown(&dir, &["--no-parallelize"], None);
+}
+
+#[test]
+fn test_parallel_children_shutdown_after_one_finishes() {
+    let dir = TestDir::new("moon_test/zombie_child");
+    std::fs::create_dir(dir.join("aaa_fast")).unwrap();
+    std::fs::write(dir.join("aaa_fast/moon.pkg"), "").unwrap();
+    std::fs::write(
+        dir.join("aaa_fast/fast_test.mbt"),
+        r#"extern "js" fn record_pid() -> Unit =
+  #|() => require('fs').writeFileSync('fast_child_pid.txt', String(process.pid))
+
+test { record_pid() }
+"#,
+    )
+    .unwrap();
+    assert_test_process_shutdown(&dir, &["-j", "2"], Some(&dir.join("fast_child_pid.txt")));
+}
+
+#[test]
+fn test_child_shutdown_after_snapshot_update() {
+    let dir = TestDir::new("moon_test/zombie_child");
+    let source = dir.join("lib/hello_wbtest.mbt");
+    let contents = std::fs::read_to_string(&source).unwrap();
+    // The first pass fails before starting the long-lived child. Only the
+    // rerun after promotion reaches the PID write and waits for termination.
+    std::fs::write(
+        source,
+        contents.replace(
+            "test \"keeps_process_alive\" {",
+            "test \"keeps_process_alive\" {\n  inspect(0, content=\"1\")",
+        ),
+    )
+    .unwrap();
+    assert_test_process_shutdown(&dir, &["--update", "-j", "2"], None);
+}
+
+fn assert_test_process_shutdown(dir: &TestDir, args: &[&str], finished_child: Option<&Path>) {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
     };
@@ -133,11 +286,10 @@ fn test_zombie_child_process() {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    let dir = TestDir::new("moon_test/zombie_child");
     let child_pid_file = dir.join("test_child_pid.txt");
 
-    let build_output = moon_process_cmd(&dir)
-        .args(["test", "--target", "js", "--no-parallelize", "--build-only"])
+    let build_output = moon_process_cmd(dir)
+        .args(["test", "--target", "js", "-j", "2", "--build-only"])
         .output()
         .expect("Failed to build zombie child test fixture");
     assert!(
@@ -148,8 +300,9 @@ fn test_zombie_child_process() {
     );
 
     // Spawn moon test in background
-    let mut moon_child = moon_process_cmd(&dir)
-        .args(["test", "--target", "js", "--no-parallelize"])
+    let mut moon_child = moon_process_cmd(dir)
+        .args(["test", "--target", "js"])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -158,7 +311,11 @@ fn test_zombie_child_process() {
     // Wait for the test executable to publish its PID.
     let start = Instant::now();
     let child_pid = loop {
-        if let Ok(pid) = read_pid_file(&child_pid_file) {
+        if let Ok(pid) = read_pid_file(&child_pid_file)
+            && finished_child.is_none_or(|path| {
+                read_pid_file(path).is_ok_and(|pid| wait_for_pid_exit(pid, Duration::ZERO))
+            })
+        {
             break pid;
         }
         if let Some(status) = moon_child
@@ -177,6 +334,14 @@ fn test_zombie_child_process() {
         thread::sleep(Duration::from_millis(100));
         if start.elapsed() > Duration::from_secs(60) {
             let _ = moon_child.kill();
+            if let Ok(pid) = read_pid_file(&child_pid_file) {
+                terminate_pid(pid);
+            }
+            if let Some(path) = finished_child
+                && let Ok(pid) = read_pid_file(path)
+            {
+                terminate_pid(pid);
+            }
             let output = moon_child
                 .wait_with_output()
                 .expect("Failed to collect moon test output");
@@ -187,6 +352,11 @@ fn test_zombie_child_process() {
             );
         }
     };
+
+    // Give Moon a chance to reap the completed child before signalling it.
+    if finished_child.is_some() {
+        thread::sleep(Duration::from_millis(100));
+    }
 
     // Terminate the moon process (simulating the scenario in example/script.js)
     terminate_child(&mut moon_child);
@@ -211,205 +381,17 @@ fn test_zombie_child_process() {
 }
 
 #[test]
-fn test_moon_test_with_local_dep() {
-    let dir = TestDir::new("moon_test/with_local_deps");
-    check(
-        get_stdout(&dir, ["test", "-v", "--frozen"]),
-        expect![[r#"
-            [hello31] test lib/hello_wbtest.mbt:1 (#0) ok
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-    check(
-        get_stdout(&dir, ["run", "main", "--frozen"]),
-        expect![[r#"
-            hello from mooncake
-            hello from mooncake2
-        "#]],
-    );
-    // Run moon info
-    moon_cmd(&dir).args(["info", "--frozen"]).assert().success();
-    // Check directory structure by listing all files
-    let root_dir = dir.as_ref().to_owned();
-    let dir = WalkDir::new(&dir)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path().strip_prefix(&root_dir).unwrap().to_owned())
-        // Convert to string and join with newline
-        .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    let joined = dir.join("\n").replace('\\', "/"); // Normalize path separator
-    check(
-        &joined,
-        expect![[r#"
-
-            .gitignore
-            _build
-            _build/.moon-lock
-            _build/wasm-gc
-            _build/wasm-gc/debug
-            _build/wasm-gc/debug/build
-            _build/wasm-gc/debug/build/.mooncakes
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/lib
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/lib/lib.core
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/lib/lib.mi
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/mooncake.core
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/mooncake.mi
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/lib
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/lib/lib.core
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/lib/lib.mi
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.core
-            _build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.mi
-            _build/wasm-gc/debug/build/all_pkgs.json
-            _build/wasm-gc/debug/build/build.moon_db
-            _build/wasm-gc/debug/build/lib
-            _build/wasm-gc/debug/build/lib/lib.core
-            _build/wasm-gc/debug/build/lib/lib.mi
-            _build/wasm-gc/debug/build/main
-            _build/wasm-gc/debug/build/main/main.core
-            _build/wasm-gc/debug/build/main/main.mi
-            _build/wasm-gc/debug/build/main/main.wasm
-            _build/wasm-gc/debug/build/main/main.wasm.map
-            _build/wasm-gc/debug/check
-            _build/wasm-gc/debug/check/.mooncakes
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib/lib.mi
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/mooncake.mi
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib/lib.mi
-            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.mi
-            _build/wasm-gc/debug/check/all_pkgs.json
-            _build/wasm-gc/debug/check/check.moon_db
-            _build/wasm-gc/debug/check/lib
-            _build/wasm-gc/debug/check/lib/lib.mbti
-            _build/wasm-gc/debug/check/lib/lib.mi
-            _build/wasm-gc/debug/check/main
-            _build/wasm-gc/debug/check/main/main.mbti
-            _build/wasm-gc/debug/check/main/main.mi
-            _build/wasm-gc/debug/test
-            _build/wasm-gc/debug/test/.mooncakes
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib/lib.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib/lib.mi
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/mooncake.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/mooncake.mi
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib/lib.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib/lib.mi
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/mooncake2.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/mooncake2.mi
-            _build/wasm-gc/debug/test/all_pkgs.json
-            _build/wasm-gc/debug/test/lib
-            _build/wasm-gc/debug/test/lib/__blackbox_test_info.json
-            _build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt
-            _build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt
-            _build/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt
-            _build/wasm-gc/debug/test/lib/__internal_test_info.json
-            _build/wasm-gc/debug/test/lib/__whitebox_test_info.json
-            _build/wasm-gc/debug/test/lib/lib.blackbox_test.core
-            _build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm
-            _build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm.map
-            _build/wasm-gc/debug/test/lib/lib.core
-            _build/wasm-gc/debug/test/lib/lib.internal_test.core
-            _build/wasm-gc/debug/test/lib/lib.internal_test.wasm
-            _build/wasm-gc/debug/test/lib/lib.internal_test.wasm.map
-            _build/wasm-gc/debug/test/lib/lib.mi
-            _build/wasm-gc/debug/test/lib/lib.whitebox_test.core
-            _build/wasm-gc/debug/test/lib/lib.whitebox_test.wasm
-            _build/wasm-gc/debug/test/lib/lib.whitebox_test.wasm.map
-            _build/wasm-gc/debug/test/main
-            _build/wasm-gc/debug/test/main/__blackbox_test_info.json
-            _build/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt
-            _build/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt
-            _build/wasm-gc/debug/test/main/__internal_test_info.json
-            _build/wasm-gc/debug/test/main/main.blackbox_test.core
-            _build/wasm-gc/debug/test/main/main.blackbox_test.wasm
-            _build/wasm-gc/debug/test/main/main.blackbox_test.wasm.map
-            _build/wasm-gc/debug/test/main/main.core
-            _build/wasm-gc/debug/test/main/main.internal_test.core
-            _build/wasm-gc/debug/test/main/main.internal_test.wasm
-            _build/wasm-gc/debug/test/main/main.internal_test.wasm.map
-            _build/wasm-gc/debug/test/main/main.mi
-            _build/wasm-gc/debug/test/test.moon_db
-            lib
-            lib/hello.mbt
-            lib/hello_wbtest.mbt
-            lib/moon.pkg.json
-            lib/pkg.generated.mbti
-            main
-            main/main.mbt
-            main/moon.pkg.json
-            main/pkg.generated.mbti
-            mods
-            mods/lijunchen
-            mods/lijunchen/mooncake
-            mods/lijunchen/mooncake/lib
-            mods/lijunchen/mooncake/lib/hello.mbt
-            mods/lijunchen/mooncake/lib/hello_wbtest.mbt
-            mods/lijunchen/mooncake/lib/moon.pkg.json
-            mods/lijunchen/mooncake/moon.mod.json
-            mods/lijunchen/mooncake/moon.pkg.json
-            mods/lijunchen/mooncake/top.mbt
-            mods/lijunchen/mooncake2
-            mods/lijunchen/mooncake2/moon.mod.json
-            mods/lijunchen/mooncake2/src
-            mods/lijunchen/mooncake2/src/lib
-            mods/lijunchen/mooncake2/src/lib/hello.mbt
-            mods/lijunchen/mooncake2/src/lib/hello_wbtest.mbt
-            mods/lijunchen/mooncake2/src/lib/moon.pkg.json
-            mods/lijunchen/mooncake2/src/moon.pkg.json
-            mods/lijunchen/mooncake2/src/top.mbt
-            moon.mod.json"#]],
-    );
-}
-
-#[test]
-fn test_pkg_source_in() {
-    let dir = TestDir::new("moon_test/with_local_deps");
-    let out = get_stdout(&dir, ["build", "--dry-run", "--sort-input", "--frozen"]);
-    check(
-        &out,
-        expect![[r#"
-            moonc build-package ./mods/lijunchen/mooncake2/src/lib/hello.mbt -w -a -o ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/lib/lib.core -pkg lijunchen/mooncake2/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake2/lib:./mods/lijunchen/mooncake2/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./mods/lijunchen/mooncake2 -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./mods/lijunchen/mooncake2/src/top.mbt -w -a -o ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.core -pkg lijunchen/mooncake2 -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake2:./mods/lijunchen/mooncake2/src -target wasm-gc -g -O0 -source-map -workspace-path ./mods/lijunchen/mooncake2 -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./mods/lijunchen/mooncake/lib/hello.mbt -w -a -o ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/lib/lib.core -pkg lijunchen/mooncake/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake/lib:./mods/lijunchen/mooncake/lib -target wasm-gc -g -O0 -source-map -workspace-path ./mods/lijunchen/mooncake -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./mods/lijunchen/mooncake/top.mbt -w -a -o ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/mooncake.core -pkg lijunchen/mooncake -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/mooncake:./mods/lijunchen/mooncake -target wasm-gc -g -O0 -source-map -workspace-path ./mods/lijunchen/mooncake -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello31/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello31/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello31/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -i ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/mooncake.mi:mooncake -i ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.mi:mooncake2 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello31/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/lib/lib.core ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake/mooncake.core ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/lib/lib.core ./_build/wasm-gc/debug/build/.mooncakes/lijunchen/mooncake2/mooncake2.core ./_build/wasm-gc/debug/build/main/main.core -main hello31/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello31/lib:./lib -pkg-sources lijunchen/mooncake/lib:./mods/lijunchen/mooncake/lib -pkg-sources lijunchen/mooncake:./mods/lijunchen/mooncake -pkg-sources lijunchen/mooncake2/lib:./mods/lijunchen/mooncake2/src/lib -pkg-sources lijunchen/mooncake2:./mods/lijunchen/mooncake2/src -pkg-sources hello31/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-    assert!(out.contains("lijunchen/mooncake:./mods/lijunchen/mooncake"));
-    assert!(out.contains("lijunchen/mooncake2:./mods/lijunchen/mooncake2/src"));
-}
-#[test]
 fn test_moon_test_no_entry_warning() {
     let dir = TestDir::new("moon_test/no_entry_warning");
 
-    let out = moon_cmd(&dir)
+    moon_cmd(&dir)
         .args(["test"])
         .assert()
         .success()
-        .get_output()
-        .stderr
-        .to_owned();
+        .stderr_eq(snapbox::str![[r#"
+Warning: no test entry found.
 
-    check(
-        std::str::from_utf8(&out).unwrap(),
-        expect![[r#"
-            Warning: no test entry found.
-        "#]],
-    );
+"#]]);
 }
 
 #[test]

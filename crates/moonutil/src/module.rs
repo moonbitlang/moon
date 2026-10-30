@@ -1,24 +1,26 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::{MoonModJSONFormatErrorKind, NameError, TargetBackend};
-use crate::dependency::{BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo};
+use crate::dependency::SourceDependencyInfo;
+use crate::manifest::{MoonModJSONFormatErrorKind, NameError};
+use crate::mooncakes::ModuleName;
 use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
+use crate::target::TargetBackend;
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
 use semver::Version;
@@ -36,12 +38,34 @@ pub struct ModuleDBJSON {
     pub source: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PackagesSelectorJSON {
+    pub backend: String,
+    pub opt_level: String,
+}
+
+#[test]
+fn packages_selector_json_matches_compiler_contract() {
+    let value = serde_json_lenient::to_string(&PackagesSelectorJSON {
+        backend: "wasm-gc".to_string(),
+        opt_level: "debug".to_string(),
+    })
+    .unwrap();
+    assert_eq!(value, r#"{"backend":"wasm-gc","opt_level":"debug"}"#);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MoonMod {
     pub name: String,
     pub version: Option<Version>,
+    /// Requested private visibility for published versions of this module.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_private"
+    )]
+    pub private: Option<bool>,
     pub deps: IndexMap<String, SourceDependencyInfo>,
-    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfo>>,
     pub readme: Option<String>,
     pub repository: Option<String>,
     pub license: Option<String>,
@@ -60,7 +84,13 @@ pub struct MoonMod {
 
     pub warn_list: Option<String>,
 
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     pub include: Option<Vec<String>>,
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     pub exclude: Option<Vec<String>>,
 
     pub preferred_target: Option<TargetBackend>,
@@ -76,7 +106,31 @@ pub struct MoonModRule {
     pub command: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum MoonModJSONRules {
+    Single(MoonModRule),
+    Multiple(Vec<MoonModRule>),
+}
+
+impl MoonModJSONRules {
+    fn into_vec(self) -> Vec<MoonModRule> {
+        match self {
+            Self::Single(rule) => vec![rule],
+            Self::Multiple(rules) => rules,
+        }
+    }
+
+    fn from_vec(mut rules: Vec<MoonModRule>) -> Option<Self> {
+        match rules.len() {
+            0 => None,
+            1 => rules.pop().map(Self::Single),
+            _ => Some(Self::Multiple(rules)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schemars(
     title = "JSON schema for MoonBit moon.mod.json files",
@@ -90,15 +144,21 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 
+    /// Optional boolean selecting private visibility when true. When published,
+    /// a private module must be accessible only to authorized users.
+    /// Omit this field or set it to false for public visibility.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_private"
+    )]
+    #[schemars(with = "bool")]
+    pub private: Option<bool>,
+
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfo>>")]
     pub deps: Option<IndexMap<String, SourceDependencyInfo>>,
-
-    /// third-party binary dependencies of the module
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<std::collections::HashMap<String, BinaryDependencyInfoJson>>")]
-    pub bin_deps: Option<IndexMap<String, BinaryDependencyInfoJson>>,
 
     /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -141,8 +201,7 @@ pub struct MoonModJSON {
 
     /// Rules that can be referenced by package-level `dev_build` entries.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub rule: Option<Vec<MoonModRule>>,
+    pub rule: Option<MoonModJSONRules>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -153,11 +212,15 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warn_list: Option<String>,
 
-    /// Files to include when publishing.
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
 
-    /// Files to exclude when publishing.
+    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
+    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
+    /// directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude: Option<Vec<String>>,
 
@@ -185,9 +248,17 @@ pub struct MoonModJSON {
 
     /// **Experimental:** A relative path to the pre-build configuration script.
     ///
-    /// The script should be a **JavaScript or Python** file that is able to be
-    /// executed with vanilla Node.JS or Python interpreter. Since this is
-    /// experimental, the API may change at any time without warning.
+    /// The script may be JavaScript (`.js`, `.cjs`, `.mjs`), Python (`.py`), or
+    /// MoonBit (`.mbtx`), executed with Node.js, Python, or Moonrun respectively.
+    /// MoonBit scripts are compiled to Wasm. Each script receives the process
+    /// environment plus `MOON_MOD` (the module manifest path) and `MOON_BUILD_DIR`
+    /// (a writable prebuild output directory created by Moon).
+    /// `MOON_HOST_OS` and `MOON_HOST_ARCH` describe the Moon process's platform.
+    /// `MOON_BACKEND`, `MOON_PROFILE`, and `MOON_JOBS` describe the project build.
+    /// The original JSON input shape is still supplied on stdin for compatibility,
+    /// with `paths.out_dir` set to the same output directory. Scripts return build
+    /// configuration JSON on stdout.
+    /// Since this is experimental, the API may change at any time without warning.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub __moonbit_unstable_prebuild: Option<String>,
 }
@@ -211,9 +282,10 @@ impl TryFrom<MoonModJSON> for MoonMod {
             Some(d) => d,
         };
 
-        let bin_deps = j
-            .bin_deps
-            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect());
+        ModuleName::from(j.name.as_str()).validate_version(version.as_ref())?;
+        for (name, dep) in &deps {
+            ModuleName::from(name.as_str()).validate_version(dep.version())?;
+        }
 
         let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
         let preferred_target = j
@@ -227,8 +299,8 @@ impl TryFrom<MoonModJSON> for MoonMod {
         Ok(MoonMod {
             name: j.name,
             version,
+            private: j.private,
             deps,
-            bin_deps,
             readme: j.readme,
             repository: j.repository,
             license: j.license,
@@ -239,7 +311,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             link_flags: j.link_flags,
             checksum: j.checksum,
             source,
-            rule: j.rule,
+            rule: j.rule.map(MoonModJSONRules::into_vec),
             ext: j.ext,
 
             warn_list: j.warn_list,
@@ -260,10 +332,8 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,
         version: m.version.map(|v| v.to_string()),
+        private: m.private,
         deps: Some(m.deps),
-        bin_deps: m
-            .bin_deps
-            .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect()),
         readme: m.readme,
         repository: m.repository,
         license: m.license,
@@ -274,7 +344,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         link_flags: m.link_flags,
         checksum: m.checksum,
         source: m.source,
-        rule: m.rule,
+        rule: m.rule.and_then(MoonModJSONRules::from_vec),
         ext: m.ext,
 
         warn_list: m.warn_list,
@@ -295,6 +365,13 @@ impl From<MoonMod> for MoonModJSON {
     fn from(val: MoonMod) -> Self {
         convert_module_to_mod_json(val)
     }
+}
+
+// Absence is allowed, but an explicit null must not disable publishing protection.
+fn deserialize_private<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(deserializer).map(Some)
 }
 
 #[test]

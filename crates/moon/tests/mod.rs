@@ -1,25 +1,24 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 mod support;
 mod test_cases;
 
-use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
@@ -52,15 +51,53 @@ impl AsRef<Path> for TestDir {
     }
 }
 
+fn packages_selector_path(dir: impl AsRef<Path>) -> PathBuf {
+    target_packages_selector_path(dir.as_ref().join("_build"))
+}
+
+fn packages_index_path(dir: impl AsRef<Path>) -> PathBuf {
+    target_packages_index_path(dir.as_ref().join("_build"))
+}
+
+fn scoped_packages_json_path(dir: impl AsRef<Path>, backend: &str, profile: &str) -> PathBuf {
+    target_scoped_packages_json_path(dir.as_ref().join("_build"), backend, profile)
+}
+
+fn target_packages_selector_path(target_dir: impl AsRef<Path>) -> PathBuf {
+    target_dir.as_ref().join("packages.json")
+}
+
+fn target_packages_index_path(target_dir: impl AsRef<Path>) -> PathBuf {
+    target_dir.as_ref().join("index.json")
+}
+
+fn target_scoped_packages_json_path(
+    target_dir: impl AsRef<Path>,
+    backend: &str,
+    profile: &str,
+) -> PathBuf {
+    target_dir
+        .as_ref()
+        .join(format!("{backend}/{profile}/check/packages.json"))
+}
+
+fn standalone_target_dir(dir: impl AsRef<Path>, source_filename: &str) -> PathBuf {
+    dir.as_ref().join("_build").join(source_filename)
+}
+
 pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
     snapbox::cmd::Command::new(moon_bin())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .env("MOON_DEP_CACHE", "off")
         .current_dir(dir)
 }
 
 pub fn moon_process_cmd(dir: &impl AsRef<Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new(moon_bin());
     cmd.env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .env("MOON_DEP_CACHE", "off")
         .current_dir(dir);
     cmd
 }
@@ -126,34 +163,6 @@ pub fn get_stdout_with_envs(
         OutputStream::Stdout,
     );
     replace_dir(&s, dir)
-}
-
-/// Snapshot the dry run graph output to a file, returning the regular stdout
-/// and outputting the graph to the specified file via an environment variable.
-///
-/// Note: You must pass a dry-run related command in `args`.
-#[track_caller]
-pub fn snap_dry_run_graph(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    to_file: &impl AsRef<std::path::Path>,
-) -> String {
-    get_stdout_with_envs(
-        dir,
-        args,
-        [(ENV_VAR, to_file.as_ref().to_string_lossy().into_owned())],
-    )
-}
-
-#[track_caller]
-pub(crate) fn assert_dry_run_graph(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    expected: impl build_graph::IExpect,
-) {
-    let graph = tempfile::NamedTempFile::new().expect("dry-run graph temp file should create");
-    snap_dry_run_graph(dir, args, &graph.path());
-    build_graph::compare_graphs(graph.path(), expected);
 }
 
 #[track_caller]

@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -22,10 +22,10 @@ use super::fixture::{
     planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
     planned_target_backends,
 };
-use moonutil::common::{TargetBackend, lower_surface_targets};
+use moonutil::target::{TargetBackend, lower_surface_targets};
 
-// Phase 3: these tests already know the selected backend and only need to
-// verify that planning keeps the right packages and commands in the graph.
+// Most tests enter at planning with resolved dependencies. Run selection tests
+// also exercise production package/backend selection before resolving imports.
 
 fn assert_graph_text_contains_and_omits(graph: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
@@ -96,10 +96,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
         .expect("default build graph should plan");
     assert_graph_text_contains_and_omits(
         &default_graph,
-        &[
-            "./_build/wasm-gc/debug/build/main/main.wasm",
-            "-target wasm-gc",
-        ],
+        &["./_build/wasm/debug/build/main/main.wasm", "-target wasm"],
         &["./_build/js/debug/build/main/main.js", "-target js"],
     );
 
@@ -117,10 +114,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
     assert_graph_text_contains_and_omits(
         &js_graph,
         &["./_build/js/debug/build/main/main.js", "-target js"],
-        &[
-            "./_build/wasm-gc/debug/build/main/main.wasm",
-            "-target wasm-gc",
-        ],
+        &["./_build/wasm/debug/build/main/main.wasm", "-target wasm"],
     );
 }
 
@@ -135,7 +129,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -160,7 +153,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -185,7 +177,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -204,7 +195,6 @@ fn many_target_planning_selects_requested_backends() {
         "--target",
         "js,wasm",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -235,7 +225,6 @@ fn all_target_test_planning_selects_every_concrete_backend() {
         "--target",
         "all",
         "--dry-run",
-        "--serial",
         "--nostd",
         "--sort-input",
     ]);
@@ -446,12 +435,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
             "./shared/shared.mbt",
             "./web/main.mbt",
             "./deps/jsdep/lib/lib.mbt",
-        ],
-        &[
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let (cli, cmd) = parse_build_command(&["build", "--target", "js", "--dry-run", "--sort-input"]);
@@ -479,12 +465,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
             "./shared/shared.mbt",
             "./server/main.mbt",
             "./deps/nativedep/lib/lib.mbt",
-        ],
-        &[
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 
     let (cli, cmd) =
@@ -543,6 +526,78 @@ fn mixed_backend_run_planning_is_target_aware() {
         ],
         &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
+}
+
+#[test]
+fn conflicting_workspace_preferred_targets_run_selection_uses_selected_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_run_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) =
+        parse_run_command(&["run", "js_preferred/src/main", "--dry-run", "--sort-input"]);
+    let run_js = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("js preferred run graph should plan");
+    assert_target_backend_runs(vec![run_js], &[TargetBackend::Js]);
+
+    let (cli, cmd) = parse_run_command(&[
+        "run",
+        "native_preferred/src/main",
+        "--dry-run",
+        "--sort-input",
+    ]);
+    let run_native = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("native preferred run graph should plan");
+    assert_target_backend_runs(vec![run_native], &[TargetBackend::Native]);
+}
+
+#[test]
+fn run_selection_without_module_preference_uses_default_backend() {
+    let fixture = PlanningFixture::new("workspace_run_default_target_with_unrelated_preference.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_run_command(&["run", "app/src/main", "--dry-run", "--sort-input"]);
+    let run_app = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("default backend run graph should plan");
+    assert_target_backend_runs(vec![run_app], &[TargetBackend::Wasm]);
+
+    let (cli, cmd) =
+        parse_run_command(&["run", "js_preferred/src/main", "--dry-run", "--sort-input"]);
+    let run_js = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("js preferred run graph should plan");
+    assert_target_backend_runs(vec![run_js], &[TargetBackend::Js]);
+}
+
+#[test]
+fn run_selection_precedes_conditional_import_resolution() {
+    let fixture = PlanningFixture::new("run_conditional_imports.in")
+        .expect("package discovery should not resolve conditional imports");
+
+    for (package, explicit, expected) in [
+        ("app", None, TargetBackend::Wasm),
+        ("js_preferred", None, TargetBackend::Js),
+        ("js_preferred", Some("wasm"), TargetBackend::Wasm),
+    ] {
+        let mut args = vec!["run", package, "--dry-run", "--sort-input"];
+        if let Some(backend) = explicit {
+            args.extend(["--target", backend]);
+        }
+        let (cli, cmd) = parse_run_command(&args);
+        let plan = fixture
+            .plan_run_graph_with_cli(&cli, &cmd)
+            .expect("an inactive missing import should not prevent planning");
+        assert_target_backend_runs(vec![plan], &[expected]);
+    }
+
+    let (cli, cmd) = parse_run_command(&["run", "app", "--target", "native", "--dry-run"]);
+    let error = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .err()
+        .expect("an active missing import should fail resolution");
+    assert!(format!("{error:#}").contains("missing"), "{error:#}");
 }
 
 #[test]

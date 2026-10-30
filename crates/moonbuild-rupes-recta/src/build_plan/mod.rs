@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -28,8 +28,9 @@
 //! check, build or test).
 //!
 //! In contrast, this module generates the actual build plan from a list of
-//! input action nodes. Irrelevant packages are not included in this graph,
-//! nor does irrelevant actions.
+//! requested artifacts. It selects their provider actions and expands
+//! transitive artifact requirements; irrelevant packages and actions are not
+//! included.
 //!
 //! The result of this module is analogous to Rust Cargo's [Compile unit graph][cu].
 //! The reason why this is two graphs here in MoonBuild and only one graph in
@@ -45,55 +46,88 @@
 //! [cu]: https://github.com/rust-lang/cargo/blob/master/src/cargo/core/compiler/unit.rs
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
+use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    common::{RunMode, TargetBackend},
-    compiler_flags::Toolchain,
+    compiler_flags::{NativeAllocator, NativeLinkArg, OptLevel as CCOptLevel, Toolchain},
     cond_expr::OptLevel,
-    mooncakes::ModuleId,
+    resolution::ModuleId,
+    target::TargetBackend,
+    user_log::UserLog,
 };
-use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
 use crate::{
-    ResolveOutput,
-    model::{BuildPlanNode, BuildTarget, NativeTarget, PackageId, RunBackend, TccRunConfig},
+    CompileConfig, ResolvedProject,
+    model::{
+        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
+        PackageId,
+    },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
-    user_warning::UserWarning,
 };
 
+mod action;
+mod artifact;
 mod builders;
 mod constructor;
+mod package_prebuild;
 
+pub(crate) use action::BuildAction;
+pub use artifact::ArtifactKey;
+use artifact::ArtifactRegistry;
 use constructor::BuildPlanConstructor;
+pub use package_prebuild::PrebuildInfo;
+pub(crate) use package_prebuild::{PackagePrebuildKey, PackagePrebuildPlan};
 
-/// A directed graph representation of build dependencies and targets.
+/// A qualified reference to one semantic action in a Build Plan.
 ///
-/// `BuildPlan` maintains a directed graph where nodes represent build
-/// components and edges represent dependencies between them. It also stores
-/// specifications for each build target, mapping targets to their detailed
-/// configuration and requirements.
+/// The referenced action remains owned by its backend or package-prebuild
+/// subplan; this enum does not define a third action identity.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum BuildPlanActionKey {
+    Backend(BuildPlanNode),
+    PackagePrebuild(PackagePrebuildKey),
+}
+
+impl From<BuildPlanNode> for BuildPlanActionKey {
+    fn from(node: BuildPlanNode) -> Self {
+        Self::Backend(node)
+    }
+}
+
+/// Backend-specific actions and the shared metadata required to lower them.
+///
+/// A completed Backend Plan contains the metadata required to lower every
+/// planned action. Keeping both here makes that invariant local to backend
+/// planning.
 #[derive(Default)]
-pub struct BuildPlan {
-    /// The build dependency graph.
-    ///
-    /// Each node in this graph represents a step in building, and edges
-    /// represent the dependencies between build steps, pointing **from each
-    /// step to what it depends on**.
-    graph: DiGraphMap<BuildPlanNode, FileDependencyKind>,
+pub(crate) struct BackendPlan {
+    /// Derived once from the requested artifacts before expanding actions.
+    /// Present only for Native; all Native planning and lowering read this value.
+    native_mode: Option<NativeBackendMode>,
+
+    /// Debug information for MoonBit compilation, resolved after payload selection.
+    /// Native compiler settings belong to their individual action metadata.
+    moonc_debug_info: bool,
+
+    /// Lightweight source backtraces for direct MoonBit object output.
+    moonc_stacktrace: bool,
+
+    /// Planned backend actions, in stable insertion order.
+    actions: IndexSet<BuildPlanNode>,
 
     /// The map of build target to its files and metadata.
-    /// Used by nodes that require access to the raw MoonBit source files, like
+    /// Used by actions that require access to the raw MoonBit source files, like
     /// `Check`, `BuildCore`, `GenerateTestInfo` and `Format`.
     ///
-    /// The following maps contain metadata needed for different types of build
-    /// nodes. For each node present in the final graph, its metadata must
-    /// already be present in the map.
+    /// The following maps contain metadata needed for different backend action
+    /// kinds. Every action in the completed subplan must be lowerable from
+    /// these maps.
     build_target_infos: HashMap<BuildTarget, BuildTargetInfo>,
 
     /// The map of build target to the metadata it needs when linking core
@@ -105,105 +139,231 @@ pub struct BuildPlan {
     /// The map of build target to the information needed to make it executable
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
 
-    /// The map of package to its prebuild information, if any.
-    prebuild_info: HashMap<PackageId, Vec<Option<PrebuildInfo>>>,
+    /// The map of build target to the settings for compiling its generated C
+    compile_generated_c_info: HashMap<BuildTarget, CompileGeneratedCInfo>,
+
+    /// The map of foreign-library package to its static archive settings
+    foreign_library_info: HashMap<PackageId, ForeignLibraryInfo>,
+
+    /// The resolved dsymutil executable, when the plan generates dSYM bundles.
+    dsymutil: Option<PathBuf>,
+
+    /// The information needed to build the native runtime library.
+    runtime_info: Option<BuildRuntimeInfo>,
+
+    /// The concrete `.mbti` input selected for each planned virtual contract.
+    virtual_contract_inputs: HashMap<PackageId, PathBuf>,
 
     /// The map of build target to its bundle information
     bundle_info: HashMap<ModuleId, BuildBundleInfo>,
-
-    /// The nodes that were used as input to the build plan.
-    input_nodes: Vec<BuildPlanNode>,
 }
 
-/// Additional information about a build plan's edge
-///
-/// # TODO
-///
-/// This is a temporary solution to determine which file is being depended on by
-/// the consumer node.
-///
-/// A more generic solution might be involving creating associated types for
-/// each node kind, specifying their output file list and order, and then
-/// use a bitmap or index list to specify which files are being depended on.
-#[derive(Clone, Copy, Debug)]
-pub enum FileDependencyKind {
-    /// Depending on all files available
-    AllFiles,
+impl BackendPlan {
+    pub(crate) fn moonc_debug_info(&self) -> bool {
+        self.moonc_debug_info
+    }
 
-    /// Depending on specific files of a `BuildCore` node.
-    BuildCore { mi: bool, core: bool },
+    pub(crate) fn moonc_stacktrace(&self) -> bool {
+        self.moonc_stacktrace
+    }
 
-    /// Depending on proof artifacts of an `EmitProof`/`Prove` node.
-    ProofArtifacts { mi: bool, mlw: bool, report: bool },
+    pub(crate) fn native_mode(&self) -> &NativeBackendMode {
+        self.native_mode
+            .as_ref()
+            .expect("Native planning must select a payload form")
+    }
 
-    /// Depending on specific files of a `GenerateTestInfo` node.
-    GenerateTestInfo { meta: bool },
+    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
+        self.native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::direct_target)
+    }
+
+    fn actions(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
+        self.actions.iter().copied()
+    }
+
+    fn contains(&self, action: &BuildPlanNode) -> bool {
+        self.actions.contains(action)
+    }
+
+    fn insert(&mut self, action: BuildPlanNode) {
+        self.actions.insert(action);
+    }
+
+    fn action_count(&self) -> usize {
+        self.actions.len()
+    }
+}
+
+/// A build plan composed from backend work, package prebuild, and semantic
+/// Build Artifact relationships.
+///
+/// Each subplan owns its action membership and lowering metadata. The artifact
+/// registry records provider and consumer relationships; concrete package-file
+/// dependencies are connected later by Execution Plan input and output paths.
+#[derive(Default)]
+pub struct BuildPlan {
+    backend: BackendPlan,
+
+    /// Backend-independent package file-generation actions.
+    package_prebuild: PackagePrebuildPlan,
+
+    /// Logical artifacts provided and required by planned actions.
+    artifacts: ArtifactRegistry,
+
+    /// Logical results requested by the caller, in request order.
+    requested_artifacts: IndexSet<ArtifactKey>,
 }
 
 impl BuildPlan {
-    /// Get the list of nodes that **the given node depends on**.
-    pub fn dependency_nodes(
+    /// Borrow the backend-owned actions and metadata for backend lowering.
+    pub(crate) fn backend_plan(&self) -> &BackendPlan {
+        &self.backend
+    }
+
+    /// Get the semantic actions that **the given action depends on**.
+    pub(crate) fn dependency_actions(
         &self,
-        node: BuildPlanNode,
-    ) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.graph
-            .neighbors_directed(node, petgraph::Direction::Outgoing)
+        action: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
+        let mut seen = HashSet::new();
+        self.artifact_dependencies(action)
+            .map(|(provider, _)| provider)
+            .filter(move |dependency| seen.insert(dependency.clone()))
     }
 
-    /// Get the dependencies of a node together with their edge kinds.
-    pub fn dependency_edges(
+    pub(crate) fn artifact_dependencies(
         &self,
-        node: BuildPlanNode,
-    ) -> impl Iterator<Item = (BuildPlanNode, FileDependencyKind)> + '_ {
-        // Use edges_directed to access edge weights without re-querying the graph.
-        self.graph
-            .edges_directed(node, petgraph::Direction::Outgoing)
-            .map(move |(_, dep, kind)| (dep, *kind))
+        action: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = (BuildPlanActionKey, ArtifactKey)> + '_ {
+        match action {
+            BuildPlanActionKey::Backend(node) => Some(*node),
+            BuildPlanActionKey::PackagePrebuild(_) => None,
+        }
+        .into_iter()
+        .flat_map(|node| self.artifacts.dependencies(node))
+        .map(|(provider, artifact)| (BuildPlanActionKey::Backend(provider), artifact))
     }
 
-    /// Get build target information for the given target.
-    pub fn get_build_target_info(&self, target: &BuildTarget) -> Option<&BuildTargetInfo> {
-        self.build_target_infos.get(target)
+    pub(crate) fn provided_artifacts(
+        &self,
+        action: &BuildPlanActionKey,
+    ) -> impl Iterator<Item = ArtifactKey> + '_ {
+        match action {
+            BuildPlanActionKey::Backend(node) => Some(*node),
+            BuildPlanActionKey::PackagePrebuild(_) => None,
+        }
+        .into_iter()
+        .flat_map(|node| self.artifacts.provided_by(node))
+        .cloned()
     }
 
-    /// Get link core information for the given target.
-    pub fn get_link_core_info(&self, target: &BuildTarget) -> Option<&LinkCoreInfo> {
-        self.link_core_info.get(target)
+    #[cfg(test)]
+    pub(crate) fn artifact_provider(&self, artifact: &ArtifactKey) -> BuildPlanActionKey {
+        BuildPlanActionKey::Backend(
+            self.artifacts
+                .provider(artifact)
+                .expect("requested artifact should have a provider"),
+        )
     }
 
-    /// Get C stubs information for the given target.
-    pub fn get_c_stubs_info(&self, target: PackageId) -> Option<&BuildCStubsInfo> {
-        self.c_stubs_info.get(&target)
+    pub fn requested_artifacts(&self) -> impl Iterator<Item = &ArtifactKey> {
+        self.requested_artifacts.iter()
     }
 
-    /// Get make executable information for the given target.
-    pub fn get_make_executable_info(&self, target: &BuildTarget) -> Option<&MakeExecutableInfo> {
-        self.make_executable_info.get(target)
+    pub(crate) fn package_prebuild_action(
+        &self,
+        key: &PackagePrebuildKey,
+    ) -> Option<&PrebuildInfo> {
+        self.package_prebuild.action(key)
     }
 
-    /// Get prebuild information for the given package.
-    pub fn get_prebuild_info(&self, package: PackageId, idx: u32) -> Option<&PrebuildInfo> {
-        self.prebuild_info
-            .get(&package)
-            .and_then(|v| v.get(idx as usize))
-            .and_then(|x| x.as_ref())
+    pub(crate) fn all_actions(&self) -> impl Iterator<Item = BuildPlanActionKey> + '_ {
+        self.backend
+            .actions()
+            .map(BuildPlanActionKey::Backend)
+            .chain(
+                self.package_prebuild
+                    .actions()
+                    .map(|(key, _)| BuildPlanActionKey::PackagePrebuild(key.clone())),
+            )
     }
 
-    /// Get bundle information for the given module.
-    pub fn bundle_info(&self, module_id: ModuleId) -> Option<&BuildBundleInfo> {
-        self.bundle_info.get(&module_id)
+    pub fn action_count(&self) -> usize {
+        self.backend.action_count() + self.package_prebuild.action_count()
+    }
+}
+
+#[cfg(test)]
+impl BackendPlan {
+    pub(crate) fn test_set_native_mode(&mut self, mode: Option<NativeBackendMode>) {
+        self.native_mode = mode;
+    }
+}
+
+#[cfg(test)]
+impl BuildPlan {
+    pub(crate) fn test_backend_plan_mut(&mut self) -> &mut BackendPlan {
+        &mut self.backend
     }
 
-    pub fn all_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.graph.nodes()
+    pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
+        self.backend.insert(node);
     }
 
-    pub fn node_count(&self) -> usize {
-        self.graph.node_count()
+    pub(crate) fn test_request_artifact(&mut self, artifact: ArtifactKey) {
+        self.requested_artifacts.insert(artifact);
     }
 
-    pub fn input_nodes(&self) -> &[BuildPlanNode] {
-        &self.input_nodes
+    pub(crate) fn test_require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
+        self.backend.insert(consumer);
+        self.artifacts.require(consumer, artifact);
+    }
+
+    pub(crate) fn test_provide_artifact(&mut self, provider: BuildPlanNode, artifact: ArtifactKey) {
+        self.backend.insert(provider);
+        self.artifacts.provide(provider, artifact);
+    }
+
+    pub(crate) fn test_insert_build_target_info(
+        &mut self,
+        target: BuildTarget,
+        info: BuildTargetInfo,
+    ) {
+        self.backend.build_target_infos.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_link_core_info(&mut self, target: BuildTarget, info: LinkCoreInfo) {
+        self.backend.link_core_info.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_c_stubs_info(&mut self, package: PackageId, info: BuildCStubsInfo) {
+        self.backend.c_stubs_info.insert(package, info);
+    }
+
+    pub(crate) fn test_insert_foreign_library_info(
+        &mut self,
+        package: PackageId,
+        info: ForeignLibraryInfo,
+    ) {
+        self.backend.foreign_library_info.insert(package, info);
+    }
+
+    pub(crate) fn test_insert_make_executable_info(
+        &mut self,
+        target: BuildTarget,
+        info: MakeExecutableInfo,
+    ) {
+        self.backend.make_executable_info.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_dsymutil(&mut self, dsymutil: PathBuf) {
+        self.backend.dsymutil = Some(dsymutil);
+    }
+
+    pub(crate) fn test_insert_runtime_info(&mut self, info: BuildRuntimeInfo) {
+        self.backend.runtime_info = Some(info);
     }
 }
 
@@ -235,6 +395,9 @@ pub struct BuildTargetInfo {
 
     /// The Why3 configuration file to supply to proof commands.
     pub(crate) why3_config: Option<PathBuf>,
+
+    /// The directory containing the selected proof prelude provider.
+    pub(crate) proof_prelude: PathBuf,
 
     /// Check the `.mi` file against the given target. Used in virtual packages.
     /// Also implies that the target must not generate a `.mi` file.
@@ -276,44 +439,84 @@ pub struct LinkCoreInfo {
     /// The targets in **initialization order**.
     pub(crate) linked_order: Vec<BuildTarget>,
 
-    /// Whether this package overwrites `moonbitlang/core/abort`.
-    ///
-    /// This is needed since `abort` is a prebuilt package, and needs special
-    /// treatment to not be rebuilt when building user code.
-    ///
-    /// MAINTAINERS: When touching this part again, check if there's a better way to do this.
-    pub abort_overridden: bool,
+    /// Link the prebuilt abort default only when the injected stdlib declares
+    /// the package and this target does not override it. Package discovery,
+    /// rather than artifact existence, determines compatibility with older core.
+    pub link_stdlib_abort: bool,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library
     // pub std: bool,
 }
 
+#[derive(Debug)]
 pub struct BuildCStubsInfo {
     /// The effective native toolchain for compiling the C stubs
     pub(crate) effective_native_toolchain: Toolchain,
+    /// C-stub code generation is independent of the main program's payload form.
+    pub(crate) debug_info: bool,
+    pub(crate) opt_level: CCOptLevel,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
-    /// Additional flags to pass to the linker (TCC only)
+    /// Legacy C-stub link inputs retained for manifest compatibility.
+    /// The current static-archive realization does not consume them.
     #[allow(unused)]
-    pub(crate) link_flags: Vec<String>,
+    pub(crate) link_args: Vec<NativeLinkArg>,
 }
 
+#[derive(Debug)]
 pub struct MakeExecutableInfo {
     /// The effective native toolchain for this executable step
     pub(crate) effective_native_toolchain: Toolchain,
-    /// The flags to pass to the C compiler when compiling the package itself
+    /// Compiler-driver settings retained at link time for generated-C and LLVM
+    /// builds. Direct-object native linking does not consume these settings.
+    pub(crate) c_debug_info: bool,
+    pub(crate) c_opt_level: CCOptLevel,
+    /// Preserve the link effects of `cc-flags` (e.g. sanitizers and LTO).
+    /// TODO: Remove this compatibility forwarding only with an explicit
+    /// migration to requiring those flags in `cc-link-flags` as well.
     pub(crate) c_flags: Vec<String>,
-    /// The flags to pass to the C compiler driver when linking the executable
-    pub(crate) link_flags: Vec<String>,
+    /// Ordered link inputs, rendered by the selected driver during command lowering.
+    pub(crate) link_args: Vec<NativeLinkArg>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<PackageId>,
+    /// The allocator selected for the native runtime and executable link.
+    pub(crate) native_allocator: NativeAllocator,
 }
 
-/// Resolved information about a prebuild command.
-pub struct PrebuildInfo {
-    pub(crate) resolved_inputs: Vec<PathBuf>,
-    pub(crate) resolved_outputs: Vec<PathBuf>,
-    pub(crate) command: String,
+#[derive(Clone, Debug)]
+pub struct CompileGeneratedCInfo {
+    /// The effective native toolchain for compiling the generated C
+    pub(crate) effective_native_toolchain: Toolchain,
+    pub(crate) c_debug_info: bool,
+    pub(crate) c_opt_level: CCOptLevel,
+    /// The package's `link.native.cc-flags`
+    pub(crate) c_flags: Vec<String>,
+    /// The allocator the generated C is compiled against.
+    pub(crate) native_allocator: NativeAllocator,
+}
+
+#[derive(Debug)]
+pub struct ForeignLibraryInfo {
+    /// The toolchain whose archiver creates the library.
+    pub(crate) effective_native_toolchain: Toolchain,
+    /// The packages whose C stub objects become members, in link order.
+    pub(crate) c_stub_packages: Vec<PackageId>,
+    /// The allocator that selects the bundled allocator object, if any.
+    pub(crate) native_allocator: NativeAllocator,
+}
+
+#[derive(Debug)]
+pub struct BuildRuntimeInfo {
+    /// The effective native toolchain for compiling the runtime library.
+    pub(crate) effective_native_toolchain: Toolchain,
+    /// Whether this runtime build enables its native backtrace reporter.
+    pub(crate) enable_backtrace: bool,
+    /// Runtime C translation units shipped by the selected MoonBit toolchain.
+    pub(crate) source_files: Vec<PathBuf>,
+    /// Prebuilt objects selected as additional static archive members.
+    pub(crate) simdutf_objects: Vec<PathBuf>,
+    /// The allocator selected for compiling the native runtime.
+    pub(crate) native_allocator: NativeAllocator,
 }
 
 /// Metadata about bundling the build output of different targets together.
@@ -322,24 +525,8 @@ pub struct BuildBundleInfo {
     pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
-/// Represents the environment in which the build is being performed.
-pub struct BuildEnvironment {
-    // FIXME: Target backend should go into the solver, not here
-    pub target_backend: RunBackend,
-    pub native_target: Option<NativeTarget>,
-    pub tcc_run: Option<TccRunConfig>,
-    pub opt_level: OptLevel,
-    pub action: RunMode,
-    /// Whether compiling requires the standard library.
-    ///
-    /// MAINTAINERS: Potentially useful to move this to per-package/module.
-    pub std: bool,
-    /// Commandline_level warnings to enable/disable
-    pub warn_list: Option<String>,
-}
-
-/// Directives provided along the input actions.
-#[derive(Debug, Default)]
+/// Command-specific directives provided alongside requested artifacts.
+#[derive(Debug)]
 pub struct InputDirective {
     /// Set `no_mi=true` for the given package.
     pub specify_no_mi_for: Option<PackageId>,
@@ -357,6 +544,21 @@ pub struct InputDirective {
 
     /// Use the given Why3 config file for `moon prove`.
     pub prove_why3_config: Option<PathBuf>,
+
+    /// Use the proof prelude provider from this directory for `moon prove`.
+    pub proof_prelude: PathBuf,
+}
+
+impl Default for InputDirective {
+    fn default() -> Self {
+        Self {
+            specify_no_mi_for: None,
+            specify_patch_file: None,
+            value_tracing: None,
+            prove_why3_config: None,
+            proof_prelude: moonutil::toolchain::prelude_proof(),
+        }
+    }
 }
 
 /// Represents errors that may occur during build graph construction.
@@ -364,6 +566,14 @@ pub struct InputDirective {
 pub enum BuildPlanConstructError {
     #[error("Failed to set C compiler when compiling {1}")]
     FailedToSetCC(#[source] anyhow::Error, PackageFQNWithSource),
+    #[error("Failed to set C compiler when compiling runtime")]
+    FailedToSetRuntimeCC(#[source] anyhow::Error),
+    #[error("Failed to locate runtime C sources")]
+    FailedToFindRuntimeSources(#[source] anyhow::Error),
+    #[error("Invalid native allocator configuration")]
+    InvalidNativeAllocator(#[source] anyhow::Error),
+    #[error("Failed to resolve dsymutil when linking {1}")]
+    FailedToResolveDsymutil(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Failed to set stub C compiler when compiling {1}")]
     FailedToSetStubCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Malformed cc flags in package {0}")]
@@ -380,6 +590,9 @@ pub enum BuildPlanConstructError {
         message: String,
     },
 
+    #[error("Cannot find `pkg.mbti` declaration file for virtual package {0}")]
+    MissingVirtualMbtiFile(PackageFQNWithSource),
+
     #[error(
         "Package {package}'s (possibly transitive) dependency {dep} \
         is a virtual package with no default implementation, \
@@ -392,7 +605,7 @@ pub enum BuildPlanConstructError {
 
     #[error(
         "Selected backend '{backend}' is incompatible with the dependency graph. \
-         '{importer}' requires '{dependency}' which supports {supported_backends}. \
+         '{importer}' requires '{dependency}' whose active dependency graph supports {supported_backends}. \
          Dependency path: {path}"
     )]
     BackendIncompatibleDependency {
@@ -404,29 +617,101 @@ pub enum BuildPlanConstructError {
     },
 }
 
-/// Construct an abstract build graph from the given packages and input actions.
+/// Select one Native payload form for all requested artifacts in a plan.
+/// Host capability is supplied by the caller; package policy belongs to RR.
+pub(super) fn resolve_native_backend_mode(
+    resolved: &ResolvedProject,
+    requested_artifacts: &[ArtifactKey],
+    opt_level: OptLevel,
+    native_target: Option<crate::model::NativeTarget>,
+) -> crate::model::NativeBackendMode {
+    use crate::model::{DirectNativeMode, NativeBackendMode};
+
+    // TODO: Before selecting payload form per executable, key shared runtime
+    // and C-stub artifacts by toolchain and realization. A plan currently
+    // requires one mode so its executables can safely share those artifacts.
+    let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
+        return NativeBackendMode::GeneratedC;
+    };
+    let needs_c_compiler = requested_artifacts.iter().any(|artifact| {
+        let (ArtifactKey::Executable { package, .. } | ArtifactKey::ForeignLibrary { package }) =
+            artifact
+        else {
+            return false;
+        };
+        resolved
+            .pkg_dirs
+            .get_package(*package)
+            .raw
+            .link
+            .as_ref()
+            .and_then(|link| link.native.as_ref())
+            .is_some_and(|native| native.cc_flags.is_some())
+    });
+    if needs_c_compiler {
+        tracing::info!("Disabling direct object native output: C/C++ compiler flags are set");
+        NativeBackendMode::GeneratedC
+    } else {
+        NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target))
+    }
+}
+
+/// Construct a Build Plan that produces the requested artifacts.
 #[instrument(skip_all)]
 pub fn build_plan(
-    resolved: &ResolveOutput,
-    build_env: &BuildEnvironment,
-    input: impl Iterator<Item = BuildPlanNode>,
+    resolved: &ResolvedProject,
+    config: &CompileConfig,
+    input: impl Iterator<Item = ArtifactKey>,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
-) -> Result<(BuildPlan, Vec<UserWarning>), BuildPlanConstructError> {
+    user_log: &UserLog,
+) -> Result<BuildPlan, BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
-        "Build environment: backend={:?}, opt_level={:?}",
-        build_env.target_backend, build_env.opt_level
+        "Compile configuration: backend={:?}, opt_level={:?}",
+        config.backend.target_backend(),
+        config.opt_level
     );
 
     let mut constructor =
-        BuildPlanConstructor::new(resolved, build_env, input_directive, prebuild_config);
-    constructor.build(input)?;
+        BuildPlanConstructor::new(resolved, config, input_directive, prebuild_config, user_log);
+    let input = input.collect::<Vec<_>>();
+    if let BackendConfig::Native {
+        direct_object_candidate,
+        ..
+    } = &config.backend
+    {
+        constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
+            resolved,
+            &input,
+            config.opt_level,
+            *direct_object_candidate,
+        ));
+    }
+    constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
+        DebugSymbols::None => false,
+        DebugSymbols::Full => true,
+        // Direct objects use -stacktrace for backtrace metadata. Generated C
+        // needs moonc -g for accurate source locations in its #line directives.
+        DebugSymbols::Backtrace => constructor.res.backend.direct_native_target().is_none(),
+    };
+    constructor.res.backend.moonc_stacktrace = config.debug_info.symbols == DebugSymbols::Backtrace
+        && constructor.res.backend.direct_native_target().is_some();
+    // Preserve the caller-requested executable scope for Native selection,
+    // then drop test artifacts excluded by the standard-library special cases.
+    constructor.build(input.into_iter().filter(|artifact| {
+        artifact.package_target().is_none_or(|target| {
+            !target.kind.is_test()
+                || !crate::special_cases::should_skip_tests(
+                    &resolved.pkg_dirs.get_package(target.package).fqn,
+                )
+        })
+    }))?;
     let result = constructor.finish();
 
     info!(
-        "Build plan construction completed with {} total nodes",
-        result.0.node_count()
+        "Build plan construction completed with {} total actions",
+        result.action_count()
     );
     Ok(result)
 }

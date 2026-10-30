@@ -1,0 +1,3 @@
+name = "fmt/workspace/app"
+
+version = "0.1.0"

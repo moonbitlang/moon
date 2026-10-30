@@ -1,0 +1,610 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use std::path::{Path, PathBuf};
+
+use relative_path::PathExt;
+
+use crate::{MOON_HOME, binaries::configured_binary_overrides, moon_dir::toolchain_root};
+
+/// Best-effort privacy and stability normalization for dry-run paths.
+pub struct PathNormalizer {
+    project_root: Option<PathBuf>,
+    relative_paths: Vec<(String, String)>,
+    override_aliases: Vec<(String, String)>,
+    current_program_alias: Option<(String, String)>,
+    show_toolchain_root: bool,
+    toolchain_root: String,
+    simplified_toolchain_root: String,
+    moon_home: String,
+    simplified_moon_home: String,
+}
+
+impl PathNormalizer {
+    pub fn new(source_dir: &Path) -> Self {
+        let override_aliases = configured_binary_overrides()
+            .into_iter()
+            .filter(|(_, path)| !path.as_os_str().is_empty())
+            .map(|(env_var, path)| (Self::display_path(&path), format!("${env_var}")))
+            .collect();
+        let current_program_alias = std::env::current_exe().ok().and_then(|path| {
+            let name = path.file_name()?.to_str()?;
+            Some((
+                Self::display_path(&path),
+                name.strip_suffix(".exe").unwrap_or(name).to_owned(),
+            ))
+        });
+
+        Self::from_paths(
+            source_dir,
+            toolchain_root(),
+            MOON_HOME.root().to_path_buf(),
+            override_aliases,
+            current_program_alias,
+        )
+    }
+
+    fn from_paths(
+        source_dir: &Path,
+        toolchain_root: PathBuf,
+        moon_home: PathBuf,
+        override_aliases: Vec<(String, String)>,
+        current_program_alias: Option<(String, String)>,
+    ) -> Self {
+        let show_toolchain_root = match (
+            dunce::canonicalize(&toolchain_root),
+            dunce::canonicalize(&moon_home),
+        ) {
+            (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
+            _ => toolchain_root != moon_home,
+        };
+
+        PathNormalizer {
+            project_root: std::fs::canonicalize(source_dir).ok(),
+            relative_paths: Vec::new(),
+            override_aliases,
+            current_program_alias,
+            show_toolchain_root,
+            toolchain_root: Self::display_path(&toolchain_root),
+            simplified_toolchain_root: Self::display_path(dunce::simplified(&toolchain_root)),
+            moon_home: Self::display_path(&moon_home),
+            simplified_moon_home: Self::display_path(dunce::simplified(&moon_home)),
+        }
+    }
+
+    /// Display selected input/output paths relative to `base`, including paths
+    /// outside it. Only complete path arguments are rewritten; arbitrary command
+    /// arguments and unrelated paths retain the usual masking behavior.
+    pub fn with_relative_paths<'a>(
+        mut self,
+        base: &Path,
+        paths: impl IntoIterator<Item = &'a Path>,
+    ) -> Self {
+        let base = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+        for path in paths {
+            // Paths on different Windows drives cannot be made relative.
+            let Ok(relative) = path
+                .relative_to(&base)
+                .or_else(|_| dunce::simplified(path).relative_to(dunce::simplified(&base)))
+            else {
+                continue;
+            };
+            let relative = relative.normalize();
+            let relative = match relative.as_str() {
+                "" => ".".to_owned(),
+                ".." => "..".to_owned(),
+                value if value.starts_with("../") => value.to_owned(),
+                value => format!("./{value}"),
+            };
+            self.relative_paths
+                .push((Self::display_path(path), relative.clone()));
+            // The execution plan retains canonical outputs, while tool
+            // arguments simplify short paths before dry-run rendering.
+            let simplified = dunce::simplified(path);
+            if simplified != path {
+                self.relative_paths
+                    .push((Self::display_path(simplified), relative));
+            }
+        }
+        self
+    }
+
+    pub fn normalize_command(&self, command: &str) -> String {
+        let args = crate::shlex::split_native(command);
+        let normalized_args = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                if index == 0 {
+                    self.normalize_command_program(arg)
+                } else {
+                    self.normalize_command_arg(arg)
+                }
+            })
+            .collect::<Vec<_>>();
+        crate::shlex::join_unix(normalized_args.iter().map(String::as_str))
+    }
+
+    pub fn normalize_command_program(&self, program: &str) -> String {
+        let raw_program = program.replace('\\', "/");
+        if let Some(alias) = Self::exact_alias(&self.override_aliases, &raw_program) {
+            return alias;
+        }
+        if let Some((path, alias)) = &self.current_program_alias
+            && path == &raw_program
+        {
+            return alias.clone();
+        }
+        let raw_toolchain_root = self.toolchain_root.trim_end_matches('/');
+        if !raw_toolchain_root.is_empty() {
+            let raw_toolchain_bin = format!("{raw_toolchain_root}/bin/");
+            if let Some(file_name) = raw_program
+                .strip_prefix(&raw_toolchain_bin)
+                .filter(|file_name| !file_name.is_empty() && !file_name.contains('/'))
+            {
+                return file_name
+                    .strip_suffix(".exe")
+                    .unwrap_or(file_name)
+                    .to_owned();
+            }
+        }
+
+        let program = self.normalize_command_arg(&raw_program);
+        let toolchain_bin = if self.show_toolchain_root {
+            "$MOON_TOOLCHAIN_ROOT/bin/"
+        } else {
+            "$MOON_HOME/bin/"
+        };
+
+        program
+            .strip_prefix(toolchain_bin)
+            .filter(|file_name| !file_name.is_empty() && !file_name.contains('/'))
+            .unwrap_or(&program)
+            .to_owned()
+    }
+
+    pub fn normalize_command_arg(&self, value: &str) -> String {
+        let value = value.replace('\\', "/");
+        let value = Self::exact_alias(&self.override_aliases, &value).unwrap_or(value);
+        if let Some(relative) = Self::exact_alias(&self.relative_paths, &value) {
+            return relative;
+        }
+        let value = if let Some(root) = &self.project_root {
+            // Match the verbatim spelling first, before its ordinary suffix.
+            let value = Self::replace_path_prefix(value, &Self::display_path(root), ".");
+            Self::replace_path_prefix(value, &Self::display_path(dunce::simplified(root)), ".")
+        } else {
+            value
+        };
+        self.mask_roots(value)
+    }
+
+    pub fn normalize_path(&self, path: &str) -> String {
+        let normalized = path.replace('\\', "/");
+        if let Some(masked) = Self::exact_alias(&self.override_aliases, &normalized) {
+            return self.mask_roots(masked);
+        }
+        if let Some(relative) = Self::exact_alias(&self.relative_paths, &normalized) {
+            return relative;
+        }
+        let path_obj = Path::new(path);
+        if let Some(root) = &self.project_root {
+            for root in [root.as_path(), dunce::simplified(root)] {
+                if let Ok(stripped) = path_obj.strip_prefix(root) {
+                    return Self::relative_from_path(stripped);
+                }
+            }
+        }
+        self.mask_roots(normalized)
+    }
+
+    pub fn normalize_context_path(&self, path: &Path) -> String {
+        let normalized_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.normalize_path(&normalized_path.to_string_lossy())
+    }
+
+    fn exact_alias(aliases: &[(String, String)], value: &str) -> Option<String> {
+        aliases
+            .iter()
+            .find_map(|(from, to)| (value == from).then(|| to.clone()))
+    }
+
+    fn mask_roots(&self, mut value: String) -> String {
+        let toolchain_alias = if self.show_toolchain_root {
+            "$MOON_TOOLCHAIN_ROOT"
+        } else {
+            "$MOON_HOME"
+        };
+        // Graph inputs retain the canonical prefix; tool arguments may use the
+        // simplified spelling. Mask both, matching the canonical spelling first.
+        value = Self::replace_path_prefix(value, &self.toolchain_root, toolchain_alias);
+        value = Self::replace_path_prefix(value, &self.simplified_toolchain_root, toolchain_alias);
+        value = Self::replace_path_prefix(value, &self.moon_home, "$MOON_HOME");
+        value = Self::replace_path_prefix(value, &self.simplified_moon_home, "$MOON_HOME");
+
+        // Executable suffixes under the toolchain bin directory are host
+        // details; native build outputs such as `main.exe` remain unchanged.
+        let Some(without_exe) = value.strip_suffix(".exe") else {
+            return value;
+        };
+        let is_toolchain_binary =
+            ["$MOON_HOME/bin/", "$MOON_TOOLCHAIN_ROOT/bin/"]
+                .iter()
+                .any(|bin_dir| {
+                    without_exe
+                        .rsplit_once(bin_dir)
+                        .is_some_and(|(_, file_name)| {
+                            !file_name.is_empty() && !file_name.contains('/')
+                        })
+                });
+        if is_toolchain_binary {
+            without_exe.to_owned()
+        } else {
+            value
+        }
+    }
+
+    fn replace_path_prefix(mut value: String, path: &str, replacement: &str) -> String {
+        let path = path.trim_end_matches('/');
+        if path.is_empty() {
+            return value;
+        }
+        // Roots are already path-like, so only their trailing boundary is
+        // ambiguous. This keeps compact flags such as `-I/path` working while
+        // avoiding textual prefixes such as `/tmp/home` in `/tmp/homebrew`.
+        let path_list_separator = if cfg!(windows) { ';' } else { ':' };
+        for separator in ['/', path_list_separator] {
+            value = value.replace(
+                &format!("{path}{separator}"),
+                &format!("{replacement}{separator}"),
+            );
+        }
+        value
+            .strip_suffix(path)
+            .map(|prefix| format!("{prefix}{replacement}"))
+            .unwrap_or(value)
+    }
+
+    fn display_path(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+
+    fn relative_from_path(stripped: &Path) -> String {
+        if stripped.as_os_str().is_empty() {
+            ".".to_owned()
+        } else {
+            format!("./{}", Self::display_path(stripped))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PathNormalizer;
+    use std::path::{Path, PathBuf};
+
+    #[cfg(windows)]
+    #[test]
+    fn masks_canonical_and_simplified_toolchain_paths() {
+        let home = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(home.path()).unwrap();
+        let normalizer = PathNormalizer::from_paths(
+            Path::new("."),
+            root.clone(),
+            dunce::simplified(&root).to_path_buf(),
+            vec![],
+            None,
+        );
+        for root in [root.as_path(), dunce::simplified(&root)] {
+            let input = root.join("lib/core/abort.core");
+            assert_eq!(
+                normalizer.normalize_path(&input.to_string_lossy()),
+                "$MOON_HOME/lib/core/abort.core"
+            );
+            assert_eq!(
+                normalizer.normalize_command_arg(&input.to_string_lossy()),
+                "$MOON_HOME/lib/core/abort.core"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn masks_separate_canonical_and_simplified_home_paths() {
+        let normalizer = normalizer(r"\\?\C:\toolchain", r"\\?\C:\home", vec![], None);
+        for (root, alias) in [
+            (r"\\?\C:\toolchain", "$MOON_TOOLCHAIN_ROOT"),
+            (r"C:\toolchain", "$MOON_TOOLCHAIN_ROOT"),
+            (r"\\?\C:\home", "$MOON_HOME"),
+            (r"C:\home", "$MOON_HOME"),
+        ] {
+            let path = format!(r"{root}\cache\entry");
+            let expected = format!("{alias}/cache/entry");
+            assert_eq!(normalizer.normalize_path(&path), expected);
+            assert_eq!(normalizer.normalize_command_arg(&path), expected);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relativizes_simplified_arguments_for_canonical_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let base = root.join("work");
+        std::fs::create_dir(&base).unwrap();
+        let output = root.join("_build/format/build.mbtx");
+        let normalizer = PathNormalizer::from_paths(
+            &base,
+            root.join("toolchain"),
+            root.join("home"),
+            vec![],
+            None,
+        )
+        .with_relative_paths(&base, [output.as_path()]);
+
+        for path in [output.as_path(), dunce::simplified(&output)] {
+            assert_eq!(
+                normalizer.normalize_command_arg(&path.to_string_lossy()),
+                "../_build/format/build.mbtx"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_verbatim_outputs_and_ordinary_sources() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let source = dunce::simplified(&root).join("main.mbt");
+        let output = root
+            .join("_build")
+            .join("segment\\".repeat(40))
+            .join("main.mi");
+        let normalizer = PathNormalizer::from_paths(
+            &root,
+            root.join("toolchain"),
+            root.join("home"),
+            vec![],
+            None,
+        );
+        let expected = format!("./_build/{}main.mi", "segment/".repeat(40));
+        assert_eq!(
+            normalizer.normalize_path(&source.to_string_lossy()),
+            "./main.mbt"
+        );
+        assert_eq!(
+            normalizer.normalize_path(&output.to_string_lossy()),
+            expected
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&output.to_string_lossy()),
+            expected
+        );
+
+        let normalizer =
+            normalizer.with_relative_paths(&root, [source.as_path(), output.as_path()]);
+        assert_eq!(normalizer.relative_paths.len(), 2);
+        assert_eq!(
+            normalizer.normalize_path(&output.to_string_lossy()),
+            expected
+        );
+    }
+
+    fn normalizer(
+        toolchain_root: &str,
+        moon_home: &str,
+        override_aliases: Vec<(String, String)>,
+        current_program_alias: Option<(String, String)>,
+    ) -> PathNormalizer {
+        PathNormalizer::from_paths(
+            Path::new("."),
+            toolchain_root.into(),
+            moon_home.into(),
+            override_aliases,
+            current_program_alias,
+        )
+    }
+
+    #[test]
+    fn normalizes_each_program_source_without_touching_other_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let toolchain_root = PathNormalizer::display_path(&temp.path().join("toolchain"));
+        let moon_home = PathNormalizer::display_path(&temp.path().join("home"));
+        let toolchain_program = format!("{toolchain_root}/bin/moonc.exe");
+        let override_program = PathNormalizer::display_path(&temp.path().join("custom/node.exe"));
+        let current_program = PathNormalizer::display_path(&temp.path().join("build/moon.exe"));
+        let normalizer = normalizer(
+            &toolchain_root,
+            &moon_home,
+            vec![(override_program.clone(), "$MOON_NODE_OVERRIDE".to_owned())],
+            Some((current_program.clone(), "moon".to_owned())),
+        );
+
+        for (program, expected) in [
+            (&override_program, "$MOON_NODE_OVERRIDE"),
+            (&current_program, "moon"),
+            (&toolchain_program, "moonc"),
+        ] {
+            assert_eq!(normalizer.normalize_command_program(program), expected);
+        }
+        assert_eq!(
+            normalizer.normalize_command_program("/usr/bin/node.exe"),
+            "/usr/bin/node.exe"
+        );
+        assert_eq!(
+            normalizer.normalize_path("/usr/bin/node.exe"),
+            "/usr/bin/node.exe"
+        );
+        assert_eq!(
+            normalizer.normalize_path(&toolchain_program),
+            "$MOON_TOOLCHAIN_ROOT/bin/moonc"
+        );
+        assert_eq!(
+            normalizer.normalize_path("./_build/native/debug/build/main/main.exe"),
+            "./_build/native/debug/build/main/main.exe"
+        );
+    }
+
+    #[test]
+    fn masks_only_complete_overrides_and_path_root_boundaries() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = PathNormalizer::display_path(&dunce::canonicalize(".").unwrap());
+        let toolchain = PathNormalizer::display_path(&temp.path().join("toolchain"));
+        let moon_home = PathNormalizer::display_path(&temp.path().join("home"));
+        let moon_home_with_slash = format!("{moon_home}/");
+        let normalizer = normalizer(
+            &toolchain,
+            &moon_home_with_slash,
+            vec![("node".to_owned(), "$MOON_NODE_OVERRIDE".to_owned())],
+            None,
+        );
+
+        assert_eq!(
+            normalizer.normalize_command_arg("node"),
+            "$MOON_NODE_OVERRIDE"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg("./node_modules/data"),
+            "./node_modules/data"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("--project={workspace}/lib")),
+            "--project=./lib"
+        );
+        for root in [&workspace, &toolchain, &moon_home] {
+            let sibling = format!("{root}-cache/data");
+            assert_eq!(normalizer.normalize_command_arg(&sibling), sibling);
+        }
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("--root={toolchain}/lib")),
+            "--root=$MOON_TOOLCHAIN_ROOT/lib"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("-I{toolchain}/include")),
+            "-I$MOON_TOOLCHAIN_ROOT/include"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("/Fo{workspace}/_build/main.o")),
+            "/Fo./_build/main.o"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("--home={moon_home}")),
+            "--home=$MOON_HOME"
+        );
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("--home={moon_home}/lib")),
+            "--home=$MOON_HOME/lib"
+        );
+
+        let separator = if cfg!(windows) { ';' } else { ':' };
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!(
+                "{workspace}{separator}{moon_home}{separator}{toolchain}{separator}/sdk"
+            )),
+            format!(".{separator}$MOON_HOME{separator}$MOON_TOOLCHAIN_ROOT{separator}/sdk")
+        );
+    }
+
+    #[test]
+    fn uses_moon_home_alias_when_roots_match() {
+        let temp = tempfile::tempdir().unwrap();
+        let moon_home = PathNormalizer::display_path(&temp.path().join(".moon"));
+        let normalizer = normalizer(&moon_home, &moon_home, vec![], None);
+
+        assert_eq!(
+            normalizer.normalize_command_arg(&format!("{moon_home}/lib/core/prelude")),
+            "$MOON_HOME/lib/core/prelude"
+        );
+        assert_eq!(
+            normalizer.normalize_command_program(&format!("{moon_home}/bin/moonc.exe")),
+            "moonc"
+        );
+
+        // Canonically equal roots may retain distinct lexical spellings when
+        // the configured toolchain root reaches Moon home through a symlink.
+        let toolchain_spelling = PathNormalizer::display_path(&temp.path().join("toolchain-link"));
+        let normalizer = PathNormalizer {
+            toolchain_root: toolchain_spelling.clone(),
+            ..normalizer
+        };
+        assert_eq!(
+            normalizer.normalize_command_program(&format!("{toolchain_spelling}/bin/moonc.exe")),
+            "moonc"
+        );
+    }
+
+    #[test]
+    fn relativizes_only_selected_paths_including_missing_outputs() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let base = root.join("project/work");
+        std::fs::create_dir_all(&base).unwrap();
+        let paths = [
+            base.join("local.mbtx"),
+            root.join("project/build.mbtx"),
+            root.join("sibling scripts/build.mbtx"),
+            root.join("output/build.mbtx/format/build.mbtx"),
+        ];
+        let normalizer = PathNormalizer::from_paths(
+            &base,
+            root.join("toolchain"),
+            root.join("home"),
+            vec![],
+            None,
+        )
+        .with_relative_paths(&base, paths.iter().map(PathBuf::as_path));
+
+        for (path, expected) in paths.iter().zip([
+            "./local.mbtx",
+            "../build.mbtx",
+            "../../sibling scripts/build.mbtx",
+            "../../output/build.mbtx/format/build.mbtx",
+        ]) {
+            let path = path.to_string_lossy();
+            assert_eq!(normalizer.normalize_command_arg(&path), expected);
+            assert_eq!(normalizer.normalize_path(&path), expected);
+        }
+        let unrelated = PathNormalizer::display_path(&root.join("unselected.mbtx"));
+        assert_eq!(normalizer.normalize_command_arg(&unrelated), unrelated);
+        let literal = format!("--literal={}", PathNormalizer::display_path(&paths[2]));
+        assert_eq!(normalizer.normalize_command_arg(&literal), literal);
+        assert_eq!(
+            normalizer.normalize_command_program(&PathNormalizer::display_path(
+                &root.join("toolchain/bin/moonfmt")
+            )),
+            "moonfmt"
+        );
+    }
+
+    #[test]
+    fn normalizes_context_paths_relative_to_the_source_directory() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let package_dir = source_dir.path().join("pkg");
+        std::fs::create_dir(&package_dir).unwrap();
+        let normalizer = PathNormalizer::from_paths(
+            source_dir.path(),
+            PathBuf::from("/tmp/toolchain"),
+            PathBuf::from("/tmp/home"),
+            vec![],
+            None,
+        );
+
+        assert_eq!(normalizer.normalize_context_path(&package_dir), "./pkg");
+        assert_eq!(normalizer.normalize_context_path(source_dir.path()), ".");
+    }
+}

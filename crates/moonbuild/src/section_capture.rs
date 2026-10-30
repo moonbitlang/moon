@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -23,8 +23,14 @@ pub struct SectionCapture<'a> {
     end_delimiter: &'a str,
     capture_buffer: String,
     include_delimiters: bool,
-    found_begin: bool,
-    found_end: bool,
+    state: SectionCaptureState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SectionCaptureState {
+    Outside,
+    Capturing,
+    Complete,
 }
 
 pub enum LineCaptured {
@@ -40,24 +46,24 @@ impl<'a> SectionCapture<'a> {
             end_delimiter,
             capture_buffer: String::new(),
             include_delimiters,
-            found_begin: false,
-            found_end: false,
+            state: SectionCaptureState::Outside,
         }
     }
 
     /// Feed a line into the capture buffer. The line should contain the newline character.
     fn feed_line(&mut self, line: &str) -> Option<LineCaptured> {
         if line.trim_end().ends_with(self.begin_delimiter) {
-            self.found_begin = true;
-            self.found_end = false;
+            self.state = SectionCaptureState::Capturing;
             if self.include_delimiters {
                 self.capture_buffer.push_str(line);
             }
             let end_index = line.trim_end().len() - self.begin_delimiter.len();
             return Some(LineCaptured::Suffix(end_index));
         }
-        if self.found_begin && line.starts_with(self.end_delimiter) {
-            self.found_end = true;
+        if matches!(self.state, SectionCaptureState::Capturing)
+            && line.starts_with(self.end_delimiter)
+        {
+            self.state = SectionCaptureState::Complete;
             if self.include_delimiters {
                 self.capture_buffer.push_str(line);
             }
@@ -69,7 +75,7 @@ impl<'a> SectionCapture<'a> {
                 return Some(LineCaptured::Prefix(start_index));
             }
         }
-        if self.found_begin && !self.found_end {
+        if matches!(self.state, SectionCaptureState::Capturing) {
             self.capture_buffer.push_str(line);
             return Some(LineCaptured::All);
         }
@@ -78,7 +84,7 @@ impl<'a> SectionCapture<'a> {
 
     /// Returns the captured section if the section is complete.
     pub fn finish(self) -> Option<String> {
-        if self.found_begin && self.found_end {
+        if matches!(self.state, SectionCaptureState::Complete) {
             Some(self.capture_buffer)
         } else {
             None
@@ -93,7 +99,7 @@ impl<'a> SectionCapture<'a> {
 #[cfg(test)]
 fn handle_stdout<P: FnMut(&str)>(
     stdout: &mut impl std::io::BufRead,
-    captures: &mut [&mut SectionCapture],
+    captures: &mut [&mut SectionCapture<'_>],
     mut print: P,
 ) -> anyhow::Result<()> {
     let mut buf = String::new();
@@ -118,9 +124,9 @@ fn handle_stdout<P: FnMut(&str)>(
 }
 
 /// Async version of [`handle_stdout`].
-pub async fn handle_stdout_async<'a>(
+pub async fn handle_stdout_async(
     proc: impl AsyncBufRead,
-    captures: &mut [&mut SectionCapture<'a>],
+    captures: &mut [&mut SectionCapture<'_>],
 ) -> anyhow::Result<()> {
     use tokio::io::AsyncBufReadExt;
     let mut buf = String::new();
@@ -199,6 +205,56 @@ fghij";
     assert_eq!(buf, expected_out);
     assert_eq!(capture.finish().unwrap(), "text\n");
 }
+
+#[test]
+fn test_handle_section_with_delimiters() {
+    let out = "abcde
+---begin---
+text
+---end---
+fghij";
+    let expected_out = "abcde
+fghij";
+    let mut capture = SectionCapture::new("---begin---", "---end---", true);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, expected_out);
+    assert_eq!(capture.finish().unwrap(), "---begin---\ntext\n---end---\n");
+}
+
+#[test]
+fn test_handle_multiple_sections() {
+    let out = "abcde
+---begin---
+one
+---end---
+middle
+---begin---
+two
+---end---
+fghij";
+    let expected_out = "abcde
+middle
+fghij";
+    let mut capture = SectionCapture::new("---begin---", "---end---", false);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, expected_out);
+    assert_eq!(capture.finish().unwrap(), "one\ntwo\n");
+}
+
 #[test]
 fn test_handle_wrong_output() {
     let out = "abcde

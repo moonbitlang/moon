@@ -1,41 +1,40 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap, hash_map::Entry},
     path::PathBuf,
     sync::Arc,
 };
 
 use anyhow::anyhow;
-use colored::Colorize;
 use moonutil::{
-    common::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
+    constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
-    module::MoonMod,
-    mooncakes::{
-        ModuleName, ModuleSource, ModuleSourceKind,
-        result::{DependencyEdge, DependencyKind, ResolvedEnv},
+    manifest::MoonMod,
+    resolution::{
+        DependencyEdge, ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind,
     },
+    user_log::UserLog,
 };
 use semver::Version;
 
-use super::{Resolver, ResolverError, env::ResolverEnv};
+use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
 
 type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 
@@ -44,9 +43,14 @@ type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 /// See https://research.swtch.com/vgo-mvs for more information.
 pub(crate) struct MvsSolver;
 
-impl Resolver for MvsSolver {
-    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
-        mvs_resolve(env, res)
+impl ModuleResolver for MvsSolver {
+    fn resolve(
+        &mut self,
+        context: &mut ModuleResolutionContext,
+        module_graph: &mut ModuleDependencyGraph,
+        user_log: &UserLog,
+    ) -> bool {
+        mvs_resolve(context, module_graph, user_log)
     }
 }
 
@@ -65,64 +69,37 @@ fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
     (lhs.major < 2 && rhs.major < 2) || lhs.major == rhs.major
 }
 
-fn select_min_version_satisfying<'a>(
+fn resolve_registry_module(
+    context: &mut ModuleResolutionContext,
     dependency: &ModuleName,
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
-    versions: impl Iterator<Item = &'a Version> + 'a,
-) -> Result<Version, ResolverError> {
+    user_log: &UserLog,
+) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
     let required = req.version().ok_or_else(|| {
-        ResolverError::Other(anyhow!(
+        ModuleResolutionError::Other(anyhow!(
             "Registry dependency `{}` for module `{}` must specify a version",
             dependency,
             dependant
         ))
     })?;
 
-    // From lowest to highest version, find the first version that satisfies the requirement.
-    for version in versions {
-        if mvs_requirement_matches(required, version) {
-            return Ok(version.clone());
-        }
-    }
-
-    eprintln!(
-        "{}: you may need to run `moon update` to update the registry",
-        "Hint".yellow()
-    );
-    Err(ResolverError::NoSatisfiedVersion {
-        dependency: dependency.clone(),
-        dependant: dependant.clone(),
-        required: required.clone(),
-    })
-}
-
-fn select_min_version_satisfying_in_env(
-    env: &mut ResolverEnv,
-    dependency: &ModuleName,
-    dependant: &ModuleName,
-    req: &SourceDependencyInfo,
-) -> Result<(Version, Arc<MoonMod>), ResolverError> {
-    let all_versions = env.all_versions_of(dependency).ok_or_else(|| {
-        eprintln!(
-            "{}: you may need to run `moon update` to update the registry",
-            "Hint".yellow()
-        );
-        ResolverError::ModuleMissing {
-            dependency: dependency.clone(),
-            dependant: dependant.clone(),
-        }
-    })?;
-
-    let min_version_satisfying =
-        select_min_version_satisfying(dependency, dependant, req, all_versions.keys());
-    match min_version_satisfying {
-        Ok(version) => {
-            let module = Arc::clone(&all_versions[&version]);
-            Ok((version, module))
-        }
-        Err(err) => Err(err),
-    }
+    // Traverse the declared version's dependencies before merging MVS requirements.
+    // Substituting a later release here would let registry changes alter the graph.
+    let source = ModuleSource::from_version(dependency.clone(), required.clone())
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
+    let module = context
+        .get_registry_module(dependency, required, dependant)
+        .inspect_err(|error| {
+            if matches!(
+                error,
+                ModuleResolutionError::ModuleMissing { .. }
+                    | ModuleResolutionError::VersionMissing { .. }
+            ) {
+                user_log.warn("you may need to run `moon update` to update the registry");
+            }
+        })?;
+    Ok((source, module))
 }
 
 /// Checks whether resolving local dependency is allowed for the dependant package
@@ -130,18 +107,6 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
     match dependant.source() {
         ModuleSourceKind::Registry => false,
         ModuleSourceKind::Local(_) => true,
-        ModuleSourceKind::Git(_) => true,
-        ModuleSourceKind::Stdlib(_) => true,
-        ModuleSourceKind::SingleFile(_) => true,
-    }
-}
-
-/// Checks whether resolving git dependency is allowed for the dependant package
-fn git_dep_allowed(dependant: &ModuleSource) -> bool {
-    match dependant.source() {
-        ModuleSourceKind::Registry => false,
-        ModuleSourceKind::Local(_) => true,
-        ModuleSourceKind::Git(_) => true,
         ModuleSourceKind::Stdlib(_) => true,
         ModuleSourceKind::SingleFile(_) => true,
     }
@@ -155,9 +120,6 @@ fn root_path_of(dependant: &ModuleSource) -> PathBuf {
             panic!("Registry dependencies don't have a local root path!")
         }
         ModuleSourceKind::Local(path) => path.clone(),
-        ModuleSourceKind::Git(repo) => {
-            todo!("Resolve local downloaded path for git repo: {}", repo)
-        }
         ModuleSourceKind::Stdlib(path) => path.clone(),
         ModuleSourceKind::SingleFile(path) => path.clone(),
     }
@@ -196,24 +158,6 @@ impl From<ModuleSourceOrdWrapper> for ModuleSource {
     }
 }
 
-fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
-    match ms.source() {
-        ModuleSourceKind::Local(_) => {
-            log::warn!(
-                "A local dependency was skipped during version resolution: {}",
-                ms
-            );
-        }
-        ModuleSourceKind::Git(_) => {
-            log::warn!(
-                "A git dependency was skipped during version selection: {}",
-                ms
-            )
-        }
-        _ => (),
-    }
-}
-
 fn workspace_version_override_warning(
     req: &SourceDependencyInfo,
     dependant: &ModuleSource,
@@ -233,106 +177,113 @@ fn workspace_version_override_warning(
     ))
 }
 
-fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
-    let workspace_roots = res
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(root_count = module_graph.input_module_ids().len())
+)]
+fn mvs_resolve(
+    context: &mut ModuleResolutionContext,
+    module_graph: &mut ModuleDependencyGraph,
+    user_log: &UserLog,
+) -> bool {
+    let workspace_roots = module_graph
         .input_module_ids()
         .iter()
         .map(|&id| {
             (
-                res.module_source(id).name().clone(),
+                module_graph.module_source(id).name().clone(),
                 (
-                    res.module_source(id).clone(),
-                    Arc::clone(res.module_info(id)),
+                    module_graph.module_source(id).clone(),
+                    Arc::clone(module_graph.module_info(id)),
                 ),
             )
         })
         .collect::<WorkspaceRoots>();
-    let root_sources = res
-        .input_module_ids()
-        .iter()
-        .map(|&id| res.module_source(id).clone())
-        .collect::<HashSet<_>>();
-
     // Ordered set used to ensure they are iterated in order later.
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
 
     // Collect all version constraints for each dependency.
-    let mut working_list = vec![];
-    let mut visited = HashSet::new();
-
-    log::debug!("Begin MVS solving");
-
-    working_list.extend(res.input_module_ids().iter().map(|&id| {
-        (
-            res.module_source(id).clone(),
-            Arc::clone(res.module_info(id)),
-        )
-    }));
-    if log::log_enabled!(log::Level::Debug) {
-        for &id in res.input_module_ids() {
-            log::debug!("MVS root item: {}", res.module_source(id));
-            visited.insert(res.module_source(id).clone());
+    let mut working_list = module_graph
+        .input_module_ids()
+        .iter()
+        .map(|&id| {
+            (
+                module_graph.module_source(id).clone(),
+                Arc::clone(module_graph.module_info(id)),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Mark roots visited before traversal, and retain each visited manifest so
+    // final graph construction uses the same metadata without further lookups.
+    let mut loaded_modules = working_list.iter().cloned().collect::<HashMap<_, _>>();
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        for &id in module_graph.input_module_ids() {
+            tracing::debug!(module = %module_graph.module_source(id), "registered root module");
         }
     }
 
     // Do a DFS in the graph
     while let Some((source, module)) = working_list.pop() {
-        log::debug!("-- Solving for {}", source);
-        let bin_deps = root_sources.contains(&source).then(|| {
-            module
-                .bin_deps
-                .iter()
-                .flat_map(|m| m.iter())
-                .map(|(k, v)| (k, &v.common))
-        });
-        let all_deps = module.deps.iter().chain(bin_deps.into_iter().flatten());
-        for (name, req) in all_deps {
-            let pkg_name = name.as_str().into();
+        tracing::debug!(module = %source, "visiting module dependencies");
+        for (name, req) in &module.deps {
+            let module_name = name.as_str().into();
 
-            let (ms, module) = match resolve_pkg(req, &source, env, &workspace_roots, &pkg_name) {
+            let (ms, module) = match resolve_module_dependency(
+                req,
+                &source,
+                context,
+                &workspace_roots,
+                &module_name,
+                user_log,
+            ) {
                 Ok(value) => value,
                 Err(e) => {
-                    env.report_error(e);
+                    context.report_error(e);
                     continue;
                 }
             };
 
             // Add module to working list
-            if visited.insert(ms.clone()) {
+            if let Entry::Vacant(entry) = loaded_modules.entry(ms.clone()) {
+                entry.insert(Arc::clone(&module));
                 working_list.push((ms.clone(), module));
             }
 
             // Add to gathered versions
             gathered_versions
-                .entry(pkg_name)
+                .entry(module_name)
                 .or_default()
                 .insert(ms.into());
         }
     }
 
-    if env.any_errors() {
-        log::warn!("Errors in MVS dependency solving, bailing out.");
+    if context.any_errors() {
         return false;
     }
 
-    log::debug!("Selecting minimal version for each set of compatible versions");
+    tracing::debug!("selecting minimal version for each compatibility set");
 
     // Select the minimal version of each compatible version set.
     let mut settled_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
     for (name, versions) in gathered_versions {
-        log::debug!("-- Module {}", name);
+        let _span = tracing::debug_span!("select_module_version", module = %name).entered();
 
         let mut versions = versions.into_iter().map(|x| x.0);
         let mut curr = versions.next().unwrap();
-        log::debug!("---- seen {}", curr);
+        tracing::debug!(version = %curr, "considering version");
         for v in versions {
             if same_mvs_compatibility_set(curr.version(), v.version()) {
                 // v >= curr, as implied by btreeset
-                // Emit a warning if the skipped dep is local or git, as they are manually specified
-                warn_about_skipped_local_or_git_dep(&curr);
+                // Local dependencies were explicitly chosen by the user.
+                if matches!(curr.source(), ModuleSourceKind::Local(_)) {
+                    user_log.warn(format!(
+                        "A local dependency was skipped during version resolution: {curr}"
+                    ));
+                }
                 curr = v;
             } else {
-                log::debug!("---- selected {}", curr);
+                tracing::debug!(version = %curr, "selected version");
                 settled_versions
                     .entry(name.clone())
                     .or_default()
@@ -340,57 +291,46 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 // This starts a new incompatible set.
                 curr = v;
             }
-            log::debug!("---- seen {}", curr);
+            tracing::debug!(version = %curr, "considering version");
         }
         // There's one last version left to be inserted
-        log::debug!("---- selected {}", curr);
+        tracing::debug!(version = %curr, "selected version");
         settled_versions
             .entry(name)
             .or_default()
             .insert(curr.into());
     }
 
-    log::debug!("Building result dependency graph");
+    tracing::debug!("building resolved dependency graph");
 
     // And finally, build the dependency graph
-    log::debug!("-- Reusing root modules");
-    let mut working_list = res
+    let mut working_list = module_graph
         .input_module_ids()
         .iter()
         .map(|&id| {
-            log::debug!("---- {} -> {:?}", res.module_source(id), id);
+            tracing::debug!(
+                module = %module_graph.module_source(id),
+                module_id = ?id,
+                "reusing root module"
+            );
             (
-                Arc::clone(res.module_info(id)),
-                res.module_source(id).clone(),
+                Arc::clone(module_graph.module_info(id)),
+                module_graph.module_source(id).clone(),
             )
         })
         .collect::<Vec<_>>();
-    let mut visited = res
+    let mut visited = module_graph
         .input_module_ids()
         .iter()
-        .map(|&id| (res.module_source(id).clone(), id))
+        .map(|&id| (module_graph.module_source(id).clone(), id))
         .collect::<HashMap<_, _>>();
 
-    log::debug!("-- Inserting dependencies");
     while let Some((module, module_source)) = working_list.pop() {
         let pkg = module_source;
 
         let curr_id = *visited.get(&pkg).unwrap();
 
-        let regular_deps = module
-            .deps
-            .iter()
-            .map(|(k, v)| (k, v, DependencyKind::Regular));
-
-        let bin_deps = root_sources.contains(&pkg).then(|| {
-            module.bin_deps.iter().flat_map(|map| {
-                map.iter()
-                    .map(|(k, v)| (k, &v.common, DependencyKind::Binary))
-            })
-        });
-
-        let all_deps = regular_deps.chain(bin_deps.into_iter().flatten());
-        for (dep_name, req, kind) in all_deps {
+        for (dep_name, req) in &module.deps {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
 
@@ -403,13 +343,13 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                     None => true,
                 }) else {
                     if let Some(required) = req.version() {
-                        env.report_error(ResolverError::NoSatisfiedVersion {
+                        context.report_error(ModuleResolutionError::NoSatisfiedVersion {
                             dependency: dep_name.clone(),
                             dependant: pkg.name().clone(),
                             required: required.clone(),
                         });
                     } else {
-                        env.report_error(ResolverError::Other(anyhow!(
+                        context.report_error(ModuleResolutionError::Other(anyhow!(
                             "No settled version found for dependency `{}` while building edges for `{}`",
                             dep_name,
                             pkg
@@ -423,52 +363,57 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
             let id = if let Some(id) = visited.get(resolved) {
                 *id
             } else {
-                let dep_module = env.get(resolved).unwrap();
-                let id = res.add_module(resolved.clone(), Arc::clone(&dep_module));
-                log::debug!("---- {} -> {:?}", resolved, id);
+                let dep_module = Arc::clone(
+                    loaded_modules
+                        .get(resolved)
+                        .expect("selected modules were loaded during traversal"),
+                );
+                let id = module_graph.add_module(resolved.clone(), Arc::clone(&dep_module));
+                tracing::debug!(module = %resolved, module_id = ?id, "inserted resolved module");
                 visited.insert(resolved.clone(), id);
                 working_list.push((dep_module, resolved.clone()));
                 id
             };
-            log::debug!("---- {}.deps[{}] = {}", pkg, dep_name, resolved);
+            tracing::debug!(
+                dependant = %pkg,
+                dependency = %dep_name,
+                resolved = %resolved,
+                "inserted dependency edge"
+            );
 
             // Add dependency
-            res.add_dependency(
-                curr_id,
-                id,
-                &DependencyEdge {
-                    name: dep_name,
-                    kind,
-                },
-            );
+            module_graph.add_dependency(curr_id, id, &DependencyEdge { name: dep_name });
         }
     }
 
-    if env.any_errors() {
-        log::warn!("Errors while building resolved dependency graph, bailing out.");
+    if context.any_errors() {
         return false;
     }
-
-    log::debug!("Finished MVS solving");
 
     true
 }
 
-fn resolve_pkg(
+fn resolve_module_dependency(
     req: &SourceDependencyInfo,
     dependant: &ModuleSource,
-    env: &mut ResolverEnv,
+    context: &mut ModuleResolutionContext,
     workspace_roots: &WorkspaceRoots,
-    pkg_name: &ModuleName,
-) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
-    if let Some((source, module)) = workspace_roots.get(pkg_name) {
+    module_name: &ModuleName,
+    user_log: &UserLog,
+) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
+    // Registry metadata bypasses manifest parsing, so check transitive
+    // requirements here as well as declarations read from manifests.
+    module_name
+        .validate_version(req.version())
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
+    if let Some((source, module)) = workspace_roots.get(module_name) {
         if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
-            log::warn!("{warning}");
+            user_log.warn(warning);
         }
-        log::debug!(
-            "---- Dependency {} resolved to workspace module {}",
-            pkg_name,
-            source
+        tracing::debug!(
+            dependency = %module_name,
+            resolved = %source,
+            "resolved dependency to workspace module"
         );
         return Ok((source.clone(), Arc::clone(module)));
     }
@@ -486,30 +431,30 @@ fn resolve_pkg(
         );
         let dep_path = root.join(path);
         let dep_path = dunce::canonicalize(&dep_path).map_err(|err| {
-            ResolverError::Other(anyhow!(
+            ModuleResolutionError::Other(anyhow!(
                 "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
-                pkg_name,
+                module_name,
                 dependant.name(),
                 dep_path.display(),
                 err
             ))
         })?;
         if !is_moon_mod_exist(&dep_path) {
-            return Err(ResolverError::Other(anyhow!(
+            return Err(ModuleResolutionError::Other(anyhow!(
                 "Failed to find `{}` or `{}` for local dependency `{}` of module `{}` at path `{}`",
                 MOON_MOD,
                 MOON_MOD_JSON,
-                pkg_name,
+                module_name,
                 dependant.name(),
                 dep_path.display()
             )));
         }
-        let res = env
+        let module = context
             .resolve_local_module(&dep_path)
             .map_err(|err| match err {
-                ResolverError::Other(err) => ResolverError::Other(anyhow!(
+                ModuleResolutionError::Other(err) => ModuleResolutionError::Other(anyhow!(
                     "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
-                    pkg_name,
+                    module_name,
                     dependant.name(),
                     dep_path.display(),
                     err
@@ -517,55 +462,51 @@ fn resolve_pkg(
                 err => err,
             })?;
         let ms = ModuleSource::new_full(
-            pkg_name.clone(),
-            res.version.clone().expect("Expected version in module"),
+            module_name.clone(),
+            module.version.clone().expect("Expected version in module"),
             ModuleSourceKind::Local(dep_path),
-        );
+        )
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
         // Assert version matches
-        if let Some(actual) = &res.version
+        if let Some(actual) = &module.version
             && let Some(required) = req.version()
             && !mvs_requirement_matches(required, actual)
         {
-            return Err(ResolverError::LocalDepVersionMismatch {
+            return Err(ModuleResolutionError::LocalDepVersionMismatch {
                 dependant: dependant.name().clone(),
-                dependency: pkg_name.clone(),
+                dependency: module_name.clone(),
                 actual: actual.clone(),
                 required: required.clone(),
             });
         }
-        return Ok((ms, res));
+        return Ok((ms, module));
     }
-    if req.git().is_some() && git_dep_allowed(dependant) {
-        // TODO: Try resolving using git dependency
-    }
-    // If neither git nor local dependencies can be resolved (either because the user
-    // didn't specify it at all, or because the repo comes from a registry), we fallback
-    // to resolving from a registry.
-    let (version, module) =
-        select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req)?;
-    log::debug!(
-        "---- Dependency {}, required {:?}, selected {}",
-        pkg_name,
-        req,
-        version
+    // Registry dependencies do not apply local path overrides from published modules.
+    let (ms, module) =
+        resolve_registry_module(context, module_name, dependant.name(), req, user_log)?;
+    tracing::debug!(
+        dependency = %module_name,
+        required = ?req,
+        selected = %ms.version(),
+        "resolved registry dependency"
     );
-    let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry);
     Ok((ms, module))
 }
 
 #[cfg(test)]
 mod test {
+    use std::cell::Cell;
+
     use expect_test::expect;
-    use moonutil::mooncakes::ModuleId;
-    use moonutil::mooncakes::result::{DependencyEdge, ResolvedModule, ResolvedRootModules};
+    use moonutil::resolution::ModuleId;
+    use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
-    use test_log::test;
 
     use super::*;
-    use crate::registry::Registry;
     use crate::registry::mock::{MockRegistry, create_mock_module};
-    use crate::resolver::ResolverErrors;
-    use crate::resolver::env::ResolverEnv;
+    use crate::registry::{Registry, RegistryVersionInfo};
+    use crate::resolver::ModuleResolutionErrors;
+    use crate::resolver::context::ModuleResolutionContext;
 
     fn create_mock_registry() -> Box<dyn Registry> {
         let mut registry = MockRegistry::new();
@@ -589,6 +530,18 @@ mod test {
         Box::new(registry)
     }
 
+    fn resolve_silently(
+        resolver: &mut MvsSolver,
+        context: &mut ModuleResolutionContext,
+        module_graph: &mut ModuleDependencyGraph,
+    ) -> bool {
+        resolver.resolve(
+            context,
+            module_graph,
+            &UserLog::new(log::LevelFilter::Error),
+        )
+    }
+
     #[test]
     fn api_walkthrough() {
         let registry = create_mock_registry();
@@ -596,25 +549,28 @@ mod test {
         let mut resolver = MvsSolver;
         let module_name: ModuleName = "dep/three".parse().unwrap();
         let version: Version = "0.1.0".parse().unwrap();
-        let root_ms = ModuleSource::from_version(module_name.clone(), version.clone());
-        let root = registry.get_module_version(&module_name, &version).unwrap();
+        let root_ms = ModuleSource::from_version(module_name.clone(), version.clone()).unwrap();
+        let root = Arc::new(create_mock_module(
+            "dep/three",
+            "0.1.0",
+            [("dep/two", "0.1.0")],
+        ));
         let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
-        let mut env = ResolverEnv::new(registry.as_ref());
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut context = ModuleResolutionContext::new(registry.as_ref());
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        let id = result
+        let id = module_graph
             .all_modules_and_id()
             .find(|(_, ms)| ms.name() == &module_name && ms.version() == &version)
             .map(|(id, _)| id)
             .expect("Module not found");
         expect!["ModuleId(1v1)"].assert_eq(&format!("{:?}", &id));
-        let mt = result.module_source(id);
+        let mt = module_graph.module_source(id);
         expect!["dep/three@0.1.0"].assert_eq(&format!("{mt:?}"));
 
-        let module_info = result.module_info(id);
+        let module_info = module_graph.module_info(id);
         expect![[r#"
             MoonMod {
                 name: "dep/three",
@@ -625,10 +581,10 @@ mod test {
                         patch: 0,
                     },
                 ),
+                private: None,
                 deps: {
                     "dep/two": 0.1.0,
                 },
-                bin_deps: None,
                 readme: None,
                 repository: None,
                 license: None,
@@ -651,28 +607,28 @@ mod test {
         "#]]
         .assert_debug_eq(module_info);
 
-        let deps = result.deps(id).collect::<Vec<_>>();
+        let deps = module_graph.deps(id).collect::<Vec<_>>();
         expect![[r#"
             "[ModuleId(2v1)]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps));
 
-        let deps_keyed = result.deps_keyed(id).collect::<Vec<_>>();
+        let deps_keyed = module_graph.deps_keyed(id).collect::<Vec<_>>();
         expect![[r#"
-            "[(ModuleId(2v1), DependencyEdge { name: dep/two, kind: Regular })]"
+            "[(ModuleId(2v1), DependencyEdge { name: dep/two })]"
         "#]]
         .assert_debug_eq(&format!("{:?}", &deps_keyed));
 
         let key1 = "dep/two".parse::<DependencyEdge>().unwrap();
         let key2 = "dep/three".parse::<DependencyEdge>().unwrap();
-        let x1 = result.dep_with_key(id, &key1);
-        let x2 = result.dep_with_key(id, &key2);
+        let x1 = module_graph.dep_with_key(id, &key1);
+        let x2 = module_graph.dep_with_key(id, &key2);
         expect!["(Some(ModuleId(2v1)), None)"].assert_eq(&format!("{:?}", (x1, x2)));
 
-        let dep_count = result.dep_count(id);
+        let dep_count = module_graph.dep_count(id);
         expect!["1"].assert_eq(&dep_count.to_string());
 
-        let all_packages = result.all_modules().collect::<Vec<_>>();
+        let all_packages = module_graph.all_modules().collect::<Vec<_>>();
         expect![[r#"
             [
                 dep/three@0.1.0,
@@ -682,7 +638,7 @@ mod test {
         "#]]
         .assert_debug_eq(&all_packages);
 
-        let all_packages_and_id = result.all_modules_and_id().collect::<Vec<_>>();
+        let all_packages_and_id = module_graph.all_modules_and_id().collect::<Vec<_>>();
         expect![[r#"
             [
                 (
@@ -707,7 +663,7 @@ mod test {
         "#]]
         .assert_debug_eq(&all_packages_and_id);
 
-        let graph = result.graph();
+        let graph = module_graph.graph();
         expect![[r#"
             digraph {
                 0 [ label = "ModuleId(1v1)" ]
@@ -723,42 +679,53 @@ mod test {
         ));
     }
 
-    fn id_from_mod_name(result: &ResolvedEnv, mod_name: &ModuleSource) -> Option<ModuleId> {
-        result
+    fn id_from_mod_name(
+        module_graph: &ModuleDependencyGraph,
+        mod_name: &ModuleSource,
+    ) -> Option<ModuleId> {
+        module_graph
             .all_modules_and_id()
             .find(|(_, m)| *m == mod_name)
             .map(|(id, _)| id)
     }
 
-    fn assert_depends_on(result: &ResolvedEnv, pkg1: &str, pkg2: &str) {
+    fn assert_depends_on(module_graph: &ModuleDependencyGraph, pkg1: &str, pkg2: &str) {
         let pkg1 = pkg1.parse().expect("Invalid pkg1");
         let pkg2 = pkg2.parse().expect("Invalid pkg2");
-        assert_depends_on_source(result, &pkg1, &pkg2);
+        assert_depends_on_source(module_graph, &pkg1, &pkg2);
     }
 
-    fn assert_depends_on_source(result: &ResolvedEnv, pkg1: &ModuleSource, pkg2: &ModuleSource) {
+    fn assert_depends_on_source(
+        module_graph: &ModuleDependencyGraph,
+        pkg1: &ModuleSource,
+        pkg2: &ModuleSource,
+    ) {
         // we're writing tests, so we can use a slightly inefficient way to get IDs
         // from module names, since we don't have a lot of modules in tests
-        let id1 = id_from_mod_name(result, pkg1).expect("pkg1 not found in the result");
-        let id2 = id_from_mod_name(result, pkg2).expect("pkg2 not found in the result");
+        let id1 = id_from_mod_name(module_graph, pkg1).expect("pkg1 not found in the result");
+        let id2 = id_from_mod_name(module_graph, pkg2).expect("pkg2 not found in the result");
         assert!(
-            result.graph().contains_edge(id1, id2),
+            module_graph.graph().contains_edge(id1, id2),
             "{pkg1} does not depend on {pkg2}"
         );
     }
 
-    fn assert_no_depends_on(result: &ResolvedEnv, pkg1: &str, pkg2: &str) {
+    fn assert_no_depends_on(module_graph: &ModuleDependencyGraph, pkg1: &str, pkg2: &str) {
         let pkg1 = pkg1.parse().expect("Invalid pkg1");
         let pkg2 = pkg2.parse().expect("Invalid pkg2");
-        assert_no_depends_on_source(result, &pkg1, &pkg2);
+        assert_no_depends_on_source(module_graph, &pkg1, &pkg2);
     }
 
-    fn assert_no_depends_on_source(result: &ResolvedEnv, pkg1: &ModuleSource, pkg2: &ModuleSource) {
-        let id1 = id_from_mod_name(result, pkg1);
-        let id2 = id_from_mod_name(result, pkg2);
+    fn assert_no_depends_on_source(
+        module_graph: &ModuleDependencyGraph,
+        pkg1: &ModuleSource,
+        pkg2: &ModuleSource,
+    ) {
+        let id1 = id_from_mod_name(module_graph, pkg1);
+        let id2 = id_from_mod_name(module_graph, pkg2);
         if let (Some(id1), Some(id2)) = (id1, id2) {
             assert!(
-                !result.graph().contains_edge(id1, id2),
+                !module_graph.graph().contains_edge(id1, id2),
                 "{pkg1} depends on {pkg2}"
             );
         } else {
@@ -771,6 +738,7 @@ mod test {
             module.name.parse().unwrap(),
             module.version.clone().unwrap(),
         )
+        .unwrap()
     }
 
     fn create_mock_workspace_source(module: &MoonMod, path: &str) -> ModuleSource {
@@ -779,6 +747,7 @@ mod test {
             PathBuf::from(path),
             module.version.clone().unwrap(),
         )
+        .unwrap()
     }
 
     fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> ResolvedRootModules {
@@ -799,17 +768,37 @@ mod test {
     }
 
     #[test]
+    fn major_version_suffixes_are_checked_in_transitive_requirements() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("a/b/v2", "1.5.0", [])
+            .add_module_full("dep/middle", "1.0.0", [("a/b/v2", "1.5.0")]);
+        let root = create_mock_module("test/app", "1.0.0", [("dep/middle", "1.0.0")]);
+        let mut context = ModuleResolutionContext::new(&registry);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(!resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+        assert!(
+            ModuleResolutionErrors(context.into_errors())
+                .to_string()
+                .contains("module `a/b/v2` requires major version 2, but got 1.5.0")
+        );
+    }
+
+    #[test]
     fn test_basic_resolve() {
         let registry = create_mock_registry();
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.1");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.1");
     }
 
     #[test]
@@ -818,35 +807,22 @@ mod test {
         registry.add_module_full("dep/bin", "0.1.0", []);
 
         let mut dep = create_mock_module("dep/regular", "0.1.0", []);
-        dep.bin_deps = Some(
-            [(
-                "dep/bin".to_string(),
-                moonutil::dependency::BinaryDependencyInfo {
-                    common: moonutil::dependency::SourceDependencyInfo::Simple(
-                        "0.1.0".parse().unwrap(),
-                    ),
-                    ..Default::default()
-                },
-            )]
-            .into_iter()
-            .collect(),
-        );
+        dep.ext = serde_json_lenient::json!({"bin-deps": {"dep/bin": "0.1.0"}});
         registry.add_module(dep);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/regular", "0.1.0")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/regular@0.1.0");
-        assert_no_depends_on(&result, "dep/regular@0.1.0", "dep/bin@0.1.0");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/bin@0.1.0");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/regular@0.1.0");
+        assert_no_depends_on(&module_graph, "dep/regular@0.1.0", "dep/bin@0.1.0");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/bin@0.1.0");
         assert!(
-            id_from_mod_name(&result, &"dep/bin@0.1.0".parse().unwrap()).is_none(),
+            id_from_mod_name(&module_graph, &"dep/bin@0.1.0".parse().unwrap()).is_none(),
             "transitive bin-dep should not be resolved at all"
         );
     }
@@ -854,7 +830,7 @@ mod test {
     #[test]
     fn test_dependency_should_be_max_among_requested_version() {
         let registry = create_mock_registry();
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module(
             "root/module",
@@ -862,22 +838,21 @@ mod test {
             [("dep/one", "0.1.1"), ("dep/two", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
         // dep/two depend on dep/one@0.1.3, so the result
         // should be dep/one@0.1.3 instead of 0.1.1
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.3");
-        assert_depends_on(&result, "root/module@0.1.0", "dep/two@0.1.1");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.1")
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.3");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/two@0.1.1");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.1")
     }
 
     #[test]
     fn test_incompatible_versions() {
         let registry = create_mock_registry();
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module(
             "root/module",
@@ -885,23 +860,22 @@ mod test {
             [("dep/one", "0.2.1"), ("dep/two", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
         // For versions below 2.0.0, MVS treats them as one compatible set and picks
         // the largest selected version in that set.
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.1");
-        assert_depends_on(&result, "dep/two@0.1.1", "dep/one@0.2.1");
-        assert_no_depends_on(&result, "dep/two@0.1.1", "dep/one@0.1.3");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.2.1");
+        assert_depends_on(&module_graph, "dep/two@0.1.1", "dep/one@0.2.1");
+        assert_no_depends_on(&module_graph, "dep/two@0.1.1", "dep/one@0.1.3");
     }
 
     #[test]
     fn test_nonexistent_modules() {
         let registry = create_mock_registry();
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module(
             "root/module",
@@ -909,44 +883,175 @@ mod test {
             [("dep/one", "0.1.1"), ("dep/nonexistant", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let mut res_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut res_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(!status);
     }
 
     #[test]
     fn test_transitive_dependencies() {
         let registry = create_mock_registry();
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/three", "0.2.0")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/three@0.2.0");
-        assert_depends_on(&result, "dep/two@0.2.0", "dep/one@0.2.0");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.0");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/two@0.2.0");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/three@0.2.0");
+        assert_depends_on(&module_graph, "dep/two@0.2.0", "dep/one@0.2.0");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.2.0");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/two@0.2.0");
     }
 
     #[test]
-    fn test_pre_v2_req_uses_lower_bound_semantics() {
+    fn test_missing_requested_registry_version_is_not_substituted() {
+        for (dependency, required, available) in [
+            ("dep/one", "0.1.1", "0.2.0"),
+            ("dep/one", "1.2.5", "1.3.0"),
+            ("dep/one/v2", "2.1.0", "2.2.0"),
+            ("dep/one", "1.2.0-rc.1", "1.2.0"),
+        ] {
+            let mut registry = MockRegistry::new();
+            registry.add_module_full(dependency, available, []);
+
+            let mut context = ModuleResolutionContext::new(&registry);
+            let mut resolver = MvsSolver;
+            let root = create_mock_module("root/module", "0.1.0", [(dependency, required)]);
+            let roots = create_mock_root(root);
+            let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+            let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
+            assert!(
+                !status,
+                "missing {dependency}@{required} must not select {available}"
+            );
+
+            let errors = context.into_errors();
+            assert_eq!(errors.len(), 1);
+            assert_eq!(
+                errors[0].to_string(),
+                format!(
+                    "Failed to resolve registry dependency `{dependency}` for module `root/module`: version `{required}` was not found in the registry"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn test_missing_transitive_version_is_not_hidden_by_a_higher_requirement() {
         let mut registry = MockRegistry::new();
-        registry.add_module_full("dep/one", "0.2.0", []);
+        registry
+            .add_module_full("dep/one", "1.3.0", [])
+            .add_module_full("dep/two", "1.0.0", [("dep/one", "1.2.5")]);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
-        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/one", "1.3.0"), ("dep/two", "1.0.0")],
+        );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
-        assert!(status, "Resolve failed");
-        let result = result_env;
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
+        assert!(
+            !status,
+            "dep/two's missing requirement must still be checked"
+        );
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.0");
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to resolve registry dependency `dep/one` for module `dep/two`: version `1.2.5` was not found in the registry"#]]
+            .assert_eq(&errors[0].to_string());
+    }
+
+    #[test]
+    fn test_registry_read_failure_preserves_its_cause() {
+        struct UnreadableRegistry;
+
+        impl Registry for UnreadableRegistry {
+            fn version_info(
+                &self,
+                _name: &ModuleName,
+                _version: &Version,
+            ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+                Err(anyhow::Error::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "permission denied by registry fixture",
+                ))
+                .context("could not read registry metadata"))
+            }
+
+            fn cached_latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
+            }
+
+            fn query_latest_version(
+                &self,
+                _name: &ModuleName,
+                _user_log: &UserLog,
+            ) -> anyhow::Result<Version> {
+                unreachable!("MVS only queries exact versions")
+            }
+        }
+
+        let mut context = ModuleResolutionContext::new(&UnreadableRegistry);
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(!resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to read registry dependency `dep/one@1.2.3` for module `root/module`: could not read registry metadata: permission denied by registry fixture"#]]
+            .assert_eq(&errors[0].to_string());
+        let source =
+            std::error::Error::source(&errors[0]).expect("registry error must retain its cause");
+        assert_eq!(source.to_string(), "could not read registry metadata");
+    }
+
+    #[test]
+    fn test_graph_construction_reuses_loaded_metadata() {
+        struct SingleReadRegistry(Cell<bool>);
+
+        impl Registry for SingleReadRegistry {
+            fn version_info(
+                &self,
+                _name: &ModuleName,
+                version: &Version,
+            ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+                anyhow::ensure!(!self.0.replace(true), "registry metadata was read again");
+                assert_eq!(version, &Version::new(1, 2, 3));
+                Ok(Some(RegistryVersionInfo::default()))
+            }
+
+            fn cached_latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
+            }
+
+            fn query_latest_version(
+                &self,
+                _name: &ModuleName,
+                _user_log: &UserLog,
+            ) -> anyhow::Result<Version> {
+                unreachable!("MVS only queries exact versions")
+            }
+        }
+
+        let registry = SingleReadRegistry(Cell::new(false));
+        let mut context = ModuleResolutionContext::new(&registry);
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
+        assert!(resolve_silently(
+            &mut MvsSolver,
+            &mut context,
+            &mut module_graph
+        ));
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@1.2.3");
     }
 
     #[test]
@@ -957,7 +1062,7 @@ mod test {
             .add_module_full("dep/one", "1.2.0", [])
             .add_module_full("dep/two", "0.1.0", [("dep/one", "1.2.0")]);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module(
             "root/module",
@@ -965,14 +1070,13 @@ mod test {
             [("dep/one", "0.9.0"), ("dep/two", "0.1.0")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@1.2.0");
-        assert_depends_on(&result, "dep/two@0.1.0", "dep/one@1.2.0");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.9.0");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@1.2.0");
+        assert_depends_on(&module_graph, "dep/two@0.1.0", "dep/one@1.2.0");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.9.0");
     }
 
     #[test]
@@ -984,7 +1088,7 @@ mod test {
             .add_module_full("dep/alpha", "0.1.0", [("dep/one", "1.9.0")])
             .add_module_full("dep/beta", "0.1.0", [("dep/one", "2.0.0")]);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module(
             "root/module",
@@ -992,15 +1096,14 @@ mod test {
             [("dep/alpha", "0.1.0"), ("dep/beta", "0.1.0")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        assert_depends_on(&result, "dep/alpha@0.1.0", "dep/one@1.9.0");
-        assert_depends_on(&result, "dep/beta@0.1.0", "dep/one@2.0.0");
-        assert_no_depends_on(&result, "dep/alpha@0.1.0", "dep/one@2.0.0");
-        assert_no_depends_on(&result, "dep/beta@0.1.0", "dep/one@1.9.0");
+        assert_depends_on(&module_graph, "dep/alpha@0.1.0", "dep/one@1.9.0");
+        assert_depends_on(&module_graph, "dep/beta@0.1.0", "dep/one@2.0.0");
+        assert_no_depends_on(&module_graph, "dep/alpha@0.1.0", "dep/one@2.0.0");
+        assert_no_depends_on(&module_graph, "dep/beta@0.1.0", "dep/one@1.9.0");
     }
 
     #[test]
@@ -1010,17 +1113,16 @@ mod test {
             .add_module_full("dep/one", "0.1.0-rc.1", [])
             .add_module_full("dep/one", "0.1.0", []);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.0")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.0");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
     }
 
     #[test]
@@ -1030,17 +1132,16 @@ mod test {
             .add_module_full("dep/one", "0.1.0-rc.1", [])
             .add_module_full("dep/one", "0.1.0", []);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.0-rc.1")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
 
-        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
-        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0");
+        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
+        assert_no_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.0");
     }
 
     #[test]
@@ -1052,7 +1153,7 @@ mod test {
             .add_module_full("dep/a", "0.1.0", [("dep/one", "1.0.0")])
             .add_module_full("dep/b", "0.1.0", [("dep/one", "1.1.0-rc.1")]);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module(
             "root/module",
@@ -1060,18 +1161,17 @@ mod test {
             [("dep/a", "0.1.0"), ("dep/b", "0.1.0")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(
             status,
             "Resolve failed unexpectedly, errors: {}",
-            ResolverErrors(env.into_errors())
+            ModuleResolutionErrors(context.into_errors())
         );
-        let result = result_env;
 
-        assert_depends_on(&result, "dep/a@0.1.0", "dep/one@1.1.0-rc.1");
-        assert_depends_on(&result, "dep/b@0.1.0", "dep/one@1.1.0-rc.1");
-        assert_no_depends_on(&result, "dep/a@0.1.0", "dep/one@1.0.0");
+        assert_depends_on(&module_graph, "dep/a@0.1.0", "dep/one@1.1.0-rc.1");
+        assert_depends_on(&module_graph, "dep/b@0.1.0", "dep/one@1.1.0-rc.1");
+        assert_no_depends_on(&module_graph, "dep/a@0.1.0", "dep/one@1.0.0");
     }
 
     #[test]
@@ -1081,7 +1181,7 @@ mod test {
             .add_module_full("dep/shared", "0.2.0", [])
             .add_module_full("dep/consumer", "0.1.0", [("dep/shared", "0.2.0")]);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let app = Arc::new(create_mock_module(
             "workspace/app",
@@ -1093,16 +1193,23 @@ mod test {
             ("/workspace/app", Arc::clone(&app)),
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
 
-        assert_depends_on_source(&result, &app_src, &"dep/consumer@0.1.0".parse().unwrap());
-        assert_depends_on_source(&result, &"dep/consumer@0.1.0".parse().unwrap(), &shared_src);
-        assert_no_depends_on(&result, "dep/consumer@0.1.0", "dep/shared@0.2.0");
+        assert_depends_on_source(
+            &module_graph,
+            &app_src,
+            &"dep/consumer@0.1.0".parse().unwrap(),
+        );
+        assert_depends_on_source(
+            &module_graph,
+            &"dep/consumer@0.1.0".parse().unwrap(),
+            &shared_src,
+        );
+        assert_no_depends_on(&module_graph, "dep/consumer@0.1.0", "dep/shared@0.2.0");
     }
 
     #[test]
@@ -1110,7 +1217,7 @@ mod test {
         let mut registry = MockRegistry::new();
         registry.add_module_full("dep/shared", "0.2.0", []);
 
-        let mut env = ResolverEnv::new(&registry);
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
         let app = Arc::new(create_mock_module(
             "workspace/app",
@@ -1122,15 +1229,50 @@ mod test {
             ("/workspace/app", Arc::clone(&app)),
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
-        let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
-        let result = result_env;
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
 
-        assert_depends_on_source(&result, &app_src, &shared_src);
-        assert_no_depends_on_source(&result, &app_src, &"dep/shared@0.2.0".parse().unwrap());
+        assert_depends_on_source(&module_graph, &app_src, &shared_src);
+        assert_no_depends_on_source(
+            &module_graph,
+            &app_src,
+            &"dep/shared@0.2.0".parse().unwrap(),
+        );
+    }
+
+    #[test]
+    fn test_workspace_roots_are_not_reprocessed() {
+        let registry = MockRegistry::new();
+        let mut context = ModuleResolutionContext::new(&registry);
+        let mut resolver = MvsSolver;
+        let app = Arc::new(create_mock_module(
+            "workspace/app",
+            "0.1.0",
+            [("workspace/lib", "0.2.0")],
+        ));
+        let lib = Arc::new(create_mock_module(
+            "workspace/lib",
+            "0.1.0",
+            [("workspace/app", "0.2.0")],
+        ));
+        let roots = create_mock_workspace_roots([
+            ("/workspace/app", Arc::clone(&app)),
+            ("/workspace/lib", Arc::clone(&lib)),
+        ]);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+        let status = resolver.resolve(&mut context, &mut module_graph, &user_log);
+
+        assert!(status, "Resolve failed");
+        assert_eq!(
+            capture.take().len(),
+            2,
+            "each incompatible workspace dependency should warn exactly once",
+        );
     }
 
     #[test]
@@ -1172,14 +1314,14 @@ mod test {
 
     fn resolve(registry: &dyn Registry, root: Arc<MoonMod>) -> Vec<ModuleSource> {
         let mut resolver = MvsSolver;
-        let mut env = ResolverEnv::new(registry);
+        let mut context = ModuleResolutionContext::new(registry);
         let roots = create_mock_root(root);
-        let mut res_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut res_env);
+        let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
+        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         if status {
-            res_env.all_modules().cloned().collect::<Vec<_>>()
+            module_graph.all_modules().cloned().collect::<Vec<_>>()
         } else {
-            println!("Errors: {}", ResolverErrors(env.into_errors()));
+            println!("Errors: {}", ModuleResolutionErrors(context.into_errors()));
             vec![]
         }
     }

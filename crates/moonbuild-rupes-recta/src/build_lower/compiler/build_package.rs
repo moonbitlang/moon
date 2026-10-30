@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -52,6 +52,10 @@ pub(crate) struct MooncBuildPackage<'a> {
 
     pub flags: CompilationFlags,
 
+    /// Whether `moonc build-package` should accept the inline import
+    /// declaration of an already-resolved `.mbtx` single-file input.
+    pub ignore_import_declaration: bool,
+
     /// Extra build options to append at the end.
     pub extra_build_opts: &'a [String],
 }
@@ -63,31 +67,31 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         // Error format
         self.defaults.add_error_format(args);
 
-        // Warning and alert handling
-        self.defaults.add_deny_all(args);
-
         // Input files
         self.required.add_mbt_sources(args);
         // Additional inputs in stable ordering
         self.required.add_doctest_only_sources(args);
 
-        // Custom warning list
-        self.defaults.add_custom_warn_list(args);
+        if self.ignore_import_declaration {
+            args.push("-ignore-import-declaration".to_string());
+        }
 
-        // Third-party package handling (allow all)
-        self.defaults.add_warn_alert_allow_all(args);
+        // Warning selection and deny handling
+        self.defaults.add_warning_options(args);
 
         // Output
-        args.extend(["-o".to_string(), self.core_out.display().to_string()]);
+        args.extend([
+            "-o".to_string(),
+            dunce::simplified(&self.core_out).display().to_string(),
+        ]);
 
         // Package configuration
         self.required.add_package_config(args);
 
         // is-main (no condition)
-        self.defaults.add_is_main(args);
+        self.defaults.add_pkgtype(args);
 
-        // Standard library
-        self.defaults.add_stdlib_path(args);
+        self.defaults.add_use_async_io(args);
 
         // MI dependencies
         self.required.add_mi_dependencies(args);
@@ -104,6 +108,9 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         }
         if self.flags.no_opt {
             args.push("-O0".to_string());
+        }
+        if self.flags.stacktrace {
+            args.push("-stacktrace".to_string());
         }
 
         // Additional compilation flags

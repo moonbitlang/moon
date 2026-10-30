@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -43,6 +43,10 @@ pub(crate) struct MooncCheck<'a> {
     /// Whether to enable single file mode.
     pub single_file: bool,
 
+    /// Whether `moonc check` should accept the inline import declaration of an
+    /// already-resolved `.mbtx` single-file input.
+    pub ignore_import_declaration: bool,
+
     /// Extra flags to append at the end.
     pub extra_flags: &'a [String],
 }
@@ -60,40 +64,42 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
         // Error format
         self.defaults.add_error_format(args);
 
-        // Warning and alert handling (deny all combined)
-        self.defaults.add_deny_all(args);
-
         // MBT source files
         self.required.add_mbt_sources(args);
 
         // Doctest-only MBT files
         self.required.add_doctest_only_sources(args);
 
+        if self.ignore_import_declaration {
+            args.push("-ignore-import-declaration".to_string());
+        }
+
         // Include doctests for blackbox
         self.required.add_include_doctests_if_blackbox(args);
 
-        // Custom warning list
-        self.defaults.add_custom_warn_list(args);
-        self.defaults.add_warn_alert_allow_all(args);
+        // Warning selection and deny handling
+        self.defaults.add_warning_options(args);
 
         // Output
         if !self.defaults.no_mi {
-            args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
+            args.extend([
+                "-o".to_string(),
+                dunce::simplified(&self.mi_out).display().to_string(),
+            ]);
         }
 
         // Package configuration
         self.required.add_package_config(args);
 
         // is-main
-        self.defaults.add_is_main(args);
+        self.defaults.add_pkgtype(args);
+
+        self.defaults.add_use_async_io(args);
 
         // Single file mode
         if self.single_file {
             args.push("-single-file".to_string());
         }
-
-        // Standard library
-        self.defaults.add_stdlib_path(args);
 
         // MI dependencies
         self.required.add_mi_dependencies(args);

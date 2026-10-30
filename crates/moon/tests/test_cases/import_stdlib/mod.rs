@@ -30,12 +30,20 @@ fn test_import_stdlib() {
 fn test_import_stdlib_dry_run() {
     let dir = TestDir::new("import_stdlib/import_stdlib.in");
 
-    assert_dry_run_graph(&dir, ["check", "--dry-run"], expect_file!["./check_graph.jsonl.snap"]);
-    assert_dry_run_graph(&dir, ["build", "--dry-run"], expect_file!["./build_graph.jsonl.snap"]);
-    assert_dry_run_graph(&dir, ["test", "--dry-run"], expect_file!["./test_graph.jsonl.snap"]);
-    assert_dry_run_graph(
-        &dir,
-        ["run", "cmd/main", "--dry-run"],
+    build_graph::assert(
+        moon_cmd(&dir).args(["check", "--dry-run"]),
+        expect_file!["./check_graph.jsonl.snap"],
+    );
+    build_graph::assert(
+        moon_cmd(&dir).args(["build", "--dry-run"]),
+        expect_file!["./build_graph.jsonl.snap"],
+    );
+    build_graph::assert(
+        moon_cmd(&dir).args(["test", "--dry-run"]),
+        expect_file!["./test_graph.jsonl.snap"],
+    );
+    build_graph::assert(
+        moon_cmd(&dir).args(["run", "cmd/main", "--dry-run"]),
         expect_file!["./run_graph.jsonl.snap"],
     );
 }

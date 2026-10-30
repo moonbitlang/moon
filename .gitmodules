@@ -2,3 +2,6 @@
 	path = crates/moonutil/resources/error_codes
 	url = https://github.com/moonbitlang/moonbit-docs.git
 	branch = markdown-build
+[submodule "third_party/moonbitlang_async"]
+	path = third_party/moonbitlang_async
+	url = https://github.com/moonbitlang/async.git

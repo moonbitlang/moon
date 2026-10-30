@@ -5,12 +5,12 @@ fn test_run_md_test() {
     let dir = TestDir::new("run_md_test.in");
 
     check(
-        get_stderr(&dir, ["check", "--sort-input"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Warning: [0002]
-                ╭─[ $ROOT/src/lib/1.mbt.md:39:9 ]
+                ╭─[ $ROOT/src/lib/1.mbt.md:44:9 ]
                 │
-             39 │     let a = 1
+             44 │     let a = 1
                 │         ┬  
                 │         ╰── Warning (unused_value): Unused variable 'a'
             ────╯
@@ -39,15 +39,15 @@ fn test_run_md_test() {
             +inspect in bbtest
             ----
 
-            [username/hello] test lib/1.mbt.md:26 (#2) failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:41:5-41:20
+            [username/hello] test lib/1.mbt.md:31 (#2) failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:46:5-46:20
             Diff: (- expected, + actual)
             ----
             +4234
             ----
 
-            [username/hello] test lib/1.mbt.md:49 (#3) failed
-            expect test failed at $ROOT/src/lib/1.mbt.md:58:5-58:15
+            [username/hello] test lib/1.mbt.md:56 (#3) failed
+            expect test failed at $ROOT/src/lib/1.mbt.md:65:5-65:15
             Diff: (- expected, + actual)
             ----
             + all
@@ -67,6 +67,8 @@ fn test_run_md_test() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "--sort-input",
                 "-p",
                 "lib",
@@ -82,10 +84,13 @@ fn test_run_md_test() {
         "#]],
     );
 
-    let _ = get_stdout(&dir, ["test", "--update", "--sort-input"]);
+    let _ = get_stdout(
+        &dir,
+        ["test", "--target", "wasm-gc", "--update", "--sort-input"],
+    );
 
     check(
-        get_stdout(&dir, ["test", "--sort-input"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
             fn in md test
@@ -104,8 +109,8 @@ fn test_run_md_test() {
 
     #[cfg(unix)]
     {
-        get_stdout(&dir, ["check", "--sort-input"]);
-        let p = dir.join("_build/packages.json");
+        get_stdout(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
+        let p = scoped_packages_json_path(&dir, "wasm-gc", "debug");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),
             expect![[r#"
@@ -180,6 +185,11 @@ fn test_run_md_test() {
                       },
                       "deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
@@ -187,12 +197,22 @@ fn test_run_md_test() {
                       ],
                       "wbtest-deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
                         }
                       ],
                       "test-deps": [
+                        {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
                         {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
@@ -209,8 +229,10 @@ fn test_run_md_test() {
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi",
                         "-pkg",
                         "username/hello/lib",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "library",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -237,10 +259,12 @@ fn test_run_md_test() {
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi",
                         "-pkg",
                         "username/hello/lib_blackbox_test",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "library",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi:lib",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -287,6 +311,11 @@ fn test_run_md_test() {
                       "mbt-md-files": {},
                       "deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
@@ -299,12 +328,22 @@ fn test_run_md_test() {
                       ],
                       "wbtest-deps": [
                         {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
+                        {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
                           "fspath": "$MOON_HOME/lib/core/prelude"
                         }
                       ],
                       "test-deps": [
+                        {
+                          "path": "moonbitlang/core/builtin",
+                          "alias": "moonbitlang/core/builtin",
+                          "fspath": "$MOON_HOME/lib/core/builtin"
+                        },
                         {
                           "path": "moonbitlang/core/prelude",
                           "alias": "prelude",
@@ -321,11 +360,12 @@ fn test_run_md_test() {
                         "$ROOT/_build/wasm-gc/debug/check/main/main.mi",
                         "-pkg",
                         "username/hello/main",
-                        "-is-main",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "executable",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi:lib",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",
@@ -349,12 +389,14 @@ fn test_run_md_test() {
                         "$ROOT/_build/wasm-gc/debug/check/main/main.blackbox_test.mi",
                         "-pkg",
                         "username/hello/main_blackbox_test",
-                        "-std-path",
-                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle",
+                        "-pkg-type",
+                        "library",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi:lib",
                         "-i",
                         "$ROOT/_build/wasm-gc/debug/check/main/main.mi:main",
+                        "-i",
+                        "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
                         "-i",
                         "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
                         "-pkg-sources",

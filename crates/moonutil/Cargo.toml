@@ -1,18 +1,18 @@
 # moon: The build system and package manager for MoonBit.
-# Copyright (C) 2024 International Digital Economy Academy
+# Copyright (C) 2026 International Digital Economy Academy
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,11 +20,14 @@
 name = "moonutil"
 version = "0.1.0"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anstream.workspace = true
+anstyle.workspace = true
 arcstr.workspace = true
 home.workspace = true
 anyhow.workspace = true
@@ -32,13 +35,10 @@ colored.workspace = true
 indexmap.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json_lenient.workspace = true
-walkdir.workspace = true
 clap.workspace = true
 dialoguer.workspace = true
 dunce.workspace = true
-bincode.workspace = true
 semver.workspace = true
-fs4.workspace = true
 petgraph.workspace = true
 ariadne.workspace = true
 log.workspace = true
@@ -48,24 +48,26 @@ line-index.workspace = true
 nucleo-matcher.workspace = true
 which.workspace = true
 regex.workspace = true
+relative-path.workspace = true
 derive_builder.workspace = true
-pulldown-cmark.workspace = true
 serde_yaml.workspace = true
 slotmap.workspace = true
-tracing.workspace = true
 shlex.workspace = true
-logos = "0.15.1"
-globset = "0.4"
+logos.workspace = true
+globset.workspace = true
+tempfile.workspace = true
+url.workspace = true
+
+[target."cfg(windows)".dependencies]
+find-msvc-tools.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_Shell"] }
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
-
-[target."cfg(windows)".dependencies]
-junction = "1"
 
 [dev-dependencies]
 expect-test.workspace = true
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
+vergen.workspace = true
 chrono.workspace = true

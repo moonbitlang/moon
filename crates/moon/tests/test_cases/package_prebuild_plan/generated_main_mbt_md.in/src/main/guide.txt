@@ -1,0 +1,5 @@
+# Generated guide
+
+```mbt test
+inspect(1, content="1")
+```

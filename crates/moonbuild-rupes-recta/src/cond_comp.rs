@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -21,51 +21,21 @@
 use std::path::Path;
 
 use moonutil::{
-    common::{DOT_MBT_DOT_MD, TargetBackend},
     cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel},
+    constants::DOT_MBT_DOT_MD,
     package::MoonPkg,
+    target::TargetBackend,
 };
 
-use crate::model;
-
-/// Which kind of test (if any) are we compiling the current package for.
-#[derive(Clone, Copy)]
-pub enum TestKind {
-    Inline,
-    Whitebox,
-    Blackbox,
-}
-
-impl From<model::TargetKind> for Option<TestKind> {
-    fn from(value: model::TargetKind) -> Self {
-        match value {
-            model::TargetKind::Source => None,
-            model::TargetKind::WhiteboxTest => Some(TestKind::Whitebox),
-            model::TargetKind::BlackboxTest => Some(TestKind::Blackbox),
-            model::TargetKind::InlineTest => Some(TestKind::Inline),
-            model::TargetKind::SubPackage => None,
-        }
-    }
-}
-
-/// A collection of conditions that affect compilation behavior.
-pub(crate) struct CompileCondition {
-    pub optlevel: OptLevel,
-    pub test_kind: Option<TestKind>,
-    pub backend: TargetBackend,
-}
-
-/// Get the list of files that should get included in the compile list under
-/// the given condition.
-///
-/// Note: `pkg_file_path` is purely for error reporting, as required by
-/// [`moonutil::cond_expr::parse_cond_expr`].
-pub(crate) fn filter_files<'a, P: AsRef<Path> + 'a>(
+/// Classify files that are available for the current backend and optimization
+/// level, without projecting them into a specific target kind.
+pub(crate) fn classify_files<'a, P: AsRef<Path> + 'a>(
     pkg: &'a MoonPkg,
     files: impl Iterator<Item = P> + 'a,
-    cond: &'a CompileCondition,
+    optlevel: OptLevel,
+    backend: TargetBackend,
 ) -> impl Iterator<Item = (P, FileTestKind)> + 'a {
-    files.filter_map(|file| {
+    files.filter_map(move |file| {
         let filename = file
             .as_ref()
             .file_name()
@@ -77,11 +47,14 @@ pub(crate) fn filter_files<'a, P: AsRef<Path> + 'a>(
             .as_ref()
             .and_then(|targets| targets.get(&*str_filename))
         {
-            // We have a condition for this file
-            should_compile_using_pkg_cond_expr(&str_filename, expect_cond, cond)
+            should_compile_using_pkg_cond_expr_without_test_kind(
+                &str_filename,
+                expect_cond,
+                optlevel,
+                backend,
+            )
         } else {
-            // We don't, evaluate file name
-            should_compile_using_filename(&str_filename, cond)
+            should_compile_using_filename_without_test_kind(&str_filename, backend)
         };
 
         should_include.map(|kind| (file, kind))
@@ -121,7 +94,13 @@ pub(crate) fn file_metadatas<'a>(
         } else {
             let (backend, remaining) = get_file_target_backend(without_mbt);
             let cond = MetadataCompileCondition {
-                backend: backend.map_or_else(|| TargetBackend::all().into(), |x| vec![x]),
+                backend: TargetBackend::all()
+                    .iter()
+                    .copied()
+                    .filter(|actual| {
+                        backend.is_none_or(|target| actual.matches_file_target(target))
+                    })
+                    .collect(),
                 optlevel: OptLevel::all().to_vec(),
             };
             (cond, remaining)
@@ -132,17 +111,16 @@ pub(crate) fn file_metadatas<'a>(
     })
 }
 
-fn should_compile_using_pkg_cond_expr(
+fn should_compile_using_pkg_cond_expr_without_test_kind(
     name: &str,
     cond_expr: &CondExpr,
-    actual: &CompileCondition,
+    optlevel: OptLevel,
+    backend: TargetBackend,
 ) -> Option<FileTestKind> {
-    if !cond_expr.eval(actual.optlevel, actual.backend) {
-        None // Fails the condition in pkg.json
+    if !cond_expr.eval(optlevel, backend) {
+        None
     } else if let Some(stripped) = name.strip_suffix(".mbt") {
-        let spec = get_file_test_kind(stripped);
-        let include = check_test_suffix(spec, actual.test_kind);
-        if include { Some(spec) } else { None }
+        Some(get_file_test_kind(stripped))
     } else {
         panic!("File name '{}' does not end with '.mbt'", name);
     }
@@ -160,9 +138,10 @@ pub fn get_file_target_backend(stripped_filename: &str) -> (Option<TargetBackend
     }
 }
 
-/// Check the file name to determine if it should be included. If true,
-/// returns `Some(file_test_kind)`, otherwise `None`.
-fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Option<FileTestKind> {
+fn should_compile_using_filename_without_test_kind(
+    name: &str,
+    actual_backend: TargetBackend,
+) -> Option<FileTestKind> {
     let filename = if let Some(mbt_stripped) = name.strip_suffix(".mbt") {
         mbt_stripped
     } else if let Some(mbt_md_stripped) = name.strip_suffix(DOT_MBT_DOT_MD) {
@@ -171,17 +150,14 @@ fn should_compile_using_filename(name: &str, actual: &CompileCondition) -> Optio
         panic!("File name '{}' does not end with '.mbt' or '.mbt.md'", name);
     };
 
-    // Target backend checking -- check the suffix of the file name
     let (backend, remaining) = get_file_target_backend(filename);
     if let Some(backend) = backend
-        && backend != actual.backend
+        && !actual_backend.matches_file_target(backend)
     {
-        return None; // Wrong backend, returning
+        return None;
     }
 
-    let spec = get_file_test_kind(remaining);
-    let include = check_test_suffix(spec, actual.test_kind);
-    if include { Some(spec) } else { None }
+    Some(get_file_test_kind(remaining))
 }
 
 /// Get the test kind of the file by checking its suffix, and also handles if
@@ -210,27 +186,53 @@ pub fn get_file_test_kind(stripped_name: &str) -> FileTestKind {
     }
 }
 
-/// Check the suffix of the stripped filename against the actual test condition
-fn check_test_suffix(file_test_spec: FileTestKind, test_kind: Option<TestKind>) -> bool {
-    use FileTestKind::*;
-
-    // White box tests are implemented with compiling with source code, and
-    // black box tests are implemented without
-    #[allow(clippy::match_like_matches_macro)] // This is more readable
-    match (test_kind, file_test_spec) {
-        (None, NoTest) => true,
-        (Some(TestKind::Inline), NoTest) => true,
-        (Some(TestKind::Whitebox), NoTest | Whitebox) => true,
-        // Black box tests return no test files for doctest compilation
-        (Some(TestKind::Blackbox), NoTest | Blackbox) => true,
-        _ => false,
-    }
-}
-
 /// Which kind of test does this file represent
 #[derive(Debug, Clone, Copy)]
 pub enum FileTestKind {
     NoTest,
     Whitebox,
     Blackbox,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moonutil::{moon_pkg, package::convert_pkg_dsl_to_package, user_log::UserLog};
+
+    #[test]
+    fn native_filenames_match_llvm_in_selection_and_metadata() {
+        use TargetBackend::{Js, LLVM, Native};
+
+        let pkg = convert_pkg_dsl_to_package(
+            moon_pkg::parse("").expect("empty package should parse"),
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .expect("empty package should convert");
+
+        for (filename, expected_backends) in [
+            ("lib.native.mbt", vec![Native, LLVM]),
+            ("lib_test.native.mbt", vec![Native, LLVM]),
+            ("lib_wbtest.native.mbt", vec![Native, LLVM]),
+            ("lib.llvm.mbt", vec![LLVM]),
+            ("lib_test.llvm.mbt", vec![LLVM]),
+            ("lib_wbtest.llvm.mbt", vec![LLVM]),
+            ("lib.js.mbt", vec![Js]),
+        ] {
+            let path = Path::new(filename);
+            let (_, _, metadata) = file_metadatas(&pkg, std::iter::once(path))
+                .next()
+                .expect("file should have metadata");
+            assert_eq!(metadata.backend, expected_backends, "{filename}");
+
+            for &optlevel in OptLevel::all() {
+                for &backend in TargetBackend::all() {
+                    let selected =
+                        classify_files(&pkg, std::iter::once(path), optlevel, backend).next();
+                    let expected = expected_backends.contains(&backend);
+                    assert_eq!(selected.is_some(), expected, "{filename}: {backend}");
+                    assert_eq!(metadata.eval(optlevel, backend), expected);
+                }
+            }
+        }
+    }
 }

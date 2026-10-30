@@ -1,0 +1,113 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Set up Why3
+description: Install the locked OCaml/Why3 toolchain and reuse its complete opam switch.
+runs:
+  using: composite
+  steps:
+    - name: Configure Why3 toolchain
+      id: why3-toolchain
+      shell: bash
+      env:
+        OCAML_VERSION: "4.14.2"
+        WHY3_C_STANDARD: gnu17
+      run: |
+        # Match setup-ocaml's OS-release boundary; image revisions also change
+        # when unrelated preinstalled tools are updated.
+        case "$RUNNER_OS" in
+          Linux)
+            os_release=$(
+              # shellcheck source=/dev/null
+              . /etc/os-release
+              # Ubuntu's VERSION includes the point release, unlike VERSION_ID.
+              printf '%s' "${VERSION%% (*}"
+            )
+            ;;
+          macOS)
+            os_release=$(sw_vers | awk '
+              /^ProductVersion:/ { version = $2 }
+              /^ProductVersionExtra:/ { extra = " " $2 }
+              END { print version extra }
+            ')
+            ;;
+          *)
+            echo "::error::Unsupported Why3 runner OS: ${RUNNER_OS}"
+            exit 1
+            ;;
+        esac
+        {
+          echo "key=why3-v3-${RUNNER_OS}-${RUNNER_ARCH}-${os_release:?}-ocaml-${OCAML_VERSION}-${WHY3_C_STANDARD}"
+          echo "ocaml-compiler=${OCAML_VERSION}"
+          echo "cc=cc -std=${WHY3_C_STANDARD}"
+        } >> "$GITHUB_OUTPUT"
+
+    # Restore before setup-ocaml so it reuses the compiler and Why3. The lock
+    # file keeps fresh installs and cache hits on the same dependency versions.
+    - name: Restore Why3 switch
+      id: why3-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: _opam
+        key: ${{ steps.why3-toolchain.outputs.key }}-${{ hashFiles('.github/why3-toolchain.opam', '.github/why3-toolchain.opam.locked') }}
+
+    - name: Setup opam
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: ${{ steps.why3-toolchain.outputs.ocaml-compiler }}
+        cache: false
+
+    - name: Install Why3
+      shell: bash
+      env:
+        # Why3 1.7.2's C helpers are incompatible with GCC 15's default C23 mode.
+        CC: ${{ steps.why3-toolchain.outputs.cc }}
+      run: |
+        opam install -y --deps-only --locked ./.github/why3-toolchain.opam
+        echo "WHY3DATA=$(opam exec -- why3 --print-datadir)" >> "$GITHUB_ENV"
+        echo "WHY3LIB=$(opam exec -- why3 --print-libdir)" >> "$GITHUB_ENV"
+        # Remove temporary build/source trees before caching the installed tools.
+        opam clean --switch-cleanup --yes
+
+    - name: Measure Why3 switch cache
+      if: steps.why3-cache.outputs.cache-hit != 'true'
+      id: why3-cache-size
+      shell: bash
+      env:
+        WHY3_CACHE_MAX_BYTES: "500000000"
+      run: |
+        # Measure a compressed archive on PRs too, without publishing PR caches.
+        # Keep each saved platform switch within a fixed storage budget.
+        bytes=$(tar -cf - _opam | zstd -T0 -3 -c | wc -c)
+        bytes=${bytes//[[:space:]]/}
+        echo "Compressed Why3 switch: ${bytes} bytes (budget: ${WHY3_CACHE_MAX_BYTES})"
+        echo "Why3 switch archive (${RUNNER_OS}/${RUNNER_ARCH}): ${bytes} bytes; budget: ${WHY3_CACHE_MAX_BYTES} bytes." >> "$GITHUB_STEP_SUMMARY"
+        if (( bytes <= WHY3_CACHE_MAX_BYTES )); then
+          echo "cacheable=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "cacheable=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Why3 switch exceeds its cache budget; skipping cache save."
+        fi
+
+    # Save immediately so a later build or test failure does not discard it.
+    - name: Save Why3 switch
+      if: github.ref == 'refs/heads/main' && steps.why3-cache.outputs.cache-hit != 'true' && steps.why3-cache-size.outputs.cacheable == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: _opam
+        key: ${{ steps.why3-cache.outputs.cache-primary-key }}

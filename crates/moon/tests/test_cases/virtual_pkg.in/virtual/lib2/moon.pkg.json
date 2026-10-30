@@ -1,6 +1,0 @@
-{
-  "implement": "username/hello/lib1",
-  "import": [
-    "username/hello/dummy_lib"
-  ]
-}

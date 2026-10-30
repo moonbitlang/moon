@@ -3,21 +3,29 @@ use super::*;
 #[test]
 fn test_tracing_value_for_test_block() {
     let dir = TestDir::new("tracing_value_for_test_block.in");
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "test",
+            "--target",
+            "wasm-gc",
             "--enable-value-tracing",
             "-p",
             "moon_new/lib1",
             "--dry-run",
-        ],
+        ]),
         expect_file!["test_graph.jsonl.snap"],
     );
 
     let content = get_stdout(
         &dir,
-        ["test", "-p", "moon_new/lib1", "--enable-value-tracing"],
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "-p",
+            "moon_new/lib1",
+            "--enable-value-tracing",
+        ],
     )
     .split("######MOONBIT_VALUE_TRACING_START######")
     .filter(|l| !(l.contains("__generated_driver_for")))
@@ -56,22 +64,32 @@ fn test_tracing_value_for_test_block() {
 fn test_tracing_value_for_main_func() {
     let dir = TestDir::new("tracing_value.in");
     // main.mbt in package
-    assert_dry_run_graph(
-        &dir,
-        [
+    build_graph::assert(
+        moon_cmd(&dir).args([
             "run",
+            "--target",
+            "wasm-gc",
             "./main/main.mbt",
             "--enable-value-tracing",
             "--dry-run",
-        ],
+        ]),
         expect_file!["run_graph.jsonl.snap"],
     );
 
-    let content = get_stdout(&dir, ["run", "./main/main.mbt", "--enable-value-tracing"])
-        .split("######MOONBIT_VALUE_TRACING_START######")
-        .filter(|l| !(l.contains("__generated_driver_for")))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let content = get_stdout(
+        &dir,
+        [
+            "run",
+            "--target",
+            "wasm-gc",
+            "./main/main.mbt",
+            "--enable-value-tracing",
+        ],
+    )
+    .split("######MOONBIT_VALUE_TRACING_START######")
+    .filter(|l| !(l.contains("__generated_driver_for")))
+    .collect::<Vec<_>>()
+    .join("\n");
     check(
         content,
         expect![[r#"
@@ -107,7 +125,7 @@ fn test_tracing_value_for_single_file() {
     // single file
     let dir = TestDir::new("tracing_value.in");
 
-    let content = get_stdout(&dir, ["run", "./main.mbt", "--enable-value-tracing"])
+    let content = get_stdout(&dir, ["run", "./main.mbtx", "--enable-value-tracing"])
         .split("######MOONBIT_VALUE_TRACING_START######")
         .filter(|l| !(l.contains("__generated_driver_for")))
         .collect::<Vec<_>>()
@@ -117,21 +135,21 @@ fn test_tracing_value_for_single_file() {
         expect![[r#"
 
 
-            {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            {"name": "a", "line": 2, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbtx", "value": "$placeholder"}
             ######MOONBIT_VALUE_TRACING_CONTENT_START######
             1
             ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
 
 
-            {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            {"name": "b", "line": 3, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbtx", "value": "$placeholder"}
             ######MOONBIT_VALUE_TRACING_CONTENT_START######
             2
             ######MOONBIT_VALUE_TRACING_CONTENT_END######
             ######MOONBIT_VALUE_TRACING_END######
 
 
-            {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbt", "value": "$placeholder"}
+            {"name": "c", "line": 4, "start_column": 7, "end_column": 8, "filepath": "$ROOT/main.mbtx", "value": "$placeholder"}
             ######MOONBIT_VALUE_TRACING_CONTENT_START######
             3
             ######MOONBIT_VALUE_TRACING_CONTENT_END######
@@ -145,16 +163,24 @@ fn test_tracing_value_for_single_file() {
 fn test_tracing_value_for_single_file_dry_run() {
     // single file
     let dir = TestDir::new("tracing_value.in");
+    let output = get_stdout(
+        &dir,
+        [
+            "run",
+            "--target",
+            "wasm-gc",
+            "./main.mbtx",
+            "--enable-value-tracing",
+            "--dry-run",
+        ],
+    );
 
     check(
-        get_stdout(
-            &dir,
-            ["run", "./main.mbt", "--enable-value-tracing", "--dry-run"],
-        ),
+        output.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME"),
         expect![[r#"
-            moonc build-package ./main.mbt -o ./_build/wasm-gc/debug/build/single/single.core -pkg moon/test/single -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.mi:abort' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/argparse/argparse.mi:argparse' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/array/array.mi:array' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/encoding/ascii/ascii.mi:ascii' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/encoding/base64/base64.mi:base64' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bench/bench.mi:bench' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.mi:bigint' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bool/bool.mi:bool' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.mi:buffer' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/byte/byte.mi:byte' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.mi:bytes' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.mi:char' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/cmp/cmp.mi:cmp' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/coverage/coverage.mi:coverage' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.mi:debug' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/deque/deque.mi:deque' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.mi:double' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/env/env.mi:env' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/error/error.mi:error' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.mi:float' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.mi:hashmap' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashset/hashset.mi:hashset' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/array/array.mi:immut/array' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/hashmap/hashmap.mi:immut/hashmap' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/hashset/hashset.mi:immut/hashset' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/priority_queue/priority_queue.mi:immut/priority_queue' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/sorted_map/sorted_map.mi:immut/sorted_map' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/sorted_set/sorted_set.mi:immut/sorted_set' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/vector/vector.mi:immut/vector' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int/int.mi:int' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.mi:int16' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int64/int64.mi:int64' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.mi:json' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.mi:lazy' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy_list/lazy_list.mi:lazy_list' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/list/list.mi:list' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/math/math.mi:math' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/option/option.mi:option' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/priority_queue/priority_queue.mi:priority_queue' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/queue/queue.mi:queue' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/quickcheck/quickcheck.mi:quickcheck' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/random/random.mi:random' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/range/range.mi:range' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.mi:ref' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/result/result.mi:result' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.mi:set' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_map/sorted_map.mi:sorted_map' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.mi:sorted_set' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/quickcheck/splitmix/splitmix.mi:splitmix' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/strconv/strconv.mi:strconv' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.mi:string' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.mi:test' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/tuple/tuple.mi:tuple' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.mi:uint' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.mi:uint16' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.mi:uint64' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/unit/unit.mi:unit' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/encoding/utf16/utf16.mi:utf16' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/encoding/utf8/utf8.mi:utf8' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -enable-value-tracing -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
-            moonrun ./_build/wasm-gc/debug/build/single/single.wasm --
+            moonc build-package ./main.mbtx -ignore-import-declaration -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -enable-value-tracing -workspace-path . -all-pkgs ./_build/main.mbtx/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            '$MOONRUN_OVERRIDE' ./_build/main.mbtx/wasm-gc/debug/build/single/single.wasm --
         "#]],
     );
 }

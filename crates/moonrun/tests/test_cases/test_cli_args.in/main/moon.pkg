@@ -1,0 +1,10 @@
+import {
+  "moonbitlang/core/buffer",
+  "moonbitlang/core/debug",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  targets: {"exit_wasm_gc.mbt": ["wasm-gc"]},
+)

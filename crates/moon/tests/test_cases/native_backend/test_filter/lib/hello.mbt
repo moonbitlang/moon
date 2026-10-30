@@ -21,6 +21,6 @@ test "C" {
 
 test "D" (it: @test.Test) {
   it.writeln("test D")
-  it.snapshot!(filename = "test.d")
+  it.snapshot(filename = "test.d")
 }
 

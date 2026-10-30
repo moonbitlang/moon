@@ -1,0 +1,9 @@
+import {
+  "moon_new/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  link: {"native": {"cc": "cc", "cc-flags": "ccflags fasd", "cc-link-flags": "cclinkflags"}},
+)

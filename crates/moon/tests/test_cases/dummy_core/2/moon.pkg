@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/core/1",
+}
+
+pkgtype(kind: "foreign_library")

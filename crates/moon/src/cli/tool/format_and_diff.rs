@@ -1,22 +1,24 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{io::BufRead, path::PathBuf, process::Stdio};
+
+use anyhow::Context;
 
 /// Format the code and print the difference
 #[derive(Debug, clap::Parser)]
@@ -29,10 +31,6 @@ pub(crate) struct FormatAndDiffSubcommand {
     #[clap(long)]
     new: PathBuf,
 
-    /// Add separator between each segments
-    #[clap(long)]
-    block_style: bool,
-
     /// Warn instead of showing differences
     #[clap(long)]
     warn: bool,
@@ -41,17 +39,13 @@ pub(crate) struct FormatAndDiffSubcommand {
 }
 
 pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
-    let mut args = vec![
-        "-exit-code",
-        cmd.old.to_str().unwrap(),
-        "-o",
-        cmd.new.to_str().unwrap(),
-    ];
-    if cmd.block_style {
-        args.push("-block-style")
-    }
-    let mut execution = std::process::Command::new(&*moonutil::BINARIES.moonfmt)
-        .args(args)
+    let mut moonfmt = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonfmt);
+    moonfmt
+        .arg("-exit-code")
+        .arg(&cmd.old)
+        .arg("-o")
+        .arg(&cmd.new);
+    let mut execution = moonfmt
         .args(&cmd.args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -73,19 +67,17 @@ pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Resul
         return Ok(0);
     }
 
-    let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
-        .args([
-            "--no-pager",
-            "diff",
-            "--color=always",
-            "--no-index",
-            cmd.old.to_str().unwrap(),
-            cmd.new.to_str().unwrap(),
-        ])
+    let mut execution = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default())
+        .args(["--no-pager", "diff", "--color=always", "--no-index"])
+        .arg(&cmd.old)
+        .arg(&cmd.new)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()?;
-    let child_stdout = execution.stdout.take().unwrap();
+    let child_stdout = execution
+        .stdout
+        .take()
+        .context("failed to capture `git diff` stdout")?;
     let mut buf = String::new();
     let mut bufread = std::io::BufReader::new(child_stdout);
     while let Ok(n) = bufread.read_line(&mut buf) {
@@ -102,8 +94,8 @@ pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Resul
         _ => {
             eprintln!(
                 "failed to execute `git --no-pager diff --color=always --no-index {} {}`",
-                &cmd.old.to_str().unwrap(),
-                &cmd.new.to_str().unwrap()
+                cmd.old.display(),
+                cmd.new.display()
             );
             Ok(1)
         }

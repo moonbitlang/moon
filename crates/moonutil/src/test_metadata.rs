@@ -1,0 +1,188 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use std::path::PathBuf;
+
+use clap::ValueEnum;
+use indexmap::IndexMap;
+use serde::Deserialize;
+
+#[derive(Debug, Clone)]
+pub enum GeneratedTestDriver {
+    InternalTest(PathBuf),
+    WhiteboxTest(PathBuf),
+    BlackboxTest(PathBuf),
+}
+
+#[derive(Debug, ValueEnum, Clone, Copy)]
+pub enum DriverKind {
+    Internal,
+    Whitebox,
+    Blackbox,
+}
+
+impl std::fmt::Display for DriverKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Self::Internal => "internal",
+            Self::Whitebox => "whitebox",
+            Self::Blackbox => "blackbox",
+        };
+        write!(f, "{kind}")
+    }
+}
+
+#[derive(Debug, Default, ValueEnum, Clone, PartialEq, Copy, PartialOrd)]
+pub enum DiagnosticLevel {
+    Info,
+    #[value(alias = "warning")]
+    Warn,
+    #[default]
+    Error,
+}
+
+impl std::fmt::Display for DiagnosticLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+        })
+    }
+}
+
+pub const BLACKBOX_TEST_DRIVER: &str = "__generated_driver_for_blackbox_test.mbt";
+
+pub type FileName = String;
+pub type TestName = String;
+pub type TestBlockIndex = u32;
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct MbtTestInfo {
+    /// The index of the test block in the file, starting from 0.
+    pub index: TestBlockIndex,
+    /// The function name of the test block
+    pub func: String,
+    /// The name of the test block, if any
+    pub name: Option<TestName>,
+    /// The line number of the definition of the test block, if any
+    #[serde(default)]
+    pub line_number: Option<usize>,
+    /// The attributes of the test block (e.g., #cfg conditions)
+    #[serde(default)]
+    pub attrs: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct MooncGenTestInfo {
+    pub no_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    pub with_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    #[serde(default)] // for backward compatibility
+    pub with_bench_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    #[serde(default)]
+    pub async_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
+    #[serde(default)]
+    pub async_tests_with_args: IndexMap<FileName, Vec<MbtTestInfo>>,
+}
+
+impl MbtTestInfo {
+    pub fn has_skip(&self) -> bool {
+        self.attrs.iter().any(|attr| attr.starts_with("#skip"))
+    }
+}
+
+impl MooncGenTestInfo {
+    /// Convert part of the driver metadata into MoonBit declaration code for
+    /// the test driver to use. Files without tests are omitted to avoid
+    /// generating ambiguous empty map literals.
+    pub fn section_to_mbt(section: &IndexMap<FileName, Vec<MbtTestInfo>>) -> String {
+        use std::fmt::Write;
+
+        if section.values().all(Vec::is_empty) {
+            return "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())"
+                .into();
+        }
+
+        let mut result = String::new();
+        let default_name = "";
+
+        // Writing to string cannot fail, so unwrap() is safe here.
+        writeln!(result, "{{").unwrap();
+        for (file, tests) in section.iter().filter(|(_, tests)| !tests.is_empty()) {
+            writeln!(result, "  \"{file}\": {{").unwrap();
+            for test in tests {
+                // tests with #skip attribute are also included in the driver, they will
+                // eventually be skipped by using cli arguments to the driver executable
+                writeln!(
+                    result,
+                    "    {}: ({}, [\"{}\"]),",
+                    test.index,
+                    test.func,
+                    test.name.as_deref().unwrap_or(default_name)
+                )
+                .unwrap();
+            }
+            writeln!(result, "  }},").unwrap();
+        }
+        writeln!(result, "}}").unwrap();
+
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use expect_test::expect;
+
+    use super::*;
+
+    #[test]
+    fn section_to_mbt_omits_files_without_tests() {
+        let section = IndexMap::from([
+            ("empty.mbt".into(), vec![]),
+            (
+                "tests.mbt".into(),
+                vec![MbtTestInfo {
+                    index: 2,
+                    func: "__test_tests_2".into(),
+                    name: Some("works".into()),
+                    line_number: Some(3),
+                    attrs: vec![],
+                }],
+            ),
+        ]);
+
+        expect![[r#"
+            {
+              "tests.mbt": {
+                2: (__test_tests_2, ["works"]),
+              },
+            }
+        "#]]
+        .assert_eq(&MooncGenTestInfo::section_to_mbt(&section));
+    }
+
+    #[test]
+    fn section_to_mbt_uses_default_when_all_files_are_omitted() {
+        expect!["MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())"]
+            .assert_eq(&MooncGenTestInfo::section_to_mbt(&IndexMap::from([(
+                "empty.mbt".into(),
+                vec![],
+            )])));
+    }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Moon Development"
+  short_description: "Route Moon and MoonBuild changes to project docs"
+  default_prompt: "Use $moon-development to identify and read the Moon documents relevant to this change."

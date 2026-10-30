@@ -1,24 +1,29 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 fn run(source: &str) -> String {
     moonutil::moon_pkg::parse(source)
-        .and_then(moonutil::package::convert_pkg_dsl_to_package)
+        .and_then(|dsl| {
+            moonutil::package::convert_pkg_dsl_to_package(
+                dsl,
+                &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
+            )
+        })
         .map(|pkg| format!("{:#?}", pkg))
         .unwrap_or_else(|e| format!("Error: {:?}", e))
 }
@@ -29,6 +34,7 @@ fn expect_import() {
       import {
         "path/to/pkg1",
         "path/to/another1" @another1,
+        "path/to/all1" @all1 *,
       }
 
       import {
@@ -44,6 +50,8 @@ fn expect_import() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -57,6 +65,17 @@ fn expect_import() {
                         "another1",
                     ),
                     sub_package: false,
+                    import_all: false,
+                    targets: None,
+                },
+                Alias {
+                    path: "path/to/all1",
+                    alias: Some(
+                        "all1",
+                    ),
+                    sub_package: false,
+                    import_all: true,
+                    targets: None,
                 },
             ],
             wbtest_imports: [
@@ -69,6 +88,8 @@ fn expect_import() {
                         "another3",
                     ),
                     sub_package: false,
+                    import_all: false,
+                    targets: None,
                 },
             ],
             test_imports: [
@@ -81,6 +102,8 @@ fn expect_import() {
                         "another2",
                     ),
                     sub_package: false,
+                    import_all: false,
+                    targets: None,
                 },
             ],
             formatter: MoonPkgFormatter {
@@ -89,6 +112,7 @@ fn expect_import() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -119,6 +143,8 @@ fn expect_is_main() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: true,
             force_link: false,
             sub_package: None,
@@ -131,6 +157,7 @@ fn expect_is_main() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -156,13 +183,13 @@ fn expect_is_main() {
 #[test]
 fn expect_formatter() {
     let actual = run(r#"
-    options(
-      formatter: { "ignore": ["file1.mbt", "file2.mbt", "file3.mbt"] }
-    )
+    formatter(ignore: ["file1.mbt", "file2.mbt", "file3.mbt"])
     "#);
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -179,6 +206,7 @@ fn expect_formatter() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -199,6 +227,13 @@ fn expect_formatter() {
             local_rules: None,
         }"#]]
     .assert_eq(&actual);
+
+    let legacy_actual = run(r#"
+    options(
+      formatter: { "ignore": ["file1.mbt", "file2.mbt", "file3.mbt"] }
+    )
+    "#);
+    assert_eq!(legacy_actual, actual);
 }
 
 #[test]
@@ -211,6 +246,8 @@ fn expect_supported_targets() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -223,6 +260,7 @@ fn expect_supported_targets() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -253,6 +291,8 @@ fn expect_supported_targets_expr() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -265,6 +305,7 @@ fn expect_supported_targets_expr() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -293,6 +334,8 @@ fn expect_supported_targets_expr_with_wasm_gc() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -305,6 +348,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -330,6 +374,8 @@ fn expect_supported_targets_expr_with_wasm_gc() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -342,6 +388,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -379,6 +426,8 @@ fn expect_build() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -391,6 +440,7 @@ fn expect_build() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: Some(
                 [
@@ -445,6 +495,8 @@ fn expect_warnings() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -459,6 +511,7 @@ fn expect_warnings() {
                 "+unused_variable-deprecated_syntax",
             ),
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -492,6 +545,8 @@ fn expect_supported_targets_prefers_new_config() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -504,6 +559,7 @@ fn expect_supported_targets_prefers_new_config() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -525,14 +581,17 @@ fn expect_supported_targets_prefers_new_config() {
 #[test]
 fn expect_options() {
     let actual = run(r#"
+    virtual(has_default: false)
+    proof_enabled = true
+    max_concurrent_tests = 4
+    regex_backend = "table"
+
     options(
-      "virtual_pkg": { "has_default": false },
       "implement": "string",
       "overrides": [ "string1", "string2" ],
       "bin_name": "name",
       "bin_target": "wasm",
       "native_stub": [ "stub.c", "another_stub.c" ],
-      "max_concurrent_tests": 4,
       "targets": {
         "file.mbt": "js",
         "platform_specific.mbt": ["or", ["and", "native", "release", ["not", "wasm"], ["not","debug"]], "llvm"]
@@ -583,6 +642,8 @@ fn expect_options() {
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -651,7 +712,8 @@ fn expect_options() {
                 },
             ),
             warn_list: None,
-            proof_enabled: false,
+            proof_enabled: true,
+            use_async_io: false,
             targets: Some(
                 {
                     "file.mbt": Atom(
@@ -743,7 +805,9 @@ fn expect_options() {
             max_concurrent_tests: Some(
                 4,
             ),
-            regex_backend: None,
+            regex_backend: Some(
+                Table,
+            ),
             local_rules: None,
         }"#]]
     .assert_eq(&actual);
@@ -752,13 +816,13 @@ fn expect_options() {
 #[test]
 fn expect_max_concurrent_tests() {
     let actual = run(r#"
-      options(
-        "max_concurrent_tests": 1,
-      ) 
+      max_concurrent_tests = 1
     "#);
     expect_test::expect![[r#"
         MoonPkg {
             name: None,
+            experimental: false,
+            allow_experimental_packages: None,
             is_main: false,
             force_link: false,
             sub_package: None,
@@ -771,6 +835,7 @@ fn expect_max_concurrent_tests() {
             link: None,
             warn_list: None,
             proof_enabled: false,
+            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -792,5 +857,60 @@ fn expect_max_concurrent_tests() {
             regex_backend: None,
             local_rules: None,
         }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
+fn expect_virtual_implement() {
+    let actual = run(r#"
+      virtual(implement: "path/to/virtual")
+    "#);
+    expect_test::expect![[r#"
+        MoonPkg {
+            name: None,
+            experimental: false,
+            allow_experimental_packages: None,
+            is_main: false,
+            force_link: false,
+            sub_package: None,
+            imports: [],
+            wbtest_imports: [],
+            test_imports: [],
+            formatter: MoonPkgFormatter {
+                ignore: {},
+            },
+            link: None,
+            warn_list: None,
+            proof_enabled: false,
+            use_async_io: false,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: {
+                Wasm,
+                WasmGC,
+                Js,
+                Native,
+                LLVM,
+            },
+            native_stub: None,
+            virtual_pkg: None,
+            implement: Some(
+                "path/to/virtual",
+            ),
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+            local_rules: None,
+        }"#]]
+    .assert_eq(&actual);
+
+    let actual = run(r#"
+      virtual(has_default: true, implement: "path/to/virtual")
+    "#);
+    expect_test::expect![
+        "Error: `virtual(implement: ...)` cannot take other arguments in moon.pkg."
+    ]
     .assert_eq(&actual);
 }

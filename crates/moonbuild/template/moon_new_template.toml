@@ -9,9 +9,7 @@ content = """
 //   "{{username}}/{{module}}" @lib,
 // }
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")
 """
 
 [[files]]
@@ -59,6 +57,8 @@ repository = ""
 license = "Apache-2.0"
 
 keywords = []
+
+preferred_target = "wasm"
 
 description = ""
 """

@@ -1,0 +1,231 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use crate::async_host::AsyncHostResult;
+
+use super::context::ImportContext;
+#[cfg(test)]
+use super::provenance::{CompatImport, PortedImport, SourceLocation, SourceRoot};
+
+#[cfg(all(test, target_os = "linux"))]
+const EVENT_BUS_SOURCE: &str = "src/internal/event_loop/epoll.c";
+#[cfg(all(test, target_os = "macos"))]
+const EVENT_BUS_SOURCE: &str = "src/internal/event_loop/kqueue.c";
+#[cfg(all(test, windows))]
+const EVENT_BUS_SOURCE: &str = "src/internal/event_loop/iocp.c";
+#[cfg(all(test, windows))]
+const IOCP_SOURCE: &str = "src/internal/event_loop/iocp.c";
+#[cfg(test)]
+const EVENT_BUS_SOURCES: &[SourceLocation] = &[SourceLocation {
+    root: SourceRoot::MoonbitAsync,
+    path: EVENT_BUS_SOURCE,
+}];
+#[cfg(all(test, windows))]
+const IOCP_SOURCES: &[SourceLocation] = &[SourceLocation {
+    root: SourceRoot::MoonbitAsync,
+    path: IOCP_SOURCE,
+}];
+
+#[cfg(test)]
+pub(super) const PORTED_IMPORTS: &[PortedImport] = &[
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "create",
+        "moonbitlang_async_event_bus_create",
+    ),
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "destroy",
+        "moonbitlang_async_event_bus_destroy",
+    ),
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "try_register",
+        "moonbitlang_async_event_bus_register",
+    ),
+    #[cfg(target_os = "macos")]
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "register_pid",
+        "moonbitlang_async_event_bus_register_pid",
+    ),
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "wait",
+        "moonbitlang_async_event_bus_wait",
+    ),
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "get_event",
+        "moonbitlang_async_event_list_get",
+    ),
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "event_fd",
+        "moonbitlang_async_event_get_fd",
+    ),
+    #[cfg(target_os = "macos")]
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "event_pid",
+        "moonbitlang_async_event_get_fd",
+    ),
+    #[cfg(unix)]
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "event_events",
+        "moonbitlang_async_event_get_events",
+    ),
+    #[cfg(windows)]
+    ported_from(
+        IOCP_SOURCES,
+        "event_io_result",
+        "moonbitlang_async_event_get_io_result",
+    ),
+    #[cfg(windows)]
+    ported_from(
+        IOCP_SOURCES,
+        "event_bytes_transferred",
+        "moonbitlang_async_event_get_bytes_transferred",
+    ),
+];
+
+#[cfg(test)]
+pub(super) const COMPAT_IMPORTS: &[CompatImport] = &[CompatImport {
+    rust_module: module_path!(),
+    rust_symbol: "register_legacy",
+    original_symbol: "event_bus/register",
+    historical_source: "src/internal/event_loop/event_bus.wasm.mbt",
+    upstream_pr: 548,
+    replacement: "event_bus/try_register",
+    no_op: false,
+    api_only: true,
+}];
+
+#[cfg(test)]
+const fn ported_from(
+    sources: &'static [SourceLocation],
+    rust_symbol: &'static str,
+    native_symbol: &'static str,
+) -> PortedImport {
+    PortedImport {
+        rust_module: module_path!(),
+        rust_symbol,
+        native_symbol: Some(native_symbol),
+        sources,
+    }
+}
+
+pub(super) fn create(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
+    context.host.poll_create()
+}
+
+pub(super) fn destroy(context: &mut ImportContext<'_>, bus: u64) -> AsyncHostResult<()> {
+    context.host.poll_destroy(bus)
+}
+
+pub(super) fn try_register(
+    context: &mut ImportContext<'_>,
+    bus: u64,
+    fd: u64,
+    read_only: i32,
+) -> i32 {
+    match context.host.poll_register(bus, fd, read_only != 0) {
+        Ok(result) => result,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+// Older Wasm guests interpret every nonnegative result as successful
+// registration. Keep their 0/-1 contract separate from the tri-state import.
+pub(super) fn register_legacy(
+    context: &mut ImportContext<'_>,
+    bus: u64,
+    fd: u64,
+    read_only: i32,
+) -> i32 {
+    match context.host.poll_register_legacy(bus, fd, read_only != 0) {
+        Ok(()) => 0,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn register_pid(context: &mut ImportContext<'_>, bus: u64, pid: i32) -> i32 {
+    match context.host.poll_register_pid(bus, pid) {
+        Ok(result) => result,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+pub(super) fn wait(context: &mut ImportContext<'_>, bus: u64, timeout_ms: i32) -> i32 {
+    match context
+        .host
+        .poll_wait(bus, timeout_ms, context.termination_request)
+    {
+        Ok(n) => n,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+pub(super) fn get_event(
+    context: &mut ImportContext<'_>,
+    bus: u64,
+    index: u32,
+) -> AsyncHostResult<u64> {
+    context.host.poll_get_event(bus, index)
+}
+
+pub(super) fn event_fd(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<u64> {
+    context.host.poll_event_fd(event)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn event_pid(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<i32> {
+    context.host.poll_event_pid(event)
+}
+
+#[cfg(unix)]
+pub(super) fn event_events(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<i32> {
+    context.host.poll_event_events(event)
+}
+
+#[cfg(windows)]
+pub(super) fn event_io_result(context: &mut ImportContext<'_>, event: u64) -> AsyncHostResult<u64> {
+    context.host.poll_event_io_result(event)
+}
+
+#[cfg(windows)]
+pub(super) fn event_bytes_transferred(
+    context: &mut ImportContext<'_>,
+    event: u64,
+) -> AsyncHostResult<u32> {
+    context.host.poll_event_bytes_transferred(event)
+}

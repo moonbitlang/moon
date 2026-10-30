@@ -1,30 +1,30 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Handles test promotion
 
 use anyhow::Context;
-use moonbuild::expect::PackageSrcResolver;
 use moonbuild::expect::{apply_expect, apply_snapshot};
+use moonbuild_rupes_recta::discover::DiscoverResult;
 use tracing::info;
 
 use crate::run::PackageFilter;
-use moonutil::common::TestIndexRange;
+use moonutil::build_options::TestIndexRange;
 
 use super::{ReplaceableTestResults, TestCaseResult, TestResultKind};
 
@@ -32,7 +32,7 @@ use super::{ReplaceableTestResults, TestCaseResult, TestResultKind};
 /// the total number of tests promoted, along with a filter indicating which
 /// tests needs rerunning.
 pub(crate) fn perform_promotion(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     results: &ReplaceableTestResults,
 ) -> anyhow::Result<(usize, PackageFilter)> {
     let mut res = PackageFilter::default();
@@ -87,7 +87,7 @@ pub(crate) fn perform_promotion(
 
 /// Perform promotion on all test snapshots met.
 fn promote_all_snapshots<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
     apply_snapshot(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
@@ -95,7 +95,7 @@ fn promote_all_snapshots<'a>(
 
 /// Perform promotion on all expect tests met. Should fil
 fn promote_all_expects<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
     apply_expect(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))

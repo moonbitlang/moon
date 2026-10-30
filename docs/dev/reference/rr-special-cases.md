@@ -16,10 +16,12 @@ important ones and why they exist.
   downstream compilation steps see a builtin package that already contains the
   coverage helpers. This is essential for `builtin` to correctly get code
   coverage support. This is **only available when `--enable-coverage` is set**.
-- **Pin prelude imports for core packages.** Whenever discovery encounters a
+- **Pin prelude imports for core blackbox tests.** Whenever discovery encounters a
   package under the core module, `add_prelude_as_import_for_core` injects
-  `moonbitlang/core/prelude` into `test_imports`. Without this implicit import,
-  core tests would fail to compile because they rely on the prelude symbols.
+  `moonbitlang/core/prelude` into `test_imports`. This supports blackbox tests;
+  whitebox and inline tests retain their package's imports. Generated drivers
+  adapt prelude references to builtin operations as described in the
+  [test driver core dependencies](tests.md#core-dependencies).
 
 ## Solver-time dependency hacks
 
@@ -33,8 +35,8 @@ important ones and why they exist.
 
 - **Tests can be dropped per package.** `special_cases::should_skip_tests` lists
   packages that should not produce test targets (currently just
-  `moonbitlang/core/abort`). `compile::filter_special_case_input_nodes` uses
-  this to discard matching test build nodes before planning.
+  `moonbitlang/core/abort`). `build_plan::build_plan`
+  uses this to discard matching test artifact requests before planning.
 - **Coverage rules differ per package.** `should_skip_coverage` ensures abort is
   never instrumented, while `is_self_coverage_lib` says builtin/coverage should
   use themselves when linking coverage support. These predicates are reused by
@@ -45,27 +47,73 @@ important ones and why they exist.
 
 ## Artifact path overrides
 
-- **Abort artifacts live beside the stdlib.** When lowering build plans
-  (`build_lower::artifact`), calls that would normally resolve `.core`, `.mi`,
-  or `.phony_mi` files check whether the target package is the recorded abort
-  package. If so, and **only when stdlib is injected**, the code switches to
-  the stdlib’s prebuilt `abort` outputs (`abort_core_path` / `abort_mi_path`)
-  because those artifacts are shipped as part of the toolchain rather than
-  being rebuilt per project. When **building the stdlib itself**, the abort
-  package must resolve to local `_build/...` artifacts, so the prebuilt paths
-  are explicitly *not* used.
+- **Abort artifacts live beside the stdlib.** Artifact path resolution checks
+  whether a `.core` or `.mi` request targets the recorded abort package. If so,
+  and **only when stdlib is injected**, the resolver switches to the stdlib’s
+  prebuilt `abort` outputs via `moonutil::toolchain` because those artifacts are
+  shipped as part of the toolchain rather than being rebuilt per project. When
+  **building the stdlib itself**, the abort package must resolve to local
+  `_build/...` artifacts, so the prebuilt paths are explicitly *not* used.
+- **Stdlib bundle paths are toolchain facts.** The bundled stdlib layout
+  (`_build/<backend>/release/bundle`, `abort/abort.core`, package `.mi`
+  files, and related paths) is owned by `moonutil::toolchain`, backed by the
+  internal toolchain-layout helpers. RR may translate an already selected
+  stdlib root into concrete artifact paths, but it should not rediscover the
+  installed stdlib root while lowering.
 
 ## Stdlib injection boundaries
 
+- **Stdlib injection is selected before RR lowering.** The `moon` command layer
+  computes `stdlib_path` from `use_std && !is_core` while building
+  `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
+  toolchain core directory. When building `moonbitlang/core` itself, it is
+  `None`, so stdlib packages resolve to local `_build/...` artifacts.
+- **Non-stdlib packages implicitly import `prelude` and `builtin`.** The
+  solver adds both edges to every non-stdlib target unless the package already
+  imports them, in which case its alias wins. Moon never passes `-std-path`, so
+  installed stdlib packages reach `moonc` only as explicit `-i` imports.
+  `builtin` is needed because `moonc` resolves some names re-exported by
+  `prelude`, such as the `Failure` constructor, only when `builtin` is loaded.
+  The implicit prelude edge uses `prelude` as its compiler-facing alias,
+  reserving that alias for the core prelude. A user import or blackbox-test
+  self-import named `prelude` conflicts with this implicit edge and is rejected
+  by package resolution; a graceful migration for existing uses is deferred.
+  Fully qualified `@moonbitlang/core/prelude.xxx`
+  references in generated test drivers remain valid. The implicit builtin edge
+  keeps `moonbitlang/core/builtin` as its alias, so user packages and imports
+  can still use `builtin`; user code must explicitly import builtin to write
+  `@builtin.xxx`. Any other stdlib package must be imported explicitly.
+- **RR consumes the selected resolver.** `CompileConfig`, `LoweringContext`,
+  `BuildMeta`, metadata generation, and `all_pkgs.json` generation all consume
+  the same selected `ArtifactPathResolver`. `metadata.rs` and `all_pkgs.rs`
+  should render paths from the supplied resolver; they should not call
+  `moonutil::toolchain::core()` or otherwise decide whether prebuilt stdlib
+  artifacts are in use.
+- **The prebuilt abort default is optional.** Link planning includes it only
+  when stdlib is injected, discovery found `moonbitlang/core/abort`, and the
+  target does not override it. Lowering uses that decision for both compiler
+  arguments and execution inputs. Core versions without abort do not need its
+  artifact, even if a stale `abort.core` remains on disk. A declared abort
+  package with a missing artifact still fails normally.
 - **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
   package ID if it exists, even when building the stdlib. Build-mode decisions
   (use prebuilt paths vs local artifacts) are gated by whether stdlib is
-  injected (`build_env.std` / `stdlib_dir.is_some()`), not by mutating
-  `abort_pkg`.
-- **`all_pkgs.json` respects stdlib mode.** When building the stdlib (core
-  module), `all_pkgs.json` is generated without a stdlib directory so indirect
-  dependency resolution uses the locally built `.mi` files. For non-core
-  projects, the stdlib directory is set so prebuilt artifacts can be used.
+  injected (`config.stdlib_path.is_some()` / `stdlib_dir.is_some()`), not by
+  mutating `abort_pkg`.
+- **Metadata files respect stdlib mode.** When either `packages.json` or
+  `all_pkgs.json` is generated for the stdlib (core module), it is generated
+  without a stdlib directory so package metadata and indirect dependency
+  resolution use the locally built `.mi` files. For non-core projects, the
+  stdlib directory is set so prebuilt artifacts can be used.
+- **The proof prelude is independent of stdlib injection.** Every `Prove`
+  action adds one proof prelude provider directory to the Why3 loadpath. It
+  defaults to the toolchain's `lib/prelude_proof`; when
+  `MOON_PROVE_PRELUDE_OVERRIDE` is set, the command layer validates and selects
+  that directory instead. `InputDirective::default()` selects the same
+  toolchain provider for direct callers of the RR `compile` API. This also
+  applies when proving `moonbitlang/core`, where the installed stdlib is
+  intentionally not injected; the proof prelude is a toolchain resource rather
+  than a prebuilt stdlib package artifact.
 
 ## Runtime + tooling side effects
 

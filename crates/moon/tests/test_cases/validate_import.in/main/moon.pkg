@@ -1,0 +1,10 @@
+import {
+  "username/hello/lib",
+  "mbt/core/set",
+}
+
+import {
+  "mbt/core/x",
+} for "wbtest"
+
+pkgtype(kind: "executable")

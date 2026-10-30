@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -23,10 +23,12 @@ use std::{
     sync::Arc,
 };
 
-use moonutil::{dependency::SourceDependencyInfo, module::MoonMod, mooncakes::ModuleName};
+use moonutil::{
+    dependency::SourceDependencyInfo, manifest::MoonMod, resolution::ModuleName, user_log::UserLog,
+};
 use semver::Version;
 
-use super::Registry;
+use super::{Registry, RegistryVersionInfo};
 
 /// A mock registry, primarily used in tests.
 pub struct MockRegistry {
@@ -147,24 +149,37 @@ impl Default for MockRegistry {
 }
 
 impl Registry for MockRegistry {
-    fn all_versions_of(
+    fn version_info(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
-        self.modules
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        let versions = self
+            .modules
             .get(name)
-            .ok_or_else(|| anyhow::anyhow!("module not found in mock registry"))
-            .cloned()
+            .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))?;
+        Ok(versions.get(version).map(|module| RegistryVersionInfo {
+            deps: module.deps.clone(),
+            ..Default::default()
+        }))
     }
 
-    fn install_to(
+    fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
+        Ok(self
+            .modules
+            .get(name)
+            .and_then(|versions| versions.last_key_value())
+            .map(|(version, _)| version.clone()))
+    }
+
+    fn query_latest_version(
         &self,
-        _name: &ModuleName,
-        _version: &Version,
-        _to: &std::path::Path,
-        _quiet: bool,
-    ) -> anyhow::Result<()> {
-        panic!("Mock registry does not support installing")
+        name: &ModuleName,
+        _user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        // The fixture is the authoritative registry and has no separate cache.
+        self.cached_latest_version(name)?
+            .ok_or_else(|| super::RegistryModuleNotFound(name.clone()).into())
     }
 }
 
@@ -179,16 +194,24 @@ mod test {
             .add_module_full("foo/bar", "0.2.0", [])
             .add_module_full("foo/bar", "0.1.0", [])
             .add_module_full("foo/bar", "0.1.2", []);
-        let module = registry
-            .all_versions_of(&"foo/bar".parse().unwrap())
-            .unwrap();
+        let name = "foo/bar".parse().unwrap();
+        for version in ["0.1.0", "0.1.2", "0.2.0"] {
+            assert!(
+                registry
+                    .version_info(&name, &version.parse().unwrap())
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        assert!(
+            registry
+                .version_info(&name, &Version::new(0, 1, 1))
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
-            module
-                .keys()
-                .cloned()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>(),
-            vec!["0.1.0", "0.1.2", "0.2.0"]
-        )
+            registry.cached_latest_version(&name).unwrap(),
+            Some(Version::new(0, 2, 0))
+        );
     }
 }

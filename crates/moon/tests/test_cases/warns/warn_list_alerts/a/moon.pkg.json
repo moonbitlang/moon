@@ -1,7 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "username/b"
-  ],
-  "warn-list": ""
-}

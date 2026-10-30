@@ -1,27 +1,30 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! A number of random utilities useful for debugging the project
 
 use crate::discover::DiscoverResult;
-use crate::pkg_solve::DepRelationship;
-use crate::{build_plan::BuildPlan, model::BuildPlanNode};
-use moonutil::mooncakes::result::ResolvedEnv;
+use crate::pkg_solve::PackageRelations;
+use crate::{
+    build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
+    model::BuildPlanNode,
+};
+use moonutil::resolution::ModuleDependencyGraph;
 use petgraph::Direction;
 use std::io::{self, Write};
 use std::path::Path;
@@ -41,14 +44,18 @@ pub(crate) fn strip_trailing_slash(path: &Path) -> &Path {
     path.strip_prefix("").unwrap_or(path)
 }
 
-/// Print a resolved environment as a DOT graph
-pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::Result<()> {
+/// Print a module dependency graph as a DOT graph.
+pub fn print_module_graph_dot(
+    module_graph: &ModuleDependencyGraph,
+    writer: &mut dyn Write,
+) -> io::Result<()> {
+    // Keep the exported DOT identifier stable across internal type renames.
     writeln!(writer, "digraph ResolvedEnv {{")?;
     writeln!(writer, "    rankdir=TB;")?;
     writeln!(writer, "    node [shape=box style=\"filled,rounded\"];")?;
 
     // Nodes: use ModuleId debug as ID and full source name as label
-    for (id, src) in env.all_modules_and_id() {
+    for (id, src) in module_graph.all_modules_and_id() {
         let node_id = format!("{:?}", id);
         let src_str = src.to_string();
 
@@ -83,11 +90,10 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
 
         // Color-code based on module type
         let color = match src.source() {
-            moonutil::mooncakes::ModuleSourceKind::Local(_) => "lightgreen",
-            moonutil::mooncakes::ModuleSourceKind::Registry => "lightblue",
-            moonutil::mooncakes::ModuleSourceKind::Git(_) => "lightyellow",
-            moonutil::mooncakes::ModuleSourceKind::Stdlib(_) => "lightgray",
-            moonutil::mooncakes::ModuleSourceKind::SingleFile(_) => "orange",
+            moonutil::resolution::ModuleSourceKind::Local(_) => "lightgreen",
+            moonutil::resolution::ModuleSourceKind::Registry => "lightblue",
+            moonutil::resolution::ModuleSourceKind::Stdlib(_) => "lightgray",
+            moonutil::resolution::ModuleSourceKind::SingleFile(_) => "orange",
         };
 
         writeln!(
@@ -98,8 +104,8 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
     }
 
     // Edges: dependencies with module IDs and dependency key labels
-    for (from, _) in env.all_modules_and_id() {
-        for (to, key) in env.deps_keyed(from) {
+    for (from, _) in module_graph.all_modules_and_id() {
+        for (to, key) in module_graph.deps_keyed(from) {
             let from_id = format!("{:?}", from);
             let to_id = format!("{:?}", to);
             writeln!(
@@ -113,12 +119,13 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
     Ok(())
 }
 
-/// Print a dependency relationship of build targets as a DOT graph, resolving package IDs to full names
-pub fn print_dep_relationship_dot(
-    dep: &DepRelationship,
+/// Print package relations as a DOT graph, resolving package IDs to full names.
+pub fn print_package_relations_dot(
+    dep: &PackageRelations,
     packages: &DiscoverResult,
     writer: &mut dyn Write,
 ) -> io::Result<()> {
+    // Keep the exported DOT identifier stable across internal type renames.
     writeln!(writer, "digraph DepRelationship {{")?;
     writeln!(writer, "    rankdir=TB;")?;
     writeln!(writer, "    node [shape=box style=\"filled,rounded\"];")?;
@@ -188,25 +195,29 @@ impl BuildPlanNode {
             BuildPlanNode::ArchiveOrLinkCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
+            BuildPlanNode::CompileGeneratedC(target) => {
+                format!("{:?}@CompileGeneratedC", target)
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                format!("{:?}@ArchiveForeignLibrary", package)
+            }
+            BuildPlanNode::GenerateDsym(target) => format!("{:?}@GenerateDsym", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                format!("{:?}@GenerateNodeTestPackageConfig", package)
+            }
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
-            BuildPlanNode::RunPrebuild(target, index) => {
-                format!("{:?}@RunPrebuild_{}", target, index)
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("BuildRuntimeObject_{index}")
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs(module_id) => format!("{:?}@BuildDocs", module_id),
             BuildPlanNode::BuildVirtual(target) => format!("{:?}@BuildVirtual", target),
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                format!("{:?}@RunMoonLexPrebuild_{}", package_id, index)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                format!("{:?}@RunMoonYaccPrebuild_{}", package_id, index)
-            }
         }
     }
 
-    fn gen_label(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    fn gen_label(&self, module_graph: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
         match self {
             BuildPlanNode::Check(target) => {
                 let fqn = packages.fqn(target.package);
@@ -240,38 +251,45 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nMakeExecutable", fqn)
             }
+            BuildPlanNode::CompileGeneratedC(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nCompileGeneratedC", fqn)
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                let fqn = packages.fqn(*package);
+                format!("{}\\nArchiveForeignLibrary", fqn)
+            }
+            BuildPlanNode::GenerateDsym(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nGenerateDsym", fqn)
+            }
             BuildPlanNode::GenerateTestInfo(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
             }
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                let fqn = packages.fqn(*package);
+                format!("{}\\nGenerateNodeTestPackageConfig", fqn)
+            }
             BuildPlanNode::Bundle(module_id) => {
-                let src = env.module_source(*module_id);
+                let src = module_graph.module_source(*module_id);
                 format!("{}\\nBundle", src)
             }
             BuildPlanNode::GenerateMbti(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("{}\\nGenerateMbti", fqn)
             }
-            BuildPlanNode::RunPrebuild(target, index) => {
-                let fqn = packages.fqn(*target);
-                format!("{}\\nRunPrebuild_{}", fqn, index)
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("BuildRuntimeObject_{index}")
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs(module_id) => {
-                let src = env.module_source(*module_id);
+                let src = module_graph.module_source(*module_id);
                 format!("{}\\nBuildDocs", src)
             }
             BuildPlanNode::BuildVirtual(package) => {
                 let fqn = packages.fqn(*package);
                 format!("{}\\nBuildVirtual", fqn)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                let fqn = packages.fqn(*package_id);
-                format!("{}\\nRunMoonLexPrebuild_{}", fqn, index)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                let fqn = packages.fqn(*package_id);
-                format!("{}\\nRunMoonYaccPrebuild_{}", fqn, index)
             }
         }
     }
@@ -286,15 +304,50 @@ impl BuildPlanNode {
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
+            BuildPlanNode::CompileGeneratedC(_) => "lightcoral",
+            BuildPlanNode::ArchiveForeignLibrary(_) => "lightpink",
+            BuildPlanNode::GenerateDsym(_) => "pink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
+            BuildPlanNode::GenerateNodeTestPackageConfig(_) => "lightgray",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
-            BuildPlanNode::RunPrebuild(_, _) => "khaki",
+            BuildPlanNode::BuildRuntimeObject(_) => "orange",
             BuildPlanNode::BuildRuntimeLib => "orange",
             BuildPlanNode::BuildDocs(_) => "lavender",
             BuildPlanNode::BuildVirtual(_) => "lightsteelblue",
-            BuildPlanNode::RunMoonLexPrebuild(..) => "plum",
-            BuildPlanNode::RunMoonYaccPrebuild(..) => "thistle",
+        }
+    }
+}
+
+impl BuildPlanActionKey {
+    fn gen_node_id(&self) -> String {
+        match self {
+            Self::Backend(node) => node.gen_node_id(),
+            Self::PackagePrebuild(PackagePrebuildKey {
+                package,
+                declaration_index,
+            }) => format!("{package:?}@RunPrebuild_{declaration_index}"),
+        }
+    }
+
+    fn gen_label(&self, module_graph: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
+        match self {
+            Self::Backend(node) => node.gen_label(module_graph, packages),
+            Self::PackagePrebuild(PackagePrebuildKey {
+                package,
+                declaration_index,
+            }) => format!(
+                "{}\\nRunPrebuild_{}",
+                packages.fqn(*package),
+                declaration_index
+            ),
+        }
+    }
+
+    fn gen_color(&self) -> &'static str {
+        match self {
+            Self::Backend(node) => node.gen_color(),
+            Self::PackagePrebuild(PackagePrebuildKey { .. }) => "khaki",
         }
     }
 }
@@ -302,7 +355,7 @@ impl BuildPlanNode {
 /// Print a build plan as a DOT graph, showing build nodes and their dependencies
 pub fn print_build_plan_dot(
     build_plan: &BuildPlan,
-    env: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     packages: &DiscoverResult,
     writer: &mut dyn Write,
 ) -> io::Result<()> {
@@ -310,11 +363,11 @@ pub fn print_build_plan_dot(
     writeln!(writer, "    rankdir=TB;")?;
     writeln!(writer, "    node [shape=box];")?;
 
-    // Nodes: use BuildPlanNode debug as ID, label with package FQN, target kind, and action
-    for node in build_plan.all_nodes() {
-        let node_id = node.gen_node_id();
-        let label = node.gen_label(env, packages);
-        let color = node.gen_color();
+    // Nodes: label both backend and package-prebuild actions.
+    for action in build_plan.all_actions() {
+        let node_id = action.gen_node_id();
+        let label = action.gen_label(module_graph, packages);
+        let color = action.gen_color();
 
         writeln!(
             writer,
@@ -323,10 +376,10 @@ pub fn print_build_plan_dot(
         )?;
     }
 
-    // Edges: dependencies between build plan nodes
-    for node in build_plan.all_nodes() {
-        for dep in build_plan.dependency_nodes(node) {
-            let node_id = node.gen_node_id();
+    // Edges: artifact requirements between Build Plan actions.
+    for action in build_plan.all_actions() {
+        for dep in build_plan.dependency_actions(&action) {
+            let node_id = action.gen_node_id();
             let dep_id = dep.gen_node_id();
             writeln!(writer, "    \"{}\" -> \"{}\";\n", node_id, dep_id)?;
         }

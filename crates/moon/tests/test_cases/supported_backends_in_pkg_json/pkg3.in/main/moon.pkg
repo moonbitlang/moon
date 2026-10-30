@@ -1,0 +1,7 @@
+import {
+  "username/hello/lib",
+}
+
+supported_targets = "wasm-gc"
+
+pkgtype(kind: "executable")

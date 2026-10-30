@@ -122,3 +122,14 @@ fn test_ab_004() {
         "#]],
     );
 }
+
+#[test]
+fn test_hyphenated_package_alias() {
+    let dir = TestDir::new("simple_pkg/hyphenated-alias");
+    check(
+        get_stdout(&dir, ["run", "main"]),
+        expect![[r#"
+            42
+        "#]],
+    );
+}

@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -26,11 +26,13 @@ use std::{
 };
 
 use anyhow::Context;
-use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
-use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
-
-use crate::user_diagnostics::UserDiagnostics;
+use moonbuild_rupes_recta::{DiscoveredProject, fmt::FmtResolveOutput, model::PackageId};
+use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph};
+use moonutil::{
+    constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
+    target::TargetBackend,
+    user_log::UserLog,
+};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -70,7 +72,7 @@ pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf
 
 pub(crate) fn select_packages<I, F>(
     paths: I,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     mut filter_pkg_by_dir: F,
 ) -> anyhow::Result<Vec<(PathBuf, PackageId)>>
 where
@@ -85,7 +87,7 @@ where
         let path = path.as_ref();
         let (dir, _) = canonicalize_with_filename(path)?;
         let Ok(pkg_id) = filter_pkg_by_dir(&dir) else {
-            output.info(format!(
+            user_log.info(format!(
                 "skipping path `{}` because it is not a package in the current work context.",
                 path.display()
             ));
@@ -134,22 +136,22 @@ where
 
 /// Perform fuzzy matching over package names and return the matching package IDs.
 pub(crate) fn match_packages_by_name_rr(
-    resolve_output: &ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
+    discovered: &DiscoveredProject,
+    main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Vec<PackageId> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
     };
 
-    let res = fuzzy_match_by_name(needle, &resolve_output.pkg_dirs);
+    let res = fuzzy_match_by_name(needle, &discovered.pkg_dirs);
 
     // Warn about non-local packages being matched
     for &pkg_id in &res {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = discovered.pkg_dirs.get_package(pkg_id);
         if pkg.module != main_module_id {
-            output.warn(format!(
+            user_log.warn(format!(
                 "Package '{}' matched by name '{}' is not in the main module, it may not be accessible.",
                 pkg.fqn,
                 needle
@@ -174,11 +176,11 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
 pub(crate) fn filter_pkg_by_dir(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
-    let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
-        resolve_output
+    let mut all_local_packages = discovered.local_modules().iter().flat_map(|&it| {
+        discovered
             .pkg_dirs
             .packages_for_module(it)
             .into_iter()
@@ -187,15 +189,15 @@ pub(crate) fn filter_pkg_by_dir(
 
     all_local_packages
         .find(|&pkg_id| {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-            pkg.root_path == dir
+            let pkg = discovered.pkg_dirs.get_package(pkg_id);
+            dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
         })
         .ok_or_else(|| {
             report_package_not_found(
                 dir,
-                &resolve_output.module_rel,
-                &resolve_output.module_dirs,
-                resolve_output.local_modules(),
+                &discovered.module_graph,
+                &discovered.module_dirs,
+                discovered.local_modules(),
             )
         })
 }
@@ -204,9 +206,9 @@ pub(crate) fn filter_pkg_by_dir(
 /// no package could be found.
 pub(crate) fn report_package_not_found(
     input_path: &Path,
-    module_graph: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
     module_dirs: &DirSyncResult,
-    main_modules: &[moonutil::mooncakes::ModuleId],
+    main_modules: &[moonutil::resolution::ModuleId],
 ) -> anyhow::Error {
     let m_def_and_dir = |id| {
         let module_dir = module_dirs.get(id).expect("Module should exist");
@@ -289,10 +291,10 @@ pub(crate) fn report_package_not_found(
 }
 
 pub(crate) fn format_supported_backends(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     pkg_id: PackageId,
 ) -> String {
-    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    let pkg = discovered.pkg_dirs.get_package(pkg_id);
     let mut targets = pkg
         .effective_supported_targets
         .iter()
@@ -303,11 +305,11 @@ pub(crate) fn format_supported_backends(
 }
 
 pub(crate) fn package_supports_backend(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> bool {
-    resolve_output
+    discovered
         .pkg_dirs
         .get_package(pkg_id)
         .effective_supported_targets
@@ -320,27 +322,52 @@ pub(crate) struct TargetPackageGroup {
     pub packages: Vec<PackageId>,
 }
 
+/// One single-backend plan selected before package resolution.
+#[derive(Debug)]
+pub(crate) struct BackendPlanSelection {
+    pub target_backend: TargetBackend,
+    /// Packages selected for this backend, or `None` when planning expands the
+    /// command's own selector against the resolved project.
+    pub packages: Option<Vec<PackageId>>,
+}
+
+impl BackendPlanSelection {
+    pub(crate) fn command_selector(target_backend: TargetBackend) -> Self {
+        Self {
+            target_backend,
+            packages: None,
+        }
+    }
+}
+
+impl From<TargetPackageGroup> for BackendPlanSelection {
+    fn from(group: TargetPackageGroup) -> Self {
+        Self {
+            target_backend: group.target_backend,
+            packages: Some(group.packages),
+        }
+    }
+}
+
 pub(crate) fn preferred_target_backend_for_package(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     pkg_id: PackageId,
 ) -> TargetBackend {
-    let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
-    resolve_output
-        .module_rel
+    let module_id = discovered.pkg_dirs.get_package(pkg_id).module;
+    discovered
         .module_info(module_id)
         .preferred_target
-        .or(resolve_output.workspace_preferred_target)
         .unwrap_or_default()
 }
 
 pub(crate) fn group_packages_by_preferred_backend(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> Vec<TargetPackageGroup> {
     let mut groups = BTreeMap::<TargetBackend, Vec<PackageId>>::new();
     for pkg_id in packages {
         groups
-            .entry(preferred_target_backend_for_package(resolve_output, pkg_id))
+            .entry(preferred_target_backend_for_package(discovered, pkg_id))
             .or_default()
             .push(pkg_id);
     }
@@ -355,25 +382,25 @@ pub(crate) fn group_packages_by_preferred_backend(
 }
 
 pub(crate) fn ensure_package_supports_backend(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     pkg_id: PackageId,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()> {
-    if package_supports_backend(resolve_output, pkg_id, target_backend) {
+    if package_supports_backend(discovered, pkg_id, target_backend) {
         return Ok(());
     }
 
-    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    let pkg = discovered.pkg_dirs.get_package(pkg_id);
     anyhow::bail!(
         "Package '{}' does not support target backend '{}'. Supported backends: {}",
         pkg.fqn,
         target_backend,
-        format_supported_backends(resolve_output, pkg_id),
+        format_supported_backends(discovered, pkg_id),
     );
 }
 
 pub(crate) fn ensure_packages_support_backend<I>(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     packages: I,
     target_backend: TargetBackend,
 ) -> anyhow::Result<()>
@@ -383,7 +410,7 @@ where
     let mut unsupported = Vec::new();
 
     for pkg_id in packages {
-        if !package_supports_backend(resolve_output, pkg_id, target_backend) {
+        if !package_supports_backend(discovered, pkg_id, target_backend) {
             unsupported.push(pkg_id);
         }
     }
@@ -395,11 +422,11 @@ where
     let details = unsupported
         .iter()
         .map(|&pkg_id| {
-            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            let pkg = discovered.pkg_dirs.get_package(pkg_id);
             format!(
                 "{} ({})",
                 pkg.fqn,
-                format_supported_backends(resolve_output, pkg_id)
+                format_supported_backends(discovered, pkg_id)
             )
         })
         .collect::<Vec<_>>()
@@ -413,10 +440,10 @@ where
 }
 
 pub(crate) fn select_supported_packages<I>(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     paths: I,
     target_backend: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>>
 where
     I: IntoIterator,
@@ -426,9 +453,9 @@ where
     let mut unsupported = Vec::new();
 
     for (path, pkg_id) in
-        select_packages(paths, output, |dir| filter_pkg_by_dir(resolve_output, dir))?
+        select_packages(paths, user_log, |dir| filter_pkg_by_dir(discovered, dir))?
     {
-        if package_supports_backend(resolve_output, pkg_id, target_backend) {
+        if package_supports_backend(discovered, pkg_id, target_backend) {
             selected.push(pkg_id);
         } else {
             unsupported.push((path.to_path_buf(), pkg_id));
@@ -437,10 +464,10 @@ where
 
     if selected.is_empty() && !unsupported.is_empty() {
         if let [(_, pkg_id)] = unsupported.as_slice() {
-            ensure_package_supports_backend(resolve_output, *pkg_id, target_backend)?;
+            ensure_package_supports_backend(discovered, *pkg_id, target_backend)?;
         } else {
             ensure_packages_support_backend(
-                resolve_output,
+                discovered,
                 unsupported.iter().map(|(_, pkg_id)| *pkg_id),
                 target_backend,
             )?;
@@ -448,13 +475,13 @@ where
     }
 
     for (path, pkg_id) in &unsupported {
-        let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-        output.info(format!(
+        let pkg = discovered.pkg_dirs.get_package(*pkg_id);
+        user_log.info(format!(
             "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
             path.display(),
             pkg.fqn,
             target_backend,
-            format_supported_backends(resolve_output, *pkg_id),
+            format_supported_backends(discovered, *pkg_id),
         ));
     }
 
@@ -473,7 +500,7 @@ pub(crate) struct PackageMatchResult {
 /// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
 /// suggestions. Results are deduplicated while preserving the order returned by the matcher.
 pub(crate) fn match_packages_with_fuzzy<I, S>(
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     candidates: impl IntoIterator<Item = PackageId>,
     names: I,
 ) -> PackageMatchResult
@@ -483,7 +510,7 @@ where
 {
     let mut name_map = BTreeMap::new();
     for pkg_id in candidates {
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        let pkg = discovered.pkg_dirs.get_package(pkg_id);
         name_map.insert(pkg.fqn.to_string(), pkg_id);
     }
 
@@ -526,7 +553,7 @@ where
 /// From a canonicalized directory path, find the corresponding package ID in `FmtResolveOutput`.
 ///
 /// This is a simpler version of `filter_pkg_by_dir` for the formatter case, which doesn't
-/// have the full `ResolveOutput` available.
+/// have the full `ResolvedProject` available.
 pub(crate) fn filter_pkg_by_dir_for_fmt(
     resolved: &FmtResolveOutput,
     dir: &Path,
@@ -543,7 +570,7 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
         })
         .find(|&pkg_id| {
             let pkg = resolved.pkg_dirs.get_package(pkg_id);
-            pkg.root_path == dir
+            dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
@@ -558,11 +585,16 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
 #[cfg(test)]
 mod tests {
     use super::select_supported_packages;
-    use crate::user_diagnostics::UserDiagnostics;
-    use moonbuild_rupes_recta::ResolveConfig;
+    use log::LevelFilter;
+    use moonbuild_rupes_recta::{
+        DiscoveredProject, ProjectPreparationConfig, pkg_solve::PackageResolutionError,
+        resolve::ProjectPreparationError,
+    };
     use moonutil::{
-        common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK, TargetBackend},
-        dirs::{SourceTargetDirs, WorkspaceEnv},
+        constants::{MOON_MOD, MOON_PKG, MOON_WORK},
+        project::{SourceTargetDirs, WorkspaceEnv},
+        target::TargetBackend,
+        user_log::UserLog,
     };
     use std::path::{Path, PathBuf};
 
@@ -577,23 +609,73 @@ mod tests {
         dunce::canonicalize(path).unwrap()
     }
 
-    fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
-        let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
-        let manifest_path = if source_dir.join(MOON_WORK).exists() {
-            source_dir.join(MOON_WORK)
-        } else {
-            source_dir.join(MOON_MOD_JSON)
-        };
+    fn discover_project(source_dir: &Path) -> DiscoveredProject {
+        let cfg = ProjectPreparationConfig::new_with_load_defaults(
+            false,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
+        let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
-            manifest_path: Some(manifest_path),
             target_dir: None,
         }
-        .query(WorkspaceEnv::Auto)
+        .query_from(source_dir, WorkspaceEnv::Auto)
+        .unwrap()
+        .select(&user_log)
         .unwrap()
         .package_dirs()
         .unwrap();
-        moonbuild_rupes_recta::resolve(&cfg, &dirs.source_dir, &dirs.mooncakes_dir).unwrap()
+        let synced_modules =
+            moonbuild_rupes_recta::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
+        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_modules, &user_log).unwrap()
+    }
+
+    #[test]
+    fn package_selection_does_not_require_solvable_imports() {
+        let temp = tempfile::tempdir().unwrap();
+        write_file(
+            &temp.path().join(MOON_MOD),
+            r#"
+name = "test/app"
+"#,
+        );
+        write_file(
+            &temp.path().join("main").join(MOON_PKG),
+            r#"import {
+  "test/app/missing",
+}
+
+pkgtype(kind: "executable")"#,
+        );
+
+        let root = canonical(temp.path());
+        let discovered = discover_project(&root);
+        let user_log = UserLog::new(LevelFilter::Error);
+        let selected = select_supported_packages(
+            &discovered,
+            [root.join("main")],
+            TargetBackend::default(),
+            &user_log,
+        )
+        .unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(
+            discovered.pkg_dirs.get_package(selected[0]).fqn.to_string(),
+            "test/app/main"
+        );
+
+        let ProjectPreparationError::PackageResolutionError(error) = discovered
+            .resolve_packages(&[TargetBackend::default()], &user_log)
+            .unwrap_err()
+        else {
+            panic!("missing imports must be reported during package solving");
+        };
+        assert!(matches!(
+            *error,
+            PackageResolutionError::ImportNotFound { import, .. } if import == "test/app/missing"
+        ));
     }
 
     #[test]
@@ -606,24 +688,24 @@ mod tests {
             "members = [\n  \"./app\",\n]\n",
         );
         write_file(
-            &workspace_root.join("app").join(MOON_MOD_JSON),
-            "{ \"name\": \"workspace/app\", \"version\": \"0.1.0\" }",
+            &workspace_root.join("app").join(MOON_MOD),
+            r#"
+name = "workspace/app"
+version = "0.1.0"
+"#,
         );
-        write_file(
-            &workspace_root.join("dangling/pkg").join(MOON_PKG_JSON),
-            "{ \"import\": [] }",
-        );
+        write_file(&workspace_root.join("dangling/pkg").join(MOON_PKG), "");
 
         let workspace_root = canonical(workspace_root);
         let dangling_pkg = workspace_root.join("dangling/pkg");
-        let resolved = resolve_output(&workspace_root);
+        let discovered = discover_project(&workspace_root);
 
         assert_eq!(
             select_supported_packages(
-                &resolved,
+                &discovered,
                 [&dangling_pkg],
                 TargetBackend::default(),
-                UserDiagnostics::default(),
+                &UserLog::new(LevelFilter::Warn),
             )
             .unwrap(),
             vec![]
@@ -644,29 +726,34 @@ mod tests {
             "members = [\n  \"../external/app\",\n]\n",
         );
         write_file(
-            &external_module.join(MOON_MOD_JSON),
-            "{ \"name\": \"external/app\", \"version\": \"0.1.0\" }",
+            &external_module.join(MOON_MOD),
+            r#"
+name = "external/app"
+version = "0.1.0"
+"#,
         );
         write_file(
-            &external_module.join("src/main").join(MOON_PKG_JSON),
-            "{ \"is-main\": true }",
+            &external_module.join("src/main").join(MOON_PKG),
+            r#"
+pkgtype(kind: "executable")
+"#,
         );
 
         let workspace_root = canonical(workspace_root);
         let external_pkg = canonical(external_module.join("src/main"));
-        let resolved = resolve_output(&workspace_root);
+        let discovered = discover_project(&workspace_root);
         let selected = select_supported_packages(
-            &resolved,
+            &discovered,
             [&external_pkg],
             TargetBackend::default(),
-            UserDiagnostics::default(),
+            &UserLog::new(LevelFilter::Warn),
         )
         .unwrap();
 
         assert_eq!(selected.len(), 1);
         assert_eq!(
-            resolved.pkg_dirs.get_package(selected[0]).root_path,
-            external_pkg
+            discovered.pkg_dirs.get_package(selected[0]).root_path,
+            std::fs::canonicalize(external_pkg).unwrap()
         );
     }
 }

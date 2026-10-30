@@ -1,27 +1,29 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::runtest::TestStatistics;
+use anstyle::{AnsiColor, Style};
 use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use core::fmt;
-use moonutil::common::line_col_to_byte_idx;
+use moonbuild_rupes_recta::discover::DiscoverResult;
+use moonutil::text::line_col_to_byte_idx;
 use similar::DiffOp;
 use similar::DiffTag;
 use similar::TextDiff;
@@ -30,10 +32,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-pub trait PackageSrcResolver {
-    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf;
-}
 
 #[derive(Debug, Default)]
 pub struct PackagePatch {
@@ -147,7 +145,7 @@ impl std::str::FromStr for ExpectFailedRaw {
 }
 
 fn parse_snapshot_result(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<SnapshotResult> {
     let json_str = &output.message[SNAPSHOT_TESTING.len()..];
@@ -318,7 +316,7 @@ fn test_decode() {
 }
 
 fn parse_expect_failed_message(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<Replace> {
     let msg = &output.message[EXPECT_FAILED.len()..];
@@ -369,9 +367,12 @@ fn parse_expect_failed_message(
 }
 
 impl LocationJson {
-    fn resolve(&self, pkg_src: &impl PackageSrcResolver, pkg: &str) -> Location {
+    fn resolve(&self, pkg_src: &DiscoverResult, pkg: &str) -> Location {
         let actual_pkg = pkg.strip_suffix("_blackbox_test").unwrap_or(pkg);
-        let mut full_path = pkg_src.resolve_pkg_src(actual_pkg);
+        let package = pkg_src
+            .get_package_id_by_name(actual_pkg)
+            .expect("test package must exist");
+        let mut full_path = pkg_src.get_package(package).root_path.clone();
         full_path.push(
             Path::new(&self.filename)
                 .file_name()
@@ -390,7 +391,7 @@ impl LocationJson {
 }
 
 fn collect<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<HashMap<String, BTreeSet<Target>>> {
     let mut targets: HashMap<String, BTreeSet<Target>> = HashMap::new();
@@ -762,7 +763,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
 }
 
 pub fn apply_snapshot<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
     for output in outputs {
@@ -797,7 +798,7 @@ pub fn apply_snapshot<'a>(
 }
 
 pub fn apply_expect<'a>(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     messages: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
     // dbg!(&messages);
@@ -818,12 +819,21 @@ const DIFF_MIN_CTX: usize = 5;
 /// without chunking.
 const MIN_LINES_FOR_CHUNKING: usize = 20;
 
+const DIFF_CONTEXT_STYLE: Style = AnsiColor::BrightBlack.on_default();
+const DIFF_REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
+const DIFF_REMOVED_EMPHASIS_STYLE: Style = AnsiColor::BrightRed.on_default().underline();
+const DIFF_ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();
+const DIFF_ADDED_EMPHASIS_STYLE: Style = AnsiColor::BrightGreen.on_default().underline();
+const DIFF_MISSING_NEWLINE_STYLE: Style = Style::new().dimmed();
+
 /// Write the difference between strings `expected` and `actual` to the provided
 /// writer `to`, in unified diff format.
 ///
 /// The function uses a number of heuristics to determine the best format for
 /// the diff output. Inline diffs will not show newline differences, short diffs
 /// will be displayed in full, and long diffs will be chunked.
+/// ANSI styles are always rendered; the destination writer decides whether to
+/// retain or strip them.
 pub fn write_diff(
     expected: &str,
     actual: &str,
@@ -855,6 +865,28 @@ pub fn write_diff(
     Ok(())
 }
 
+#[test]
+fn diff_color_follows_destination_writer() {
+    let render = |choice| {
+        let mut writer = anstream::AutoStream::new(Vec::new(), choice);
+        write_diff("old\n", "new\n", 1, 2, &mut writer).unwrap();
+        writer.into_inner()
+    };
+
+    let colored = render(anstream::ColorChoice::AlwaysAnsi);
+    assert!(
+        colored.contains(&b'\x1b'),
+        "output was not colored: {colored:?}"
+    );
+
+    let plain = render(anstream::ColorChoice::Never);
+    assert!(!plain.contains(&b'\x1b'));
+    assert!(
+        plain.starts_with(b"-old\n+new\n"),
+        "unexpected diff: {plain:?}"
+    );
+}
+
 /// Write a hunk of diff
 fn write_hunk<'a>(
     orig_diff: &'a TextDiff<'a, 'a, 'a, str>,
@@ -865,7 +897,7 @@ fn write_hunk<'a>(
 ) -> std::io::Result<()> {
     if header {
         let header = similar::udiff::UnifiedHunkHeader::new(hunk);
-        writeln!(to, "{}", header.to_string().bright_black())?;
+        writeln!(to, "{DIFF_CONTEXT_STYLE}{header}{DIFF_CONTEXT_STYLE:#}")?;
     }
 
     for op in hunk {
@@ -882,22 +914,28 @@ fn write_hunk<'a>(
                         unreachable!("Equal should have been handled earlier")
                     }
                     similar::ChangeTag::Delete => {
-                        write!(to, "{}", "-".bright_red())?;
+                        write!(to, "{DIFF_REMOVED_STYLE}-{DIFF_REMOVED_STYLE:#}")?;
                         for &(emph, slice) in change.values() {
                             if emph {
-                                write!(to, "{}", slice.underline().bright_red())?;
+                                write!(
+                                    to,
+                                    "{DIFF_REMOVED_EMPHASIS_STYLE}{slice}{DIFF_REMOVED_EMPHASIS_STYLE:#}"
+                                )?;
                             } else {
-                                write!(to, "{}", slice.bright_red())?;
+                                write!(to, "{DIFF_REMOVED_STYLE}{slice}{DIFF_REMOVED_STYLE:#}")?;
                             }
                         }
                     }
                     similar::ChangeTag::Insert => {
-                        write!(to, "{}", "+".bright_green())?;
+                        write!(to, "{DIFF_ADDED_STYLE}+{DIFF_ADDED_STYLE:#}")?;
                         for &(emph, slice) in change.values() {
                             if emph {
-                                write!(to, "{}", slice.underline().bright_green())?;
+                                write!(
+                                    to,
+                                    "{DIFF_ADDED_EMPHASIS_STYLE}{slice}{DIFF_ADDED_EMPHASIS_STYLE:#}"
+                                )?;
                             } else {
-                                write!(to, "{}", slice.bright_green())?;
+                                write!(to, "{DIFF_ADDED_STYLE}{slice}{DIFF_ADDED_STYLE:#}")?;
                             }
                         }
                     }
@@ -918,26 +956,27 @@ fn report_missing_nl_f(
     if missing {
         writeln!(to)?;
         if report_missing_newlines {
-            writeln!(to, "{}", "\\ No newline at end of file".dimmed())?;
+            writeln!(
+                to,
+                "{DIFF_MISSING_NEWLINE_STYLE}\\ No newline at end of file{DIFF_MISSING_NEWLINE_STYLE:#}"
+            )?;
         }
     }
     Ok(())
 }
 
 fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
+    const LABEL_STYLE: Style = Style::new().bold();
+    const EXPECTED_STYLE: Style = AnsiColor::Red.on_default();
+    const ACTUAL_STYLE: Style = AnsiColor::Green.on_default();
+
     writeln!(
         to,
-        "{} ({}, {})",
-        "Diff:".bold(),
-        "- expected".red(),
-        "+ actual".green()
+        "{LABEL_STYLE}Diff:{LABEL_STYLE:#} ({EXPECTED_STYLE}- expected{EXPECTED_STYLE:#}, {ACTUAL_STYLE}+ actual{ACTUAL_STYLE:#})"
     )
 }
 
-pub fn render_expect_fail(
-    pkg_src: &impl PackageSrcResolver,
-    output: &TestStatistics,
-) -> anyhow::Result<()> {
+pub fn render_expect_fail(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow::Result<()> {
     assert!(output.message.starts_with(EXPECT_FAILED));
     let rep = parse_expect_failed_message(pkg_src, output)?;
 
@@ -954,26 +993,24 @@ pub fn render_expect_fail(
         return Ok(());
     }
 
-    println!("expect test failed at {}", rep.loc);
-    write_diff_header(std::io::stdout())?;
-    println!("----");
+    let mut stdout = anstream::stdout().lock();
+    writeln!(stdout, "expect test failed at {}", rep.loc)?;
+    write_diff_header(&mut stdout)?;
+    writeln!(stdout, "----")?;
     write_diff(
         &rep.expect,
         &rep.actual,
         MIN_LINES_FOR_CHUNKING,
         DIFF_MIN_CTX,
-        std::io::stdout(),
+        &mut stdout,
     )?;
-    println!("----");
-    println!();
+    writeln!(stdout, "----")?;
+    writeln!(stdout)?;
 
     Ok(())
 }
 
-pub fn snapshot_eq(
-    pkg_src: &impl PackageSrcResolver,
-    output: &TestStatistics,
-) -> anyhow::Result<bool> {
+pub fn snapshot_eq(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow::Result<bool> {
     assert!(output.message.starts_with(SNAPSHOT_TESTING));
     let snapshot = parse_snapshot_result(pkg_src, output)?;
     let filename = snapshot.loc.filename;
@@ -999,7 +1036,7 @@ pub fn snapshot_eq(
 }
 
 pub fn render_snapshot_fail(
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<(bool, String, String)> {
     assert!(output.message.starts_with(SNAPSHOT_TESTING));
@@ -1022,23 +1059,25 @@ pub fn render_snapshot_fail(
     };
     let eq = actual == expect;
     if !eq {
-        println!(
+        let mut stdout = anstream::stdout().lock();
+        writeln!(
+            stdout,
             "expect test failed at {}:{}:{}",
             loc.filename,
             loc.line_start + 1,
             loc.col_start + 1
-        );
-        write_diff_header(std::io::stdout())?;
-        println!("----");
+        )?;
+        write_diff_header(&mut stdout)?;
+        writeln!(stdout, "----")?;
         write_diff(
             &expect,
             &actual,
             MIN_LINES_FOR_CHUNKING,
             DIFF_MIN_CTX,
-            std::io::stdout(),
+            &mut stdout,
         )?;
-        println!("----");
-        println!();
+        writeln!(stdout, "----")?;
+        writeln!(stdout)?;
     }
     Ok((eq, expect, actual))
 }

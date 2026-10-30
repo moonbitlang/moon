@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -21,13 +21,20 @@ mod imp;
 use std::path::PathBuf;
 
 use anyhow::bail;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve,
+    DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
+    intent::UserIntent, model::PackageId, sync_module_dependencies,
 };
 use moonutil::{
-    common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
-    dirs::PackageDirs,
-    mooncakes::sync::AutoSyncFlags,
+    build_options::RunMode,
+    cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
+    locks::lock_directory,
+    project::PackageDirs,
+    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
+    user_log::UserLog,
 };
 
 use crate::{
@@ -36,8 +43,7 @@ use crate::{
         canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
-    rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
-    user_diagnostics::UserDiagnostics,
+    rr_build::{self, CalcUserIntentOutput},
 };
 
 use super::UniversalFlags;
@@ -46,7 +52,7 @@ use super::UniversalFlags;
 ///
 /// By default, `moon info` writes `pkg.generated.mbti` from each selected package's
 /// canonical backend: module `preferred-backend`, then workspace
-/// `preferred-backend`, then `wasm-gc`.
+/// `preferred-backend`, then `wasm`.
 ///
 /// `--target` inspects backend-specific interfaces and reports differences, but
 /// does not change which backend is written to `pkg.generated.mbti`.
@@ -94,24 +100,14 @@ enum SelectionMode {
 impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
-        resolve_output: &ResolveOutput,
-        output: UserDiagnostics,
+        discovered: &DiscoveredProject,
+        user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = resolve_output
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                resolve_output
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            })
-            .collect();
+        let package_ids: Vec<_> = rr_build::local_packages(discovered).collect();
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
-            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let pkg = filter_pkg_by_dir(discovered, &dir)?;
             return Ok(Self {
                 mode: SelectionMode::SinglePath,
                 package_ids: vec![pkg],
@@ -120,8 +116,8 @@ impl PackageSelection {
         }
 
         if !cmd.path.is_empty() {
-            let path_packages = select_packages(&cmd.path, output, |dir| {
-                filter_pkg_by_dir(resolve_output, dir)
+            let path_packages = select_packages(&cmd.path, user_log, |dir| {
+                filter_pkg_by_dir(discovered, dir)
             })?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
@@ -133,7 +129,7 @@ impl PackageSelection {
 
         if let Some(filter) = cmd.package.as_deref() {
             let matches = match_packages_with_fuzzy(
-                resolve_output,
+                discovered,
                 package_ids.iter().copied(),
                 std::iter::once(filter),
             );
@@ -146,7 +142,7 @@ impl PackageSelection {
             }
 
             for missing in matches.missing {
-                output.warn(format!("Input `{}` did not match any package", missing));
+                user_log.warn(format!("Input `{}` did not match any package", missing));
             }
 
             return Ok(Self {
@@ -168,12 +164,12 @@ struct InfoIntentContext<'a> {
     selection: &'a PackageSelection,
     output_plan: &'a imp::InfoOutputPlan,
     target_kind: imp::TargetKind,
-    output: UserDiagnostics,
+    user_log: &'a UserLog,
 }
 
 fn calc_user_intent_for_info(
     ctx: &InfoIntentContext,
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let is_canonical_run = matches!(ctx.target_kind, imp::TargetKind::Canonical);
@@ -182,14 +178,14 @@ fn calc_user_intent_for_info(
         SelectionMode::SinglePath => {
             let package = ctx.selection.package_ids[0];
             let canonical = ctx.output_plan.canonical_backend_for(&package) == Some(target_backend);
-            let supported = package_supports_backend(resolve_output, package, target_backend);
+            let supported = package_supports_backend(discovered, package, target_backend);
 
             if (canonical || !is_canonical_run) && supported {
                 vec![UserIntent::Info(package)]
             } else {
-                ctx.output.warn(format!(
+                ctx.user_log.warn(format!(
                     "Skipping package `{}` for `moon info`: it does not support target backend `{}`",
-                    resolve_output.pkg_dirs.get_package(package).fqn,
+                    discovered.pkg_dirs.get_package(package).fqn,
                     target_backend
                 ));
                 Vec::new()
@@ -202,7 +198,7 @@ fn calc_user_intent_for_info(
             for (path, pkg_id) in &ctx.selection.path_packages {
                 let canonical =
                     ctx.output_plan.canonical_backend_for(pkg_id) == Some(target_backend);
-                let supported = package_supports_backend(resolve_output, *pkg_id, target_backend);
+                let supported = package_supports_backend(discovered, *pkg_id, target_backend);
                 let should_include = (canonical || !is_canonical_run) && supported;
 
                 if should_include {
@@ -213,18 +209,18 @@ fn calc_user_intent_for_info(
             }
 
             for (path, pkg_id) in &unsupported {
-                let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-                ctx.output.info(format!(
+                let pkg = discovered.pkg_dirs.get_package(*pkg_id);
+                ctx.user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
                     target_backend,
-                    format_supported_backends(resolve_output, *pkg_id),
+                    format_supported_backends(discovered, *pkg_id),
                 ));
             }
 
             if filtered.is_empty() && !unsupported.is_empty() {
-                ctx.output.warn(format!(
+                ctx.user_log.warn(format!(
                     "No selected package supports target backend `{}` for `moon info`",
                     target_backend
                 ));
@@ -241,14 +237,13 @@ fn calc_user_intent_for_info(
                 .filter(|&pkg_id| {
                     let canonical =
                         ctx.output_plan.canonical_backend_for(&pkg_id) == Some(target_backend);
-                    let supported =
-                        package_supports_backend(resolve_output, pkg_id, target_backend);
+                    let supported = package_supports_backend(discovered, pkg_id, target_backend);
                     (canonical || !is_canonical_run) && supported
                 })
                 .collect();
 
             if filtered.is_empty() {
-                ctx.output.warn(format!(
+                ctx.user_log.warn(format!(
                     "No selected package supports target backend `{}` for `moon info`",
                     target_backend
                 ));
@@ -261,144 +256,141 @@ fn calc_user_intent_for_info(
     Ok(intents.into())
 }
 
-pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+pub(crate) fn run_info(
+    cli: UniversalFlags,
+    cmd: InfoSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     if cmd.no_alias {
-        output.warn("`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092");
+        output.user_log().warn(
+            "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092",
+        );
     }
     if cli.dry_run {
         bail!("dry-run is not supported for info")
     }
 
-    run_info_rr(cli, cmd)
-}
-
-pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = cli
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
+        .select(output.user_log())?
         .package_dirs()?;
+    let PackageDirs { target_dir, .. } = &dirs;
 
     let build_flags = BuildFlags::default();
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
-    let output = UserDiagnostics::from_flags(&cli);
-    let selection = PackageSelection::new(&cmd, &resolve_output, output)?;
+    );
+    let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
+    let discovered =
+        discover_synced_project(&preparation_config, synced_modules, output.user_log())?;
+    let selection = PackageSelection::new(&cmd, &discovered, output.user_log())?;
 
     let requested_targets = cmd
         .target
         .as_deref()
         .map(lower_surface_targets)
         .unwrap_or_default();
-    let output_plan =
-        imp::plan_info_outputs(&resolve_output, selection.package_ids.iter().copied());
+    let output_plan = imp::plan_info_outputs(&discovered, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
+    let target_backends = execution_targets
+        .iter()
+        .map(|&(backend, _)| backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
+    std::fs::create_dir_all(target_dir)?;
+    let _lock = lock_directory(target_dir, output.user_log())?;
 
-    let mut all_meta = vec![];
-    let mut ok = true;
-    for (tgt, target_kind) in execution_targets {
-        let (success, meta) = run_info_rr_internal(
-            &cli,
-            &cmd,
-            tgt,
-            target_kind,
-            &target_dir,
-            resolve_output.clone(),
-            &selection,
-            &output_plan,
-        )?;
-        if !success {
-            ok = false;
-            continue;
-        }
-        all_meta.push((tgt, meta));
+    let planned_runs = execution_targets
+        .into_iter()
+        .map(|(target, target_kind)| {
+            let (meta, input) = plan_info_rr(
+                &cli,
+                &cmd,
+                target,
+                target_kind,
+                target_dir,
+                resolved_project.clone(),
+                &selection,
+                &output_plan,
+                output.user_log(),
+            )?;
+            Ok((target, meta, input))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if planned_runs.is_empty() {
+        return Ok(0);
     }
 
-    if !ok {
+    for (_, meta, _) in &planned_runs {
+        rr_build::generate_all_pkgs_json(meta)?;
+    }
+    let (all_meta, build_inputs): (Vec<_>, Vec<_>) = planned_runs
+        .into_iter()
+        .map(|(target, meta, input)| ((target, meta), input))
+        .unzip();
+    let build_input = BuildInput::compose(build_inputs)?;
+    // TODO: UX: Consider mirroring flags from `moon check`?
+    let cfg = BuildFlags::default().execution_config(&cli.unstable_feature, cli.verbose);
+    let result =
+        moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+    let print_result = result.print_info(cli.quiet, "generating mbti files");
+    if !result.successful() {
         return Ok(1);
     }
+    print_result?;
 
     imp::promote_info_results(&output_plan, all_meta.iter());
-    imp::report_info_outputs(&output_plan, all_meta.iter(), &requested_targets)?;
+    output.write_result(|writer| {
+        imp::report_info_outputs(&output_plan, all_meta.iter(), &requested_targets, writer)
+    })?;
     Ok(0)
 }
 
-/// Run `moon info` for the given target.
-///
-/// Returns `(success, build metadata if not dry-run)`.
+/// Plan `moon info` for one target backend.
 #[allow(clippy::too_many_arguments)]
-fn run_info_rr_internal(
+fn plan_info_rr(
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: TargetBackend,
     target_kind: imp::TargetKind,
     target_dir: &std::path::Path,
-    resolve_output: ResolveOutput,
+    resolved_project: ResolvedProject,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
-) -> anyhow::Result<(bool, BuildMeta)> {
-    let mut preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &BuildFlags::default(),
-        Some(target),
-        target_dir,
-        RunMode::Check,
-    );
-    preconfig.info_no_alias = cmd.no_alias;
-    let output = UserDiagnostics::from_flags(cli);
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let ctx = InfoIntentContext {
         selection,
         output_plan,
         target_kind,
-        output,
+        user_log,
     };
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
-    )?;
-    let intent =
-        calc_user_intent_for_info(&ctx, &resolve_output, planning_context.target_backend())?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
-        intent,
-        resolve_output,
-    )?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
-
-    // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildConfig::from_flags(
+    let mut compile_config = rr_build::prepare_resolved_build(
+        cli,
         &BuildFlags::default(),
-        &cli.unstable_feature,
-        cli.verbose,
-        output,
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
-    let success = result.successful();
-    let print_result = result.print_info(cli.quiet, "generating mbti files");
-    if success {
-        print_result?;
-    }
-
-    Ok((success, build_meta))
+        target,
+        target_dir,
+        RunMode::Check,
+        user_log,
+        &resolved_project,
+    )?;
+    compile_config.info_no_alias = cmd.no_alias;
+    let intent = calc_user_intent_for_info(
+        &ctx,
+        &resolved_project,
+        compile_config.backend.target_backend(),
+    )?;
+    rr_build::plan_resolved_build_from_intent(
+        compile_config,
+        user_log,
+        intent,
+        resolved_project,
+        None,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
+    )
 }

@@ -1,8 +1,0 @@
-{
-  "import": [
-    "username/hello/s"
-  ],
-  "wbtest-import": [
-    "username/hello/t"
-  ]
-}

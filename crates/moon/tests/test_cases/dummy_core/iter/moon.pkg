@@ -1,0 +1,7 @@
+import {
+  "moonbitlang/core/coverage",
+}
+
+import {
+  "moonbitlang/core/char",
+} for "wbtest"

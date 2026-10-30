@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,20 +20,84 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    sync::Arc,
 };
 
-use moonbuild::expect::PackageSrcResolver;
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
-use moonutil::module::MoonModRule;
-use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
+use moonutil::manifest::{MoonMod, MoonModRule};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
+use moonutil::resolution::{ModuleId, ModuleSource, ResolvedRootModules};
+use moonutil::{constants::MOON_PKG_JSON, target::TargetBackend};
 use slotmap::{SecondaryMap, SlotMap};
 
 use crate::{
     model::PackageId,
     pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
 };
+
+/// Construct a declared prebuild file path in the package file identity.
+///
+/// Discovery, formatting, and build planning share this constructor so that
+/// each compares complete paths without reconciling different spellings.
+pub(crate) fn resolve_prebuild_path(package_root: &Path, path: &str) -> PathBuf {
+    // Construct declared paths in the same form as discovered package files,
+    // before they enter the plan. Outputs may not exist yet, so resolve their
+    // components lexically against the canonical package root.
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+
+        let path = package_root.join(path);
+        let mut components = path.components();
+        let Some(Component::Prefix(prefix)) = components.next() else {
+            return path.components().collect();
+        };
+        let root = match prefix.kind() {
+            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) if path.is_absolute() => {
+                // Rust parses drive letters uppercase. Rebuild verbatim drives
+                // too: n2 compares raw strings, unlike PathBuf's drive equality.
+                PathBuf::from(format!(r"\\?\{}:", char::from(drive)))
+            }
+            Prefix::UNC(server, share) => {
+                // A UNC prefix must be complete before native joining parses it.
+                let mut root = std::ffi::OsString::from(r"\\?\UNC\");
+                root.push(server);
+                root.push(r"\");
+                root.push(share);
+                PathBuf::from(root)
+            }
+            _ => PathBuf::from(prefix.as_os_str()),
+        };
+        // An absolute declaration may have replaced the package root with an
+        // ordinary drive/UNC root. Restore its verbatim spelling, then let
+        // native joining resolve separators and parent components.
+        root.join(components.as_path())
+    }
+    #[cfg(not(windows))]
+    {
+        let root = if Path::new(path).is_absolute() {
+            Path::new("/")
+        } else {
+            package_root
+        };
+        relative_path::RelativePath::new(path)
+            .to_logical_path(root)
+            .components()
+            .collect()
+    }
+}
+
+/// The source format of a synthetic single-file package.
+///
+/// This is determined from the invoked filename when resolving the single-file
+/// input. Later build stages consume this interpretation instead of inferring
+/// semantics from the canonical file identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingleFileSourceKind {
+    Mbt,
+    MbtMd,
+    Mbtx,
+}
 
 // Be careful adding more fields to this struct. If it's not needed everywhere,
 // consider calculating it on-demand instead of storing it.
@@ -46,11 +110,16 @@ pub struct DiscoveredPackage {
     /// The fully-qualified name of the package
     pub fqn: PackageFQN,
 
-    /// Whether this is a synthetic single-file package
+    /// The source format when this is a synthetic single-file package.
     ///
     /// Single-file packages behave differently in certain aspects, such as
     /// file determination and import resolution.
-    pub is_single_file: bool,
+    pub single_file_source_kind: Option<SingleFileSourceKind>,
+
+    /// The selected package manifest path for normal package layouts.
+    ///
+    /// Synthetic single-file packages do not have a real package manifest.
+    pub manifest_path: Option<PathBuf>,
 
     /// The raw `moon.pkg.json` of this package.
     pub raw: Box<MoonPkg>,
@@ -62,22 +131,14 @@ pub struct DiscoveredPackage {
     /// module's supported targets.
     pub effective_supported_targets: indexmap::IndexSet<TargetBackend>,
 
-    /// `.mbt` files contained by this package. This list contains absolute
-    /// paths of the files. The same applies to all other file lists below.
+    /// Source inputs awaiting Build Target Projection.
     ///
-    /// This is an **unfiltered** list of source files contained by this
-    /// package, which requires further classifying into e.g. source files, test
-    /// files, and platform-specific files.
+    /// For an ordinary package, this is its unfiltered set of discovered
+    /// `.mbt` files. Single-file mode instead carries its selected `.mbt` or
+    /// `.mbtx` input here; `.mbtx` is never discovered as part of an ordinary
+    /// package. Paths in this and the other file lists below are absolute.
     pub source_files: Vec<PathBuf>,
 
-    /// MoonBit Lex files (`.mbl`) contained by this package.
-    ///
-    /// TODO: Most of these logic are replaced with pre-build tasks, and
-    /// `moonlex`/`moonyacc` bundled with the toolchain is not updated
-    /// frequently. Consider deprecating these fields and related logic.
-    pub mbt_lex_files: Vec<PathBuf>,
-    /// MoonBit Yacc files (`.mby`) contained by this package.
-    pub mbt_yacc_files: Vec<PathBuf>,
     /// Documentation-oriented programming Markdown files (`.mbt.md`) contained
     /// by this package.
     pub mbt_md_files: Vec<PathBuf>,
@@ -87,28 +148,38 @@ pub struct DiscoveredPackage {
     /// is generated from the package json, instead of directly collected from
     /// the folder.
     pub c_stub_files: Vec<PathBuf>,
-
-    /// The text-format module interface file for virtual packages.
+    /// Package-local header files that may be observed while compiling C
+    /// stubs.
     ///
-    /// This is `None` for non-virtual packages.
-    pub virtual_mbti: Option<PathBuf>,
+    /// Every C-stub action conservatively depends on this complete set because
+    /// MoonBuild does not interpret transitive `#include` directives.
+    pub c_stub_header_files: Vec<PathBuf>,
+
+    /// Existing text-format module interface files for virtual packages.
+    ///
+    /// These are only paths observed during Package File Set discovery. Build
+    /// planning combines them with actual package prebuild outputs and selects
+    /// the input for `BuildVirtual`.
+    pub virtual_mbti_files: Vec<PathBuf>,
 
     /// Whether this package is part of the standard library.    
     pub is_stdlib: bool,
 }
 
 impl DiscoveredPackage {
-    /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package
-    ///
-    /// This function assumes regular project layout.
-    /// Prefers `moon.pkg` (DSL format) if it exists, otherwise falls back to `moon.pkg.json`.
+    pub fn is_single_file(&self) -> bool {
+        self.single_file_source_kind.is_some()
+    }
+
+    pub fn is_mbtx_single_file(&self) -> bool {
+        self.single_file_source_kind == Some(SingleFileSourceKind::Mbtx)
+    }
+
+    /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package.
     pub fn config_path(&self) -> PathBuf {
-        if self.root_path.join(MOON_PKG).exists() {
-            self.root_path.join(MOON_PKG)
-        } else {
-            // Default to JSON format (for backward compatibility and single-file scenarios)
-            self.root_path.join(MOON_PKG_JSON)
-        }
+        self.manifest_path
+            .clone()
+            .unwrap_or_else(|| self.root_path.join(MOON_PKG_JSON))
     }
 
     /// Get whether if the package is a virtual package
@@ -150,6 +221,9 @@ impl DiscoveredPackage {
 /// The result of a package discovery process.
 #[derive(Debug, Clone, Default)]
 pub struct DiscoverResult {
+    /// Module manifests read from the resolved source directories.
+    module_infos: SecondaryMap<ModuleId, Arc<MoonMod>>,
+
     /// The directory of all discovered packages
     packages: SlotMap<PackageId, DiscoveredPackage>,
 
@@ -186,6 +260,17 @@ pub struct DiscoveredLocalProject {
 }
 
 impl DiscoverResult {
+    pub(super) fn set_module_info(&mut self, module: ModuleId, info: Arc<MoonMod>) {
+        self.module_infos.insert(module, info);
+    }
+
+    pub fn module_info(&self, module: ModuleId) -> &MoonMod {
+        self.module_infos
+            .get(module)
+            .expect("module info should be discovered before use")
+            .as_ref()
+    }
+
     /// Add a discovered package to the result.
     ///
     /// If a package with the same fully-qualified name already exists, an error
@@ -277,12 +362,22 @@ impl DiscoverResult {
     pub fn is_stdlib_package(&self, id: PackageId) -> bool {
         self.packages[id].is_stdlib
     }
-}
 
-impl PackageSrcResolver for DiscoverResult {
-    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
-        let pkg_id = self.packages_rev_map[pkg_path];
-        self.packages[pkg_id].root_path.clone()
+    #[cfg(test)]
+    pub(crate) fn test_register_module(&mut self, module: ModuleId, info: MoonMod) {
+        self.set_module_info(module, Arc::new(info));
+        self.module_map.insert(module, BTreeMap::new());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_add_package(
+        &mut self,
+        module: ModuleId,
+        path: PackagePath,
+        data: DiscoveredPackage,
+    ) -> PackageId {
+        self.add_package(module, path, data)
+            .expect("test package should be inserted")
     }
 }
 
@@ -303,6 +398,11 @@ pub enum DiscoverError {
         path: PathBuf,
         inner: anyhow::Error,
     },
+
+    #[error(
+        "Automatic generation from '{file}' is no longer supported. Declare the file in a custom `rule` / `dev_build` (or `pre-build`) task that generates `.mbt` files."
+    )]
+    UnsupportedLegacyGeneratedSource { file: PathBuf },
 
     #[error("Module name mismatch when reading '{read}', the name in registry is '{registry}'")]
     ModuleNameMismatch { registry: String, read: String },
@@ -354,9 +454,6 @@ pub enum DiscoverError {
         msg: &'static str,
     },
 
-    #[error("Cannot find `pkg.mbti` declaration file for virtual package {0}")]
-    MissingVirtualMbtiFile(PackageFQNWithSource),
-
     #[error("Duplicated package name `{}` used by both packages {first} from {} and {second} from {}", .first.fqn(), .first.fqn().module(), .second.fqn().module())]
     ConflictingPackageNameString {
         first: PackageFQNWithSource,
@@ -367,4 +464,87 @@ pub enum DiscoverError {
         "Front matter import '{import}' could not be resolved. Make sure its module is listed in moonbit.deps."
     )]
     SingleFileImportNotFound { import: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    #[cfg(windows)]
+    use std::path::PathBuf;
+
+    use super::resolve_prebuild_path;
+
+    #[test]
+    #[cfg(windows)]
+    fn prebuild_paths_use_native_verbatim_joining() {
+        for (input_prefix, prefix) in [
+            (r"C:", r"\\?\C:"),
+            (r"\\?\C:", r"\\?\C:"),
+            (r"\\server\share", r"\\?\UNC\server\share"),
+            (r"\\?\UNC\server\share", r"\\?\UNC\server\share"),
+        ] {
+            let root = PathBuf::from(format!(r"{input_prefix}\project\pkg"));
+            for (relative, expected) in [
+                ("../a/b/c", r"\project\a\b\c"),
+                ("../assets/./file", r"\project\assets\file"),
+                (r"..\assets\.\file", r"\project\assets\file"),
+                (r"../assets\..\file", r"\project\file"),
+                ("../../../../file", r"\file"),
+                ("../assets/nonexistent", r"\project\assets\nonexistent"),
+            ] {
+                let path = resolve_prebuild_path(&root, relative);
+                assert_eq!(
+                    path.as_os_str(),
+                    Path::new(&format!("{prefix}{expected}")).as_os_str(),
+                    "root={root:?}, relative={relative:?}",
+                );
+                assert!(!path.to_str().expect("test path is UTF-8").contains('/'));
+                assert!(!path.components().any(|component| matches!(
+                    component,
+                    std::path::Component::CurDir | std::path::Component::ParentDir
+                )));
+            }
+        }
+        for (absolute, expected) in [
+            (r"D:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (r"d:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (r"\\?\d:\assets\..\generated.mbt", r"\\?\D:\generated.mbt"),
+            (
+                r"\\server\share\assets\..\generated.mbt",
+                r"\\?\UNC\server\share\generated.mbt",
+            ),
+        ] {
+            assert_eq!(
+                resolve_prebuild_path(Path::new(r"\\?\C:\project\pkg"), absolute).as_os_str(),
+                Path::new(expected).as_os_str(),
+            );
+        }
+    }
+
+    #[test]
+    fn prebuild_declarations_construct_the_package_file_spelling() {
+        let package = if cfg!(windows) {
+            Path::new(r"\\?\C:\project\pkg")
+        } else {
+            Path::new("/project/pkg")
+        };
+        // Discovery derives file paths from this same package root. No file
+        // needs to exist, and no later comparison needs to reconcile spellings.
+        let discovered = package.join("generated.mbt");
+        let absolute = dunce::simplified(&discovered)
+            .to_str()
+            .expect("test path is UTF-8");
+        for declared in [
+            "generated.mbt",
+            "./generated.mbt",
+            "../pkg/generated.mbt",
+            absolute,
+        ] {
+            assert_eq!(
+                resolve_prebuild_path(package, declared).as_os_str(),
+                discovered.as_os_str(),
+                "declaration={declared:?}",
+            );
+        }
+    }
 }

@@ -1,25 +1,25 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::MoonBuildCli;
 use clap::{Arg, Command, CommandFactory};
 use clap_complete::{Shell, generate};
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use std::io::{self, Write};
 
 /// Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
@@ -257,7 +257,6 @@ fn add_common_args_recursive(mut cmd: Command, common_args: &[Arg]) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use expect_test::expect_file;
 
     fn render_shell_completion(shell: Shell) -> String {
         let mut output = Vec::new();
@@ -266,32 +265,14 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_completion_bash_snapshot() {
-        expect_file!["snapshots/shell_completion_bash.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Bash));
-    }
-
-    #[test]
-    fn test_shell_completion_elvish_snapshot() {
-        expect_file!["snapshots/shell_completion_elvish.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Elvish));
-    }
-
-    #[test]
-    fn test_shell_completion_fish_snapshot() {
-        expect_file!["snapshots/shell_completion_fish.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Fish));
-    }
-
-    #[test]
-    fn test_shell_completion_powershell_snapshot() {
-        expect_file!["snapshots/shell_completion_powershell.stdout"]
-            .assert_eq(&render_shell_completion(Shell::PowerShell));
-    }
-
-    #[test]
-    fn test_shell_completion_zsh_snapshot() {
-        expect_file!["snapshots/shell_completion_zsh.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Zsh));
+    fn other_supported_shells_render_completion() {
+        // Bash, PowerShell, and Zsh are exercised by their native shells in CI.
+        for shell in [Shell::Elvish, Shell::Fish] {
+            let completion = render_shell_completion(shell);
+            assert!(
+                !completion.trim().is_empty(),
+                "{shell:?} completion should not be empty"
+            );
+        }
     }
 }

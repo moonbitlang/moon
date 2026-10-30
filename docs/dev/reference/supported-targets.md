@@ -7,23 +7,21 @@ compatibility checks for selected roots.
 
 ## Field definition
 
-`supported_targets` is an optional field in both `moon.pkg.json` and
-`moon.mod.json` .
+`supported_targets` is an optional field in both `moon.pkg` and
+`moon.mod`.
 
 Preferred syntax (expression string):
 
-```json
-{
-  "supported-targets": "js"
-}
+```moonbit
+supported_targets = "js"
 ```
 
-Legacy syntax (array) is still accepted for compatibility:
+The deprecated array syntax is still accepted through `options`:
 
-```json
-{
-  "supported-targets": ["js", "native"]
-}
+```moonbit
+options(
+  "supported-targets": ["js", "native"],
+)
 ```
 
 Terms:
@@ -71,14 +69,48 @@ separate feature and unchanged.
 | `moon check` , `moon build` | keep packages that support `B` before root selection | selected package must support `B` |
 | `moon test` , `moon bench` | keep packages that support `B` | selected package(s) must support `B` |
 | `moon run` | N/A (explicit selector required) | selected package must support `B` |
+| `moon doc` | keep selected-module packages that support `B` | N/A (no package/path selector) |
 | `moon info` | write canonical `preferred-backend` output; inspect requested backend `B` | unsupported selected package(s) are skipped with warning |
 | `moon bundle` | planner skips package targets that do not support `B` | no package-level explicit filter |
 
 Notes:
 
 * `--target all` expands to `wasm`,  `wasm-gc`,  `js`,  `native` (not `llvm`).
+* A non-watch, explicit multi-backend project invocation synchronizes module
+  dependencies and discovers package declarations once. Package solving resolves
+  active imports for each requested backend, returning resolution errors directly.
+  Non-dry-run execution then holds one target-directory lock while it plans and
+  executes each backend separately. Those backend graphs remain separate, but
+  use the target directory's shared n2 database, so actions with identical
+  physical outputs can reuse recorded execution state.
 * `llvm` is still a valid value in `supported_targets`.
-* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm-gc`.
+* Before executing an LLVM build or check that uses installed std, Moon checks
+  for `prelude/prelude.mi` in the selected LLVM std bundle. A missing file
+  reports an incomplete toolchain. Dry runs, `--nostd`, core builds, and
+  other backends skip this check. This does not probe compiler capabilities.
+* `moon doc` selects `B` from the selected module's `preferred_target`, then falls back to `wasm`.
+* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
+* `moon check` also publishes `pkg.generated.mbti` for checked local
+  non-virtual packages, but only from a plan whose `B` is the package's
+  canonical backend. Unlike `moon info`, it writes `pkg.generated.mbti` only
+  when its content differs from the generated interface, so an up-to-date file
+  keeps its timestamp; `mooninfo` itself reruns only when the package's `.mi`
+  changes. A failed check, `--dry-run`,
+  `--patch-file`, and `--no-mbti` publish nothing. `moon check --watch`
+  ignores the published files.
+
+## Dependency tree target selection
+
+`moon tree --package --target B` accepts one concrete backend. Without
+`--target`, it selects the current module's `preferred_target`, then `wasm`.
+Package-tree JSON version 3 records this backend in its top-level `target`
+field. Failure reports record the explicit target, or `null` if none was given.
+The module-level tree is backend-independent and does not accept `--target`.
+
+The package tree resolves only backend `B` and shows that backend's import
+relationships: imports inactive for `B` are omitted, and another backend's
+resolution failure does not affect the tree. Nodes still include all
+discovered non-standard-library packages.
 
 ## Dependency compatibility (fail-fast)
 
@@ -94,11 +126,15 @@ support `B` , the command fails with a normal user-facing error (not a panic).
 
 ## Out of MVP
 
-MVP does **not** include:
+The `supported_targets` field does **not** include:
 
-* backend-scoped dependency declarations (`import` per backend), 
 * transitive constraint propagation or inference (deduce `supported_targets` based on dependencies), 
 * package-based backend guessing when `--target` is not provided.
+
+Backend-scoped imports are supported separately through
+[`#cfg` import blocks](cond-comp.md#conditional-package-imports). Only imports
+active on the selected backend affect dependency compatibility and realizable
+test-target support.
 
 ## Mixed-backend usage pattern
 
@@ -111,9 +147,9 @@ Example:
 
 ```text
 my_app/
-  moon.mod.json
+  moon.mod
   src/
-    shared/   # supported-targets: ["js", "native"]
-    web/      # is-main: true, supported-targets: ["js"]
-    server/   # is-main: true, supported-targets: ["native"]
+    shared/   # supported_targets = "+js+native"
+    web/      # pkgtype(kind: "executable"), supported_targets = "js"
+    server/   # pkgtype(kind: "executable"), supported_targets = "native"
 ```

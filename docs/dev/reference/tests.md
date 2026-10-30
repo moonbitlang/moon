@@ -7,26 +7,112 @@ behavior can change.
 
 ## Build + run pipeline
 
-1. The CLI resolves packages and test targets (via Rupes Recta build planning). Each
-   selected `BuildTarget` produces two artifacts: the executable (`make_executable`) and
-   a JSON metadata file (`generate_test_info`).
-2. `run_tests` (in `runtest.rs`) calls `gather_tests`, which pairs those artifacts,
-   sorts them by executable path (to match legacy ordering), and then iterates over
-   each test binary.
-3. Every executable is launched through `run_one_test_executable`. The runner:
-   - Parses the metadata (`MooncGenTestInfo`) to know which files and indices exist.
-   - Applies the CLI filter to build a `TestArgs` payload that lists the test ranges
-     to execute.
+`moon test` includes ordinary tests, doc tests, and Markdown tests by default.
+
+An explicit `.mbtx` file path selects a standalone script before project discovery.
+It uses the script's imports and does not load the surrounding project. Exactly
+one path is accepted in this mode; package-wide testing does not discover scripts.
+Directories ending in `.mbtx` still select packages. Standalone tests accept
+`--target all` and comma-separated backends, composing their plans before any test
+runs. Without `--target`, the script's preferred backend supplies the default.
+The synthesized script package is always executable. Building, running, and
+testing it require a user `fn main`. Inline tests compile alongside the script;
+doctests remain blackbox tests and import its source compilation. Test targets
+use the generated test entrypoint and do not execute the script's main.
+Legacy standalone `.mbt` and `.mbt.md` tests retain their library package
+declaration and do not require a main.
+For file symlinks, these semantics follow the invoked filename, and the compiler
+and test runner also receive that filename rather than the target's filename.
+
+Project tests, standalone-file tests, and benchmarks enter the same
+`run_test_workflow` after planning. It owns the initial build and dispatches the
+selected mode. Dry-run stops at the build graph. After the initial build,
+outline, build-only, and profiling each dispatch once to a dedicated handler
+for the whole invocation. Build-only emits one combined artifact listing across
+backends. Ordinary test and benchmark execution goes through
+`run_tests_with_updates`, which owns the execution, snapshot promotion, rebuild,
+and rerun loop, together with the final report.
+The target-directory lock is held from before planning through the initial
+build, including prebuild scripts and generated metadata. It is released before
+test execution or profiling. Outline and build-only read and print their
+generated metadata under the same lock. Test and benchmark execution and reporting
+do not block another `moon check` or build. All commands still share the target
+directory's n2 database; build execution remains serialized. Releasing the lock
+does not reserve the test artifacts against replacement by another build.
+
+`--outline` plans only generated test metadata, using the same test-target
+selection as an ordinary test invocation. Required prebuild steps still run,
+and metadata generation may also emit test-driver source, but MoonBit and native
+compilation and executable linking are skipped. Outline collection reads the
+metadata directly and does not require executable artifacts.
+
+1. For test execution, the CLI resolves packages and test targets (via Rupes
+   Recta build planning). Each selected `BuildTarget` produces two artifacts: the
+   executable (`make_executable`) and a JSON metadata file (`generate_test_info`).
+2. When an invocation selects more than one Target Backend, each backend is
+   planned and lowered independently, then their Execution Plans are composed
+   into one n2 graph. The entire graph must build successfully before any test
+   executable starts. This invocation-wide barrier prevents tests for an early
+   backend from running when a later backend fails to build.
+3. `run_tests` (in `runtest.rs`) calls `gather_tests`, which pairs those artifacts and
+   sorts them by executable path (to match legacy ordering). `collect_test_invocations`
+   then turns each pair into a `TestInvocation`: it parses the metadata
+   (`MooncGenTestInfo`) to know which files and indices exist, applies the CLI filter to
+   build the `TestArgs` payload listing the ranges to execute, and drops binaries for
+   which nothing is selected.
+4. Benchmarks are then isolated. When `bench` is true, `isolate_invocations` splits
+   every invocation into one invocation per selected case, so no benchmark shares a
+   process with another. Cases that share a process share a runtime that the earlier
+   ones have already warmed, grown and specialized, which makes a reported time depend
+   on how many cases ran before it — around 10% on wasm-gc. `moon test` keeps one
+   invocation per test binary.
+5. Every invocation is launched through `run_one_test_executable`, which therefore
+   starts a bench executable once per case. The runner:
    - Builds a backend-specific command (see below) and optionally prints it when
      `--verbose` is enabled.
-   - Captures the test output between the `MOON_TEST_DELIMITER_{BEGIN,END}` markers and
-     turns each JSONL line into `TestStatistics`. Coverage sections delimited by
+   - Captures the test driver event stream between the
+     `MOON_TEST_DELIMITER_{BEGIN,END}` markers. Coverage sections delimited by
      `MOON_COVERAGE_DELIMITER_*` are written to `_build/moonbit_coverage_<timestamp>_<rand>.txt`.
-4. The collected `TestCaseResult`s are merged per build target inside
-   `ReplaceableTestResults`. This structure keeps the latest result per
+6. The collected `TestCaseResult`s are merged per build target inside
+   `ReplaceableTestResults`, so the several invocations of an isolated benchmark run
+   land in one entry. This structure keeps the latest result per
    `(target, file, index)` pair so later reruns can overwrite earlier data. The
    final report is rendered either as compact text (default) or JSON lines (when
    `--test-failure-json` is on).
+
+Coverage runs `moonrun <toolchain-root>/bin/moon_cove.wasm -- ...` by default,
+without registry access or a separate version selection. Only
+`MOON_COVE_REPORT_ENABLED=0` (or case-insensitive `false`) selects the legacy
+`moon_cove_report`, whose executable can be selected with
+`MOON_COVE_REPORT_OVERRIDE`.
+
+## Test execution parallelism
+
+Within each Target Backend, `moon test` runs test executables in parallel by
+default, using the same available-CPU observation as build execution (falling
+back to one if unavailable). `-j N` sets the maximum number of concurrent
+executables.
+`--no-parallelize` forces sequential test execution even with `-j`, without
+changing build parallelism. The concurrency limit is at least one.
+
+One current-thread Tokio runtime supervises the child processes; CPU parallelism
+comes from the children themselves. A launch loop awaits a semaphore permit before
+spawning each async task. The task holds the permit through child execution and
+result collection, then releases it so the next invocation can start. All tasks
+are joined before results are reported. The CLI retains this runtime across all
+backends and snapshot-update passes so the shutdown listener remains available
+until test execution ends. Finishing one child frees a concurrency slot without
+dropping the listener. The runner awaits and reaps children even when another
+invocation fails, and stops launching queued invocations after shutdown is observed.
+
+Collected test results are reported in invocation order, regardless of completion
+order. Output printed directly by test programs may interleave. Selected Target
+Backends still execute one after another, and this scheduling does not split
+individual test cases into separate processes or change async-test concurrency.
+
+`moon bench` remains sequential by default to avoid contention affecting
+measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
+`--no-parallelize` overrides it.
 
 ## Expect / snapshot promotion loop
 
@@ -40,9 +126,10 @@ snapshot tests. The CLI enforces a single target backend in this mode (updating
 multiple backends at once would diverge binary outputs) and disallows patch
 files.
 
-1. After the initial run, `perform_promotion` scans the aggregated
-   `ReplaceableTestResults`. For every `ExpectTestFailed` or `SnapshotTestFailed`
-   case it:
+1. After each run, the workflow reacquires the target-directory lock before
+   promotion and holds it through any partial rebuild. `perform_promotion` scans
+   that run's `ReplaceableTestResults`. For every `ExpectTestFailed` or
+   `SnapshotTestFailed` case it:
 
    - Records the owning `BuildTarget`, file path, and index in a `PackageFilter`.
    - Batches the failure payloads and forwards them to `apply_expect` /
@@ -54,20 +141,82 @@ files.
    - Rebuilds just the affected test artifacts by cloning the saved build graph
      and calling `execute_build_partial` with the target nodes returned from the
      filter.
-   - Re-runs the filtered subset of tests by wrapping the `PackageFilter` inside a
-     temporary `TestFilter`. Only the promoted cases are executed, which keeps
-     reruns fast even for large suites.
+   - Releases the lock before re-running the filtered subset of tests, with the
+     `PackageFilter` wrapped inside a temporary `TestFilter`. Only the promoted
+     cases are executed, which keeps reruns fast even for large suites.
    - Merges the rerun results back into the main `ReplaceableTestResults` so the
      final summary reflects the updated outcomes.
 
 3. The loop repeats until either the filter is empty or the pass count hits
-   `--limit`. When the limit triggers the runner stops promoting and leaves any
-   remaining failures in the final output.
+   `--limit`. The initial run counts as the first pass. Promotion happens before
+   checking the limit, so the last pass can still modify files, but no rebuild or
+   rerun follows. The final report retains the last observed results, including
+   results for tests outside the rerun filter.
 
 During promotion the expect/snapshot helpers in `moonbuild::expect` are
 responsible for touching files. The CLI does not stream diffs; failures are still
 rendered via `render_expect_fail` / `render_snapshot_fail` to provide context when
 `--update` is not active or when a promotion pass still fails.
+
+## Test driver event transport
+
+The generated test driver reports per-test facts to `moon` as JSON event records
+inside the existing `MOON_TEST_DELIMITER_{BEGIN,END}` section. Each record is a
+test driver event, not necessarily a completed test result.
+
+The transport payload is intentionally minimal:
+
+```text
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"exit_wasm_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"exit_wasm_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+```
+
+- `type` identifies the event kind within the Moon test event stream. The initial
+  event kinds are `start` and `result`.
+- `file` and `index` identify the selected test case. The runner uses generated
+  metadata to recover package, display name, and source location when those are
+  needed.
+- `message` exists only on `result` events and carries the same result payload
+  used by expect, snapshot, panic, benchmark, and runtime-error handling.
+
+The driver escapes `file` and `message` as JSON strings, including control
+characters such as ANSI escape codes. The escaper is embedded in the driver and
+uses only primitive string/buffer operations, without a core JSON dependency.
+MoonBit string-literal escaping is not valid JSON escaping.
+
+The transport deliberately does not include package name, test display name,
+source location, backend, timestamp, duration, or tracing subscriber details.
+Those are either known by the runner, recoverable from metadata, or belong in
+Rust `tracing` rather than the driver-to-runner protocol.
+
+During stdout draining, `moon` only reads lines, captures delimited protocol
+sections, and forwards all other stdout unchanged. The runner parses and
+interprets the captured event payloads only after the test executable exits.
+
+### Core dependencies
+
+The shared driver must work inside `moonbitlang/core/builtin` and in core
+whitebox tests without importing `prelude` or `json`. Driver generation adapts
+every `@moonbitlang/core/prelude.` reference: it removes the prefix for `builtin`
+and replaces it with `@moonbitlang/core/builtin.` for other core packages.
+For ordinary packages the prefix stays unchanged and package resolution injects
+the prelude dependency.
+
+Consequently, shared template operations such as `println` and `StringBuilder`
+must be available in `builtin`, even though the template qualifies them through
+`prelude`. `Json::stringify` is implemented in the separate `json` package and
+cannot be used unconditionally. Core blackbox tests receive an injected prelude
+import; that injection does not extend to whitebox or inline tests.
+
+For async tests, lowering selects the runtime package passed to the private
+test-driver generator from the current test target's effective imports. A
+package that imports `moonbitlang/async` (or is that package itself) keeps the
+legacy runtime; otherwise the generated driver uses
+`moonbitlang/core/async_io`.
 
 ## Commands per backend (and how to specify test cases)
 
@@ -77,9 +226,19 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
 ### Wasm and WasmGC
 
 - Runner: `moonrun` binary from the active toolchain.
-- Invocation: `moonrun --test-args <json> <artifact>.wasm --`.
+- Invocation: `moonrun --test-args <json> [--policy <path>] <artifact>.wasm --`.
 - The JSON payload is a serialized `TestArgs`, so the runtime knows which files and
   indices to execute. Everything after `--` is forwarded to the MoonBit program.
+- The runtime initializes test modules before invoking test exports and the
+  test-driver finalizer. It prefers `_initialize`, falling back to `_start` when
+  `_initialize` is absent. The selected export is called once, including when no
+  test indices are selected. Modules without either export remain supported.
+  Initialization failure stops the run before any tests or finalization; a failing
+  `_initialize` does not fall back to `_start`.
+- `moon test --wasm-policy <path>` supplies the optional Moonrun Policy to each
+  Wasm test executable. A relative path is resolved against the effective Moon
+  invocation directory before test commands change to their module roots.
+  Other Target Backends ignore it.
 
 ### JavaScript
 
@@ -99,13 +258,6 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
   `/`-separated list of `filename:start-end` segments. Each range follows half-open
   semantics (`start` inclusive, `end` exclusive) just like the metadata indices.
 - Example argument: `math.mbt:0-5/io.mbt:2-3`.
-
-### Native (tcc-run)
-
-- When the build graph enables `try_tcc_run`, tests can be executed by TCC script mode.
-- Command: `<internal tcc> @<artifact>.rsp <native test args>` where the response file
-  contains the linker steps needed to run the temporary binary. The same CLI payload as
-  native/LLVM is appended so the harness can filter cases.
 
 ## Narrowing which tests run
 
@@ -144,8 +296,10 @@ Filtering is handled by `TestFilter` (`runtest/filter.rs`). It stores allowed
 
 ### Benchmarks and skips
 
-- `moon bench` reuses the exact same plumbing but passes `bench = true` to the filter,
-  so only benchmark entries (`with_bench_args_tests`) are collected.
+- `moon bench` reuses the same filtering plumbing but passes `bench = true`, so only
+  benchmark entries (`with_bench_args_tests`) are collected. It also changes the process
+  model: every selected case is run in a process of its own (step 4 above) rather than
+  one process per test binary.
 - `--include-skipped` keeps skipped cases in the computed ranges. Without it, skipped
   tests are excluded unless their indices are explicitly listed.
 

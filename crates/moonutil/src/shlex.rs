@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -50,17 +50,74 @@ pub use split_unix as split_native;
 #[cfg(target_os = "windows")]
 pub use split_windows as split_native;
 
+/// Split an argument tail according to native quoting rules, reporting
+/// malformed quoting or escaping when the platform grammar supports it.
+#[cfg(not(target_os = "windows"))]
+pub fn split_native_args(args: &str) -> Option<Vec<String>> {
+    shlex::split(args)
+}
+
+/// Split an argument tail according to native quoting rules, reporting
+/// malformed quoting or escaping when the platform grammar supports it.
+#[cfg(target_os = "windows")]
+pub fn split_native_args(args: &str) -> Option<Vec<String>> {
+    Some(split_windows_args(args))
+}
+
 /// Split the given command line according to Windows rules.
 ///
 /// Reference:
 /// https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments?view=msvc-170
 pub fn split_windows(args: &str) -> Vec<String> {
-    let (argv0, mut rest) = parse_windows_argv0(args);
+    let (argv0, rest) = parse_windows_argv0(args);
     let mut result = vec![argv0];
+    result.extend(split_windows_args(rest));
+    result
+}
 
-    while let Some((arg, new_rest)) = next_windows_arg(rest) {
+/// Parse native Windows arguments without losing unpaired UTF-16 surrogates.
+#[cfg(windows)]
+pub fn split_windows_os(args: &std::ffi::OsStr) -> std::io::Result<Vec<std::ffi::OsString>> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let mut wide: Vec<_> = args.encode_wide().collect();
+    // CommandLineToArgvW treats empty input as the host executable. That is not
+    // a guest spawn request, and embedded NULs must not truncate the request.
+    if wide.is_empty() || wide.contains(&0) {
+        return Err(std::io::Error::from_raw_os_error(
+            windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER as i32,
+        ));
+    }
+    wide.push(0);
+    let mut count = 0;
+    // The API owns one allocation containing the pointer array and terminated
+    // arguments. Copy the code units before releasing that whole allocation.
+    let argv =
+        unsafe { windows_sys::Win32::UI::Shell::CommandLineToArgvW(wide.as_ptr(), &mut count) };
+    if argv.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = unsafe { std::slice::from_raw_parts(argv, count as usize) }
+        .iter()
+        .map(|arg| {
+            let mut len = 0;
+            while unsafe { *(*arg).add(len) } != 0 {
+                len += 1;
+            }
+            std::ffi::OsString::from_wide(unsafe { std::slice::from_raw_parts(*arg, len) })
+        })
+        .collect();
+    unsafe { windows_sys::Win32::Foundation::LocalFree(argv.cast()) };
+    Ok(result)
+}
+
+/// Split an argument tail according to Windows rules, without applying the
+/// special parsing rules for `argv[0]`.
+pub fn split_windows_args(mut args: &str) -> Vec<String> {
+    let mut result = Vec::new();
+
+    while let Some((arg, new_rest)) = next_windows_arg(args) {
         result.push(arg);
-        rest = new_rest;
+        args = new_rest;
     }
 
     result
@@ -77,20 +134,18 @@ pub fn split_argv0_windows(args: &str) -> (String, &str) {
 }
 
 fn parse_windows_argv0(args: &str) -> (String, &str) {
-    let (quoted, rest) = if let Some(rest) = args.strip_prefix('"') {
-        (true, rest)
-    } else {
-        (false, args)
-    };
-    for (i, c) in rest.char_indices() {
-        // Exit condition
-        if quoted && c == '"' {
-            return (rest[..i].to_string(), &rest[i + 1..]);
-        } else if !quoted && c.is_whitespace() {
-            return (rest[..i].to_string(), &rest[i..]);
+    let mut argv0 = String::new();
+    let mut in_quotes = false;
+    for (index, c) in args.char_indices() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+        } else if !in_quotes && matches!(c, ' ' | '\t') {
+            return (argv0, &args[index..]);
+        } else {
+            argv0.push(c);
         }
     }
-    (rest.to_string(), "")
+    (argv0, "")
 }
 
 fn next_windows_arg(mut args: &str) -> Option<(String, &str)> {

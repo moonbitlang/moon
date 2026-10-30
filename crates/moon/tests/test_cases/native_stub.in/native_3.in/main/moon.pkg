@@ -1,0 +1,5 @@
+import {
+  "native_3/libbb",
+}
+
+pkgtype(kind: "executable")

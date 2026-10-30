@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -21,8 +21,8 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::common::TargetBackend;
 use moonutil::package::{ImportMemory, JsFormat, MemoryLimits};
+use moonutil::target::TargetBackend;
 
 use crate::build_lower::compiler::{
     CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
@@ -88,8 +88,15 @@ pub(crate) struct MooncLinkCore<'a> {
 /// WebAssembly-specific linking configuration
 #[derive(Debug, Default)]
 pub(crate) struct WasmConfig<'a> {
+    /// A human-readable module name stored in the optional WebAssembly `name`
+    /// custom section. This is debugging information, not trusted provenance.
+    pub module_name: Option<Cow<'a, str>>,
     /// Whether to enable WASI-oriented linking.
     pub wasi: bool,
+    /// Whether to select the MoonBit TLSF allocator for linear-memory Wasm.
+    pub new_allocator: bool,
+    /// Enable trial-deletion cycle collection for the linear-memory Wasm backend.
+    pub collect_ref_cycle: bool,
     /// The name of the exported WASM memory, if any.
     ///
     /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
@@ -133,7 +140,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Core dependencies (input files) first
         for core_dep in self.core_deps {
-            args.push(core_dep.to_string_lossy().into_owned());
+            args.push(dunce::simplified(core_dep).to_string_lossy().into_owned());
         }
 
         // Main package specification
@@ -142,7 +149,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Output file
         args.push("-o".to_string());
-        args.push(self.output_path.display().to_string());
+        args.push(dunce::simplified(&self.output_path).display().to_string());
 
         if self.test_mode {
             args.push("-test-mode".to_string());
@@ -150,7 +157,11 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Package configuration path
         args.push("-pkg-config-path".to_string());
-        args.push(self.pkg_config_path.display().to_string());
+        args.push(
+            dunce::simplified(&self.pkg_config_path)
+                .display()
+                .to_string(),
+        );
 
         // Package sources (using existing to_arg method)
         for pkg_source in self.package_sources {
@@ -199,6 +210,9 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
         if self.flags.no_opt {
             args.push("-O0".to_string());
         }
+        if self.flags.stacktrace {
+            args.push("-stacktrace".to_string());
+        }
 
         // Source map
         if self.flags.source_map {
@@ -216,11 +230,24 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // WASM-specific config
         if self.target_backend.is_wasm() {
+            if self.target_backend == TargetBackend::Wasm && self.wasm_config.collect_ref_cycle {
+                args.push("-enable-trial-deletion".to_string());
+            }
+            if let Some(module_name) = &self.wasm_config.module_name {
+                args.push("-wasm-module-name".to_string());
+                args.push(module_name.to_string());
+            }
+
             // Keep WASI and user memory settings independent. `moonc` has one
             // linear memory here, so `-wasi` and custom memory exports create
             // aliases to that same memory instead of requiring multi-memory.
             if self.wasm_config.wasi {
                 args.push("-wasi".to_string());
+            }
+
+            if self.wasm_config.new_allocator {
+                args.push("-allocator".to_string());
+                args.push("tlsf-mbt".to_string());
             }
 
             // Export memory name

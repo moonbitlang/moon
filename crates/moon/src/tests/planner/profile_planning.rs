@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -101,7 +101,8 @@ fn assert_command_uses_profile(
 #[test]
 fn bench_graph_uses_selected_codegen_profile() {
     let fixture = PlanningFixture::new("moon_bench").expect("fixture should resolve");
-    let (cli, cmd) = parse_bench_command(&["bench", "--sort-input", "--dry-run"]);
+    let (cli, cmd) =
+        parse_bench_command(&["bench", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 
     let default_graph = fixture
         .plan_bench_with_cli(&cli, &cmd)
@@ -109,16 +110,28 @@ fn bench_graph_uses_selected_codegen_profile() {
     assert!(default_graph.contains("moonc"));
     assert!(!default_graph.contains("-O0"));
 
-    let (release_cli, release_cmd) =
-        parse_bench_command(&["bench", "--release", "--sort-input", "--dry-run"]);
+    let (release_cli, release_cmd) = parse_bench_command(&[
+        "bench",
+        "--target",
+        "wasm-gc",
+        "--release",
+        "--sort-input",
+        "--dry-run",
+    ]);
     let release_graph = fixture
         .plan_bench_with_cli(&release_cli, &release_cmd)
         .expect("release bench graph should plan");
     assert!(release_graph.contains("moonc"));
     assert!(!release_graph.contains("-O0"));
 
-    let (debug_cli, debug_cmd) =
-        parse_bench_command(&["bench", "--debug", "--sort-input", "--dry-run"]);
+    let (debug_cli, debug_cmd) = parse_bench_command(&[
+        "bench",
+        "--target",
+        "wasm-gc",
+        "--debug",
+        "--sort-input",
+        "--dry-run",
+    ]);
     let debug_graph = fixture
         .plan_bench_with_cli(&debug_cli, &debug_cmd)
         .expect("debug bench graph should plan");
@@ -129,7 +142,8 @@ fn bench_graph_uses_selected_codegen_profile() {
 #[test]
 fn default_test_graph_matches_snapshot() {
     let fixture = PlanningFixture::new("test_release").expect("fixture should resolve");
-    let (cli, cmd) = parse_test_command(&["test", "--sort-input", "--dry-run"]);
+    let (cli, cmd) =
+        parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 
     expect_file!["./snapshots/test_profile_default_graph.jsonl.snap"].assert_eq(
         &fixture
@@ -141,7 +155,14 @@ fn default_test_graph_matches_snapshot() {
 #[test]
 fn release_test_graph_matches_snapshot() {
     let fixture = PlanningFixture::new("test_release").expect("fixture should resolve");
-    let (cli, cmd) = parse_test_command(&["test", "--release", "--sort-input", "--dry-run"]);
+    let (cli, cmd) = parse_test_command(&[
+        "test",
+        "--target",
+        "wasm-gc",
+        "--release",
+        "--sort-input",
+        "--dry-run",
+    ]);
 
     expect_file!["./snapshots/test_profile_release_graph.jsonl.snap"].assert_eq(
         &fixture
@@ -157,11 +178,28 @@ fn check_graph_uses_debug_profile_without_codegen_flags() {
     for (label, args) in [
         (
             "default check",
-            ["check", "--dry-run", "--nostd", "--sort-input"].as_slice(),
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ]
+            .as_slice(),
         ),
         (
             "explicit debug check",
-            ["check", "--dry-run", "--debug", "--nostd", "--sort-input"].as_slice(),
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--debug",
+                "--nostd",
+                "--sort-input",
+            ]
+            .as_slice(),
         ),
     ] {
         let (cli, cmd) = parse_check_command(args);
@@ -181,21 +219,6 @@ fn build_graph_uses_selected_profile() {
     for (label, args, profile) in [
         (
             "default build",
-            ["build", "--dry-run", "--nostd", "--sort-input"].as_slice(),
-            "debug",
-        ),
-        (
-            "release build",
-            ["build", "--dry-run", "--release", "--nostd", "--sort-input"].as_slice(),
-            "release",
-        ),
-        (
-            "debug build",
-            ["build", "--dry-run", "--debug", "--nostd", "--sort-input"].as_slice(),
-            "debug",
-        ),
-        (
-            "default build with explicit target",
             [
                 "build",
                 "--target",
@@ -208,7 +231,7 @@ fn build_graph_uses_selected_profile() {
             "debug",
         ),
         (
-            "release build with explicit target",
+            "release build",
             [
                 "build",
                 "--target",
@@ -222,7 +245,7 @@ fn build_graph_uses_selected_profile() {
             "release",
         ),
         (
-            "debug build with explicit target",
+            "debug build",
             [
                 "build",
                 "--target",
@@ -265,7 +288,16 @@ fn run_graph_uses_selected_profile() {
     for (label, args, profile) in [
         (
             "default run",
-            ["run", "main", "--dry-run", "--nostd", "--sort-input"].as_slice(),
+            [
+                "run",
+                "main",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ]
+            .as_slice(),
             "debug",
         ),
         (
@@ -273,6 +305,8 @@ fn run_graph_uses_selected_profile() {
             [
                 "run",
                 "main",
+                "--target",
+                "wasm-gc",
                 "--dry-run",
                 "--release",
                 "--nostd",
@@ -283,48 +317,6 @@ fn run_graph_uses_selected_profile() {
         ),
         (
             "debug run",
-            [
-                "run",
-                "main",
-                "--dry-run",
-                "--debug",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
-            "debug",
-        ),
-        (
-            "default run with explicit target",
-            [
-                "run",
-                "main",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
-            "debug",
-        ),
-        (
-            "release run with explicit target",
-            [
-                "run",
-                "main",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--release",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
-            "release",
-        ),
-        (
-            "debug run with explicit target",
             [
                 "run",
                 "main",
@@ -358,5 +350,110 @@ fn run_graph_uses_selected_profile() {
             profile,
             profile == "debug",
         );
+    }
+}
+
+#[test]
+fn native_run_cli_flags_match_requested_debug_info() {
+    for (case, package, target_args) in [
+        ("debug_flag_test", "main", ["--target", "native"].as_slice()),
+        (
+            "workspace_conflicting_run_preferred_targets.in",
+            "native_preferred/src/main",
+            [].as_slice(),
+        ),
+    ] {
+        let fixture = PlanningFixture::new(case).expect("fixture should resolve");
+        for (label, extra_args, expect_debug_info) in [
+            ("default", [].as_slice(), None),
+            ("debug", ["--debug"].as_slice(), Some(true)),
+            ("no-strip", ["--no-strip"].as_slice(), Some(true)),
+            ("strip", ["--debug", "--strip"].as_slice(), Some(false)),
+        ] {
+            let mut args = vec!["run", package, "--dry-run", "--nostd", "--sort-input"];
+            args.extend_from_slice(target_args);
+            args.extend_from_slice(extra_args);
+            let (cli, cmd) = parse_run_command(&args);
+            let graph = fixture
+                .plan_run_with_cli(&cli, &cmd)
+                .unwrap_or_else(|err| panic!("{case}: {label} native run should plan: {err:#}"));
+
+            // CLI tests cover explicit and preferred backend selection. The
+            // RR compile tests inject candidates to guarantee each payload form.
+            let link = command_tokens(&graph, "moonc link-core", &["-main"]);
+            let generates_c = link
+                .windows(2)
+                .any(|pair| pair[0] == "-o" && pair[1].ends_with(".c"));
+
+            for (command, filter) in [
+                ("moonc build-package", ["main.mbt"].as_slice()),
+                ("moonc link-core", ["-main"].as_slice()),
+            ] {
+                let tokens = command_tokens(&graph, command, filter);
+                assert!(
+                    tokens.iter().any(|token| token.contains("/native/debug/")),
+                    "{tokens:?}"
+                );
+                assert!(tokens.iter().any(|token| token == "-O0"), "{tokens:?}");
+                assert_eq!(
+                    tokens.iter().any(|token| token == "-stacktrace"),
+                    label == "default" && !generates_c,
+                    "{case}: {label}: {tokens:?}"
+                );
+                assert_eq!(
+                    tokens.iter().any(|token| token == "-g"),
+                    expect_debug_info.unwrap_or(generates_c),
+                    "{case}: {label}: {tokens:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn stripping_keeps_runtime_backtraces_only_for_debug_profile_runs() {
+    let fixture = PlanningFixture::new("debug_flag_test").expect("fixture should resolve");
+    for backend in ["native", "llvm"] {
+        for (command, extra_args, expect_backtrace) in [
+            ("run", [].as_slice(), !cfg!(windows)),
+            ("run", ["--release"].as_slice(), false),
+            ("build", [].as_slice(), false),
+            ("test", [].as_slice(), false),
+            ("bench", [].as_slice(), false),
+        ] {
+            let mut args = vec![command, "--target", backend, "--strip", "--dry-run"];
+            args.extend_from_slice(extra_args);
+            let graph = match command {
+                "run" => {
+                    args.push("main");
+                    let (cli, cmd) = parse_run_command(&args);
+                    fixture.plan_run_with_cli(&cli, &cmd)
+                }
+                "build" => {
+                    let (cli, cmd) = parse_build_command(&args);
+                    fixture.plan_build_with_cli(&cli, &cmd)
+                }
+                "test" => {
+                    let (cli, cmd) = parse_test_command(&args);
+                    fixture.plan_test_with_cli(&cli, &cmd)
+                }
+                "bench" => {
+                    let (cli, cmd) = parse_bench_command(&args);
+                    fixture.plan_bench_with_cli(&cli, &cmd)
+                }
+                _ => unreachable!(),
+            }
+            .unwrap_or_else(|err| panic!("{args:?} should plan: {err:#}"));
+            let runtime = command_tokens(&graph, "runtime.c", &[]);
+            assert_eq!(
+                runtime
+                    .iter()
+                    .any(|arg| arg == "-DMOONBIT_ALLOW_STACKTRACE"),
+                expect_backtrace,
+                "{args:?}: runtime backtrace support"
+            );
+            let link = command_tokens(&graph, "moonc link-core", &[]);
+            assert!(!link.iter().any(|arg| arg == "-g"), "{args:?}: {link:?}");
+        }
     }
 }

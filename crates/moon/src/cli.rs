@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -33,19 +33,29 @@ pub(crate) mod fmt;
 pub(crate) mod generate_test_driver;
 pub(crate) mod info;
 pub(crate) mod install_binary;
+pub(crate) mod invocation;
 pub(crate) mod mooncake_adapter;
+pub(crate) mod moonx;
 pub(crate) mod new;
 pub(crate) mod process;
 pub(crate) mod profile;
 pub(crate) mod prove;
+#[cfg(test)]
+mod registry_output_tests;
+mod registry_queries;
+pub(crate) mod registry_runner;
 pub(crate) mod run;
+pub(crate) mod runtime;
 pub(crate) mod runwasm;
+pub(crate) mod search;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
 pub(crate) mod tool;
+pub(crate) mod tree;
 pub(crate) mod update;
 pub(crate) mod upgrade;
 pub(crate) mod version;
+pub(crate) mod view;
 pub(crate) mod whoami;
 mod work;
 pub(crate) use crate::build_flags::BuildFlags;
@@ -60,31 +70,50 @@ pub(crate) use cram::*;
 pub(crate) use deps::*;
 pub(crate) use doc::*;
 pub(crate) use explain::*;
-pub(crate) use external::*;
 pub(crate) use fetch::*;
 pub(crate) use fmt::*;
 pub(crate) use generate_test_driver::*;
 pub(crate) use info::*;
 use moonbuild::upgrade::UpgradeSubcommand;
-use mooncake::pkg::{
-    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
-};
-use moonutil::{
-    cli::UniversalFlags,
-    mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
+use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
+use moonutil::cli_support::{
+    DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
+    UniversalFlags,
 };
 pub(crate) use new::*;
 pub(crate) use prove::*;
 pub(crate) use run::*;
 pub(crate) use runwasm::*;
+pub(crate) use search::*;
 pub(crate) use shell_completion::*;
 pub(crate) use test::*;
 pub(crate) use tool::*;
+pub(crate) use tree::*;
 pub(crate) use update::*;
 pub(crate) use upgrade::*;
 pub(crate) use version::*;
+pub(crate) use view::*;
 pub(crate) use whoami::*;
 pub(crate) use work::{WorkSubcommand, work_cli};
+
+fn standalone_mbtx_path<'a>(
+    paths: &'a [std::path::PathBuf],
+    command: &str,
+) -> anyhow::Result<Option<&'a std::path::Path>> {
+    let Some(path) = paths.iter().find(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "mbtx")
+            && path.is_file()
+    }) else {
+        return Ok(None);
+    };
+
+    anyhow::ensure!(
+        paths.len() == 1,
+        "standalone `.mbtx` `{command}` expects exactly one `PATH`"
+    );
+    Ok(Some(path))
+}
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -114,6 +143,8 @@ pub(crate) enum MoonBuildSubcommands {
     Check(CheckSubcommand),
     Prove(ProveSubcommand),
     Run(RunSubcommand),
+    // TODO(2026-09-14): Remove `moon runwasm` after the two-week deprecation
+    // window; its replacements depend on whether the input is local or remote.
     #[clap(name = "runwasm")]
     RunWasm(RunWasmSubcommand),
     Test(TestSubcommand),
@@ -134,6 +165,8 @@ pub(crate) enum MoonBuildSubcommands {
     Install(InstallSubcommand),
     Tree(TreeSubcommand),
     Fetch(FetchSubcommand),
+    Search(SearchSubcommand),
+    View(ViewSubcommand),
     Work(WorkSubcommand),
 
     // Mooncake
@@ -142,6 +175,7 @@ pub(crate) enum MoonBuildSubcommands {
     Register(RegisterSubcommand),
     Publish(PublishSubcommand),
     Package(PackageSubcommand),
+    Deprecate(DeprecateSubcommand),
 
     Update(UpdateSubcommand),
 

@@ -1,0 +1,198 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use std::{ffi::OsStr, path::Path};
+
+use crate::mooncakes::ModuleName;
+
+pub const MOON_MOD: &str = "moon.mod";
+pub const MOON_MOD_JSON: &str = "moon.mod.json";
+pub const MOON_PKG_JSON: &str = "moon.pkg.json";
+pub const MOON_WORK: &str = "moon.work";
+pub const MOON_WORK_ENV: &str = "MOON_WORK";
+pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
+/// Carries a process-local policy-copy handle identifier from a policy-bearing
+/// moonrun through moonx to the moonrun that executes the resolved Wasm artifact.
+pub const MOONRUN_INHERITED_POLICY: &str = "MOONRUN_INHERITED_POLICY";
+pub const MOON_PKG: &str = "moon.pkg";
+pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
+pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";
+pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
+pub const MOONBITLANG_CORE_BUILTIN: &str = "moonbitlang/core/builtin";
+pub const MOONBITLANG_CORE_PRELUDE: &str = "moonbitlang/core/prelude";
+pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";
+pub const MOONBITLANG_ABORT: &str = "moonbitlang/core/abort";
+
+pub static MOD_NAME_STDLIB: ModuleName = ModuleName {
+    username: arcstr::literal!("moonbitlang"),
+    unqual: arcstr::literal!("core"),
+};
+
+pub const MOON_TEST_DELIMITER_BEGIN: &str = "----- BEGIN MOON TEST RESULT -----";
+pub const MOON_TEST_DELIMITER_END: &str = "----- END MOON TEST RESULT -----";
+
+pub const MOON_COVERAGE_DELIMITER_BEGIN: &str = "----- BEGIN MOONBIT COVERAGE -----";
+pub const MOON_COVERAGE_DELIMITER_END: &str = "----- END MOONBIT COVERAGE -----";
+
+pub const MOON_LOCK: &str = ".moon-lock";
+
+pub const DEP_PATH: &str = ".mooncakes";
+
+pub const BUILD_DIR: &str = "_build";
+
+pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, ".git", "node_modules", DEP_PATH];
+
+pub fn is_ignored_directory_name(name: &OsStr) -> bool {
+    name.as_encoded_bytes().starts_with(b".")
+        || IGNORE_DIRS.iter().any(|ignored_name| name == *ignored_name)
+}
+
+pub fn is_moonx_executable(path: &OsStr) -> bool {
+    Path::new(path).file_name().is_some_and(|name| {
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("moonx") || name.eq_ignore_ascii_case("moonx.exe")
+        } else {
+            name == "moonx" || name == "moonx.exe"
+        }
+    })
+}
+
+pub const WATCH_MODE_DIR: &str = "watch";
+
+pub const TEST_INFO_FILE: &str = "test_info.json";
+
+pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
+pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
+
+pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
+pub const DOT_MBTP: &str = ".mbtp";
+pub const DOT_MBL: &str = ".mbl";
+pub const DOT_MBY: &str = ".mby";
+
+pub const MOD_DIR: &str = "$mod_dir";
+pub const PKG_DIR: &str = "$pkg_dir";
+
+pub const SINGLE_FILE_TEST_PACKAGE: &str = "moon/test/single";
+pub const SINGLE_FILE_TEST_MODULE: &str = "moon/test";
+
+pub const SUB_PKG_POSTFIX: &str = "_sub";
+
+pub const PRELUDE_PROOF_DIR: &str = "prelude_proof";
+pub const PRELUDE_PROOF_FILE: &str = "moonbit_builtin_prelude.mlw";
+
+pub const O_EXT: &str = if cfg!(windows) { "obj" } else { "o" };
+#[allow(unused)]
+pub const DYN_EXT: &str = if cfg!(windows) {
+    "dll"
+} else if cfg!(target_os = "macos") {
+    "dylib"
+} else {
+    "so"
+};
+
+pub const A_EXT: &str = if cfg!(windows) { "lib" } else { "a" };
+
+pub fn is_moon_pkg_exist(dir: &Path) -> bool {
+    dir.join(MOON_PKG).exists() || dir.join(MOON_PKG_JSON).exists()
+}
+
+pub fn is_moon_pkg(filename: &str) -> bool {
+    filename == MOON_PKG || filename == MOON_PKG_JSON
+}
+
+pub fn is_moon_mod_exist(dir: &Path) -> bool {
+    dir.join(MOON_MOD).exists() || dir.join(MOON_MOD_JSON).exists()
+}
+
+pub fn is_moon_mod(filename: &str) -> bool {
+    filename == MOON_MOD || filename == MOON_MOD_JSON
+}
+
+pub fn is_moon_work(filename: &str) -> bool {
+    filename == MOON_WORK
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageSourceFileKind {
+    Mbt,
+    MbtMd,
+    Mbtp,
+}
+
+pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind> {
+    if filename.ends_with(".mbt") {
+        Some(PackageSourceFileKind::Mbt)
+    } else if filename.ends_with(DOT_MBT_DOT_MD) {
+        Some(PackageSourceFileKind::MbtMd)
+    } else if filename.ends_with(DOT_MBTP) {
+        Some(PackageSourceFileKind::Mbtp)
+    } else {
+        None
+    }
+}
+
+pub fn is_watch_relevant_project_file(filename: &str) -> bool {
+    // Legacy files can cause a discovery error, so creating or removing them
+    // must refresh the watch result even though they are no longer sources.
+    package_source_file_kind(filename).is_some()
+        || filename.ends_with(DOT_MBL)
+        || filename.ends_with(DOT_MBY)
+        || is_moon_pkg(filename)
+        || is_moon_mod(filename)
+        || is_moon_work(filename)
+}
+
+#[test]
+fn package_source_file_kind_detects_supported_package_inputs() {
+    assert_eq!(
+        package_source_file_kind("main.mbt"),
+        Some(PackageSourceFileKind::Mbt)
+    );
+    assert_eq!(
+        package_source_file_kind("guide.mbt.md"),
+        Some(PackageSourceFileKind::MbtMd)
+    );
+    assert_eq!(
+        package_source_file_kind("proof.mbtp"),
+        Some(PackageSourceFileKind::Mbtp)
+    );
+    assert_eq!(package_source_file_kind("lexer.mbl"), None);
+    assert_eq!(package_source_file_kind("parser.mby"), None);
+    assert_eq!(package_source_file_kind("moon.pkg"), None);
+}
+
+#[test]
+fn ignored_directory_names_cover_dot_and_generated_directories() {
+    assert!(is_ignored_directory_name(OsStr::new(".cache")));
+    assert!(is_ignored_directory_name(OsStr::new(".git")));
+    assert!(is_ignored_directory_name(OsStr::new("_build")));
+    assert!(is_ignored_directory_name(OsStr::new("node_modules")));
+    assert!(!is_ignored_directory_name(OsStr::new("src")));
+}
+
+#[test]
+fn watch_relevant_project_file_covers_sources_and_manifests() {
+    assert!(is_watch_relevant_project_file("moon.mod"));
+    assert!(is_watch_relevant_project_file("moon.mod.json"));
+    assert!(is_watch_relevant_project_file("moon.work"));
+    assert!(is_watch_relevant_project_file("moon.pkg"));
+    assert!(is_watch_relevant_project_file("moon.pkg.json"));
+    assert!(is_watch_relevant_project_file("lexer.mbl"));
+    assert!(is_watch_relevant_project_file("parser.mby"));
+    assert!(!is_watch_relevant_project_file("README.md"));
+}

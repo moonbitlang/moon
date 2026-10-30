@@ -4,6 +4,17 @@
   "description": "A package of MoonBit language",
   "type": "object",
   "properties": {
+    "allow-experimental-packages": {
+      "description": "Acknowledge all experimental dependencies, or only the listed full package names.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AllowExperimentalPackages"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "bin-name": {
       "type": [
         "string",
@@ -13,6 +24,13 @@
     "bin-target": {
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "experimental": {
+      "description": "Mark this package as experimental, warning packages that depend on it.",
+      "type": [
+        "boolean",
         "null"
       ]
     },
@@ -44,13 +62,14 @@
       ]
     },
     "is-main": {
-      "description": "Specify whether this package is a main package or not",
+      "description": "Specify whether this package is a main package or not.\n\n**Deprecated:** use `pkgtype(kind: \"executable\")` instead.",
       "type": [
         "boolean",
         "null"
       ]
     },
     "link": {
+      "description": "Link configuration for the package.\n\nThe boolean form `link: true` (force-link a non-main library) is **deprecated**: use `pkgtype(kind: \"foreign_library\")` instead. The structured form `link: { ... }` remains supported as link configuration.",
       "anyOf": [
         {
           "$ref": "#/definitions/BoolOrLink"
@@ -92,6 +111,17 @@
         "type": "string"
       }
     },
+    "pkgtype": {
+      "description": "The kind of this package: `library` (default), `executable`, or `foreign_library`. Declared via `pkgtype(kind: \"...\")` in `moon.pkg`; supersedes the deprecated `is-main` and `link: true` flags.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PkgType"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "pre-build": {
       "description": "Command for moon generate",
       "type": [
@@ -113,17 +143,6 @@
       "anyOf": [
         {
           "$ref": "#/definitions/RegexBackend"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "sub-package": {
-      "description": "Specify whether this package is a sub package or not",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/SubPackageInMoonPkgJSON"
         },
         {
           "type": "null"
@@ -199,6 +218,19 @@
     }
   },
   "definitions": {
+    "AllowExperimentalPackages": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "BoolOrLink": {
       "anyOf": [
         {
@@ -221,6 +253,7 @@
       "type": "object",
       "properties": {
         "exports": {
+          "description": "*Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
@@ -344,7 +377,7 @@
       ]
     },
     "NativeLinkConfig": {
-      "description": "Native C/C++ compilation and linking configuration for MoonBit packages.\n\nControls how C stub files and main executables are compiled and linked. The build system uses these flags differently depending on compilation mode: normal mode creates static libraries, while TCC mode creates dynamic libraries.",
+      "description": "Native C/C++ compilation and linking configuration for MoonBit packages.\n\nControls how C stub files and main executables are compiled and linked. C stub object files are collected into static archives.",
       "type": "object",
       "properties": {
         "cc": {
@@ -362,14 +395,14 @@
           ]
         },
         "cc-link-flags": {
-          "description": "Linker flags for main executable (also used for stub dynamic libraries in TCC mode)",
+          "description": "Linker flags for the main executable",
           "type": [
             "string",
             "null"
           ]
         },
         "exports": {
-          "description": "Function exports for the final native executable",
+          "description": "Function exports for the final native executable.\n\n**Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
@@ -393,13 +426,22 @@
           ]
         },
         "stub-cc-link-flags": {
-          "description": "Linker flags for C stub linking (only used in TCC mode for dynamic libraries)",
+          "description": "Legacy linker flags for C stubs, retained for manifest compatibility",
           "type": [
             "string",
             "null"
           ]
         }
       }
+    },
+    "PackageKind": {
+      "description": "The kind of a package, declared via `pkgtype(kind: \"...\")` in `moon.pkg`.\n\nThis supersedes the deprecated `is-main` and `link: true` flags: - `library` (the default): a normal library, emits a `.core` consumed by other MoonBit packages. - `executable`: has a `main` and links to a runnable artifact (equivalent to the deprecated `is-main: true`). - `foreign_library`: a non-main library force-linked into a standalone, foreign-consumable artifact (equivalent to the deprecated `link: true`). The native/LLVM backends build it as a static library.",
+      "type": "string",
+      "enum": [
+        "library",
+        "executable",
+        "foreign_library"
+      ]
     },
     "PkgJSONImport": {
       "anyOf": [
@@ -438,14 +480,14 @@
                 "null"
               ]
             },
-            "path": {
-              "type": "string"
-            },
-            "sub-package": {
+            "import-all": {
               "type": [
                 "boolean",
                 "null"
               ]
+            },
+            "path": {
+              "type": "string"
             },
             "value": {
               "type": [
@@ -459,6 +501,18 @@
           }
         }
       ]
+    },
+    "PkgType": {
+      "description": "The `pkgtype(kind: \"...\")` declaration in `moon.pkg`.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/PackageKind"
+        }
+      }
     },
     "RegexBackend": {
       "type": "string",
@@ -481,30 +535,6 @@
           }
         }
       ]
-    },
-    "SubPackageInMoonPkgJSON": {
-      "type": "object",
-      "required": [
-        "files"
-      ],
-      "properties": {
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "import": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PkgJSONImport"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
     },
     "SupportedTargetsConfig": {
       "anyOf": [
@@ -540,6 +570,7 @@
           ]
         },
         "exports": {
+          "description": "*Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
@@ -607,6 +638,7 @@
           ]
         },
         "exports": {
+          "description": "*Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"

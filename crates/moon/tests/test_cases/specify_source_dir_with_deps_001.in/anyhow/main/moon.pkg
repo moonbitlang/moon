@@ -1,0 +1,7 @@
+import {
+  "username/hello/lib" @emmm,
+  "just/hello19",
+  "just/hello19/lib",
+}
+
+pkgtype(kind: "executable")

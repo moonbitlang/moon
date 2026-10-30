@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -21,17 +21,16 @@
 
     ## Quickstart
 
-    You can find high-level abstractions in modules [`resolve`] and [`compile`],
-    which splits the compilation process in two parts:
+    You can find the high-level compilation stages in [`resolve`] and [`compile`]:
 
-    - [`resolve`] Builds an in-memory representation of all modules and packages
-      that needs to be used during the compile process, as well as the
-      dependency relationship between them. This part is always performed
-      without affected by the user input.
+    - [`resolve`] discovers modules and packages as [`DiscoveredProject`], then
+      resolves the requested target backends. [`ResolvedProject`] contains complete
+      [`pkg_solve::PackageRelations`] for each requested backend. Any resolution
+      failure is returned immediately.
 
-    - [`compile`] takes in the resolved environment, and builds a [`n2`] build
-      graph for execution. This part converts the intent of the user into the
-      actual build commands.
+    - [`compile`] takes in the project and its package relations and produces an
+      [`execution_plan::ExecutionPlan`]. This part converts the intent of the
+      user into concrete actions and declared outputs.
 
     Of all intents of the user, one is so different from the rest: `moon fmt`.
     The formatter only needs the list of files to run, regardless of whether the
@@ -61,24 +60,20 @@
     3. Discover packages within modules ([`crate::discover`]). This is different
        from many package managers -- the package distribution unit ("module")
        is different from the compile unit ("package").
-    4. Resolve the *package* dependency graph ([`crate::pkg_solve`]).
+    4. Select the build configuration and resolve its active *package*
+       dependency graph ([`crate::pkg_solve`]).
     5. Get the list of top-level build actions from user input.
-    6. From this list of build actions, resolve the whole abstract build graph
-       that represents the list of actions to be executed
+    6. From this list of requested artifacts, resolve the semantic build graph
        ([`crate::build_plan`]).
-    7. Lower the build graph to a concrete one acceptable by [`n2`] (which is an
-       in-process `ninja` equivalent) ([`crate::build_lower`]).
-    8. Execute the build graph using `n2`.
+    7. Lower the semantic graph into a concrete, executor-neutral action and
+       output graph ([`crate::execution_plan`], via [`crate::build_lower`]).
+    8. Return the Execution Plan to the caller. `moonbuild` owns execution,
+       incremental state, and diagnostic collection; CLI dry-run consumes the
+       plan directly.
 
     Additional information about the build process, project layout, special
     cases, and random quirks of build systems can be found in the repository's
     documentation, at `/docs/dev/reference`.
-
-    ## Alternative design
-
-    An alternative is proposed, but not implemented, with replacing `n2` with
-    a hand-rolled, in-process executor that directly works on the abstract build
-    graph instead of requiring to lower every command beforehand.
 
     ## Logging
 
@@ -102,6 +97,7 @@
 pub mod build_lower;
 pub mod build_plan;
 pub mod discover;
+pub mod execution_plan;
 pub mod model;
 pub mod pkg_name;
 pub mod pkg_solve;
@@ -109,7 +105,7 @@ pub mod pkg_solve;
 // High-level actions
 pub mod compile;
 pub mod resolve;
-pub mod user_warning;
+pub mod target_layout;
 
 // Formatter
 pub mod fmt;
@@ -126,5 +122,7 @@ pub mod util;
 
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
-pub use resolve::{ResolveConfig, ResolveOutput, resolve};
-pub use user_warning::{UserMessageLevel, UserWarning};
+pub use resolve::{
+    DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
+    prepare_synced_project, sync_module_dependencies,
+};

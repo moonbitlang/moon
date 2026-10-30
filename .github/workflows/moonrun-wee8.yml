@@ -1,0 +1,97 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Moonrun wee8
+
+on:
+  push:
+    branches: [main]
+    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
+  pull_request:
+    branches: [main]
+    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wee8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: wee8 / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Configure Git
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.95.0
+          components: clippy, rustfmt
+      - name: Remove unused Rust toolchains
+        run: bash .github/scripts/prune-rust-toolchains.sh
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Keep this cache separate and exclude target/, which holds libwee8.a
+          # (wee8.lib on Windows) and the downloaded native archives.
+          shared-key: moonrun-wee8
+          cache-targets: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install MoonBit (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Install MoonBit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Check wee8 adapter
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test -- -D warnings
+      - name: Test shared host definitions and all Moonrun integration cases
+        run: cargo test --locked -p moonrun --no-default-features --features wee8 --lib --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test
+      - name: Build Moon and bundle core (Unix)
+        if: runner.os != 'Windows'
+        run: cargo run --locked --bin moon -- -C "$HOME/.moon/lib/core" bundle --all
+      - name: Build Moon and bundle core (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cargo run --locked --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
+      - name: Test all upstream async conformance cases
+        run: cargo test --locked -p moonrun --no-default-features --features wee8 --test test test_moonrun_against_upstream_async -- --ignored --exact
+      # Check feature selection once; all platforms link and execute wee8 above.
+      - name: Check compatible engine features
+        if: runner.os == 'Linux'
+        run: cargo test --locked -p moonrun --no-default-features --features wee8,wasmtime --test wee8 modules_without_start_export_complete

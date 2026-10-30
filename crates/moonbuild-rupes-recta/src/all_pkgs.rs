@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -27,10 +27,12 @@
 //! build process and is consumed by the MoonBit compiler for dependency
 //! analysis.
 
-use moonutil::common::TargetBackend;
+use moonutil::target::TargetBackend;
 use serde::Serialize;
 
-use crate::{ResolveOutput, metadata::metadata_source_mi_path};
+use crate::{
+    ResolvedProject, metadata::metadata_source_mi_path, target_layout::ArtifactPathResolver,
+};
 
 pub const ALL_PKGS_JSON: &str = "all_pkgs.json";
 
@@ -52,20 +54,19 @@ pub struct AllPkgsJSON {
 /// Generate `all_pkgs.json`, which is a metadata file for resolving indirect
 /// dependencies.
 pub fn gen_all_pkgs_json(
-    resolve_output: &ResolveOutput,
-    layout: &crate::build_lower::artifact::LegacyLayout,
+    resolved_project: &ResolvedProject,
+    artifact_paths: &ArtifactPathResolver,
     backend: TargetBackend,
 ) -> AllPkgsJSON {
-    let mut packages: Vec<PackageArtifactJSON> = resolve_output
+    let mut packages: Vec<PackageArtifactJSON> = resolved_project
         .pkg_dirs
         .all_packages(false)
         .map(|(id, _)| {
-            let pkg = resolve_output.pkg_dirs.get_package(id);
+            let pkg = resolved_project.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();
             let rel = pkg.fqn.package().to_string();
-            let artifact = metadata_source_mi_path(resolve_output, layout, id, backend)
-                .to_string_lossy()
-                .into_owned();
+            let artifact = metadata_source_mi_path(resolved_project, artifact_paths, id, backend);
+            let artifact = dunce::simplified(&artifact).to_string_lossy().into_owned();
             PackageArtifactJSON {
                 root,
                 rel,

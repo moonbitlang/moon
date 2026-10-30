@@ -1,5 +1,6 @@
 use super::*;
-use moonutil::common::BUILD_DIR;
+#[cfg(unix)]
+use moonutil::constants::BUILD_DIR;
 
 #[test]
 fn test_moon_fmt() {
@@ -83,7 +84,7 @@ fn test_moon_fmt_002() {
     check(
         read(
             dir.join(BUILD_DIR)
-                .join(TargetBackend::default().to_dir_name())
+                .join(TargetBackend::WasmGC.to_dir_name())
                 .join("release")
                 .join("format")
                 .join("lib")
@@ -99,7 +100,7 @@ fn test_moon_fmt_002() {
     check(
         read(
             dir.join(BUILD_DIR)
-                .join(TargetBackend::default().to_dir_name())
+                .join(TargetBackend::WasmGC.to_dir_name())
                 .join("release")
                 .join("format")
                 .join("main")
@@ -118,92 +119,38 @@ fn test_moon_fmt_002() {
 fn test_moon_fmt_extra_args() {
     let dir = TestDir::new("fmt");
     let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                cmd /c del ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                rm ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                rm ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
-            "#]],
-        );
-    }
+    check(
+        output,
+        expect![[r#"
+            moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moonfmt ./lib/moon.pkg -w -o ./_build/wasm-gc/release/format/lib/moon.pkg
+            moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
+            moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
+        "#]],
+    );
     let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input", "--", "a", "b"]);
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md a b
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                cmd /c del ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt a b
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt a b
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt a b
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md a b
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                rm ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                rm ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt a b
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt a b
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt a b
-            "#]],
-        );
-    }
+    check(
+        output,
+        expect![[r#"
+            moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md a b
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moonfmt ./lib/moon.pkg -w -o ./_build/wasm-gc/release/format/lib/moon.pkg
+            moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt a b
+            moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt a b
+            moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt a b
+        "#]],
+    );
     check(
         get_stdout(&dir, ["fmt", "--check", "--sort-input", "--dry-run"]),
         expect![[r#"
             moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md
-            moon tool format-and-diff --old ./main/moon.pkg.json --new ./_build/wasm-gc/release/format/main/moon.pkg
-            moon tool format-and-diff --old ./lib/moon.pkg.json --new ./_build/wasm-gc/release/format/lib/moon.pkg
-            moon tool format-and-diff --old ./moon.mod.json --new ./_build/wasm-gc/release/format/moon.mod
+            moon tool format-and-diff --old ./main/moon.pkg --new ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool format-and-diff --old ./lib/moon.pkg --new ./_build/wasm-gc/release/format/lib/moon.pkg
+            moon tool format-and-diff --old ./moon.mod --new ./_build/wasm-gc/release/format/moon.mod
             moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt
             moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
             moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt
@@ -223,168 +170,24 @@ fn test_moon_fmt_extra_args() {
             ],
         ),
         expect![[r#"
-            moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md c d
-            moon tool format-and-diff --old ./main/moon.pkg.json --new ./_build/wasm-gc/release/format/main/moon.pkg
-            moon tool format-and-diff --old ./lib/moon.pkg.json --new ./_build/wasm-gc/release/format/lib/moon.pkg
-            moon tool format-and-diff --old ./moon.mod.json --new ./_build/wasm-gc/release/format/moon.mod
-            moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt c d
-            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt c d
-            moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt c d
+            moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md -- c d
+            moon tool format-and-diff --old ./main/moon.pkg --new ./_build/wasm-gc/release/format/main/moon.pkg
+            moon tool format-and-diff --old ./lib/moon.pkg --new ./_build/wasm-gc/release/format/lib/moon.pkg
+            moon tool format-and-diff --old ./moon.mod --new ./_build/wasm-gc/release/format/moon.mod
+            moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt -- c d
+            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -- c d
+            moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt -- c d
         "#]],
     );
 }
 
 #[test]
-fn test_moon_fmt_block_style() {
+fn test_moon_fmt_rejects_block_style() {
     let dir = TestDir::new("fmt");
-    let output = get_stdout(&dir, ["fmt", "--block-style", "--sort-input", "--dry-run"]);
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md -block-style
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                cmd /c del ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt -block-style
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt -block-style
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md -block-style
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                rm ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                rm ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt -block-style
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt -block-style
-            "#]],
-        );
-    }
+    let stderr = get_err_stderr(&dir, ["fmt", "--block-style"]);
 
-    let output = get_stdout(
-        &dir,
-        ["fmt", "--block-style=true", "--sort-input", "--dry-run"],
-    );
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md -block-style
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                cmd /c del ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt -block-style
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt -block-style
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md -block-style
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                rm ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                rm ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt -block-style
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt -block-style
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt -block-style
-            "#]],
-        );
-    }
-
-    let output = get_stdout(
-        &dir,
-        ["fmt", "--block-style=false", "--sort-input", "--dry-run"],
-    );
-    if cfg!(windows) {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                cmd /c del ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                cmd /c del ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                cmd /c del ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
-            "#]],
-        );
-    } else {
-        check(
-            output,
-            expect![[r#"
-                moonfmt ./lib/test.mbt.md -w -o ./_build/wasm-gc/release/format/lib/test.mbt.md
-                moonfmt ./main/moon.pkg.json -o ./_build/wasm-gc/release/format/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/main/moon.pkg ./main/moon.pkg
-                rm ./main/moon.pkg.json
-                moonfmt ./lib/moon.pkg.json -o ./_build/wasm-gc/release/format/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
-                rm ./lib/moon.pkg.json
-                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-                rm ./moon.mod.json
-                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-                moonfmt ./lib/hello_wbtest.mbt -w -o ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt
-                moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
-            "#]],
-        );
-    }
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "fmt",
-                "--block-style",
-                "--check",
-                "--sort-input",
-                "--dry-run",
-            ],
-        ),
-        expect![[r#"
-            moon tool format-and-diff --old ./lib/test.mbt.md --new ./_build/wasm-gc/release/format/lib/test.mbt.md --block-style
-            moon tool format-and-diff --old ./main/moon.pkg.json --new ./_build/wasm-gc/release/format/main/moon.pkg
-            moon tool format-and-diff --old ./lib/moon.pkg.json --new ./_build/wasm-gc/release/format/lib/moon.pkg
-            moon tool format-and-diff --old ./moon.mod.json --new ./_build/wasm-gc/release/format/moon.mod
-            moon tool format-and-diff --old ./main/main.mbt --new ./_build/wasm-gc/release/format/main/main.mbt --block-style
-            moon tool format-and-diff --old ./lib/hello_wbtest.mbt --new ./_build/wasm-gc/release/format/lib/hello_wbtest.mbt --block-style
-            moon tool format-and-diff --old ./lib/hello.mbt --new ./_build/wasm-gc/release/format/lib/hello.mbt --block-style
-        "#]],
+    assert!(
+        stderr.contains("unexpected argument '--block-style'"),
+        "stderr: {stderr}"
     );
 }

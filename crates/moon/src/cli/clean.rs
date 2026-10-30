@@ -1,39 +1,71 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::{cli::UniversalFlags, common::FileLock};
+use moonutil::{cli_support::UniversalFlags, locks::lock_directory, user_log::UserLog};
 
-/// Remove the _build directory
+/// Remove local build outputs or configured global caches.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct CleanSubcommand {}
+pub(crate) struct CleanSubcommand {
+    /// Remove the global dependency-source cache instead of `_build`.
+    #[arg(long)]
+    dep_cache: bool,
 
-pub(crate) fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
+    /// Remove the global build-artifact cache instead of `_build`.
+    #[arg(long)]
+    build_cache: bool,
+
+    /// Remove cached HTTP registry metadata instead of `_build`.
+    /// Uses MOON_REGISTRY_CACHE when set; leaves the Git index, source archives,
+    /// and credentials intact. This also works outside a project.
+    #[arg(long)]
+    registry_cache: bool,
+}
+
+pub(crate) fn run_clean(
+    cli: &UniversalFlags,
+    cmd: &CleanSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for clean");
+    }
+
+    if cmd.dep_cache || cmd.build_cache || cmd.registry_cache {
+        if cmd.dep_cache {
+            moonutil::cache::clean_cache(moonutil::cache::CacheKind::DependencySources)?;
+        }
+        if cmd.build_cache {
+            moonutil::cache::clean_cache(moonutil::cache::CacheKind::BuildArtifacts)?;
+        }
+        if cmd.registry_cache {
+            moonutil::cache::clean_cache(moonutil::cache::CacheKind::RegistryMetadata)?;
+        }
+        return Ok(0);
     }
 
     let src_tgt = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
+        .select(user_log)?
         .package_dirs()?;
 
-    let _lock = FileLock::lock(&src_tgt.target_dir)?;
+    let _lock = lock_directory(&src_tgt.target_dir, user_log)?;
 
     if src_tgt.target_dir.is_dir() {
         std::fs::remove_dir_all(&src_tgt.target_dir)

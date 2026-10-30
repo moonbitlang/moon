@@ -4,13 +4,17 @@
 ///|
 let moonbit_test_driver_internal_with_args_tests : MoonBitTestDriverInternalTestMap[
   (@moonbitlang/core/test.Test) -> Unit raise,
-] = {} // REPLACE ME: moonbit_test_driver_internal_with_args_tests
+] = MoonBitTestDriverInternalTestMap(
+  @moonbitlang/core/prelude.Default::default(),
+) // REPLACE ME: moonbit_test_driver_internal_with_args_tests
 
 ///|
+#warnings("-unnecessary_annotation")
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Args with fn run_test(
   _,
   filename,
   index,
+  handle_start,
   handle_result,
   error_to_string,
 ) {
@@ -25,8 +29,9 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Args with fn run_
         }
       }
     }
+    handle_start()
     moonbit_test_driver_internal_catch_error(
-      () => f(@moonbitlang/core/test.new(name)),
+      () => f(@moonbitlang/core/test.Test(name)),
       on_ok=() => handle_result(name, "", false),
       on_err=err => handle_result(name, error_to_string(err), false),
     )

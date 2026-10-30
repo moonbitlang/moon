@@ -1,42 +1,49 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
     ffi::{OsStr, OsString},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
 
 use anyhow::Context;
-use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
-use moonbuild_rupes_recta::model::BuildPlanNode;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonutil::{
-    common::{FileLock, RunMode, SurfaceTarget, TargetBackend},
-    dirs::PackageDirs,
-    mooncakes::sync::AutoSyncFlags,
+    cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
+    locks::lock_directory,
+    path_normalizer::PathNormalizer,
+    project::PackageDirs,
+    target::{SurfaceTarget, TargetBackend},
 };
 use tracing::instrument;
 
 use crate::{
-    cli::{BuildSubcommand, process},
-    rr_build::{self, BuildConfig},
-    user_diagnostics::UserDiagnostics,
+    cli::{
+        BuildSubcommand,
+        process::{self, ProcessAction},
+    },
+    rr_build::{self},
 };
 
 use super::{BuildFlags, UniversalFlags};
@@ -86,36 +93,51 @@ struct ParsedCramArgs {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_cram(cli: &UniversalFlags, cmd: CramSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_cram(
+    cli: &UniversalFlags,
+    cmd: CramSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<ProcessAction> {
     match cmd.command {
-        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd),
-        Some(CramCommand::External(args)) => delegate_moon_cram(args),
-        None => delegate_moon_cram(Vec::new()),
+        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd, output),
+        Some(CramCommand::External(args)) => {
+            Ok(ProcessAction::Delegate(prepare_moon_cram(None, args)?))
+        }
+        None => Ok(ProcessAction::Delegate(prepare_moon_cram(
+            None,
+            Vec::<String>::new(),
+        )?)),
     }
 }
 
-fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Result<i32> {
+fn run_cram_test(
+    cli: &UniversalFlags,
+    cmd: CramTestSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<ProcessAction> {
+    let user_log = output.user_log();
     let parsed = cram_args(cmd);
     let moon_cram = if cli.dry_run {
-        moonutil::BINARIES.moon_cram.clone()
+        moonutil::toolchain::BINARIES.moon_cram.clone()
     } else {
         resolve_moon_cram()?
     };
     if is_scrut_help_request(&parsed.cram_args) {
         let mut command = Command::new(moon_cram);
         command.args(parsed.cram_args);
-        return Ok(process::delegate(&mut command)?.code().unwrap_or(0));
+        return Ok(ProcessAction::Delegate(command));
     }
 
+    let dirs = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?
+        .package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = cli
-        .source_tgt_dir
-        .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        ..
+    } = &dirs;
 
     let build_cmd = BuildSubcommand {
         path: Vec::new(),
@@ -125,147 +147,90 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         package: None,
     };
 
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         build_cmd.auto_sync_flags.clone(),
         !build_cmd.build_flags.std(),
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    );
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
 
-    let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
+    let planned_runs = crate::cli::plan_build_rr_from_discovered(
         cli,
         &build_cmd,
-        &source_dir,
-        &target_dir,
-        Some(TargetBackend::Native),
-        resolve_output,
+        target_dir,
+        &[TargetBackend::Native],
+        discovered,
+        user_log,
     )?;
 
-    let executable_dirs = collect_executable_dirs(&planned_runs, &source_dir);
+    let executable_dirs = collect_executable_dirs(&planned_runs, source_dir);
     if cli.dry_run {
-        for (build_meta, build_graph) in &planned_runs {
-            rr_build::print_dry_run(
-                build_graph,
-                build_meta.artifacts.values(),
-                &source_dir,
-                &target_dir,
-            );
-        }
-        print_dry_run_cram_command(&moon_cram, &parsed.cram_args, &executable_dirs, &source_dir);
-        return Ok(0);
+        output.write_result(|writer| {
+            for (_, build_graph) in &planned_runs {
+                rr_build::write_dry_run(writer, build_graph, source_dir)?;
+            }
+            write_dry_run_cram_command(
+                writer,
+                &moon_cram,
+                &parsed.cram_args,
+                &executable_dirs,
+                source_dir,
+            )
+        })?;
+        return Ok(ProcessAction::Exit(0));
     }
 
-    let _lock = FileLock::lock(&target_dir)?;
-    let cfg = BuildConfig::from_flags(
-        &build_cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    );
+    let cfg = build_cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
-        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
-        let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+        rr_build::generate_all_pkgs_json(&build_meta)?;
+        let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
-            return Ok(result.return_code_for_success());
+            return Ok(ProcessAction::Exit(result.return_code_for_success()));
         }
     }
-    drop(_lock);
+    drop(lock);
 
     let mut command = Command::new(moon_cram);
     command.args(parsed.cram_args);
     command.env("PATH", path_with_executable_dirs(&executable_dirs)?);
-    Ok(process::delegate(&mut command)?.code().unwrap_or(0))
+    Ok(ProcessAction::Delegate(command))
 }
 
-fn delegate_moon_cram(args: Vec<String>) -> anyhow::Result<i32> {
-    delegate_moon_cram_with_current_dir(None, args)
-}
-
-fn delegate_moon_cram_with_current_dir(
+pub(crate) fn prepare_moon_cram(
     current_dir: Option<&Path>,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
-) -> anyhow::Result<i32> {
-    let mut command = Command::new(resolve_moon_cram()?);
-    if let Some(dir) = current_dir {
-        command.current_dir(dir);
-    }
+) -> anyhow::Result<Command> {
+    let mut command = process::command_in_effective_dir(current_dir, resolve_moon_cram_in)?;
     command.args(args);
-    Ok(process::delegate(&mut command)?.code().unwrap_or(0))
-}
-
-pub(crate) fn exit_if_cram_external_request(err: &clap::Error, raw_args: &[OsString]) {
-    if err.kind() != ErrorKind::UnknownArgument {
-        return;
-    }
-
-    let Some((current_dir, args)) = cram_external_args(raw_args) else {
-        return;
-    };
-    match delegate_moon_cram_with_current_dir(current_dir.as_deref(), args) {
-        Ok(code) => std::process::exit(code),
-        Err(err) => {
-            eprintln!("Error: {err:?}");
-            std::process::exit(-1);
-        }
-    }
-}
-
-fn cram_external_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
-    let mut current_dir = None;
-    let mut index = 1;
-    while index < raw_args.len() {
-        let arg = &raw_args[index];
-
-        if arg == OsStr::new("-C") {
-            index += 1;
-            if let Some(dir) = raw_args.get(index) {
-                current_dir = Some(PathBuf::from(dir));
-            }
-        } else if matches!(
-            arg.to_str(),
-            Some("--manifest-path" | "--target-dir" | "--unstable-feature" | "-Z")
-        ) {
-            index += 1;
-        } else if is_global_bool_arg(arg) {
-        } else {
-            let tail = &raw_args[index + 1..];
-            return (arg == OsStr::new("cram") && is_external_cram_tail(tail))
-                .then(|| (current_dir, tail.to_vec()));
-        }
-        index += 1;
-    }
-    None
-}
-
-fn is_global_bool_arg(arg: &OsStr) -> bool {
-    matches!(
-        arg.to_str(),
-        Some(
-            "-V" | "--version"
-                | "-q"
-                | "--quiet"
-                | "-v"
-                | "--verbose"
-                | "--trace"
-                | "--dry-run"
-                | "--build-graph"
-        )
-    )
-}
-
-fn is_external_cram_tail(tail: &[OsString]) -> bool {
-    matches!(tail.first(), Some(arg) if arg != OsStr::new("test"))
+    Ok(command)
 }
 
 fn resolve_moon_cram() -> anyhow::Result<PathBuf> {
-    let moon_cram = moonutil::BINARIES.moon_cram.clone();
+    resolve_moon_cram_in(None)
+}
+
+fn resolve_moon_cram_in(current_dir: Option<&Path>) -> anyhow::Result<PathBuf> {
+    let moon_cram = current_dir.map_or_else(
+        || moonutil::toolchain::BINARIES.moon_cram.clone(),
+        moonutil::toolchain::moon_cram_in,
+    );
     if moon_cram.is_absolute() || moon_cram.components().count() > 1 {
         return Ok(moon_cram);
     }
-    which::which(&moon_cram).with_context(|| {
+    let resolved = match current_dir {
+        Some(dir) => moonutil::toolchain::resolve_executable_in(&moon_cram, dir),
+        None => moonutil::toolchain::resolve_executable(&moon_cram),
+    };
+    resolved.with_context(|| {
         format!(
             "no such subcommand: `cram`, is `{}` a valid executable accessible via your `PATH`?",
             moon_cram.display()
@@ -299,18 +264,18 @@ fn is_scrut_help_request(cram_args: &[String]) -> bool {
 }
 
 fn collect_executable_dirs(
-    planned_runs: &[(rr_build::BuildMeta, rr_build::BuildInput)],
+    planned_runs: &[(BuildMeta, BuildInput)],
     source_dir: &Path,
 ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     for (build_meta, _) in planned_runs {
-        for (node, artifacts) in &build_meta.artifacts {
-            if !matches!(node, BuildPlanNode::MakeExecutable(_)) {
+        for (artifact, paths) in &build_meta.artifacts {
+            if !matches!(artifact, ArtifactKey::Executable { .. }) {
                 continue;
             }
-            for artifact in &artifacts.artifacts {
-                let artifact = absolutize_artifact(source_dir, artifact);
-                if let Some(parent) = artifact.parent()
+            for path in paths {
+                let path = absolutize_artifact(source_dir, path);
+                if let Some(parent) = path.parent()
                     && !dirs.iter().any(|dir| dir == parent)
                 {
                     dirs.push(parent.to_path_buf());
@@ -337,34 +302,36 @@ fn path_with_executable_dirs(executable_dirs: &[PathBuf]) -> anyhow::Result<OsSt
         .context("failed to construct PATH for `moon-cram`")
 }
 
-fn print_dry_run_cram_command(
+fn write_dry_run_cram_command(
+    output: &mut dyn Write,
     moon_cram: &Path,
     cram_args: &[String],
     executable_dirs: &[PathBuf],
     source_dir: &Path,
-) {
-    let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
+) -> std::io::Result<()> {
+    let replacer = PathNormalizer::new(source_dir);
     let mut args = vec![
         format!(
             "PATH={}",
             display_path_with_executable_dirs(executable_dirs, &replacer)
         ),
-        replacer.normalize_command_arg(&moon_cram.to_string_lossy()),
+        replacer.normalize_command_program(&moon_cram.to_string_lossy()),
     ];
     args.extend(
         cram_args
             .iter()
             .map(|arg| replacer.normalize_command_arg(arg)),
     );
-    println!(
+    writeln!(
+        output,
         "{}",
         moonutil::shlex::join_unix(args.iter().map(String::as_str))
-    );
+    )
 }
 
 fn display_path_with_executable_dirs(
     executable_dirs: &[PathBuf],
-    replacer: &moonbuild::dry_run::PathNormalizer,
+    replacer: &PathNormalizer,
 ) -> String {
     let separator = if cfg!(windows) { ";" } else { ":" };
     executable_dirs
@@ -378,11 +345,7 @@ fn display_path_with_executable_dirs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
-
-    fn os(args: &[&str]) -> Vec<OsString> {
-        args.iter().map(OsString::from).collect()
-    }
+    use clap::{Parser, error::ErrorKind};
 
     fn parse_command(args: &[&str]) -> CramCommand {
         CramSubcommand::try_parse_from(std::iter::once("moon cram").chain(args.iter().copied()))
@@ -468,57 +431,6 @@ mod tests {
         let help = err.to_string();
         assert!(help.contains("Run cram tests with project binaries on PATH"));
         assert!(help.contains("test"));
-    }
-
-    #[test]
-    fn detects_parent_flag_as_external_cram_args() {
-        assert_eq!(
-            cram_external_args(&os(&["moon", "cram", "--version"])),
-            Some((None, os(&["--version"])))
-        );
-    }
-
-    #[test]
-    fn detects_parent_flag_as_external_cram_args_after_global_flag() {
-        assert_eq!(
-            cram_external_args(&os(&["moon", "-q", "cram", "--version"])),
-            Some((None, os(&["--version"])))
-        );
-    }
-
-    #[test]
-    fn detects_parent_flag_as_external_cram_args_after_global_value_flag() {
-        assert_eq!(
-            cram_external_args(&os(&[
-                "moon",
-                "--target-dir",
-                "_build-alt",
-                "cram",
-                "--version"
-            ])),
-            Some((None, os(&["--version"])))
-        );
-    }
-
-    #[test]
-    fn preserves_chdir_for_external_cram_args() {
-        assert_eq!(
-            cram_external_args(&os(&["moon", "-C", "sub", "cram", "--version"])),
-            Some((Some(PathBuf::from("sub")), os(&["--version"])))
-        );
-    }
-
-    #[test]
-    fn ignores_cram_argument_under_other_top_level_subcommand() {
-        assert_eq!(
-            cram_external_args(&os(&["moon", "build", "cram", "--bad-flag"])),
-            None
-        );
-    }
-
-    #[test]
-    fn keeps_builtin_test_parse_errors_in_moon() {
-        assert_eq!(cram_external_args(&os(&["moon", "cram", "test"])), None);
     }
 
     #[test]

@@ -1,0 +1,6 @@
+import {
+  "moonbitlang/report/lib",
+  "haha",
+}
+
+pkgtype(kind: "executable")

@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -59,8 +59,38 @@ fn byte_array_read_byte(handle : XByteArrayReadHandle) -> Int = "__moonbit_fs_un
 fn finish_read_byte_array(handle : XByteArrayReadHandle) = "__moonbit_fs_unstable" "finish_read_byte_array"
 
 
+///|
+fn begin_create_byte_array() -> XByteArrayCreateHandle = "__moonbit_fs_unstable" "begin_create_byte_array"
+
+///|
+fn byte_array_append_byte(handle : XByteArrayCreateHandle, byte : Int) = "__moonbit_fs_unstable" "byte_array_append_byte"
+
+///|
+fn finish_create_byte_array(handle : XByteArrayCreateHandle) -> XExternByteArray = "__moonbit_fs_unstable" "finish_create_byte_array"
+
+///|
+fn check_byte_array_round_trip() -> Unit {
+  let builder = begin_create_byte_array()
+  let input = [0, 1, 255, 256, -1]
+  for byte in input {
+    byte_array_append_byte(builder, byte)
+  }
+  let reader = begin_read_byte_array(finish_create_byte_array(builder))
+  let expected = [0, 1, 255, 0, 255]
+  for byte in expected {
+    if byte_array_read_byte(reader) != byte {
+      abort("Extern byte array did not preserve Uint8Array coercion")
+    }
+  }
+  if byte_array_read_byte(reader) != -1 {
+    abort("Extern byte array reader did not stop at the end")
+  }
+  finish_read_byte_array(reader)
+}
+
+///|
 fn main {
+  check_byte_array_round_trip()
   let bytes = read_bytes_from_stdin()
   println(bytes.iter().count())
 }
-

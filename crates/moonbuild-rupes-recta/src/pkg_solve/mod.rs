@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -25,29 +25,28 @@ mod verify;
 use crate::{
     discover::DiscoverResult,
     pkg_solve::verify::{compute_realizable_supported_targets, verify},
-    user_warning::UserWarning,
 };
 use log::info;
-use moonutil::mooncakes::result::ResolvedEnv;
+use moonutil::{resolution::ModuleDependencyGraph, target::TargetBackend, user_log::UserLog};
 use tracing::{Level, instrument};
 
-pub use model::{DepEdge, DepRelationship, SolveError};
+pub use model::{DepEdge, PackageRelations, PackageResolutionError};
 use solve::solve_only;
 
-/// Solves the dependency relationship between packages, and validate the graph
-/// is valid for compilation.
+/// Resolve package imports and virtual-package references, validate their
+/// relationships, and compute supported backends from the resulting graph.
 #[instrument(level = Level::DEBUG, skip_all)]
-pub fn solve(
-    modules: &ResolvedEnv,
+pub fn resolve_packages(
+    modules: &ModuleDependencyGraph,
     packages: &DiscoverResult,
     enable_coverage: bool,
-    user_warnings: &mut Vec<UserWarning>,
-) -> Result<DepRelationship, SolveError> {
+    backend: TargetBackend,
+    user_log: &UserLog,
+) -> Result<PackageRelations, PackageResolutionError> {
     info!("Starting dependency resolution");
 
-    let (mut res, mut solve_warnings) = solve_only(modules, packages, enable_coverage)?;
-    user_warnings.append(&mut solve_warnings);
-    verify(&res, packages, user_warnings)?;
+    let mut res = solve_only(modules, packages, enable_coverage, backend, user_log)?;
+    verify(&res, packages, user_log)?;
     res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
 
     info!("Dependency resolution completed successfully");

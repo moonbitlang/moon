@@ -1,0 +1,860 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Backend-neutral implementation of moonrun's permission-backed filesystem imports.
+//!
+//! Wasm runtime adapters convert guest values and expose imports. This module owns
+//! filesystem authorization, OS operations, and the guest-visible error text.
+//! WASI has its own descriptor and preopen capability model and does not pass
+//! through this module.
+
+mod job;
+
+pub(crate) use job::{Job, stdio_kind};
+
+#[cfg(test)]
+pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
+
+use std::ffi::{OsStr, OsString};
+use std::fmt;
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::fs::stub;
+use crate::policy::{FsIntents, FsPolicy};
+use crate::runtime::{Env, WorkingDirectory};
+
+#[derive(Debug)]
+pub(crate) struct HostFsError {
+    message: String,
+}
+
+impl fmt::Display for HostFsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.message.fmt(formatter)
+    }
+}
+
+impl std::error::Error for HostFsError {}
+
+impl HostFsError {
+    fn permission_denied(path: &str) -> Self {
+        Self {
+            message: format!("Permission denied: {path}"),
+        }
+    }
+
+    fn operation(message: String) -> Self {
+        Self { message }
+    }
+}
+
+/// Results retained between a filesystem operation and its getter.
+#[derive(Default)]
+pub(crate) struct FsOperationResults {
+    file_content: Vec<u8>,
+    dir_files: Vec<String>,
+    error_message: String,
+}
+
+impl FsOperationResults {
+    pub(crate) fn file_content(&self) -> &[u8] {
+        &self.file_content
+    }
+
+    pub(crate) fn dir_files(&self) -> &[String] {
+        &self.dir_files
+    }
+
+    pub(crate) fn error_message(&self) -> &str {
+        &self.error_message
+    }
+}
+
+/// Engine-neutral filesystem operations that enforce the runtime policy
+/// before accessing the operating system's filesystem.
+pub(crate) struct HostFs {
+    policy: Option<FsPolicy>,
+    environment: Arc<Env>,
+    working_directory: Arc<WorkingDirectory>,
+}
+
+impl HostFs {
+    pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
+        self.working_directory.resolve_path(path)
+    }
+
+    fn resolved(&self, path: &str) -> PathBuf {
+        self.resolve_path(OsStr::new(path)).into()
+    }
+
+    pub(crate) fn new(
+        policy: Option<FsPolicy>,
+        environment: Arc<Env>,
+        working_directory: Arc<WorkingDirectory>,
+    ) -> Self {
+        Self {
+            policy,
+            environment,
+            working_directory,
+        }
+    }
+
+    pub(crate) fn temp_dir(&self) -> AsyncHostResult<OsString> {
+        // Native Windows selection has fallbacks beyond TMP and TEMP. Preserve
+        // those only for Ambient; an owned Env must never consult process state.
+        if self.environment.is_ambient() {
+            return stub::get_tmp_path();
+        }
+        #[cfg(unix)]
+        {
+            stub::get_tmp_path_from_env(self.environment.get("TMPDIR".as_ref()))
+        }
+        #[cfg(windows)]
+        {
+            stub::get_tmp_path_from_env(
+                self.environment.get("TMP".as_ref()),
+                self.environment.get("TEMP".as_ref()),
+            )
+        }
+    }
+
+    pub(crate) fn read_file_to_string(&self, path: &str) -> Result<String, HostFsError> {
+        self.ensure_read(path)?;
+        std::fs::read_to_string(self.resolved(path))
+            .map_err(|_| HostFsError::operation(format!("Failed to read file: {path}")))
+    }
+
+    pub(crate) fn write_string_to_file(
+        &self,
+        path: &str,
+        contents: &str,
+    ) -> Result<(), HostFsError> {
+        self.ensure_write(path)?;
+        std::fs::write(self.resolved(path), contents)
+            .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")))
+    }
+
+    pub(crate) fn write_bytes_to_file<E>(
+        &self,
+        path: &str,
+        contents: impl FnOnce() -> Result<Vec<u8>, E>,
+    ) -> Result<(), E>
+    where
+        E: From<HostFsError>,
+    {
+        self.ensure_write(path)?;
+        // Decode guest-owned contents only after authorization, matching the
+        // existing import's observable failure order for untrusted guests.
+        std::fs::write(self.resolved(path), contents()?)
+            .map_err(|_| HostFsError::operation(format!("Failed to write file: {path}")).into())
+    }
+
+    pub(crate) fn create_dir(&self, path: &str) -> Result<(), HostFsError> {
+        self.ensure_write(path)?;
+        std::fs::create_dir_all(self.resolved(path))
+            .map_err(|_| HostFsError::operation(format!("Failed to create directory: {path}")))
+    }
+
+    pub(crate) fn read_dir(&self, path: &str) -> Result<Vec<String>, HostFsError> {
+        self.ensure_read(path)?;
+        read_dir_entries(&self.resolved(path))
+            .map_err(|_| HostFsError::operation(format!("Failed to read directory: {path}")))
+    }
+
+    pub(crate) fn is_file(&self, path: &str) -> bool {
+        self.ensure_read(path).is_ok() && self.resolved(path).is_file()
+    }
+
+    pub(crate) fn is_dir(&self, path: &str) -> bool {
+        self.ensure_read(path).is_ok() && self.resolved(path).is_dir()
+    }
+
+    pub(crate) fn remove_file(&self, path: &str) -> Result<(), HostFsError> {
+        self.ensure_remove(path)?;
+        std::fs::remove_file(self.resolved(path))
+            .map_err(|_| HostFsError::operation(format!("Failed to remove file: {path}")))
+    }
+
+    pub(crate) fn remove_dir(&self, path: &str) -> Result<(), HostFsError> {
+        self.ensure_remove(path)?;
+        std::fs::remove_dir_all(self.resolved(path))
+            .map_err(|_| HostFsError::operation(format!("Failed to remove directory: {path}")))
+    }
+
+    pub(crate) fn path_exists(&self, path: &str) -> bool {
+        self.ensure_read(path).is_ok() && self.resolved(path).exists()
+    }
+
+    pub(crate) fn current_dir(&self) -> String {
+        if self.ensure_read(".").is_err() {
+            return String::new();
+        }
+        self.working_directory
+            .current_dir()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    pub(crate) fn read_file_to_bytes_new(
+        &self,
+        results: &mut FsOperationResults,
+        path: &str,
+    ) -> i32 {
+        let result = self.ensure_read(path).and_then(|()| {
+            std::fs::read(self.resolved(path)).map_err(|error| {
+                HostFsError::operation(format!("Failed to read file {path}: {error}"))
+            })
+        });
+        match result {
+            Ok(contents) => {
+                results.file_content = contents;
+                0
+            }
+            Err(error) => set_error(results, error),
+        }
+    }
+
+    pub(crate) fn write_bytes_to_file_new(
+        &self,
+        results: &mut FsOperationResults,
+        path: &str,
+        contents: impl FnOnce() -> Result<Vec<u8>, String>,
+    ) -> i32 {
+        // As above, the adapter supplies conversion lazily so denial wins over
+        // an invalid guest byte-array value.
+        let result = self
+            .ensure_write(path)
+            .and_then(|()| contents().map_err(HostFsError::operation))
+            .and_then(|contents| {
+                std::fs::write(self.resolved(path), contents).map_err(|error| {
+                    HostFsError::operation(format!("Failed to write file {path}: {error}"))
+                })
+            });
+        operation_status(results, result)
+    }
+
+    pub(crate) fn create_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        let result = self.ensure_write(path).and_then(|()| {
+            std::fs::create_dir_all(self.resolved(path)).map_err(|error| {
+                HostFsError::operation(format!("Failed to create directory {path}: {error}"))
+            })
+        });
+        operation_status(results, result)
+    }
+
+    pub(crate) fn read_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        let result = self.ensure_read(path).and_then(|()| {
+            read_dir_entries(&self.resolved(path)).map_err(|error| {
+                HostFsError::operation(format!("Failed to read directory {path}: {error}"))
+            })
+        });
+        match result {
+            Ok(files) => {
+                results.dir_files = files;
+                0
+            }
+            Err(error) => set_error(results, error),
+        }
+    }
+
+    pub(crate) fn is_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        self.metadata_kind(results, path, std::fs::Metadata::is_file)
+    }
+
+    pub(crate) fn is_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        self.metadata_kind(results, path, std::fs::Metadata::is_dir)
+    }
+
+    pub(crate) fn remove_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        let result = self.ensure_remove(path).and_then(|()| {
+            std::fs::remove_file(self.resolved(path)).map_err(|error| {
+                HostFsError::operation(format!("Failed to remove file {path}: {error}"))
+            })
+        });
+        operation_status(results, result)
+    }
+
+    pub(crate) fn remove_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
+        let result = self.ensure_remove(path).and_then(|()| {
+            std::fs::remove_dir_all(self.resolved(path)).map_err(|error| {
+                HostFsError::operation(format!("Failed to remove directory {path}: {error}"))
+            })
+        });
+        operation_status(results, result)
+    }
+
+    fn metadata_kind(
+        &self,
+        results: &mut FsOperationResults,
+        path: &str,
+        kind: fn(&std::fs::Metadata) -> bool,
+    ) -> i32 {
+        let result = self.ensure_read(path).and_then(|()| {
+            std::fs::metadata(self.resolved(path))
+                .map(|metadata| i32::from(kind(&metadata)))
+                .map_err(|error| HostFsError::operation(format!("{error}: {path}")))
+        });
+        match result {
+            Ok(value) => value,
+            Err(error) => set_error(results, error),
+        }
+    }
+
+    pub(crate) fn authorize_open(
+        &self,
+        path: &OsStr,
+        access: i32,
+        create_mode: i32,
+        append: bool,
+    ) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::for_open(access, create_mode, append))
+    }
+
+    fn authorize_metadata(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_read(path)
+    }
+
+    fn authorize_metadata_at(&self, base: Option<&Path>, path: &OsStr) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = authorization_target_at(base, path);
+        let resolved = resolve_from_directory(base, Path::new(path))
+            .and_then(|path| canonicalize_existing_prefix(&path))
+            .ok();
+        policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+    }
+
+    pub(crate) fn authorize_resource_metadata(&self, path: Option<&Path>) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        match path {
+            Some(path) => {
+                let target = quote_os_str(path.as_os_str());
+                let resolved = canonicalize_existing_prefix(path).ok();
+                policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+            }
+            None => policy.authorize(None, FsIntents::read(), "\"<untracked resource>\""),
+        }
+    }
+
+    pub(crate) fn authorize_read(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::read())
+    }
+
+    pub(crate) fn authorize_write(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::write())
+    }
+
+    fn authorize_entry_metadata_at(
+        &self,
+        base: Option<&Path>,
+        path: &OsStr,
+    ) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = authorization_target_at(base, path);
+        let resolved = resolve_from_directory(base, Path::new(path))
+            .and_then(|path| canonicalize_entry_path(&path))
+            .ok();
+        policy.authorize(resolved.as_deref(), FsIntents::read(), &target)
+    }
+
+    fn authorize_entry_metadata(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(path, FsIntents::read())
+    }
+
+    fn authorize_access(&self, path: &OsStr, access: i32) -> AsyncHostResult<()> {
+        self.authorize_path(path, FsIntents::for_access_check(access))
+    }
+
+    fn authorize_remove(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(path, FsIntents::write())
+    }
+
+    fn authorize_rename(&self, old_path: &OsStr, new_path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(old_path, FsIntents::write())?;
+        self.authorize_entry(new_path, FsIntents::write())
+    }
+
+    pub(crate) fn authorize_resource_lock(
+        &self,
+        path: Option<&Path>,
+        exclusive: bool,
+    ) -> AsyncHostResult<()> {
+        if !exclusive {
+            return Ok(());
+        }
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        match path {
+            Some(path) => {
+                let target = quote_os_str(path.as_os_str());
+                let resolved = canonicalize_existing_prefix(path).ok();
+                policy.authorize(resolved.as_deref(), FsIntents::write(), &target)
+            }
+            None => policy.authorize(None, FsIntents::write(), "\"<untracked resource>\""),
+        }
+    }
+
+    fn authorize_write_entry(&self, path: &OsStr) -> AsyncHostResult<()> {
+        self.authorize_entry(path, FsIntents::write())
+    }
+
+    fn authorize_path(&self, path: &OsStr, intents: FsIntents) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = quote_os_str(path);
+        let resolved = self
+            .working_directory
+            .resolve_absolute(Path::new(path))
+            .ok()
+            .and_then(|path| canonicalize_existing_prefix(&path).ok());
+        policy.authorize(resolved.as_deref(), intents, &target)
+    }
+
+    fn authorize_entry(&self, path: &OsStr, intents: FsIntents) -> AsyncHostResult<()> {
+        let Some(policy) = &self.policy else {
+            return Ok(());
+        };
+        let target = quote_os_str(path);
+        let resolved = self
+            .working_directory
+            .resolve_absolute(Path::new(path))
+            .ok()
+            .and_then(|path| canonicalize_entry_path(&path).ok());
+        policy.authorize(resolved.as_deref(), intents, &target)
+    }
+
+    fn ensure_read(&self, path: &str) -> Result<(), HostFsError> {
+        self.authorize_metadata(OsStr::new(path))
+            .map_err(|_| HostFsError::permission_denied(path))
+    }
+
+    fn ensure_write(&self, path: &str) -> Result<(), HostFsError> {
+        self.authorize_open(OsStr::new(path), 1, 1, false)
+            .map_err(|_| HostFsError::permission_denied(path))
+    }
+
+    fn ensure_remove(&self, path: &str) -> Result<(), HostFsError> {
+        self.authorize_remove(OsStr::new(path))
+            .map_err(|_| HostFsError::permission_denied(path))
+    }
+}
+
+fn resolve_from_directory(base: Option<&Path>, path: &Path) -> AsyncHostResult<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        base.map(|base| base.join(path))
+            .ok_or(AsyncHostError::PermissionDenied)
+    }
+}
+
+fn canonicalize_existing_prefix(path: &Path) -> AsyncHostResult<PathBuf> {
+    for ancestor in path.ancestors() {
+        if let Ok(prefix) = std::fs::canonicalize(ancestor) {
+            let suffix = path
+                .strip_prefix(ancestor)
+                .map_err(|_| AsyncHostError::PermissionDenied)?;
+            return Ok(normalize_path(prefix.join(suffix)));
+        }
+    }
+    Err(AsyncHostError::PermissionDenied)
+}
+
+fn canonicalize_entry_path(path: &Path) -> AsyncHostResult<PathBuf> {
+    let parent = path.parent().ok_or(AsyncHostError::PermissionDenied)?;
+    let file_name = path.file_name().ok_or(AsyncHostError::PermissionDenied)?;
+    Ok(normalize_path(
+        canonicalize_existing_prefix(parent)?.join(file_name),
+    ))
+}
+
+fn normalize_path(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+    normalized
+}
+
+fn quote_os_str(value: &OsStr) -> String {
+    format!("{:?}", value.to_string_lossy())
+}
+
+fn authorization_target_at(base: Option<&Path>, path: &OsStr) -> String {
+    base.map_or_else(
+        || quote_os_str(OsStr::new("<untracked resource>")),
+        |_| quote_os_str(path),
+    )
+}
+
+fn read_dir_entries(path: &Path) -> std::io::Result<Vec<String>> {
+    Ok(std::fs::read_dir(path)?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let entry_path = entry.path();
+            let relative_path = entry_path.strip_prefix(path).unwrap();
+            relative_path.to_str().map(ToOwned::to_owned)
+        })
+        .collect())
+}
+
+fn operation_status(results: &mut FsOperationResults, result: Result<(), HostFsError>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(error) => set_error(results, error),
+    }
+}
+
+fn set_error(results: &mut FsOperationResults, error: HostFsError) -> i32 {
+    results.error_message = error.to_string();
+    -1
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    #[cfg(windows)]
+    use crate::async_host::AsyncHostError;
+    use crate::policy::{self, Policy};
+
+    fn host_fs(mut policy: Policy, environment: Arc<Env>) -> HostFs {
+        HostFs::new(
+            policy.take_filesystem_policy(),
+            environment,
+            Arc::new(WorkingDirectory::Ambient),
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_enumeration_does_not_substitute_lossy_path() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path().join(OsStr::from_bytes(b"workspace-\xff"));
+        let lossy_directory = PathBuf::from(directory.to_string_lossy().into_owned());
+        std::fs::create_dir(&lossy_directory).unwrap();
+        std::fs::write(lossy_directory.join("wrong.txt"), []).unwrap();
+        let host = HostFs::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Fixed(directory)),
+        );
+
+        let legacy_result = host.read_dir(".");
+        let mut results = FsOperationResults::default();
+        assert_eq!(host.read_dir_new(&mut results, "."), -1);
+        assert!(legacy_result.is_err());
+        assert!(results.dir_files().is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn directory_enumeration_preserves_non_utf8_working_directory() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path().join(OsStr::from_bytes(b"workspace-\xff"));
+        let lossy_directory = PathBuf::from(directory.to_string_lossy().into_owned());
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::create_dir(&lossy_directory).unwrap();
+        std::fs::write(directory.join("expected.txt"), []).unwrap();
+        std::fs::write(lossy_directory.join("wrong.txt"), []).unwrap();
+        let host = HostFs::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Fixed(directory)),
+        );
+
+        let legacy_entries = host.read_dir(".").unwrap();
+        let mut results = FsOperationResults::default();
+        assert_eq!(host.read_dir_new(&mut results, "."), 0);
+        let expected = ["expected.txt".to_owned()];
+        assert_eq!(
+            (legacy_entries.as_slice(), results.dir_files()),
+            (expected.as_slice(), expected.as_slice())
+        );
+    }
+
+    #[test]
+    fn ambient_temp_dir_uses_native_path() {
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+
+        assert_eq!(host.temp_dir().unwrap(), stub::get_tmp_path().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_temp_dir_uses_runtime_environment() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Arc::new(Env::owned([("TMPDIR".into(), "/runtime/tmp".into())]).unwrap());
+        let host = host_fs(Policy::allow_all(), environment);
+
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/runtime/tmp/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temp_dir_reflects_runtime_environment_changes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Arc::new(Env::owned([("TMPDIR".into(), "/first".into())]).unwrap());
+        let host = host_fs(Policy::allow_all(), Arc::clone(&environment));
+
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/first/");
+        environment.set("TMPDIR".into(), "/second".into()).unwrap();
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/second/");
+        environment.unset("TMPDIR".as_ref()).unwrap();
+        assert_eq!(
+            host.temp_dir().unwrap(),
+            stub::get_tmp_path_from_env(None).unwrap()
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn empty_owned_environment_uses_default_temp_dir() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let environment = Arc::new(Env::owned(Vec::<(OsString, OsString)>::new()).unwrap());
+        let host = host_fs(Policy::allow_all(), environment);
+
+        assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/tmp/");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn owned_temp_dir_requires_configured_windows_environment() {
+        let environment = Arc::new(Env::owned(Vec::<(OsString, OsString)>::new()).unwrap());
+        let host = host_fs(Policy::allow_all(), Arc::clone(&environment));
+
+        assert_eq!(host.temp_dir(), Err(AsyncHostError::PermissionDenied));
+        environment.set("TEMP".into(), "C:/Temp".into()).unwrap();
+        assert_eq!(host.temp_dir().unwrap().to_string_lossy(), "C:/Temp\\");
+        environment.unset("TEMP".as_ref()).unwrap();
+        assert_eq!(host.temp_dir(), Err(AsyncHostError::PermissionDenied));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn empty_tmp_falls_back_to_temp() {
+        let environment = Arc::new(
+            Env::owned([
+                ("TMP".into(), "".into()),
+                ("TEMP".into(), "C:/Fallback".into()),
+            ])
+            .unwrap(),
+        );
+        let host = host_fs(Policy::allow_all(), environment);
+
+        assert_eq!(host.temp_dir().unwrap().to_string_lossy(), "C:/Fallback\\");
+    }
+
+    #[test]
+    fn operation_results_belong_to_one_runtime() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("input.bin");
+        std::fs::write(&path, [1, 2, 3]).unwrap();
+        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let mut first = FsOperationResults::default();
+        let second = FsOperationResults::default();
+
+        assert_eq!(
+            host.read_file_to_bytes_new(&mut first, path.to_str().unwrap()),
+            0
+        );
+        assert_eq!(first.file_content(), [1, 2, 3]);
+        assert!(second.file_content().is_empty());
+    }
+
+    #[test]
+    fn denied_status_operation_records_guest_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+
+        assert_eq!(host.read_file_to_bytes_new(&mut results, "denied.bin"), -1);
+        assert_eq!(results.error_message(), "Permission denied: denied.bin");
+    }
+
+    #[test]
+    fn authorization_precedes_guest_byte_conversion() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let mut results = FsOperationResults::default();
+        let converted = Cell::new(false);
+
+        let error = host
+            .write_bytes_to_file("denied.bin", || {
+                converted.set(true);
+                Ok::<_, HostFsError>(Vec::new())
+            })
+            .unwrap_err();
+
+        assert!(!converted.get());
+        assert_eq!(error.to_string(), "Permission denied: denied.bin");
+
+        let status = host.write_bytes_to_file_new(&mut results, "denied.bin", || {
+            converted.set(true);
+            Ok(Vec::new())
+        });
+
+        assert_eq!(status, -1);
+        assert!(!converted.get());
+        assert_eq!(results.error_message(), "Permission denied: denied.bin");
+    }
+
+    #[test]
+    fn relative_at_authorization_uses_the_open_directory_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::write(allowed.join("input.txt"), "input").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+
+        host.authorize_metadata_at(Some(&allowed), OsStr::new("input.txt"))
+            .unwrap();
+        assert_eq!(
+            host.authorize_metadata_at(None, OsStr::new("input.txt")),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn relative_at_authorization_preserves_untracked_diagnostic_target() {
+        assert_eq!(
+            authorization_target_at(None, OsStr::new("input.txt")),
+            "\"<untracked resource>\""
+        );
+        assert_eq!(
+            authorization_target_at(Some(Path::new("base")), OsStr::new("input.txt")),
+            "\"input.txt\""
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resource_authorization_rechecks_saved_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let resource_path = allowed.join("resource.txt");
+        let denied_file = denied.join("target.txt");
+        std::fs::write(&resource_path, "allowed").unwrap();
+        std::fs::write(&denied_file, "denied").unwrap();
+        let saved_path = std::fs::canonicalize(&resource_path).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
+        )
+        .unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+
+        std::fs::remove_file(&resource_path).unwrap();
+        std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
+
+        let metadata = host.authorize_resource_metadata(Some(&saved_path));
+        let lock = host.authorize_resource_lock(Some(&saved_path), true);
+        assert_eq!(metadata, Err(AsyncHostError::PermissionDenied));
+        assert_eq!(lock, Err(AsyncHostError::PermissionDenied));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_policy_checks_link_path_not_target() {
+        use crate::async_host::AsyncHostError;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let allowed_file = allowed.join("target.txt");
+        let denied_link = denied.join("link.txt");
+        std::fs::write(&allowed_file, "target").unwrap();
+        std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+
+        assert_eq!(
+            host.authorize_remove(denied_link.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_policy_checks_link_entry_not_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let denied_file = denied.join("target.txt");
+        let allowed_link = allowed.join("link.txt");
+        std::fs::write(&denied_file, "target").unwrap();
+        std::os::unix::fs::symlink(&denied_file, &allowed_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+
+        host.authorize_remove(allowed_link.as_os_str()).unwrap();
+        assert_eq!(
+            host.authorize_write(allowed_link.as_os_str()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+}

@@ -1,0 +1,783 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Executor-neutral actions produced by lowering a semantic Build Plan.
+
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
+
+use crate::{ResolvedProject, build_plan::ArtifactKey, pkg_name::OptionalPackageFQNWithSource};
+
+/// Process-local identity of one concrete execution action.
+///
+/// This is an arena handle, not the persistent action digest used by the build
+/// cache. It is meaningful only within its owning [`ExecutionPlan`].
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ActionId(pub(crate) usize);
+
+/// A response file selected while lowering a command.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LoweredResponseFile {
+    pub path: PathBuf,
+    pub content: String,
+}
+
+/// How the process command should be transported to an executor.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum LoweredCommandExecution {
+    Inline(String),
+    ResponseFile {
+        command: String,
+        file: LoweredResponseFile,
+    },
+}
+
+/// A concrete process command and its selected process transport.
+///
+/// `args` retains the logical form for metadata consumers. `execution` records
+/// whether the same command is sent inline or through a response file.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LoweredCommand {
+    pub(crate) args: Vec<String>,
+    pub(crate) execution: LoweredCommandExecution,
+    pub(crate) cwd: Option<PathBuf>,
+    pub(crate) env: Vec<(String, String)>,
+}
+
+impl From<Vec<String>> for LoweredCommand {
+    fn from(args: Vec<String>) -> Self {
+        let command = moonutil::shlex::join_native(args.iter().map(String::as_str));
+        Self {
+            args,
+            execution: LoweredCommandExecution::Inline(command),
+            cwd: None,
+            env: Vec::new(),
+        }
+    }
+}
+
+impl LoweredCommand {
+    pub(crate) fn inline_command(&self) -> &str {
+        let LoweredCommandExecution::Inline(command) = &self.execution else {
+            unreachable!("a response-file command is already lowered")
+        };
+        command
+    }
+
+    pub(crate) fn with_response_file(mut self, command: String, file: LoweredResponseFile) -> Self {
+        self.execution = LoweredCommandExecution::ResponseFile { command, file };
+        self
+    }
+
+    pub(crate) fn executable(&self) -> Option<&Path> {
+        self.args.first().map(Path::new)
+    }
+
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    pub fn execution(&self) -> &LoweredCommandExecution {
+        &self.execution
+    }
+
+    pub fn cwd(&self) -> Option<&Path> {
+        self.cwd.as_deref()
+    }
+
+    pub fn env(&self) -> &[(String, String)] {
+        &self.env
+    }
+
+    pub(crate) fn with_cwd(mut self, cwd: PathBuf) -> Self {
+        self.cwd = Some(cwd);
+        self
+    }
+
+    pub(crate) fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env.extend(env);
+        self
+    }
+}
+
+/// One physical file or directory declared to execution adapters.
+///
+/// A declared output may realize a semantic Build Artifact, but execution-only
+/// outputs such as a dSYM bundle deliberately have no `ArtifactKey`. The path
+/// is its execution identity; it does not replace this semantic annotation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclaredOutput {
+    producer: ActionId,
+    path: PathBuf,
+    artifact: Option<ArtifactKey>,
+    /// The artifact belongs to a dependency module outside the resolved project's
+    /// root modules. Independent of scheduling, freshness, and cache eligibility.
+    /// Outputs without module ownership (including runtime artifacts) are unmarked.
+    is_dependency_artifact: bool,
+}
+
+impl DeclaredOutput {
+    pub fn is_dependency_artifact(&self) -> bool {
+        self.is_dependency_artifact
+    }
+
+    pub fn producer(&self) -> ActionId {
+        self.producer
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn artifact(&self) -> Option<&ArtifactKey> {
+        self.artifact.as_ref()
+    }
+}
+
+/// How to interpret an action's captured process output.
+/// This is declared by lowering, never inferred from the output's contents.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionOutputKind {
+    /// MoonBit compiler diagnostics, in the configured output format.
+    Compiler,
+    /// Opaque output from scripts and other tools.
+    Tool,
+}
+
+/// One concrete action after command construction and path realization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutionAction {
+    /// Regular files observed by the action.
+    ///
+    /// Inputs are matched against declared outputs after all actions have
+    /// been lowered. An unmatched file is supplied across the Execution Plan
+    /// boundary; a matched file depends on that output's producer.
+    inputs: Vec<PathBuf>,
+    outputs: Vec<PathBuf>,
+    command: LoweredCommand,
+    cache_eligible: bool,
+    fileloc: String,
+    description: String,
+    output_kind: ActionOutputKind,
+    // TODO: Replace dirty-on-output scheduling when execution persists and
+    // replays action diagnostics instead of rerunning commands to display them.
+    can_dirty_on_output: bool,
+    error_package: OptionalPackageFQNWithSource,
+}
+
+impl ExecutionAction {
+    pub(crate) fn new(
+        mut inputs: Vec<PathBuf>,
+        outputs: Vec<PathBuf>,
+        command: LoweredCommand,
+        fileloc: String,
+        description: String,
+        output_kind: ActionOutputKind,
+    ) -> Self {
+        inputs.sort();
+        assert!(
+            inputs.windows(2).all(|pair| pair[0] != pair[1]),
+            "execution action inputs must be declared once"
+        );
+        Self {
+            inputs,
+            outputs,
+            command,
+            cache_eligible: true,
+            fileloc,
+            description,
+            output_kind,
+            can_dirty_on_output: false,
+            error_package: None::<crate::pkg_name::PackageFQN>.into(),
+        }
+    }
+
+    pub(crate) fn with_cache_eligible(mut self, cache_eligible: bool) -> Self {
+        self.cache_eligible = cache_eligible;
+        self
+    }
+
+    pub(crate) fn with_can_dirty_on_output(mut self, can_dirty_on_output: bool) -> Self {
+        self.can_dirty_on_output = can_dirty_on_output;
+        self
+    }
+
+    pub(crate) fn with_error_package(
+        mut self,
+        error_package: OptionalPackageFQNWithSource,
+    ) -> Self {
+        self.error_package = error_package;
+        self
+    }
+
+    pub fn inputs(&self) -> &[PathBuf] {
+        &self.inputs
+    }
+
+    pub fn outputs(&self) -> &[PathBuf] {
+        &self.outputs
+    }
+
+    pub fn command(&self) -> &LoweredCommand {
+        &self.command
+    }
+
+    /// Whether lowering has a complete enough execution model to permit reuse.
+    pub fn is_cache_eligible(&self) -> bool {
+        self.cache_eligible
+    }
+
+    pub fn can_dirty_on_output(&self) -> bool {
+        self.can_dirty_on_output
+    }
+
+    pub fn fileloc(&self) -> &str {
+        &self.fileloc
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn output_kind(&self) -> ActionOutputKind {
+        self.output_kind
+    }
+
+    pub fn error_package(&self) -> &OptionalPackageFQNWithSource {
+        &self.error_package
+    }
+}
+
+/// The executor-neutral graph shared by n2, dry-run, and cache consumers.
+///
+/// Build Artifact requirements are realized as concrete input paths. Declared
+/// outputs retain their producer and optional artifact annotation without
+/// promoting every file or directory into `ArtifactKey`. Consumers that need
+/// planning semantics can resolve an input path through
+/// [`ExecutionPlan::declared_output`] instead of inferring meaning from its
+/// filename.
+#[derive(Clone, Debug, Default)]
+pub struct ExecutionPlan {
+    actions: Vec<ExecutionAction>,
+    outputs: HashMap<PathBuf, DeclaredOutput>,
+    requested_artifacts: Vec<(ArtifactKey, Vec<PathBuf>)>,
+}
+
+impl ExecutionPlan {
+    /// Retain project membership on artifact realizations before execution policy
+    /// is chosen. Local-path dependencies have the same role as registry dependencies.
+    pub(crate) fn mark_dependency_artifacts(&mut self, resolved: &ResolvedProject) {
+        let project_modules = resolved
+            .local_modules()
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>();
+        for output in self.outputs.values_mut() {
+            let module = match output.artifact.as_ref() {
+                Some(ArtifactKey::BundleResult { module } | ArtifactKey::DocsDir { module }) => {
+                    Some(*module)
+                }
+                Some(artifact) => artifact
+                    .package()
+                    .map(|package| resolved.pkg_dirs.get_package(package).module),
+                None => None,
+            };
+            output.is_dependency_artifact =
+                module.is_some_and(|module| !project_modules.contains(&module));
+        }
+    }
+
+    pub fn action_ids(&self) -> impl Iterator<Item = ActionId> + '_ {
+        (0..self.actions.len()).map(ActionId)
+    }
+
+    pub fn action(&self, id: ActionId) -> &ExecutionAction {
+        &self.actions[id.0]
+    }
+
+    pub fn declared_output(&self, path: &Path) -> Option<&DeclaredOutput> {
+        self.outputs.get(path)
+    }
+
+    pub fn requested_artifact_paths(&self) -> impl Iterator<Item = (&ArtifactKey, &[PathBuf])> {
+        self.requested_artifacts
+            .iter()
+            .map(|(artifact, outputs)| (artifact, outputs.as_slice()))
+    }
+
+    /// Unconsumed declared outputs are the default execution roots, including
+    /// auxiliary results such as debug symbols and unconsumed prebuild outputs.
+    /// Preserve action/output order so executor scheduling is unchanged.
+    pub fn default_output_paths(&self) -> Vec<&Path> {
+        let consumed = self
+            .actions
+            .iter()
+            .flat_map(|action| &action.inputs)
+            .map(PathBuf::as_path)
+            .collect::<HashSet<_>>();
+        self.actions
+            .iter()
+            .flat_map(|action| &action.outputs)
+            .map(PathBuf::as_path)
+            .filter(|path| !consumed.contains(path))
+            .collect()
+    }
+
+    /// Add an independently lowered plan and return its action IDs in this plan.
+    ///
+    /// Concrete output paths form the composition boundary. Plans may share an
+    /// action only when every part of its execution behavior and every output
+    /// artifact identity and project membership agree. A partial overlap, a
+    /// different producer, or conflicting membership is rejected before the executor
+    /// sees an ambiguous graph.
+    pub fn merge(
+        &mut self,
+        other: &ExecutionPlan,
+    ) -> Result<Vec<ActionId>, ExecutionPlanMergeError> {
+        let mut action_ids = Vec::with_capacity(other.actions.len());
+
+        for action in &other.actions {
+            let existing_producers = action
+                .outputs
+                .iter()
+                .filter_map(|path| self.outputs.get(path).map(DeclaredOutput::producer))
+                .collect::<HashSet<_>>();
+
+            let action_id = if existing_producers.is_empty() {
+                let action_id = ActionId(self.actions.len());
+                self.actions.push(action.clone());
+                for path in &action.outputs {
+                    let output = other
+                        .outputs
+                        .get(path)
+                        .expect("execution action outputs should be declared");
+                    self.outputs.insert(
+                        path.clone(),
+                        DeclaredOutput {
+                            producer: action_id,
+                            path: path.clone(),
+                            artifact: output.artifact.clone(),
+                            is_dependency_artifact: output.is_dependency_artifact,
+                        },
+                    );
+                }
+                action_id
+            } else {
+                let Some(&existing) = existing_producers.iter().next() else {
+                    unreachable!()
+                };
+                let outputs_match = existing_producers.len() == 1
+                    && action.outputs.len() == self.actions[existing.0].outputs.len()
+                    && action.outputs.iter().all(|path| {
+                        self.outputs.get(path).is_some_and(|current| {
+                            current.producer == existing
+                                && other.outputs.get(path).is_some_and(|incoming| {
+                                    current.artifact == incoming.artifact
+                                        && current.is_dependency_artifact
+                                            == incoming.is_dependency_artifact
+                                })
+                        })
+                    });
+                if !outputs_match || self.actions[existing.0] != *action {
+                    let path = action
+                        .outputs
+                        .iter()
+                        .find(|path| self.outputs.contains_key(*path))
+                        .expect("an existing producer was found")
+                        .clone();
+                    return Err(ExecutionPlanMergeError::ConflictingOutput { path });
+                }
+                existing
+            };
+            action_ids.push(action_id);
+        }
+
+        self.requested_artifacts
+            .extend(other.requested_artifacts.iter().cloned());
+        Ok(action_ids)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ExecutionPlanMergeError {
+    #[error(
+        "cannot compose execution plans: output `{path}` has incompatible producers or artifact roles"
+    )]
+    ConflictingOutput { path: PathBuf },
+}
+
+#[derive(Default)]
+pub(crate) struct ExecutionPlanBuilder {
+    actions: Vec<ExecutionAction>,
+    outputs: HashMap<PathBuf, DeclaredOutput>,
+    artifacts: HashMap<ArtifactKey, Vec<PathBuf>>,
+}
+
+impl ExecutionPlanBuilder {
+    pub(crate) fn add_action(
+        &mut self,
+        action: ExecutionAction,
+        semantic_outputs: impl IntoIterator<Item = (ArtifactKey, Vec<PathBuf>)>,
+    ) -> ActionId {
+        let action_id = ActionId(self.actions.len());
+        let mut artifacts_by_path = HashMap::new();
+
+        for (artifact, paths) in semantic_outputs {
+            assert!(
+                !paths.is_empty(),
+                "execution artifact has no physical outputs: {artifact:?}"
+            );
+            for path in &paths {
+                let previous = artifacts_by_path.insert(path.clone(), artifact.clone());
+                assert!(
+                    previous.is_none(),
+                    "declared execution output realizes multiple artifacts: {}",
+                    path.display()
+                );
+            }
+            let previous = self.artifacts.insert(artifact.clone(), paths);
+            assert!(
+                previous.is_none(),
+                "execution artifact has multiple providers: {artifact:?}"
+            );
+        }
+
+        for path in &action.outputs {
+            self.add_output(action_id, path.clone(), artifacts_by_path.remove(path));
+        }
+        assert!(
+            artifacts_by_path.is_empty(),
+            "artifact output paths should be declared by their execution action"
+        );
+
+        self.actions.push(action);
+        action_id
+    }
+
+    fn add_output(
+        &mut self,
+        producer: ActionId,
+        path: PathBuf,
+        artifact: Option<ArtifactKey>,
+    ) -> PathBuf {
+        let previous = self.outputs.insert(
+            path.clone(),
+            DeclaredOutput {
+                producer,
+                path: path.clone(),
+                artifact,
+                is_dependency_artifact: false,
+            },
+        );
+        assert!(
+            previous.is_none(),
+            "declared execution output has multiple producers: {}",
+            path.display()
+        );
+        path
+    }
+
+    pub(crate) fn finish(
+        self,
+        requested_artifacts: impl IntoIterator<Item = ArtifactKey>,
+    ) -> ExecutionPlan {
+        let mut seen = HashSet::new();
+        let mut requested = Vec::new();
+        for artifact in requested_artifacts {
+            if !seen.insert(artifact.clone()) {
+                continue;
+            }
+            let outputs = self
+                .artifacts
+                .get(&artifact)
+                .unwrap_or_else(|| panic!("requested artifact has no realization: {artifact:?}"))
+                .clone();
+            requested.push((artifact, outputs));
+        }
+        ExecutionPlan {
+            actions: self.actions,
+            outputs: self.outputs,
+            requested_artifacts: requested,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+    use crate::model::PackageId;
+
+    fn execution_action(
+        inputs: Vec<PathBuf>,
+        semantic_outputs: Vec<(ArtifactKey, Vec<PathBuf>)>,
+        declared_outputs: Vec<PathBuf>,
+        command: &str,
+    ) -> (ExecutionAction, Vec<(ArtifactKey, Vec<PathBuf>)>) {
+        let outputs = semantic_outputs
+            .iter()
+            .flat_map(|(_, paths)| paths.iter().cloned())
+            .chain(declared_outputs)
+            .collect();
+        (
+            ExecutionAction::new(
+                inputs,
+                outputs,
+                LoweredCommand::from(vec![command.to_string()]),
+                command.to_string(),
+                command.to_string(),
+                ActionOutputKind::Tool,
+            ),
+            semantic_outputs,
+        )
+    }
+
+    fn producer_and_consumer_plan() -> (ExecutionPlan, ActionId, ActionId) {
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            Vec::new(),
+            vec![(
+                ArtifactKey::RuntimeLibrary,
+                vec![PathBuf::from("build/libmoonbitrun.a")],
+            )],
+            Vec::new(),
+            "archive-runtime",
+        );
+        let producer = builder.add_action(action, outputs);
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("build/libmoonbitrun.a")],
+            Vec::new(),
+            vec![PathBuf::from("build/app.dSYM")],
+            "generate-debug-symbols",
+        );
+        let consumer = builder.add_action(action, outputs);
+        let plan = builder.finish([ArtifactKey::RuntimeLibrary]);
+        (plan, producer, consumer)
+    }
+
+    #[test]
+    #[should_panic(expected = "execution action inputs must be declared once")]
+    fn execution_action_rejects_duplicate_input_declarations() {
+        execution_action(
+            vec![PathBuf::from("src/main.mbt"), PathBuf::from("src/main.mbt")],
+            Vec::new(),
+            Vec::new(),
+            "compile-main",
+        );
+    }
+
+    #[test]
+    fn artifact_edges_and_physical_only_outputs_have_distinct_identity() {
+        let (plan, producer, consumer) = producer_and_consumer_plan();
+
+        let input = plan
+            .declared_output(&plan.action(consumer).inputs()[0])
+            .expect("action input should resolve to a declared output");
+        assert_eq!(input.artifact(), Some(&ArtifactKey::RuntimeLibrary));
+        assert_eq!(input.producer(), producer);
+        assert_eq!(input.path(), Path::new("build/libmoonbitrun.a"));
+
+        let debug_output = plan
+            .declared_output(&plan.action(consumer).outputs()[0])
+            .expect("action output should be declared");
+        assert_eq!(debug_output.producer(), consumer);
+        assert_eq!(debug_output.path(), Path::new("build/app.dSYM"));
+        assert_eq!(debug_output.artifact(), None);
+    }
+
+    #[test]
+    fn default_roots_include_unconsumed_auxiliary_outputs() {
+        let (mut plan, _, _) = producer_and_consumer_plan();
+        assert_eq!(plan.default_output_paths(), [Path::new("build/app.dSYM")]);
+
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("src/schema")],
+            Vec::new(),
+            vec![PathBuf::from("build/generated")],
+            "generate-unused-file",
+        );
+        builder.add_action(action, outputs);
+        plan.merge(&builder.finish([]))
+            .expect("independent prebuild output should compose");
+
+        assert_eq!(
+            plan.default_output_paths(),
+            [Path::new("build/app.dSYM"), Path::new("build/generated")],
+        );
+    }
+
+    #[test]
+    fn default_roots_retain_unconsumed_outputs_of_a_shared_producer() {
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            Vec::new(),
+            Vec::new(),
+            vec![PathBuf::from("build/a.mi"), PathBuf::from("build/a.core")],
+            "compile-a",
+        );
+        builder.add_action(action, outputs);
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("build/a.mi")],
+            Vec::new(),
+            vec![PathBuf::from("build/b.mi")],
+            "check-b",
+        );
+        builder.add_action(action, outputs);
+
+        let plan = builder.finish([]);
+        assert_eq!(
+            plan.default_output_paths(),
+            [Path::new("build/a.core"), Path::new("build/b.mi")],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "execution artifact has no physical outputs")]
+    fn semantic_artifact_requires_a_physical_output() {
+        let (action, outputs) = execution_action(
+            Vec::new(),
+            vec![(ArtifactKey::RuntimeLibrary, Vec::new())],
+            Vec::new(),
+            "archive-runtime",
+        );
+        ExecutionPlanBuilder::default().add_action(action, outputs);
+    }
+
+    #[test]
+    fn execution_inputs_without_a_producer_are_boundary_observations() {
+        let mut builder = ExecutionPlanBuilder::default();
+        let (action, outputs) = execution_action(
+            vec![PathBuf::from("src/main.mbt")],
+            Vec::new(),
+            vec![PathBuf::from("build/main.mi")],
+            "compile-main",
+        );
+        builder.add_action(action, outputs);
+        let plan = builder.finish([]);
+
+        assert!(
+            plan.declared_output(Path::new("src/main.mbt")).is_none(),
+            "an unmatched input should not acquire a producer"
+        );
+    }
+
+    #[test]
+    fn merge_reuses_an_identical_physical_provider_and_remaps_consumers() {
+        let (first, producer, consumer) = producer_and_consumer_plan();
+        let (second, _, _) = producer_and_consumer_plan();
+        let mut composed = ExecutionPlan::default();
+
+        assert_eq!(
+            composed.merge(&first).expect("first plan should merge"),
+            [producer, consumer]
+        );
+        assert_eq!(
+            composed.merge(&second).expect("second plan should merge"),
+            [producer, consumer]
+        );
+        assert_eq!(composed.action_ids().count(), 2);
+        assert!(
+            !composed
+                .declared_output(Path::new("build/libmoonbitrun.a"))
+                .expect("shared output should be declared")
+                .is_dependency_artifact()
+        );
+        assert_eq!(
+            composed
+                .declared_output(Path::new("build/libmoonbitrun.a"))
+                .expect("the shared output should be declared")
+                .producer(),
+            producer
+        );
+    }
+
+    #[test]
+    fn merge_rejects_different_actions_for_the_same_physical_output() {
+        let (mut first, _, _) = producer_and_consumer_plan();
+        let (mut second, _, _) = producer_and_consumer_plan();
+        second.actions[0].description = "different archive command".to_string();
+
+        first
+            .merge(&second)
+            .expect_err("incompatible producers should be rejected");
+    }
+
+    #[test]
+    fn merge_remaps_plan_local_action_ids() {
+        let (first, _, _) = producer_and_consumer_plan();
+        let mut builder = ExecutionPlanBuilder::default();
+        let mut packages = slotmap::SlotMap::<PackageId, ()>::with_key();
+        let package = packages.insert(());
+        let (action, outputs) = execution_action(
+            Vec::new(),
+            vec![(
+                ArtifactKey::CoreIr {
+                    package,
+                    target_kind: crate::model::TargetKind::Source,
+                },
+                vec![PathBuf::from("build/other-output")],
+            )],
+            Vec::new(),
+            "other-command",
+        );
+        builder.add_action(action, outputs);
+        let mut second = builder.finish([]);
+        second
+            .outputs
+            .get_mut(Path::new("build/other-output"))
+            .expect("second plan's output should be declared")
+            .is_dependency_artifact = true;
+        let mut composed = ExecutionPlan::default();
+
+        composed.merge(&first).expect("first plan should merge");
+        let remapped = composed.merge(&second).expect("second plan should merge");
+
+        assert_eq!(remapped, [ActionId(2)]);
+        assert_eq!(
+            composed
+                .declared_output(Path::new("build/other-output"))
+                .expect("second plan's output should be declared")
+                .producer(),
+            ActionId(2)
+        );
+        assert!(
+            !composed
+                .declared_output(Path::new("build/libmoonbitrun.a"))
+                .expect("runtime library should be declared")
+                .is_dependency_artifact()
+        );
+        assert!(
+            composed
+                .declared_output(Path::new("build/other-output"))
+                .expect("second plan's output should be declared")
+                .is_dependency_artifact()
+        );
+        second
+            .outputs
+            .get_mut(Path::new("build/other-output"))
+            .expect("second plan's output should be declared")
+            .is_dependency_artifact = false;
+        composed
+            .merge(&second)
+            .expect_err("shared outputs must agree on dependency membership");
+    }
+}

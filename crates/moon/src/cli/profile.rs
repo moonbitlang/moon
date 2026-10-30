@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,16 +20,19 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     fs::File,
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
 use anyhow::{Context, bail};
 use chrono::Local;
-use moonbuild_rupes_recta::model::RunBackend;
+use moonbuild::BuildMeta;
 use moonutil::{
-    common::{RunMode, SurfaceTarget, TargetBackend},
+    build_options::RunMode,
+    command_output::CommandOutput,
     cond_expr::OptLevel,
+    target::{SurfaceTarget, TargetBackend},
 };
 use serde::Serialize;
 
@@ -246,19 +249,27 @@ struct CapturedProfile {
 pub(crate) struct ProfileRequest {
     /// Native executable that xctrace should launch.
     pub(crate) executable: PathBuf,
+    /// Executable path to report to users, when it differs from the launched path.
+    pub(crate) display_executable: Option<PathBuf>,
     /// Arguments passed after the executable in the profiled invocation.
     pub(crate) args: Vec<String>,
+    /// Working directory used for the profiled process.
+    pub(crate) current_dir: Option<PathBuf>,
     /// Directory where the trace, exported data, stdout/stderr, and JSON report are written.
     pub(crate) output_dir: PathBuf,
     /// Moon command mode that requested the profile.
     pub(crate) run_mode: RunMode,
     /// Backend used to build the profiled executable.
-    pub(crate) target_backend: RunBackend,
+    pub(crate) target_backend: TargetBackend,
     /// Optimization profile used to build the profiled executable.
     pub(crate) opt_level: OptLevel,
 }
 
-pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_profiled_run(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     ensure_profile_available(MOON_RUN_PROFILE_COMMAND)?;
 
     if cmd.command.is_some() {
@@ -268,35 +279,31 @@ pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyh
         bail!("{MOON_RUN_PROFILE_COMMAND} does not support stdin source");
     }
 
-    run_profile_materialized(cli, cmd)
+    run_profile_materialized(cli, cmd, output)
 }
 
-fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+fn run_profile_materialized(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     let run_cmd = profile_run_subcommand(cmd.clone())?;
     let mut built = build_run_executable(
         cli,
         &run_cmd,
-        BuildRunExecutableOptions {
-            // Profiling needs a stable executable path for xctrace to launch.
-            // The TCC fast path may run directly from generated C instead.
-            try_tcc_run: false,
-            // The dry-run output should show the profiled invocation, not the
-            // plain executable command that `moon run` would normally print.
-            print_dry_run_run_command: false,
-            suppress_build_progress: false,
-            quiet_sync: false,
-            default_target_backend: TargetBackend::default(),
-        },
+        BuildRunExecutableOptions::for_profile(cli),
+        output,
     )?;
     built.ensure_build_success()?;
 
-    if built.target_backend != RunBackend::Native {
+    let target_backend = built.backend.target_backend();
+    if target_backend != TargetBackend::Native {
         bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
     }
 
     let output_dir = default_output_dir(
         &built.target_dir,
-        built.target_backend,
+        target_backend,
         built.opt_level,
         RunMode::Run,
         &built.executable,
@@ -306,14 +313,16 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
     }
     let request = ProfileRequest {
         run_mode: RunMode::Run,
-        target_backend: built.target_backend,
+        target_backend,
         opt_level: built.opt_level,
         executable: built.executable,
+        display_executable: None,
         args: cmd.args,
+        current_dir: None,
         output_dir,
     };
 
-    profile_executable(cli, request)?;
+    profile_executable(cli, request, output)?;
     Ok(0)
 }
 
@@ -321,8 +330,14 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
 pub(crate) fn profile_executable(
     cli: &UniversalFlags,
     request: ProfileRequest,
+    output: &CommandOutput,
 ) -> anyhow::Result<()> {
-    let Some(captured) = capture_profile_executable(cli, request)? else {
+    let captured = if cli.dry_run {
+        output.write_result(|writer| capture_profile_executable(cli, request, Some(writer)))?
+    } else {
+        capture_profile_executable(cli, request, None)?
+    };
+    let Some(captured) = captured else {
         return Ok(());
     };
     let json_path = captured.output_dir.join("profile.json");
@@ -344,10 +359,13 @@ pub(crate) fn profile_executable(
 fn capture_profile_executable(
     cli: &UniversalFlags,
     request: ProfileRequest,
+    dry_run_output: Option<&mut dyn Write>,
 ) -> anyhow::Result<Option<CapturedProfile>> {
     let ProfileRequest {
         executable,
+        display_executable,
         args,
+        current_dir,
         output_dir,
         run_mode,
         target_backend,
@@ -367,22 +385,33 @@ fn capture_profile_executable(
     let perf_script_path = output_dir.join("perf-script.txt");
     let stdout_path = output_dir.join("stdout.txt");
     let stderr_path = output_dir.join("stderr.txt");
+    let display_executable = display_executable.unwrap_or_else(|| executable.clone());
 
     if cli.dry_run {
+        let output = dry_run_output.context("dry-run profile output requires a writer")?;
         match profiler_backend {
             ProfileBackend::Xctrace => {
-                print_xctrace_record_command(&trace_path, &stdout_path, &executable, &args);
-                print_xctrace_export_command(&trace_path, &xml_path);
+                write_xctrace_record_command(
+                    output,
+                    &trace_path,
+                    &stdout_path,
+                    &executable,
+                    &args,
+                    current_dir.as_deref(),
+                )?;
+                write_xctrace_export_command(output, &trace_path, &xml_path)?;
             }
             ProfileBackend::Perf => {
-                print_perf_record_command(
+                write_perf_record_command(
+                    output,
                     &trace_path,
                     &stdout_path,
                     &stderr_path,
                     &executable,
                     &args,
-                );
-                print_perf_script_command(&trace_path, &perf_script_path);
+                    current_dir.as_deref(),
+                )?;
+                write_perf_script_command(output, &trace_path, &perf_script_path)?;
             }
         }
         return Ok(None);
@@ -404,7 +433,13 @@ fn capture_profile_executable(
 
     let (parsed, artifacts) = match profiler_backend {
         ProfileBackend::Xctrace => {
-            run_xctrace_record(&trace_path, &stdout_path, &executable, &args)?;
+            run_xctrace_record(
+                &trace_path,
+                &stdout_path,
+                &executable,
+                &args,
+                current_dir.as_deref(),
+            )?;
             run_xctrace_export(&trace_path, &xml_path)?;
             (
                 parse_xctrace_time_profile(&xml_path)?,
@@ -419,7 +454,14 @@ fn capture_profile_executable(
             )
         }
         ProfileBackend::Perf => {
-            run_perf_record(&trace_path, &stdout_path, &stderr_path, &executable, &args)?;
+            run_perf_record(
+                &trace_path,
+                &stdout_path,
+                &stderr_path,
+                &executable,
+                &args,
+                current_dir.as_deref(),
+            )?;
             run_perf_script(&trace_path, &perf_script_path)?;
             (
                 parse_perf_script(&perf_script_path)?,
@@ -435,10 +477,16 @@ fn capture_profile_executable(
         }
     };
     Ok(Some(CapturedProfile {
-        name: executable_profile_name(&executable),
+        name: executable_profile_name(&display_executable),
         profiler_backend,
         output_dir,
-        target: profile_target(run_mode, target_backend, opt_level, Some(executable), args),
+        target: profile_target(
+            run_mode,
+            target_backend,
+            opt_level,
+            Some(display_executable),
+            args,
+        ),
         artifacts,
         parsed,
     }))
@@ -462,26 +510,55 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     }
 
     Ok(RunSubcommand {
+        handoff: None,
         package_or_mbt_file: cmd.package_or_mbt_file,
         command: cmd.command,
         build_flags,
         args: cmd.args,
+        moonrun_policy: None,
+        virtual_process_tree: false,
         auto_sync_flags: cmd.auto_sync_flags,
         build_only: false,
         profile: false,
     })
 }
 
-pub(crate) fn profile_test_invocations(
+pub(crate) fn profile_tests(
     cli: &UniversalFlags,
+    source_dir: &Path,
     target_dir: &Path,
-    build_meta: &crate::rr_build::BuildMeta,
+    builds: &[(BuildMeta, crate::run::TestFilter)],
+    include_skipped: bool,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    builds
+        .iter()
+        .try_fold(0, |exit_code, (build_meta, filter)| {
+            let result = profile_test_invocations(
+                cli,
+                source_dir,
+                target_dir,
+                build_meta,
+                filter,
+                include_skipped,
+                output,
+            )?;
+            Ok(exit_code.max(result))
+        })
+}
+
+fn profile_test_invocations(
+    cli: &UniversalFlags,
+    source_dir: &Path,
+    target_dir: &Path,
+    build_meta: &BuildMeta,
     filter: &crate::run::TestFilter,
     include_skipped: bool,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
 
-    if build_meta.target_backend != RunBackend::Native {
+    if build_meta.target_backend() != TargetBackend::Native {
         bail!("{MOON_TEST_PROFILE_COMMAND} currently supports only the native backend");
     }
 
@@ -494,57 +571,81 @@ pub(crate) fn profile_test_invocations(
 
     let session_dir = default_test_profile_session_dir(
         target_dir,
-        build_meta.target_backend,
+        build_meta.target_backend(),
         build_meta.opt_level,
     );
-    let mut captured_profiles = Vec::new();
-    for (index, invocation) in invocations.into_iter().enumerate() {
-        // Each selected test executable is a separate process and therefore a
-        // separate xctrace recording. Keep raw trace artifacts separated, then
-        // merge the parsed profile statistics into one aggregate report.
-        let output_dir =
-            test_profile_output_dir_for_executable(&session_dir, index, &invocation.executable);
-        if let Some(captured) = capture_profile_executable(
-            cli,
+    // Each selected test executable is a separate process and therefore a
+    // separate profiler recording. Keep raw artifacts separated, then merge
+    // the parsed profile statistics into one aggregate report.
+    let requests = invocations
+        .into_iter()
+        .enumerate()
+        .map(|(index, invocation)| {
+            let output_dir =
+                test_profile_output_dir_for_executable(&session_dir, index, &invocation.executable);
+            let package = build_meta
+                .resolved_project
+                .pkg_dirs
+                .get_package(invocation.target.package);
+            let module_root = build_meta.resolved_project.module_dirs[package.module].clone();
+            let executable = if invocation.executable.is_absolute() {
+                invocation.executable.clone()
+            } else {
+                source_dir.join(&invocation.executable)
+            };
             ProfileRequest {
-                executable: invocation.executable,
+                executable,
+                display_executable: Some(invocation.executable),
                 args: vec![invocation.args.to_cli_args_for_native()],
+                current_dir: Some(module_root),
                 output_dir,
                 run_mode: RunMode::Test,
-                target_backend: build_meta.target_backend,
+                target_backend: build_meta.target_backend(),
                 opt_level: build_meta.opt_level,
-            },
-        )? {
-            captured_profiles.push(captured);
-        }
+            }
+        })
+        .collect::<Vec<_>>();
+    if cli.dry_run {
+        output.write_result(|writer| {
+            for request in requests {
+                capture_profile_executable(cli, request, Some(&mut *writer))?;
+            }
+            Ok::<_, anyhow::Error>(())
+        })?;
+        return Ok(0);
     }
-    if !cli.dry_run {
-        let json_path = session_dir.join("profile.json");
-        let profiler_backend = ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
-        let report = build_test_report(
-            profiler_backend,
-            build_meta.target_backend,
-            build_meta.opt_level,
-            with_json_report(ProfileArtifacts::default(), json_path.clone()),
-            captured_profiles,
-        );
-        let terminal_report = render_terminal_report(&report);
-        print!("{terminal_report}");
-        std::fs::write(&json_path, serde_json::to_string_pretty(&report)?)
-            .with_context(|| format!("failed to write profile json `{}`", json_path.display()))?;
 
-        // Profile mode intentionally focuses on performance. xctrace owns
-        // process execution here, and the profiling report is the primary
-        // output; users can inspect the captured stdout files if they need the
-        // underlying test output.
-        println!("{PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE}");
-    }
+    let captured_profiles = requests
+        .into_iter()
+        .map(|request| capture_profile_executable(cli, request, None))
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+    let json_path = session_dir.join("profile.json");
+    let profiler_backend = ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
+    let report = build_test_report(
+        profiler_backend,
+        build_meta.target_backend(),
+        build_meta.opt_level,
+        with_json_report(ProfileArtifacts::default(), json_path.clone()),
+        captured_profiles,
+    );
+    let terminal_report = render_terminal_report(&report);
+    print!("{terminal_report}");
+    std::fs::write(&json_path, serde_json::to_string_pretty(&report)?)
+        .with_context(|| format!("failed to write profile json `{}`", json_path.display()))?;
+
+    // Profile mode intentionally focuses on performance. The profiler owns
+    // process execution here, and the profiling report is the primary output;
+    // users can inspect captured stdout files for underlying test output.
+    println!("{PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE}");
     Ok(0)
 }
 
 fn default_test_profile_session_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
 ) -> PathBuf {
     output_kind_dir(target_dir, target_backend, opt_level, "profile")
@@ -583,7 +684,7 @@ fn sanitize_path_component(input: &str) -> String {
 /// Place profile output beside the canonical artifact layout for the run mode.
 pub(crate) fn default_output_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     artifact_run_mode: RunMode,
     executable: &Path,
@@ -600,7 +701,7 @@ pub(crate) fn default_output_dir(
 
 fn default_output_parent_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     artifact_run_mode: RunMode,
     executable: &Path,
@@ -633,7 +734,7 @@ fn profile_timestamp() -> String {
 
 fn output_kind_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     kind: &str,
 ) -> PathBuf {
@@ -642,7 +743,7 @@ fn output_kind_dir(
         OptLevel::Release => "release",
     };
     target_dir
-        .join(target_backend.to_target().to_dir_name())
+        .join(target_backend.to_dir_name())
         .join(profile)
         .join(kind)
 }
@@ -708,8 +809,9 @@ fn run_xctrace_record(
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) -> anyhow::Result<()> {
-    let mut cmd = xctrace_record_command(trace_path, stdout_path, executable, args);
+    let mut cmd = xctrace_record_command(trace_path, stdout_path, executable, args, current_dir);
     let output = cmd
         .output()
         .context("failed to execute `xcrun xctrace record`")?;
@@ -745,6 +847,7 @@ fn xctrace_record_command(
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) -> Command {
     let mut cmd = Command::new("xcrun");
     cmd.args([
@@ -763,10 +866,18 @@ fn xctrace_record_command(
     cmd.arg("--");
     cmd.arg(executable);
     cmd.args(args);
+    if let Some(current_dir) = current_dir {
+        cmd.current_dir(current_dir);
+    }
     cmd
 }
 
-fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> Command {
+fn perf_record_command(
+    data_path: &Path,
+    executable: &Path,
+    args: &[String],
+    current_dir: Option<&Path>,
+) -> Command {
     let mut cmd = Command::new(PERF_COMMAND);
     cmd.args(["record", "--quiet", "-F"]);
     cmd.arg(PERF_SAMPLE_FREQUENCY_HZ.to_string());
@@ -775,6 +886,9 @@ fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> 
     cmd.arg("--");
     cmd.arg(executable);
     cmd.args(args);
+    if let Some(current_dir) = current_dir {
+        cmd.current_dir(current_dir);
+    }
     cmd
 }
 
@@ -791,12 +905,13 @@ fn run_perf_record(
     stderr_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) -> anyhow::Result<()> {
     let stdout = File::create(stdout_path)
         .with_context(|| format!("failed to create stdout file `{}`", stdout_path.display()))?;
     let stderr = File::create(stderr_path)
         .with_context(|| format!("failed to create stderr file `{}`", stderr_path.display()))?;
-    let mut cmd = perf_record_command(data_path, executable, args);
+    let mut cmd = perf_record_command(data_path, executable, args, current_dir);
     let status = cmd
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -849,56 +964,73 @@ fn xctrace_export_command(trace_path: &Path, xml_path: &Path) -> Command {
     cmd
 }
 
-fn print_xctrace_record_command(
+fn write_xctrace_record_command(
+    output: &mut dyn Write,
     trace_path: &Path,
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
-) {
-    let cmd = xctrace_record_command(trace_path, stdout_path, executable, args);
-    print_command(&cmd);
+    current_dir: Option<&Path>,
+) -> std::io::Result<()> {
+    let cmd = xctrace_record_command(trace_path, stdout_path, executable, args, current_dir);
+    write_command(output, &cmd)
 }
 
-fn print_xctrace_export_command(trace_path: &Path, xml_path: &Path) {
+fn write_xctrace_export_command(
+    output: &mut dyn Write,
+    trace_path: &Path,
+    xml_path: &Path,
+) -> std::io::Result<()> {
     let cmd = xctrace_export_command(trace_path, xml_path);
-    print_command(&cmd);
+    write_command(output, &cmd)
 }
 
-fn print_perf_record_command(
+fn write_perf_record_command(
+    output: &mut dyn Write,
     data_path: &Path,
     stdout_path: &Path,
     stderr_path: &Path,
     executable: &Path,
     args: &[String],
-) {
-    let cmd = perf_record_command(data_path, executable, args);
-    print_command_with_output_redirects(&cmd, stdout_path, Some(stderr_path));
+    current_dir: Option<&Path>,
+) -> std::io::Result<()> {
+    let cmd = perf_record_command(data_path, executable, args, current_dir);
+    write_command_with_output_redirects(output, &cmd, stdout_path, Some(stderr_path))
 }
 
-fn print_perf_script_command(data_path: &Path, script_path: &Path) {
+fn write_perf_script_command(
+    output: &mut dyn Write,
+    data_path: &Path,
+    script_path: &Path,
+) -> std::io::Result<()> {
     let cmd = perf_script_command(data_path);
-    print_command_with_stdout_redirect(&cmd, script_path);
+    write_command_with_stdout_redirect(output, &cmd, script_path)
 }
 
-fn print_command(cmd: &Command) {
-    println!("{}", command_line(cmd));
+fn write_command(output: &mut dyn Write, cmd: &Command) -> std::io::Result<()> {
+    writeln!(output, "{}", command_line(cmd))
 }
 
-fn print_command_with_stdout_redirect(cmd: &Command, stdout_path: &Path) {
-    print_command_with_output_redirects(cmd, stdout_path, None);
+fn write_command_with_stdout_redirect(
+    output: &mut dyn Write,
+    cmd: &Command,
+    stdout_path: &Path,
+) -> std::io::Result<()> {
+    write_command_with_output_redirects(output, cmd, stdout_path, None)
 }
 
-fn print_command_with_output_redirects(
+fn write_command_with_output_redirects(
+    output: &mut dyn Write,
     cmd: &Command,
     stdout_path: &Path,
     stderr_path: Option<&Path>,
-) {
+) -> std::io::Result<()> {
     let mut line = command_line(cmd);
     append_shell_redirect(&mut line, " > ", stdout_path);
     if let Some(stderr_path) = stderr_path {
         append_shell_redirect(&mut line, " 2> ", stderr_path);
     }
-    println!("{line}");
+    writeln!(output, "{line}")
 }
 
 fn append_shell_redirect(line: &mut String, operator: &str, path: &Path) {
@@ -1322,7 +1454,7 @@ fn build_report(
 
 fn build_test_report(
     profiler_backend: ProfileBackend,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     artifacts: ProfileArtifacts,
     captured_profiles: Vec<CapturedProfile>,
@@ -1459,7 +1591,7 @@ fn merge_profile(merged: &mut ParsedProfile, parsed: &ParsedProfile) {
 
 fn profile_target(
     run_mode: RunMode,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     executable: Option<PathBuf>,
     args: Vec<String>,
@@ -1467,7 +1599,7 @@ fn profile_target(
     ProfileTarget {
         command: format!("moon {} --profile", run_mode_label(run_mode)),
         run_mode: run_mode_label(run_mode).to_string(),
-        backend: target_backend.to_target().to_dir_name().to_string(),
+        backend: target_backend.to_dir_name().to_string(),
         optimization_profile: opt_level_label(opt_level).to_string(),
         executable,
         args,
@@ -1772,8 +1904,7 @@ fn render_attribution_entries(out: &mut String, entries: &[ProfileAttributionEnt
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use moonbuild_rupes_recta::model::RunBackend;
-    use moonutil::{common::RunMode, cond_expr::OptLevel};
+    use moonutil::{build_options::RunMode, cond_expr::OptLevel, target::TargetBackend};
 
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,
@@ -1878,7 +2009,7 @@ mod tests {
             parsed,
             profile_target(
                 RunMode::Run,
-                RunBackend::Native,
+                TargetBackend::Native,
                 OptLevel::Release,
                 Some(PathBuf::from("./_build/native/release/build/main/main.exe")),
                 vec!["--flag".to_string()],
@@ -1951,7 +2082,7 @@ mod tests {
             parsed,
             profile_target(
                 RunMode::Run,
-                RunBackend::Native,
+                TargetBackend::Native,
                 OptLevel::Release,
                 Some(PathBuf::from("./_build/native/release/build/main/main.exe")),
                 Vec::new(),
@@ -2015,7 +2146,7 @@ mod tests {
         );
         let report = build_test_report(
             ProfileBackend::Xctrace,
-            RunBackend::Native,
+            TargetBackend::Native,
             OptLevel::Release,
             with_json_report(
                 ProfileArtifacts::default(),
@@ -2065,7 +2196,7 @@ mod tests {
             output_dir: output_dir.clone(),
             target: profile_target(
                 RunMode::Test,
-                RunBackend::Native,
+                TargetBackend::Native,
                 OptLevel::Release,
                 Some(PathBuf::from(format!(
                     "./_build/native/release/test/main/{name}.exe"
@@ -2096,7 +2227,7 @@ mod tests {
     fn profile_output_reuses_run_artifact_package_dir() {
         let dir = default_output_dir(
             Path::new("./_build"),
-            RunBackend::Native,
+            TargetBackend::Native,
             OptLevel::Release,
             RunMode::Run,
             Path::new("./_build/native/release/build/cmd/main/main.exe"),

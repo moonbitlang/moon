@@ -1,33 +1,31 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
+use moonbuild::BuildMeta;
+use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
 use moonutil::{
-    cli::UniversalFlags,
-    common::{DiagnosticLevel, FileLock, RunMode, TargetBackend},
-    dirs::PackageDirs,
-    mooncakes::{ModuleId, sync::AutoSyncFlags},
+    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
+    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, locks::lock_directory,
+    project::PackageDirs, resolution::ModuleId, target::TargetBackend,
+    test_metadata::DiagnosticLevel, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -38,11 +36,15 @@ use crate::{
         canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
         package_supports_backend,
     },
-    rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile},
-    user_diagnostics::UserDiagnostics,
+    rr_build::{self, CalcUserIntentOutput},
 };
 
+const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
+
 /// Prove the current package
+///
+/// Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing
+/// `moonbit_builtin_prelude.mlw` to replace the toolchain's proof prelude.
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct ProveSubcommand {
     /// The file-system path to the package or file in package to prove
@@ -101,30 +103,41 @@ impl ProveSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+pub(crate) fn run_prove(
+    cli: &UniversalFlags,
+    cmd: &ProveSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(user_log)?;
     let module_dir = if cmd.path.is_some() {
-        project.selected_module().map(|module| module.root.clone())
+        project
+            .context()
+            .selected_module()
+            .map(|module| module.root.clone())
     } else {
         Some(
             project
+                .context()
                 .selected_module()
                 .map(|module| module.root.clone())
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "`moon prove` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> prove ...`.",
-                        project.root().display(),
+                        project.context().root().display(),
                     )
                 })?,
         )
     };
+    let dirs = project.package_dirs()?;
     let PackageDirs {
         source_dir: project_root,
         target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = query.package_dirs()?;
+        ..
+    } = &dirs;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
     let why3_config_path = cmd
@@ -132,79 +145,71 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         .as_deref()
         .map(canonicalize_why3_config)
         .transpose()?;
+    let proof_prelude = resolve_proof_prelude()?;
     let generated_why3_config_path = verif_dir.join("why3.conf");
-    let _why3_env = (!cli.dry_run)
-        .then(configure_why3_environment)
-        .transpose()?;
+
+    let path_filter = cmd.path.as_deref();
+    let prove_why3_config = why3_config_path.clone();
+
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !build_flags.std(),
+        build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    );
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let target_backend =
+        rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
+    let intent = calc_user_intent(
+        path_filter,
+        module_dir.as_deref(),
+        &discovered,
+        target_backend,
+        prove_why3_config.as_deref(),
+        &proof_prelude,
+        user_log,
+    )?;
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
+    let _lock;
+    if !cli.dry_run {
+        _lock = lock_directory(target_dir, user_log)?;
+    }
 
     if !cli.dry_run && why3_config_path.is_none() {
         ensure_why3_config(&generated_why3_config_path)?;
     }
 
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
-        None,
-        &target_dir,
+        target_backend,
+        target_dir,
         RunMode::Prove,
-    );
-    let path_filter = cmd.path.as_deref();
-    let prove_why3_config = why3_config_path.clone();
-
-    let resolve_cfg = preconfig
-        .resolve_config()
-        .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output =
-        moonbuild_rupes_recta::resolve(&resolve_cfg, &project_root, &mooncakes_dir)?;
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        &target_dir,
-        output,
-        &resolve_output,
-    )?;
-    let intent = calc_user_intent(
-        path_filter,
-        module_dir.as_deref(),
-        &resolve_output,
-        planning_context.target_backend(),
-        prove_why3_config.as_deref(),
+        user_log,
+        &resolved_project,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        &target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
-        resolve_output,
+        resolved_project,
+        build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
 
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            &project_root,
-            &target_dir,
-        );
+        output
+            .write_result(|writer| rr_build::write_dry_run(writer, &build_graph, project_root))?;
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(&target_dir)?;
-    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Prove)?;
-    let cfg = BuildConfig::from_flags(
-        &build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+    rr_build::generate_all_pkgs_json(&build_meta)?;
+    let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
+    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
     if !cli.quiet && !build_flags.output_json {
-        let _ = print_prove_summary(&project_root, &proof_reports);
+        let _ = print_prove_summary(project_root, &proof_reports);
     }
     Ok(result.return_code_for_success())
 }
@@ -212,56 +217,49 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
 fn calc_user_intent(
     path_filter: Option<&Path>,
     selected_module_dir: Option<&Path>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     prove_why3_config: Option<&Path>,
+    proof_prelude: &Path,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let directive = moonbuild_rupes_recta::build_plan::InputDirective {
         prove_why3_config: prove_why3_config.map(Path::to_path_buf),
+        proof_prelude: proof_prelude.to_path_buf(),
         ..Default::default()
     };
 
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-        let pkg_info = resolve_output.pkg_dirs.get_package(pkg);
+        let pkg = filter_pkg_by_dir(discovered, &dir)?;
+        ensure_package_supports_backend(discovered, pkg, target_backend)?;
+        let pkg_info = discovered.pkg_dirs.get_package(pkg);
         let intents = pkg_info
             .raw
             .proof_enabled
             .then_some(UserIntent::Prove(pkg))
             .into_iter()
             .collect::<Vec<_>>();
-        let warnings = (!pkg_info.raw.proof_enabled)
-            .then(|| {
-                UserWarning::warn(format!(
-                    "Package `{}` selected by `{}` is not proof-enabled; skipping `moon prove` for it.",
-                    pkg_info.fqn,
-                    path.display(),
-                ))
-            })
-            .into_iter()
-            .collect::<Vec<_>>();
-        Ok(CalcUserIntentOutput::with_warnings(
-            intents, directive, warnings,
-        ))
+        if !pkg_info.raw.proof_enabled {
+            user_log.warn(format!(
+                "Package `{}` selected by `{}` is not proof-enabled; skipping `moon prove` for it.",
+                pkg_info.fqn,
+                path.display(),
+            ));
+        }
+        Ok(CalcUserIntentOutput::new(intents, directive))
     } else {
-        let main_module_id = selected_main_module_id(resolve_output, selected_module_dir)?;
-        let packages = resolve_output
+        let main_module_id = selected_main_module_id(discovered, selected_module_dir)?;
+        let packages = discovered
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
         let intents = packages
             .values()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
-            .filter(|&pkg| resolve_output.pkg_dirs.get_package(pkg).raw.proof_enabled)
-            .filter(|&pkg| {
-                resolve_output
-                    .pkg_dirs
-                    .get_package(pkg)
-                    .has_implementation()
-            })
+            .filter(|&pkg| package_supports_backend(discovered, pkg, target_backend))
+            .filter(|&pkg| discovered.pkg_dirs.get_package(pkg).raw.proof_enabled)
+            .filter(|&pkg| discovered.pkg_dirs.get_package(pkg).has_implementation())
             .map(UserIntent::Prove)
             .collect::<Vec<_>>();
         Ok((intents, directive).into())
@@ -273,88 +271,38 @@ fn canonicalize_why3_config(path: &Path) -> anyhow::Result<PathBuf> {
         .with_context(|| format!("failed to resolve why3 config `{}`", path.display()))
 }
 
-struct ScopedWhy3Env {
-    prev_data: Option<OsString>,
-    prev_lib: Option<OsString>,
-}
-
-impl Drop for ScopedWhy3Env {
-    fn drop(&mut self) {
-        unsafe {
-            restore_env_var("WHY3DATA", self.prev_data.as_ref());
-            restore_env_var("WHY3LIB", self.prev_lib.as_ref());
-        }
-    }
-}
-
-fn configure_why3_environment() -> anyhow::Result<ScopedWhy3Env> {
-    let why3 = which::which("why3").map_err(|_| {
-        anyhow::anyhow!(
-            "failed to locate `why3` required by `moon prove`; install Why3 1.7.2 preferably via opam, and ensure `why3` is available on PATH"
+fn resolve_proof_prelude() -> anyhow::Result<PathBuf> {
+    let Some(override_path) = std::env::var_os(MOON_PROVE_PRELUDE_OVERRIDE) else {
+        return Ok(moonutil::toolchain::prelude_proof());
+    };
+    let override_path = PathBuf::from(override_path);
+    let resolved = dunce::canonicalize(&override_path).with_context(|| {
+        format!(
+            "failed to resolve {MOON_PROVE_PRELUDE_OVERRIDE} path `{}`",
+            override_path.display()
         )
     })?;
-    let why3_data = query_why3_path(&why3, "--print-datadir", "data")?;
-    let why3_lib = query_why3_path(&why3, "--print-libdir", "library")?;
-
-    let prev_data = std::env::var_os("WHY3DATA");
-    let prev_lib = std::env::var_os("WHY3LIB");
-    unsafe {
-        std::env::set_var("WHY3DATA", &why3_data);
-        std::env::set_var("WHY3LIB", &why3_lib);
-    }
-
-    Ok(ScopedWhy3Env {
-        prev_data,
-        prev_lib,
-    })
-}
-
-fn query_why3_path(why3: &Path, flag: &str, kind: &str) -> anyhow::Result<PathBuf> {
-    let output = std::process::Command::new(why3)
-        .env_remove("WHY3DATA")
-        .env_remove("WHY3LIB")
-        .arg(flag)
-        .output()
-        .with_context(|| format!("failed to run `why3 {flag}`"))?;
-    if !output.status.success() {
-        bail!("`why3 {flag}` exited with status {}", output.status);
-    }
-
-    let stdout = String::from_utf8(output.stdout)
-        .with_context(|| format!("`why3 {flag}` returned non-utf8 output"))?;
-    let path = PathBuf::from(stdout.trim());
-    if path.as_os_str().is_empty() {
-        bail!("`why3 {flag}` returned an empty {kind} path");
-    }
-    if !path.is_dir() {
+    if !resolved.is_dir() || !resolved.join(PRELUDE_PROOF_FILE).is_file() {
         bail!(
-            "`why3 {flag}` returned a non-directory {kind} path `{}`",
-            path.display()
+            "{MOON_PROVE_PRELUDE_OVERRIDE} must point to a directory containing \
+             `{PRELUDE_PROOF_FILE}`; `{}` does not",
+            resolved.display()
         );
     }
-
-    Ok(path)
-}
-
-unsafe fn restore_env_var(key: &str, value: Option<&OsString>) {
-    if let Some(value) = value {
-        unsafe { std::env::set_var(key, value) };
-    } else {
-        unsafe { std::env::remove_var(key) };
-    }
+    Ok(resolved)
 }
 
 fn selected_main_module_id(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     selected_module_dir: Option<&Path>,
 ) -> anyhow::Result<ModuleId> {
     if let Some(selected_module_dir) = selected_module_dir {
-        return resolve_output
+        return discovered
             .local_modules()
             .iter()
             .copied()
             .find(|&module_id| {
-                resolve_output
+                discovered
                     .module_dirs
                     .get(module_id)
                     .is_some_and(|module_dir| module_dir == selected_module_dir)
@@ -367,7 +315,7 @@ fn selected_main_module_id(
             });
     }
 
-    match resolve_output.local_modules() {
+    match discovered.local_modules() {
         &[main_module_id] => Ok(main_module_id),
         _ => bail!("No multiple main modules are supported"),
     }
@@ -409,7 +357,14 @@ struct DetectedSolver {
 }
 
 fn ensure_why3_config(path: &Path) -> anyhow::Result<()> {
-    if path.exists() {
+    // Why3 is embedded in `moonc`, while its data files are shipped separately
+    // in the toolchain. Record their locations in the generated config instead
+    // of relying on process-wide WHY3DATA and WHY3LIB environment variables.
+    let why3_data = moonutil::toolchain::why3_datadir();
+    let why3_lib = moonutil::toolchain::why3_libdir();
+    let main_config = generate_why3_main_config(&why3_data, &why3_lib);
+
+    if std::fs::read_to_string(path).is_ok_and(|config| config.starts_with(&main_config)) {
         return Ok(());
     }
 
@@ -425,7 +380,7 @@ fn ensure_why3_config(path: &Path) -> anyhow::Result<()> {
         )
     })?;
 
-    let config = generate_why3_config(&solvers);
+    let config = generate_why3_config(&solvers, &why3_data, &why3_lib);
 
     std::fs::write(path, config)
         .with_context(|| format!("failed to write why3 config to `{}`", path.display()))?;
@@ -479,14 +434,28 @@ fn try_detect_solver(spec: &SolverSpec) -> Option<DetectedSolver> {
     })
 }
 
-fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
-    let mut config = String::from(
+fn normalize_why3_config_path(s: &str) -> String {
+    // Why3 configuration strings treat backslashes as escapes. Emit paths with
+    // `/` separators consistently so Windows paths do not need double escaping.
+    s.replace('\\', "/")
+}
+
+fn generate_why3_main_config(datadir: &Path, libdir: &Path) -> String {
+    format!(
         "[main]\n\
          magic = 14\n\
+         datadir = \"{}\"\n\
+         libdir = \"{}\"\n\
          memlimit = 1000\n\
          running_provers_max = 16\n\
          timelimit = 5.000000\n",
-    );
+        normalize_why3_config_path(&datadir.to_string_lossy()),
+        normalize_why3_config_path(&libdir.to_string_lossy()),
+    )
+}
+
+fn generate_why3_config(solvers: &[DetectedSolver], datadir: &Path, libdir: &Path) -> String {
+    let mut config = generate_why3_main_config(datadir, libdir);
 
     for solver in solvers {
         config.push_str(&format!(
@@ -494,7 +463,9 @@ fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
              name = \"{}\"\n\
              path = \"{}\"\n\
              version = \"{}\"\n",
-            solver.name, solver.path, solver.version,
+            solver.name,
+            normalize_why3_config_path(&solver.path),
+            solver.version,
         ));
     }
 
@@ -612,43 +583,43 @@ impl ProofReportSummary {
     }
 }
 
-fn planned_proof_reports(build_meta: &rr_build::BuildMeta) -> Vec<PlannedProofReport> {
-    let mut reports = build_meta
-        .artifacts
-        .values()
-        .filter_map(|artifacts| match artifacts.node {
-            BuildPlanNode::Prove(target) => {
-                let path = artifacts
-                    .artifacts
-                    .iter()
-                    .find(|path| {
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.ends_with(".proof.json"))
-                    })?
-                    .clone();
-                let whyml_path = artifacts
-                    .artifacts
-                    .iter()
-                    .find(|path| {
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.ends_with(".mlw"))
-                    })?
-                    .clone();
-                let package = build_meta
-                    .resolve_output
-                    .pkg_dirs
-                    .get_package(target.package)
-                    .fqn
-                    .to_string();
-                Some(PlannedProofReport {
-                    package,
-                    whyml_path,
-                    path,
-                })
-            }
-            _ => None,
+fn planned_proof_reports(build_meta: &BuildMeta) -> Vec<PlannedProofReport> {
+    let mut paths_by_target =
+        std::collections::HashMap::<BuildTarget, (Option<PathBuf>, Option<PathBuf>)>::new();
+    for (artifact, paths) in &build_meta.artifacts {
+        let (target, is_report) = match artifact {
+            ArtifactKey::ProofReport {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), true),
+            ArtifactKey::ProofWhyml {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), false),
+            _ => continue,
+        };
+        let path = paths
+            .first()
+            .expect("proof result artifacts should resolve to one path")
+            .clone();
+        let entry = paths_by_target.entry(target).or_default();
+        if is_report {
+            entry.0 = Some(path);
+        } else {
+            entry.1 = Some(path);
+        }
+    }
+    let mut reports = paths_by_target
+        .into_iter()
+        .map(|(target, (path, whyml_path))| PlannedProofReport {
+            package: build_meta
+                .resolved_project
+                .pkg_dirs
+                .get_package(target.package)
+                .fqn
+                .to_string(),
+            path: path.expect("prove planning should request a proof report"),
+            whyml_path: whyml_path.expect("prove planning should request WhyML output"),
         })
         .collect::<Vec<_>>();
     reports.sort_by(|a, b| a.package.cmp(&b.package));
@@ -843,6 +814,14 @@ mod tests {
         }
     }
 
+    fn generate_config(solvers: &[DetectedSolver]) -> String {
+        generate_why3_config(
+            solvers,
+            Path::new("/moon/share/why3"),
+            Path::new("/moon/lib/why3"),
+        )
+    }
+
     #[test]
     fn test_generate_strategy_single_solver() {
         let solvers = vec![make_solver("Z3", "/usr/bin/z3", "4.15.3")];
@@ -898,10 +877,25 @@ mod tests {
     #[test]
     fn test_generate_config_single_solver() {
         let solvers = vec![make_solver("Z3", "/usr/bin/z3", "4.15.3")];
-        let config = generate_why3_config(&solvers);
+        let config = generate_config(&solvers);
+        assert!(config.contains("datadir = \"/moon/share/why3\""));
+        assert!(config.contains("libdir = \"/moon/lib/why3\""));
         assert!(config.contains("[partial_prover]\nname = \"Z3\""));
         assert!(config.contains("name = \"MoonBit_Auto\""));
         assert!(!config.contains("Alt-Ergo"));
+    }
+
+    #[test]
+    fn test_generate_config_normalizes_windows_paths() {
+        let solvers = vec![make_solver("Z3", r"C:\Users\guest\bin\z3.exe", "4.16.0")];
+        let config = generate_why3_config(
+            &solvers,
+            Path::new(r"C:\Users\guest\.moon\share\why3"),
+            Path::new(r"C:\Users\guest\.moon\lib\why3"),
+        );
+        assert!(config.contains(r#"datadir = "C:/Users/guest/.moon/share/why3""#));
+        assert!(config.contains(r#"libdir = "C:/Users/guest/.moon/lib/why3""#));
+        assert!(config.contains(r#"path = "C:/Users/guest/bin/z3.exe""#));
     }
 
     #[test]
@@ -911,7 +905,7 @@ mod tests {
             make_solver("CVC5", "/usr/bin/cvc5", "1.3.1"),
             make_solver("Z3", "/usr/bin/z3", "4.15.3"),
         ];
-        let config = generate_why3_config(&solvers);
+        let config = generate_config(&solvers);
         // All partial_prover sections present in alphabetical order
         let alt_ergo_pos = config.find("name = \"Alt-Ergo\"").unwrap();
         let cvc5_pos = config.find("name = \"CVC5\"").unwrap();

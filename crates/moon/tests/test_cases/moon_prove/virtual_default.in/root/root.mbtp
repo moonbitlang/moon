@@ -1,0 +1,3 @@
+pub predicate keeps_value(x : Int) {
+  @virtual.id(x) == x
+}

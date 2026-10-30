@@ -1,22 +1,22 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::fixture::{PlanningFixture, parse_bench_command, parse_test_command};
+use super::fixture::{PlanningFixture, parse_bench_command, parse_run_command, parse_test_command};
 
 fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
@@ -107,4 +107,75 @@ fn mixed_backend_explicit_test_selection_rejects_unsupported_backend() {
     );
     assert!(test_err.contains("Selected package(s) do not support target backend 'js'"));
     assert!(test_err.contains("mixed/localdep/server ([native])"));
+}
+
+#[test]
+fn explicit_test_and_bench_selectors_are_validated_before_import_resolution() {
+    let fixture = PlanningFixture::new("test_selection_before_resolution.in")
+        .expect("invalid imports should not prevent discovery");
+    let native_path = fixture.case_dir().join("native");
+    let native_path = native_path.to_str().expect("fixture path should be UTF-8");
+
+    for command in ["test", "bench"] {
+        for (selector, expected_error) in [
+            (vec!["--target", "native"], "selection/errors/missing"),
+            (
+                vec!["--target", "js", "--package", "selection/errors/native"],
+                "Selected package(s) do not support target backend 'js'",
+            ),
+            (
+                vec!["--target", "js", native_path],
+                "Selected package(s) do not support target backend 'js'",
+            ),
+            (
+                vec![
+                    "--target",
+                    "native",
+                    "--package",
+                    "selection/errors",
+                    "--file",
+                    "test.mbt",
+                ],
+                "Cannot filter by file or index when multiple packages are specified",
+            ),
+        ] {
+            let args = [vec![command, "--dry-run"], selector].concat();
+            let error = if command == "test" {
+                let (cli, cmd) = parse_test_command(&args);
+                fixture.plan_test_all_with_cli(&cli, &cmd).err()
+            } else {
+                let (cli, cmd) = parse_bench_command(&args);
+                fixture.plan_bench_all_with_cli(&cli, &cmd).err()
+            }
+            .expect("invalid selection or imports should fail planning");
+            let error = format!("{error:#}");
+            assert!(error.contains(expected_error), "{args:?}: {error}");
+        }
+    }
+}
+
+#[test]
+fn run_selection_is_validated_before_import_resolution() {
+    let fixture = PlanningFixture::new("test_selection_before_resolution.in")
+        .expect("invalid imports should not prevent discovery");
+    for (package, target, expected_error) in [
+        ("main", "native", "selection/errors/missing"),
+        ("other", "native", "is not a main package"),
+        (
+            "main",
+            "js",
+            "Package 'selection/errors/main' does not support target backend 'js'",
+        ),
+    ] {
+        let (cli, cmd) = parse_run_command(&["run", "--dry-run", "--target", target, package]);
+        let error = fixture
+            .plan_run_graph_with_cli(&cli, &cmd)
+            .err()
+            .expect("invalid selection or imports should fail planning");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains(expected_error),
+            "{package} ({target}): {error}"
+        );
+    }
 }

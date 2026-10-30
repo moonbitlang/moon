@@ -127,9 +127,7 @@ fn main {
 //   "moonbitlang/hello" @lib,
 // }
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")
 
 === ./hello.mbt ===
 // Main package file for your library code.
@@ -169,6 +167,8 @@ repository = ""
 license = "Apache-2.0"
 
 keywords = []
+
+preferred_target = "wasm"
 
 description = ""
 

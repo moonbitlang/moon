@@ -4,21 +4,46 @@ Virtual packages publish an overridable API surface. The build system handles th
 
 ## Discovery and metadata
 
-During the scan phase, Moon records virtual metadata alongside the rest of the package description:
+During Package Declaration and Package File Set discovery, Moon records
+virtual metadata and existing contract files without selecting an invocation's
+final contract input:
 
-- Each `moon.pkg.json` is parsed.
-- If a package declares `virtual_pkg`, the referenced `.mbti` file is checked and its location stored so later stages can compile the interface. The `.mbti` file is either: `pkg.mbti` (new) or `<package_short_name>.mbti` (old).
+- Each `moon.pkg` is parsed.
+- If a package declares `virtual_pkg`, discovery records each existing
+  `pkg.mbti` (new) and `<package_short_name>.mbti` (old) candidate. It does not
+  choose between them or treat an absent declared prebuild output as an
+  existing file.
 - Packages with `implement = "<virtual>"` are tagged as implementations of that virtual package.
 - Any package that lists `overrides` gets a consumer-local mapping `<virtual> → <implementation>`.
 
-Doing this during the scan phase ensures every build mode sees a consistent view of virtual contracts, their implementations, and any consumer-specific overrides.
-See [`scan::scan_one_package()`](crates/moonutil/src/scan.rs:311).
+When `BuildVirtual` is requested, Build Plan construction first plans package
+prebuild for that package. File Interpretation then selects `pkg.mbti`, falling
+back to `<package_short_name>.mbti`, from either the Package File Set or the
+outputs of actual actions in the current `PackagePrebuildPlan`. If neither is
+available, Build Plan construction reports the missing contract. The selected
+path is stored with the `BuildVirtual` action, and n2 connects a prebuild
+provider through the matching concrete path when applicable.
+
+This separation keeps Package File Set discovery independent of
+the selected prebuild actions. A declaration alone cannot make an absent
+contract available when no action will generate it.
+
+When Moon injects a prebuilt standard library, its virtual contracts are
+external compiler inputs rather than artifacts produced by the current Build
+Plan. For example, an implementation of `moonbitlang/core/abort` is checked
+against the `abort.mi` in the installed bundle; planning does not create a
+local `BuildVirtual(abort)` action. Lowering retains that exact contract as an
+ordinary file input, like the installed interfaces passed through `-i`.
+Building the standard library itself does not inject those artifacts and
+therefore uses the ordinary local virtual-package pipeline. An implementation
+check may produce a local `.impl.mi`, but that file is not part of the
+installed bundle: the installed contract remains the single package interface.
 
 ## Build pipeline
 
 The build stage adds three behaviours on top of what regular packages already do:
 
-1. **Compile the interface first.** The scanner chooses the `.mbti` file referenced in `virtual_pkg.interface`. Build compiles that file and pulls in the `.mi` files of any imports, producing the contract other packages must satisfy.
+1. **Compile the interface first.** Build Plan construction chooses the available `.mbti` input after package prebuild planning. Moon compiles that file and pulls in the lifecycle-appropriate `.mi` files of its imports: check interfaces for check/prove planning, and build interfaces for build/run/test/bench/bundle planning. This produces the contract other packages must satisfy; compiling the contract never requires an import's `.core`.
    See [`gen_build::gen_build_interface_item()`](crates/moonbuild/src/gen/gen_build.rs:98) and [`gen_build::gen_build_interface_command()`](crates/moonbuild/src/gen/gen_build.rs:369).
 
 2. **Validate the default body (if any).** When `virtual_pkg.has_default` is true, Moon compiles the bundled body right after the interface and checks that the resulting `.core` stays compatible with the interface before exposing it.
@@ -27,7 +52,14 @@ The build stage adds three behaviours on top of what regular packages already do
 3. **Validate concrete implementations.** Packages that implement the virtual are compiled with the same compatibility checks and they reuse the virtual package’s `.mi` instead of emitting another one.
    See [`gen_build::gen_build_build_item()`](crates/moonbuild/src/gen/gen_build.rs:195).
 
-As long as interface compilation happens first and every body passes those checks, the dependency graph can treat virtual packages like ordinary ones: their `.mi` products feed downstream builds, and consumers will never see an out-of-date interface.
+As long as interface compilation happens first and every body passes those checks, the dependency graph can treat virtual packages like ordinary ones: their `.mi` artifacts feed downstream builds, and consumers will never see an out-of-date interface.
+
+Proof builds preserve the same ordering while keeping the two interfaces
+distinct. `BuildVirtual` writes the contract `.mi` under the backend-specific
+prove directory. `EmitProof` checks the default body against that contract and
+writes its proof-aware `.mi` alongside the package's `.mlw` under
+`_build/verif`. These are separate Build Artifacts and must not resolve to the
+same output path.
 
 ## Overrides at link time
 
@@ -67,13 +99,14 @@ The following flow shows a virtual package `foo/virtual_math`, its bundled defau
 
 ```mermaid
 flowchart LR
-    scan["scan(): remember mbti, implementations, overrides"]
+    scan["discover declarations and existing files"]
+    select["plan prebuild and select mbti input"]
     iface["build interface<br/>→ virtual_math.mi"]
     default["build default body<br/>interface-checked core"]
     impl["build override<br/>interface-checked core"]
     link["link-core (foo/app)<br/>virtual_math.core → sse_math.core"]
 
-    scan --> iface
+    scan --> select --> iface
     iface --> default
     iface --> impl
     default --> link

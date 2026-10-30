@@ -1,10 +1,8 @@
-#[cfg(windows)]
 use crate::{TestDir, get_stdout, util::copy};
 
 /// This test is probabilistic. It ensures that MSVC builds don't share an
 /// intermediate directory when run in parallel, which can cause conflicts.
 #[test]
-#[cfg(windows)]
 fn test_parallel_msvc() {
     let dir = TestDir::new("native_backend/parallel_msvc");
     let template = dir.join("template");

@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -68,25 +68,29 @@ use std::{
 
 use anyhow::Context;
 use indexmap::IndexMap;
+use moonbuild::BuildMeta;
 use moonbuild::{
     benchmark::{BATCHBENCH, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
     expect::{
-        ERROR, EXPECT_FAILED, PackageSrcResolver, RUNTIME_ERROR, SNAPSHOT_TESTING,
-        render_expect_fail, render_snapshot_fail,
+        ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, render_expect_fail,
+        render_snapshot_fail,
     },
-    runtest::TestStatistics,
+    runtest::{TestDriverEvent, TestStatistics},
     section_capture::SectionCapture,
 };
-use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
-use moonutil::common::{
-    MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo,
+use moonbuild_rupes_recta::{
+    build_plan::ArtifactKey, discover::DiscoverResult, model::BuildTarget,
 };
-use tokio::runtime::Runtime;
-use tracing::{debug, info, instrument, trace, warn};
-
-use crate::{rr_build::BuildMeta, run::default_rt};
+use moonutil::{
+    constants::{
+        MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
+        MOON_TEST_DELIMITER_END,
+    },
+    test_metadata::{MbtTestInfo, MooncGenTestInfo},
+};
+use tokio::{sync::Semaphore, task::JoinSet};
+use tracing::{Instrument, debug, info, instrument, trace, warn};
 
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
@@ -126,107 +130,143 @@ impl TestCaseResult {
     }
 }
 
+enum ParsedTestDriverEvent {
+    Start { file: String, index: u32 },
+    Result(TestStatistics),
+}
+
+fn resolve_test_parallelism(no_parallelize: bool, jobs: Option<usize>, bench: bool) -> usize {
+    // Keep benchmarks sequential unless requested, since contention affects timings.
+    if no_parallelize || (bench && jobs.is_none()) {
+        1
+    } else {
+        moonbuild::execution::resolve_parallelism(jobs).max(1)
+    }
+}
+
+/// Await bounded concurrent work, then restore invocation order. Concurrent runs
+/// finish and are reaped before errors propagate; serial runs stop on the first error.
+async fn run_with_parallelism<R: Send + 'static, E: Send + 'static>(
+    runs: impl ExactSizeIterator<Item = impl Future<Output = Result<R, E>> + Send + 'static>,
+    parallelism: usize,
+) -> Result<Vec<R>, E> {
+    let parallelism = parallelism.max(1).min(runs.len().max(1));
+    if parallelism <= 1 {
+        let mut results = Vec::new();
+        for run in runs {
+            results.push(run.await?);
+        }
+        return Ok(results);
+    }
+
+    let slots = Arc::new(Semaphore::new(parallelism));
+    let mut tasks = JoinSet::new();
+    for (index, run) in runs.enumerate() {
+        let permit = Arc::clone(&slots)
+            .acquire_owned()
+            .await
+            .expect("test execution semaphore is never closed");
+        tasks.spawn(
+            async move {
+                // Keep the slot until execution and result collection finish.
+                let _permit = permit;
+                (index, run.await)
+            }
+            .in_current_span(),
+        );
+    }
+
+    let mut completed = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        completed.push(result);
+    }
+    // Drain all tasks before propagating either a test error or a task panic.
+    let mut results = completed
+        .into_iter()
+        .map(|result| result.expect("test execution task panicked"))
+        .collect::<Vec<_>>();
+    results.sort_unstable_by_key(|(index, _)| *index);
+    results.into_iter().map(|(_, result)| result).collect()
+}
+
 /// Run the tests compiled in this session. Does **not** print or update
 /// snapshots.
 ///
 /// An external driver should check the results for reruns. See [module-level
 /// docs](crate::run::runtest) for more information about the workflow.
-#[instrument(level = "debug", skip(build_meta, filter))]
+#[instrument(level = "debug", skip(build_meta, filter, moonrun_policy))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_tests(
-    build_meta: &BuildMeta,
+pub(crate) async fn run_tests(
+    build_meta: Arc<BuildMeta>,
     source_dir: &Path,
     target_dir: &Path,
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
-    verbose: bool,
     no_parallelize: bool,
     parallelism: Option<usize>,
+    moonrun_policy: Option<&Path>,
+    user_log: &moonutil::user_log::UserLog,
 ) -> anyhow::Result<ReplaceableTestResults> {
-    let invocations = collect_test_invocations(build_meta, filter, include_skipped, bench)?;
+    let invocations = collect_test_invocations(&build_meta, filter, include_skipped, bench)?;
     debug!(count = invocations.len(), "collected test invocations");
 
-    // Parallelism is opt-in: sequential by default, parallel only when -j is given
-    let parallelism = if no_parallelize {
-        1
+    // Benchmarks are timed, so they must not share a process; see
+    // [`isolate_invocations`].
+    let invocations = if bench {
+        let invocations = isolate_invocations(invocations);
+        debug!(
+            count = invocations.len(),
+            "isolated each benchmark into its own run"
+        );
+        invocations
     } else {
-        parallelism.unwrap_or(1).max(1)
+        invocations
     };
+
+    let parallelism = resolve_test_parallelism(no_parallelize, parallelism, bench);
+
+    if parallelism > 1 && invocations.len() > 1 {
+        debug!(
+            parallelism = parallelism.min(invocations.len()),
+            invocations = invocations.len(),
+            "running test invocations in parallel"
+        );
+    }
+
+    let ctx = Arc::new(TestRunCtx {
+        build_meta,
+        source_dir: source_dir.to_owned(),
+        target_dir: target_dir.to_owned(),
+        moonrun_policy: moonrun_policy.map(Path::to_owned),
+        user_log: user_log.clone(),
+    });
+    let results = run_with_parallelism(
+        invocations.into_iter().map(|invocation| {
+            let ctx = Arc::clone(&ctx);
+            async move {
+                debug!(
+                    target = ?invocation.target,
+                    executable = %invocation.executable.display(),
+                    "running test invocation"
+                );
+                run_one_test_executable(&ctx, &invocation)
+                    .await
+                    .map(|result| (invocation.target, result))
+            }
+        }),
+        parallelism,
+    )
+    .await?;
 
     let mut stats = ReplaceableTestResults::default();
     let mut total_cases = 0usize;
 
-    if parallelism <= 1 || invocations.len() <= 1 {
-        // Sequential execution
-        let rt = default_rt().context("Failed to create runtime")?;
-        let ctx = TestRunCtx {
-            build_meta,
-            rt: &rt,
-            source_dir,
-            target_dir,
-            verbose,
-        };
-        for r in invocations {
-            debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
-            let res = run_one_test_executable(&ctx, &r)?;
-            let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
-            trace!(target = ?r.target, cases = cases_for_target, "merging test results");
-            total_cases += cases_for_target;
-            stats.merge_with_target(r.target, res);
-        }
-    } else {
-        // Parallel execution using OS threads (like n2)
-        let parallelism = parallelism.min(invocations.len()).max(1);
-        debug!(
-            parallelism,
-            invocations = invocations.len(),
-            "running test invocations in parallel"
-        );
-
-        let work_queue: std::sync::Arc<std::sync::Mutex<std::slice::Iter<'_, _>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(invocations.iter()));
-        let (result_tx, result_rx) = std::sync::mpsc::channel();
-
-        std::thread::scope(|s| {
-            for _ in 0..parallelism {
-                let work_queue = std::sync::Arc::clone(&work_queue);
-                let result_tx = result_tx.clone();
-
-                s.spawn(move || {
-                    // Each thread creates its own runtime
-                    let rt = default_rt().expect("Failed to create runtime");
-                    let ctx = TestRunCtx {
-                        build_meta,
-                        rt: &rt,
-                        source_dir,
-                        target_dir,
-                        verbose,
-                    };
-
-                    loop {
-                        let r = {
-                            let mut queue = work_queue.lock().unwrap();
-                            queue.next()
-                        };
-                        let Some(r) = r else { break };
-
-                        debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
-                        let res = run_one_test_executable(&ctx, r);
-                        let _ = result_tx.send((r.target, res));
-                    }
-                });
-            }
-        });
-
-        drop(result_tx);
-        for (target, res) in result_rx {
-            let res = res?;
-            let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
-            trace!(?target, cases = cases_for_target, "merging test results");
-            total_cases += cases_for_target;
-            stats.merge_with_target(target, res);
-        }
+    for (target, result) in results {
+        let cases_for_target = result.map.values().map(IndexMap::len).sum::<usize>();
+        trace!(?target, cases = cases_for_target, "merging test results");
+        total_cases += cases_for_target;
+        stats.merge_with_target(target, result);
     }
     debug!(total_cases, "finished aggregating test cases");
     let summary = stats.summary();
@@ -257,17 +297,17 @@ pub(crate) struct TestInvocation {
 
 /// Context for running a single compiled test executable. This is for reducing
 /// the number of parameters shifted around.
-struct TestRunCtx<'a> {
+struct TestRunCtx {
     /// Build outputs and target backend
-    build_meta: &'a BuildMeta,
-    /// Tokio runtime used to execute the test process
-    rt: &'a Runtime,
-    /// Source directory; used for dry-printing commands when verbose
-    source_dir: &'a Path,
+    build_meta: Arc<BuildMeta>,
+    /// Source directory; used for rendering commands in user logs.
+    source_dir: PathBuf,
     /// Target directory; coverage output destination
-    target_dir: &'a Path,
-    /// Enable verbose printing
-    verbose: bool,
+    target_dir: PathBuf,
+    /// Optional Moonrun Policy applied to Wasm test executables.
+    moonrun_policy: Option<PathBuf>,
+    /// User-facing verbose command output.
+    user_log: moonutil::user_log::UserLog,
 }
 
 /// A container of test results corresponding to each test artifact, and
@@ -319,7 +359,7 @@ impl ReplaceableTestResults {
         );
         for (target, result) in &self.map {
             let module_name = meta
-                .resolve_output
+                .resolved_project
                 .pkg_dirs
                 .get_package(target.package)
                 .fqn
@@ -333,7 +373,7 @@ impl ReplaceableTestResults {
                         &module_name,
                         verbose,
                         json,
-                        &meta.resolve_output.pkg_dirs,
+                        &meta.resolved_project.pkg_dirs,
                     );
                 }
             }
@@ -401,6 +441,131 @@ fn collect_tests_by_file(
     out
 }
 
+fn parse_test_driver_record(line: &str, package: &str) -> anyhow::Result<ParsedTestDriverEvent> {
+    let event: TestDriverEvent = serde_json_lenient::from_str(line)
+        .with_context(|| format!("Failed to parse test driver event: {line}"))?;
+    Ok(match event {
+        TestDriverEvent::Start { file, index } => ParsedTestDriverEvent::Start { file, index },
+        TestDriverEvent::Result {
+            file,
+            index,
+            message,
+        } => ParsedTestDriverEvent::Result(TestStatistics {
+            package: package.to_string(),
+            filename: file,
+            index: index.to_string(),
+            test_name: String::new(),
+            message,
+        }),
+    })
+}
+
+fn find_test_info<'a>(
+    meta: &'a MooncGenTestInfo,
+    file: &str,
+    index: u32,
+) -> Option<&'a MbtTestInfo> {
+    for tests_by_file in [
+        &meta.no_args_tests,
+        &meta.with_args_tests,
+        &meta.with_bench_args_tests,
+        &meta.async_tests,
+        &meta.async_tests_with_args,
+    ] {
+        let Some(tests) = tests_by_file.get(file) else {
+            continue;
+        };
+        if let Some(test) = tests.iter().find(|test| test.index == index) {
+            return Some(test);
+        }
+    }
+    None
+}
+
+fn format_test_identity(
+    test: &TestInvocation,
+    file: &str,
+    index: u32,
+    pkg_src: &DiscoverResult,
+) -> String {
+    let package = pkg_src
+        .get_package_id_by_name(&test.args.package)
+        .expect("test package must exist");
+    let path = pkg_src.get_package(package).root_path.join(file);
+    let location = path.display().to_string();
+    let Some(info) = find_test_info(&test.meta, file, index) else {
+        return location;
+    };
+    let location = info
+        .line_number
+        .map(|line| format!("{location}:{line}"))
+        .unwrap_or(location);
+    match info.name.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => format!("{location} {name:?}"),
+        None => location,
+    }
+}
+
+fn active_tests_at_exit(test: &TestInvocation, test_output: Option<&str>) -> Vec<(String, u32)> {
+    let Some(test_output) = test_output else {
+        return Vec::new();
+    };
+
+    let mut active = IndexMap::<(String, u32), ()>::new();
+    for line in test_output.lines().filter(|line| !line.is_empty()) {
+        match parse_test_driver_record(line, &test.args.package) {
+            Ok(ParsedTestDriverEvent::Start { file, index }) => {
+                active.insert((file, index), ());
+            }
+            Ok(ParsedTestDriverEvent::Result(stat)) => {
+                if let Ok(index) = stat.index.parse::<u32>() {
+                    active.shift_remove(&(stat.filename, index));
+                }
+            }
+            Err(err) => {
+                warn!(
+                    ?err,
+                    "failed to parse test driver event while formatting executable failure"
+                );
+            }
+        }
+    }
+    active.into_keys().collect()
+}
+
+fn format_test_executable_failure(
+    test: &TestInvocation,
+    exit_status: std::process::ExitStatus,
+    test_output: Option<&str>,
+    pkg_src: &DiscoverResult,
+) -> String {
+    const MAX_ACTIVE_TESTS_TO_PRINT: usize = 8;
+
+    let mut message = format!(
+        "Failed to run the test: {}\nThe test executable exited with {}",
+        test.executable.display(),
+        exit_status
+    );
+    let active = active_tests_at_exit(test, test_output);
+    if active.is_empty() {
+        return message;
+    }
+
+    if active.len() == 1 {
+        message.push_str("\nActive test at executable exit:");
+    } else {
+        message.push_str("\nActive tests at executable exit:");
+    }
+    for (file, index) in active.iter().take(MAX_ACTIVE_TESTS_TO_PRINT) {
+        message.push_str("\n  - ");
+        message.push_str(&format_test_identity(test, file, *index, pkg_src));
+    }
+    if active.len() > MAX_ACTIVE_TESTS_TO_PRINT {
+        message.push_str("\n  - ... more");
+    }
+    message
+}
+
 /// Build test invocation args for one target based on metadata and CLI filter.
 ///
 /// Returns `None` when the target is excluded by package-level filtering.
@@ -419,7 +584,7 @@ pub(crate) fn build_test_args_for_target(
 
     let mut test_args = TestArgs {
         package: build_meta
-            .resolve_output
+            .resolved_project
             .pkg_dirs
             .fqn(target.package)
             .to_string(),
@@ -445,20 +610,38 @@ pub(crate) fn collect_test_outline(
     include_skipped: bool,
     bench: bool,
 ) -> anyhow::Result<Vec<TestOutlineEntry>> {
-    let executables = gather_tests(build_meta);
-    debug!(count = executables.len(), "collecting test outline entries");
+    // Outline plans request metadata without executables. Collect it directly
+    // rather than requiring the executable/metadata pairs used for test runs.
+    let mut metadata = build_meta
+        .artifacts
+        .iter()
+        .filter_map(|(artifact, paths)| match artifact {
+            ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => Some((
+                package.build_target(*target_kind),
+                paths
+                    .first()
+                    .expect("test metadata should resolve to one path"),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    metadata.sort_by_key(|(_, path)| *path);
+    debug!(count = metadata.len(), "collecting test outline entries");
     let mut entries = Vec::new();
 
-    for test in executables {
-        let (included, file_filt) = filter.check_package(test.target);
+    for (target, path) in metadata {
+        let (included, file_filt) = filter.check_package(target);
         if !included {
             continue;
         }
 
-        let meta_bytes = std::fs::read(test.meta)
-            .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
+        let meta_bytes = std::fs::read(path)
+            .with_context(|| format!("Failed to read test metadata at {}", path.display()))?;
         let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
-            .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+            .with_context(|| format!("Failed to parse test metadata at {}", path.display()))?;
 
         let mut file_ranges = vec![];
         apply_filter(
@@ -484,9 +667,9 @@ pub(crate) fn collect_test_outline(
 
         let tests_by_file = collect_tests_by_file(&meta, bench);
         let pkgname = build_meta
-            .resolve_output
+            .resolved_project
             .pkg_dirs
-            .get_package(test.target.package)
+            .get_package(target.package)
             .fqn
             .to_string();
         for (file, tests) in tests_by_file {
@@ -520,11 +703,22 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     let mut pending = HashMap::with_capacity(build_meta.artifacts.len());
     let mut results = vec![];
 
-    for (node, artifacts) in &build_meta.artifacts {
-        let target = node
-            .extract_target()
-            .expect("All artifacts of tests should contain a build target");
-        trace!(?target, node = ?node, "processing test artifact");
+    for (artifact, paths) in &build_meta.artifacts {
+        let (target, is_executable) = match artifact {
+            ArtifactKey::Executable {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), true),
+            ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => (package.build_target(*target_kind), false),
+            _ => continue,
+        };
+        let path = paths
+            .first()
+            .expect("test result artifacts should resolve to one path");
+        trace!(?target, ?artifact, "processing test artifact");
 
         let working = pending.entry(target).or_insert_with(|| {
             let mut res = TestExecutableToRunBuilder::create_empty();
@@ -532,12 +726,11 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
             res
         });
 
-        // FIXME: artifact index relies on implementation of append_artifact_of
-        match node {
-            BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
-            BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
-            _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),
-        };
+        if is_executable {
+            working.executable(path);
+        } else {
+            working.meta(path);
+        }
 
         if let Ok(tgt) = working.build() {
             pending.remove(&target);
@@ -611,54 +804,121 @@ pub(crate) fn collect_test_invocations(
     Ok(invocations)
 }
 
+/// Split each invocation into one invocation per selected case, so that every
+/// case gets a freshly started process.
+///
+/// A test executable runs every case it is given inside one long-lived
+/// runtime, which is fine for tests but not for benchmarks: a case that runs
+/// second is measured against a runtime that the first case has already
+/// warmed, grown and specialized. The effect is large enough to show up as a
+/// regression when an unrelated benchmark is added ahead of an existing one.
+fn isolate_invocations(invocations: Vec<TestInvocation>) -> Vec<TestInvocation> {
+    let mut isolated = Vec::with_capacity(invocations.len());
+    for invocation in invocations {
+        for case in split_cases(&invocation.args.file_and_index) {
+            isolated.push(TestInvocation {
+                target: invocation.target,
+                executable: invocation.executable.clone(),
+                args: TestArgs {
+                    package: invocation.args.package.clone(),
+                    file_and_index: vec![case],
+                },
+                meta: invocation.meta.clone(),
+            });
+        }
+    }
+    isolated
+}
+
+/// Expand a case filter into one single-case filter per selected case. Files
+/// with nothing selected drop out.
+// The one-element range vectors are the point here: each returned filter
+// selects exactly one case.
+#[allow(clippy::single_range_in_vec_init)]
+fn split_cases(
+    file_and_index: &[(String, Vec<std::ops::Range<u32>>)],
+) -> Vec<(String, Vec<std::ops::Range<u32>>)> {
+    let mut cases = Vec::new();
+    for (file, ranges) in file_and_index {
+        for range in ranges {
+            for index in range.clone() {
+                cases.push((file.clone(), vec![index..index + 1]));
+            }
+        }
+    }
+    cases
+}
+
 #[instrument(level = "debug", skip(ctx, test))]
-fn run_one_test_executable(
-    ctx: &TestRunCtx<'_>,
+async fn run_one_test_executable(
+    ctx: &TestRunCtx,
     test: &TestInvocation,
 ) -> Result<TargetTestResult, anyhow::Error> {
-    let fqn = ctx
+    anyhow::ensure!(!super::shutdown_requested(), "Test execution interrupted");
+    let package = ctx
         .build_meta
-        .resolve_output
+        .resolved_project
         .pkg_dirs
-        .fqn(test.target.package);
+        .get_package(test.target.package);
+    let fqn = &package.fqn;
+    let module_root = &ctx.build_meta.resolved_project.module_dirs[package.module];
+    let executable = if test.executable.is_absolute() {
+        test.executable.clone()
+    } else {
+        ctx.source_dir.join(&test.executable)
+    };
 
-    let cmd = crate::run::command_for(
-        ctx.build_meta.target_backend,
-        ctx.build_meta.tcc_run.as_ref(),
-        &test.executable,
+    let mut cmd = crate::run::command_for_with_moonrun_policy(
+        crate::run::ExecutionMode::from(&ctx.build_meta.backend),
+        &executable,
         Some(&test.args),
+        ctx.moonrun_policy.as_deref(),
     );
+    cmd.current_dir(module_root);
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
-    if ctx.verbose {
-        crate::rr_build::dry_print_command(cmd.as_std(), ctx.source_dir, true);
+    if ctx.user_log.is_enabled(log::Level::Info) {
+        ctx.user_log.info(crate::rr_build::format_dry_run_command(
+            &cmd,
+            &ctx.source_dir,
+        ));
     }
     info!(package = %test.args.package, executable = %test.executable.display(), "launching test executable");
 
-    let exit_status = ctx
-        .rt
-        .block_on(crate::run::run(
-            &mut [&mut cov_cap, &mut test_cap],
-            true,
-            cmd,
-        ))
+    let exit_status = crate::run::run(&mut [&mut cov_cap, &mut test_cap], true, cmd)
+        .await
         .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
     debug!(?exit_status, "test process finished");
+    let test_output = test_cap.finish();
 
     if !exit_status.success() {
+        #[cfg(windows)]
+        if is_windows_app_control_block(&exit_status) {
+            anyhow::bail!(
+                "Windows App Control/Device Guard blocked generated executable. Disable Smart App Control, use audit mode, or sign/allow generated executables.\nExecutable: {}\nExit status: {}",
+                test.executable.display(),
+                exit_status
+            );
+        }
+
         anyhow::bail!(
-            "Failed to run the test: {}\nThe test executable exited with {}",
-            test.executable.display(),
-            exit_status
+            "{}",
+            format_test_executable_failure(
+                test,
+                exit_status,
+                test_output.as_deref(),
+                &ctx.build_meta.resolved_project.pkg_dirs,
+            )
         );
     }
 
-    handle_finished_coverage(ctx.target_dir, cov_cap)?;
+    handle_finished_coverage(&ctx.target_dir, cov_cap)?;
 
     parse_test_results(
         test.meta.clone(),
-        test_cap,
-        &ctx.build_meta.resolve_output.pkg_dirs,
+        test_output,
+        &test.args.package,
+        &ctx.build_meta.resolved_project.pkg_dirs,
     )
     .with_context(|| {
         format!(
@@ -674,6 +934,11 @@ fn mk_coverage_capture() -> SectionCapture<'static> {
         MOON_COVERAGE_DELIMITER_END,
         true,
     )
+}
+
+#[cfg(windows)]
+fn is_windows_app_control_block(exit_status: &std::process::ExitStatus) -> bool {
+    exit_status.code() == Some(4551)
 }
 
 fn make_test_capture() -> SectionCapture<'static> {
@@ -703,10 +968,11 @@ fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::R
 #[instrument(level = "debug", skip(meta, cap, pkg_src))]
 fn parse_test_results(
     meta: MooncGenTestInfo,
-    cap: SectionCapture,
-    pkg_src: &impl PackageSrcResolver,
+    cap: Option<String>,
+    package: &str,
+    pkg_src: &DiscoverResult,
 ) -> anyhow::Result<TargetTestResult> {
-    let Some(s) = cap.finish() else {
+    let Some(s) = cap else {
         debug!("no test output captured");
         return Ok(TargetTestResult::default());
     };
@@ -738,9 +1004,11 @@ fn parse_test_results(
             continue;
         }
 
-        let stat: TestStatistics = serde_json_lenient::from_str(line)
-            .with_context(|| format!("Failed to parse test summary: {line}"))?;
-        let stat = Arc::new(stat);
+        let ParsedTestDriverEvent::Result(mut stat) = parse_test_driver_record(line, package)?
+        else {
+            trace!("parsed test start event");
+            continue;
+        };
 
         // Repopulate name.
         // The test name in stat may be different from that in source code,
@@ -763,15 +1031,13 @@ fn parse_test_results(
             );
             continue;
         };
-        // .with_context(|| {
-        //     format!(
-        //         "Failed to find test metadata for {} index {}",
-        //         stat.filename, stat.index
-        //     )
-        // })?;
-        let name = meta.name.as_ref().unwrap_or(&stat.test_name);
-        let result_kind = parse_one_test_result(&stat, name, pkg_src)?;
+        if let Some(name) = &meta.name {
+            stat.test_name.clone_from(name);
+        }
+        let test_name = stat.test_name.clone();
+        let result_kind = parse_one_test_result(&stat, &test_name, pkg_src)?;
         trace!(file = %stat.filename, index, kind = ?result_kind, "parsed test case");
+        let stat = Arc::new(stat);
         let case_result = TestCaseResult {
             kind: result_kind,
             raw: Arc::clone(&stat),
@@ -788,7 +1054,7 @@ fn parse_test_results(
 fn parse_one_test_result(
     result: &TestStatistics,
     test_name: &str,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) -> anyhow::Result<TestResultKind> {
     use TestResultKind::*;
 
@@ -827,7 +1093,7 @@ fn print_test_result(
     module_name: &str,
     verbose: bool,
     json: bool,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) {
     if json {
         print_test_result_json(res);
@@ -877,7 +1143,7 @@ fn print_test_result_normal(
     res: &TestCaseResult,
     module_name: &str,
     verbose: bool,
-    pkg_src: &impl PackageSrcResolver,
+    pkg_src: &DiscoverResult,
 ) {
     let output = &res.raw;
     let message = &output.message;
@@ -918,5 +1184,167 @@ fn print_test_result_normal(
                 formatter.write_failure_with_message(&mut std::io::stdout(), "panic is expected");
             println!();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        convert::Infallible,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+
+    async fn assert_started_before_release(parallelism: usize, expected_started: usize) {
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let job_release = Arc::clone(&release);
+        let run = tokio::spawn(super::run_with_parallelism(
+            (0..2).map(move |_| {
+                let started = started_tx.clone();
+                let release = Arc::clone(&job_release);
+                async move {
+                    started.send(()).unwrap();
+                    release.acquire().await.unwrap().forget();
+                    Ok::<_, Infallible>(())
+                }
+            }),
+            parallelism,
+        ));
+        for _ in 0..expected_started {
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(5), started_rx.recv())
+                    .await
+                    .unwrap(),
+                Some(())
+            );
+        }
+        if expected_started < 2 {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), started_rx.recv())
+                    .await
+                    .is_err()
+            );
+        }
+        release.add_permits(2);
+        assert_eq!(run.await.unwrap().unwrap().len(), 2);
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn isolation_gives_every_selected_case_its_own_run() {
+        let selected = vec![
+            ("a.mbt".to_string(), vec![0..2, 5..6]),
+            ("b.mbt".to_string(), vec![]),
+            ("c.mbt".to_string(), vec![3..4]),
+        ];
+
+        assert_eq!(
+            super::split_cases(&selected),
+            vec![
+                ("a.mbt".to_string(), vec![0..1]),
+                ("a.mbt".to_string(), vec![1..2]),
+                ("a.mbt".to_string(), vec![5..6]),
+                ("c.mbt".to_string(), vec![3..4]),
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_execution_respects_parallelism() {
+        assert_started_before_release(0, 1).await;
+        assert_started_before_release(1, 1).await;
+        assert_started_before_release(2, 2).await;
+        assert_started_before_release(8, 2).await;
+        assert_started_before_release(usize::MAX, 2).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_execution_is_parallel_by_default() {
+        let parallelism = super::resolve_test_parallelism(false, None, false);
+        let available = moonbuild::execution::resolve_parallelism(None);
+        assert_eq!(parallelism, available);
+        assert_started_before_release(parallelism, available.min(2)).await;
+    }
+
+    #[test]
+    fn explicit_job_limits_and_sequential_benchmarks() {
+        for bench in [false, true] {
+            assert_eq!(super::resolve_test_parallelism(true, None, bench), 1);
+            assert_eq!(super::resolve_test_parallelism(true, Some(8), bench), 1);
+            assert_eq!(super::resolve_test_parallelism(false, Some(0), bench), 1);
+            assert_eq!(super::resolve_test_parallelism(false, Some(1), bench), 1);
+            assert_eq!(super::resolve_test_parallelism(false, Some(2), bench), 2);
+        }
+        assert_eq!(super::resolve_test_parallelism(false, None, true), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn parallel_execution_preserves_invocation_order() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let run = super::run_with_parallelism(
+            (0..3).map(|index| {
+                let release = Arc::clone(&release);
+                async move {
+                    match index {
+                        0 => release.notified().await,
+                        // Item 2 must fill item 1's freed slot while item 0 is
+                        // still pending; completed results must not hold slots.
+                        2 => release.notify_one(),
+                        _ => {}
+                    }
+                    Ok::<_, Infallible>(index)
+                }
+            }),
+            2,
+        );
+        let results = tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(results, [0, 1, 2]);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn execution_drains_running_work_after_an_error() {
+        let finished = Arc::new(AtomicUsize::new(0));
+        let results = super::run_with_parallelism(
+            (0..3).map(|index| {
+                let finished = Arc::clone(&finished);
+                async move {
+                    if index == 0 {
+                        return Err("failed");
+                    }
+                    tokio::task::yield_now().await;
+                    finished.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }
+            }),
+            2,
+        )
+        .await;
+        assert_eq!(results, Err("failed"));
+        assert_eq!(finished.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn serial_execution_stops_on_the_first_error() {
+        let started = Arc::new(AtomicUsize::new(0));
+        let results = super::run_with_parallelism(
+            (0..3).map(|_| {
+                let started = Arc::clone(&started);
+                async move {
+                    started.fetch_add(1, Ordering::Relaxed);
+                    Err::<(), _>("failed")
+                }
+            }),
+            1,
+        )
+        .await;
+        assert_eq!(results, Err("failed"));
+        assert_eq!(started.load(Ordering::Relaxed), 1);
     }
 }

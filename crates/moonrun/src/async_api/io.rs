@@ -1,0 +1,372 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use super::context::ImportContext;
+use super::provenance::ported_imports;
+
+ported_imports! {
+#[ported(source = "src/internal/event_loop/io_unix.c")]
+#[cfg(unix)]
+pub(super) fn read(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    dst: u32,
+    offset: u32,
+    len: u32,
+) -> i32 {
+    // Unix io/read is the pollable nonblocking path. Regular files are routed
+    // through worker jobs, so this borrowed guest slice must not outlive the syscall.
+    match context
+        .with_host_and_memory_mut(|host, memory| host.read_fd(memory, fd, dst, offset, len))
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(source = "src/internal/event_loop/io_unix.c")]
+#[cfg(unix)]
+pub(super) fn write(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    src: u32,
+    offset: u32,
+    len: u32,
+) -> i32 {
+    // See io/read: this import is for pollable nonblocking handles, not
+    // regular files, and the borrowed guest slice is used only for the syscall.
+    match context
+        .with_host_and_memory_mut(|host, memory| host.write_fd(memory, fd, src, offset, len))
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_file_read_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_file_read_io_result(
+    context: &mut ImportContext<'_>,
+    len: u32,
+    position: i64,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.host.make_file_read_io_result(len, position)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_file_write_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_file_write_io_result(
+    context: &mut ImportContext<'_>,
+    src: u32,
+    offset: u32,
+    len: u32,
+    position: i64,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_file_write_io_result(memory, src, offset, len, position)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_read_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_socket_read_io_result(
+    context: &mut ImportContext<'_>,
+    len: u32,
+    flags: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.host.make_socket_read_io_result(len, flags)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_write_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_socket_write_io_result(
+    context: &mut ImportContext<'_>,
+    src: u32,
+    offset: u32,
+    len: u32,
+    flags: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_write_io_result(memory, src, offset, len, flags)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_with_addr_read_io_result"
+)]
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_socket_with_addr_read_io_result(
+    context: &mut ImportContext<'_>,
+    len: u32,
+    flags: i32,
+    addr: u32,
+    addr_len: u32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_with_addr_read_io_result(memory, len, flags, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_with_addr_write_io_result"
+)]
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_socket_with_addr_write_io_result(
+    context: &mut ImportContext<'_>,
+    src: u32,
+    offset: u32,
+    len: u32,
+    flags: i32,
+    addr: u32,
+    addr_len: u32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_with_addr_write_io_result(memory, src, offset, len, flags, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_connect_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_connect_io_result(
+    context: &mut ImportContext<'_>,
+    addr: u32,
+    addr_len: u32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_connect_io_result(memory, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_accept_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_accept_io_result(
+    context: &mut ImportContext<'_>,
+    addr_len: u32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.host.make_accept_io_result(addr_len)
+}
+
+#[cfg(windows)]
+pub(super) fn make_read_dir_changes_io_result(
+    context: &mut ImportContext<'_>,
+    buffer: u64,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.host.make_read_dir_changes_io_result(buffer)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_get_accept_peer_addr"
+)]
+#[cfg(windows)]
+pub(super) fn get_accept_peer_addr(
+    context: &mut ImportContext<'_>,
+    result: u64,
+    dst: u32,
+    dst_len: u32,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.get_accept_peer_addr(memory, result, dst, dst_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_free_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn free_io_result(
+    context: &mut ImportContext<'_>,
+    result: u64,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.host.free_io_result(result)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_io_result_get_event"
+)]
+#[cfg(windows)]
+pub(super) fn io_result_get_event(
+    context: &mut ImportContext<'_>,
+    result: u64,
+) -> crate::async_host::AsyncHostResult<i32> {
+    context.host.io_result_get_event(result)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_cancel_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn cancel_io_result(context: &mut ImportContext<'_>, result: u64, fd: u64) -> i32 {
+    match context.host.cancel_io_result(result, fd) {
+        Ok(status) => status,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_io_result_get_status"
+)]
+#[cfg(windows)]
+pub(super) fn io_result_get_status(
+    context: &mut ImportContext<'_>,
+    result: u64,
+    fd: u64,
+) -> i32 {
+    match context.host.io_result_get_status(result, fd) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn io_result_copy_read(
+    context: &mut ImportContext<'_>,
+    result: u64,
+    dst: u32,
+    offset: u32,
+    len: u32,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.io_result_copy_read(memory, result, dst, offset, len)
+    })
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn io_result_copy_read_with_addr(
+    context: &mut ImportContext<'_>,
+    result: u64,
+    dst: u32,
+    offset: u32,
+    len: u32,
+    addr: u32,
+    addr_len: u32,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.io_result_copy_read_with_addr(memory, result, dst, offset, len, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_read"
+)]
+#[cfg(windows)]
+pub(super) fn read_io_result(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    result: u64,
+) -> i32 {
+    match context.host.read_io_result(fd, result) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_read_dir_changes"
+)]
+#[cfg(windows)]
+pub(super) fn read_dir_changes_io_result(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    result: u64,
+) -> i32 {
+    match context.host.read_dir_changes_io_result(fd, result) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_write"
+)]
+#[cfg(windows)]
+pub(super) fn write_io_result(
+    context: &mut ImportContext<'_>,
+    fd: u64,
+    result: u64,
+) -> i32 {
+    match context.host.write_io_result(fd, result) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_errno_is_read_EOF"
+)]
+#[cfg(windows)]
+pub(super) fn errno_is_read_eof(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
+    if crate::async_sys::internal::event_loop::io::errno_is_read_eof(errno) {
+        1
+    } else {
+        0
+    }
+}
+}

@@ -1,26 +1,26 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version};
+use moonutil::version::{get_moon_version, get_moonc_version, get_moonrun_version};
 
 /// Print version information and exit
 #[derive(Debug, clap::Parser)]
@@ -39,14 +39,23 @@ pub(crate) struct VersionSubcommand {
 }
 
 fn replace_home_with_tilde(p: &Path) -> anyhow::Result<String> {
-    let h = home::home_dir().context("failed to get home directory")?;
-    Ok(if p.starts_with(&h) {
-        p.display()
-            .to_string()
-            .replacen(&h.display().to_string(), "~", 1)
+    let home = home::home_dir().context("failed to get home directory")?;
+    Ok(display_path_relative_to_home(p, &home))
+}
+
+fn display_path_relative_to_home(path: &Path, home: &Path) -> String {
+    // Toolchain paths may be canonical while the OS home path is ordinary.
+    // Match their components before formatting; simplifying only short paths
+    // would still miss a long executable beneath a short home directory.
+    if let Some(relative) = moonutil::path::strip_equivalent_prefix(path, home) {
+        if relative.as_os_str().is_empty() {
+            "~".to_owned()
+        } else {
+            Path::new("~").join(relative).display().to_string()
+        }
     } else {
-        p.display().to_string()
-    })
+        dunce::simplified(path).display().to_string()
+    }
 }
 
 fn get_moon_path() -> anyhow::Result<String> {
@@ -93,19 +102,19 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                 println!(
                     "moonc {} {}",
                     moonc_version?,
-                    replace_home_with_tilde(&moonutil::BINARIES.moonc)?
+                    replace_home_with_tilde(&moonutil::toolchain::BINARIES.moonc)?
                 );
                 println!(
                     "{} {}",
                     moonrun_version?,
-                    replace_home_with_tilde(&moonutil::BINARIES.moonrun)?
+                    replace_home_with_tilde(&moonutil::toolchain::BINARIES.moonrun)?
                 );
             }
             print_unstable_footer(flags);
         }
         (false, true) => {
-            let items = moonutil::common::VersionItems {
-                items: vec![moonutil::common::VersionItem {
+            let items = moonutil::version::VersionItems {
+                items: vec![moonutil::version::VersionItem {
                     name: "moon".to_string(),
                     version: moon_version,
                     path: if nopath_flag {
@@ -122,9 +131,9 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
             );
         }
         (true, true) => {
-            let items = moonutil::common::VersionItems {
+            let items = moonutil::version::VersionItems {
                 items: vec![
-                    moonutil::common::VersionItem {
+                    moonutil::version::VersionItem {
                         name: "moon".to_string(),
                         version: moon_version,
                         path: if nopath_flag {
@@ -133,22 +142,26 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                             Some(get_moon_path()?)
                         },
                     },
-                    moonutil::common::VersionItem {
+                    moonutil::version::VersionItem {
                         name: "moonc".to_string(),
                         version: moonc_version?,
                         path: if nopath_flag {
                             None
                         } else {
-                            Some(replace_home_with_tilde(&moonutil::BINARIES.moonc)?)
+                            Some(replace_home_with_tilde(
+                                &moonutil::toolchain::BINARIES.moonc,
+                            )?)
                         },
                     },
-                    moonutil::common::VersionItem {
+                    moonutil::version::VersionItem {
                         name: "moonrun".to_string(),
                         version: moonrun_version?,
                         path: if nopath_flag {
                             None
                         } else {
-                            Some(replace_home_with_tilde(&moonutil::BINARIES.moonrun)?)
+                            Some(replace_home_with_tilde(
+                                &moonutil::toolchain::BINARIES.moonrun,
+                            )?)
                         },
                     },
                 ],
@@ -161,4 +174,43 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_abbreviation_matches_ordinary_and_canonical_paths() {
+        let (home, canonical_home) = if cfg!(windows) {
+            (Path::new(r"C:\Users\test"), Path::new(r"\\?\C:\Users\test"))
+        } else {
+            (Path::new("/home/test"), Path::new("/home/test"))
+        };
+        // The long child need not exist. Simplifying the complete path alone
+        // cannot reconcile its retained Windows prefix with a short home root.
+        for relative in [
+            Path::new(".moon").join("bin").join("moonc.exe"),
+            std::iter::repeat_n("segment", 40)
+                .chain(["moonc.exe"])
+                .collect(),
+        ] {
+            let expected = Path::new("~").join(&relative).display().to_string();
+            for root in [home, canonical_home] {
+                assert_eq!(
+                    display_path_relative_to_home(&root.join(&relative), home),
+                    expected
+                );
+            }
+        }
+        for root in [home, canonical_home] {
+            assert_eq!(display_path_relative_to_home(root, home), "~");
+            let mut sibling = root.to_path_buf();
+            sibling.as_mut_os_string().push("-other");
+            assert_eq!(
+                display_path_relative_to_home(&sibling, home),
+                dunce::simplified(&sibling).display().to_string(),
+            );
+        }
+    }
 }

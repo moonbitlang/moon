@@ -1,0 +1,7 @@
+import {
+  "build_package_dep_core/lib"
+}
+
+options(
+  "is-main": true
+)

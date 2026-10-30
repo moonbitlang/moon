@@ -1,5 +1,8 @@
 fn main {
   let args = get_args()
+  if args.length() > 1 && args[1] == "exit-7" {
+    exit_with_code(7)
+  }
   for i = 0; i < args.length(); i = i + 1 {
     println(args[i])
   }
@@ -88,7 +91,7 @@ pub fn string_from_extern(e : ExternString) -> String {
     if ch == -1 {
       break
     } else {
-      buf.write_char(Char::from_int(ch))
+      buf.write_char_utf16le(Char::from_int(ch))
     }
   }
   finish_read_string(handle)

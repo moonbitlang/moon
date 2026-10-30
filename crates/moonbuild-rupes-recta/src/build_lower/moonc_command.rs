@@ -1,0 +1,138 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use std::path::{Path, PathBuf};
+
+use super::{LoweredCommand, LoweredResponseFile, LoweringError};
+
+// Keep a portable margin below Windows' 32,767 UTF-16-code-unit process limit.
+// UTF-8 byte length is a conservative approximation for this purpose.
+const RESPONSE_FILE_THRESHOLD: usize = 16 * 1024;
+
+pub(super) fn lower(
+    args: Vec<String>,
+    primary_output: &Path,
+) -> Result<LoweredCommand, LoweringError> {
+    let commandline = LoweredCommand::from(args);
+    let (executable, response_args) = commandline
+        .args()
+        .split_first()
+        .expect("moonc command builders always provide an executable");
+    if commandline.inline_command().len() < RESPONSE_FILE_THRESHOLD {
+        return Ok(commandline);
+    }
+
+    let content = encode(response_args)?;
+    let mut rsp_path = primary_output.as_os_str().to_owned();
+    rsp_path.push(".rsp");
+    let rsp_path = PathBuf::from(rsp_path);
+    let rsp_path_arg = dunce::simplified(&rsp_path).to_string_lossy();
+    let command = moonutil::shlex::join_native(
+        [executable.as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
+    );
+
+    Ok(commandline.with_response_file(
+        command,
+        LoweredResponseFile {
+            path: rsp_path,
+            content,
+        },
+    ))
+}
+
+/// Encode arguments in the line-based format accepted by `moonc -rsp-file`.
+fn encode(args: &[String]) -> Result<String, LoweringError> {
+    for (index, arg) in args.iter().enumerate() {
+        let reason = if arg.is_empty() {
+            Some("the argument is empty")
+        } else if arg.trim() != arg {
+            Some("leading or trailing whitespace would be trimmed")
+        } else if arg.contains(['\r', '\n']) {
+            Some("line breaks delimit arguments")
+        } else if arg.starts_with('#') {
+            Some("the argument would be parsed as a comment")
+        } else if arg == "-rsp-file" {
+            Some("nested response files are not supported")
+        } else {
+            None
+        };
+
+        if let Some(reason) = reason {
+            return Err(LoweringError::MooncResponseFile { index, reason });
+        }
+    }
+
+    Ok(format!("{}\n", args.join("\n")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build_lower::LoweredCommandExecution;
+
+    #[test]
+    fn preserves_logical_args_while_selecting_execution_transport() {
+        let output = Path::new("build/pkg.core");
+        let short = vec!["moonc".to_owned(), "build-package".to_owned()];
+        let lowered = lower(short.clone(), output).expect("short command should lower");
+        let LoweredCommandExecution::Inline(command) = lowered.execution() else {
+            panic!("short command should remain inline")
+        };
+        assert_eq!(moonutil::shlex::split_native(command), short);
+
+        let long = vec![
+            "moonc".to_owned(),
+            "build-package".to_owned(),
+            "x".repeat(RESPONSE_FILE_THRESHOLD),
+        ];
+        let lowered = lower(long.clone(), output).expect("oversized command should lower");
+        assert_eq!(lowered.args(), long.as_slice());
+        let LoweredCommandExecution::ResponseFile {
+            command,
+            file: rspfile,
+        } = lowered.execution()
+        else {
+            panic!("oversized command should use a response file")
+        };
+
+        assert_eq!(
+            moonutil::shlex::split_native(command),
+            [
+                "moonc".to_owned(),
+                "-rsp-file".to_owned(),
+                rspfile.path.to_string_lossy().into_owned(),
+            ]
+        );
+        assert_eq!(rspfile.path, Path::new("build/pkg.core.rsp"));
+        assert_eq!(rspfile.content.lines().collect::<Vec<_>>(), long[1..]);
+    }
+
+    #[test]
+    fn rejects_arguments_changed_by_moonc_response_file_parsing() {
+        for arg in [
+            "",
+            " leading",
+            "trailing ",
+            "line\nbreak",
+            "#comment",
+            "-rsp-file",
+        ] {
+            assert!(encode(&[arg.to_owned()]).is_err(), "accepted {arg:?}");
+        }
+    }
+}

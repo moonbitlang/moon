@@ -1,23 +1,22 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::cli::profile;
-use crate::filter::TargetPackageGroup;
 use crate::filter::canonicalize_with_filename;
 use crate::filter::ensure_packages_support_backend;
 use crate::filter::filter_pkg_by_dir;
@@ -26,29 +25,32 @@ use crate::filter::group_packages_by_preferred_backend;
 use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
+use crate::filter::{BackendPlanSelection, TargetPackageGroup};
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
-use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
+use crate::rr_build::CalcUserIntentOutput;
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
-use crate::run::{TestFilter, TestIndex, TestOutlineEntry};
-use crate::user_diagnostics::UserDiagnostics;
+use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
 use colored::Colorize;
-use moonbuild_rupes_recta::build_plan::InputDirective;
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildConfig;
+use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::{
-    FileLock, RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange,
-    lower_surface_targets,
-};
-use moonutil::dirs::ProjectProbe;
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
+use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
+use moonutil::locks::lock_directory;
+use moonutil::project::{PackageDirs, ProjectProbe};
+use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
+use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
@@ -74,7 +76,7 @@ enum ResolvedTestSelection {
 impl ResolvedTestSelection {
     fn to_runtime_filter(
         &self,
-        resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+        discovered: &moonbuild_rupes_recta::DiscoveredProject,
         cmd: &TestLikeSubcommand<'_>,
     ) -> Result<TestFilter, anyhow::Error> {
         let mut filter = TestFilter {
@@ -95,7 +97,7 @@ impl ResolvedTestSelection {
                     if cmd.file.is_some() || cmd.index.is_some() || cmd.doc_index.is_some() {
                         bail!(
                             "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
-                            package_names(resolve_output, packages)
+                            package_names(discovered, packages)
                         );
                     }
                     for &pkg_id in packages {
@@ -120,7 +122,7 @@ impl ResolvedTestSelection {
 
     fn to_build_intent(
         &self,
-        resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+        discovered: &moonbuild_rupes_recta::DiscoveredProject,
         cmd: &TestLikeSubcommand<'_>,
         target_backend: TargetBackend,
         filter: &TestFilter,
@@ -129,14 +131,14 @@ impl ResolvedTestSelection {
             ResolvedTestSelection::Workspace { packages } => Ok(packages
                 .iter()
                 .copied()
-                .map(UserIntent::Test)
+                .map(|package| cmd.package_intent(package))
                 .collect::<Vec<_>>()
                 .into()),
             ResolvedTestSelection::Packages { .. } | ResolvedTestSelection::Paths { .. } => {
                 let directive = match self {
                     ResolvedTestSelection::Packages { packages } => {
                         ensure_packages_support_backend(
-                            resolve_output,
+                            discovered,
                             packages.iter().copied(),
                             target_backend,
                         )?;
@@ -158,7 +160,7 @@ impl ResolvedTestSelection {
                             if cmd.patch_file.is_some() && packages.len() > 1 {
                                 bail!(
                                     "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
-                                    package_names(resolve_output, packages)
+                                    package_names(discovered, packages)
                                 );
                             }
                             InputDirective::default()
@@ -167,7 +169,7 @@ impl ResolvedTestSelection {
                     ResolvedTestSelection::Paths { .. } => InputDirective::default(),
                     ResolvedTestSelection::Workspace { .. } => unreachable!(),
                 };
-                Ok((test_intents_from_filter(filter), directive).into())
+                Ok((test_intents_from_filter(filter, cmd), directive).into())
             }
         }
     }
@@ -179,10 +181,10 @@ fn print_test_summary(
     passed: usize,
     quiet: bool,
     backend_hint: Option<&str>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) {
     if total == 0 {
-        output.warn("no test entry found.");
+        user_log.warn("no test entry found.");
     }
 
     let failed = total - passed;
@@ -207,38 +209,55 @@ fn print_test_summary(
     }
 }
 
-fn print_test_outline(entries: &[TestOutlineEntry], output: UserDiagnostics) {
-    if entries.is_empty() {
-        output.warn("no test entry found.");
-        return;
-    }
-
-    for (i, entry) in entries.iter().enumerate() {
-        let line = entry
-            .line_number
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "?".to_string());
-        let mut line_out = format!(
-            "{:>4}. {} {}:{} index={}",
-            i + 1,
-            entry.package,
-            entry.file,
-            line,
-            entry.index
-        );
-        if let Some(name) = &entry.name {
-            line_out.push_str(&format!(" name={name:?}"));
+fn print_test_outlines(
+    builds: &[(BuildMeta, TestFilter)],
+    include_skipped: bool,
+    bench: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
+    for (build_meta, filter) in builds {
+        let entries = collect_test_outline(build_meta, filter, include_skipped, bench)?;
+        if entries.is_empty() {
+            user_log.warn("no test entry found.");
+            continue;
         }
-        println!("{line_out}");
+
+        for (i, entry) in entries.iter().enumerate() {
+            let line = entry
+                .line_number
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let mut line_out = format!(
+                "{:>4}. {} {}:{} index={}",
+                i + 1,
+                entry.package,
+                entry.file,
+                line,
+                entry.index
+            );
+            if let Some(name) = &entry.name {
+                line_out.push_str(&format!(" name={name:?}"));
+            }
+            println!("{line_out}");
+        }
     }
+    Ok(())
 }
 
 /// Test the current package
+///
+/// Test executables run in parallel using the available CPU count by default.
+/// Use `-j N` to set the maximum number of concurrent executables, or
+/// `--no-parallelize` to run them sequentially without limiting build parallelism.
 #[derive(Debug, clap::Parser)]
 #[clap(group = clap::ArgGroup::new("test_index_selector").multiple(false))]
 pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
+
+    /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
+    #[clap(long = "wasm-policy", value_name = "PATH")]
+    pub(crate) moonrun_policy: Option<PathBuf>,
 
     /// Run test in the specified package
     #[clap(short, long, num_args(1..))]
@@ -294,13 +313,12 @@ pub(crate) struct TestSubcommand {
     #[clap(long, requires("package"), conflicts_with = "update")]
     pub patch_file: Option<PathBuf>,
 
-    /// Run doc test
-    #[clap(long = "doc", hide = true)]
-    pub doc_test: bool,
-
-    /// Run tests for a filesystem path. If in a project, `PATH` may point to a
-    /// package directory or a file inside a package; otherwise, runs in a
-    /// temporary project.
+    /// Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
+    ///
+    /// An explicit `.mbtx` path tests only that script, even inside a project.
+    /// The script must define `fn main`, but tests use a generated entrypoint
+    /// and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts.
+    /// Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub path: Vec<PathBuf>,
 
@@ -317,8 +335,20 @@ pub(crate) struct TestSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
-    let result = run_test_impl(&cli, &cmd);
+pub(crate) fn run_test(
+    cli: UniversalFlags,
+    mut cmd: TestSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    // Test executables run from their module roots. Resolve this CLI path while
+    // the process still has the invocation directory selected by `-C`.
+    if let Some(policy) = &mut cmd.moonrun_policy
+        && policy.is_relative()
+    {
+        *policy =
+            std::path::absolute(&*policy).context("failed to resolve the --wasm-policy path")?;
+    }
+    let result = run_test_impl(&cli, &cmd, output);
     if crate::run::shutdown_requested() {
         return Ok(130);
     }
@@ -326,40 +356,51 @@ pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Resu
 }
 
 #[instrument(skip_all)]
-fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+fn run_test_impl(
+    cli: &UniversalFlags,
+    cmd: &TestSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     if cmd.profile {
         profile::ensure_profile_available(profile::MOON_TEST_PROFILE_COMMAND)?;
         ensure_test_profile_target_is_native(&cmd.build_flags)?;
     }
 
-    let output = UserDiagnostics::from_flags(cli);
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
-        doc_test = cmd.doc_test,
         package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
         path_filters = cmd.path.len(),
         "starting moon test command"
     );
-    // Check if we're running within a project
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
+    if let Some(path) = super::standalone_mbtx_path(&cmd.path, "moon test")? {
+        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+        return run_test_in_single_file(
+            cli,
+            cmd,
+            &single_file.input_path,
+            &single_file.package_dirs,
+            output,
+        );
+    }
+
+    // Other paths select packages in a project or use the legacy single-file fallback.
+    let query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let dirs = match query.probe_project()? {
-        ProjectProbe::Found(_) => query.package_dirs()?,
+        ProjectProbe::Found(_) => query.select(user_log)?.package_dirs()?,
         ProjectProbe::NotFound(not_found) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
                 [path] => {
                     let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-                    let target_dir = single_file.package_dirs.target_dir;
-                    let mooncakes_dir = single_file.package_dirs.mooncakes_dir;
                     info!("delegating to single-file test runner");
                     return run_test_in_single_file(
                         cli,
                         cmd,
-                        &single_file.file_path,
-                        &single_file.package_dirs.source_dir,
-                        &target_dir,
-                        &mooncakes_dir,
+                        &single_file.input_path,
+                        &single_file.package_dirs,
+                        output,
                     );
                 }
                 [] => return Err(not_found.into_error().into()),
@@ -374,49 +415,34 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         "resolved package directories"
     );
 
-    if cmd.doc_test {
-        output.warn(
-            "--doc flag is deprecated and will be removed in the future, please use `moon test` directly",
-        );
-    }
-
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
         let selected_target_backend = cmd.profile.then_some(TargetBackend::Native);
-        return run_test_internal(
-            cli,
-            cmd,
-            &dirs.source_dir,
-            &dirs.target_dir,
-            &dirs.mooncakes_dir,
-            dirs.project_manifest_path.as_deref(),
-            None,
-            selected_target_backend,
-        );
+        return run_test_internal(cli, cmd, &dirs, false, selected_target_backend, output);
     }
     let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
     if cmd.update && targets.len() > 1 {
         return Err(anyhow::anyhow!("cannot update test on multiple targets"));
     }
-    let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
-
-    let mut ret_value = 0;
-    for t in targets {
-        info!(backend = ?t, "running tests for backend");
-        let x = run_test_internal(
-            cli,
-            cmd,
-            &dirs.source_dir,
-            &dirs.target_dir,
-            &dirs.mooncakes_dir,
-            dirs.project_manifest_path.as_deref(),
-            display_backend_hint,
-            Some(t),
-        )
-        .context(format!("failed to run test for target {t:?}"))?;
-        ret_value = ret_value.max(x);
-    }
+    let display_backend_hint = targets.len() > 1;
+    let test_cmd: TestLikeSubcommand<'_> = cmd.into();
+    validate_test_or_bench_invocation(cli, &test_cmd)?;
+    let discovered =
+        sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let ret_value = run_test_or_bench_from_discovered(
+        cli,
+        &test_cmd,
+        &dirs,
+        display_backend_hint,
+        &targets,
+        discovered,
+        output,
+    )
+    .with_context(|| match targets.as_slice() {
+        [target] => format!("failed to run test for target {target:?}"),
+        _ => format!("failed to run test for targets {targets:?}"),
+    })?;
     debug!(exit_code = ret_value, "completed moon test command");
     Ok(ret_value)
 }
@@ -459,12 +485,10 @@ fn effective_test_build_flags(build_flags: &BuildFlags, profile: bool) -> BuildF
 fn run_test_internal(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    display_backend_hint: Option<()>,
+    dirs: &PackageDirs,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     debug!(
         backend = ?selected_target_backend,
@@ -474,12 +498,10 @@ fn run_test_internal(
     let exit_code = run_test_or_bench_internal(
         cli,
         cmd.into(),
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
+        dirs,
         display_backend_hint,
         selected_target_backend,
+        output,
     )?;
     trace!(exit_code, "run_test_internal finished");
     Ok(exit_code)
@@ -490,21 +512,13 @@ fn run_test_in_single_file(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     single_file_path: &Path,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
     }
-    run_test_in_single_file_rr(
-        cli,
-        cmd,
-        single_file_path,
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-    )
+    run_test_in_single_file_rr(cli, cmd, single_file_path, dirs, output)
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -512,10 +526,21 @@ fn run_test_in_single_file_rr(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     single_file_path: &Path,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
+    let targets = lower_surface_targets(&build_flags.target);
+    anyhow::ensure!(
+        !cmd.update || targets.len() <= 1,
+        "cannot update test on multiple targets"
+    );
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        ..
+    } = dirs;
     std::fs::create_dir_all(target_dir)
         .context("failed to create target directory for single-file test")?;
 
@@ -525,45 +550,28 @@ fn run_test_in_single_file_rr(
     };
 
     // Resolve synthesized single-file project
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
-        &resolve_cfg,
-        target_dir,
-        mooncakes_dir,
+    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+        &preparation_config,
+        dirs,
         single_file_path,
         false,
+        user_log,
     )?;
-    let selected_target_backend = if cmd.profile {
-        Some(TargetBackend::Native)
+    let target_backends =
+        rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
+    let resolved = discovered.resolve_packages(&target_backends, user_log)?;
+
+    let lock = if cli.dry_run {
+        None
     } else {
-        cmd.build_flags.resolve_single_target_backend()?.or(backend)
+        Some(lock_directory(target_dir, user_log)?)
     };
-
-    let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Test,
-    );
-    // Enable tcc-run to match legacy debug test graph shape
-    preconfig.try_tcc_run = !cmd.profile;
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolved,
-    )?;
     let pkg = rr_build::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
@@ -586,35 +594,51 @@ fn run_test_in_single_file_rr(
     } else {
         None
     };
-    let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
-    let intent = (vec![UserIntent::Test(pkg)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
-        intent,
-        resolved,
-    )?;
-
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
-    rr_test_from_plan(
+    let planned_runs = target_backends
+        .into_iter()
+        .map(|target_backend| {
+            let compile_config = rr_build::prepare_resolved_build(
+                cli,
+                &build_flags,
+                target_backend,
+                target_dir,
+                RunMode::Test,
+                user_log,
+                &resolved,
+            )?;
+            let directive =
+                rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
+            let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
+            let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+                compile_config,
+                user_log,
+                intent,
+                resolved.clone(),
+                cmd.build_flags.jobs,
+                cmd.auto_sync_flags.frozen,
+                cli.dry_run,
+            )?;
+            Ok((build_meta, build_graph, filter.clone()))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    run_test_workflow(
         cli,
         &test_cmd,
         source_dir,
         target_dir,
-        None,
-        &build_meta,
-        build_graph,
-        filter,
-        None,
+        false,
+        planned_runs,
+        lock,
+        output,
     )
 }
 
 pub(crate) struct TestLikeSubcommand<'a> {
     pub run_mode: RunMode,
     pub build_flags: &'a BuildFlags,
+    pub moonrun_policy: Option<&'a Path>,
     /// Explicit filesystem path filters from positional `PATH` arguments.
     pub explicit_path_filters: &'a [PathBuf],
     pub package: &'a Option<Vec<String>>,
@@ -640,6 +664,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Test,
             build_flags: &cmd.build_flags,
+            moonrun_policy: cmd.moonrun_policy.as_deref(),
             package: &cmd.package,
             explicit_path_filters: &cmd.path,
             file: &cmd.file,
@@ -664,7 +689,8 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Bench,
             build_flags: &cmd.build_flags,
-            explicit_path_filters: &[],
+            moonrun_policy: None,
+            explicit_path_filters: &cmd.path,
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,
@@ -684,187 +710,128 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
     }
 }
 
-pub(crate) fn plan_test_or_bench_rr_from_resolved(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
-) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
-    // Keep the planning flow explicit:
-    // 1. derive the effective build flags used by test/bench,
-    // 2. build the compile preconfig,
-    // 3. let RR turn resolved packages plus user intent into a graph and filter.
-    let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
-    let mut preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
-        cli,
-        &build_flags,
-        selected_target_backend,
-        target_dir,
-        if cmd.run_mode == RunMode::Bench {
-            RunMode::Bench
+impl TestLikeSubcommand<'_> {
+    fn package_intent(&self, package: PackageId) -> UserIntent {
+        if self.outline {
+            UserIntent::TestOutline(package)
         } else {
-            RunMode::Test
-        },
-    );
-
-    // Match the legacy dry-run graph shape for `moon test`.
-    if cmd.run_mode != RunMode::Bench && !cmd.profile {
-        preconfig.try_tcc_run = true;
+            UserIntent::Test(package)
+        }
     }
-
-    let mut filter = TestFilter {
-        name_filter: cmd.filter.clone(),
-        ..Default::default()
-    };
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
-    )?;
-    let intent = calc_user_intent(
-        &resolve_output,
-        cmd,
-        &mut filter,
-        planning_context.target_backend(),
-        output,
-    )?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
-        intent,
-        resolve_output,
-    )?;
-    Ok((build_meta, build_graph, filter))
 }
 
-pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
+/// Selects backend plans, resolves packages, then plans each selected backend.
+pub(crate) fn plan_test_or_bench_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
-    selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
-) -> Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>, anyhow::Error> {
-    if let Some(target_backend) = selected_target_backend {
-        return plan_test_or_bench_rr_from_resolved(
-            cli,
-            cmd,
-            target_dir,
-            Some(target_backend),
-            resolve_output,
-        )
-        .map(|plan| vec![plan]);
-    }
-
-    validate_original_package_selection_filters(&resolve_output, cmd)?;
-    let selections =
-        resolve_test_target_selections(&resolve_output, cmd, UserDiagnostics::from_flags(cli))?;
-
-    if has_explicit_test_selector(cmd) {
-        if selections.is_empty() {
-            return plan_test_or_bench_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
-                .map(|plan| vec![plan]);
-        }
-
-        return selections
-            .into_iter()
-            .map(|selection| {
-                let resolved_selection =
-                    resolve_scoped_test_selection(cmd, &resolve_output, selection.packages)?;
-                plan_test_or_bench_rr_from_resolved_scoped(
-                    cli,
-                    cmd,
-                    target_dir,
-                    selection.target_backend,
-                    resolve_output.clone(),
-                    resolved_selection,
-                )
-            })
-            .collect();
-    }
-
-    if selections.is_empty() {
-        return plan_test_or_bench_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
-            .map(|plan| vec![plan]);
-    }
-
-    selections
+    selected_target_backends: &[TargetBackend],
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
+    user_log: &UserLog,
+) -> Result<Vec<(BuildMeta, BuildInput, TestFilter)>, anyhow::Error> {
+    // Resolve selectors into intent and runtime filters while only discovery data
+    // is needed. Import errors must not mask selector errors, even with --target.
+    let selections = select_test_plans(&discovered, cmd, selected_target_backends, user_log)?
         .into_iter()
         .map(|selection| {
-            let resolved_selection =
-                resolve_scoped_test_selection(cmd, &resolve_output, selection.packages)?;
-            plan_test_or_bench_rr_from_resolved_scoped(
+            let target_backend = selection.target_backend;
+            let (intent, filter) = if let Some(packages) = selection.packages {
+                let selected = resolve_scoped_test_selection(cmd, &discovered, packages)?;
+                let filter = selected.to_runtime_filter(&discovered, cmd)?;
+                let intent = selected.to_build_intent(&discovered, cmd, target_backend, &filter)?;
+                (intent, filter)
+            } else {
+                let mut filter = TestFilter {
+                    name_filter: cmd.filter.clone(),
+                    ..Default::default()
+                };
+                let intent =
+                    calc_user_intent(&discovered, cmd, &mut filter, target_backend, user_log)?;
+                (intent, filter)
+            };
+            Ok((target_backend, intent, filter))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let target_backends = selections
+        .iter()
+        .map(|&(backend, _, _)| backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
+    selections
+        .into_iter()
+        .map(|(target_backend, intent, filter)| {
+            plan_test_or_bench_rr_from_intent(
                 cli,
                 cmd,
                 target_dir,
-                selection.target_backend,
-                resolve_output.clone(),
-                resolved_selection,
+                target_backend,
+                resolved_project.clone(),
+                intent,
+                filter,
+                user_log,
             )
         })
         .collect()
 }
 
-fn plan_test_or_bench_rr_from_resolved_scoped(
+fn select_test_plans(
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
+    cmd: &TestLikeSubcommand<'_>,
+    selected_target_backends: &[TargetBackend],
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<BackendPlanSelection>> {
+    if !selected_target_backends.is_empty() {
+        return Ok(selected_target_backends
+            .iter()
+            .copied()
+            .map(BackendPlanSelection::command_selector)
+            .collect());
+    }
+
+    validate_original_package_selection_filters(discovered, cmd)?;
+    let selections = resolve_test_target_selections(discovered, cmd, user_log)?;
+    if selections.is_empty() {
+        return Ok(vec![BackendPlanSelection::command_selector(
+            rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+        )]);
+    }
+    Ok(selections.into_iter().map(Into::into).collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_test_or_bench_rr_from_intent(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
     target_backend: TargetBackend,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
-    resolved_selection: ResolvedTestSelection,
-) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
-    let build_flags = BuildFlags {
-        no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
-        ..cmd.build_flags.clone()
-    };
-    let mut preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
+    resolved_project: moonbuild_rupes_recta::ResolvedProject,
+    intent: CalcUserIntentOutput,
+    filter: TestFilter,
+    user_log: &UserLog,
+) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
+    let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
+
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &build_flags,
-        Some(target_backend),
+        target_backend,
         target_dir,
         if cmd.run_mode == RunMode::Bench {
             RunMode::Bench
         } else {
             RunMode::Test
         },
-    );
-
-    if cmd.run_mode != RunMode::Bench {
-        preconfig.try_tcc_run = true;
-    }
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
-    )?;
-    debug_assert_eq!(planning_context.target_backend(), target_backend);
-    let filter = resolved_selection.to_runtime_filter(&resolve_output, cmd)?;
-    let intent = resolved_selection.to_build_intent(
-        &resolve_output,
-        cmd,
-        planning_context.target_backend(),
-        &filter,
+        user_log,
+        &resolved_project,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
-        resolve_output,
+        resolved_project,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
     Ok((build_meta, build_graph, filter))
 }
@@ -874,12 +841,10 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
 pub(crate) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    display_backend_hint: Option<()>,
+    dirs: &PackageDirs,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     debug!(
         run_mode = ?cmd.run_mode,
@@ -896,6 +861,23 @@ pub(crate) fn run_test_or_bench_internal(
         "cli filter state"
     );
 
+    validate_test_or_bench_invocation(cli, &cmd)?;
+
+    debug!("selecting test runner implementation");
+    run_test_rr(
+        cli,
+        &cmd,
+        dirs,
+        display_backend_hint,
+        selected_target_backend,
+        output,
+    )
+}
+
+pub(crate) fn validate_test_or_bench_invocation(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+) -> anyhow::Result<()> {
     // Accept -i/--doc-index when either --file is set or the positional PATH refers to a file.
     // explicit_is_file is true only when PATH is an existing regular file.
     let explicit_is_file = matches!(cmd.explicit_path_filters, [path] if path.is_file());
@@ -924,17 +906,23 @@ pub(crate) fn run_test_or_bench_internal(
         anyhow::bail!("`--profile` is only supported for `moon test`");
     }
 
-    debug!("selecting test runner implementation");
-    run_test_rr(
-        cli,
-        &cmd,
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-        display_backend_hint,
-        selected_target_backend,
-    )
+    Ok(())
+}
+
+pub(crate) fn sync_and_discover_test_or_bench_project(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
+    let preparation_config =
+        moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+            cmd.auto_sync_flags.frozen,
+            !cmd.build_flags.std(),
+            cmd.build_flags.enable_coverage,
+            cli.workspace_env.clone(),
+        );
+    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -942,83 +930,330 @@ pub(crate) fn run_test_or_bench_internal(
 fn run_test_rr(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
+    dirs: &PackageDirs,
+    display_backend_hint: bool,
     selected_target_backend: Option<TargetBackend>,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
+    let discovered = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    run_test_or_bench_from_discovered(
+        cli,
+        cmd,
+        dirs,
+        display_backend_hint,
+        selected_target_backend.as_slice(),
+        discovered,
+        output,
+    )
+}
+
+/// Plans, builds, and runs tests from a discovered project.
+///
+/// Holds the target-directory lock through planning and the initial build,
+/// then releases it before executing tests or benchmarks.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_test_or_bench_from_discovered(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    dirs: &PackageDirs,
+    display_backend_hint: bool,
+    selected_target_backends: &[TargetBackend],
+    discovered: moonbuild_rupes_recta::DiscoveredProject,
+    output: &CommandOutput,
+) -> Result<i32, anyhow::Error> {
+    let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        ..
+    } = dirs;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let planned_runs = plan_test_or_bench_rr_from_resolved_all(
+    let planned_runs = plan_test_or_bench_rr_from_discovered(
         cli,
         cmd,
         target_dir,
-        selected_target_backend,
-        moonbuild_rupes_recta::resolve(
-            &moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-                cmd.auto_sync_flags.frozen,
-                !cmd.build_flags.std(),
-                cmd.build_flags.enable_coverage,
-                cli.workspace_env.clone(),
-            )
-            .with_project_manifest_path(project_manifest_path),
-            source_dir,
-            mooncakes_dir,
-        )?,
+        selected_target_backends,
+        discovered,
+        user_log,
     )?;
-    let effective_display_backend_hint = if planned_runs.len() > 1 {
-        Some(())
-    } else {
-        display_backend_hint
-    };
+    run_test_workflow(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        planned_runs,
+        lock,
+        output,
+    )
+}
 
-    let mut build_only_artifacts = cmd.build_only.then_some(TestArtifacts {
-        artifacts_path: Vec::new(),
-        test_filter_args: Vec::new(),
-    });
-    let mut exit_code = 0;
-    for (build_meta, build_graph, filter) in planned_runs {
-        debug!(
-            artifact_count = build_meta.artifacts.len(),
-            backend = ?build_meta.target_backend,
-            "planned rupes-recta build graph"
-        );
+/// Builds all selected backends, then dispatches the test or benchmark mode.
+///
+/// Project and standalone plans share this initial build barrier. Each mode
+/// handles the whole invocation, including any snapshot-update rebuilds.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Outline and build-only read their generated metadata under the same lock;
+/// test execution and profiling release it after the initial build.
+/// Dry-run planning acquires its own lock only when it executes prebuild scripts.
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
+fn run_test_workflow(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: bool,
+    planned_runs: Vec<(BuildMeta, BuildInput, TestFilter)>,
+    lock: Option<std::fs::File>,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
+    if planned_runs.is_empty() {
+        return Ok(0);
+    }
+    let display_backend_hint = display_backend_hint || planned_runs.len() > 1;
+    let (build_metas_and_filters, build_inputs): (Vec<_>, Vec<_>) = planned_runs
+        .into_iter()
+        .map(|(meta, input, filter)| ((meta, filter), input))
+        .unzip();
+    let build_graph = BuildInput::compose(build_inputs)?;
 
-        exit_code = exit_code.max(rr_test_from_plan(
+    if cli.dry_run {
+        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
+        // Test command lines depend on generated metadata, which dry-run does
+        // not materialize. Profile dry-run therefore also stops at the build graph.
+        return Ok(0);
+    }
+
+    for (build_meta, _) in &build_metas_and_filters {
+        rr_build::generate_all_pkgs_json(build_meta)?;
+    }
+    let build_config = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose);
+    // n2 consumes its graph, so retain a copy for snapshot-update rebuilds.
+    let build_graph_backup = cmd.update.then(|| build_graph.clone());
+    let build_metas = build_metas_and_filters
+        .iter()
+        .map(|(meta, _)| meta)
+        .collect::<Vec<_>>();
+    let result = moonbuild::execution::execute_test_build(
+        &build_config,
+        build_graph,
+        target_dir,
+        &build_metas,
+        user_log,
+    )?;
+    if !result.successful() {
+        return Ok(result.return_code_for_success());
+    }
+
+    if cmd.outline {
+        print_test_outlines(
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+            user_log,
+        )?;
+        return Ok(0);
+    }
+    if cmd.build_only {
+        print_test_artifacts(
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+        )?;
+        return Ok(0);
+    }
+    // n2 has closed the shared database. Test execution must not block checks
+    // or other builds that use this target directory.
+    drop(lock);
+    if cmd.profile {
+        return profile::profile_tests(
             cli,
-            cmd,
             source_dir,
             target_dir,
-            effective_display_backend_hint,
-            &build_meta,
-            build_graph,
-            filter,
-            build_only_artifacts.as_mut(),
-        )?);
+            &build_metas_and_filters,
+            cmd.include_skipped,
+            output,
+        );
     }
-    if !cli.dry_run
-        && let Some(test_artifacts) = build_only_artifacts
-    {
-        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+
+    run_tests_with_updates(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        display_backend_hint,
+        build_metas_and_filters,
+        &build_config,
+        build_graph_backup,
+        user_log,
+    )
+}
+
+/// Runs already-built tests or benchmarks and reports their accumulated results.
+/// With `--update`, promotes snapshots and rebuilds before each filtered rerun.
+/// Each promotion and rebuild holds the target-directory lock, but test
+/// execution and reporting do not. Callers must not retain an outer lock.
+#[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
+fn run_tests_with_updates(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    display_backend_hint: bool,
+    builds: Vec<(BuildMeta, TestFilter)>,
+    build_config: &BuildConfig,
+    build_graph_backup: Option<BuildInput>,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    // One runtime owns the shutdown listener across all backends and update
+    // passes. Dropping a per-worker or per-pass runtime would lose that listener
+    // while other test processes still need cancellation.
+    let rt = crate::run::default_rt().context("Failed to create test runtime")?;
+    let mut exit_code = 0;
+    'backends: for (build_meta, mut filter) in builds {
+        let build_meta = Arc::new(build_meta);
+        debug!(
+            artifact_count = build_meta.artifacts.len(),
+            backend = ?build_meta.target_backend(),
+            "executing rupes-recta test workflow"
+        );
+
+        let mut test_result = ReplaceableTestResults::default();
+        let mut run_count = 0;
+        loop {
+            let latest_result = rt.block_on(crate::run::run_tests(
+                Arc::clone(&build_meta),
+                source_dir,
+                target_dir,
+                &filter,
+                cmd.include_skipped,
+                cmd.run_mode == RunMode::Bench,
+                cmd.no_parallelize,
+                cmd.build_flags.jobs,
+                cmd.moonrun_policy,
+                user_log,
+            ))?;
+            run_count += 1;
+            test_result.merge(&latest_result);
+            if !cmd.update {
+                break;
+            }
+
+            // Promotion changes build inputs. Keep it and the partial rebuild
+            // under one lock, then release it before the next test run.
+            let lock = lock_directory(target_dir, user_log)?;
+
+            // Only the latest run can request another promotion. Keep results
+            // for tests outside the rerun filter in the final report.
+            let (rerun_count, rerun_filter) =
+                perform_promotion(&build_meta.resolved_project.pkg_dirs, &latest_result)
+                    .expect("Failed to promote tests");
+            debug!(
+                rerun_count,
+                pending_targets = rerun_filter.0.len(),
+                "promotion pass completed"
+            );
+            if rerun_filter.is_empty() {
+                break;
+            }
+
+            // Preserve the existing limit semantics: promotion happens even
+            // on the last allowed run, but no further rebuild or run follows.
+            if run_count >= cmd.update_limit {
+                user_log.warn(format!(
+                    "reached the limit of {} update passes, stopping further updates.",
+                    cmd.update_limit
+                ));
+                break;
+            }
+
+            let build_graph = build_graph_backup
+                .as_ref()
+                .cloned()
+                .expect("build graph backup should be present when update is true");
+            let want_files = rerun_filter
+                .0
+                .keys()
+                .copied()
+                .flat_map(artifacts_from_target)
+                .flat_map(|artifact| {
+                    build_meta
+                        .artifacts
+                        .get(&artifact)
+                        .expect("test result from the last test run should be present")
+                        .as_slice()
+                });
+            let result = moonbuild::execution::execute_build_partial(
+                build_config,
+                build_graph,
+                target_dir,
+                Some(&build_meta),
+                user_log,
+                want_files.map(PathBuf::as_path),
+            )?;
+            drop(lock);
+            if !result.successful() {
+                exit_code = exit_code.max(result.return_code_for_success());
+                continue 'backends;
+            }
+            filter = TestFilter {
+                filter: Some(rerun_filter),
+                name_filter: cmd.filter.clone(),
+            };
+        }
+
+        test_result.print_result(&build_meta, cli.verbose, cmd.test_failure_json);
+        let summary = test_result.summary();
+        let backend_hint =
+            display_backend_hint.then_some(build_meta.target_backend().to_backend_ext());
+        print_test_summary(
+            summary.total,
+            summary.passed,
+            cli.quiet,
+            backend_hint,
+            user_log,
+        );
+        if summary.total != summary.passed {
+            exit_code = exit_code.max(2);
+        }
     }
     Ok(exit_code)
 }
 
-/// The nodes wanted to run a test for a build target
-fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
+/// The results needed to rerun a test target after snapshot promotion.
+fn artifacts_from_target(x: BuildTarget) -> [ArtifactKey; 3] {
     [
-        BuildPlanNode::make_executable(x),
-        BuildPlanNode::generate_test_info(x),
+        ArtifactKey::Executable {
+            package: x.package,
+            target_kind: x.kind,
+        },
+        ArtifactKey::GeneratedTestDriver {
+            package: x.package,
+            target_kind: x.kind,
+        },
+        ArtifactKey::GeneratedTestMetadata {
+            package: x.package,
+            target_kind: x.kind,
+        },
     ]
 }
 
 /// Apply the hierarchy of filters of packages, file and index
 #[allow(clippy::too_many_arguments)]
-#[instrument(level = "debug", skip(affected_packages, resolve_output, out_filter))]
+#[instrument(level = "debug", skip(affected_packages, discovered, out_filter))]
 fn apply_list_of_filters(
     affected_packages: &[PackageId],
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     package_filter: &[String],
     file_filter: Option<&str>,
     index_filter: Option<TestIndexRange>,
@@ -1027,16 +1262,16 @@ fn apply_list_of_filters(
     value_tracing: bool,
     target_backend: TargetBackend,
     out_filter: &mut TestFilter,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
-        resolve_output,
+        discovered,
         affected_packages.iter().copied(),
         package_filter,
     );
     let filtered_package_ids = package_matches.matched;
     ensure_packages_support_backend(
-        resolve_output,
+        discovered,
         filtered_package_ids.iter().copied(),
         target_backend,
     )?;
@@ -1077,7 +1312,7 @@ fn apply_list_of_filters(
         let package_names = || {
             filtered_package_ids
                 .iter()
-                .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+                .map(|id| discovered.pkg_dirs.get_package(*id).fqn.to_string())
                 .collect::<Vec<_>>()
         };
         // Multiple filtered package, check if file/index filtering is applied
@@ -1098,7 +1333,7 @@ fn apply_list_of_filters(
         }
     } else {
         // No package matched
-        output.warn(format!(
+        user_log.warn(format!(
             "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
             package_filter.join(", ")
         ));
@@ -1117,32 +1352,22 @@ fn apply_list_of_filters(
 /// both the test filter and user intent wants the same `BuildTarget` list, but
 /// the earliest time we can get them is during intent calculation. Since the
 /// fuzzy matching process is quite complex, we would avoid doing it twice.
-#[instrument(level = "debug", skip(resolve_output, cmd, out_filter))]
+#[instrument(level = "debug", skip(discovered, cmd, out_filter))]
 fn calc_user_intent(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
-    target_backend: moonutil::common::TargetBackend,
-    output: UserDiagnostics,
+    target_backend: moonutil::target::TargetBackend,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let all_affected_packages: Vec<_> = resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect();
+    let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
     calc_user_intent_from_packages(
-        resolve_output,
+        discovered,
         cmd,
         out_filter,
         &all_affected_packages,
         target_backend,
-        output,
+        user_log,
         cmd.explicit_path_filters,
         cmd.package.as_deref(),
     )
@@ -1150,24 +1375,24 @@ fn calc_user_intent(
 
 #[allow(clippy::too_many_arguments)]
 fn calc_user_intent_from_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
-    target_backend: moonutil::common::TargetBackend,
-    output: UserDiagnostics,
+    target_backend: moonutil::target::TargetBackend,
+    user_log: &UserLog,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     debug!(
         package_count = all_affected_packages.len(),
-        module_count = resolve_output.local_modules().len(),
+        module_count = discovered.local_modules().len(),
         "calculating user intent for workspace"
     );
     let backend_affected_packages = all_affected_packages
         .iter()
         .copied()
-        .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+        .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
         .collect::<Vec<_>>();
 
     let directive = if !explicit_path_filters.is_empty() {
@@ -1181,10 +1406,10 @@ fn calc_user_intent_from_packages(
 
         if let [path] = explicit_path_filters {
             let (dir, filename) = canonicalize_with_filename(path)?;
-            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let pkg = filter_pkg_by_dir(discovered, &dir)?;
 
-            if !package_supports_backend(resolve_output, pkg, target_backend) {
-                ensure_packages_support_backend(resolve_output, [pkg], target_backend)?;
+            if !package_supports_backend(discovered, pkg, target_backend) {
+                ensure_packages_support_backend(discovered, [pkg], target_backend)?;
             }
 
             out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
@@ -1197,15 +1422,15 @@ fn calc_user_intent_from_packages(
                 let (dir, filename) = canonicalize_with_filename(path)?;
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
-                let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                    output.info(format!(
+                let Ok(pkg) = filter_pkg_by_dir(discovered, &dir) else {
+                    user_log.info(format!(
                         "skipping path `{}` because it is not a package in the current work context.",
                         path.display()
                     ));
                     continue;
                 };
 
-                if !package_supports_backend(resolve_output, pkg, target_backend) {
+                if !package_supports_backend(discovered, pkg, target_backend) {
                     unsupported_paths.push((path, pkg));
                     continue;
                 }
@@ -1221,21 +1446,17 @@ fn calc_user_intent_from_packages(
                         unsupported_packages.push(*pkg_id);
                     }
                 }
-                ensure_packages_support_backend(
-                    resolve_output,
-                    unsupported_packages,
-                    target_backend,
-                )?;
+                ensure_packages_support_backend(discovered, unsupported_packages, target_backend)?;
             }
 
             for (path, pkg_id) in unsupported_paths {
-                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-                output.info(format!(
+                let pkg = discovered.pkg_dirs.get_package(pkg_id);
+                user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
                     target_backend,
-                    format_supported_backends(resolve_output, pkg_id),
+                    format_supported_backends(discovered, pkg_id),
                 ));
             }
 
@@ -1246,7 +1467,7 @@ fn calc_user_intent_from_packages(
         let value_tracing = cmd.build_flags.enable_value_tracing;
         apply_list_of_filters(
             all_affected_packages,
-            resolve_output,
+            discovered,
             package_filter,
             cmd.file.as_deref(),
             *cmd.index,
@@ -1255,14 +1476,14 @@ fn calc_user_intent_from_packages(
             value_tracing,
             target_backend,
             out_filter,
-            output,
+            user_log,
         )?
     } else {
         // No filter: emit one intent per package (Test/Bench)
         let intents: Vec<_> = backend_affected_packages
             .iter()
             .copied()
-            .map(UserIntent::Test)
+            .map(|package| cmd.package_intent(package))
             .collect();
         debug!(intent_count = intents.len(), "generated default intents");
         return Ok(intents.into());
@@ -1279,7 +1500,9 @@ fn calc_user_intent_from_packages(
             package_count = pkgs.len(),
             "building intents from filtered targets"
         );
-        pkgs.into_iter().map(UserIntent::Test).collect::<Vec<_>>()
+        pkgs.into_iter()
+            .map(|package| cmd.package_intent(package))
+            .collect::<Vec<_>>()
     } else {
         vec![]
     };
@@ -1289,7 +1512,7 @@ fn calc_user_intent_from_packages(
 
 fn resolve_scoped_test_selection(
     cmd: &TestLikeSubcommand<'_>,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     scoped_packages: Vec<PackageId>,
 ) -> anyhow::Result<ResolvedTestSelection> {
     if !cmd.explicit_path_filters.is_empty() {
@@ -1298,7 +1521,7 @@ fn resolve_scoped_test_selection(
             let Ok((dir, filename)) = canonicalize_with_filename(path) else {
                 continue;
             };
-            let Ok(package) = filter_pkg_by_dir(resolve_output, &dir) else {
+            let Ok(package) = filter_pkg_by_dir(discovered, &dir) else {
                 continue;
             };
             if scoped_packages.contains(&package) {
@@ -1330,16 +1553,16 @@ fn selected_test_index(cmd: &TestLikeSubcommand<'_>) -> anyhow::Result<Option<Te
 }
 
 fn package_names(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     packages: &[PackageId],
 ) -> Vec<String> {
     packages
         .iter()
-        .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+        .map(|id| discovered.pkg_dirs.get_package(*id).fqn.to_string())
         .collect()
 }
 
-fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
+fn test_intents_from_filter(filter: &TestFilter, cmd: &TestLikeSubcommand<'_>) -> Vec<UserIntent> {
     let Some(filt) = filter.filter.as_ref() else {
         return vec![];
     };
@@ -1350,27 +1573,26 @@ fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
             packages.push(target.package);
         }
     }
-    packages.into_iter().map(UserIntent::Test).collect()
-}
-
-fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
-    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
+    packages
+        .into_iter()
+        .map(|package| cmd.package_intent(package))
+        .collect()
 }
 
 fn resolve_test_target_selections(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
-    let selected = resolve_selected_test_packages(resolve_output, cmd, output)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selected = resolve_selected_test_packages(discovered, cmd, user_log)?;
+    let mut selections = group_packages_by_preferred_backend(discovered, selected);
 
     for selection in &mut selections {
         selection.packages = selection
             .packages
             .iter()
             .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .filter(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend))
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
@@ -1379,13 +1601,13 @@ fn resolve_test_target_selections(
 }
 
 fn resolve_selected_test_packages(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.explicit_path_filters.is_empty() {
-        return Ok(select_packages(cmd.explicit_path_filters, output, |dir| {
-            filter_pkg_by_dir(resolve_output, dir)
+        return Ok(select_packages(cmd.explicit_path_filters, user_log, |dir| {
+            filter_pkg_by_dir(discovered, dir)
         })?
         .into_iter()
         .map(|(_, pkg_id)| pkg_id)
@@ -1393,40 +1615,17 @@ fn resolve_selected_test_packages(
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = resolve_output
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                resolve_output
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            })
-            .collect();
-        return Ok(match_packages_with_fuzzy(
-            resolve_output,
-            all_affected_packages,
-            package_filter,
-        )
-        .matched);
+        let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
+        return Ok(
+            match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
+        );
     }
 
-    Ok(resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect())
+    Ok(rr_build::local_packages(discovered).collect())
 }
 
 fn validate_original_package_selection_filters(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
     let Some(package_filter) = cmd.package.as_deref() else {
@@ -1442,17 +1641,8 @@ fn validate_original_package_selection_filters(
     }
 
     let matched_packages = match_packages_with_fuzzy(
-        resolve_output,
-        resolve_output
-            .local_modules()
-            .iter()
-            .flat_map(|&module_id| {
-                resolve_output
-                    .pkg_dirs
-                    .packages_for_module(module_id)
-                    .into_iter()
-                    .flat_map(|packages| packages.values().copied())
-            }),
+        discovered,
+        rr_build::local_packages(discovered),
         package_filter,
     )
     .matched;
@@ -1464,7 +1654,7 @@ fn validate_original_package_selection_filters(
     let package_names = || {
         matched_packages
             .iter()
-            .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+            .map(|id| discovered.pkg_dirs.get_package(*id).fqn.to_string())
             .collect::<Vec<_>>()
     };
 
@@ -1484,314 +1674,39 @@ fn validate_original_package_selection_filters(
     Ok(())
 }
 
-#[instrument(level = Level::DEBUG, skip_all)]
-#[allow(clippy::too_many_arguments)] // FIXME
-fn rr_test_from_plan(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    display_backend_hint: Option<()>,
-    build_meta: &rr_build::BuildMeta,
-    build_graph: rr_build::BuildInput,
-    filter: TestFilter,
-    build_only_artifacts: Option<&mut TestArtifacts>,
-) -> Result<i32, anyhow::Error> {
-    let user_diagnostics = UserDiagnostics::from_flags(cli);
-    let built = match execute_test_build_from_plan(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        build_meta,
-        build_graph,
-        user_diagnostics,
-    )? {
-        TestBuildExecution::DryRun => return Ok(0),
-        TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
-        TestBuildExecution::Built(built) => *built,
-    };
-
-    if cmd.outline {
-        let entries = collect_test_outline(
-            build_meta,
-            &filter,
-            cmd.include_skipped,
-            cmd.run_mode == RunMode::Bench,
-        )?;
-        print_test_outline(&entries, user_diagnostics);
-        return Ok(0);
-    }
-
-    if cmd.build_only {
-        // Match legacy behavior: create JS wrappers and print test artifacts as JSON
-        let test_artifacts = collect_test_artifacts_for_build_only(
-            build_meta,
-            target_dir,
-            &filter,
-            cmd.include_skipped,
-            cmd.run_mode == RunMode::Bench,
-        )?;
-        if let Some(artifacts) = build_only_artifacts {
-            artifacts
-                .artifacts_path
-                .extend(test_artifacts.artifacts_path);
-            artifacts
-                .test_filter_args
-                .extend(test_artifacts.test_filter_args);
-        } else {
-            println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
-        }
-        return Ok(0);
-    }
-
-    if cmd.profile {
-        return profile::profile_test_invocations(
-            cli,
-            target_dir,
-            build_meta,
-            &filter,
-            cmd.include_skipped,
-        );
-    }
-
-    let mut test_result = crate::run::run_tests(
-        build_meta,
-        source_dir,
-        target_dir,
-        &filter,
-        cmd.include_skipped,
-        cmd.run_mode == RunMode::Bench,
-        cli.verbose,
-        cmd.no_parallelize,
-        cmd.build_flags.jobs,
-    )?;
-    let _initial_summary = test_result.summary();
-
-    let backend_hint = display_backend_hint
-        .map(|_| TargetBackend::from(build_meta.target_backend).to_backend_ext());
-
-    if cmd.update {
-        let mut loop_count = 1; // matching legacy; we already have 1 test run before
-        let mut last_test_result = None;
-        loop {
-            // Promote test results
-            let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
-            let (rerun_count, rerun_filter_raw) =
-                perform_promotion(&build_meta.resolve_output.pkg_dirs, promotion_source)
-                    .expect("Failed to promote tests");
-            debug!(
-                rerun_count,
-                pending_targets = rerun_filter_raw.0.len(),
-                "promotion pass completed"
-            );
-            if rerun_filter_raw.is_empty() {
-                break; // Nothing to promote
-            }
-
-            // Apply loop count limits
-            if loop_count >= cmd.update_limit {
-                user_diagnostics.warn(format!(
-                    "reached the limit of {} update passes, stopping further updates.",
-                    cmd.update_limit
-                ));
-                break;
-            }
-            loop_count += 1;
-
-            // Get the graph from backup
-            let build_graph = built
-                .build_graph_backup
-                .as_ref()
-                .cloned()
-                .expect("build graph backup should be present when update is true");
-
-            // Calculate which files to rebuild
-            let want_files = rerun_filter_raw
-                .0
-                .keys()
-                .cloned() // All targets to rerun
-                .flat_map(node_from_target) // converted to nodes
-                .flat_map(|node| {
-                    // their artifacts
-                    build_meta
-                        .artifacts
-                        .get(&node)
-                        .expect("test node from the last test run should have artifact")
-                        .artifacts
-                        .as_slice()
-                });
-
-            // Run the build
-            let result = rr_build::execute_build_partial(
-                &built.build_config,
-                build_graph,
-                target_dir,
-                Box::new(|work| {
-                    trace!("requesting rerun artifacts");
-                    for file_path in want_files {
-                        let file_path_str = file_path.to_string_lossy();
-                        let file = work
-                            .lookup(&file_path_str)
-                            .expect("File should exist in work");
-                        work.want_file(file).context("Failed to want file")?;
-                    }
-                    Ok(())
-                }),
-            )?;
-
-            if !result.successful() {
-                return Ok(result.return_code_for_success());
-            }
-
-            // Run the tests
-            let rerun_filter = TestFilter {
-                filter: Some(rerun_filter_raw),
-                name_filter: cmd.filter.clone(),
-            };
-            let new_test_result = crate::run::run_tests(
-                build_meta,
-                source_dir,
-                target_dir,
-                &rerun_filter,
-                cmd.include_skipped,
-                cmd.run_mode == RunMode::Bench,
-                cli.verbose,
-                cmd.no_parallelize,
-                cmd.build_flags.jobs,
-            )?;
-            let _rerun_summary = new_test_result.summary();
-
-            // Merge test results
-            test_result.merge(&new_test_result);
-            last_test_result = Some(new_test_result);
-        }
-    }
-
-    test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
-    let summary = test_result.summary();
-    print_test_summary(
-        summary.total,
-        summary.passed,
-        cli.quiet,
-        backend_hint,
-        user_diagnostics,
-    );
-
-    if summary.total == summary.passed {
-        Ok(0)
-    } else {
-        Ok(2)
-    }
-}
-
-struct BuiltTestExecution {
-    _lock: FileLock,
-    build_config: BuildConfig,
-    build_graph_backup: Option<rr_build::BuildInput>,
-}
-
-enum TestBuildExecution {
-    DryRun,
-    BuildFailed(i32),
-    Built(Box<BuiltTestExecution>),
-}
-
-#[allow(clippy::too_many_arguments)]
-fn execute_test_build_from_plan(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    build_meta: &rr_build::BuildMeta,
-    build_graph: rr_build::BuildInput,
-    user_diagnostics: UserDiagnostics,
-) -> Result<TestBuildExecution, anyhow::Error> {
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
-        // Test command lines depend on generated metadata, which dry-run does
-        // not materialize. Profile dry-run therefore stops at the build graph.
-        return Ok(TestBuildExecution::DryRun);
-    }
-
-    let lock = FileLock::lock(target_dir)?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(target_dir, build_meta, cmd.run_mode)?;
-
-    let build_config = BuildConfig::from_flags(
-        cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        user_diagnostics,
-    );
-
-    // since n2 build consumes the graph, we back it up for reruns
-    let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
-    debug!(
-        success = result.successful(),
-        exit_code = result.return_code_for_success(),
-        "executed rupes-recta build"
-    );
-
-    if !result.successful() {
-        return Ok(TestBuildExecution::BuildFailed(
-            result.return_code_for_success(),
-        ));
-    }
-
-    Ok(TestBuildExecution::Built(Box::new(BuiltTestExecution {
-        _lock: lock,
-        build_config,
-        build_graph_backup,
-    })))
-}
-
-/// Collect test artifacts for --build-only mode, matching legacy behavior.
-/// For JS backend, creates .cjs wrapper files and returns those paths.
-/// For other backends, returns the executable paths directly.
+/// Print one combined artifact listing for --build-only mode across all backends.
+/// For JS backend, serializes each invocation's filter arguments.
+/// For other backends, lists executable paths directly.
 /// Only includes artifacts that have actual tests (skips empty test executables).
-fn collect_test_artifacts_for_build_only(
-    build_meta: &rr_build::BuildMeta,
-    target_dir: &Path,
-    filter: &TestFilter,
+fn print_test_artifacts(
+    builds: &[(BuildMeta, TestFilter)],
     include_skipped: bool,
     bench: bool,
-) -> anyhow::Result<TestArtifacts> {
-    use moonbuild_rupes_recta::model::RunBackend;
-
+) -> anyhow::Result<()> {
     let mut artifacts_path = vec![];
     let mut test_filter_args = vec![];
 
-    for invocation in
-        crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
-    {
-        // For JS backend, create .cjs wrapper file (matching legacy behavior)
-        if matches!(build_meta.target_backend, RunBackend::Js) {
-            // Write package.json to prevent node from using outer "type": "module"
-            let _ = std::fs::write(target_dir.join("package.json"), "{}");
-            if let Some(parent) = invocation.executable.parent() {
-                let _ = std::fs::write(parent.join("package.json"), "{}");
+    for (build_meta, filter) in builds {
+        for invocation in
+            crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
+        {
+            // JS build-only output carries the serialized filter beside the executable.
+            if matches!(build_meta.target_backend(), TargetBackend::Js) {
+                let filter_arg = serde_json::to_string(&invocation.args)
+                    .context("failed to serialize JS test filter args")?;
+
+                artifacts_path.push(invocation.executable);
+                test_filter_args.push(filter_arg);
+            } else {
+                artifacts_path.push(invocation.executable);
             }
-
-            let filter_arg = serde_json::to_string(&invocation.args)
-                .context("failed to serialize JS test filter args")?;
-
-            artifacts_path.push(invocation.executable);
-            test_filter_args.push(filter_arg);
-        } else {
-            artifacts_path.push(invocation.executable);
         }
     }
 
-    Ok(TestArtifacts {
+    let artifacts = TestArtifacts {
         artifacts_path,
         test_filter_args,
-    })
+    };
+    println!("{}", serde_json_lenient::to_string(&artifacts)?);
+    Ok(())
 }

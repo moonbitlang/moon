@@ -1,0 +1,2 @@
+#!/bin/sh
+printf 'fake-moon-cram-location=subdir\n'

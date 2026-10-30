@@ -3,9 +3,85 @@
 Sometimes one may want to use different implementations on different platforms.
 MoonBuild provides conditional compilation features for this case.
 
-**All conditional compilation features are currently file-based.**
-MoonBuild currently does not support conditional compilation on granularity less than one file.
-It also does not support that based on the architecture or operating system of native target platforms.
+MoonBuild supports conditional source-file selection and conditional package imports.
+It does not select individual declarations within a source file; the compiler
+handles source-level `#cfg` attributes. Import conditions do not currently
+support architecture, operating system, optimization level, or custom cfg keys.
+
+## Conditional package imports
+
+The compiler and formatter also parse `moon.pkg`, so compiling or formatting
+these manifests requires toolchain support for `#cfg` import blocks. Moon's
+parser, dependency graphs, and dry-run planning support the syntax independently.
+
+In `moon.pkg`, `#cfg` applies to the immediately following import block:
+
+```moonbit
+#cfg(target = "native")
+import {
+  "example/platform/native" @platform,
+}
+
+#cfg(not(target = "native"))
+import {
+  "example/platform/portable" @platform,
+}
+
+#cfg(any(target = "native", target = "js"))
+import {
+  "example/platform/test_helpers",
+} for "test"
+```
+
+Conditions support `target = "wasm"`, `"wasm-gc"`, `"js"`, `"native"`, or
+`"llvm"`, the constants `true` and `false`, and nested `all(...)`, `any(...)`,
+and `not(...)`. `not` takes exactly one condition. `all()` is true and `any()`
+is false. Each `#cfg(...)` takes exactly one condition; stacked attributes
+are combined with AND. Unknown targets and unsupported expressions are errors.
+
+Repeated import blocks are concatenated in declaration order. Conditions work
+with regular imports, `for "test"`, and `for "wbtest"` (including their legacy
+prefix forms). Unannotated blocks remain unconditional. Aliases, including
+`*`, retain their existing meaning.
+
+Within each import kind, repeating a package warns if the declarations are
+active for any common backend. All declarations are retained in source order,
+including their aliases and import-all settings. Disjoint conditions do not
+produce a duplicate warning. Legacy import options override the corresponding
+DSL blocks before these warnings; both `test_import`/`test-import` and
+`wbtest_import`/`wbtest-import` retain that behavior.
+
+Package declarations retain each import's selected backend set. Module resolution
+and package discovery run once. Command adapters then select the requested
+backends, including module preferences when `--target` is omitted, before solving
+package relationships. `ResolvedProject.package_relations` maps each requested backend to a
+complete `PackageRelations`, including its import graph, virtual users,
+implementation mappings, and transitive support.
+
+For non-watch commands, any requested backend's resolution error fails the
+command immediately. Each watch pass resolves only its selected backends. For
+example, `moon check --target js,native` fails if JS resolution fails, even if
+Native succeeds. `moon check --target native` does not resolve erroneous JS-only
+imports. Errors are neither stored in `ResolvedProject` nor deferred to planning.
+An inactive import does not resolve, create an alias, or contribute to cycle
+checks or transitive backend support. Virtual implementation and override syntax
+remains unconditional, with the resolved data owned by each backend's relationship.
+
+Planning, lowering, and backend-scoped metadata consume the same resolved
+relationship. Its derived support sets describe the intersection of active
+dependencies' declared backends; they do not predict another backend's imports.
+This applies across build, check, run, test, bench, info, doc, bundle, and proof
+operations. `moon tree --package` resolves only its selected backend and shows that
+backend's imports; see [supported targets](supported-targets.md).
+
+Conditions do not declare module dependencies or infer package
+`supported_targets`. Imports from another module still require that module
+to be declared in the module's dependencies. Only active import edges
+participate in dependency compatibility checks.
+
+Conditional imports are a `moon.pkg` feature. The parser retains its JSON-shaped
+DSL representation; package conversion preserves import conditions in the package
+model. Legacy `moon.pkg.json` imports remain unconditional.
 
 ## Filename-based conditional compilation
 
@@ -14,6 +90,10 @@ can be prefixed with a dot and then a platform target name (js, wasm, wasm-gc, n
 so that the file will only be included when compiling to the given target platform.
 For example, `my_file.js.mbt` will only be included for building
 when the target platform is JavaScript (`moon build --target js`).
+
+The `native` suffix also matches the `llvm` backend: `my_file.native.mbt` is
+included for both `--target native` and `--target llvm`, matching the compiler's
+`#cfg(target="native")` behavior. The `llvm` suffix matches only `--target llvm`.
 
 Tests (`*_test.mbt`, `*_wbtest.mbt`) also accepts the same prefixes.
 In this case, the prefix is located between the test suffixes and extension,
@@ -25,7 +105,7 @@ it will be always included in compilation.
 
 ## Configuration-based conditional compilation
 
-The `targets` field in `moon.pkg.json` configures conditional compilation of source files
+The `targets` field in `moon.pkg` configures conditional compilation of source files
 in additional to the filename-based approach.
 
 The `targets` field is a map whose keys are the filenames,
@@ -51,8 +131,12 @@ Atoms are the basic building blocks of conditional expressions:
 - `"js"` - JavaScript backend
 - `"wasm"` - WebAssembly (MVP) backend
 - `"wasm-gc"` - WebAssembly with garbage collection backend
-- `"native"` - Native C backend
+- `"native"` - Native C or LLVM backend
 - `"llvm"` - LLVM backend
+
+This also applies inside logical expressions: `["not", "native"]` excludes
+both Native and LLVM builds, while `["not", "llvm"]` excludes only LLVM builds.
+File metadata reports the same backend selection.
 
 **Optimization Level Atoms:**
 
@@ -88,22 +172,22 @@ Conditional expressions can be specified in two formats:
 
 **String format (single atom):**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": "js"
   }
-}
+)
 ```
 
 **Array format (complex expressions):**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": ["and", "js", "release"]
   }
-}
+)
 ```
 
 Note: Arrays can be nested to create complex expressions with multiple levels of logical operations.
@@ -112,66 +196,66 @@ Note: Arrays can be nested to create complex expressions with multiple levels of
 
 When an array starts with an atom (not a logical operator), it is treated as an implicit OR operation:
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": ["js", "wasm", "native"]
   }
-}
+)
 ```
 
 This is equivalent to:
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "file.mbt": ["or", "js", "wasm", "native"]
   }
-}
+)
 ```
 
 #### Examples
 
 **Basic target selection:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "web_impl.mbt": "js",
     "wasm_impl.mbt": ["wasm", "wasm-gc"],
     "native_impl.mbt": "native"
   }
-}
+)
 ```
 
 **Optimization-specific code:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "debug_helpers.mbt": "debug",
     "optimized_impl.mbt": ["and", "release", ["or", "js", "wasm-gc"]]
   }
-}
+)
 ```
 
 **Excluding specific targets:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "fallback_impl.mbt": ["not", "native"],
     "non_wasm_impl.mbt": ["not", "wasm", "wasm-gc"]
   }
-}
+)
 ```
 
 **Complex conditions:**
 
-```json
-{
+```moonbit
+options(
   "targets": {
     "complex_impl.mbt": ["and", ["or", "js", "wasm-gc"], ["not", "debug"]]
   }
-}
+)
 ```

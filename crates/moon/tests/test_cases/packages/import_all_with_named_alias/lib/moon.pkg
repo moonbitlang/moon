@@ -1,0 +1,5 @@
+import {}
+
+import {
+  "test/import_all_with_named_alias/dep" @lib *
+} for "test"

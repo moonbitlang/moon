@@ -1,40 +1,38 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! User intent, a small shim to reduce friction between user commands and
-//! build plan nodes.
+//! User intent, a small shim from command semantics to requested artifacts.
 //!
-//! A user intent may map to 0 or more build plan nodes, based on the actual
-//! package definition and status. This is for simplifying the CLI command
-//! node generation logic.
+//! A user intent may map to zero or more logical results based on the resolved
+//! package. Build planning, rather than the CLI adapter, selects the actions
+//! that provide those results for the current backend.
 
-use moonutil::{common::TargetBackend, mooncakes::ModuleId};
+use moonutil::{resolution::ModuleId, target::TargetBackend, user_log::UserLog};
 
 use crate::{
-    build_plan::InputDirective,
+    build_plan::{ArtifactKey, InputDirective},
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
-    resolve::ResolveOutput,
-    user_warning::UserWarning,
+    model::{BuildTarget, PackageId, TargetKind},
+    resolve::ResolvedProject,
 };
 
-/// A concise set of user actions that expand into concrete BuildPlanNode groups.
+/// A concise set of user actions that expand into requested artifact groups.
 #[derive(Clone, Copy, Debug)]
 pub enum UserIntent {
     /// Build a package (produce either .core or an executable).
@@ -47,7 +45,9 @@ pub enum UserIntent {
     Prove(PackageId),
     /// Test a package (emit test driver and build for all test targets).
     Test(PackageId),
-    /// Bench a package (same node set shape as Test; runtime behavior differs elsewhere).
+    /// List a package's tests (generate test metadata without building executables).
+    TestOutline(PackageId),
+    /// Bench a package (same artifact set as Test; runtime behavior differs elsewhere).
     Bench(PackageId),
     /// Bundle all non-virtual packages in a module.
     Bundle(ModuleId),
@@ -58,14 +58,14 @@ pub enum UserIntent {
 }
 
 impl UserIntent {
-    /// Append the BuildPlanNode(s) represented by this intent to `out`.
+    /// Append the logical artifacts represented by this intent to `out`.
     ///
     /// This does not deduplicate; callers can handle that if necessary.
-    pub fn append_nodes(
+    pub fn append_artifacts(
         self,
-        resolved: &ResolveOutput,
-        out: &mut Vec<BuildPlanNode>,
-        user_messages: &mut Vec<UserWarning>,
+        resolved: &ResolvedProject,
+        out: &mut Vec<ArtifactKey>,
+        user_log: &UserLog,
         directive: &InputDirective,
         target_backend: TargetBackend,
     ) {
@@ -74,13 +74,27 @@ impl UserIntent {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: compile its interface instead of building code
-                    out.push(BuildPlanNode::BuildVirtual(pkg));
+                    out.push(ArtifactKey::VirtualContractMi { package: pkg });
                 } else {
-                    let t = pkg.build_target(TargetKind::Source);
-                    if is_linkable(pkg_info) {
-                        out.push(BuildPlanNode::make_executable(t));
+                    // FIXME: Wasm and JS still request `Executable` for a
+                    // foreign library, which their `LinkCore` provides. Request
+                    // `ForeignLibrary` on every backend, with `LinkCore` as its
+                    // Wasm and JS provider, so a foreign library has one
+                    // artifact identity on all backends.
+                    if is_foreign_library(pkg_info) && target_backend.is_native() {
+                        // Native and LLVM hosts link a foreign library as a
+                        // static archive instead of running an executable.
+                        out.push(ArtifactKey::ForeignLibrary { package: pkg });
+                    } else if is_linkable(pkg_info) {
+                        out.push(ArtifactKey::Executable {
+                            package: pkg,
+                            target_kind: TargetKind::Source,
+                        });
                     } else {
-                        out.push(BuildPlanNode::build_core(t));
+                        out.push(ArtifactKey::CoreIr {
+                            package: pkg,
+                            target_kind: TargetKind::Source,
+                        });
                     }
                 }
             }
@@ -89,8 +103,10 @@ impl UserIntent {
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: we can't do anything
                 } else {
-                    let t = pkg.build_target(TargetKind::Source);
-                    out.push(BuildPlanNode::make_executable(t));
+                    out.push(ArtifactKey::Executable {
+                        package: pkg,
+                        target_kind: TargetKind::Source,
+                    });
                 }
             }
             UserIntent::Check(pkg) => {
@@ -108,7 +124,10 @@ impl UserIntent {
                     //   check tests (virtual impls cannot be tested).
                     // - When checking tests, always check blackbox tests, and
                     //   only check whitebox if it has related files.
-                    out.push(BuildPlanNode::check(source_target));
+                    out.push(ArtifactKey::CheckMi {
+                        package: pkg,
+                        target_kind: TargetKind::Source,
+                    });
                     if !pkg_info.is_virtual_impl()
                         && resolved.local_modules().contains(&pkg_info.module)
                     {
@@ -123,9 +142,12 @@ impl UserIntent {
                                 source_supports_backend,
                                 whitebox_target,
                                 target_backend,
-                                user_messages,
+                                user_log,
                             ) {
-                                out.push(BuildPlanNode::check(whitebox_target));
+                                out.push(ArtifactKey::CheckMi {
+                                    package: pkg,
+                                    target_kind: TargetKind::WhiteboxTest,
+                                });
                             }
                         }
                         let blackbox_target = pkg.build_target(TargetKind::BlackboxTest);
@@ -134,20 +156,30 @@ impl UserIntent {
                             source_supports_backend,
                             blackbox_target,
                             target_backend,
-                            user_messages,
+                            user_log,
                         ) {
-                            out.push(BuildPlanNode::check(blackbox_target));
+                            out.push(ArtifactKey::CheckMi {
+                                package: pkg,
+                                target_kind: TargetKind::BlackboxTest,
+                            });
                         }
                     }
                 } else {
                     // Pure virtual package: compile its interface
-                    out.push(BuildPlanNode::BuildVirtual(pkg));
+                    out.push(ArtifactKey::VirtualContractMi { package: pkg });
                 }
             }
             UserIntent::Prove(pkg) => {
-                out.push(BuildPlanNode::prove(pkg.build_target(TargetKind::Source)));
+                out.push(ArtifactKey::ProofWhyml {
+                    package: pkg,
+                    target_kind: TargetKind::Source,
+                });
+                out.push(ArtifactKey::ProofReport {
+                    package: pkg,
+                    target_kind: TargetKind::Source,
+                });
             }
-            UserIntent::Test(pkg) | UserIntent::Bench(pkg) => {
+            UserIntent::Test(pkg) | UserIntent::TestOutline(pkg) | UserIntent::Bench(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !pkg_info.has_implementation() {
                     // Pure virtual package: we can't do anything
@@ -163,7 +195,8 @@ impl UserIntent {
                         target_backend,
                     );
 
-                    // Emit paired nodes per test target; skip Whitebox if no *_wbtest.mbt declared.
+                    // Use the same target selection for execution and outline; skip
+                    // Whitebox if no *_wbtest.mbt is declared.
                     for &k in TargetKind::all_tests() {
                         if k == TargetKind::WhiteboxTest
                             && !has_whitebox_decl(resolved, pkg, directive)
@@ -177,33 +210,58 @@ impl UserIntent {
                                 source_supports_backend,
                                 t,
                                 target_backend,
-                                user_messages,
+                                user_log,
                             )
                         {
                             continue;
                         }
-                        out.push(BuildPlanNode::make_executable(t));
-                        out.push(BuildPlanNode::generate_test_info(t));
+                        if !matches!(self, UserIntent::TestOutline(_)) {
+                            out.push(ArtifactKey::Executable {
+                                package: pkg,
+                                target_kind: k,
+                            });
+                            out.push(ArtifactKey::GeneratedTestDriver {
+                                package: pkg,
+                                target_kind: k,
+                            });
+                        }
+                        out.push(ArtifactKey::GeneratedTestMetadata {
+                            package: pkg,
+                            target_kind: k,
+                        });
+                    }
+                    if target_backend == TargetBackend::Js
+                        && !matches!(self, UserIntent::TestOutline(_))
+                    {
+                        out.push(ArtifactKey::NodeTestPackageConfig { package: pkg });
                     }
                 }
             }
             UserIntent::Bundle(m) => {
-                out.push(BuildPlanNode::Bundle(m));
+                out.push(ArtifactKey::BundleResult { module: m });
             }
             UserIntent::Doc(module_id) => {
-                out.push(BuildPlanNode::BuildDocs(module_id));
+                out.push(ArtifactKey::DocsDir { module: module_id });
             }
             UserIntent::Info(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if !(pkg_info.is_virtual_impl() || pkg_info.is_virtual()) {
-                    out.push(BuildPlanNode::GenerateMbti(
-                        pkg.build_target(TargetKind::Source),
-                    ));
+                    out.push(ArtifactKey::GeneratedMbti {
+                        package: pkg,
+                        target_kind: TargetKind::Source,
+                    });
                 }
                 // else: skip virtual packages to mirror `moon info` behavior
             }
         }
     }
+}
+
+/// Whether the package is declared with `pkgtype(kind: "foreign_library")`,
+/// or the legacy `link: true`, without also being a main package.
+#[inline]
+fn is_foreign_library(pkg: &DiscoveredPackage) -> bool {
+    pkg.raw.force_link && !pkg.raw.is_main
 }
 
 #[inline]
@@ -213,7 +271,7 @@ fn is_linkable(pkg: &DiscoveredPackage) -> bool {
 
 /// Determine if any *_wbtest.mbt files are declared by the package.
 fn has_whitebox_decl(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     pkg_id: PackageId,
     directive: &InputDirective,
 ) -> bool {
@@ -235,34 +293,34 @@ fn has_whitebox_decl(
 }
 
 fn should_skip_test_target(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     source_supports_backend: bool,
     target: BuildTarget,
     target_backend: TargetBackend,
-    user_messages: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> bool {
     if !source_supports_backend || target_realizes_backend(resolved, target, target_backend) {
         return false;
     }
 
-    warn_or_info_test_target_skip(resolved, target, target_backend, user_messages);
+    warn_or_info_test_target_skip(resolved, target, target_backend, user_log);
     true
 }
 
 fn target_realizes_backend(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     target: BuildTarget,
     target_backend: TargetBackend,
 ) -> bool {
-    realizable_supported_backends(resolved, target).contains(&target_backend)
+    realizable_supported_backends(resolved, target, target_backend).contains(&target_backend)
 }
 
 fn realizable_supported_backends(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     target: BuildTarget,
+    target_backend: TargetBackend,
 ) -> &indexmap::IndexSet<TargetBackend> {
-    resolved
-        .pkg_rel
+    resolved.package_relations[&target_backend]
         .realizable_supported_targets
         .get(&target)
         // Targets without edges are absent from the graph; in that case their
@@ -276,12 +334,12 @@ fn realizable_supported_backends(
 }
 
 fn warn_or_info_test_target_skip(
-    resolved: &ResolveOutput,
+    resolved: &ResolvedProject,
     target: BuildTarget,
     target_backend: TargetBackend,
-    user_messages: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) {
-    let realizable = realizable_supported_backends(resolved, target);
+    let realizable = realizable_supported_backends(resolved, target, target_backend);
 
     let pkg = resolved.pkg_dirs.get_package(target.package);
     let test_kind = match target.kind {
@@ -291,10 +349,10 @@ fn warn_or_info_test_target_skip(
     };
 
     if realizable.is_empty() {
-        user_messages.push(UserWarning::warn(format!(
-            "Skipping {test_kind} tests for package `{}`: the test target is unrealizable on every backend because its dependency graph has no supported backend intersection",
+        user_log.warn(format!(
+            "Skipping {test_kind} tests for package `{}`: the active dependency graph has no supported backend intersection",
             pkg.fqn
-        )));
+        ));
         return;
     }
 
@@ -303,10 +361,10 @@ fn warn_or_info_test_target_skip(
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     supported_backends.sort();
-    user_messages.push(UserWarning::info(format!(
-        "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Realizable backends: [{}]",
+    user_log.info(format!(
+        "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Supported backend intersection of active dependencies: [{}]",
         pkg.fqn,
         target_backend,
         supported_backends.join(", ")
-    )));
+    ));
 }

@@ -1,0 +1,10 @@
+import {
+  "username/hello/lib7",
+}
+
+import {
+  "username/hello/lib5",
+  "username/hello/lib6",
+} for "wbtest"
+
+supported_targets = "wasm-gc"

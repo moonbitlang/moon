@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,7 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-use moonbuild_rupes_recta::ResolveOutput;
+use moonbuild_rupes_recta::DiscoveredProject;
 use moonutil::package::MoonPkgGenerate;
 
 pub(crate) struct PrebuildWatchPaths {
@@ -29,16 +29,16 @@ pub(crate) struct PrebuildWatchPaths {
 }
 
 /// Generate the list of paths to watch or ignore for pre-builds during watch mode.
-pub(crate) fn rr_get_prebuild_watch_paths(env: &ResolveOutput) -> PrebuildWatchPaths {
+pub(crate) fn rr_get_prebuild_watch_paths(discovered: &DiscoveredProject) -> PrebuildWatchPaths {
     let mut ignored_paths = vec![];
     let mut watched_paths = vec![];
 
-    for &m in env.local_modules() {
-        let Some(packages) = env.pkg_dirs.packages_for_module(m) else {
+    for &m in discovered.local_modules() {
+        let Some(packages) = discovered.pkg_dirs.packages_for_module(m) else {
             continue;
         };
         for &pkg_id in packages.values() {
-            let pkg = env.pkg_dirs.get_package(pkg_id);
+            let pkg = discovered.pkg_dirs.get_package(pkg_id);
             if let Some(prebuild) = pkg.raw.pre_build.as_ref() {
                 push_prebuild_paths(
                     &mut ignored_paths,
@@ -47,17 +47,6 @@ pub(crate) fn rr_get_prebuild_watch_paths(env: &ResolveOutput) -> PrebuildWatchP
                     &pkg.root_path,
                 );
             }
-
-            ignored_paths.extend(
-                pkg.mbt_lex_files
-                    .iter()
-                    .map(|path| path.with_extension("mbt")),
-            );
-            ignored_paths.extend(
-                pkg.mbt_yacc_files
-                    .iter()
-                    .map(|path| path.with_extension("mbt")),
-            );
         }
     }
 
@@ -88,8 +77,10 @@ fn push_prebuild_paths(
 mod tests {
     use super::*;
 
-    use moonbuild_rupes_recta::resolve::{ResolveConfig, resolve};
-    use moonutil::dirs::WorkspaceEnv;
+    use moonbuild_rupes_recta::resolve::{
+        ProjectPreparationConfig, prepare_synced_project, sync_module_dependencies,
+    };
+    use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
 
     #[test]
     fn rr_get_prebuild_watch_paths_skips_empty_modules() {
@@ -97,15 +88,37 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         fs::write(
-            temp_dir.path().join("moon.mod.json"),
-            r#"{"name":"user/empty"}"#,
+            temp_dir.path().join("moon.mod"),
+            r#"
+name = "user/empty"
+"#,
         )
         .unwrap();
 
-        let resolved = resolve(
-            &ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto),
-            temp_dir.path(),
-            &temp_dir.path().join(".mooncakes"),
+        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+            false,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
+        let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        }
+        .query_from(temp_dir.path(), WorkspaceEnv::Auto)
+        .unwrap()
+        .select(&user_log)
+        .unwrap()
+        .package_dirs()
+        .unwrap();
+        let synced_modules =
+            sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
+        let resolved = prepare_synced_project(
+            &preparation_config,
+            synced_modules,
+            moonutil::target::TargetBackend::all(),
+            &user_log,
         )
         .unwrap();
 
@@ -120,33 +133,57 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         fs::write(
-            temp_dir.path().join("moon.mod.json"),
-            r#"{"name":"user/prebuild"}"#,
+            temp_dir.path().join("moon.mod"),
+            r#"
+name = "user/prebuild"
+"#,
         )
         .unwrap();
         fs::write(
-            temp_dir.path().join("moon.pkg.json"),
-            r#"{
-                "pre-build": [
-                    {
-                        "input": ["assets/a.txt", "assets/b.txt"],
-                        "output": ["generated/a.mbt", "generated/b.txt"],
-                        "command": "tool"
-                    }
-                ]
-            }"#,
+            temp_dir.path().join("moon.pkg"),
+            r#"
+rule(
+  name: "generate",
+  command: "tool",
+)
+dev_build(
+  rule: "generate",
+  input: ["assets/a.txt", "assets/b.txt"],
+  output: ["generated/a.mbt", "generated/b.txt"],
+)
+"#,
         )
         .unwrap();
 
-        let resolved = resolve(
-            &ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto),
-            temp_dir.path(),
-            &temp_dir.path().join(".mooncakes"),
+        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
+            false,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
+        let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        }
+        .query_from(temp_dir.path(), WorkspaceEnv::Auto)
+        .unwrap()
+        .select(&user_log)
+        .unwrap()
+        .package_dirs()
+        .unwrap();
+        let synced_modules =
+            sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
+        let resolved = prepare_synced_project(
+            &preparation_config,
+            synced_modules,
+            moonutil::target::TargetBackend::all(),
+            &user_log,
         )
         .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
-        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let root = std::fs::canonicalize(temp_dir.path()).unwrap();
         assert_eq!(
             watch_paths.watched_paths,
             vec![root.join("assets/a.txt"), root.join("assets/b.txt"),]

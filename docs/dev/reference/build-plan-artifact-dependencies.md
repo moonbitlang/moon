@@ -1,0 +1,490 @@
+# Build plan artifact dependencies
+
+Rupes Recta uses one logical artifact dependency model in Build Plan. The
+current lowering representation realizes those artifacts as concrete paths:
+
+```text
+BuildPlan     = requested artifacts + provider actions + artifact requirements
+build_lower   = command construction + physical artifact realization
+ExecutionPlan = ActionId actions + concrete input/output paths + requested artifact results
+n2::Build     = executor representation produced by the n2 adapter
+```
+
+The key invariant is that an action depends on artifacts, not on another
+action's position or an output selector attached to an action edge. Provider
+selection is a planning concern. Lowering receives the selected provider only
+as the context needed to realize the artifact's physical path.
+
+## Backend configuration
+
+Once the project is resolved, the CLI adapter selects the Target Backend and
+constructs `CompileConfig` directly from the original flags and captured
+environment inputs. Commands use its backend to expand user intent to requested
+`ArtifactKey` values. There is no preliminary compilation configuration;
+dependency synchronization and resolution use their own `ProjectPreparationConfig`.
+
+Each compilation has one `BackendConfig` value:
+
+```rust
+pub enum BackendConfig {
+    Wasm { use_wat: bool, wasi_link: bool, new_allocator: bool, collect_ref_cycle: bool },
+    WasmGc { use_wat: bool },
+    Js,
+    Native {
+        direct_object_candidate: Option<NativeTarget>,
+        allocator: NativeAllocator,
+        collect_ref_cycle: bool,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
+    Llvm {
+        allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
+}
+```
+
+The command adapter captures the Native direct-object candidate from the host
+and environment. Native payload form is derived inside build planning from that
+explicit candidate, the profile, and requested packages, then stored in private
+Backend Plan metadata. The selected mode is not a `BackendConfig` input; both
+Native planning and lowering consume the one value stored in the plan.
+`MOON_COLLECT_REF_CYCLE=1` is captured by the command adapter into the Wasm or
+Native configuration. It does not change Native payload selection: both
+generated C and direct object output support cycle collection.
+Backend-specific metadata queries and action hydration belong to `BackendPlan`.
+The outer `BuildPlan` exposes artifact relationships and subplan composition;
+RR lowering borrows its backend subplan to read the selected mode and hydrate
+backend actions, without copying that state into another configuration.
+
+The CLI also supplies a `DebugInfoRequest`, separating requested symbol detail
+from native runtime backtrace support. After selecting the payload form, Backend
+Plan resolves and stores whether MoonBit compilation emits debug information.
+`BuildCStubsInfo` and `CompileGeneratedCInfo` separately own their native compiler
+debug and optimization settings. A backtrace-only request may require debug
+information for generated C without changing C stubs. Runtime backtrace support
+is resolved into `BuildRuntimeInfo`, and dSYM requirements become `GenerateDsym`
+actions. Lowering consumes these resolved decisions from the plan.
+
+`BackendConfig` is the compile-wide source of truth held in `CompileConfig`.
+Planning and lowering borrow that same configuration. Lowering also borrows
+its artifact path resolver through `LoweringContext`; artifact-path selection
+rules stay in lowering. The command adapter supplies OS and compiler paths
+only for Native and LLVM, where the backend variants require them. These
+configuration values perform no lazy host or environment lookups inside RR.
+
+An `ArtifactKey` does not repeat the backend, optimization profile, or run mode
+because one `BuildPlan` is scoped to one such configuration. If one plan later
+contains multiple configurations, that scope must become an explicit part of
+artifact identity before providers can be shared safely.
+
+## Build Artifact identity
+
+`ArtifactKey` names a logical result independently of its provider action and
+physical output root. The complete enum covers package compilation, proof,
+test generation, linking, native support, and documentation results.
+Representative variants are:
+
+```rust
+pub enum ArtifactKey {
+    CheckMi { package: PackageId, target_kind: TargetKind },
+    BuildMi { package: PackageId, target_kind: TargetKind },
+    CoreIr { package: PackageId, target_kind: TargetKind },
+    VirtualContractMi { package: PackageId },
+
+    ProofMi { package: PackageId, target_kind: TargetKind },
+    ProofWhyml { package: PackageId, target_kind: TargetKind },
+    ProofReport { package: PackageId, target_kind: TargetKind },
+
+    CStubObject { package: PackageId, source: PathBuf },
+    CStubLibrary { package: PackageId },
+    RuntimeObject { source: PathBuf },
+    RuntimeLibrary,
+    GeneratedTestDriver { package: PackageId, target_kind: TargetKind },
+    LinkedCore { package: PackageId, target_kind: TargetKind },
+    GeneratedCObject { package: PackageId, target_kind: TargetKind },
+    Executable { package: PackageId, target_kind: TargetKind },
+    ForeignLibrary { package: PackageId },
+
+    // other logical artifacts
+}
+```
+
+`CoreIr` names the compiler IR artifact written with the `.core` extension. It
+is unrelated to the `moonbitlang/core` package.
+
+Artifact identity never contains an execution `ActionId` or `_build` root.
+`CheckMi`, `BuildMi`, and `VirtualContractMi` are distinct because they are not
+interchangeable compiler inputs even though they all currently use `.mi`.
+`EmitProof` and `Prove` are alternative providers of the same `ProofMi` and
+`ProofWhyml` artifacts; only `Prove` additionally provides `ProofReport`.
+Provider selection belongs to the invocation lifecycle, not artifact identity.
+
+C-stub, runtime, and native foreign-library artifacts are realized as static
+archives. A `ForeignLibrary` consumes C-stub and runtime objects directly
+rather than their archives, because static archives do not nest.
+`RuntimeObject` identifies each separately compiled runtime translation unit
+consumed by the runtime archive.
+
+For generated-C native builds, `MakeExecutable` and `ArchiveForeignLibrary`
+consume `GeneratedCObject`, provided by `CompileGeneratedC`. Only that compile
+action consumes the C form of `LinkedCore` and observes toolchain headers.
+Object-producing backends let final linking consume `LinkedCore` directly.
+
+`Executable { package, target_kind }` includes test executables: source,
+inline-test, whitebox-test, and blackbox-test targets have different
+`TargetKind` values. Backend and profile remain configuration scope rather than
+being repeated in every package artifact.
+
+C-stub artifact keys use normalized declaration paths rather than list indices;
+their source paths are relative to the package root. Runtime-object keys use
+their stable path within the toolchain library layout, such as `runtime/foo.c`,
+rather than the installed toolchain root. Ordinary package sources and
+prebuild outputs remain concrete paths in package file sets rather than Build
+Artifacts.
+
+An output needs an artifact key only when Build Plan selects or consumes it as
+an independently meaningful result. Merely declaring a physical output to n2
+or a cache does not give it Build Artifact identity. Incidental compiler side
+files such as source maps or declaration files remain part of their producing
+action's physical behavior until Moon can independently request or consume
+them.
+
+A dSYM bundle is a declared physical output of the `GenerateDsym` execution
+action, not an `ArtifactKey`. Its concrete path lets n2, dry-run, and cache
+consumers track it without exposing it as a caller-requested Build Artifact.
+
+## Planning IR
+
+`BuildPlan` composes two action-owning subplans with one artifact registry:
+
+```rust
+pub struct BuildPlan {
+    backend: BackendPlan,
+    package_prebuild: PackagePrebuildPlan,
+    artifacts: ArtifactRegistry,
+    requested_artifacts: IndexSet<ArtifactKey>,
+}
+
+struct BackendPlan {
+    actions: IndexSet<BuildPlanNode>,
+    // metadata required to lower backend actions
+}
+
+struct PackagePrebuildPlan {
+    actions: IndexMap<PackagePrebuildKey, PrebuildInfo>,
+}
+
+enum BuildPlanActionKey {
+    Backend(BuildPlanNode),
+    PackagePrebuild(PackagePrebuildKey),
+}
+
+struct ArtifactRegistry {
+    providers: HashMap<ArtifactKey, BuildPlanNode>,
+    artifacts_by_provider: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
+    requirements_by_consumer: HashMap<BuildPlanNode, IndexSet<ArtifactKey>>,
+}
+```
+
+There is no weighted action-edge graph and no `FileDependencyKind`. A provider
+may expose multiple artifacts, but each artifact has at most one provider in a
+plan. At the end of planning, validation requires every requested artifact and
+every Artifact Requirement to have a provider.
+
+`BuildPlanActionKey` is the action union used while lowering the two subplans.
+Backend nodes retain `BuildTarget` and therefore `TargetKind` only where those
+concepts apply. Package prebuild actions are keyed by their declaration
+coordinate: commands use the manifest declaration index. The artifact registry
+currently contains only semantic backend artifacts; concrete package-file
+relationships are resolved after lowering.
+
+Builders name only what they consume:
+
+```rust
+self.require_artifact(
+    consumer,
+    ArtifactKey::BuildMi { package, target_kind },
+);
+self.require_artifact(
+    consumer,
+    ArtifactKey::CoreIr { package, target_kind },
+);
+```
+
+The central artifact rule maps each key to its provider action and schedules
+that action. Builders do not encode `Check`, `BuildCore`, or another provider
+in a dependency edge.
+
+The same rule handles invocation roots. `UserIntent` names results such as
+`CheckMi`, `CoreIr`, or `Executable`; it does not construct provider actions.
+For example, `Executable` selects `LinkCore` for Wasm/JS backends and
+`MakeExecutable` for native/LLVM backends. The complete caller-requested
+artifact set is recorded before provider expansion, so proof-surface artifacts
+select `Prove` when the invocation also requests `ProofReport`, and otherwise
+select `EmitProof`.
+
+JavaScript test intents also request one `NodeTestPackageConfig` for each
+package. Its dedicated package-scoped `GenerateNodeTestPackageConfig` provider
+lowers to `moon tool generate-node-test-package-config`, which writes the empty
+`package.json` that prevents Node from inheriting module settings from the
+user's project. Test-driver actions do not own this artifact; whitebox,
+blackbox, and inline test targets share the same package boundary.
+
+Normal downstream `BuildCore` actions require both Build MI and Core IR, so an
+implementation change that leaves the interface stable still rebuilds the
+dependent package. Check actions require Check MI only. `LinkCore` and
+`Bundle` require Core IR, while `BuildDocs` requires Check MI.
+
+Virtual-contract compilation chooses dependency MI artifacts according to the
+invocation lifecycle:
+
+```rust
+match run_mode {
+    RunMode::Check | RunMode::Prove => ArtifactKey::CheckMi { package, target_kind },
+    RunMode::Build | RunMode::Run | RunMode::Test | RunMode::Bench | RunMode::Bundle => {
+        ArtifactKey::BuildMi { package, target_kind }
+    }
+    RunMode::Format => unreachable!(),
+}
+```
+
+There is no Check-to-Build coalescing. Check MI and Build MI have different
+providers and cannot substitute for one another.
+
+## Package prebuild actions
+
+Each backend-specific `BuildPlan` composes a `BackendPlan` and a
+`PackagePrebuildPlan`. The package-prebuild subplan owns complete custom
+prebuild actions; it is not a second semantic artifact model.
+
+Package discovery and prebuild declarations contribute concrete paths to the
+package file sets used by Build Target Projection. A path does not gain a
+different identity depending on whether discovery already observed it or a
+prebuild action declares it as an output. Lowering places those paths in the
+consumer's input observations and declares the producing prebuild action's
+outputs. Execution Plan consumers resolve matching input and output paths to
+the same producer relationship, including pipelines between custom commands.
+
+Unconsumed package prebuild actions remain planned under the existing
+semantics. Their outputs become n2 start nodes because no later action consumes
+them.
+
+The prebuild action retains its resolved execution paths and cwd. Its output
+paths are physical execution behavior, not semantic `ArtifactKey` values.
+
+## Execution Plan
+
+Lowering consumes `BuildPlan` directly and inserts complete `ExecutionAction`
+values into the Execution Plan. A borrowed `BuildAction` value may be hydrated
+on demand while constructing a command, but there is no stored
+`BuildActionPlan`, draft execution action, or second action topology between
+semantic planning and execution lowering.
+
+`ExecutionPlan` assigns an `ActionId` to each concrete `ExecutionAction`.
+Declared outputs are instead keyed by their concrete paths, which are already
+required to be unique within the plan. An execution action has one collection
+of `InputObservation` values. A regular file observation resolves to a
+producer when its path matches a declared output; an unmatched path is
+supplied across the Execution Plan boundary. This distinction is therefore a
+property of the completed graph, not something each command builder must
+classify. Every declared output retains its producer `ActionId` and optional
+`ArtifactKey`, so adapters and identity consumers can follow the relationship
+without another dependency object, output arena, or plan-wide artifact
+registry. One action may provide several Build Artifacts, and a Build Artifact
+may realize to one or several physical outputs.
+
+The builder's artifact registry exists only while actions are inserted. It
+annotates declared outputs and resolves requested artifacts to output paths for
+command results. Artifact requirements have already been realized as concrete
+input observations before insertion. The final Execution Plan therefore does
+not impose one global `ArtifactKey` namespace on future composition of
+independently scoped Build Plans.
+
+`moon fmt` is a Lightweight Command with no logical Build Artifact selection,
+so it constructs complete Execution Actions directly after its lightweight
+project discovery. It does not synthesize a Build Plan, but shares the same
+Execution Plan, n2 adapter, dry-run, and execution path.
+
+Multi-backend invocations keep one independently scoped Build Plan and
+Execution Plan per backend through lowering. The command layer then composes
+the Execution Plans before n2 adaptation. Action IDs are remapped into the
+combined plan; Build Artifact annotations remain plan-scoped metadata on their
+physical outputs and are not used as a cross-backend namespace.
+
+Concrete output paths are the composition boundary. If two plans declare the
+same physical output, composition shares the provider only when the complete
+Execution Action, its complete output set, all output artifact identities,
+and project/dependency membership agree. Conflicting membership, partial
+overlap, or different execution behavior is rejected before n2 sees the graph. Package prebuild actions therefore collapse naturally without a
+prebuild-specific merge rule, while backend outputs remain separate under
+their backend-specific paths.
+
+Physical-only declared outputs carry `artifact: None`. They still participate
+in executor roots and cache identity, but do not become user-requestable Build
+Artifacts. `ActionId` is a process-local arena handle, not a persistent content
+identity or cache digest. Concrete output paths likewise are not cache digests.
+
+## Action lowering and n2 adaptation
+
+`build_lower` walks semantic `BuildPlanActionKey` values, hydrates the metadata
+for one action on demand, and resolves every `ArtifactKey` through
+`ArtifactPathResolver`. `ActionArtifacts` realizes outputs with the current
+action as provider context and requirements with the selected provider action as
+context:
+
+```rust
+let outputs = plan
+    .provided_artifacts(node)
+    .map(|artifact| realize(action, artifact));
+
+let dependencies = plan
+    .artifact_dependencies(node)
+    .map(|(provider, artifact)| realize(provider, artifact));
+```
+
+The `ExecutionPlanBuilder` registers each realized semantic output, assigns
+`ActionId` handles, and rejects duplicate artifact providers or physical-output
+paths. An `ExecutionAction` combines input observations, declared outputs, the
+concrete process command, diagnostics, and executor/cache policy. Consumers
+resolve a regular input path through the plan's declared-output index. The
+private `moonbuild::execution::n2` module alone registers n2 files and builds;
+Rupes Recta lowering and the Execution Plan expose no n2 projection interface.
+
+Every lowered command retains structured argv. Response files change only its
+execution transport. The first argument's resolved executable path is another
+input observation unless a dependency artifact already supplies that path.
+Input observations are sorted and required to be unique before n2 adaptation.
+A realized artifact dependency is the sole input declaration for its physical
+path; command metadata such as `-check-mi` and `-impl-virtual` describes how
+the compiler uses that local path without declaring it again. An installed
+standard-library virtual contract has no provider in the current Build Plan,
+so lowering also retains its exact interface file as an ordinary n2 input.
+
+Moon does not pass `-std-path` to `moonc`. Installed standard-library
+interfaces reach the compiler only as explicit `-i` dependencies, and `moonc`
+loads indirect dependencies through the paths in `all_pkgs.json`. A local
+indirect interface is covered by its producer, but an installed one has none.
+Compiler actions therefore observe every installed standard-library `.mi`
+reachable from their direct standard-library dependencies as an ordinary file
+input. Native lowering enumerates the chosen toolchain include tree and
+attaches its headers as ordinary inputs.
+
+Actions with broader unmodeled observations remain cache-ineligible. This
+includes proof execution, documentation generation, arbitrary prebuild shell
+commands, and unstructured custom compiler or linker flags. Lowering does not
+infer inputs by parsing those flags.
+
+Dry-run and planner graph snapshots consume `ExecutionPlan` directly. Commands
+retain their structured argv even when execution uses response files. Concrete
+file inputs resolve through the declared-output index to their producers;
+recursive standard-library observations are omitted from the file-edge dump.
+`default_output_paths` selects unconsumed declared outputs, including auxiliary
+and prebuild outputs. Dry-run also includes explicitly requested artifacts and
+preserves filename-first, dependency-before-consumer ordering.
+
+## Project and dependency artifacts
+
+Manifest projects and synthesized single-file projects use the same planning,
+compilation, and execution entry points. `BuildInput` contains the complete
+`ExecutionPlan` and action-backend information for diagnostics. It has no
+execution mode, phase selection, or executor database location. Execution
+receives the target directory; its private `n2` module owns the `.moon_db` path
+and opens the database. Partial execution accepts requested output paths and
+resolves their prerequisites internally; callers never receive an n2 `Work`
+value.
+
+Lowering records `is_dependency_artifact` on each artifact's declared physical
+outputs using the owning module's membership in the resolved project's root
+modules. Packages in a root module remain part of the project, including
+libraries imported by a requested main package. Local-path dependencies
+outside the root modules have the same role as registry dependencies.
+Module-wide artifacts use their module identity. Physical-only outputs and
+runtime artifacts without module ownership remain unmarked.
+
+The marker expresses project membership independently of execution order,
+freshness, and cache eligibility. It preserves the distinction for future
+experiments with dependency-artifact reuse without adding a phase partitioner
+or a second artifact registry. Classification occurs before composition while
+package and module IDs belong to their originating resolution. Shared outputs
+must agree on this membership.
+
+All planned actions enter the same n2 graph. Each artifact's existing producer
+edges determine dependency ordering. Persistent scripts use the same
+incremental database as before; changing only the script does not require
+rebuilding unchanged dependencies. There is no invocation-wide barrier between
+dependency and project work.
+
+Project, workspace, and standalone builds execute one n2 graph per invocation.
+A single-backend invocation projects one Execution Plan directly; a
+multi-backend invocation first composes its independently lowered Execution
+Plans as described above. Execution translates the composed plan's
+action-backend map to a private map keyed by n2 Build ID. n2 reports completed
+action status and output with that Build ID, including silent failures; the
+execution module returns captured output with its backend already attached.
+This lets JSON-formatted `moon check` execute
+the same composed graph while the command layer still annotates each compiler
+diagnostic with its backend.
+
+Lowering records whether each action emits MoonBit compiler diagnostics or
+opaque tool output. Execution retains this classification with each callback's
+output; only compiler output is parsed as diagnostics or has diagnostic paths
+rewritten. Prebuild output remains tool output even when it contains matching JSON.
+
+In structured diagnostic modes, when a failed action has no compiler error,
+the executor supplies a Moon-authored error naming the action and its command.
+Human commands report it through `UserLog`; `moon check --json` includes it in `messages` and
+`summary.moon_errors`, alongside any captured child output. Compiler errors
+remain in `diagnostics` without an additional action error, even when hidden by
+the diagnostic limit. Raw mode forwards tool output without classifying or
+counting it; a silent failure still gets a Moon-authored action error. Verbose
+mode reports commands for already-explained failures as informational User Logs,
+not additional errors. Human failure summaries retain the "Failed with" wording
+and report compiler diagnostic counts only when nonzero, so a tool failure is
+not described as "0 errors".
+Interrupted actions also carry action context. Failed check executions return
+exit code 1 in both human and JSON modes.
+
+The n2 failure budget applies to the composed invocation-wide graph rather
+than restarting for each backend. JSON output reports every diagnostic that
+completed before that executor boundary; diagnostic-limit summaries include
+machine-readable hidden error and warning counts when output was truncated.
+
+## Results above lowering
+
+Caller intent is accepted as `ArtifactKey` values at the compile entry point.
+Plan construction selects provider actions from those keys. `ExecutionPlan`,
+`CompileOutput`, and `BuildMeta` preserve the keys alongside their realized
+physical paths, so upper layers do not recover result meaning from provider
+nodes or output positions.
+
+For non-native backends, `LinkCore` directly provides `Executable`; there is no
+planning-only `MakeExecutable` alias and every planned action lowers exactly
+once. Native and LLVM plans retain the distinct `LinkedCore` intermediate and a
+real `MakeExecutable` provider.
+
+A foreign-library package requests `ForeignLibrary` instead of `Executable` on
+Native and LLVM; `ArchiveForeignLibrary` provides it. Its payload member is the
+`LinkedCore` object, except for generated-C Native, where the
+`CompileGeneratedC` provider of `GeneratedCObject` first compiles the generated
+C. Native payload-form selection treats a requested `ForeignLibrary` like an
+`Executable`, so package `cc-flags` select generated C for both.
+
+For native macOS debug targets, `Executable` remains the requested Build
+Artifact. Planning also includes `GenerateDsym`; its unconsumed concrete output
+is an n2 start node, so ordinary execution and current dry-run still run
+`dsymutil` without exposing the dSYM directory as a caller result.
+
+## Checks
+
+The obsolete upper-layer models should have no matches:
+
+```sh
+rg -n '\bBuildProduct\b|\bFileDependencyKind\b|\bBuildActionPlan\b|\bLoweredAction\b' \
+  crates/moonbuild-rupes-recta/src
+```
+
+The lowering boundary should consume `BuildPlan` and produce `ExecutionPlan`.
+Adapters should consume `ExecutionPlan`; they should not reconstruct semantic
+dependencies from physical path collisions or n2 start-node behavior.

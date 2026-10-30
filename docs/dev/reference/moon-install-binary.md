@@ -1,18 +1,13 @@
 # Behavior of `moon install` (binary installer)
 
 > This page documents the binary-install mode of `moon install`.
-> It does not describe the legacy no-arg dependency-sync behavior.
 >
-> Status: expected behavior in this branch as of March 2, 2026.
+> Status: expected behavior in this branch as of September 18, 2026.
 
 ## Scope
 
-`moon install` has two modes:
-
-1. `moon install` with no package arguments:
-   legacy dependency install/sync for the current project (deprecated).
-2. `moon install <package-selector> ...`:
-   binary installer mode (this document).
+`moon install <package-selector> ...` installs binary packages. A source is
+required, either as a positional argument or through `--path`.
 
 ## Selector model
 
@@ -30,12 +25,17 @@ This document uses two different path notions:
 Important details for package paths:
 
 - `package_relative_path` is relative to the module's `source` root, not necessarily module root.
-- When `source` is set in `moon.mod.json`, the `source` directory name is not part of the package path.
+- When `source` is set in `moon.mod`, the `source` directory name is not part of the package path.
 
 Example:
 
 - module root: `/repo`
-- `moon.mod.json`: `{ "name": "user/proj", "source": "src" }`
+- `moon.mod`:
+
+  ```moonbit
+  name = "user/proj"
+  source = "src"
+  ```
 - package directory on disk: `/repo/src/tools/fmt`
 - package path: `user/proj/tools/fmt` (not `user/proj/src/tools/fmt`)
 
@@ -45,8 +45,9 @@ Given `SOURCE`:
 
 1. If `--path <PATH>` is set, use local path mode.
 2. Else if `SOURCE` looks like a local path (`./`, `../`, `/`, or Windows drive), use local path mode.
-3. Else if `SOURCE` looks like a git URL, use git mode.
-4. Else, use registry mode.
+3. Else if `SOURCE` is a supported GitHub commit permalink, use archive mode.
+4. Else if `SOURCE` looks like a git URL, use git mode.
+5. Else, use registry mode.
 
 Practical caveat:
 
@@ -62,7 +63,7 @@ Wildcard rule: if selector ends with `/...` (or `...`), install all main package
 When matching packages after discovery:
 
 - registry selectors are matched by **package path**,
-- local/git selectors are matched by **filesystem path** (then converted to discovered packages).
+- local/git/archive selectors are matched by **filesystem path** (then converted to discovered packages).
 
 ## Expected behavior by mode
 
@@ -77,7 +78,12 @@ Input form:
 Rules:
 
 - No wildcard: exact package path in the resolved registry module.
-- With wildcard: all `is-main: true` packages under the wildcard prefix.
+- With wildcard: all executable packages under the wildcard prefix.
+- Without a version, query the registry's current latest version. An unavailable
+  registry permits an explicit warning and fallback to cached latest; a remote
+  missing-module result or invalid metadata remains an error.
+- An explicit version is kept exactly as written. Git metadata is still
+  synchronized for source and dependency acquisition, without a latest query.
 
 ### Local path mode
 
@@ -93,7 +99,42 @@ Rules:
 - No wildcard: exact package at that filesystem path.
 - If the exact filesystem path is module root, install that module's root package only
   (root package path is empty string relative to `source` root).
-- With wildcard suffix: all `is-main: true` packages under the matched filesystem path prefix.
+- With wildcard suffix: all executable packages under the matched filesystem path prefix.
+
+### GitHub permalink mode
+
+Input form:
+
+- `moon install https://github.com/<owner>/<repo>/tree/<commit>[/<path...>]`
+- `<commit>` is a full 40-character commit SHA.
+- A root permalink can take a separate `PATH_IN_REPO`; paths support `/...`.
+
+Rules:
+
+- Only public repositories on `github.com` are supported. GitCode and other
+  hosted browser URL schemes are not recognized as permalinks.
+- Download `/<owner>/<repo>/archive/<commit>.tar.gz`, following HTTP redirects,
+  and extract the snapshot's single wrapper directory into temporary storage.
+  The wrapper name is discovered rather than reconstructed from the URL.
+- The requested SHA need not be on a branch: installation depends on GitHub
+  serving its archive. There is no Git clone/checkout or fallback in this mode.
+- Respect the archive supplied by the repository host, including
+  `.gitattributes` export exclusions and substitutions. A selected directory
+  absent from the archive is reported as missing; Moon does not override the
+  repository author's archive rules. No extra LFS or submodule download occurs.
+- Archive extraction preserves executable modes on Unix and symlinks where
+  supported by the host platform. Extraction cannot write through symlinks
+  outside the temporary destination.
+- Branch/tag tree URLs and abbreviated commit IDs are rejected. Use the
+  repository URL with `PATH_IN_REPO` and `--branch`, `--tag`, or `--rev` instead.
+  Moon does not guess where slash-containing branch names end.
+- Decode the selected path as UTF-8 exactly once; literal `+` stays `+`.
+  Query strings and fragments do not change the selected archive or package.
+- Credentials and custom ports in permalink URLs are rejected.
+- `--rev`, `--branch`, and `--tag` conflict with a permalink. A separate
+  `PATH_IN_REPO` conflicts with a directory already selected in the URL.
+- Package selection, nested-module discovery, wildcards, and repository path
+  containment use the same rules as Git mode, against the extracted source.
 
 ### Git mode
 
@@ -106,29 +147,31 @@ Rules:
 
 - Clone repo, optionally checkout ref.
 - `PATH_IN_REPO` is interpreted as a filesystem path inside the cloned repository.
-- Resolve selected filesystem path and find nearest ancestor containing `moon.mod.json` as module root.
+- Resolve the selected path and find the nearest ancestor containing `moon.mod`
+  or `moon.mod.json` as module root.
 - No wildcard:
   - no `PATH_IN_REPO`: install root package of detected module.
   - with `PATH_IN_REPO`: install exact package at the selected filesystem path.
-- With wildcard in `PATH_IN_REPO`: install all `is-main: true` packages under that filesystem prefix.
+- With wildcard in `PATH_IN_REPO`: install all executable packages under that filesystem prefix.
 - Path escape (`..` resolving outside cloned repo) is rejected.
 
 Practical caveat:
 
 - If `PATH_IN_REPO` is omitted, the repository root must itself be a module root
-  (contain `moon.mod.json`) for installation to proceed.
+  (contain `moon.mod` or `moon.mod.json`) for installation to proceed.
   For nested-module repositories, pass `PATH_IN_REPO` explicitly.
 
 ## Shared behavior
 
 These rules apply in all binary installer modes:
 
-- Only packages with `is-main: true` are installable.
+- Only executable packages (`pkgtype(kind: "executable")`) are installable.
 - Build target is native executable in release mode.
 - Output directory defaults to `~/.moon/bin` and can be overridden by `--bin`.
 - Binary name:
   - last segment of package path for non-root packages
-  - module unqualified name for root package
+  - module's default package alias for the root package, e.g. `b` for both
+    `a/b` and `a/b/v2`
 - Reserved Moon toolchain binary names are not overwritten.
 - Name collisions between selected packages are allowed; later installs overwrite earlier files.
 - `--dry-run` does not write binaries; it prints what would be built/installed.
@@ -141,7 +184,7 @@ identify source, intent, and target.
 | Dimension | `moon install` (binary mode) | `go install` | `cargo install` |
 | --- | --- | --- | --- |
 | Source identification | Resolution order: `--path` local override, then local-path-looking `SOURCE` (`./`, `../`, `/`, drive), then git URL, else registry package path. | Package args are import paths/patterns by default. Rooted paths or args beginning with `.`/`..` are interpreted as filesystem paths. With `@version`, args must be package paths/patterns (not relative/absolute paths). | Default source is crates.io. Source is switched explicitly via `--git`, `--path`, `--registry`, or `--index`. |
-| Intent identification | Default intent: exact package install. Wildcard intent: `/...` suffix means install all matching `is-main: true` packages under prefix. | Default intent: exact package/import path(s). Wildcard intent: `...` package patterns expand to all matches; `x/...` includes `x` and descendants because wildcard can match empty string. | Exact crate install (no package-pattern wildcard like `...`). For a selected crate package, Cargo installs all binary targets by default (`--bins` behavior), or one via `--bin <name>`. |
+| Intent identification | Default intent: exact package install. Wildcard intent: `/...` suffix means install all matching executable packages under prefix. | Default intent: exact package/import path(s). Wildcard intent: `...` package patterns expand to all matches; `x/...` includes `x` and descendants because wildcard can match empty string. | Exact crate install (no package-pattern wildcard like `...`). For a selected crate package, Cargo installs all binary targets by default (`--bins` behavior), or one via `--bin <name>`. |
 | Target identification | Registry mode matches logical package path. Local/git mode matches filesystem path, then maps discovered package(s) under the module. | Target is package/import path (or package in a directory when filesystem path form is used). | Target is crate identity. If source contains multiple crates (registry/git), crate argument disambiguates. `--path` points to a local crate directory. |
 | Relative path handling | Bare `foo/bar` is treated as registry package path. Use `./foo/bar` / `../foo/bar` for local filesystem semantics. | Rooted / `.` / `..`-prefixed args are filesystem paths; otherwise import-path semantics. | Relative filesystem path is only interpreted through `--path`; positional args are crate names. |
 | Version / revision selection | Registry: `user/module/pkg@version`. Git: `--rev`, `--branch`, `--tag`. | `pkg@version` installs in module-aware mode and ignores current-module `go.mod` (subject to `go install` constraints). | Registry versions via `crate@version` or `--version`; git refs via `--branch`, `--tag`, `--rev`. |

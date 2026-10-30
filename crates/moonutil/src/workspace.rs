@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -26,10 +26,9 @@ use std::{
 use anyhow::Context;
 use serde::{Deserialize, Deserializer};
 
-use crate::{
-    common::{MOON_WORK, TargetBackend},
-    moon_pkg,
-};
+use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend};
+
+pub const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,6 +37,23 @@ pub struct MoonWork {
     pub use_paths: Vec<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_preferred_target")]
     pub preferred_target: Option<TargetBackend>,
+}
+
+impl MoonWork {
+    pub fn read(path: &Path) -> anyhow::Result<Self> {
+        if path.file_name().and_then(|name| name.to_str()) != Some(MOON_WORK) {
+            anyhow::bail!(
+                "expected workspace file to be `{}`, got `{}`",
+                MOON_WORK,
+                path.display()
+            );
+        }
+
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
+        parse_workspace_dsl(&content)
+            .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
+    }
 }
 
 fn deserialize_preferred_target<'de, D>(deserializer: D) -> Result<Option<TargetBackend>, D::Error>
@@ -72,33 +88,6 @@ pub fn workspace_manifest_path(dir: &Path) -> Option<PathBuf> {
     dsl.exists().then_some(dsl)
 }
 
-pub fn read_workspace(dir: &Path) -> anyhow::Result<Option<MoonWork>> {
-    let Some(path) = workspace_manifest_path(dir) else {
-        return Ok(None);
-    };
-
-    read_workspace_file(&path).map(Some)
-}
-
-pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = match path.file_name().and_then(|name| name.to_str()) {
-        Some(MOON_WORK) => parse_workspace_dsl(&content),
-        _ => anyhow::bail!(
-            "expected workspace file to be `{}`, got `{}`",
-            MOON_WORK,
-            path.display()
-        ),
-    };
-    workspace.with_context(|| format!("failed to parse workspace file `{}`", path.display()))
-}
-
-pub fn format_workspace_file(path: &Path) -> anyhow::Result<String> {
-    let workspace = read_workspace_file(path)?;
-    format_workspace_dsl(&workspace)
-}
-
 pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
     let path = dir.join(MOON_WORK);
     let file = File::create(path)?;
@@ -125,6 +114,12 @@ pub fn canonical_workspace_module_dirs(
                 workspace_root.display()
             )
         })?;
+        if !path.is_dir() {
+            anyhow::bail!(
+                "workspace member `{}` is not a directory",
+                use_path.display()
+            );
+        }
         deduped.insert(path);
     }
 
@@ -144,7 +139,7 @@ fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
     Ok(workspace)
 }
 
-fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
+pub fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
     let mut out = String::new();
 
     if work.use_paths.is_empty() {
@@ -160,6 +155,12 @@ fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
         }
         out.push_str("]\n");
     }
+
+    Ok(out)
+}
+
+fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
+    let mut out = format_workspace_members(work)?;
 
     if let Some(preferred_target) = work.preferred_target {
         out.push_str("preferred_target = ");
@@ -181,6 +182,19 @@ fn write_text_with_trailing_newline(writer: &mut impl Write, content: &str) -> a
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_workspace_dsl_rejects_conditional_imports() {
+        assert!(
+            parse_workspace_dsl(
+                r#"members = []
+#cfg(target = "native")
+import { "example/dep@1.2.3" }
+"#,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn parse_workspace_dsl_with_target() {
@@ -208,6 +222,23 @@ mod tests {
     }
 
     #[test]
+    fn workspace_members_must_be_directories() {
+        let workspace_root = tempfile::tempdir().unwrap();
+        std::fs::write(workspace_root.path().join("member.mbt"), "").unwrap();
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from("member.mbt")],
+            preferred_target: None,
+        };
+
+        let error = canonical_workspace_module_dirs(workspace_root.path(), &workspace).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "workspace member `member.mbt` is not a directory"
+        );
+    }
+
+    #[test]
     fn format_relative_workspace_paths_with_forward_slashes() {
         let workspace = MoonWork {
             use_paths: vec![PathBuf::from(".").join("app").join("main")],
@@ -219,6 +250,17 @@ mod tests {
             json,
             "members = [\n  \"./app/main\",\n]\npreferred_target = \"wasm-gc\"\n"
         );
+    }
+
+    #[test]
+    fn format_for_moon_fmt_removes_deprecated_preferred_target() {
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from(".").join("app").join("main")],
+            preferred_target: Some(TargetBackend::WasmGC),
+        };
+
+        let json = format_workspace_members(&workspace).unwrap();
+        assert_eq!(json, "members = [\n  \"./app/main\",\n]\n");
     }
 
     #[cfg(windows)]

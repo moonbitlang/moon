@@ -1,0 +1,87 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Embeddable execution support for MoonBit Wasm programs.
+//!
+//! The interface is experimental. It separates guest termination from
+//! host-process termination and selects one Engine Backend at compile time.
+
+#[cfg(not(any(feature = "v8", feature = "wasmtime", feature = "wee8")))]
+compile_error!("moonrun requires an engine feature: `v8`, `wasmtime`, or `wee8`");
+#[cfg(all(feature = "wee8", feature = "v8"))]
+compile_error!(
+    "select wee8 with --no-default-features; wee8 and v8 link incompatible copies of V8"
+);
+
+// Shared host definitions remain available to every backend. The numeric wee8
+// adapter registers only a subset; unused definitions are intentional until its
+// import coverage grows. Its adapter still has unused-code checks enabled.
+mod async_api;
+mod async_host;
+mod async_sys;
+mod core_api;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod engine;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod filesystem;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod guest_memory;
+mod host_imports;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod memory_sanitizer;
+mod native_stack;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod network;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod policy;
+mod prepare_artifact;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod process;
+mod process_tree;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod resource;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod run_signal;
+mod run_termination;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod runtime;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod source_map;
+mod sqlite;
+#[cfg(feature = "v8")]
+mod util;
+#[cfg(feature = "v8")]
+mod v8;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod wasi;
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod wasm_diagnostic;
+mod wasm_imports;
+#[cfg(all(feature = "wasmtime", not(feature = "v8")))]
+#[cfg_attr(feature = "wee8", allow(dead_code))]
+mod wasmtime;
+#[cfg(feature = "wee8")]
+mod wee8;
+
+pub use engine::{Engine, EngineConfig, GuestProcessMode, Module, RunOptions, RunOutcome};
+pub use process_tree::{ProcessError, ProcessInfo, ProcessState, VirtualPid};
+pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
+pub use run_termination::{
+    RunTermination, RunTerminationReceiver, RunTerminator, termination_channel,
+};
+pub use runtime::WorkingDirectory;

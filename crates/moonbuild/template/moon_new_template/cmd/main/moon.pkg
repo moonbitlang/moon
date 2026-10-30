@@ -2,6 +2,4 @@
 //   "{{username}}/{{module}}" @lib,
 // }
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")

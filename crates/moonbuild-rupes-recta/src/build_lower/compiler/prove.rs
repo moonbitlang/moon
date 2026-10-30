@@ -1,29 +1,71 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{
-    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof,
-};
+use moonutil::toolchain::BINARIES;
 
-/// Abstraction for `moonc prove`.
+use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, DepProof};
+
+/// The program that runs the prover.
+///
+/// The prover is migrating from the `moonc prove` subcommand to a standalone
+/// `moonc-prove` executable that accepts the same arguments.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ProveDriver<'a> {
+    /// The standalone `moonc-prove` executable.
+    Standalone(&'a Path),
+    /// The legacy `moonc prove` subcommand.
+    MooncSubcommand(&'a Path),
+}
+
+impl ProveDriver<'static> {
+    /// Prefer `moonc-prove` when the toolchain provides it, otherwise fall back
+    /// to `moonc prove`.
+    pub fn from_toolchain() -> Self {
+        match BINARIES.moonc_prove.as_deref() {
+            Some(moonc_prove) => Self::Standalone(moonc_prove),
+            None => Self::MooncSubcommand(&BINARIES.moonc),
+        }
+    }
+}
+
+impl ProveDriver<'_> {
+    /// The leading arguments that invoke the prover.
+    fn program_args(self) -> Vec<String> {
+        match self {
+            Self::Standalone(moonc_prove) => vec![
+                dunce::simplified(moonc_prove)
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+            Self::MooncSubcommand(moonc) => {
+                vec![
+                    dunce::simplified(moonc).to_string_lossy().into_owned(),
+                    "prove".to_string(),
+                ]
+            }
+        }
+    }
+}
+
+/// Abstraction for `moonc-prove`, or `moonc prove` on older toolchains.
 #[derive(Debug)]
 pub(crate) struct MooncProve<'a> {
     pub required: BuildCommonInput<'a>,
@@ -38,36 +80,42 @@ pub(crate) struct MooncProve<'a> {
     pub extra_flags: &'a [String],
 }
 
-impl<'a> CmdlineAbstraction for MooncProve<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        args.push("prove".into());
+impl<'a> MooncProve<'a> {
+    /// Build the full command, including the program selected by `driver`.
+    pub fn build_command(&self, driver: ProveDriver<'_>) -> Vec<String> {
+        let mut args = driver.program_args();
+        self.to_args(&mut args);
+        args
+    }
 
+    fn to_args(&self, args: &mut Vec<String>) {
         self.defaults.add_patch_file_moonc(args);
         self.defaults.add_error_format(args);
-        self.defaults.add_deny_all(args);
         self.required.add_mbt_sources(args);
         self.required.add_doctest_only_sources(args);
         self.required.add_include_doctests_if_blackbox(args);
-        self.defaults.add_custom_warn_list(args);
-        self.defaults.add_warn_alert_allow_all(args);
+        self.defaults.add_warning_options(args);
         args.extend([
             "-whyml-output-path".to_string(),
-            self.whyml_out.display().to_string(),
+            dunce::simplified(&self.whyml_out).display().to_string(),
         ]);
         if let Some(proof_report_out) = &self.proof_report_out {
             args.extend([
                 "-proof-report-output-path".to_string(),
-                proof_report_out.display().to_string(),
+                dunce::simplified(proof_report_out).display().to_string(),
             ]);
         }
         if let Some(why3_config) = &self.why3_config {
             args.extend([
                 "-why3-config".to_string(),
-                why3_config.display().to_string(),
+                dunce::simplified(why3_config).display().to_string(),
             ]);
         }
         for loadpath in &self.why3_loadpaths {
-            args.extend(["-why3-loadpath".to_string(), loadpath.display().to_string()]);
+            args.extend([
+                "-why3-loadpath".to_string(),
+                dunce::simplified(loadpath).display().to_string(),
+            ]);
         }
         for dep_proof in &self.dep_proofs {
             args.extend(["-dep-proof".to_string(), dep_proof.to_arg()]);
@@ -76,7 +124,7 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
             args.push("-emit-only".to_string());
         }
         self.required.add_package_config(args);
-        self.defaults.add_is_main(args);
+        self.defaults.add_pkgtype(args);
         if self.single_file {
             args.push("-single-file".to_string());
         }
@@ -91,5 +139,24 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
         for flag in self.extra_flags {
             args.push(flag.to_string());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::ProveDriver;
+
+    #[test]
+    fn standalone_driver_invokes_moonc_prove_directly() {
+        let args = ProveDriver::Standalone(Path::new("bin/moonc-prove")).program_args();
+        assert_eq!(args, ["bin/moonc-prove"]);
+    }
+
+    #[test]
+    fn legacy_driver_invokes_moonc_prove_subcommand() {
+        let args = ProveDriver::MooncSubcommand(Path::new("bin/moonc")).program_args();
+        assert_eq!(args, ["bin/moonc", "prove"]);
     }
 }

@@ -1,26 +1,27 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dialoguer::Confirm;
-use moonutil::common::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
-use moonutil::moon_dir::{self};
+use moonutil::MOON_HOME;
+use moonutil::toolchain;
+use moonutil::version::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
 use reqwest;
 use reqwest::Client;
 use std::path::{Path, PathBuf};
@@ -136,12 +137,12 @@ fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
 }
 
 fn upgrade_home() -> Result<PathBuf> {
-    let home = moon_dir::home();
-    let toolchain_root = moon_dir::toolchain_root();
+    let home = MOON_HOME.root();
+    let toolchain_root = toolchain::toolchain_root();
     let canonicalize =
         |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
-    if canonicalize(&home) != canonicalize(&toolchain_root) {
+    if canonicalize(home) != canonicalize(&toolchain_root) {
         bail!(
             "moon upgrade only supports toolchains installed under MOON_HOME. Active toolchain root is `{}`, but MOON_HOME is `{}`. Please upgrade this installation with the package manager or installer that owns the toolchain.",
             toolchain_root.display(),
@@ -149,7 +150,7 @@ fn upgrade_home() -> Result<PathBuf> {
         );
     }
 
-    Ok(home)
+    Ok(home.to_path_buf())
 }
 
 pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
@@ -247,7 +248,7 @@ fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
 
-    moonutil::common::dialoguer_ctrlc_handler();
+    moonutil::cli_support::dialoguer_ctrlc_handler();
 }
 
 #[cfg(windows)]
@@ -285,7 +286,7 @@ mod windows {
         let _ = MOON_EXE_PATH.set(current_exe.clone());
         let _ = TEMP_EXE_PATH.set(temp_exe);
 
-        if current_exe.starts_with(moon_dir::home()) {
+        if current_exe.starts_with(MOON_HOME.root()) {
             self_replace::self_delete().context("failed to delete current moon.exe")?;
         }
 

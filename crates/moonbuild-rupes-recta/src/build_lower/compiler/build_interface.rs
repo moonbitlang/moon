@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -43,8 +43,6 @@ pub(crate) struct MooncBuildInterface<'a> {
     pub package_name: CompiledPackageName<'a>,
     /// Absolute source directory for the package.
     pub package_source: Cow<'a, Path>,
-    /// Optional std path; omit to respect `--nostd`.
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
     /// Whether to emit structured diagnostics (`-error-format=json`).
     pub json_errors: bool,
 }
@@ -64,7 +62,6 @@ impl<'a> MooncBuildInterface<'a> {
             mi_deps,
             package_name,
             package_source: package_source.into(),
-            stdlib_core_file: None,
             json_errors: true,
         }
     }
@@ -75,8 +72,11 @@ impl CmdlineAbstraction for MooncBuildInterface<'_> {
         args.push("build-interface".into());
 
         // Input and output paths
-        args.push(self.mbti_input.display().to_string());
-        args.extend(["-o".to_string(), self.mi_output.display().to_string()]);
+        args.push(dunce::simplified(&self.mbti_input).display().to_string());
+        args.extend([
+            "-o".to_string(),
+            dunce::simplified(&self.mi_output).display().to_string(),
+        ]);
 
         // Interface dependencies
         for dep in self.mi_deps {
@@ -87,18 +87,94 @@ impl CmdlineAbstraction for MooncBuildInterface<'_> {
         args.extend(["-pkg".to_string(), self.package_name.to_string()]);
         args.extend([
             "-pkg-sources".to_string(),
-            format!("{}:{}", self.package_name, self.package_source.display()),
+            format!(
+                "{}:{}",
+                self.package_name,
+                dunce::simplified(&self.package_source).display()
+            ),
         ]);
 
         // Virtual packages always require this flag
         args.push("-virtual".to_string());
 
-        if let Some(stdlib) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib.display().to_string()]);
-        }
-
         if self.json_errors {
             args.extend(["-error-format".to_string(), "json".to_string()]);
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use crate::{
+        build_lower::{LoweredCommandExecution, moonc_command},
+        model::TargetKind,
+    };
+
+    #[test]
+    fn windows_file_arguments_are_normalized_before_transport() {
+        let fqn = crate::pkg_name::PackageFQN::new(
+            "test/paths@0.1.0".parse().expect("valid module name"),
+            "".parse().expect("valid root package path"),
+        );
+        let source_root = Path::new(r"C:\Users\user'quote\project");
+        let output = Path::new(r"\\?\C:\Users\user'quote\project\_build\abort.mi");
+        let long_source = Path::new(r"\\?\C:\Users\user'quote\project")
+            .join("segment\\".repeat(40))
+            .join("pkg.mbti");
+        let command = MooncBuildInterface::new(
+            &long_source,
+            output,
+            &[],
+            CompiledPackageName::new(&fqn, TargetKind::Source),
+            source_root,
+        );
+        let args = command.build_command("moonc");
+        let inline = moonc_command::lower(args.clone(), output).expect("valid inline command");
+        assert!(matches!(
+            inline.execution(),
+            LoweredCommandExecution::Inline(_)
+        ));
+        let mut large = args.clone();
+        large.extend(["-w".to_owned(), "a".repeat(16 * 1024)]);
+        let response = moonc_command::lower(large, output).expect("valid response-file command");
+        let LoweredCommandExecution::ResponseFile { command, file } = response.execution() else {
+            panic!("expected response-file transport");
+        };
+        assert_eq!(
+            file.content
+                .lines()
+                .take(args.len() - 1)
+                .collect::<Vec<_>>(),
+            args[1..]
+        );
+        // Snapshot Windows spelling and quoting directly. Cross-platform dry-run
+        // normalization would hide the prefix behavior this test protects.
+        // Omit only the synthetic padding used to force response-file transport.
+        let response_body = file
+            .content
+            .lines()
+            .take(args.len() - 1)
+            .collect::<Vec<_>>()
+            .join("\n");
+        expect_test::expect_file!["snapshots/windows_build_interface.snap"].assert_eq(&format!(
+            "inline:\n{}\n\nresponse command:\n{command}\n\nresponse arguments:\n{response_body}\n",
+            inline.inline_command(),
+        ));
+        assert!(
+            args[2].starts_with(r"\\?\C:\"),
+            "long source: {:?}",
+            args[2]
+        );
+        assert_eq!(args[4], r"C:\Users\user'quote\project\_build\abort.mi");
+        assert_eq!(
+            output.to_str().expect("UTF-8 fixture path"),
+            r"\\?\C:\Users\user'quote\project\_build\abort.mi"
+        );
+        let transport = moonutil::shlex::split_native(command);
+        assert_eq!(
+            transport[2],
+            r"C:\Users\user'quote\project\_build\abort.mi.rsp"
+        );
     }
 }

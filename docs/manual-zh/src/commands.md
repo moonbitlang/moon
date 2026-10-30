@@ -23,6 +23,8 @@ This document contains the help content for the `moon` command-line program.
 * [`moon install`↴](#moon-install)
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
+* [`moon search`↴](#moon-search)
+* [`moon view`↴](#moon-view)
 * [`moon work`↴](#moon-work)
 * [`moon work init`↴](#moon-work-init)
 * [`moon work use`↴](#moon-work-use)
@@ -32,6 +34,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon register`↴](#moon-register)
 * [`moon publish`↴](#moon-publish)
 * [`moon package`↴](#moon-package)
+* [`moon deprecate`↴](#moon-deprecate)
 * [`moon update`↴](#moon-update)
 * [`moon coverage`↴](#moon-coverage)
 * [`moon coverage analyze`↴](#moon-coverage-analyze)
@@ -53,9 +56,9 @@ This document contains the help content for the `moon` command-line program.
 * `check` — Check the current package, but don't build object files
 * `prove` — Prove the current package
 * `run` — Run a main package
-* `runwasm` — Run a prebuilt WebAssembly binary from Mooncakes
+* `runwasm` — Deprecated: use moon run --target wasm locally or moonx for registry packages
 * `test` — Test the current package
-* `clean` — Remove the _build directory
+* `clean` — Remove local build outputs or configured global caches
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
 * `explain` — Explain compiler diagnostics and language topics
@@ -63,16 +66,19 @@ This document contains the help content for the `moon` command-line program.
 * `bench` — Run benchmarks in the current package
 * `add` — Add a dependency
 * `remove` — Remove a dependency
-* `install` — Install a binary package globally or install project dependencies (deprecated without args)
+* `install` — Install a binary package globally
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
+* `search` — Search modules and package summaries in the registry
+* `view` — View a registry module or a user's published modules
 * `work` — Workspace maintenance commands
 * `login` — Log in to your account
 * `whoami` — Show login status and username
 * `register` — Register an account at mooncakes.io
 * `publish` — Publish the current module
 * `package` — Package the current module
-* `update` — Update the package registry index
+* `deprecate` — Deprecate or restore all existing versions of a published module
+* `update` — Refresh registry metadata and report dependency updates
 * `coverage` — Code coverage utilities
 * `generate-build-matrix` — Generate build matrix for benchmarking (legacy feature)
 * `upgrade` — Upgrade toolchains
@@ -102,11 +108,13 @@ Create a new MoonBit module
 
 Build the current package
 
+A successful build also lists each executable and foreign library it built on stdout, with its package, target backend and absolute path. `--quiet` does not hide the list. With `--output-json`, each one is an `artifact` JSON message instead.
+
 **Usage:** `moon build [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — Paths to the packages that should be built
+* `<PATH>` — Paths to the packages that should be built, or one standalone `.mbtx` file
 
 ###### **Options:**
 
@@ -142,11 +150,13 @@ Build the current package
 
 Check the current package, but don't build object files
 
+A successful check also updates `pkg.generated.mbti` of the checked local packages whose preferred backend is checked, as `moon info` does. Pass `--no-mbti` to skip this.
+
 **Usage:** `moon check [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — Filesystem path to a package directory or `.mbt` / `.mbt.md` file
+* `<PATH>` — Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
 
 ###### **Options:**
 
@@ -176,15 +186,18 @@ Check the current package, but don't build object files
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
 * `--patch-file <PATCH_FILE>` — The patch file to check. Only valid when the selector resolves to a single package
-* `--no-mi` — Whether to skip the mi generation. Only valid when the selector resolves to a single package
 * `--explain` — Whether to explain the error code with details
 * `--fmt` — Check whether the code is properly formatted
+* `--json` — Output one complete JSON result to stdout
+* `--no-mbti` — Do not update `pkg.generated.mbti` files of the checked packages
 
 
 
 ## `moon prove`
 
 Prove the current package
+
+Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing `moonbit_builtin_prelude.mlw` to replace the toolchain's proof prelude.
 
 **Usage:** `moon prove [OPTIONS] [PATH]`
 
@@ -248,6 +261,8 @@ Run a main package
   Possible values: `info`, `warn`, `error`
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
+* `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
+* `--virtual-process-tree` — Run Wasm descendants in the same virtual process tree (experimental)
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux
@@ -256,23 +271,42 @@ Run a main package
 
 ## `moon runwasm`
 
-Run a prebuilt WebAssembly binary published as a Mooncakes asset.
+Deprecated:
+  Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`.
+  Registry packages: use `moonx <PACKAGE[@VERSION]>`.
 
-Accepted coordinate forms:
+Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
+
+Local package inputs are handled like `moon run --target wasm`:
+  moon runwasm main
+  moon runwasm ./main
+
+Experimental moonrun policy forwarding:
+  moon runwasm --experimental-policy moonrun-policy.json main
+
+Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
-  moon runwasm moonbitlang/parser@0.3.3/cmd/moonfmt
+  moon runwasm moonbitlang/parser/cmd/moonfmt@latest
   moon runwasm moonbitlang/parser/cmd/moonfmt
 
-Pinned coordinates use the given version directly. Unpinned coordinates resolve
-the latest version from the registry index. Fetched wasm files are cached under
-$MOON_HOME/registry/cache/assets and reused on later runs.
+Pinned coordinates use the given version directly. `@latest` refreshes the
+registry index before resolving the latest version. Unpinned coordinates use
+the latest version already in the local index, updating it only when the module
+is absent. Fetched wasm files are cached under $MOON_HOME/registry/cache/assets
+and reused on later runs.
 
-**Usage:** `moon runwasm <PACKAGE[@VERSION]> [ARGS]...`
+**Usage:** `moon runwasm [OPTIONS] <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
 
 ###### **Arguments:**
 
-* `<PACKAGE[@VERSION]>` — Mooncakes package coordinate of the prebuilt wasm binary
+* `<LOCAL_PACKAGE|PACKAGE[@VERSION]>` — Local package path or Mooncakes package coordinate of the prebuilt wasm binary
 * `<ARGS>` — The arguments provided to the wasm program
+
+###### **Options:**
+
+* `--experimental-policy <PATH>` — Experimental: pass a moonrun JSON policy file for moonbitlang/async runtime access.
+
+   The policy applies to moonbitlang/async and moonrun-owned unstable FFI; WASI is not covered.
 
 
 
@@ -280,11 +314,15 @@ $MOON_HOME/registry/cache/assets and reused on later runs.
 
 Test the current package
 
+Test executables run in parallel using the available CPU count by default. Use `-j N` to set the maximum number of concurrent executables, or `--no-parallelize` to run them sequentially without limiting build parallelism.
+
 **Usage:** `moon test [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — Run tests for a filesystem path. If in a project, `PATH` may point to a package directory or a file inside a package; otherwise, runs in a temporary project
+* `<PATH>` — Run tests for package directories, files inside packages, or one standalone `.mbtx` script.
+
+   An explicit `.mbtx` path tests only that script, even inside a project. The script must define `fn main`, but tests use a generated entrypoint and do not execute the script's main. Package-wide testing excludes `.mbtx` scripts. Outside a project, a single `.mbt` or `.mbt.md` file can also be tested.
 
 ###### **Options:**
 
@@ -311,6 +349,7 @@ Test the current package
   Possible values: `info`, `warn`, `error`
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
+* `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected. Implies `--include-skipped`
 * `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when a single file is selected. Implies `--include-skipped`
@@ -332,9 +371,15 @@ Test the current package
 
 ## `moon clean`
 
-Remove the _build directory
+Remove local build outputs or configured global caches
 
-**Usage:** `moon clean`
+**Usage:** `moon clean [OPTIONS]`
+
+###### **Options:**
+
+* `--dep-cache` — Remove the global dependency-source cache instead of `_build`
+* `--build-cache` — Remove the global build-artifact cache instead of `_build`
+* `--registry-cache` — Remove cached HTTP registry metadata instead of `_build`. Uses MOON_REGISTRY_CACHE when set; leaves the Git index, source archives, and credentials intact. This also works outside a project
 
 
 
@@ -346,17 +391,15 @@ Format source code
 
 ###### **Arguments:**
 
-* `<PATH>` — Paths to package directories or files inside packages to format
+* `<PATH>` — Paths to packages, files selecting their containing package, or standalone `.mbtx` scripts
+
+   An explicit `.mbtx` path formats only that script, with or without a surrounding project. Multiple scripts and package paths can be combined. Without paths, standalone scripts are excluded from package formatting. `--check` fails if a selected script needs formatting.
 * `<ARGS>` — Extra arguments passed to the formatter (after --)
 
 ###### **Options:**
 
 * `--check` — Check only and don't change the source code
 * `--sort-input` — Sort input files
-* `--block-style <BLOCK_STYLE>` — Add separator between each segments
-
-  Possible values: `false`, `true`
-
 * `--warn` — Warn if code is not properly formatted
 
 
@@ -408,7 +451,7 @@ Resources:
 
 Generate public interface (`.mbti`) files for all packages in the module or workspace
 
-By default, `moon info` writes `pkg.generated.mbti` from each selected package's canonical backend: module `preferred-backend`, then workspace `preferred-backend`, then `wasm-gc`.
+By default, `moon info` writes `pkg.generated.mbti` from each selected package's canonical backend: module `preferred-backend`, then workspace `preferred-backend`, then `wasm`.
 
 `--target` inspects backend-specific interfaces and reports differences, but does not change which backend is written to `pkg.generated.mbti`.
 
@@ -435,7 +478,11 @@ By default, `moon info` writes `pkg.generated.mbti` from each selected package's
 
 Run benchmarks in the current package
 
-**Usage:** `moon bench [OPTIONS]`
+**Usage:** `moon bench [OPTIONS] [PATH]...`
+
+###### **Arguments:**
+
+* `<PATH>` — Run benchmarks for a filesystem path. `PATH` may point to a package directory or a file inside a package
 
 ###### **Options:**
 
@@ -462,9 +509,9 @@ Run benchmarks in the current package
   Possible values: `info`, `warn`, `error`
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
-* `-p`, `--package <PACKAGE>` — Run test in the specified package
-* `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
-* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified
+* `-p`, `--package <PACKAGE>` — Run benchmarks in the specified package
+* `-f`, `--file <FILE>` — Run benchmarks in the specified file. Only valid when `--package` is also specified
+* `-i`, `--index <INDEX>` — Run only the index-th benchmark in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not bench
 * `--no-parallelize` — Run the benchmarks in a target backend sequentially
@@ -483,9 +530,8 @@ Add a dependency
 
 ###### **Options:**
 
-* `--bin` — Whether to add the dependency as a binary
-* `-u`, `--upgrade` — Upgrade an existing dependency
-* `--no-update` — Do not update the registry index before adding the dependency
+* `-u`, `--upgrade` — Allow changing the version of an existing dependency
+* `--no-update` — Do not refresh registry metadata before adding the dependency
 
 
 
@@ -503,9 +549,22 @@ Remove a dependency
 
 ## `moon install`
 
-Install a binary package globally or install project dependencies (deprecated without args)
+Install a binary package globally
 
 **Usage:** `moon install [OPTIONS] [SOURCE] [PATH_IN_REPO]`
+
+Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+Paste a public GitHub directory permalink containing a full 40-character
+commit SHA to install from its source archive. For branches or tags, use the
+repository URL, PATH_IN_REPO, and --branch or --tag instead.
 
 ###### **Arguments:**
 
@@ -517,7 +576,7 @@ Install a binary package globally or install project dependencies (deprecated wi
      3. registry package path (`user/module/pkg[@version]`)
 
    Use `/...` suffix to install all matching main packages.
-* `<PATH_IN_REPO>` — Filesystem path inside the cloned git repository.
+* `<PATH_IN_REPO>` — Filesystem path inside the repository source.
    Used only when SOURCE is a git URL.
 
    Use `/...` suffix to install all matching main packages under this path prefix.
@@ -536,7 +595,23 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 Display the dependency tree
 
-**Usage:** `moon tree`
+Text output expands each dependency once per root. When another path reaches a dependency whose children were already displayed, the dependency remains visible with `(*)`, but its children are omitted. Use `--no-dedupe` to repeat those subgraphs. Cycles remain marked as `(cycle)`. JSON output represents shared dependencies once and preserves their relationships as edges.
+
+**Usage:** `moon tree [OPTIONS]`
+
+###### **Options:**
+
+* `--json` — Output one complete JSON result to stdout
+* `--no-dedupe` — Repeat dependency subgraphs instead of marking them with `(*)`
+* `--package` — Show the package-level dependency graph instead of the module-level tree
+
+   Text output expands source imports from every package in the selected module. With `--json`, the result contains every non-standard-library package in the resolved project, all import target kinds, and the selected module's packages in `root`.
+* `--target <TARGET>` — Select the backend for the package dependency graph
+
+   Defaults to the selected module's preferred target, then wasm. JSON output records the selected backend in `target`; all edges belong to it.
+
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`
+
 
 
 
@@ -554,7 +629,54 @@ Note: This is an unstable command and may change or be removed in future version
 
 ###### **Options:**
 
-* `--no-update` — Do not update the registry index before fetching
+* `--no-update` — Do not refresh registry metadata before fetching
+
+
+
+## `moon search`
+
+Search modules and package summaries in the registry
+
+Results follow the registry's ranking, as on mooncakes.io (most downloaded first). Each module includes its version, description, download count, repository link, and matching package excerpts when available. Summaries from older versions are labeled, and a count indicates when only some matching packages are shown.
+
+With --json, the result also preserves the registry's summary fragments and match markers. Registries without package summaries remain supported.
+
+**Usage:** `moon search [OPTIONS] <KEYWORD>`
+
+###### **Arguments:**
+
+* `<KEYWORD>` — The keyword to search for
+
+###### **Options:**
+
+* `-l`, `--limit <LIMIT>` — Limit the number of search results
+
+  Default value: `20`
+* `--json` — Print search results as JSON
+
+
+
+## `moon view`
+
+View a registry module or a user's published modules
+
+`moon view <username/module[@version]>` shows live registry metadata for the latest release or an exact version. Add --versions to list every release, newest first, including deprecated versions and their reasons.
+
+`moon view <username>` lists all modules on that user's public registry profile, sorted by name, with their latest versions and deprecation reasons. No login is required. Use `moon view --my` as a shortcut for your saved username after running `moon login`.
+
+These commands work outside a project and respect the configured registry. With --json, a versioned report contains a result (module metadata, an array of releases for --versions, or a user profile), status, and messages.
+
+**Usage:** `moon view [OPTIONS] [USER_OR_MODULE]`
+
+###### **Arguments:**
+
+* `<USER_OR_MODULE>` — Username to list, or username/module[@version] to inspect
+
+###### **Options:**
+
+* `--my` — List all modules published under your logged-in username
+* `--versions` — List all published versions of the module
+* `--json` — Print the result as JSON
 
 
 
@@ -632,6 +754,10 @@ Register an account at mooncakes.io
 
 Publish the current module
 
+The optional `private` field in moon.mod requests restricted access to the module after publication when true. Omission or false requests public visibility.
+
+Publication permissions and visibility are checked by the registry. With --dry-run, validate the publication without creating a release.
+
 **Usage:** `moon publish [OPTIONS]`
 
 ###### **Options:**
@@ -653,9 +779,38 @@ Package the current module
 
 
 
+## `moon deprecate`
+
+Deprecate or restore all existing versions of a published module
+
+Pass `--reason <REASON>` to deprecate or `--undo` to restore.
+
+Specify the full module name without a version selector. This command works outside a project and uses the same saved credentials as `moon publish`. Versions published later start undeprecated. Restoring clears all reasons; it does not recover previous per-version states.
+
+Deprecation does not affect version selection. Commands that resolve dependencies warn about every selected deprecated module, including transitive dependencies, using the local registry index without refreshing it. `--quiet` hides these warnings.
+
+With `--dry-run`, fetch the module's currently published versions and print the intended change for each release without modifying the registry. The preview uses optional API-bound credentials for the read-only lookup.
+
+**Usage:** `moon deprecate [OPTIONS] <MODULE>`
+
+###### **Arguments:**
+
+* `<MODULE>` — Full module name, without a version selector
+
+###### **Options:**
+
+* `--reason <REASON>` — Deprecation reason, replacing any previous reasons
+* `--undo` — Clear deprecation and reasons on all existing versions
+
+
+
 ## `moon update`
 
-Update the package registry index
+Refresh registry metadata and report dependency updates
+
+With MOON_REGISTRY_API=1, refresh the selected module or workspace's exact dependency versions and query each module's current latest version. Report available updates and deprecation status without changing declarations, downloading sources, or running build hooks. Partial refresh failures return a nonzero exit status; successful refreshes remain cached.
+
+Otherwise, synchronize the Git registry index and symbols as before. This mode also works outside a project.
 
 **Usage:** `moon update`
 
@@ -664,6 +819,8 @@ Update the package registry index
 ## `moon coverage`
 
 Code coverage utilities
+
+Runs the toolchain's `bin/moon_cove.wasm` through `moonrun` by default. Set `MOON_COVE_REPORT_ENABLED=0` (or `false`) to use the legacy `moon_cove_report` instead.
 
 **Usage:** `moon coverage <COMMAND>`
 
@@ -683,7 +840,7 @@ Run test with instrumentation and report coverage
 
 ###### **Arguments:**
 
-* `<EXTRA_FLAGS>` — Extra flags passed directly to `moon_cove_report`
+* `<EXTRA_FLAGS>` — Extra flags passed directly to the selected coverage reporter
 
 ###### **Options:**
 

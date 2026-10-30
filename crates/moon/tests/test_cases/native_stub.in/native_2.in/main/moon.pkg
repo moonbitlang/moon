@@ -1,0 +1,5 @@
+import {
+  "native_2/libb",
+}
+
+pkgtype(kind: "executable")

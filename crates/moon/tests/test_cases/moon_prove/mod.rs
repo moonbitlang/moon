@@ -1,6 +1,7 @@
 use crate::{
-    TestDir, assert_success, get_stderr, get_stdout,
-    util::{check, moon_bin, replace_dir, toolchain_root_for_tests},
+    TestDir, assert_success, get_err_stderr, get_err_stderr_with_envs, get_stderr, get_stdout,
+    get_stdout_with_envs, scoped_packages_json_path,
+    util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
 
@@ -15,6 +16,22 @@ fn skip_unless_verification_tests_enabled(name: &str) -> bool {
 
     eprintln!("skipping {name}: set VERIFICATION_TESTS=1 to enable verification tests");
     true
+}
+
+#[test]
+fn prove_selection_is_validated_before_import_resolution() {
+    let dir = TestDir::new("test_selection_before_resolution.in");
+    for (path, expected_error) in [
+        ("other", "selection/errors/missing"),
+        ("missing", "Failed to canonicalize input filter directory"),
+        (
+            "native",
+            "Package 'selection/errors/native' does not support target backend 'wasm-gc'",
+        ),
+    ] {
+        let error = get_err_stderr(&dir, ["prove", path, "--dry-run", "--frozen"]);
+        assert!(error.contains(expected_error), "{path}: {error}");
+    }
 }
 
 fn z3_path() -> Option<std::path::PathBuf> {
@@ -45,11 +62,6 @@ fn assert_stdout_contains_mbtp(
 }
 
 fn assert_stdout_contains_prelude_proof(stdout: &str, label: &str) {
-    let prelude_proof = toolchain_root_for_tests().join("lib").join("prelude_proof");
-    if !prelude_proof.is_dir() {
-        return;
-    }
-
     assert!(
         stdout.contains("prelude_proof"),
         "{label} output should include `prelude_proof`, got:\n{stdout}"
@@ -94,6 +106,68 @@ fn test_moon_prove_dry_run() {
     let stdout = get_stdout(&dir, ["prove", "zzok", "--dry-run"]);
     expect_file!["snapshots/zzok.stdout"].assert_eq(&stdout);
     assert_stdout_contains_prelude_proof(&stdout, "dry-run");
+}
+
+#[test]
+fn test_moon_prove_core_always_loads_prelude_proof() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_core_always_loads_prelude_proof") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/core.in");
+    let stdout = get_stdout(&dir, ["prove", "prelude", "--dry-run"]);
+
+    assert!(
+        stdout.contains("-why3-loadpath '$MOON_HOME/lib/prelude_proof'"),
+        "proving core should load the proof prelude without an injected stdlib, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_moon_prove_uses_prelude_override() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_uses_prelude_override") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let override_dir = dir.join("custom-proof-prelude");
+    std::fs::create_dir(&override_dir).unwrap();
+    std::fs::write(override_dir.join("moonbit_builtin_prelude.mlw"), []).unwrap();
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["prove", "zzok", "--dry-run"],
+        [("MOON_PROVE_PRELUDE_OVERRIDE", override_dir.as_os_str())],
+    );
+
+    assert!(
+        stdout.contains("custom-proof-prelude"),
+        "prove should use the overridden proof prelude, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("$MOON_HOME/lib/prelude_proof"),
+        "prove should replace the default proof prelude, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_moon_prove_rejects_invalid_prelude_override() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_rejects_invalid_prelude_override") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let override_dir = dir.join("invalid-proof-prelude");
+    std::fs::create_dir(&override_dir).unwrap();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["prove", "zzok", "--dry-run"],
+        [("MOON_PROVE_PRELUDE_OVERRIDE", override_dir.as_os_str())],
+    );
+
+    assert!(
+        stderr.contains("MOON_PROVE_PRELUDE_OVERRIDE")
+            && stderr.contains("moonbit_builtin_prelude.mlw"),
+        "invalid proof prelude override should report the expected provider, got:\n{stderr}"
+    );
 }
 
 #[test]
@@ -147,9 +221,10 @@ fn test_packages_json_includes_mbtp_files() {
 
     let _ = get_stderr(&dir, ["check"]);
 
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
-            .unwrap();
+    let packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap(),
+    )
+    .unwrap();
     let packages = packages_json["packages"].as_array().unwrap();
     let package = packages
         .iter()
@@ -348,25 +423,31 @@ fn test_moon_prove_selected_failed_package() {
 }
 
 #[test]
-fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
+fn test_invpred_package_only_threads_mbtp_into_check_and_prove_dry_runs() {
     if skip_unless_verification_tests_enabled(
-        "test_invpred_package_threads_mbtp_into_compile_dry_runs",
+        "test_invpred_package_only_threads_mbtp_into_check_and_prove_dry_runs",
     ) {
         return;
     }
     let dir = TestDir::new("moon_prove/mixed.in");
+    let mbtp = "./invpred/invpred.mbtp";
 
     for (label, args) in [
         (
             "check",
             vec!["check", "invpred", "--dry-run", "--sort-input"],
         ),
+        ("prove", vec!["prove", "invpred", "--dry-run"]),
+    ] {
+        assert_stdout_contains_mbtp(&dir, args, mbtp, label);
+    }
+
+    for (label, args) in [
         (
             "build",
             vec!["build", "invpred", "--dry-run", "--sort-input"],
         ),
         ("test", vec!["test", "invpred", "--dry-run", "--sort-input"]),
-        ("prove", vec!["prove", "invpred", "--dry-run"]),
         (
             "bench",
             vec![
@@ -380,7 +461,11 @@ fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
         ),
         ("bundle", vec!["bundle", "--dry-run", "--sort-input"]),
     ] {
-        assert_stdout_contains_mbtp(&dir, args, "./invpred/invpred.mbtp", label);
+        let stdout = get_stdout(&dir, args);
+        assert!(
+            !stdout.contains(mbtp),
+            "{label} output should not include `{mbtp}`, got:\n{stdout}"
+        );
     }
 }
 
@@ -431,6 +516,36 @@ fn test_cross_package_prove_dry_run() {
     let dir = TestDir::new("moon_prove/cross_package.in");
     let stdout = get_stdout(&dir, ["prove", "downstream", "--dry-run"]);
     expect_file!["snapshots/cross_package.stdout"].assert_eq(&stdout);
+}
+
+#[test]
+fn test_virtual_default_prove_uses_distinct_contract_and_proof_interfaces() {
+    if skip_unless_verification_tests_enabled(
+        "test_virtual_default_prove_uses_distinct_contract_and_proof_interfaces",
+    ) {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/virtual_default.in");
+    let stdout = get_stdout(&dir, ["prove", "root", "--dry-run"]);
+
+    assert!(
+        stdout.contains(
+            "build-interface ./virtual/pkg.mbti -o \
+             ./_build/wasm-gc/debug/prove/virtual/virtual.mi"
+        ),
+        "virtual contract should use the regular prove-mode interface path, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "-whyml-output-path \
+             ./_build/verif/virtual/pkg_8_username_14_prove_uvirtual_7_virtual.mlw"
+        ),
+        "virtual proof should use the verification interface path, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-check-mi ./_build/wasm-gc/debug/prove/virtual/virtual.mi"),
+        "virtual proof should check against the virtual contract, got:\n{stdout}"
+    );
 }
 
 #[test]

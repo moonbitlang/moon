@@ -1,6 +1,6 @@
 use super::*;
 use expect_test::expect_file;
-use moonutil::common::MBTI_GENERATED;
+use moonutil::constants::MBTI_GENERATED;
 
 #[test]
 fn test_moon_info_compare_backends() {
@@ -14,7 +14,21 @@ fn test_moon_info_compare_backends() {
         "Diverging backends should still promote the canonical mbti output"
     );
     let mbti = std::fs::read_to_string(dir.join("lib").join(MBTI_GENERATED)).unwrap();
-    assert!(mbti.contains("pub fn hello_wasm_gc() -> String"));
+    assert!(mbti.contains("pub fn hello_wasm() -> String"));
 
     expect_file!["moon_info_compare_backends.out"].assert_eq(&out);
+}
+
+#[test]
+fn test_moon_info_composes_backend_builds() {
+    let dir = TestDir::new("moon_info_compare_backends");
+
+    moon_cmd(&dir)
+        .args(["info", "--target", "all"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Finished. moon: ran [..] tasks, now up to date
+
+"#]]);
 }

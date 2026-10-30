@@ -1,17 +1,38 @@
 use super::*;
 
+fn moonx_bin(bin_dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let moonx = bin_dir
+        .path()
+        .join(if cfg!(windows) { "moonx.exe" } else { "moonx" });
+    let moon = moon_bin();
+    std::fs::hard_link(&moon, &moonx).unwrap_or_else(|_| {
+        std::fs::copy(&moon, &moonx).expect("failed to copy moon binary as moonx");
+    });
+    moonx
+}
+
 #[test]
 fn test_moon_cmd() {
     let dir = TestDir::new("moon_commands");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
-            moonc build-package ./lib/list/lib.mbt -o ./_build/wasm-gc/debug/build/lib/list/list.core -pkg design/lib/list -pkg-sources design/lib/list:./lib/list -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./lib/queue/lib.mbt -o ./_build/wasm-gc/debug/build/lib/queue/queue.core -pkg design/lib/queue -i ./_build/wasm-gc/debug/build/lib/list/list.mi:list -pkg-sources design/lib/queue:./lib/queue -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main2/main.mbt -o ./_build/wasm-gc/debug/build/main2/main2.core -pkg design/main2 -is-main -i ./_build/wasm-gc/debug/build/lib/queue/queue.mi:queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main2/main2.core -main design/main2 -o ./_build/wasm-gc/debug/build/main2/main2.wasm -pkg-config-path ./main2/moon.pkg.json -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map
-            moonc build-package ./main1/main.mbt -o ./_build/wasm-gc/debug/build/main1/main1.core -pkg design/main1 -is-main -i ./_build/wasm-gc/debug/build/lib/queue/queue.mi:queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main1/main1.core -main design/main1 -o ./_build/wasm-gc/debug/build/main1/main1.wasm -pkg-config-path ./main1/moon.pkg.json -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map
+            moonc build-package ./lib/list/lib.mbt -o ./_build/wasm-gc/debug/build/lib/list/list.core -pkg design/lib/list -pkg-type library -pkg-sources design/lib/list:./lib/list -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./lib/queue/lib.mbt -o ./_build/wasm-gc/debug/build/lib/queue/queue.core -pkg design/lib/queue -pkg-type library -i ./_build/wasm-gc/debug/build/lib/list/list.mi:list -pkg-sources design/lib/queue:./lib/queue -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./main2/main.mbt -o ./_build/wasm-gc/debug/build/main2/main2.core -pkg design/main2 -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/queue/queue.mi:queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main2/main2.core -main design/main2 -o ./_build/wasm-gc/debug/build/main2/main2.wasm -pkg-config-path ./main2/moon.pkg -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main2:./main2 -target wasm-gc -g -O0 -source-map
+            moonc build-package ./main1/main.mbt -o ./_build/wasm-gc/debug/build/main1/main1.core -pkg design/main1 -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/queue/queue.mi:queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core ./_build/wasm-gc/debug/build/lib/list/list.core ./_build/wasm-gc/debug/build/lib/queue/queue.core ./_build/wasm-gc/debug/build/main1/main1.core -main design/main1 -o ./_build/wasm-gc/debug/build/main1/main1.wasm -pkg-config-path ./main1/moon.pkg -pkg-sources design/lib/list:./lib/list -pkg-sources design/lib/queue:./lib/queue -pkg-sources design/main1:./main1 -target wasm-gc -g -O0 -source-map
         "#]],
     );
 }
@@ -32,9 +53,9 @@ fn test_moon_help() {
               check                  Check the current package, but don't build object files
               prove                  Prove the current package
               run                    Run a main package
-              runwasm                Run a prebuilt WebAssembly binary from Mooncakes
+              runwasm                Deprecated: use moon run --target wasm locally or moonx for registry packages
               test                   Test the current package
-              clean                  Remove the _build directory
+              clean                  Remove local build outputs or configured global caches
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol
               explain                Explain compiler diagnostics and language topics
@@ -42,16 +63,19 @@ fn test_moon_help() {
               bench                  Run benchmarks in the current package
               add                    Add a dependency
               remove                 Remove a dependency
-              install                Install a binary package globally or install project dependencies (deprecated without args)
+              install                Install a binary package globally
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
+              search                 Search modules and package summaries in the registry
+              view                   View a registry module or a user's published modules
               work                   Workspace maintenance commands
               login                  Log in to your account
               whoami                 Show login status and username
               register               Register an account at mooncakes.io
               publish                Publish the current module
               package                Package the current module
-              update                 Update the package registry index
+              deprecate              Deprecate or restore all existing versions of a published module
+              update                 Refresh registry metadata and report dependency updates
               coverage               Code coverage utilities
               generate-build-matrix  Generate build matrix for benchmarking (legacy feature)
               upgrade                Upgrade toolchains
@@ -67,7 +91,7 @@ fn test_moon_help() {
               -C <DIR>
                       Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
                   --target-dir <TARGET_DIR>
-                      The target directory. Defaults to `<project-root>/_build`
+                      The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/<file-name>` for a standalone file
               -q, --quiet
                       Suppress output
               -v, --verbose
@@ -83,10 +107,211 @@ fn test_moon_help() {
 }
 
 #[test]
-fn test_runwasm_uses_cached_asset_and_forwards_args() {
+fn test_moonx_uses_its_own_command_line_interface() {
+    let dir = TestDir::new_empty();
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+Run a standalone .mbtx file or a package from the Mooncakes registry without installing it.
+
+Accepted input forms:
+  moonx script.mbtx
+  moonx user/module/package
+  moonx user/module/package@1.2.3
+  moonx user/module/package@latest
+
+Standalone .mbtx files always use the linear-memory Wasm backend. Pinned
+package coordinates use the requested version directly. `@latest` refreshes the
+registry index before resolving the latest version. Unpinned coordinates use
+the latest version already known to the local registry index.
+
+Usage: moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...
+
+Options:
+      --target <TARGET>
+          [default: wasm]
+          [possible values: wasm]
+
+      --experimental-policy <PATH>
+          Experimental moonrun policy file
+
+      --virtual-process-tree
+          Run Wasm descendants in the same virtual process tree (experimental)
+
+  -v, --verbose
+          Show progress and execution details
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+"#]]);
+}
+
+#[test]
+fn test_moonx_runs_mbtx_as_linear_wasm_and_forwards_args() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["moonx_args.mbtx", "--help", "--target", "native", "-V"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+--help
+--target
+native
+-V
+
+"#]])
+        .stderr_eq("");
+
+    assert!(
+        dir.join("_build/moonx_args.mbtx/wasm/debug/build/single/single.wasm")
+            .is_file()
+    );
+    assert!(!dir.join("_build/moonx_args.mbtx/wasm-gc").exists());
+}
+
+#[test]
+fn test_moonx_rejects_native_before_acquisition() {
+    let dir = TestDir::new_empty();
+    let bin_dir = tempfile::TempDir::new().unwrap();
+    let moonx = moonx_bin(&bin_dir);
+    for input in ["missing.mbtx", "user/module"] {
+        snapbox::cmd::Command::new(&moonx)
+            .current_dir(&dir)
+            .env("MOON_HOME", dir.join("moon-home"))
+            .args(["--target", "native", input])
+            .assert()
+            .code(2)
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+error: invalid value 'native' for '--target <TARGET>'
+  [possible values: wasm]
+
+For more information, try '--help'.
+
+"#]]);
+    }
+    assert!(!dir.join("moon-home").exists());
+    assert!(!dir.join("_build").exists());
+}
+
+#[test]
+fn test_moonx_forwards_experimental_policy_to_mbtx() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    let output = std::process::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--experimental-policy",
+            "missing-policy.json",
+            "moonx_args.mbtx",
+        ])
+        .output()
+        .expect("failed to run moonx");
+    let stderr = String::from_utf8(output.stderr).expect("moonx stderr should be UTF-8");
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("failed to load sandbox policy"),
+        "expected moonx to forward its policy to moonrun:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_moonx_uses_embedded_mbtx_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .arg("embedded_policy.mbtx")
+        .assert()
+        .success()
+        .stdout_eq("embedded\n");
+}
+
+#[test]
+fn test_moonx_explicit_policy_skips_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+    std::fs::write(
+        dir.join("explicit-policy.json"),
+        r#"{"env":{"set":{"MBTX_POLICY":"explicit"}}}"#,
+    )
+    .unwrap();
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--experimental-policy",
+            "explicit-policy.json",
+            "malformed_embedded_policy.mbtx",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("explicit\n");
+}
+
+#[test]
+fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+    let inherited_policy = dir.join("inherited-policy.json");
+    std::fs::write(
+        &inherited_policy,
+        r#"{"env":{"set":{"MBTX_POLICY":"inherited"}}}"#,
+    )
+    .unwrap();
+    let transfer = moonutil::policy_transport::PolicyTransfer::from_file(
+        std::fs::File::open(inherited_policy).unwrap(),
+    )
+    .unwrap();
+    let mut command = std::process::Command::new(&moonx);
+    command
+        .current_dir(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .arg("malformed_embedded_policy.mbtx");
+    let relay = transfer.into_relay().attach_to(&mut command).unwrap();
+
+    snapbox::cmd::Command::from_std(command)
+        .assert()
+        .success()
+        .stdout_eq("inherited\n");
+    relay.finish().unwrap();
+}
+
+#[test]
+fn test_moonx_runs_cached_wasm_and_forwards_everything_after_the_coordinate() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
-        .args(["build", "--target", "wasm-gc"])
+        .args(["build", "--target", "wasm"])
         .assert()
         .success();
 
@@ -96,7 +321,371 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
         .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::copy(
-        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "--help",
+            "--arg1",
+            "--target",
+            "native",
+            "-h",
+            "-V",
+            "--version",
+        ])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm
+--help
+--arg1
+--target
+native
+-h
+-V
+--version
+
+"#]])
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["moonbitlang/parser/cmd/moonfmt@0.3.3", "--", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tool_exec_shell_applies_cwd_env_and_execs() {
+    let dir = TestDir::new_empty();
+    let cwd = dir.join("exec-cwd");
+    std::fs::create_dir_all(&cwd).expect("failed to create exec cwd");
+
+    moon_cmd(&dir)
+        .env("MOON_EXEC_REMOVE", "remove-me")
+        .args(["tool", "exec", "--cwd"])
+        .arg(&cwd)
+        .args([
+            "--env",
+            "MOON_EXEC_TEST=expected",
+            "--unset-env",
+            "MOON_EXEC_REMOVE",
+            "--shell",
+            "pwd -P > cwd.txt; printf '%s' \"$MOON_EXEC_TEST\" > env.txt; printf '%s' \"${MOON_EXEC_REMOVE-unset}\" > unset-env.txt; printf '%s' \"$PPID\" > ppid.txt",
+        ])
+        .assert()
+        .success();
+
+    let actual_cwd = std::fs::read_to_string(cwd.join("cwd.txt"))
+        .expect("cwd marker should be written")
+        .trim()
+        .to_string();
+    let expected_cwd = std::fs::canonicalize(&cwd)
+        .expect("cwd should canonicalize")
+        .display()
+        .to_string();
+    assert_eq!(actual_cwd, expected_cwd);
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("env.txt")).expect("env marker should be written"),
+        "expected"
+    );
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("unset-env.txt"))
+            .expect("unset env marker should be written"),
+        "unset"
+    );
+
+    let ppid = std::fs::read_to_string(cwd.join("ppid.txt"))
+        .expect("ppid marker should be written")
+        .parse::<u32>()
+        .expect("ppid marker should be a process id");
+    assert_eq!(ppid, std::process::id());
+}
+
+#[test]
+fn test_runwasm_runs_local_package_as_wasm_and_forwards_args() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["runwasm", "main", "--arg1", "arg2"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]/_build/wasm/debug/build/main/main.wasm
+--arg1
+arg2
+
+"#]]);
+}
+
+#[test]
+fn test_runwasm_help_marks_policy_as_experimental() {
+    let dir = TestDir::new_empty();
+    let help = get_stdout(&dir, ["runwasm", "--help"]);
+    assert!(
+        help.contains("Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`."),
+        "expected runwasm help to identify the local-package replacement, got:\n{help}"
+    );
+    assert!(
+        help.contains("Registry packages: use `moonx <PACKAGE[@VERSION]>`."),
+        "expected runwasm help to identify the registry-package replacement, got:\n{help}"
+    );
+    assert!(
+        help.contains("--experimental-policy <PATH>"),
+        "expected runwasm help to expose experimental policy flag, got:\n{help}"
+    );
+    assert!(
+        help.contains("Experimental: pass a moonrun JSON policy file"),
+        "expected runwasm help to mark policy as experimental, got:\n{help}"
+    );
+    assert!(
+        !help.contains("TOML"),
+        "expected runwasm help to advertise only JSON policies, got:\n{help}"
+    );
+    assert!(
+        help.contains("WASI is not covered"),
+        "expected runwasm help to explain policy scope, got:\n{help}"
+    );
+}
+
+#[test]
+fn test_runwasm_local_package_forwards_experimental_policy() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "runwasm",
+            "--experimental-policy",
+            "missing-policy.toml",
+            "main",
+        ],
+        [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    assert!(
+        stderr.contains(
+            "`moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moon run <PACKAGE> --target wasm` instead."
+        ),
+        "expected local runwasm deprecation guidance, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("failed to load sandbox policy"),
+        "expected sandbox policy load error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_run_direct_wasm_forwards_policy() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "run",
+            "_build/wasm/debug/build/main/main.wasm",
+            "--wasm-policy",
+            "missing-policy.json",
+        ],
+        [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    assert!(
+        stderr.contains("failed to load sandbox policy"),
+        "expected direct Wasm execution to forward the policy:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_run_with_explicit_target_exits_with_guest_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["run", "main", "--target", "wasm", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("");
+}
+
+#[test]
+fn test_test_with_explicit_target_fails_on_test_executable_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["test", "main", "--target", "wasm", "--filter", "exit-7"],
+        [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    snapbox::assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+...
+Error: failed to run test for target Wasm
+
+Caused by:
+    Failed to run the test: $ROOT/_build/wasm/debug/test/main/main.blackbox_test.wasm
+    The test executable exited with exit [..]: 7
+    Active test at executable exit:
+      - $ROOT/main/exit_wasm_test.mbt:1 "exit-7"
+
+"#]],
+    );
+}
+
+#[test]
+fn test_runwasm_exits_with_guest_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["runwasm", "main", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("");
+}
+
+#[test]
+fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["runwasm", "moonbitlang/parser/cmd/moonfmt@0.3.3", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("")
+        .stderr_eq(
+            "Warning: `moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead.\n",
+        );
+}
+
+#[test]
+fn test_runwasm_cached_asset_flushes_trace_before_delegation() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--trace",
+            "runwasm",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "exit-7",
+        ])
+        .assert()
+        .code(7);
+
+    let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+    let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert!(events.as_array().is_some_and(|events| !events.is_empty()));
+}
+
+#[test]
+fn test_runwasm_cached_asset_forwards_experimental_policy() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    let envs = vec![
+        ("MOON_HOME".to_string(), moon_home.path().to_path_buf()),
+        ("MOONRUN_OVERRIDE".to_string(), moonrun_bin()),
+    ];
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "runwasm",
+            "--experimental-policy",
+            "missing-policy.toml",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+        ],
+        envs,
+    );
+    assert!(
+        stderr.contains(
+            "`moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead."
+        ),
+        "expected registry runwasm deprecation guidance, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("failed to load sandbox policy"),
+        "expected sandbox policy load error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_runwasm_uses_cached_asset_and_forwards_args() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
         &cache_path,
     )
     .unwrap();
@@ -117,7 +706,21 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
 arg2
 
 "#]])
-        .stderr_eq("");
+        .stderr_eq(
+            "Warning: `moon runwasm` is deprecated and scheduled for removal after 2026-09-14; use `moonx` instead.\n",
+        );
+}
+
+#[test]
+fn test_runwasm_rejects_existing_wasm_file() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("main.wasm"), b"\0asmtest").unwrap();
+
+    moon_cmd(&dir)
+        .args(["runwasm", "main.wasm"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: `main.wasm` is not a package directory\n");
 }
 
 #[test]
@@ -132,7 +735,7 @@ fn test_runwasm_rejects_dry_run() {
         ],
     );
     assert!(
-        stderr.contains("--dry-run is not supported for `moon runwasm`"),
+        stderr.contains("--dry-run is not supported for Mooncakes assets in `moon runwasm`"),
         "expected dry-run rejection, got:\n{stderr}"
     );
 }
@@ -161,6 +764,25 @@ fn test_external_subcommand_delegation_handles_interrupt() {
         status.code(),
         Some(42),
         "fake moon-test-behavior did not handle interrupt itself; status was {status}"
+    );
+}
+
+#[test]
+fn test_ide_delegation_resolves_from_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/chdir-executable-resolution");
+
+    let early_stdout = get_stdout_with_envs(&dir, ["-qCsubdir", "help", "ide"], [("PATH", "bin")]);
+    assert!(
+        early_stdout.contains("fake-moon-ide-location=subdir"),
+        "early moon-ide delegation should resolve from the -C directory:\n{early_stdout}"
+    );
+
+    let parsed_stdout =
+        get_stdout_with_envs(&dir, ["-C", "subdir", "ide", "--help"], [("PATH", "bin")]);
+    assert!(
+        parsed_stdout.contains("fake-moon-ide-location=subdir"),
+        "parsed moon-ide delegation should resolve from the -C directory:\n{parsed_stdout}"
     );
 }
 
@@ -214,6 +836,23 @@ fn test_cram_delegates_with_built_binary_dirs_on_path() {
         stdout.contains("fake-moon-cram-path=$ROOT/_build/native/debug/build/main"),
         "moon-cram PATH should include the built executable directory:\n{stdout}"
     );
+}
+
+#[test]
+fn test_cram_flushes_trace_before_delegation() {
+    let dir = TestDir::new("hello");
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    moon_cmd(&dir)
+        .env("MOON_CRAM_OVERRIDE", fake_cram)
+        .args(["--trace", "cram", "test", "--shell", "bash"])
+        .assert()
+        .success();
+
+    let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+    let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert!(events.as_array().is_some_and(|events| !events.is_empty()));
 }
 
 #[test]
@@ -274,6 +913,108 @@ fn test_cram_parent_flag_delegates_to_moon_cram() {
 }
 
 #[test]
+fn test_cram_bare_override_resolves_from_path() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/executable-override/bin");
+    let fake_cram = fake_bin_dir.join(if cfg!(windows) {
+        "fake-moon-cram.cmd"
+    } else {
+        "fake-moon-cram"
+    });
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "--version"],
+        [
+            (
+                std::ffi::OsString::from("MOON_CRAM_OVERRIDE"),
+                std::ffi::OsString::from("fake-moon-cram"),
+            ),
+            (
+                std::ffi::OsString::from("PATH"),
+                path_with_fake_bin(&fake_bin_dir),
+            ),
+        ],
+    );
+
+    let normalized_stdout = stdout.replace('\\', "/");
+    let normalized_executable = fake_cram.to_string_lossy().replace('\\', "/");
+    assert!(
+        normalized_stdout.contains(&format!("fake-moon-cram-argv0={normalized_executable}")),
+        "bare moon-cram override should resolve to an explicit path:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_relative_override_resolves_after_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
+
+    let early_stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "subdir", "cram", "--version"],
+        [("MOON_CRAM_OVERRIDE", "bin/fake-moon-cram")],
+    );
+    assert!(
+        early_stdout.contains("fake-moon-cram-location=subdir"),
+        "early moon-cram delegation should resolve the override from the -C directory:\n{early_stdout}"
+    );
+
+    let parsed_stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "subdir", "cram", "list"],
+        [("MOON_CRAM_OVERRIDE", "bin/fake-moon-cram")],
+    );
+    assert!(
+        parsed_stdout.contains("fake-moon-cram-location=subdir"),
+        "parsed moon-cram delegation should resolve the override from the -C directory:\n{parsed_stdout}"
+    );
+}
+
+#[test]
+fn test_mooncake_direct_commands_resolve_relative_override_after_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
+
+    for command in ["login", "register"] {
+        let stdout = get_stdout_with_envs(
+            &dir,
+            ["-C", "subdir", command],
+            [("MOONCAKE_OVERRIDE", "bin/fake-moon-cram")],
+        );
+        assert!(
+            stdout.contains("fake-moon-cram-location=subdir"),
+            "moon {command} should resolve mooncake from the -C directory:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn test_cram_bare_override_on_relative_path_resolves_after_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
+    let path = std::env::join_paths(std::iter::once(PathBuf::from("bin")).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .expect("failed to build relative PATH");
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "subdir", "cram", "--version"],
+        [
+            (
+                std::ffi::OsString::from("MOON_CRAM_OVERRIDE"),
+                std::ffi::OsString::from("fake-moon-cram"),
+            ),
+            (std::ffi::OsString::from("PATH"), path),
+        ],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-location=subdir"),
+        "bare moon-cram override on a relative PATH should resolve from the -C directory:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_cram_parent_flag_after_moon_global_delegates_to_moon_cram() {
     let dir = TestDir::new_empty();
     let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
@@ -291,6 +1032,40 @@ fn test_cram_parent_flag_after_moon_global_delegates_to_moon_cram() {
     assert!(
         stdout.contains("fake-moon-cram-args=--version"),
         "moon cram parent flags should still delegate after Moon globals:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_trace_ownership_follows_delegation_point() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["--trace", "cram", "--version"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+    assert!(
+        stderr.contains("`--trace` is not supported before delegated command `cram`"),
+        "Moon-owned trace should be rejected for transparent delegation:\n{stderr}"
+    );
+    assert!(!dir.join("trace.json").exists());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "--trace"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+    assert!(
+        stdout.contains("fake-moon-cram-args=--trace"),
+        "trace after the delegation point should be forwarded:\n{stdout}"
     );
 }
 
@@ -340,14 +1115,18 @@ fn test_cram_build_path_error_does_not_delegate_to_moon_cram() {
 fn test_cram_rejects_unresolved_runner_before_build_path() {
     let dir = TestDir::new_empty();
     std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{ "name": "username/cram-shadow" }"#,
+        dir.join("moon.mod"),
+        r#"
+name = "username/cram-shadow"
+"#,
     )
     .expect("failed to write module manifest");
     std::fs::create_dir_all(dir.join("moon-cram")).expect("failed to create main package");
     std::fs::write(
-        dir.join("moon-cram/moon.pkg.json"),
-        r#"{ "is-main": true }"#,
+        dir.join("moon-cram/moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
     )
     .expect("failed to write package manifest");
     std::fs::write(
@@ -378,11 +1157,21 @@ fn test_cram_rejects_unresolved_runner_before_build_path() {
 #[test]
 fn test_cram_build_failure_prevents_delegation() {
     let dir = TestDir::new_empty();
-    std::fs::write(dir.join("moon.mod.json"), r#"{ "name": "username/fail" }"#)
-        .expect("failed to write module manifest");
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"
+name = "username/fail"
+"#,
+    )
+    .expect("failed to write module manifest");
     std::fs::create_dir_all(dir.join("main")).expect("failed to create main package");
-    std::fs::write(dir.join("main/moon.pkg.json"), r#"{ "is-main": true }"#)
-        .expect("failed to write package manifest");
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
+"#,
+    )
+    .expect("failed to write package manifest");
     std::fs::write(dir.join("main/main.mbt"), "fn main { missing }\n")
         .expect("failed to write invalid source");
 
@@ -451,7 +1240,7 @@ fn send_interrupt(pid: u32) {
 }
 
 #[cfg(any(unix, windows))]
-fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
+fn compile_signal_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {
     let source =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_signal_handler.rs");
     let executable = fake_bin_dir.join(format!(
@@ -470,6 +1259,7 @@ fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
         status.success(),
         "failed to compile fake moon-test-behavior"
     );
+    executable
 }
 
 fn compile_fake_cram_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {
@@ -622,7 +1412,7 @@ fn test_moon_explain_without_flags_shows_guidance() {
               -h, --help                       Print help
 
             Common Options:
-                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`
+                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/<file-name>` for a standalone file
               -q, --quiet                    Suppress output
               -v, --verbose                  Increase verbosity
                   --trace                    Trace the execution of the program
@@ -870,6 +1660,45 @@ fn test_moon_run_command_string_reads_inline_script() {
         .stderr_eq("");
 }
 
+#[cfg(unix)]
+#[test]
+fn test_moon_run_command_string_removes_temporary_project() {
+    let dir = TestDir::new_empty();
+    let temp_root = dir.join("tmp");
+    std::fs::create_dir(&temp_root).unwrap();
+
+    moon_cmd(&dir)
+        .env("TMPDIR", &temp_root)
+        .args([
+            "run",
+            "-e",
+            r#"fn main {
+  println("hello")
+}
+"#,
+        ])
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+
+    assert_eq!(std::fs::read_dir(temp_root).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_moon_run_flushes_trace() {
+    let dir = TestDir::new("moon_commands");
+
+    moon_cmd(&dir)
+        .args(["run", "--trace", "main1"])
+        .assert()
+        .success();
+
+    let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+    let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert!(events.as_array().is_some_and(|events| !events.is_empty()));
+}
+
 #[test]
 fn test_moon_run_command_string_short_alias_c_reads_inline_script() {
     let dir = TestDir::new_empty();
@@ -910,17 +1739,24 @@ fn test_moon_run_command_string_invalid_source_keeps_diagnostics_on_stderr() {
 }
 
 #[test]
-fn test_moon_run_command_string_invalid_source_shows_failed_command_in_verbose_mode() {
+fn test_moon_run_command_string_invalid_source_shows_failed_command_on_stderr_in_verbose_mode() {
     let dir = TestDir::new_empty();
     moon_cmd(&dir)
         .args(["run", "--verbose", "-e", r#"println("hello")"#])
         .assert()
         .failure()
-        .stdout_eq("failed: [..]moonc[..] build-package [..]\n");
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Failed command: [..]moonc[..] build-package [..]
+Error: [4067] Missing main function in the main package.
+Error: [3002]
+...
+
+"#]]);
 }
 
 #[test]
-fn test_moon_run_command_string_defaults_to_native() {
+fn test_moon_run_command_string_defaults_to_wasm() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
         &dir,
@@ -935,16 +1771,17 @@ fn test_moon_run_command_string_defaults_to_native() {
         ],
     );
 
-    assert!(stdout.contains("-target native"), "stdout: {stdout}");
+    assert!(stdout.contains("-target wasm"), "stdout: {stdout}");
     assert!(
-        stdout.contains("./_build/native/debug/build/single/single.core"),
+        stdout.contains("./_build/command.mbtx/wasm/debug/build/single/single.core"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+    assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
 #[test]
-fn test_moon_run_command_string_explicit_target_overrides_native_default() {
+fn test_moon_run_command_string_explicit_target_overrides_wasm_default() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
         &dir,
@@ -963,14 +1800,20 @@ fn test_moon_run_command_string_explicit_target_overrides_native_default() {
 
     assert!(stdout.contains("-target wasm-gc"), "stdout: {stdout}");
     assert!(
-        stdout.contains("moonrun ./_build/wasm-gc/debug/build/single/single.wasm --"),
+        stdout.contains(
+            "'$MOONRUN_OVERRIDE' ./_build/command.mbtx/wasm-gc/debug/build/single/single.wasm --"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
+        !stdout.contains("./_build/command.mbtx/wasm/debug/"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
 #[test]
-fn test_moon_run_command_string_short_alias_c_defaults_to_native() {
+fn test_moon_run_command_string_short_alias_c_defaults_to_wasm() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
         &dir,
@@ -985,12 +1828,13 @@ fn test_moon_run_command_string_short_alias_c_defaults_to_native() {
         ],
     );
 
-    assert!(stdout.contains("-target native"), "stdout: {stdout}");
+    assert!(stdout.contains("-target wasm"), "stdout: {stdout}");
     assert!(
-        stdout.contains("./_build/native/debug/build/single/single.core"),
+        stdout.contains("./_build/command.mbtx/wasm/debug/build/single/single.core"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+    assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
 #[test]
@@ -1106,9 +1950,11 @@ fn test_moon_run_pipe_input() {
     let moon = moon_bin().to_string_lossy().replace('\'', "'\\''");
     let script = format!(
         r#"MOON_BIN='{moon}'
-echo 'import {{
+echo '----
+import {{
   "moonbitlang/core/list",
 }}
+----
 fn main {{
   let xs : @list.List[Int] = @list.of([1, 2, 3])
   println("hello from run pipe \{{xs}}")
@@ -1162,30 +2008,22 @@ fn test_moon_add_help_includes_no_update() {
 }
 
 #[test]
-fn test_manifest_path_deprecation_warning_for_non_run_commands() {
+fn test_manifest_path_is_not_supported() {
     let dir = TestDir::new("moon_commands");
-    let stderr = get_stderr(
-        &dir,
-        ["check", "--manifest-path", "moon.mod.json", "--dry-run"],
-    );
-    assert!(
-        stderr.contains("`--manifest-path` is deprecated"),
-        "expected deprecation warning, got:\n{stderr}"
-    );
-}
+    moon_cmd(&dir)
+        .args(["check", "--manifest-path", "moon.mod", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+error: unexpected argument '--manifest-path' found
 
-#[test]
-fn test_run_rejects_manifest_path() {
-    let dir = TestDir::new("moon_commands");
-    let stderr = get_err_stderr(&dir, ["run", "--manifest-path", "moon.mod.json", "main1"]);
-    assert!(
-        stderr.contains("`--manifest-path` is no longer supported for `moon run`"),
-        "expected moon run manifest-path rejection, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("Use `moon -C <project-dir> run ...` instead"),
-        "expected moon run manifest-path guidance, got:\n{stderr}"
-    );
+  tip: to pass '--manifest-path' as a value, use '-- --manifest-path'
+
+Usage: moon[EXE] check [OPTIONS] [PATH]...
+
+For more information, try '--help'.
+
+"#]]);
 }
 
 #[test]

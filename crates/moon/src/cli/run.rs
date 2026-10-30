@@ -1,62 +1,73 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
+use moonbuild::BuildMeta;
+use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    ResolveOutput, build_plan::InputDirective, intent::UserIntent, model::PackageId,
+    DiscoveredProject,
+    build_plan::{ArtifactKey, InputDirective},
+    intent::UserIntent,
+    model::{BackendConfig, PackageId},
 };
-use moonutil::common::{FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist};
-use moonutil::dirs::{PackageDirs, ProjectProbe};
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use mooncake::pkg::sync::SyncOutputOptions;
+use moonutil::child_process::ChildOutputMode;
+use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
+use moonutil::project::{
+    PackageDirs, ProjectProbe, SingleFilePackageDirs, SourceTargetDirs, WorkspaceEnv,
+};
+use moonutil::{
+    build_options::{RunMode, TestArtifacts},
+    cache::{CacheKind, resolve_cache_root},
+    constants::is_moon_pkg_exist,
+    locks::lock_directory,
+    target::{SurfaceTarget, TargetBackend},
+    user_log::{UserLog, user_log_level},
+};
 use tracing::{Level, instrument};
 
 use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
-use crate::rr_build::preconfig_compile;
-use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::default_rt;
-use crate::user_diagnostics::UserDiagnostics;
+use crate::rr_build::CalcUserIntentOutput;
 
 use super::{BuildFlags, UniversalFlags};
 
-struct ResolvedRunSelection {
+pub(crate) struct ResolvedRunSelection {
     package: PackageId,
+    target_backend: TargetBackend,
 }
 
 impl ResolvedRunSelection {
     fn into_user_intent(
         self,
         input_path: &str,
-        resolve_output: &ResolveOutput,
+        discovered: &DiscoveredProject,
         value_tracing: bool,
-        target_backend: TargetBackend,
     ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-        if !resolve_output
-            .pkg_dirs
-            .get_package(self.package)
-            .raw
-            .is_main
-        {
+        if !discovered.pkg_dirs.get_package(self.package).raw.is_main {
             bail!("`{}` is not a main package", input_path);
         }
-        ensure_package_supports_backend(resolve_output, self.package, target_backend)?;
+        ensure_package_supports_backend(discovered, self.package, self.target_backend)?;
 
         let directive = if value_tracing {
             InputDirective {
@@ -74,6 +85,9 @@ impl ResolvedRunSelection {
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
 pub(crate) struct RunSubcommand {
+    #[clap(skip)]
+    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
+
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
     #[clap(group = "run_source")]
     pub package_or_mbt_file: Option<String>,
@@ -94,6 +108,14 @@ pub(crate) struct RunSubcommand {
     #[clap(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
     pub args: Vec<String>,
 
+    /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
+    #[clap(long = "wasm-policy", value_name = "PATH")]
+    pub(crate) moonrun_policy: Option<PathBuf>,
+
+    /// Run Wasm descendants in the same virtual process tree (experimental)
+    #[clap(long, conflicts_with = "profile")]
+    pub virtual_process_tree: bool,
+
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -106,74 +128,92 @@ pub(crate) struct RunSubcommand {
     pub profile: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RunOutputVerbosity {
+    verbose: bool,
+}
+
+impl RunOutputVerbosity {
+    fn from_flags(cli: &UniversalFlags) -> Self {
+        Self {
+            verbose: cli.verbose,
+        }
+    }
+
+    fn sync_output(self) -> SyncOutputOptions {
+        SyncOutputOptions {
+            quiet: !self.verbose,
+            child_output: ChildOutputMode::Inherit,
+        }
+    }
+
+    fn suppress_build_progress(self) -> bool {
+        !self.verbose
+    }
+}
+
 /// Controls how `moon run` builds the executable before it is consumed.
-///
-/// Normal execution preserves the existing debug-native fast path by allowing
-/// `tcc -run`. Consumers that need a standalone executable, such as profilers,
-/// should disable it.
 pub(crate) struct BuildRunExecutableOptions {
-    /// Whether native debug builds may use `tcc -run`.
-    ///
-    /// `tcc -run` executes through `tcc @rspfile` and does not provide the same
-    /// standalone executable shape as regular native execution.
-    pub(crate) try_tcc_run: bool,
     /// Whether dry-run output should include the final executable invocation.
-    pub(crate) print_dry_run_run_command: bool,
-    /// Whether to suppress build progress output from n2.
-    pub(crate) suppress_build_progress: bool,
-    /// Whether dependency sync/install progress should stay quiet.
-    pub(crate) quiet_sync: bool,
+    print_dry_run_run_command: bool,
+    output: RunOutputVerbosity,
     /// Backend to use when neither CLI flags nor single-file metadata selects one.
-    pub(crate) default_target_backend: TargetBackend,
+    default_target_backend: TargetBackend,
+    /// Synthetic stdin and inline sources live in a temporary directory, but
+    /// relative embedded-policy paths retain the invocation directory.
+    embedded_policy_source_dir: Option<PathBuf>,
 }
 
 impl BuildRunExecutableOptions {
     fn for_run(cli: &UniversalFlags) -> Self {
         Self {
-            try_tcc_run: !cli.dry_run,
             print_dry_run_run_command: true,
-            suppress_build_progress: false,
-            quiet_sync: false,
+            output: RunOutputVerbosity::from_flags(cli),
             default_target_backend: TargetBackend::default(),
+            embedded_policy_source_dir: None,
         }
     }
 
-    fn for_inline_run(cli: &UniversalFlags) -> Self {
+    pub(crate) fn for_profile(cli: &UniversalFlags) -> Self {
         Self {
-            try_tcc_run: !cli.dry_run,
-            print_dry_run_run_command: true,
-            suppress_build_progress: !cli.verbose,
-            quiet_sync: !cli.verbose,
-            default_target_backend: TargetBackend::Native,
+            // The dry-run output should show the profiled invocation, not the
+            // plain executable command that `moon run` would normally print.
+            print_dry_run_run_command: false,
+            output: RunOutputVerbosity::from_flags(cli),
+            default_target_backend: TargetBackend::default(),
+            embedded_policy_source_dir: None,
         }
     }
+}
+
+pub(crate) struct EmbeddedMbtxPolicy {
+    source: PathBuf,
+    source_dir_override: Option<PathBuf>,
 }
 
 /// A built executable plus the state needed to consume it.
 ///
-/// The build step keeps the target-directory lock alive until the caller either
-/// runs the program or explicitly releases the lock. This preserves the previous
-/// `moon run` behavior while allowing other consumers to reuse the same build
-/// stage.
+/// Normal builds keep the target-directory lock alive until the caller
+/// either runs the program or explicitly releases the lock. Other consumers can
+/// reuse the same build stage without releasing the lock between planning and
+/// compilation.
 pub(crate) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(crate) executable: PathBuf,
-    /// Backend-specific runner to use for this artifact.
-    pub(crate) target_backend: moonbuild_rupes_recta::model::RunBackend,
-    /// Present only when native debug execution selected `tcc -run`.
-    pub(crate) tcc_run: Option<moonbuild_rupes_recta::model::TccRunConfig>,
+    /// Backend configuration used to build and execute this artifact.
+    pub(crate) backend: BackendConfig,
     pub(crate) opt_level: moonutil::cond_expr::OptLevel,
     pub(crate) target_dir: PathBuf,
+    pub(crate) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
-    force_success_exit: bool,
-    lock: Option<FileLock>,
+    lock: Option<std::fs::File>,
 }
 
 struct BuildExecutableFromPlanOptions {
-    force_success_exit: bool,
     print_dry_run_run_command: bool,
-    suppress_build_progress: bool,
+    output: RunOutputVerbosity,
+    embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
 }
 
 impl RunExecutable {
@@ -195,6 +235,7 @@ impl RunExecutable {
 fn run_stdin_source_as_single_file(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let mut source = String::new();
     std::io::stdin()
@@ -208,12 +249,14 @@ fn run_stdin_source_as_single_file(
         "stdin.mbtx",
         "stdin",
         BuildRunExecutableOptions::for_run(cli),
+        output,
     )
 }
 
 fn run_inline_source_as_single_file(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let source = cmd
         .command
@@ -226,7 +269,8 @@ fn run_inline_source_as_single_file(
         source,
         "command.mbtx",
         "command",
-        BuildRunExecutableOptions::for_inline_run(cli),
+        BuildRunExecutableOptions::for_run(cli),
+        output,
     )
 }
 
@@ -236,8 +280,13 @@ fn run_source_as_single_file(
     source: String,
     temp_name: &str,
     source_name: &str,
-    options: BuildRunExecutableOptions,
+    mut options: BuildRunExecutableOptions,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    options.embedded_policy_source_dir = Some(
+        std::env::current_dir()
+            .with_context(|| format!("failed to resolve {source_name} policy source directory"))?,
+    );
     let temp_dir = tempfile::TempDir::new()
         .with_context(|| format!("failed to create temporary directory for {source_name} run"))?;
     let input_path = temp_dir.path().join(temp_name);
@@ -249,35 +298,33 @@ fn run_source_as_single_file(
     })?;
 
     let RunSubcommand {
+        handoff,
         command: _,
         build_flags,
         args,
+        moonrun_policy,
+        virtual_process_tree,
         auto_sync_flags,
         build_only,
         profile,
         ..
     } = cmd;
     let cmd = RunSubcommand {
+        handoff,
         package_or_mbt_file: Some(input_path.to_string_lossy().into_owned()),
         command: None,
         build_flags,
         args,
+        moonrun_policy,
+        virtual_process_tree,
         auto_sync_flags,
         build_only,
         profile,
     };
-    let result = run_single_file_from_arg_with_options(cli, cmd, options);
+    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
+    let result = run_executable(cli, &cmd, executable, output);
     drop(temp_dir);
     result
-}
-
-fn reject_manifest_path_for_run(cli: &UniversalFlags) -> anyhow::Result<()> {
-    if cli.source_tgt_dir.manifest_path.is_some() {
-        bail!(
-            "`--manifest-path` is no longer supported for `moon run`. Use `moon -C <project-dir> run ...` instead."
-        );
-    }
-    Ok(())
 }
 
 fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
@@ -296,6 +343,7 @@ fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
 fn build_wasm_file_executable_from_arg(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let input = cmd
         .package_or_mbt_file
@@ -309,43 +357,53 @@ fn build_wasm_file_executable_from_arg(
 
     let print_dir = std::env::current_dir().context("failed to get current directory")?;
     if cli.dry_run {
-        let mut run_cmd = crate::run::command_for(
-            moonbuild_rupes_recta::model::RunBackend::WasmGC,
-            None,
+        let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
+            crate::run::ExecutionMode::MoonRun,
             &wasm_path,
             None,
+            cmd.moonrun_policy.as_deref(),
+            None,
+            cmd.virtual_process_tree,
         );
         run_cmd.args(&cmd.args);
-        rr_build::dry_print_command(run_cmd.as_std(), &print_dir, false);
+        let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
+        output.write_result(|writer| writeln!(writer, "{command}"))?;
     }
 
     Ok(RunExecutable {
         executable: wasm_path,
-        target_backend: moonbuild_rupes_recta::model::RunBackend::WasmGC,
-        tcc_run: None,
+        backend: BackendConfig::WasmGc { use_wat: false },
         opt_level: moonutil::cond_expr::OptLevel::Debug,
         target_dir: print_dir.clone(),
+        embedded_mbtx_policy: None,
         source_dir: print_dir,
         build_exit_code: (!cli.dry_run).then_some(0),
-        force_success_exit: false,
         lock: None,
     })
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    reject_manifest_path_for_run(cli)?;
-
+pub(crate) fn run_run(
+    cli: &UniversalFlags,
+    mut cmd: RunSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    if cmd.handoff.is_some() && (cli.dry_run || cmd.build_only || cmd.profile) {
+        bail!("Moonrun handoff cannot be combined with --dry-run, --build-only, or --profile");
+    }
+    if (cmd.handoff.is_some() || cmd.virtual_process_tree) && cmd.build_flags.target.is_empty() {
+        cmd.build_flags.target.push(SurfaceTarget::Wasm);
+    }
     if cmd.profile {
-        return super::profile::run_profiled_run(cli, cmd);
+        return super::profile::run_profiled_run(cli, cmd, output);
     }
 
     if cmd.command.is_some() {
-        return run_inline_source_as_single_file(cli, cmd);
+        return run_inline_source_as_single_file(cli, cmd, output);
     }
 
     if cmd.package_or_mbt_file.as_deref() == Some("-") {
-        return run_stdin_source_as_single_file(cli, cmd);
+        return run_stdin_source_as_single_file(cli, cmd, output);
     }
 
     let executable = if cmd.package_or_mbt_file.as_deref().is_some_and(|input| {
@@ -354,15 +412,11 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
             .is_some_and(|ext| ext == "wasm")
             && std::fs::metadata(input).is_ok_and(|metadata| metadata.is_file())
     }) {
-        build_wasm_file_executable_from_arg(cli, &cmd)?
+        build_wasm_file_executable_from_arg(cli, &cmd, output)?
     } else {
-        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?
+        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), output)?
     };
-    let result = run_executable(cli, &cmd, executable);
-    if crate::run::shutdown_requested() {
-        return Ok(130);
-    }
-    result
+    run_executable(cli, &cmd, executable, output)
 }
 
 /// Resolve the run input, plan it, and build the executable artifact.
@@ -374,6 +428,7 @@ pub(crate) fn build_run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let input = cmd
         .package_or_mbt_file
@@ -384,38 +439,96 @@ pub(crate) fn build_run_executable(
         .is_some_and(|extension| extension == "wasm")
         && std::fs::metadata(input).is_ok_and(|metadata| metadata.is_file())
     {
-        return build_wasm_file_executable_from_arg(cli, cmd);
+        return build_wasm_file_executable_from_arg(cli, cmd, output);
     }
     let is_mbt = input.ends_with(".mbt");
     let is_mbtx = input.ends_with(".mbtx");
     let run_start_dir = resolve_run_start_dir(input)?;
 
-    let mut query = cli
+    let query = cli
         .source_tgt_dir
         .query_from(&run_start_dir, cli.workspace_env.clone())?;
     match query.probe_project()? {
         ProjectProbe::Found(_) => {
             if is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options);
+                return build_single_file_executable_from_arg(cli, cmd, options, output);
             }
             if is_mbt {
                 let moon_pkg_json_exist =
                     std::fs::metadata(input)?.is_file() && is_moon_pkg_exist(&run_start_dir);
                 if !moon_pkg_json_exist {
-                    return build_single_file_executable_from_arg(cli, cmd, options);
+                    return build_single_file_executable_from_arg(cli, cmd, options, output);
                 }
             }
         }
         ProjectProbe::NotFound(not_found) => {
             if is_mbt || is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options);
+                return build_single_file_executable_from_arg(cli, cmd, options, output);
             }
             return Err(not_found.into_error().into());
         }
     }
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
-    build_package_executable(cli, cmd, selected_target_backend, options)
+    build_package_executable(cli, cmd, selected_target_backend, options, output)
+}
+
+/// Build a persistent standalone source as linear-memory Wasm.
+///
+/// The returned artifact is ready for a caller-owned execution path; no build
+/// lock remains held after this function returns.
+pub(crate) fn build_standalone_wasm(
+    dirs: SingleFilePackageDirs,
+    frozen: bool,
+    verbose: bool,
+) -> anyhow::Result<RunExecutable> {
+    // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
+    // once standalone build planning accepts explicit source, backend, sync,
+    // and output options without UniversalFlags and RunSubcommand.
+    let cli = UniversalFlags {
+        source_tgt_dir: SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        },
+        workspace_env: WorkspaceEnv::default(),
+        quiet: !verbose,
+        verbose,
+        trace: false,
+        dry_run: false,
+        unstable_feature: ""
+            .parse()
+            .expect("empty unstable feature set must be valid"),
+    };
+    let cmd = RunSubcommand {
+        handoff: None,
+        package_or_mbt_file: Some(dirs.input_path.to_string_lossy().into_owned()),
+        command: None,
+        build_flags: BuildFlags {
+            target: vec![SurfaceTarget::Wasm],
+            ..BuildFlags::default()
+        },
+        args: Vec::new(),
+        moonrun_policy: None,
+        virtual_process_tree: false,
+        auto_sync_flags: AutoSyncFlags { frozen },
+        build_only: false,
+        profile: false,
+    };
+    let output = CommandOutput::new(user_log_level(verbose, !verbose));
+    let built = build_single_file_executable(
+        &cli,
+        &cmd,
+        dirs.package_dirs,
+        dirs.input_path,
+        BuildRunExecutableOptions::for_run(&cli),
+        &output,
+    )?;
+    built.ensure_build_success()?;
+    anyhow::ensure!(
+        built.backend.target_backend() == TargetBackend::Wasm,
+        "standalone `.mbtx` build did not produce linear-memory Wasm"
+    );
+    Ok(built)
 }
 
 #[instrument(skip_all)]
@@ -426,147 +539,168 @@ fn build_package_executable(
     cmd: &RunSubcommand,
     selected_target_backend: Option<TargetBackend>,
     options: BuildRunExecutableOptions,
+    output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
+    let user_log = output.user_log();
     let run_start_dir = resolve_run_start_dir(
         cmd.package_or_mbt_file
             .as_deref()
             .expect("package run planning requires a positional input"),
     )?;
+    let dirs = cli
+        .source_tgt_dir
+        .query_from(&run_start_dir, cli.workspace_env.clone())?
+        .select(user_log)?
+        .package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,
-        mooncakes_dir,
-        project_manifest_path,
-    } = cli
-        .source_tgt_dir
-        .query_from(&run_start_dir, cli.workspace_env.clone())?
-        .package_dirs()?;
+        ..
+    } = &dirs;
 
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_project_manifest_path(project_manifest_path.as_deref())
-    .with_quiet_sync(options.quiet_sync);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
-    let (build_meta, build_graph) = plan_run_rr_from_resolved(
+    .with_sync_output(options.output.sync_output());
+    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
+    let (build_meta, build_graph) = plan_run_rr_from_discovered(
         cli,
         cmd,
-        &target_dir,
+        target_dir,
         selected_target_backend,
-        resolve_output,
-        options.try_tcc_run,
+        discovered,
+        user_log,
     )?;
     build_executable_from_plan(
         cli,
         cmd,
-        &source_dir,
-        &target_dir,
+        source_dir,
+        target_dir,
         &build_meta,
         build_graph,
+        lock,
         BuildExecutableFromPlanOptions {
-            force_success_exit: selected_target_backend.is_some(),
             print_dry_run_run_command: options.print_dry_run_run_command,
-            suppress_build_progress: options.suppress_build_progress,
+            output: options.output,
+            embedded_mbtx_policy: None,
         },
+        output,
     )
 }
 
-pub(crate) fn plan_run_rr_from_resolved(
+/// Selects the run package and backend, resolves packages, then plans the run.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn plan_run_rr_from_discovered(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: ResolveOutput,
-    try_tcc_run: bool,
-) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Run,
-    );
-    preconfig.try_tcc_run = try_tcc_run;
-
+    discovered: DiscoveredProject,
+    user_log: &UserLog,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let input_path = cmd
         .package_or_mbt_file
-        .clone()
+        .as_deref()
         .expect("package run planning requires a positional input");
-    let value_tracing = cmd.build_flags.enable_value_tracing;
-
-    let selection = resolve_run_selection(&input_path, &resolve_output)?;
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        &resolve_output,
-    )?;
+    let selection = resolve_run_selection(input_path, &discovered, selected_target_backend)?;
+    let target_backend = selection.target_backend;
     let intent = selection.into_user_intent(
-        &input_path,
-        &resolve_output,
-        value_tracing,
-        planning_context.target_backend(),
+        input_path,
+        &discovered,
+        cmd.build_flags.enable_value_tracing,
+    )?;
+    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
+    let compile_config = rr_build::prepare_resolved_build(
+        cli,
+        &cmd.build_flags,
+        target_backend,
+        target_dir,
+        RunMode::Run,
+        user_log,
+        &resolved_project,
     )?;
     rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
-        resolve_output,
+        resolved_project,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::process::Command {
+fn get_run_cmd(
+    build_meta: &BuildMeta,
+    argv: &[String],
+    moonrun_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
+    virtual_process_tree: bool,
+) -> std::process::Command {
     let executable = get_run_executable(build_meta);
-    let mut cmd = crate::run::command_for(
-        build_meta.target_backend,
-        build_meta.tcc_run.as_ref(),
+    let mut cmd = crate::run::command_for_with_moonrun_policy_source_dir(
+        crate::run::ExecutionMode::from(&build_meta.backend),
         executable,
         None,
+        moonrun_policy,
+        policy_source_dir,
+        virtual_process_tree,
     );
     cmd.args(argv);
     cmd
 }
 
+pub(crate) fn effective_moonrun_policy<'a>(
+    cli_policy: Option<&'a Path>,
+    embedded_policy: Option<&'a EmbeddedMbtxPolicy>,
+) -> (Option<&'a Path>, Option<&'a Path>) {
+    match (cli_policy, embedded_policy) {
+        (Some(policy), _) => (Some(policy), None),
+        (None, Some(policy)) => (
+            Some(policy.source.as_path()),
+            policy.source_dir_override.as_deref(),
+        ),
+        (None, None) => (None, None),
+    }
+}
+
 /// Extract the single executable artifact emitted for a `UserIntent::Run` plan.
-fn get_run_executable(build_meta: &rr_build::BuildMeta) -> &Path {
-    let (_, artifact) = build_meta
+fn get_run_executable(build_meta: &BuildMeta) -> &Path {
+    let (_, paths) = build_meta
         .artifacts
+        .iter()
+        .find(|(artifact, _)| matches!(artifact, ArtifactKey::Executable { .. }))
+        .expect("run planning should request an executable artifact");
+    paths
         .first()
-        .expect("Expected exactly one build node emitted by `calc_user_intent`");
-    artifact
-        .artifacts
-        .first()
-        .expect("Expected exactly one executable as the output of the build node")
+        .expect("the executable artifact should resolve to one path")
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn resolve_run_selection(
     input_path: &str,
-    resolve_output: &ResolveOutput,
+    discovered: &DiscoveredProject,
+    selected_target_backend: Option<TargetBackend>,
 ) -> Result<ResolvedRunSelection, anyhow::Error> {
     let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
-    let package = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
-    Ok(ResolvedRunSelection { package })
-}
-
-#[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_from_arg_with_options(
-    cli: &UniversalFlags,
-    cmd: RunSubcommand,
-    options: BuildRunExecutableOptions,
-) -> anyhow::Result<i32> {
-    let executable = build_single_file_executable_from_arg(cli, &cmd, options)?;
-    run_executable(cli, &cmd, executable)
+    let package = crate::filter::filter_pkg_by_dir(discovered, &dir)?;
+    let module = discovered.pkg_dirs.get_package(package).module;
+    let target_backend = selected_target_backend
+        .or_else(|| discovered.module_graph.module_info(module).preferred_target)
+        .unwrap_or_default();
+    Ok(ResolvedRunSelection {
+        package,
+        target_backend,
+    })
 }
 
 /// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
@@ -575,78 +709,94 @@ fn build_single_file_executable_from_arg(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
         cmd.package_or_mbt_file
             .as_deref()
             .expect("single-file run from arg requires a positional input path"),
     )?;
-    let target_dir = single_file_dirs.package_dirs.target_dir;
-    let mooncakes_dir = single_file_dirs.package_dirs.mooncakes_dir;
-
     build_single_file_executable(
         cli,
         cmd,
-        single_file_dirs.package_dirs.source_dir,
-        target_dir,
-        mooncakes_dir,
-        single_file_dirs.file_path,
+        single_file_dirs.package_dirs,
+        single_file_dirs.input_path,
         options,
+        output,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Build a run executable from already-resolved single-file package directories.
+#[allow(clippy::too_many_arguments)]
 fn build_single_file_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
-    source_dir: std::path::PathBuf,
-    target_dir: std::path::PathBuf,
-    mooncakes_dir: std::path::PathBuf,
+    dirs: PackageDirs,
     input_path: std::path::PathBuf,
     options: BuildRunExecutableOptions,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
-    std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
+    let embedded_mbtx_policy = if input_path.extension().is_some_and(|ext| ext == "mbtx")
+        && moonutil::front_matter::MbtxFrontMatter::from_file(&input_path)?
+            .permission
+            .is_some()
+    {
+        Some(EmbeddedMbtxPolicy {
+            source: input_path.clone(),
+            source_dir_override: options.embedded_policy_source_dir.clone(),
+        })
+    } else {
+        None
+    };
+    let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        ..
+    } = &dirs;
+    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
 
     // Resolve single-file project (synthesized package around the file)
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_quiet_sync(options.quiet_sync);
-    let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
-        &resolve_cfg,
-        target_dir.as_path(),
-        &mooncakes_dir,
+    .with_sync_output(options.output.sync_output())
+    .with_dependency_source_cache(
+        resolve_cache_root(CacheKind::DependencySources)
+            .context("Failed to resolve the module dependency graph")?,
+    );
+    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+        &preparation_config,
+        &dirs,
         &input_path,
         true,
+        user_log,
     )?;
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
+    let resolved = discovered.resolve_packages(&[selected_target_backend], user_log)?;
 
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+    let lock = if cli.dry_run {
+        None
+    } else {
+        Some(lock_directory(target_dir, user_log)?)
+    };
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &cmd.build_flags,
-        Some(selected_target_backend),
-        &target_dir,
+        selected_target_backend,
+        target_dir,
         RunMode::Run,
-    );
-    preconfig.try_tcc_run = options.try_tcc_run;
-
-    let output = UserDiagnostics::from_flags(cli);
-    let planning_context = rr_build::prepare_resolved_build(
-        &preconfig,
-        &cli.unstable_feature,
-        &target_dir,
-        output,
+        user_log,
         &resolved,
     )?;
     let package = rr_build::local_packages(&resolved)
@@ -659,90 +809,105 @@ fn build_single_file_executable(
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-        preconfig,
-        &cli.unstable_feature,
-        &target_dir,
-        output,
-        planning_context,
+        compile_config,
+        user_log,
         intent,
         resolved,
+        cmd.build_flags.jobs,
+        cmd.auto_sync_flags.frozen,
+        cli.dry_run,
     )?;
 
     build_executable_from_plan(
         cli,
         cmd,
-        &source_dir,
-        &target_dir,
+        source_dir,
+        target_dir,
         &build_meta,
         build_graph,
+        lock,
         BuildExecutableFromPlanOptions {
-            force_success_exit: false,
             print_dry_run_run_command: options.print_dry_run_run_command,
-            suppress_build_progress: options.suppress_build_progress,
+            output: options.output,
+            embedded_mbtx_policy,
         },
+        output,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Execute the build graph and return the resulting run artifact without
 /// launching it.
+/// Normal builds transfer the target-directory lock acquired before planning.
+/// Dry-run planning acquires and releases its own lock only if scripts run.
+#[allow(clippy::too_many_arguments)]
 fn build_executable_from_plan(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    build_meta: &rr_build::BuildMeta,
-    build_graph: rr_build::BuildInput,
+    build_meta: &BuildMeta,
+    build_graph: BuildInput,
+    lock: Option<std::fs::File>,
     options: BuildExecutableFromPlanOptions,
+    output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
+    let (moonrun_policy, policy_source_dir) = effective_moonrun_policy(
+        cmd.moonrun_policy.as_deref(),
+        options.embedded_mbtx_policy.as_ref(),
+    );
+    let user_log = output.user_log();
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(writer, &build_graph, source_dir)?;
 
-        if options.print_dry_run_run_command {
-            let run_cmd = get_run_cmd(build_meta, &cmd.args);
-            rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
-        }
+            if options.print_dry_run_run_command {
+                let run_cmd = get_run_cmd(
+                    build_meta,
+                    &cmd.args,
+                    moonrun_policy,
+                    policy_source_dir,
+                    cmd.virtual_process_tree,
+                );
+                writeln!(
+                    writer,
+                    "{}",
+                    rr_build::format_dry_run_command(&run_cmd, source_dir)
+                )?;
+            }
+            Ok::<_, std::io::Error>(())
+        })?;
         return Ok(RunExecutable {
             executable: get_run_executable(build_meta).to_path_buf(),
-            target_backend: build_meta.target_backend,
-            tcc_run: build_meta.tcc_run.clone(),
+            backend: build_meta.backend.clone(),
             opt_level: build_meta.opt_level,
             target_dir: target_dir.to_path_buf(),
+            embedded_mbtx_policy: options.embedded_mbtx_policy,
             source_dir: source_dir.to_path_buf(),
             build_exit_code: None,
-            force_success_exit: options.force_success_exit,
             lock: None,
         });
     }
 
-    let lock = FileLock::lock(target_dir)?;
     // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(target_dir, build_meta, RunMode::Run)?;
+    rr_build::generate_all_pkgs_json(build_meta)?;
 
-    let build_config = BuildConfig::from_flags(
-        &cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    )
-    .with_suppressed_progress(options.suppress_build_progress);
-    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+    let build_config = cmd
+        .build_flags
+        .execution_config(&cli.unstable_feature, cli.verbose)
+        .with_suppressed_progress(options.output.suppress_build_progress());
+    let build_result =
+        moonbuild::execution::execute_build(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        target_backend: build_meta.target_backend,
-        tcc_run: build_meta.tcc_run.clone(),
+        backend: build_meta.backend.clone(),
         opt_level: build_meta.opt_level,
         target_dir: target_dir.to_path_buf(),
+        embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
-        force_success_exit: options.force_success_exit,
-        lock: Some(lock),
+        lock,
     })
 }
 
@@ -755,6 +920,7 @@ fn run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     mut executable: RunExecutable,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     if cli.dry_run {
         return Ok(0);
@@ -764,24 +930,41 @@ fn run_executable(
         .build_exit_code
         .expect("non-dry run build should produce a build exit code");
     if build_exit_code != 0 {
-        if executable.force_success_exit {
-            return Ok(0);
-        }
         return Ok(build_exit_code);
     }
 
-    let mut run_cmd = crate::run::command_for(
-        executable.target_backend,
-        executable.tcc_run.as_ref(),
+    let (moonrun_policy, policy_source_dir) = effective_moonrun_policy(
+        cmd.moonrun_policy.as_deref(),
+        executable.embedded_mbtx_policy.as_ref(),
+    );
+    if let Some(handoff) = &cmd.handoff {
+        handoff.publish(
+            &executable.executable,
+            crate::run::ExecutionMode::from(&executable.backend).into(),
+            &cmd.args,
+            moonrun_policy,
+            policy_source_dir,
+        )?;
+        return Ok(0);
+    }
+    let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
+        crate::run::ExecutionMode::from(&executable.backend),
         executable.executable.as_path(),
         None,
+        moonrun_policy,
+        policy_source_dir,
+        cmd.virtual_process_tree,
     );
     run_cmd.args(&cmd.args);
-    if cli.verbose {
-        rr_build::dry_print_command(run_cmd.as_std(), &executable.source_dir, true);
+    let user_log = output.user_log();
+    if user_log.is_enabled(log::Level::Info) {
+        user_log.info(rr_build::format_dry_run_command(
+            &run_cmd,
+            &executable.source_dir,
+        ));
     }
 
-    // Release the lock before spawning the subprocess
+    // Release the lock before handing control to the executable.
     executable.release_lock();
 
     if cmd.build_only {
@@ -793,18 +976,35 @@ fn run_executable(
         return Ok(0);
     }
 
-    let res = default_rt()
-        .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd))
-        .context("failed to run command")?;
+    // Keep Moon as the parent on every platform. We deliberately avoid `exec`
+    // on Unix: although it preserves raw signal status, it skips RAII cleanup
+    // in `main` and callers, including the Chrome trace guard and temporary
+    // source/build directories. Standard spawning also avoids the Tokio runner
+    // that temporarily masks SIGCHLD on macOS. See
+    // `docs/dev/design/moon-run-process-lifecycle.md`.
+    #[cfg(unix)]
+    ctrlc::set_handler(|| {}).context("failed to install signal handler")?;
+    #[cfg(windows)]
+    super::process::install_ctrl_c_passthrough_handler()?;
 
-    if let Some(code) = res.code() {
-        if executable.force_success_exit {
-            Ok(0)
-        } else {
-            Ok(code)
-        }
-    } else {
-        bail!("Command exited without a return code")
+    let mut child = run_cmd
+        .spawn()
+        .with_context(|| format!("Failed to spawn command {:?}", run_cmd))?;
+    #[cfg(windows)]
+    if let Err(err) = crate::run::assign_process_to_job(child.as_raw_handle()) {
+        tracing::warn!(?err, "Failed to assign child process to job object");
     }
+    let status = child.wait().context("failed to wait for command")?;
+    if let Some(code) = status.code() {
+        return Ok(code);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+
+        if let Some(signal) = status.signal() {
+            return Ok(128 + signal);
+        }
+    }
+    bail!("Command exited without a return code")
 }

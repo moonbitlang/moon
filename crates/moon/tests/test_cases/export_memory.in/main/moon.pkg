@@ -1,0 +1,9 @@
+import {
+  "username/hello/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  link: {"wasm": {"export-memory-name": "awesome_memory"}, "wasm-gc": {"export-memory-name": "awesome_memory"}},
+)

@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -28,39 +28,67 @@ use std::{
 
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
-    common::{
-        DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOON_BIN_DIR, MOONCAKE_BIN, PKG_DIR,
-        TargetBackend, is_moon_mod, is_moon_pkg, is_moon_script_ignored,
+    build_options::RunMode,
+    compiler_flags::{self, CC, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
+    cond_expr::OptLevel,
+    constants::{
+        MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
+        package_source_file_kind,
     },
-    compiler_flags::{CC, Toolchain},
-    module::{MoonMod, MoonModRule},
-    mooncakes::ModuleId,
+    manifest::{MoonMod, MoonModRule},
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
+    resolution::ModuleId,
+    scripts::{IgnoredMoonScript, is_moon_script_ignored},
+    toolchain,
 };
 use regex::Regex;
+use relative_path::PathExt;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{BuildBundleInfo, FileDependencyKind, PrebuildInfo},
-    cond_comp::{self, CompileCondition},
-    discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    build_plan::{BuildBundleInfo, PrebuildInfo},
+    cond_comp,
+    discover::{DiscoveredPackage, resolve_prebuild_path},
+    model::{
+        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
+        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind,
+    },
     pkg_name::PackageFQNWithSource,
-    user_warning::UserWarning,
 };
 
 use super::{
-    BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-    constructor::BuildPlanConstructor,
+    BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
+    CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+    PackagePrebuildKey,
+    artifact::{ArtifactKey, package_file_key, runtime_source_key},
+    constructor::{BuildPlanConstructor, PackageFileSet},
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
+fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
+    debug_symbols && os == OperatingSystem::MacOS
+}
+
+fn should_generate_direct_native_dsym(
+    mode: &DirectNativeMode,
+    source_info: bool,
+    toolchain: &Toolchain,
+) -> bool {
+    source_info
+        && mode.target() == NativeTarget::Aarch64AppleDarwin
+        && toolchain.cc().targets_apple_darwin()
+}
+
 impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.build_env.native_target.is_some() {
+        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+            err.context(
+                "Windows MSVC direct object native target requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
+            )
+        } else if self.res.backend.direct_native_target().is_some() {
             err.context(
                 "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
             )
@@ -69,15 +97,75 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        debug_assert!(self.build_env.target_backend.is_native());
-        moonutil::compiler_flags::effective_native_toolchain(
-            package_cc,
-            self.build_env
-                .tcc_run
-                .as_ref()
-                .map(|config| config.internal_tcc()),
-        )
+    fn warn_incompatible_windows_msvc_env_override(&mut self) {
+        if self.warned_incompatible_windows_msvc_env_override
+            || !compiler_flags::has_incompatible_windows_msvc_env_override()
+        {
+            return;
+        }
+
+        self.warned_incompatible_windows_msvc_env_override = true;
+        self.user_log.warn(
+            "MOON_CC is ignored for Windows MSVC direct object native target because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
+        );
+    }
+
+    fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+        // TODO: Consume explicit toolchain candidates and environment overrides
+        // once native toolchain discovery moves to command orchestration.
+        debug_assert!(self.config.backend.target_backend().is_native());
+        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+            self.warn_incompatible_windows_msvc_env_override();
+            return compiler_flags::windows_msvc_native_toolchain(package_cc);
+        }
+
+        compiler_flags::effective_native_toolchain(package_cc)
+    }
+
+    pub(super) fn warn_moon_cc_overrides(&self) {
+        if !self.config.backend.target_backend().is_native() {
+            return;
+        }
+
+        for (package, pkg) in self.input.pkg_dirs.all_packages(true) {
+            let Some(native) = pkg.raw.link.as_ref().and_then(|link| link.native.as_ref()) else {
+                continue;
+            };
+            let cc_overridden = native.cc.is_some()
+                && self
+                    .res
+                    .backend
+                    .make_executable_info
+                    .iter()
+                    .any(|(target, info)| {
+                        target.package == package
+                            && info.effective_native_toolchain.source()
+                                == ToolchainSource::EnvOverride
+                    });
+            let stub_cc_overridden = native.stub_cc.is_some()
+                && self
+                    .res
+                    .backend
+                    .c_stubs_info
+                    .get(&package)
+                    .is_some_and(|info| {
+                        info.effective_native_toolchain.source() == ToolchainSource::EnvOverride
+                    });
+            let fields = [
+                cc_overridden.then_some("`link.native.cc`"),
+                stub_cc_overridden.then_some("`link.native.stub-cc`"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+            if !fields.is_empty() {
+                self.user_log.warn(format!(
+                    "`MOON_CC` overrides {} configured by package `{}`.",
+                    fields.join(" and "),
+                    pkg.fqn
+                ));
+            }
+        }
     }
 
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
@@ -102,7 +190,7 @@ impl<'a> BuildPlanConstructor<'a> {
             vars.get(caps.get(1).expect("build var regex has capture").as_str())
                 .map(|s| s.as_str())
                 .unwrap_or_else(|| {
-                    let m_name = self.input.module_rel.module_source(module);
+                    let m_name = self.input.module_graph.module_source(module);
                     let pkg_name = &self.input.pkg_dirs.get_package(package).fqn;
                     warn!(
                         "Build variable {} required in {} but not found in \
@@ -116,34 +204,40 @@ impl<'a> BuildPlanConstructor<'a> {
         })
     }
 
-    /// Add need to all prebuild scripts of the given package, and add edge to this node
+    /// Plan all package-level file generation needed by this backend plan.
     ///
-    /// According to the semantics, only local packages require prebuild scripts
-    /// to be run. Remote packages should already have their prebuild outputs
-    /// ready when they are fetched.
-    fn need_all_package_prebuild(&mut self, node: BuildPlanNode, pkg_id: PackageId) {
+    /// According to the semantics, only local packages require package-level
+    /// prebuild to run. Remote packages should already contain their outputs.
+    fn plan_package_prebuild(&mut self, pkg_id: PackageId) -> Result<(), BuildPlanConstructError> {
         let pkg = self.input.pkg_dirs.get_package(pkg_id);
         if !self.input.local_modules().contains(&pkg.module) {
-            return;
+            return Ok(());
         }
 
-        if !is_moon_script_ignored(IgnoredMoonScript::Prebuild)
-            && let Some(prebuild) = &pkg.raw.pre_build
-        {
-            for i in 0..prebuild.len() {
-                let prebuild_node = self.need_node(BuildPlanNode::RunPrebuild(pkg_id, i as u32));
-                self.add_edge(node, prebuild_node);
+        let custom_rules = pkg.raw.pre_build.as_deref().unwrap_or_default();
+
+        if !is_moon_script_ignored(IgnoredMoonScript::Prebuild) {
+            let custom_actions = custom_rules
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| {
+                    let key = PackagePrebuildKey {
+                        package: pkg_id,
+                        declaration_index: *index as u32,
+                    };
+                    !self.res.package_prebuild.contains_key(&key)
+                })
+                .map(|(index, command)| {
+                    self.resolve_custom_prebuild(pkg_id, command)
+                        .map(|info| (index as u32, info))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for (index, info) in custom_actions {
+                self.res.package_prebuild.insert_custom(pkg_id, index, info);
             }
         }
-        for i in 0..pkg.mbt_lex_files.len() {
-            let prebuild_node = self.need_node(BuildPlanNode::RunMoonLexPrebuild(pkg_id, i as u32));
-            self.add_edge(node, prebuild_node);
-        }
-        for i in 0..pkg.mbt_yacc_files.len() {
-            let prebuild_node =
-                self.need_node(BuildPlanNode::RunMoonYaccPrebuild(pkg_id, i as u32));
-            self.add_edge(node, prebuild_node);
-        }
+
+        Ok(())
     }
 
     fn check_backend_compatibility_for_dep(
@@ -151,26 +245,26 @@ impl<'a> BuildPlanConstructor<'a> {
         importer_target: BuildTarget,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        let selected_backend: TargetBackend = self.build_env.target_backend.into();
+        let selected_backend = self.config.backend.target_backend();
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
-        if importer_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
+        if importer_pkg.single_file_source_kind.is_none()
+            && importer_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
             && importer_target.package != dep.package
             && dependency_pkg.supported_targets_decl != SupportedTargetsDeclKind::Omitted
             && self
                 .warned_missing_supported_targets
                 .insert(importer_target.package)
         {
-            self.user_warnings.push(UserWarning::new(format!(
+            self.user_log.warn(format!(
                 "Package `{}` does not declare `supported_targets`, but depends on `{}` which declares it. Consider declaring `supported_targets` explicitly",
                 importer_pkg.fqn, dependency_pkg.fqn
-            )));
+            ));
         }
 
         let dependency_realizable = self
-            .input
-            .pkg_rel
+            .rel
             .realizable_supported_targets
             .get(&dep)
             .expect("realizable backend support should be available for every dependency node");
@@ -196,10 +290,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Validate backend compatibility for a dependency edge that needs `.mi`.
     ///
-    /// This function is intentionally parallel to `need_mi_of_dep`: callers can
-    /// choose policy (hard error vs warning+skip) before mutating the graph.
+    /// Callers choose policy (hard error vs warning+skip) before mutating the graph.
     ///
-    /// Note: This mirrors the stdlib short-circuit used by `need_mi_of_dep`.
+    /// Note: This mirrors the stdlib short-circuit used by the artifact helpers.
     /// When stdlib is injected, stdlib package deps are not planned and should
     /// not be backend-checked here either.
     fn check_backend_compatibility_for_mi_dep(
@@ -207,7 +300,7 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return Ok(());
         }
 
@@ -223,68 +316,100 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Specify a need on the `.mi` of a dependency.
-    ///
-    /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
-    /// nodes based on the property of the dependency package.
-    ///
-    /// Backend compatibility is checked by `check_backend_compatibility_for_mi_dep`.
-    /// Keep this function focused on graph wiring only.
-    fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
-        // Skip stdlib packages when stdlib is injected, since we can use prebuilt .mi files.
-        // When building the stdlib itself (build_env.std == false), treat stdlib packages
-        // like normal packages and build their dependencies.
-        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+    fn require_check_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
-        let dep_node = if pkg_info.is_virtual() {
-            self.need_node(BuildPlanNode::BuildVirtual(dep.package))
-        } else if check_only {
-            self.need_node(BuildPlanNode::Check(dep))
-        } else {
-            self.need_node(BuildPlanNode::BuildCore(dep))
-        };
-
-        // Since this function is specifically for needing `.mi` files,
-        // we can set this at the edge
-        let edge_kind = if let BuildPlanNode::BuildCore(_) = dep_node {
-            FileDependencyKind::BuildCore {
-                mi: true,
-                core: false,
+        let artifact = if pkg_info.is_virtual() {
+            ArtifactKey::VirtualContractMi {
+                package: dep.package,
             }
         } else {
-            FileDependencyKind::AllFiles
+            ArtifactKey::CheckMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            }
         };
-        self.add_edge_spec(node, dep_node, edge_kind);
+        self.require_artifact(node, artifact);
+    }
+
+    fn require_build_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return;
+        }
+
+        let pkg_info = self.input.pkg_dirs.get_package(dep.package);
+        let artifact = if pkg_info.is_virtual() {
+            ArtifactKey::VirtualContractMi {
+                package: dep.package,
+            }
+        } else {
+            ArtifactKey::BuildMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            }
+        };
+        self.require_artifact(node, artifact);
+    }
+
+    fn require_build_outputs_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return;
+        }
+
+        let pkg_info = self.input.pkg_dirs.get_package(dep.package);
+        if pkg_info.is_virtual() {
+            self.require_artifact(
+                node,
+                ArtifactKey::VirtualContractMi {
+                    package: dep.package,
+                },
+            );
+            return;
+        }
+
+        self.require_artifact(
+            node,
+            ArtifactKey::BuildMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            },
+        );
+        self.require_artifact(
+            node,
+            ArtifactKey::CoreIr {
+                package: dep.package,
+                target_kind: dep.kind,
+            },
+        );
     }
 
     /// Specify a need on the proof artifacts of a dependency.
     ///
     /// Dependency proofs stay modular: dependents only require the dependency's
-    /// proof surface (`.mi` + `.mlw`). If the dependency is one of the selected
-    /// prove targets for this invocation, reuse its `Prove` node; otherwise
-    /// schedule an internal `EmitProof` node.
+    /// proof surface (`.mi` + `.mlw`). Provider selection decides whether an
+    /// explicit `Prove` or an internal `EmitProof` action supplies that surface.
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        // As with normal `.mi` dependencies, stdlib packages are resolved via
-        // the injected stdlib path rather than by planning local nodes.
-        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        // As with normal `.mi` dependencies, stdlib packages use installed
+        // toolchain artifacts rather than planned local nodes.
+        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
-        let dep_node = if self.res.input_nodes.contains(&BuildPlanNode::Prove(dep)) {
-            self.need_node(BuildPlanNode::Prove(dep))
-        } else {
-            self.need_node(BuildPlanNode::EmitProof(dep))
-        };
-        self.add_edge_spec(
+        self.require_artifact(
             node,
-            dep_node,
-            FileDependencyKind::ProofArtifacts {
-                mi: true,
-                mlw: true,
-                report: false,
+            ArtifactKey::ProofMi {
+                package: dep.package,
+                target_kind: dep.kind,
+            },
+        );
+        self.require_artifact(
+            node,
+            ArtifactKey::ProofWhyml {
+                package: dep.package,
+                target_kind: dep.kind,
             },
         );
     }
@@ -296,17 +421,25 @@ impl<'a> BuildPlanConstructor<'a> {
         target: BuildTarget,
     ) {
         // If the given target is a virtual package with default implementation,
-        // we need to build its interface first.
-        if pkg.is_virtual() {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(target.package));
-            self.add_edge(node, dep_node);
+        // we need to build its interface first. Injected stdlib contracts are
+        // installed toolchain files and remain external to this plan.
+        if pkg.is_virtual() && !(self.config.stdlib_path.is_some() && pkg.is_stdlib) {
+            self.require_artifact(
+                node,
+                ArtifactKey::VirtualContractMi {
+                    package: target.package,
+                },
+            );
         }
 
         // If the given target implements a virtual package, we need to build
-        // the virtual package's interface first.
-        if let Some(vpkg_id) = self.input.pkg_rel.virt_impl.get(target.package) {
-            let dep_node = self.need_node(BuildPlanNode::BuildVirtual(*vpkg_id));
-            self.add_edge(node, dep_node);
+        // the virtual package's interface first, unless that contract comes
+        // from the injected stdlib.
+        if let Some(vpkg_id) = self.rel.virt_impl.get(target.package)
+            && !(self.config.stdlib_path.is_some()
+                && self.input.pkg_dirs.is_stdlib_package(*vpkg_id))
+        {
+            self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
         }
     }
 
@@ -325,8 +458,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         self.need_node(node);
         for dep in self
-            .input
-            .pkg_rel
+            .rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
@@ -334,7 +466,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_proof_of_dep(node, dep);
         }
 
-        self.need_all_package_prebuild(node, target.package);
+        self.plan_package_prebuild(target.package)?;
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -360,16 +492,15 @@ impl<'a> BuildPlanConstructor<'a> {
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
-            .input
-            .pkg_rel
+            .rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, true);
+            self.require_check_mi_of_dep(node, dep);
         }
 
-        self.need_all_package_prebuild(node, target.package);
+        self.plan_package_prebuild(target.package)?;
 
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
@@ -393,34 +524,33 @@ impl<'a> BuildPlanConstructor<'a> {
             `BuildVirtual` action instead"
         );
 
-        // Build depends on `.mi`` of all dependencies. Although Check can
-        // also emit `.mi` files, since we're building, this action actually
-        // means we need to build all dependencies.
+        // Build consumes `.mi` compiler inputs from all dependencies. It also
+        // tracks normal dependency `.core` artifacts in n2 so implementation
+        // changes in dependencies dirty downstream build-package actions.
         self.need_node(node);
         for dep in self
-            .input
-            .pkg_rel
+            .rel
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, false);
+            self.require_build_outputs_of_dep(node, dep);
         }
 
         // If the given target is a test, we will also need to generate the test driver.
         if target.kind.is_test() {
-            let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
-            self.need_node(gen_test_info);
-            self.add_edge_spec(
+            self.require_artifact(
                 node,
-                gen_test_info,
-                FileDependencyKind::GenerateTestInfo { meta: false },
+                ArtifactKey::GeneratedTestDriver {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
             );
         }
 
         self.need_virtual_if_necessary(pkg, node, target);
 
-        self.need_all_package_prebuild(node, target.package);
+        self.plan_package_prebuild(target.package)?;
 
         self.populate_target_info(target);
         self.resolved_node(node);
@@ -436,149 +566,175 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         self.need_node(node);
 
+        self.plan_package_prebuild(target.package)?;
         self.populate_target_info(target);
         self.resolved_node(node);
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> BuildTargetInfo {
-        use crate::cond_comp::FileTestKind::*;
-        use TargetKind::*;
+    fn package_file_set(&mut self, package: PackageId) -> &PackageFileSet {
+        if !self.package_file_sets.contains_key(&package) {
+            let file_set = self.collect_package_file_set(package);
+            self.package_file_sets.insert(package, file_set);
+        }
+        self.package_file_sets
+            .get(&package)
+            .expect("package file set should be cached after collection")
+    }
 
-        let pkg = self.input.pkg_dirs.get_package(target.package);
-        let module = self.input.module_rel.module_info(pkg.module);
+    #[instrument(level = Level::DEBUG, skip(self))]
+    fn collect_package_file_set(&self, package: PackageId) -> PackageFileSet {
+        use crate::cond_comp::FileTestKind::*;
+
+        let pkg = self.input.pkg_dirs.get_package(package);
+
+        // `.mbtx` is interpreted as a standalone source during resolution. It
+        // is not a package source filename, so it does not participate in
+        // package conditional-compilation or test-file classification.
+        let is_mbtx_single_file = pkg.is_mbtx_single_file();
+        let source_files_for_classification = if is_mbtx_single_file {
+            &[][..]
+        } else {
+            pkg.source_files.as_slice()
+        };
+        let mut planned_prebuild_outputs = self
+            .res
+            .package_prebuild
+            .output_paths(package)
+            .cloned()
+            .collect::<IndexSet<_>>();
+
+        let mut generated_sources = Vec::new();
+        let mut mbt_md_files = pkg.mbt_md_files.iter().cloned().collect::<IndexSet<_>>();
+        let mut mbtp_files = pkg.mbtp_files.iter().cloned().collect::<IndexSet<_>>();
+        for output in planned_prebuild_outputs.drain(..) {
+            let Some(kind) = output
+                .file_name()
+                .and_then(OsStr::to_str)
+                .and_then(package_source_file_kind)
+            else {
+                continue;
+            };
+            match kind {
+                PackageSourceFileKind::Mbt => {
+                    generated_sources.push(output);
+                }
+                PackageSourceFileKind::MbtMd => {
+                    mbt_md_files.insert(output);
+                }
+                PackageSourceFileKind::Mbtp => {
+                    mbtp_files.insert(output);
+                }
+            }
+        }
+
+        let source_iter = source_files_for_classification
+            .iter()
+            .map(|x| Cow::Borrowed(x.as_path()))
+            .chain(generated_sources.into_iter().map(Cow::Owned));
+
+        let mut no_test_files = IndexSet::new();
+        let mut whitebox_files = IndexSet::new();
+        let mut blackbox_files = IndexSet::new();
+
+        if is_mbtx_single_file {
+            no_test_files.extend(pkg.source_files.iter().cloned());
+        }
+
+        let _classify_span = tracing::debug_span!("classifying_package_files").entered();
+        for (file, file_kind) in cond_comp::classify_files(
+            &pkg.raw,
+            source_iter,
+            self.config.opt_level,
+            self.config.backend.target_backend(),
+        ) {
+            match file_kind {
+                NoTest => no_test_files.insert(file.into_owned()),
+                Whitebox => whitebox_files.insert(file.into_owned()),
+                Blackbox => blackbox_files.insert(file.into_owned()),
+            };
+        }
+        drop(_classify_span);
+
+        // Discovery sorts authored paths, but generated outputs are appended in
+        // declaration order during File Interpretation. Sort the final Build
+        // Target Projection so compiler arguments and n2 inputs are stable.
+        let _sort_span = tracing::debug_span!("sorting_package_files").entered();
+        // `.mbt.md` is always a blackbox regular input. At this point authored
+        // and generated paths have the same Build Target Projection semantics.
+        blackbox_files.extend(mbt_md_files);
+        no_test_files.sort();
+        whitebox_files.sort();
+        blackbox_files.sort();
+        mbtp_files.sort();
+        drop(_sort_span);
+
+        PackageFileSet {
+            no_test_files: no_test_files.into_iter().collect(),
+            whitebox_files: whitebox_files.into_iter().collect(),
+            blackbox_files: blackbox_files.into_iter().collect(),
+            mbtp_files: mbtp_files.into_iter().collect(),
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn resolve_mbt_files_for_node(&mut self, target: BuildTarget) -> BuildTargetInfo {
+        use TargetKind::*;
 
         // FIXME: Should we resolve test drivers' paths, or should we leave it
         // in the lowering phase? The path to the test driver depends on the
         // artifact layout, so we might not be able to do that here, unless we
         // add some kind of `SpecialFile::TestDriver` or something.
-        let compile_condition = CompileCondition {
-            optlevel: self.build_env.opt_level,
-            test_kind: target.kind.into(),
-            backend: self.build_env.target_backend.into(),
-        };
-
-        // Iterator of all existing source files in the package
-        let source_iter = pkg.source_files.iter().map(|x| Cow::Borrowed(x.as_path()));
-
-        // Iterator over all prebuild output files that are .mbt or .mbt.md
-        // Or else they will not be picked up by the build system.
-        //
-        // This might emit duplicated files if the prebuilt file already exist
-        // in the source directory. Should not affect the build system.
-        // MAINTAINERS: These paths are relative.
-        //
-        // They need further normalizing to be the absolute paths required by
-        // the build system. This is done below in the file inclusion process,
-        // and assuming that all files are relative to package root path. if we
-        // have to add more types of files in the future, especially if they are
-        // *not* relative to package root, this should be changed to feed the
-        // absolute path, or let the iteration item contain extra metadata about
-        // what their roots are.
-        let prebuild_output_iter = pkg.raw.pre_build.iter().flat_map(|pb| {
-            pb.iter().flat_map(|r#gen| {
-                r#gen
-                    .output()
-                    .iter()
-                    .filter(|x| x.ends_with(".mbt") || x.ends_with(DOT_MBT_DOT_MD))
-                    .map(|x| Cow::Owned(pkg.root_path.join(x)))
-            })
-        });
-
-        // MAINTAINERS: These predefined prebuild operations that have a fixed
-        // meaning. If these are not needed in the future, they can be removed.
-        let mbtlex_iter = pkg
-            .mbt_lex_files
-            .iter()
-            .map(|x| Cow::Owned(x.with_extension("mbt")));
-        let mbtyacc_iter = pkg
-            .mbt_yacc_files
-            .iter()
-            .map(|x| Cow::Owned(x.with_extension("mbt")));
-
-        // Filter source files
-        let source_files = cond_comp::filter_files(
-            &pkg.raw,
-            source_iter
-                .chain(prebuild_output_iter)
-                .chain(mbtlex_iter)
-                .chain(mbtyacc_iter),
-            &compile_condition,
-        );
-
-        // Include files
-        //
-        // Source and prebuild might emit duplicated files if the prebuilt file
-        // already exist in the source directory. We dedup it here.
-        let mut regular_files = IndexSet::new();
-        let mut whitebox_files = IndexSet::new();
-        let mut doctest_files = IndexSet::new();
-        let _filter_span = tracing::debug_span!("filtering_files").entered();
-        for (file, file_kind) in source_files {
-            match (target.kind, file_kind) {
-                (Source | SubPackage | InlineTest, NoTest) => {
-                    regular_files.insert(file.into_owned())
-                }
-
-                (WhiteboxTest, NoTest) => regular_files.insert(file.into_owned()),
-                (WhiteboxTest, Whitebox) => whitebox_files.insert(file.into_owned()),
-
-                (BlackboxTest, Blackbox) => regular_files.insert(file.into_owned()),
-                (BlackboxTest, NoTest) => doctest_files.insert(file.into_owned()),
-
-                _ => panic!(
-                    "Unexpected file kind {:?} for target {:?} in package {}, \
-                    this is a bug in the build system!",
-                    file_kind, target, pkg.fqn
-                ),
+        let (regular_files, mbtp_files, whitebox_files, doctest_files) = {
+            // Discovery keeps `.mbtp` files for metadata, but only verification
+            // commands project them into compiler inputs.
+            let uses_mbtp = matches!(
+                self.config.action,
+                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
+            );
+            let file_set = self.package_file_set(target.package);
+            let mbtp_files = if uses_mbtp {
+                file_set.mbtp_files.clone()
+            } else {
+                Vec::new()
             };
-        }
-        if target.kind == BlackboxTest {
-            // mbt.md files are also part of regular files
-            for md_file in &pkg.mbt_md_files {
-                regular_files.insert(md_file.clone());
+            match target.kind {
+                Source | SubPackage | InlineTest => (
+                    file_set.no_test_files.clone(),
+                    mbtp_files,
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                WhiteboxTest => (
+                    file_set.no_test_files.clone(),
+                    mbtp_files,
+                    file_set.whitebox_files.clone(),
+                    Vec::new(),
+                ),
+                BlackboxTest => (
+                    file_set.blackbox_files.clone(),
+                    Vec::new(),
+                    Vec::new(),
+                    file_set.no_test_files.clone(),
+                ),
             }
-        }
-        let mbtp_files = match target.kind {
-            Source | SubPackage | InlineTest | WhiteboxTest => {
-                // `.mbtp` files are threaded into all moonc-based compilation
-                // and checking commands for this package.
-                //
-                // Blackbox targets import the checked package interface, so
-                // threading `.mbtp` through as regular sources there would
-                // redeclare proof-side APIs against the imported package.
-                //
-                // We intentionally ignore prebuild-generated `.mbtp` files for
-                // now until their semantics are designed explicitly.
-                pkg.mbtp_files.clone()
-            }
-            BlackboxTest => Vec::new(),
         };
-        drop(_filter_span);
 
-        // Sort the input, or the different order may cause n2 to view the input
-        // file set as different than original.
-        //
-        // FIXME: we have already sorted them on discover, should we omit that?
-        let _sort_span = tracing::debug_span!("sorting_files").entered();
-        regular_files.sort();
-        whitebox_files.sort();
-        doctest_files.sort();
-        drop(_sort_span);
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+        let module = self.input.module_info(pkg.module);
 
         // Populate `warn_list` by concatenating module-level, package-level,
         // and command-line settings.
         let proof_warn_list = (pkg.raw.proof_enabled
             && !matches!(
-                self.build_env.action,
-                moonutil::common::RunMode::Check | moonutil::common::RunMode::Prove
+                self.config.action,
+                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
             ))
         .then_some(PROOF_ENABLED_WARN_SUPPRESSIONS);
         let package_warn_list = cat_opt(pkg.raw.warn_list.clone(), proof_warn_list);
         let warn_list = cat_opt(
             cat_opt(module.warn_list.clone(), package_warn_list.as_deref()),
-            self.build_env.warn_list.as_deref(),
+            self.config.warn_list.as_deref(),
         );
 
         let specified_no_mi = self.input_directive.specify_no_mi_for == Some(target.package);
@@ -589,18 +745,20 @@ impl<'a> BuildPlanConstructor<'a> {
             .filter(|(specify_target, _)| specify_target == &target)
             .map(|(_, path)| path.clone());
         let why3_config = self.input_directive.prove_why3_config.clone();
+        let proof_prelude = self.input_directive.proof_prelude.clone();
 
         let mi_check_target = self.mi_check_target(target, pkg);
 
         BuildTargetInfo {
-            regular_files: regular_files.into_iter().collect(),
+            regular_files,
             mbtp_files,
-            whitebox_files: whitebox_files.into_iter().collect(),
-            doctest_files: doctest_files.into_iter().collect(),
+            whitebox_files,
+            doctest_files,
             warn_list,
             specified_no_mi,
             patch_file,
             why3_config,
+            proof_prelude,
             check_mi_against: mi_check_target,
             value_tracing: self
                 .input_directive
@@ -612,7 +770,7 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn warn_if_main_package_uses_blackbox_inputs(
         &mut self,
         pkg: &DiscoveredPackage,
-        regular_files: &IndexSet<PathBuf>,
+        regular_files: &[PathBuf],
     ) {
         if !pkg.raw.is_main {
             return;
@@ -624,16 +782,23 @@ impl<'a> BuildPlanConstructor<'a> {
             path.file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| {
-                    matches!(
-                        cond_comp::get_file_test_kind_full(name),
-                        cond_comp::FileTestKind::Blackbox
-                    )
+                    package_source_file_kind(name) == Some(PackageSourceFileKind::Mbt)
+                        && matches!(
+                            cond_comp::get_file_test_kind_full(name),
+                            cond_comp::FileTestKind::Blackbox
+                        )
                 })
         }) {
             blackbox_inputs.push("`_test.mbt` files");
         }
 
-        if !pkg.mbt_md_files.is_empty() {
+        if regular_files.iter().any(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    package_source_file_kind(name) == Some(PackageSourceFileKind::MbtMd)
+                })
+        }) {
             blackbox_inputs.push("`.mbt.md` files");
         }
 
@@ -641,14 +806,14 @@ impl<'a> BuildPlanConstructor<'a> {
             return;
         }
 
-        self.user_warnings.push(UserWarning::new(format!(
+        self.user_log.warn(format!(
             "Main package `{}` uses blackbox-only test inputs ({}) in package directory \"{}\". \
              Main packages will stop generating blackbox tests in a future release. \
              Move public behavior into a non-main package and keep the main package as an entrypoint.",
             pkg.fqn,
             blackbox_inputs.join(", "),
             pkg.root_path.display(),
-        )));
+        ));
     }
 
     /// Check if a given target needs to check `.mi` against another target.
@@ -668,7 +833,7 @@ impl<'a> BuildPlanConstructor<'a> {
                         "A virtual package without default implementation should not have a build target info, thus should not reach here"
                     );
                 }
-            } else if let Some(implement) = self.input.pkg_rel.virt_impl.get(target.package) {
+            } else if let Some(implement) = self.rel.virt_impl.get(target.package) {
                 Some(implement.build_target(TargetKind::Source))
             } else {
                 None
@@ -682,14 +847,10 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn build_build_c_stub(
         &mut self,
         node: BuildPlanNode,
-        _target: PackageId,
+        target: PackageId,
         _index: u32,
     ) -> Result<(), BuildPlanConstructError> {
-        // depends on nothing, but needs to be inserted into the list
-        self.need_node(node);
-
-        // We rely on the `link_c_stubs` action to resolve the C stub info
-        // so this doesn't panic.
+        self.populate_c_stubs_info(target)?;
         self.resolved_node(node);
         Ok(())
     }
@@ -700,20 +861,35 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         target: PackageId,
     ) -> Result<(), BuildPlanConstructError> {
-        // Resolve the C stub files
+        self.require_c_stub_objects(node, target);
+        self.populate_c_stubs_info(target)?;
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Require every C stub object declared by `package`, in declaration order.
+    fn require_c_stub_objects(&mut self, consumer: BuildPlanNode, package: PackageId) {
+        let pkg = self.input.pkg_dirs.get_package(package);
+        for source in &pkg.c_stub_files {
+            self.require_artifact(
+                consumer,
+                ArtifactKey::CStubObject {
+                    package,
+                    source: package_file_key(&pkg.root_path, source),
+                },
+            );
+        }
+    }
+
+    /// Resolve the compile and archive settings shared by a package's C stub
+    /// actions. Every C stub action populates it, so no action depends on
+    /// another having been planned first.
+    fn populate_c_stubs_info(&mut self, target: PackageId) -> Result<(), BuildPlanConstructError> {
+        if self.res.backend.c_stubs_info.contains_key(&target) {
+            return Ok(());
+        }
+
         let pkg = self.input.pkg_dirs.get_package(target);
-        for i in 0..pkg.c_stub_files.len() {
-            let build_node = self.need_node(BuildPlanNode::BuildCStub(target, i as u32));
-            self.add_edge(node, build_node);
-        }
-
-        // If we're tcc run, also depend on the runtime library
-        if self.build_env.tcc_run.is_some() {
-            let make_exec_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
-            self.add_edge(node, make_exec_node);
-        }
-
-        // Populate C stub info
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
         let stub_cc = native_config
@@ -737,7 +913,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let mut link_flags = native_config
+        let mut link_args = native_config
             .and_then(|native| native.stub_cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
@@ -746,7 +922,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 })
             })
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(NativeLinkArg::Opaque)
+            .collect();
 
         let effective_native_toolchain = self
             .effective_native_toolchain(stub_cc.as_ref())
@@ -757,35 +936,36 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             })?;
 
-        self.propagate_link_config(
-            &effective_native_toolchain,
-            std::iter::once(target),
-            &mut link_flags,
-        );
+        if let Some(prebuild) = self.prebuild_config {
+            prebuild.append_link_args(std::iter::once(target), &mut link_args);
+        }
 
+        // Backtrace-only requests concern MoonBit source locations. They must
+        // not change the debug or optimization settings of user-written C stubs.
+        let debug_info = self.config.debug_info.symbols == DebugSymbols::Full;
+        // Preserve the existing C-stub profile policy: explicit debug info uses
+        // debugging-friendly optimization, including with --release --no-strip.
+        let opt_level = match (self.config.opt_level, debug_info) {
+            (_, true) => CCOptLevel::Debug,
+            (OptLevel::Release, false) => CCOptLevel::Speed,
+            (OptLevel::Debug, false) => CCOptLevel::None,
+        };
         let c_info = BuildCStubsInfo {
             effective_native_toolchain,
+            debug_info,
+            opt_level,
             cc_flags,
-            link_flags,
+            link_args,
         };
-        self.res.c_stubs_info.insert(target, c_info);
-        self.resolved_node(node);
-
+        self.res.backend.c_stubs_info.insert(target, c_info);
         Ok(())
     }
 
-    /// Performs the construction of two actions in consecutive: Make Executable
-    /// and Link Core.
-    ///
-    /// The two actions are always created together (Link Core is always a
-    /// direct dependency of Make Executable, and there's no other actions that
-    /// depends on Link Core), and both actions require traversing through the
-    /// list of dependencies, so it's better to create both nodes at once,
-    /// instead of in separate functions.
+    /// Plan a `LinkCore` action and its transitive Core IR inputs.
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_make_exec_link_core(
+    pub(super) fn build_link_core(
         &mut self,
-        make_exec_node: BuildPlanNode,
+        node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
         /*
@@ -802,27 +982,19 @@ impl<'a> BuildPlanConstructor<'a> {
                 virtual packages at all when collecting the targets.
         */
 
-        debug!("Building MakeExecutable for target: {:?}", target);
+        debug!("Linking Core IR for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
-        // ====== Link Core =====
-
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, c_stub_deps, abort_overridden) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, _, link_stdlib_abort) = self.dfs_link_core_sources(target)?;
 
-        let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
-
-        // Add edges to all dependencies
-        // Note that we have already replaced unnecessary dependencies
+        // The traversal has already replaced unnecessary dependencies.
         for target in &link_core_deps {
-            let dep_node = BuildPlanNode::BuildCore(*target);
-            self.need_node(dep_node);
-            self.add_edge_spec(
-                link_core_node,
-                dep_node,
-                FileDependencyKind::BuildCore {
-                    mi: false,
-                    core: true,
+            self.require_artifact(
+                node,
+                ArtifactKey::CoreIr {
+                    package: target.package,
+                    target_kind: target.kind,
                 },
             );
         }
@@ -830,54 +1002,64 @@ impl<'a> BuildPlanConstructor<'a> {
         // Use DFS-built order directly (dependencies first, then dependents).
         let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
         let link_core_info = LinkCoreInfo {
-            linked_order: targets.clone(),
-            abort_overridden,
-            // std: self.build_env.std, // Can move std/nostd to per-package info
+            linked_order: targets,
+            link_stdlib_abort,
         };
-        self.res.link_core_info.insert(target, link_core_info);
+        self.res
+            .backend
+            .link_core_info
+            .insert(target, link_core_info);
+        self.resolved_node(node);
 
-        self.resolved_node(link_core_node);
+        Ok(())
+    }
 
-        // ===== Make Executable =====
+    /// Plan the native toolchain action that turns linked Core output into an executable.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_native_executable(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        debug_assert!(self.config.backend.target_backend().is_native());
 
-        // Add edge from make exec to link core
-        self.add_edge(make_exec_node, link_core_node);
+        let (link_core_deps, c_stub_deps, _) = self.dfs_link_core_sources(target)?;
+        let targets = link_core_deps.into_iter().collect::<Vec<_>>();
+
+        let payload = if matches!(&self.config.backend, BackendConfig::Native { .. })
+            && matches!(
+                self.res.backend.native_mode(),
+                NativeBackendMode::GeneratedC
+            ) {
+            ArtifactKey::GeneratedCObject {
+                package: target.package,
+                target_kind: target.kind,
+            }
+        } else {
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            }
+        };
+        self.require_artifact(node, payload);
 
         // Add dependencies of make exec
         for target in &c_stub_deps {
-            let dep_node = self.need_node(BuildPlanNode::ArchiveOrLinkCStubs(*target));
-            self.add_edge(make_exec_node, dep_node);
+            self.require_artifact(node, ArtifactKey::CStubLibrary { package: *target });
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        if !self.build_env.target_backend.is_native() {
-            self.resolved_node(make_exec_node);
-            return Ok(());
-        }
+        let CompileGeneratedCInfo {
+            effective_native_toolchain,
+            c_flags,
+            c_debug_info,
+            c_opt_level,
+            native_allocator,
+        } = self.resolve_package_native_compile(target.package)?;
 
-        // Fill auxiliary flags for CC flags
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-        let cc = native_config
-            .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref())
-                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
-            })
-            .transpose()?;
-        let c_flags = native_config
-            .and_then(|native| native.cc_flags.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default();
-
-        let mut link_flags = native_config
+        let mut link_args = native_config
             .and_then(|native| native.cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -886,12 +1068,109 @@ impl<'a> BuildPlanConstructor<'a> {
                 })
             })
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(NativeLinkArg::Opaque)
+            .collect();
 
         let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
         if !link_pkgs.contains(&target.package) {
             link_pkgs.push(target.package);
         }
+
+        if let Some(prebuild) = self.prebuild_config {
+            prebuild.append_link_args(link_pkgs.into_iter(), &mut link_args);
+        }
+
+        let moonc_debug_info = self.res.backend.moonc_debug_info();
+        let generate_dsym = match &self.config.backend {
+            BackendConfig::Llvm { os, .. } => should_generate_llvm_dsym(moonc_debug_info, *os),
+            BackendConfig::Native { os, .. } => match self.res.backend.native_mode() {
+                NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
+                    mode,
+                    moonc_debug_info || self.config.debug_info.runtime_backtrace,
+                    &effective_native_toolchain,
+                ),
+                // Compiling and linking in one clang invocation used to run
+                // dsymutil implicitly. With persistent objects it must be an
+                // explicit action, otherwise libbacktrace loses source lines.
+                NativeBackendMode::GeneratedC => {
+                    c_debug_info
+                        && *os == OperatingSystem::MacOS
+                        && effective_native_toolchain.cc().targets_apple_darwin()
+                }
+            },
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
+                unreachable!("non-native executable planning returns before toolchain planning")
+            }
+        };
+        if generate_dsym && self.res.backend.dsymutil.is_none() {
+            self.res.backend.dsymutil = Some(
+                moonutil::toolchain::resolve_executable("dsymutil").map_err(|error| {
+                    BuildPlanConstructError::FailedToResolveDsymutil(error, pkg.fqn.clone().into())
+                })?,
+            );
+        }
+
+        let v = MakeExecutableInfo {
+            link_c_stubs: c_stub_deps.clone(),
+            effective_native_toolchain,
+            c_debug_info,
+            c_opt_level,
+            c_flags,
+            link_args,
+            native_allocator,
+        };
+        self.res.backend.make_executable_info.insert(target, v);
+
+        self.require_artifact(node, ArtifactKey::RuntimeLibrary);
+
+        if generate_dsym {
+            let dsym_node = self.need_node(BuildPlanNode::GenerateDsym(target));
+            self.require_artifact(
+                dsym_node,
+                ArtifactKey::Executable {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+            );
+            self.resolved_node(dsym_node);
+        }
+
+        self.resolved_node(node);
+
+        Ok(())
+    }
+
+    /// Resolve the package's `link.native` compiler selection together with
+    /// the settings for compiling its generated-C payload.
+    fn resolve_package_native_compile(
+        &mut self,
+        package: PackageId,
+    ) -> Result<CompileGeneratedCInfo, BuildPlanConstructError> {
+        if let Some(info) = self.package_native_compile.get(&package) {
+            return Ok(info.clone());
+        }
+        let pkg = self.input.pkg_dirs.get_package(package);
+        let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
+        let cc = native_config
+            .and_then(|native| native.cc.as_ref())
+            .map(|s| self.replace_build_vars(package, pkg.module, s))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref())
+                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
+            })
+            .transpose()?;
+        let c_flags = native_config
+            .and_then(|native| native.cc_flags.as_ref())
+            .map(|s| self.replace_build_vars(package, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
 
         let effective_native_toolchain =
             self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
@@ -901,36 +1180,135 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             })?;
 
-        self.propagate_link_config(
-            &effective_native_toolchain,
-            link_pkgs.into_iter(),
-            &mut link_flags,
-        );
+        let native_allocator = self
+            .config
+            .backend
+            .native_allocator()
+            .expect("native payload planning requires an allocator");
+        native_allocator
+            .validate_for_cc(effective_native_toolchain.cc())
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
 
-        let v = MakeExecutableInfo {
-            link_c_stubs: c_stub_deps.clone(),
+        let info = CompileGeneratedCInfo {
             effective_native_toolchain,
             c_flags,
-            link_flags,
+            // The native compiler must retain the source locations emitted into
+            // generated C. A direct-object payload cannot create that information.
+            c_debug_info: self.res.backend.direct_native_target().is_none()
+                && self.config.debug_info.symbols != DebugSymbols::None,
+            c_opt_level: match self.config.opt_level {
+                OptLevel::Debug => CCOptLevel::Debug,
+                OptLevel::Release => CCOptLevel::Speed,
+            },
+            native_allocator,
         };
-        self.res.make_executable_info.insert(target, v);
+        // Compilation and linking consume the same resolved toolchain and
+        // flags, including across a package's different test executables.
+        self.package_native_compile.insert(package, info.clone());
+        Ok(info)
+    }
 
-        let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
-        self.add_edge(make_exec_node, rt_node);
+    /// Plan the native compiler action that turns generated-C linked Core
+    /// output into an object.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_compile_generated_c(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        debug_assert!(matches!(
+            self.res.backend.native_mode(),
+            NativeBackendMode::GeneratedC
+        ));
 
-        self.resolved_node(make_exec_node);
+        self.require_artifact(
+            node,
+            ArtifactKey::LinkedCore {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
 
+        let info = self.resolve_package_native_compile(target.package)?;
+        self.res
+            .backend
+            .compile_generated_c_info
+            .insert(target, info);
+
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Plan the static archive a foreign host links to use a foreign-library
+    /// package on Native or LLVM.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_foreign_library(
+        &mut self,
+        node: BuildPlanNode,
+        package: PackageId,
+    ) -> Result<(), BuildPlanConstructError> {
+        debug_assert!(self.config.backend.target_backend().is_native());
+
+        // A foreign library exports its source target; tests link executables.
+        let target = package.build_target(TargetKind::Source);
+        let (_, c_stub_packages, _) = self.dfs_link_core_sources(target)?;
+
+        // Archive members are objects. Generated C needs its own compile step,
+        // while direct-object and LLVM linking already produce an object.
+        let generated_c = matches!(&self.config.backend, BackendConfig::Native { .. })
+            && matches!(
+                self.res.backend.native_mode(),
+                NativeBackendMode::GeneratedC
+            );
+        let payload = if generated_c {
+            ArtifactKey::GeneratedCObject {
+                package,
+                target_kind: target.kind,
+            }
+        } else {
+            ArtifactKey::LinkedCore {
+                package,
+                target_kind: target.kind,
+            }
+        };
+        self.require_artifact(node, payload);
+
+        // Static archives cannot nest, so C stubs and the runtime contribute
+        // their objects directly instead of their intermediate archives.
+        for c_stub_package in &c_stub_packages {
+            self.require_c_stub_objects(node, *c_stub_package);
+        }
+        self.require_runtime_objects(node)?;
+        // TODO: Report `link.native.cc-link-flags`, prebuild link arguments,
+        // system libraries, and the backtrace library to the foreign host. A
+        // static archive cannot carry them.
+
+        let CompileGeneratedCInfo {
+            effective_native_toolchain,
+            native_allocator,
+            ..
+        } = self.resolve_package_native_compile(package)?;
+        self.res.backend.foreign_library_info.insert(
+            package,
+            ForeignLibraryInfo {
+                effective_native_toolchain,
+                c_stub_packages: c_stub_packages.into_iter().collect(),
+                native_allocator,
+            },
+        );
+
+        self.resolved_node(node);
         Ok(())
     }
 
     fn dfs_link_core_sources(
-        &mut self,
+        &self,
         target: BuildTarget,
     ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>, bool), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let vp_info = self.input.pkg_rel.virtual_users.get(target.package);
+        let vp_info = self.rel.virtual_users.get(target.package);
 
-        let abort = if self.build_env.std {
+        let abort = if self.config.stdlib_path.is_some() {
             self.input.pkg_dirs.abort_pkg()
         } else {
             None
@@ -949,10 +1327,10 @@ impl<'a> BuildPlanConstructor<'a> {
         // package itself and its blackbox test target both being added, which
         // is redundant.
         let mut c_stub_deps: IndexSet<PackageId> = IndexSet::new();
-        // Whether `moonbitlang/core/abort` is overridden
-        let abort_overridden = abort_override_pkg.is_some();
+        // Core versions without abort need no separate default implementation.
+        let link_stdlib_abort = abort.is_some() && abort_override_pkg.is_none();
 
-        let graph = &self.input.pkg_rel.dep_graph;
+        let graph = &self.rel.dep_graph;
 
         // Topo sort via DFS postorder
         let mut visited: HashSet<BuildTarget> = HashSet::new(); // pre-order visited
@@ -1002,7 +1380,8 @@ impl<'a> BuildPlanConstructor<'a> {
                     .filter(|dep| {
                         // Skip stdlib packages because they are always linked implicitly
                         // only when stdlib is injected. When building stdlib itself, keep them.
-                        !self.build_env.std || !self.input.pkg_dirs.is_stdlib_package(dep.package)
+                        self.config.stdlib_path.is_none()
+                            || !self.input.pkg_dirs.is_stdlib_package(dep.package)
                     })
                     .collect();
 
@@ -1047,7 +1426,8 @@ impl<'a> BuildPlanConstructor<'a> {
                         // Record emitted and collect c-stub if necessary
                         emitted.insert(cur);
                         let pkg = self.input.pkg_dirs.get_package(cur.package);
-                        if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty()
+                        if self.config.backend.target_backend().is_native()
+                            && !pkg.c_stub_files.is_empty()
                         {
                             c_stub_deps.insert(cur.package);
                         }
@@ -1072,67 +1452,26 @@ impl<'a> BuildPlanConstructor<'a> {
                 emitted.insert(cur);
                 trace!(?cur, "Post-order: emitted");
 
-                if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
+                if self.config.backend.target_backend().is_native() && !pkg.c_stub_files.is_empty()
+                {
                     c_stub_deps.insert(cur.package);
                 }
             }
         }
 
-        Ok((link_core_deps, c_stub_deps, abort_overridden))
-    }
-
-    /// Propagate the link configuration of the packages in dependency to the output list
-    fn propagate_link_config(
-        &self,
-        toolchain: &Toolchain,
-        pkgs: impl Iterator<Item = PackageId>,
-        out: &mut Vec<String>,
-    ) {
-        let Some(prebuild) = self.prebuild_config else {
-            return;
-        };
-        let is_msvc_like = toolchain.cc().is_msvc();
-        for pkg in pkgs {
-            let Some(link_config) = prebuild.package_configs.get(&pkg) else {
-                continue;
-            };
-
-            let link_flags = link_config
-                .link_flags
-                .as_ref()
-                .and_then(|x| shlex::split(x));
-            if let Some(link_flags) = link_flags {
-                out.extend(link_flags);
-            }
-
-            for lib in &link_config.link_libs {
-                if is_msvc_like {
-                    out.push(format!("{lib}.lib"));
-                } else {
-                    out.push(format!("-l{lib}"));
-                }
-            }
-
-            for path in &link_config.link_search_paths {
-                if is_msvc_like {
-                    out.push(format!("/LIBPATH:{path}"));
-                } else {
-                    out.push(format!("-L{path}"));
-                }
-            }
-        }
+        Ok((link_core_deps, c_stub_deps, link_stdlib_abort))
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_bundle(
         &mut self,
-        _node: BuildPlanNode,
+        node: BuildPlanNode,
         module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
         // Bundling a module gathers the build result of all its non-virtual packages, in topo order
         let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
         let mut bundle_targets = Vec::new();
-        let target_backend: moonutil::common::TargetBackend = self.build_env.target_backend.into();
+        let target_backend = self.config.backend.target_backend();
         for target in topo_sorted_pkgs.into_iter() {
             let pkg = self.input.pkg_dirs.get_package(target.package);
             if !pkg.effective_supported_targets.contains(&target_backend) {
@@ -1145,6 +1484,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 continue;
             }
             if !pkg.has_implementation() {
+                // TODO(bundle-virtual): Request the contract as a bundle root
+                // when the stdlib gains a pure virtual package, then cover the
+                // installed sidecar with a bundle integration fixture.
                 trace!(
                     ?module_id,
                     ?target,
@@ -1153,15 +1495,12 @@ impl<'a> BuildPlanConstructor<'a> {
                 continue;
             }
 
-            let build_node = BuildPlanNode::BuildCore(target);
             trace!(?module_id, ?target, "enqueuing bundle dependency");
-            self.need_node(build_node);
-            self.add_edge_spec(
-                _node,
-                build_node,
-                FileDependencyKind::BuildCore {
-                    mi: false,
-                    core: true,
+            self.require_artifact(
+                node,
+                ArtifactKey::CoreIr {
+                    package: target.package,
+                    target_kind: target.kind,
                 },
             );
 
@@ -1181,8 +1520,10 @@ impl<'a> BuildPlanConstructor<'a> {
             "recording bundle targets"
         );
         self.res
+            .backend
             .bundle_info
             .insert(module_id, BuildBundleInfo { bundle_targets });
+        self.resolved_node(node);
 
         Ok(())
     }
@@ -1207,7 +1548,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let mut seeds: Vec<_> = pkg_map.values().copied().collect();
         seeds.sort_by(cmp_by_fqn);
 
-        let graph = &self.input.pkg_rel.dep_graph;
+        let graph = &self.rel.dep_graph;
         let mut ordered = Vec::new();
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
@@ -1259,12 +1600,94 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_runtime_object(
+        &mut self,
+        node: BuildPlanNode,
+        _index: u32,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.need_node(node);
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_runtime_lib(
         &mut self,
-        _node: BuildPlanNode,
+        node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
-        // Nothing specific to do here ;)
-        self.resolved_node(_node);
+        self.require_runtime_objects(node)?;
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Require every runtime translation unit, resolving the runtime settings
+    /// that their providers are lowered from.
+    fn require_runtime_objects(
+        &mut self,
+        consumer: BuildPlanNode,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.populate_runtime_info()?;
+        let sources = self
+            .res
+            .backend
+            .runtime_info
+            .as_ref()
+            .expect("runtime info was just populated")
+            .source_files
+            .iter()
+            .map(|source| runtime_source_key(source))
+            .collect::<Vec<_>>();
+        for source in sources {
+            self.require_artifact(consumer, ArtifactKey::RuntimeObject { source });
+        }
+        Ok(())
+    }
+
+    fn populate_runtime_info(&mut self) -> Result<(), BuildPlanConstructError> {
+        if self.res.backend.runtime_info.is_some() {
+            return Ok(());
+        }
+
+        let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
+            BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
+        })?;
+        // TODO: Consume supplied runtime sources and optional SIMDUTF objects
+        // once command orchestration captures the runtime file inventory.
+        let source_files = toolchain::runtime_source_paths()
+            .map_err(BuildPlanConstructError::FailedToFindRuntimeSources)?;
+        let simdutf_objects = if self.config.opt_level == OptLevel::Release
+            && effective_native_toolchain.cc().can_use_simdutf()
+        {
+            self.config
+                .backend
+                .compiler_paths()
+                .expect("native runtime planning requires compiler paths")
+                .simdutf_object_paths()
+                .map(|objects| objects.into_iter().collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let native_allocator = self
+            .config
+            .backend
+            .native_allocator()
+            .expect("native runtime planning requires an allocator");
+        native_allocator
+            .validate_for_cc(effective_native_toolchain.cc())
+            .map_err(BuildPlanConstructError::InvalidNativeAllocator)?;
+
+        // Runtime backtraces need the prebuilt host `libbacktrace.a`.
+        let enable_backtrace = self.config.debug_info.runtime_backtrace
+            && self.config.backend.os() != OperatingSystem::Windows
+            && effective_native_toolchain.cc().targets_host();
+        self.res.backend.runtime_info = Some(BuildRuntimeInfo {
+            effective_native_toolchain,
+            enable_backtrace,
+            source_files,
+            simdutf_objects,
+            native_allocator,
+        });
         Ok(())
     }
 
@@ -1277,7 +1700,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
         // usually means `moonc check` instead of `moonc build`.
         self.check_backend_compatibility_for_mi_dep(_node, target)?;
-        self.need_mi_of_dep(_node, target, true);
+        self.require_check_mi_of_dep(_node, target);
         self.resolved_node(_node);
         Ok(())
     }
@@ -1296,14 +1719,56 @@ impl<'a> BuildPlanConstructor<'a> {
             "Only virtual packages can have their .mi parsed from .mbti files"
         );
 
-        for dep in self.input.pkg_rel.dep_graph.neighbors_directed(
+        // The virtual contract may itself be a declared package prebuild
+        // output. Lowering records the selected `.mbti` path as an ordinary
+        // file input, so n2 connects it to the matching prebuild provider.
+        self.plan_package_prebuild(target)?;
+
+        let canonical = pkg.root_path.join(MBTI_USER_WRITTEN);
+        let legacy = pkg
+            .root_path
+            .join(format!("{}.mbti", pkg.fqn.short_alias()));
+        let selected = [canonical, legacy].into_iter().find(|candidate| {
+            pkg.virtual_mbti_files.contains(candidate)
+                || self
+                    .res
+                    .package_prebuild
+                    .output_paths(target)
+                    .any(|output| output == candidate)
+        });
+        let Some(selected) = selected else {
+            return Err(BuildPlanConstructError::MissingVirtualMbtiFile(
+                pkg.fqn.clone().into(),
+            ));
+        };
+        if selected.file_name().and_then(OsStr::to_str) != Some(MBTI_USER_WRITTEN) {
+            self.user_log.warn(format!(
+                "Using package name in MBTI file is deprecated. Please rename {} to {}",
+                selected.display(),
+                MBTI_USER_WRITTEN
+            ));
+        }
+        self.res
+            .backend
+            .virtual_contract_inputs
+            .insert(target, selected);
+
+        for dep in self.rel.dep_graph.neighbors_directed(
             target.build_target(TargetKind::Source),
             petgraph::Direction::Outgoing,
         ) {
-            // Note: This depends on the `Check` node, which will be coalesced
-            // to `Build` later if necessary.
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, true);
+            match self.config.action {
+                RunMode::Check | RunMode::Prove => self.require_check_mi_of_dep(node, dep),
+                RunMode::Build
+                | RunMode::Run
+                | RunMode::Test
+                | RunMode::Bench
+                | RunMode::Bundle => self.require_build_mi_of_dep(node, dep),
+                RunMode::Format => {
+                    unreachable!("format plans do not compile virtual package contracts")
+                }
+            }
         }
 
         self.resolved_node(node);
@@ -1314,115 +1779,102 @@ impl<'a> BuildPlanConstructor<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build_docs(
         &mut self,
-        _node: BuildPlanNode,
-        _module_id: ModuleId,
-    ) -> Result<(), BuildPlanConstructError> {
-        // For now, `moondoc` depends on *every check*, as specified in its
-        // packages.json input. I guess bad things might happen if you don't?
-        for (pkg_id, _) in self.input.pkg_dirs.all_packages(true) {
-            let check_node = self.need_node(BuildPlanNode::Check(
-                pkg_id.build_target(TargetKind::Source),
-            ));
-            self.add_edge(_node, check_node);
-        }
-        Ok(())
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_run_prebuild(
-        &mut self,
         node: BuildPlanNode,
-        _package: PackageId,
-        _index: u32,
+        module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
-        // Theoretically there might be file-level dependencies between prebuild
-        // commands, but we don't track it here, since it **will** be handled by
-        // n2 which tracks file-level dependencies anyway.
-        //
-        // In this lowering process, we only handle the transformation of the
-        // commands and files.
-        //
-        // For details, also see `/docs/dev/reference/prebuild.md`
+        // Documentation starts from backend-compatible packages in the
+        // selected module. Their Check MI requirements expand the same
+        // dependency closure used by ordinary package checks.
+        let target_backend = self.config.backend.target_backend();
+        let packages = self
+            .input
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .expect("documentation module must exist in the resolved package set");
+        let supported_packages = packages
+            .values()
+            .copied()
+            .filter(|&pkg_id| {
+                self.input
+                    .pkg_dirs
+                    .get_package(pkg_id)
+                    .effective_supported_targets
+                    .contains(&target_backend)
+            })
+            .collect::<Vec<_>>();
 
-        self.need_node(node);
-        self.populate_prebuild(_package, _index)?;
+        for pkg_id in supported_packages {
+            self.require_artifact(
+                node,
+                ArtifactKey::CheckMi {
+                    package: pkg_id,
+                    target_kind: TargetKind::Source,
+                },
+            );
+        }
         self.resolved_node(node);
-
         Ok(())
     }
 
-    fn populate_prebuild(
-        &mut self,
+    fn resolve_custom_prebuild(
+        &self,
         package: PackageId,
-        index: u32,
-    ) -> Result<(), BuildPlanConstructError> {
-        if self
-            .res
-            .prebuild_info
-            .get(&package)
-            .and_then(|v| v.get(index as usize).and_then(|x| x.as_ref()))
-            .is_some()
-        {
-            // Already populated
-            return Ok(());
-        }
-
+        prebuild_cmd: &MoonPkgGenerate,
+    ) -> Result<PrebuildInfo, BuildPlanConstructError> {
         let pkg = self.input.pkg_dirs.get_package(package);
         let module = &self.input.module_dirs[pkg.module];
-        let mooncakes_dir = &self.input.mooncakes_dir;
-        let prebuild_cmd =
-            &pkg.raw.pre_build.as_ref().expect("Prebuild must exist")[index as usize];
+
+        // Resolve declared paths once; both graph tracking and file
+        // interpretation must use the same spelling as source discovery.
+        let input_paths = prebuild_cmd
+            .input()
+            .iter()
+            .map(|path| resolve_prebuild_path(&pkg.root_path, path))
+            .collect::<Vec<_>>();
+        let output_paths = prebuild_cmd
+            .output()
+            .iter()
+            .map(|path| resolve_prebuild_path(&pkg.root_path, path))
+            .collect::<Vec<_>>();
 
         // Warn about suspicious outputs
-        for output in prebuild_cmd.output().iter() {
-            let output: &Path = output.as_ref();
+        for (declared, output) in prebuild_cmd.output().iter().zip(&output_paths) {
             let Some(filename) = output.file_name().and_then(OsStr::to_str) else {
                 continue;
             };
 
             // If the output is a moonbit source and it does not live in the current dir
             if (filename.ends_with(".mbt") || filename.ends_with(".mbt.md"))
-                && output.parent() != Some("".as_ref())
+                && output.parent() != Some(pkg.root_path.as_path())
             {
-                self.user_warnings.push(UserWarning::new(format!(
+                self.user_log.warn(format!(
                     "Prebuild output '{}' is not in the package directory of package {}. \
                      Such behavior is not supported. \
                      The build system will not add it to the list of MoonBit files to compile. \
                      If you really intend to generate files for another package, \
                      please move the prebuild command to that package instead.",
-                    output.display(),
-                    pkg.fqn
-                )));
+                    declared, pkg.fqn
+                ));
             }
             // If the file looks like a package manifest
             if is_moon_mod(filename) || is_moon_pkg(filename) {
-                self.user_warnings.push(UserWarning::new(format!(
+                self.user_log.warn(format!(
                     "Prebuild output '{}' of package {} looks like a package manifest file. \
                      Overwriting package manifests is not supported and may lead to unexpected behavior.",
-                    output.display(),
+                    declared,
                     pkg.fqn
-                )));
+                ));
             }
         }
 
-        // Normalize input and output paths. This is the relatively easy part.
-        // FIXME: these paths are used again when determining input files in
-        // `Self::populate_target_info`, should we cache them somewhere?
-        let input_paths = prebuild_cmd
-            .input()
-            .iter()
-            .map(|x| pkg.root_path.join(x))
-            .collect::<Vec<_>>();
-        let output_paths = prebuild_cmd
-            .output()
-            .iter()
-            .map(|x| pkg.root_path.join(x))
-            .collect::<Vec<_>>();
+        let command_cwd = module.as_path();
+        let command_input_paths = prebuild_command_paths(command_cwd, &input_paths);
+        let command_output_paths = prebuild_command_paths(command_cwd, &output_paths);
 
         let command = match prebuild_cmd {
             MoonPkgGenerate::Direct { command, .. } => Cow::Borrowed(command.as_str()),
             MoonPkgGenerate::Rule { rule, .. } => {
-                let module_info = self.input.module_rel.module_info(pkg.module);
+                let module_info = self.input.module_info(pkg.module);
                 Cow::Owned(resolve_prebuild_rule_command(
                     pkg.local_rules(),
                     module_info,
@@ -1432,50 +1884,20 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         };
 
-        // Handle command expansion and tokenization
-        let command = handle_build_command_new(
+        let command = resolve_prebuild_command(
             &command,
             module,
-            mooncakes_dir,
             &pkg.root_path,
-            &input_paths,
-            &output_paths,
+            &command_input_paths,
+            &command_output_paths,
         );
 
-        let info = PrebuildInfo {
+        Ok(PrebuildInfo {
             resolved_inputs: input_paths,
             resolved_outputs: output_paths,
+            cwd: command_cwd.to_path_buf(),
             command,
-        };
-
-        let v = self.res.prebuild_info.entry(package).or_default();
-        // Extend the vector if necessary
-        while v.len() <= index as usize {
-            v.push(None);
-        }
-        v[index as usize] = Some(info);
-        Ok(())
-    }
-
-    pub(super) fn build_lex_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Not much things to do here, moonlex is straightforward
-        // the hassle is telling the build system we have the files to compile
-        self.need_node(node);
-        self.resolved_node(node);
-        Ok(())
-    }
-
-    pub(super) fn build_yacc_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        // similar to lex prebuild
-        self.need_node(node);
-        self.resolved_node(node);
-        Ok(())
+        })
     }
 }
 
@@ -1518,122 +1940,68 @@ fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     }
 }
 
-static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
-    aho_corasick::AhoCorasickBuilder::new()
-        .build([MOONCAKE_BIN, MOD_DIR, PKG_DIR, "$input", "$output"])
-        .expect("Failed to build automata")
-});
-
-/// Handle the prebuild command replacement, outputs a single string that should
-/// be `sh -c`'ed.
+/// Substitute prebuild command placeholders and resolve a relative shell argv0.
 ///
-/// # Note about binary dependency artifacts
+/// The `:embed ` discriminator remains intact so lowering can emit that built-in
+/// invocation as structured argv instead of treating it as a shell program.
 ///
-/// Currently, `moon` does not have direct support for referencing binary
-/// dependency artifacts. Artifacts built by binary dependencies are placed in
-/// either of these two locations:
-///
-/// - `<resolve-mooncakes-dir>/__moonbin__/[bin-target-name]`, if the artifact
-///   comes from a regular dependency from the official registry.
-/// - At the root of the corresponding module's source directory, if the
-///   artifact comes from a local dependency.
-///
-/// In prebuild commands, users can reference the former location using
-/// `$mooncake_bin`. For the latter case, users need to manually specify the
-/// relative path from the module source directory. For robustness, the relative
-/// path needs to be resolved against the module source directory itself before
-/// executing.
-///
-/// Windows puts another issue on top of this: binary dependencies are
-/// Powershell scripts appended with `.ps1` extension. Therefore, we need to
-/// resolve `argv[0]` and append a `.ps1` if such file exists.
-fn handle_build_command_new(
+/// Relative program paths are resolved against the module root. On Windows,
+/// a matching PowerShell launcher is invoked through PowerShell explicitly.
+fn resolve_prebuild_command(
     command: &str,
     mod_source: &Path,
-    mooncakes_dir: &Path,
     pkg_source: &Path,
-    input_files: &[PathBuf],
-    output_files: &[PathBuf],
+    input_files: &[String],
+    output_files: &[String],
 ) -> String {
-    use std::fmt::Write;
-
-    let mut reconstructed = String::new();
-
-    let moon_bin_path = moonutil::BINARIES.moonbuild.to_string_lossy();
-
-    let command = if let Some(command) = command.strip_prefix(":embed ") {
-        reconstructed.push_str(&format!("{} tool embed ", moon_bin_path));
-        command
-    } else {
-        command
-    };
-
-    // Perform replacements
-    let mut last_end = 0usize;
-    for magic in PREBUILD_AUTOMATA.find_iter(command) {
-        // Commit previous segment
-        if magic.start() > last_end {
-            reconstructed.push_str(&command[last_end..magic.start()]);
-        }
-
-        // Insert replacement
-        // See the IDs in CHECK_AUTOMATA
-        match magic.pattern().as_usize() {
-            // $mooncake_bin => <resolve-mooncakes-dir>/__moonbin__
-            0 => {
-                let replacement = mooncakes_dir.join(MOON_BIN_DIR);
-                write!(reconstructed, "{}", replacement.display()).expect("write can't fail");
-            }
-            // $mod_dir => <mod_source>
-            1 => {
-                write!(reconstructed, "{}", mod_source.display()).expect("write can't fail");
-            }
-            // $pkg_dir => <pkg_source>
-            2 => {
-                write!(reconstructed, "{}", pkg_source.display()).expect("write can't fail");
-            }
-            // $input => (existing)<input_1>, <input_2>, ...
-            3 => {
-                for (i, f) in input_files.iter().enumerate() {
-                    if i != 0 {
-                        write!(reconstructed, " ").expect("write can't fail");
-                    }
-                    write!(reconstructed, "{}", f.display()).expect("write can't fail");
-                }
-            }
-            4 => {
-                for (i, f) in output_files.iter().enumerate() {
-                    if i != 0 {
-                        write!(reconstructed, " ").expect("write can't fail");
-                    }
-                    write!(reconstructed, "{}", f.display()).expect("write can't fail");
-                }
-            }
-            _ => unreachable!("Unexpected pattern id from CHECK_AUTOMATA"),
-        }
-        last_end = magic.end();
+    // Command templates are arbitrary text. Simplify short Windows roots before
+    // users append their own path syntax, but do not interpret that syntax here.
+    let mod_dir = dunce::simplified(mod_source).to_string_lossy();
+    let pkg_dir = dunce::simplified(pkg_source).to_string_lossy();
+    let inputs = input_files.join(" ");
+    let outputs = output_files.join(" ");
+    let replacements = [
+        (MOD_DIR, mod_dir.as_ref()),
+        (PKG_DIR, pkg_dir.as_ref()),
+        ("$input", inputs.as_str()),
+        ("$output", outputs.as_str()),
+    ];
+    let mut resolved = String::new();
+    let mut last_end = 0;
+    // Expand only the original template: directory names may contain literal
+    // placeholder text, which must not be expanded a second time.
+    while let Some(next_dollar) = command[last_end..].find('$') {
+        let start = last_end + next_dollar;
+        let Some((pattern, replacement)) = replacements
+            .iter()
+            .find(|(pattern, _)| command[start..].starts_with(pattern))
+        else {
+            resolved.push_str(&command[last_end..=start]);
+            last_end = start + 1;
+            continue;
+        };
+        resolved.push_str(&command[last_end..start]);
+        resolved.push_str(replacement);
+        last_end = start + pattern.len();
     }
-
-    if last_end < command.len() {
-        reconstructed.push_str(&command[last_end..]);
-    }
+    resolved.push_str(&command[last_end..]);
 
     // Resolve argv[0]
-    let argv0 = moonutil::shlex::get_argv0_native(&reconstructed);
+    let argv0 = moonutil::shlex::get_argv0_native(&resolved);
     // Check if argv[0] looks like a relative path.
     let looks_like_path = argv0.contains(std::path::is_separator);
     let is_relative = looks_like_path && !Path::new(&argv0).is_absolute();
-    // For relative paths, we need to resolve it against the package source
+    // For relative paths, we need to resolve it against the module source
     // directory. Since we cannot easily splice the resolved path back into the
     // command string, we just prepend the source directory to the front of the
     // command.
     #[cfg(not(windows))]
     if is_relative {
-        reconstructed = format!(
+        resolved = format!(
             "{}{}{}",
             mod_source.display(),
             std::path::MAIN_SEPARATOR,
-            reconstructed
+            resolved
         );
     }
     // For windows, we also need to check if the resolved path with `.ps1` exists.
@@ -1645,21 +2013,49 @@ fn handle_build_command_new(
         {
             use moonutil::shlex::split_argv0_windows;
 
-            let (_argv0, rest) = split_argv0_windows(&reconstructed);
+            let (_argv0, rest) = split_argv0_windows(&resolved);
             // This is safe because '"' is not a valid path character on Windows,
             // and the original argv[0] must be a path-like string.
-            reconstructed = format!("powershell \"{}\" {}", new_argv0.display(), rest);
+            resolved = format!("powershell \"{}\" {}", new_argv0.display(), rest);
         }
     }
 
-    reconstructed
+    resolved
+}
+
+fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
+    // Preserve matching canonical roots: a long child may keep its prefix when
+    // its short cwd can be simplified. Only reconcile spellings on mismatch.
+    match path
+        .relative_to(cwd)
+        .or_else(|_| dunce::simplified(path).relative_to(dunce::simplified(cwd)))
+    {
+        Ok(relative_path) => {
+            let normalized = relative_path.normalize();
+            if normalized.as_str().is_empty() {
+                ".".to_string()
+            } else {
+                format!("./{normalized}")
+            }
+        }
+        Err(_) => dunce::simplified(path).display().to_string(),
+    }
+}
+
+fn prebuild_command_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| prebuild_command_path(cwd, path))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
+    use moonutil::compiler_flags::{ARKind, CCKind};
+
     use super::*;
 
-    fn test_module(rules: Vec<moonutil::module::MoonModRule>) -> MoonMod {
+    fn test_module(rules: Vec<moonutil::manifest::MoonModRule>) -> MoonMod {
         MoonMod {
             name: "test".to_string(),
             rule: Some(rules),
@@ -1669,19 +2065,242 @@ mod tests {
 
     fn test_package(module: &MoonMod) -> PackageFQNWithSource {
         PackageFQNWithSource::new(
-            moonutil::mooncakes::ModuleSource::from_local_module(module, std::path::Path::new(".")),
+            moonutil::resolution::ModuleSource::from_local_module(
+                module,
+                std::path::Path::new("."),
+            )
+            .expect("test module should have a valid version"),
             crate::pkg_name::PackagePath::new("").expect("empty package path should parse"),
         )
+    }
+
+    fn toolchain(target_triple: &str) -> Toolchain {
+        Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Clang,
+            cc_path: "/toolchain/bin/clang".to_string(),
+            ar_kind: ARKind::AppleLibtool,
+            ar_path: "/toolchain/bin/libtool".to_string(),
+            target_triple: Some(target_triple.to_string()),
+            is_env_override: false,
+        })
+    }
+
+    #[test]
+    fn dsym_generation_policy_is_backend_specific() {
+        let apple_toolchain = toolchain("arm64-apple-darwin");
+        let linux_toolchain = toolchain("x86_64-unknown-linux-gnu");
+        let direct_apple = DirectNativeMode::Target(NativeTarget::Aarch64AppleDarwin);
+
+        assert!(should_generate_llvm_dsym(true, OperatingSystem::MacOS));
+        assert!(!should_generate_llvm_dsym(true, OperatingSystem::Linux));
+        assert!(!should_generate_llvm_dsym(false, OperatingSystem::MacOS));
+
+        assert!(should_generate_direct_native_dsym(
+            &direct_apple,
+            true,
+            &apple_toolchain
+        ));
+        assert!(!should_generate_direct_native_dsym(
+            &direct_apple,
+            false,
+            &apple_toolchain
+        ));
+        assert!(!should_generate_direct_native_dsym(
+            &direct_apple,
+            true,
+            &linux_toolchain
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn prebuild_command_keeps_textual_windows_paths() {
+        let module = Path::new(r"\\?\C:\Users\user'quote\project $input with spaces");
+        let package = module.join("src/app");
+        let mut snapshot = String::new();
+        for command in [
+            r#":embed --text -i "$pkg_dir/../assets 'quoted'/./input.txt" -o "$pkg_dir/../app/generated.mbt""#,
+            r#"tool --assets="$mod_dir/src/app/../assets" "$pkg_dir_extra/keep" "$input" "$output" $unknown"#,
+            r#""$mod_dir/bin/tool.exe" "$pkg_dir\..\assets/../input.txt" "$pkg_dir/""#,
+            r#"tool "-I$pkg_dir/include" "/I$pkg_dir/include" --mapping="$pkg_dir/include,public" "$pkg_dir/$output""#,
+        ] {
+            let resolved = resolve_prebuild_command(
+                command,
+                module,
+                &package,
+                &["./first.txt".to_owned(), "./second.txt".to_owned()],
+                &["./generated.mbt".to_owned()],
+            );
+            snapshot.push_str(&resolved);
+            snapshot.push('\n');
+        }
+        expect_test::expect_file!["snapshots/windows_prebuild_paths.snap"].assert_eq(&snapshot);
+    }
+
+    #[test]
+    fn prebuild_command_path_is_relative_to_command_cwd() {
+        assert_eq!(
+            prebuild_command_path(Path::new("module"), Path::new("module/src/lib/input.txt")),
+            "./src/lib/input.txt"
+        );
+    }
+
+    #[test]
+    fn prebuild_command_path_can_include_module_from_workspace_cwd() {
+        assert_eq!(
+            prebuild_command_path(
+                Path::new("workspace"),
+                Path::new("workspace/member/src/lib/input.txt")
+            ),
+            "./member/src/lib/input.txt"
+        );
+    }
+
+    #[test]
+    fn prebuild_command_path_normalizes_dot_segments() {
+        assert_eq!(
+            prebuild_command_path(
+                Path::new("module"),
+                Path::new("module/src/lib/../assets/./input.txt")
+            ),
+            "./src/assets/input.txt"
+        );
+    }
+
+    #[test]
+    fn prebuild_command_path_handles_absolute_paths() {
+        assert_eq!(
+            prebuild_command_path(
+                Path::new("/module"),
+                Path::new("/module/src/lib/../assets/input.txt")
+            ),
+            "./src/assets/input.txt"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prebuild_command_path_handles_windows_prefix_spellings() {
+        for cwd in [r"C:\project", r"\\?\C:\project"] {
+            for path in [r"C:\project\input.txt", r"\\?\C:\project\input.txt"] {
+                assert_eq!(
+                    prebuild_command_path(Path::new(cwd), Path::new(path)),
+                    "./input.txt",
+                    "cwd={cwd}, path={path}"
+                );
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prebuild_command_path_preserves_matching_roots_when_only_one_path_simplifies() {
+        let cwd = Path::new(r"\\?\C:\project");
+        let path = cwd.join("segment\\".repeat(40)).join("input.txt");
+        assert_ne!(dunce::simplified(cwd), cwd);
+        assert_eq!(dunce::simplified(&path), path);
+        assert_eq!(
+            prebuild_command_path(cwd, &path),
+            format!("./{}input.txt", "segment/".repeat(40))
+        );
+        // Reverse the direction: the cwd is long, but the target is short.
+        assert_eq!(
+            prebuild_command_path(
+                path.parent().expect("fixture file has a parent directory"),
+                &cwd.join("output.txt"),
+            ),
+            format!("./{}output.txt", "../".repeat(40))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prebuild_command_path_keeps_safe_absolute_fallbacks() {
+        let path = Path::new(r"\\?\C:\project")
+            .join("segment\\".repeat(40))
+            .join("input.txt");
+        // The short ordinary cwd cannot be reconciled by removing the long
+        // path's required prefix. Fall back to the original usable spelling.
+        assert_eq!(
+            prebuild_command_path(Path::new(r"C:\project"), &path),
+            path.display().to_string()
+        );
+        assert_eq!(
+            prebuild_command_path(Path::new(r"C:\project"), Path::new(r"\\?\D:\input.txt")),
+            r"D:\input.txt"
+        );
+        let unc = Path::new(r"\\?\UNC\server\share\project");
+        assert_eq!(
+            prebuild_command_path(unc, &unc.join("input.txt")),
+            "./input.txt"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_command_uses_relative_input_and_output_placeholders() {
+        let command = resolve_prebuild_command(
+            "generate --inputs $input --outputs $output",
+            Path::new("module"),
+            Path::new("module/src/lib"),
+            &prebuild_command_paths(
+                Path::new("module"),
+                &[
+                    PathBuf::from("module/src/lib/input.txt"),
+                    PathBuf::from("module/src/lib/../assets/second.txt"),
+                ],
+            ),
+            &prebuild_command_paths(
+                Path::new("module"),
+                &[
+                    PathBuf::from("module/src/lib/generated.mbt"),
+                    PathBuf::from("module/src/lib/./generated_2.mbt"),
+                ],
+            ),
+        );
+
+        assert_eq!(
+            command,
+            "generate --inputs ./src/lib/input.txt ./src/assets/second.txt --outputs ./src/lib/generated.mbt ./src/lib/generated_2.mbt"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_command_preserves_attached_placeholders() {
+        let command = resolve_prebuild_command(
+            r#"tool "-I$pkg_dir/include" "/I$pkg_dir/include" --mapping="$pkg_dir/include,public" "$pkg_dir-suffix" $unknown"#,
+            Path::new("module"),
+            Path::new("module/pkg"),
+            &[],
+            &[],
+        );
+        expect_test::expect![[r#"tool "-Imodule/pkg/include" "/Imodule/pkg/include" --mapping="module/pkg/include,public" "module/pkg-suffix" $unknown"#]]
+            .assert_eq(&command);
+    }
+
+    #[test]
+    fn resolve_prebuild_command_replaces_all_placeholders_and_preserves_unknown_ones() {
+        let command = resolve_prebuild_command(
+            "tool $mod_dir $pkg_dir $input $output $unknown",
+            Path::new("module"),
+            Path::new("package"),
+            &["input-a".to_owned(), "input-b".to_owned()],
+            &["output".to_owned()],
+        );
+
+        assert_eq!(
+            command,
+            "tool module package input-a input-b output $unknown"
+        );
     }
 
     #[test]
     fn resolve_prebuild_rule_command_uses_module_rule() {
         let module = test_module(vec![
-            moonutil::module::MoonModRule {
+            moonutil::manifest::MoonModRule {
                 name: "rule1".to_string(),
                 command: "exe1".to_string(),
             },
-            moonutil::module::MoonModRule {
+            moonutil::manifest::MoonModRule {
                 name: "rule2".to_string(),
                 command: "exe2".to_string(),
             },
@@ -1696,11 +2315,11 @@ mod tests {
 
     #[test]
     fn resolve_prebuild_rule_command_uses_package_local_rule() {
-        let module = test_module(vec![moonutil::module::MoonModRule {
+        let module = test_module(vec![moonutil::manifest::MoonModRule {
             name: "module_rule".to_string(),
             command: "module_exe".to_string(),
         }]);
-        let local_rules = vec![moonutil::module::MoonModRule {
+        let local_rules = vec![moonutil::manifest::MoonModRule {
             name: "local_rule".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -1719,11 +2338,11 @@ mod tests {
 
     #[test]
     fn resolve_prebuild_rule_command_prefers_package_local_rule() {
-        let module = test_module(vec![moonutil::module::MoonModRule {
+        let module = test_module(vec![moonutil::manifest::MoonModRule {
             name: "rule1".to_string(),
             command: "module_exe".to_string(),
         }]);
-        let local_rules = vec![moonutil::module::MoonModRule {
+        let local_rules = vec![moonutil::manifest::MoonModRule {
             name: "rule1".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -1742,7 +2361,7 @@ mod tests {
 
     #[test]
     fn resolve_prebuild_rule_command_rejects_unknown_rule() {
-        let module = test_module(vec![moonutil::module::MoonModRule {
+        let module = test_module(vec![moonutil::manifest::MoonModRule {
             name: "rule1".to_string(),
             command: "exe1".to_string(),
         }]);

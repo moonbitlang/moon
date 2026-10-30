@@ -1,0 +1,2 @@
+#!/bin/sh
+printf 'fake-moon-ide-location=subdir\n'

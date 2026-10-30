@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -21,7 +21,8 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::common::TargetBackend;
+use moonutil::package::PackageKind;
+use moonutil::target::TargetBackend;
 
 use crate::build_lower::compiler::{
     CompiledPackageName, ErrorFormat, MOONC_DENY_WARNING_SET, MOONC_SUPPRESS_WARNING_SET,
@@ -81,14 +82,17 @@ impl<'a> BuildCommonInput<'a> {
     /// Add MBT source files as arguments
     pub(crate) fn add_mbt_sources(&self, args: &mut Vec<String>) {
         for mbt_file in self.mbt_sources {
-            args.push(mbt_file.display().to_string());
+            args.push(dunce::simplified(mbt_file).display().to_string());
         }
     }
 
     /// Add doctest-only MBT sources as -doctest-only pairs
     pub(crate) fn add_doctest_only_sources(&self, args: &mut Vec<String>) {
         for src in self.doctest_only_sources {
-            args.extend(["-doctest-only".to_string(), src.display().to_string()]);
+            args.extend([
+                "-doctest-only".to_string(),
+                dunce::simplified(src).display().to_string(),
+            ]);
         }
     }
 
@@ -108,7 +112,11 @@ impl<'a> BuildCommonInput<'a> {
     pub(crate) fn add_package_sources(&self, args: &mut Vec<String>) {
         args.extend([
             "-pkg-sources".to_string(),
-            format!("{}:{}", self.package_name, self.package_source.display()),
+            format!(
+                "{}:{}",
+                self.package_name,
+                dunce::simplified(&self.package_source).display()
+            ),
         ]);
     }
 
@@ -158,7 +166,9 @@ impl<'a> BuildCommonInput<'a> {
     pub(crate) fn add_all_pkgs_json(&self, args: &mut Vec<String>) {
         args.extend([
             "-all-pkgs".to_string(),
-            self.all_pkgs_json_path.display().to_string(),
+            dunce::simplified(&self.all_pkgs_json_path)
+                .display()
+                .to_string(),
         ]);
     }
 }
@@ -176,11 +186,9 @@ pub(crate) struct BuildCommonConfig<'a> {
     // Input files
 
     // Package configuration
-    pub is_main: bool,
+    pub pkgtype: PackageKind,
+    pub use_async_io: bool,
 
-    // Standard library
-    /// Pass [None] for no_std
-    pub stdlib_core_file: Option<Cow<'a, Path>>,
     /// Module directory (parent of moon.mod.json)
     pub workspace_root: Option<Cow<'a, Path>>,
 
@@ -205,8 +213,8 @@ impl<'a> Default for BuildCommonConfig<'a> {
             error_format: ErrorFormat::Regular,
             deny_warn: false,
             warn_config: WarnAlertConfig::Default,
-            is_main: false,
-            stdlib_core_file: None,
+            pkgtype: PackageKind::Library,
+            use_async_io: false,
             workspace_root: None,
             check_mi: None,
             virtual_implementation: None,
@@ -225,47 +233,44 @@ impl<'a> BuildCommonConfig<'a> {
         }
     }
 
-    /// Add custom warning list arguments
-    pub(crate) fn add_custom_warn_list(&self, args: &mut Vec<String>) {
-        if let WarnAlertConfig::List(warn_list) = &self.warn_config
-            && !warn_list.is_empty()
-        {
-            args.extend(["-w".to_string(), warn_list.to_string()]);
+    /// Add the warning selection expression, with deny promotion appended last
+    /// when `--deny-warn` is enabled.
+    pub(crate) fn add_warning_options(&self, args: &mut Vec<String>) {
+        let mut warn_list = match &self.warn_config {
+            WarnAlertConfig::Default => String::new(),
+            WarnAlertConfig::List(warn_list) => warn_list.to_string(),
+            WarnAlertConfig::Suppress => MOONC_SUPPRESS_WARNING_SET.to_string(),
+        };
+        if self.deny_warn {
+            // `moonc -w` parses the list left-to-right. `@a` promotes active
+            // warnings to errors, so it must come after opt-ins like `+missing_doc`.
+            warn_list.push_str(MOONC_DENY_WARNING_SET);
+        }
+        if !warn_list.is_empty() {
+            args.extend(["-w".to_string(), warn_list]);
         }
     }
 
-    /// Add is-main flag if applicable
-    pub(crate) fn add_is_main(&self, args: &mut Vec<String>) {
-        if self.is_main {
-            args.push("-is-main".to_string());
-        }
+    /// Add the package-kind flag: `-pkg-type {library|executable|foreign_library}`.
+    pub(crate) fn add_pkgtype(&self, args: &mut Vec<String>) {
+        args.push("-pkg-type".to_string());
+        args.push(self.pkgtype.as_str().to_string());
     }
 
-    /// Add standard library path arguments
-    pub(crate) fn add_stdlib_path(&self, args: &mut Vec<String>) {
-        if let Some(stdlib_path) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
+    /// Enable the compiler's asynchronous I/O mode for this package.
+    pub(crate) fn add_use_async_io(&self, args: &mut Vec<String>) {
+        if self.use_async_io {
+            args.push("-use-async-io".to_string());
         }
     }
 
     /// Add virtual package check arguments
     pub(crate) fn add_virtual_package_check(&self, args: &mut Vec<String>) {
         if let Some(check_mi_path) = &self.check_mi {
-            args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
-        }
-    }
-
-    /// Add warning/alert deny all arguments (combined)
-    pub(crate) fn add_deny_all(&self, args: &mut Vec<String>) {
-        if self.deny_warn {
-            args.extend(["-w".to_string(), MOONC_DENY_WARNING_SET.to_string()]);
-        }
-    }
-
-    /// Add warning/alert allow all arguments
-    pub(crate) fn add_warn_alert_allow_all(&self, args: &mut Vec<String>) {
-        if matches!(self.warn_config, WarnAlertConfig::Suppress) {
-            args.extend(["-w".to_string(), MOONC_SUPPRESS_WARNING_SET.into()]);
+            args.extend([
+                "-check-mi".to_string(),
+                dunce::simplified(check_mi_path).display().to_string(),
+            ]);
         }
     }
 
@@ -274,12 +279,14 @@ impl<'a> BuildCommonConfig<'a> {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
-                impl_virtual.mi_path.display().to_string(),
+                dunce::simplified(&impl_virtual.mi_path)
+                    .display()
+                    .to_string(),
                 "-pkg-sources".to_string(),
                 format!(
                     "{}:{}",
                     impl_virtual.package_name,
-                    impl_virtual.package_path.display()
+                    dunce::simplified(&impl_virtual.package_path).display()
                 ),
             ]);
         }
@@ -293,13 +300,15 @@ impl<'a> BuildCommonConfig<'a> {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
-                impl_virtual.mi_path.display().to_string(),
+                dunce::simplified(&impl_virtual.mi_path)
+                    .display()
+                    .to_string(),
                 "-impl-virtual".to_string(),
                 "-pkg-sources".to_string(),
                 format!(
                     "{}:{}",
                     impl_virtual.package_name,
-                    impl_virtual.package_path.display()
+                    dunce::simplified(&impl_virtual.package_path).display()
                 ),
             ]);
         }
@@ -311,14 +320,20 @@ impl<'a> BuildCommonConfig<'a> {
         // emit link-core must not include it. The specific builders decide whether
         // to add this flag; this common helper is only used by check/build-package.
         if let Some(ws) = &self.workspace_root {
-            args.extend(["-workspace-path".to_string(), ws.display().to_string()]);
+            args.extend([
+                "-workspace-path".to_string(),
+                dunce::simplified(ws).display().to_string(),
+            ]);
         }
     }
 
     /// Emit -patch-file
     pub(crate) fn add_patch_file_moonc(&self, args: &mut Vec<String>) {
         if let Some(patch) = &self.patch_file {
-            args.extend(["-patch-file".to_string(), patch.display().to_string()]);
+            args.extend([
+                "-patch-file".to_string(),
+                dunce::simplified(patch).display().to_string(),
+            ]);
         }
     }
 

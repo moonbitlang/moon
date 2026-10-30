@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,10 +20,12 @@ use anyhow::bail;
 use std::fmt::Debug;
 use std::{
     fmt::Formatter,
+    fs,
+    io::ErrorKind,
     path::{Component, Path, PathBuf},
 };
 
-use crate::common::SUB_PKG_POSTFIX;
+use crate::constants::SUB_PKG_POSTFIX;
 
 #[derive(Clone, Hash)]
 pub struct PathComponent {
@@ -251,4 +253,123 @@ fn test_internal() {
         components: vec!["a".to_string(), "b".to_string(), "internal".to_string()],
     };
     assert!(!x.can_import(&y));
+}
+
+// Copy from https://github.com/rust-lang/cargo/blob/e52e360/crates/cargo-test-support/src/paths.rs#L113
+pub trait CargoPathExt {
+    fn rm_rf(&self);
+}
+
+impl CargoPathExt for Path {
+    fn rm_rf(&self) {
+        let meta = match self.symlink_metadata() {
+            Ok(meta) => meta,
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    return;
+                }
+                panic!("failed to remove {self:?}, could not read: {e:?}");
+            }
+        };
+        // There is a race condition between fetching the metadata and
+        // actually performing the removal, but we don't care all that much
+        // for our tests.
+        if meta.is_dir() {
+            if let Err(e) = fs::remove_dir_all(self) {
+                panic!("failed to remove {self:?}: {e:?}")
+            }
+        } else if let Err(e) = fs::remove_file(self) {
+            panic!("failed to remove {self:?}: {e:?}")
+        }
+    }
+}
+
+pub fn get_desc_name(package_name: &str, artifact: &str) -> String {
+    if artifact.contains("internal_test") {
+        format!("{}_{}", package_name, "internal_test")
+    } else if artifact.contains("whitebox_test") {
+        format!("{}_{}", package_name, "whitebox_test")
+    } else {
+        package_name.to_string()
+    }
+}
+
+/// Compare containment without treating ordinary and verbatim Windows drive/UNC
+/// prefixes as different roots. This does not change paths used for I/O, resolve
+/// dot components, or require paths (such as removed watch events) to exist.
+pub fn starts_with_equivalent_prefix(path: &Path, base: &Path) -> bool {
+    strip_equivalent_prefix(path, base).is_some()
+}
+
+/// Strip a path prefix while accepting ordinary and verbatim Windows drive/UNC
+/// spellings at an external-input or display boundary. Internal paths should
+/// still be constructed consistently before comparison. Like `strip_prefix`,
+/// this matches complete components without resolving symlinks or dot segments.
+pub fn strip_equivalent_prefix<'a>(path: &'a Path, base: &Path) -> Option<&'a Path> {
+    use std::path::{Component, Prefix};
+
+    let mut components = path.components();
+    base.components()
+        .all(|base| match (components.next(), base) {
+            (Some(Component::Prefix(path)), Component::Prefix(base)) => {
+                match (path.kind(), base.kind()) {
+                    (
+                        Prefix::Disk(path) | Prefix::VerbatimDisk(path),
+                        Prefix::Disk(base) | Prefix::VerbatimDisk(base),
+                    ) => path == base,
+                    (
+                        Prefix::UNC(path_server, path_share)
+                        | Prefix::VerbatimUNC(path_server, path_share),
+                        Prefix::UNC(base_server, base_share)
+                        | Prefix::VerbatimUNC(base_server, base_share),
+                    ) => path_server == base_server && path_share == base_share,
+                    (path, base) => path == base,
+                }
+            }
+            (Some(path), base) => path == base,
+            (None, _) => false,
+        })
+        .then_some(components.as_path())
+}
+
+#[cfg(windows)]
+#[test]
+fn strip_equivalent_prefix_preserves_long_suffixes_and_component_boundaries() {
+    let suffix = format!("{}moonc.exe", r"segment\".repeat(40));
+    for (ordinary, verbatim) in [
+        (r"C:\Users\test", r"\\?\C:\Users\test"),
+        (r"\\server\share\test", r"\\?\UNC\server\share\test"),
+    ] {
+        for root in [ordinary, verbatim] {
+            let path = Path::new(root).join(&suffix);
+            for base in [ordinary, verbatim] {
+                assert_eq!(
+                    strip_equivalent_prefix(&path, Path::new(base)),
+                    Some(Path::new(&suffix))
+                );
+                assert_eq!(
+                    strip_equivalent_prefix(Path::new(root), Path::new(base)),
+                    Some(Path::new(""))
+                );
+                assert_eq!(
+                    strip_equivalent_prefix(Path::new(&format!("{root}-other")), Path::new(base)),
+                    None
+                );
+            }
+        }
+    }
+    assert_eq!(
+        strip_equivalent_prefix(
+            Path::new(r"\\?\D:\Users\test\moonc.exe"),
+            Path::new(r"C:\Users\test")
+        ),
+        None
+    );
+    assert_eq!(
+        strip_equivalent_prefix(
+            Path::new(r"\\?\UNC\server\other\test\moonc.exe"),
+            Path::new(r"\\server\share\test")
+        ),
+        None
+    );
 }

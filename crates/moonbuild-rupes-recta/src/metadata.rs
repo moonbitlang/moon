@@ -1,41 +1,43 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Legacy metadata JSON (`package.json`) conversion for IDE & tools usage.
+//! Legacy metadata JSON (`packages.json`) conversion for IDE and tools usage.
+//!
+//! TODO: Once consumers have migrated to the universal selector, project this
+//! document to its scoped backend/profile and remove redundant legacy fields.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use moonutil::{
-    common::{RunMode, TargetBackend},
     cond_expr::{CompileCondition, OptLevel},
-    module::ModuleDBJSON,
-    moon_dir::core,
+    manifest::ModuleDBJSON,
     package::{AliasJSON, PackageJSON},
+    target::TargetBackend,
 };
 
 use crate::{
-    ResolveOutput,
-    build_lower::artifact::{LegacyLayout, LegacyLayoutBuilder},
+    ResolvedProject,
     cond_comp::file_metadatas,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
+    target_layout::ArtifactPathResolver,
 };
 
 /// `moonc check` command arguments keyed by their generated `.mi` output path.
@@ -44,23 +46,21 @@ use crate::{
 /// of the active host/toolchain layout.
 pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 
-/// Generate `package.json`, which is a metadata file shared by IDE plugins and
+/// Generate the full legacy `packages.json` document shared by IDE plugins and
 /// other tools.
 pub fn gen_metadata_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
     source_dir: &Path,
-    target_dir: &Path,
+    artifact_paths: &ArtifactPathResolver,
     opt_level: OptLevel,
     backend: TargetBackend,
-    mode: RunMode,
     check_commands: &CheckCommandMap,
 ) -> ModuleDBJSON {
-    let (main_module, name, deps, source) = match ctx.local_modules() {
+    let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
-            let main_module = ctx.module_rel.module_source(main_module_id);
-            let main_module_json = ctx.module_rel.module_info(main_module_id);
+            let main_module = ctx.module_graph.module_source(main_module_id);
+            let main_module_json = ctx.module_info(main_module_id);
             (
-                Some(main_module.clone()),
                 main_module.name().to_string(),
                 main_module_json.deps.keys().cloned().collect(),
                 main_module_json.source.clone(),
@@ -73,27 +73,18 @@ pub fn gen_metadata_json(
             let deps = ctx
                 .local_modules()
                 .iter()
-                .flat_map(|&module_id| ctx.module_rel.module_info(module_id).deps.keys().cloned())
+                .flat_map(|&module_id| ctx.module_info(module_id).deps.keys().cloned())
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            (None, "workspace".to_string(), deps, None)
+            ("workspace".to_string(), deps, None)
         }
     };
-
-    let layout = LegacyLayoutBuilder::default()
-        .main_module(main_module)
-        .opt_level(opt_level)
-        .stdlib_dir(Some(core()))
-        .run_mode(mode)
-        .target_base_dir(target_dir.to_owned())
-        .build()
-        .expect("Failed to build legacy layout");
 
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages(true)
-        .map(|(id, _)| gen_package_json(ctx, &layout, id, backend, check_commands))
+        .map(|(id, _)| gen_package_json(ctx, artifact_paths, id, backend, check_commands))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
@@ -109,8 +100,8 @@ pub fn gen_metadata_json(
 }
 
 fn gen_package_json(
-    ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    ctx: &ResolvedProject,
+    artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
@@ -122,18 +113,36 @@ fn gen_package_json(
     let mut files = IndexMap::new();
     let mut wbtest_files = IndexMap::new();
     let mut test_files = IndexMap::new();
-    for (path, test_kind, cond) in
-        file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
-    {
-        match test_kind {
-            crate::cond_comp::FileTestKind::NoTest => files.insert(path.to_owned(), cond),
-            crate::cond_comp::FileTestKind::Whitebox => wbtest_files.insert(path.to_owned(), cond),
-            crate::cond_comp::FileTestKind::Blackbox => test_files.insert(path.to_owned(), cond),
-        };
+    if pkg.is_mbtx_single_file() {
+        for path in &pkg.source_files {
+            files.insert(
+                dunce::simplified(path).to_owned(),
+                CompileCondition {
+                    backend: TargetBackend::all().to_vec(),
+                    optlevel: OptLevel::all().to_vec(),
+                },
+            );
+        }
+    } else {
+        for (path, test_kind, cond) in
+            file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
+        {
+            match test_kind {
+                crate::cond_comp::FileTestKind::NoTest => {
+                    files.insert(dunce::simplified(path).to_owned(), cond)
+                }
+                crate::cond_comp::FileTestKind::Whitebox => {
+                    wbtest_files.insert(dunce::simplified(path).to_owned(), cond)
+                }
+                crate::cond_comp::FileTestKind::Blackbox => {
+                    test_files.insert(dunce::simplified(path).to_owned(), cond)
+                }
+            };
+        }
     }
     for path in &pkg.mbtp_files {
         files.insert(
-            path.to_owned(),
+            dunce::simplified(path).to_owned(),
             CompileCondition {
                 backend: TargetBackend::all().to_vec(),
                 optlevel: OptLevel::all().to_vec(),
@@ -143,10 +152,9 @@ fn gen_package_json(
     let mbt_md_files = pkg
         .mbt_md_files
         .iter()
-        .cloned()
         .map(|x| {
             (
-                x,
+                dunce::simplified(x).to_owned(),
                 CompileCondition {
                     backend: TargetBackend::all().to_vec(),
                     optlevel: OptLevel::all().to_vec(),
@@ -156,8 +164,7 @@ fn gen_package_json(
         .collect();
 
     // Dependencies collection
-    let mut deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+    let mut deps: Vec<AliasJSON> = ctx.package_relations[&backend]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
         .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
@@ -165,8 +172,7 @@ fn gen_package_json(
         .collect();
     deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
-    let mut wbtest_deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+    let mut wbtest_deps: Vec<AliasJSON> = ctx.package_relations[&backend]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::WhiteboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::WhiteboxTest)
@@ -174,8 +180,7 @@ fn gen_package_json(
         .collect();
     wbtest_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
-    let mut test_deps: Vec<AliasJSON> = ctx
-        .pkg_rel
+    let mut test_deps: Vec<AliasJSON> = ctx.package_relations[&backend]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
@@ -186,20 +191,20 @@ fn gen_package_json(
 
     let source_artifact = metadata_mi_path(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::Source),
         backend,
     );
     let wbtest_check_command = metadata_check_command(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::WhiteboxTest),
         backend,
         check_commands,
     );
     let test_check_command = metadata_check_command(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::BlackboxTest),
         backend,
         check_commands,
@@ -208,7 +213,9 @@ fn gen_package_json(
     PackageJSON {
         is_main: pkg.raw.is_main,
         is_third_party: !is_in_workspace,
-        root_path: pkg.root_path.to_string_lossy().into_owned(),
+        root_path: dunce::simplified(&pkg.root_path)
+            .to_string_lossy()
+            .into_owned(),
         root: pkg.fqn.module().name().to_string(),
         rel: pkg.fqn.package().to_string(),
         files,
@@ -218,7 +225,11 @@ fn gen_package_json(
         deps,
         wbtest_deps,
         test_deps,
-        artifact: source_artifact.to_string_lossy().into_owned(),
+        // moondoc consumes this complete file path and needs ordinary spelling
+        // where possible; graph lookup still uses the original artifact path.
+        artifact: dunce::simplified(&source_artifact)
+            .to_string_lossy()
+            .into_owned(),
         check_command: check_commands.get(&source_artifact).cloned(),
         wbtest_check_command,
         test_check_command,
@@ -232,48 +243,48 @@ fn gen_package_json(
 /// write their source artifact to `*.impl.mi`, so metadata must point to that
 /// file instead of the regular `*.mi` path.
 pub(crate) fn metadata_source_mi_path(
-    ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    ctx: &ResolvedProject,
+    artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
 ) -> std::path::PathBuf {
     metadata_mi_path(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::Source),
         backend,
     )
 }
 
 fn metadata_mi_path(
-    ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    ctx: &ResolvedProject,
+    artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
 ) -> PathBuf {
-    if target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package) {
-        layout
-            .mi_of_build_target_impl_virtual(&ctx.pkg_dirs, &target, backend)
-            .into_path()
-    } else {
-        layout.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
-    }
+    let is_implementing_virtual = target.kind == TargetKind::Source
+        && ctx.package_relations[&backend]
+            .virt_impl
+            .contains_key(target.package);
+    artifact_paths
+        .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
+        .into_path()
 }
 
 fn metadata_check_command(
-    ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    ctx: &ResolvedProject,
+    artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
 ) -> Option<Vec<String>> {
-    let artifact = metadata_check_mi_path(ctx, layout, target, backend)?;
+    let artifact = metadata_check_mi_path(ctx, artifact_paths, target, backend)?;
     check_commands.get(&artifact).cloned()
 }
 
 fn metadata_check_mi_path(
-    ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    ctx: &ResolvedProject,
+    artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
 ) -> Option<PathBuf> {
@@ -282,19 +293,16 @@ fn metadata_check_mi_path(
     if target.kind != TargetKind::Source && ctx.pkg_dirs.abort_pkg() == Some(target.package) {
         return None;
     }
-    Some(metadata_mi_path(ctx, layout, target, backend))
+    Some(metadata_mi_path(ctx, artifact_paths, target, backend))
 }
 
 fn edge_to_alias_json(
-    ctx: &ResolveOutput,
+    ctx: &ResolvedProject,
 ) -> impl FnMut((BuildTarget, BuildTarget, &DepEdge)) -> AliasJSON + '_ {
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),
         alias: edge.short_alias.to_string(),
-        fspath: ctx
-            .pkg_dirs
-            .get_package(dep.package)
-            .root_path
+        fspath: dunce::simplified(&ctx.pkg_dirs.get_package(dep.package).root_path)
             .to_string_lossy()
             .into_owned(),
     }

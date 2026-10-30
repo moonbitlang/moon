@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-06-03.
+// Snapshot generated from `moonc check -warn-help` on 2026-10-22.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -212,13 +212,13 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 35,
     },
     WarningEntry {
-        mnemonic: "loop_label_shadowing",
-        description: "Loop label shadows another label.",
+        mnemonic: "block_label_shadowing",
+        description: "Block label shadows another label.",
         id: 36,
     },
     WarningEntry {
-        mnemonic: "unused_loop_label",
-        description: "Unused loop label.",
+        mnemonic: "unused_block_label",
+        description: "Unused block label.",
         id: 37,
     },
     WarningEntry {
@@ -392,19 +392,99 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 75,
     },
     WarningEntry {
-        mnemonic: "lexmatch_first_match",
-        description: "Using `lexmatch` with first-match semantics.",
-        id: 76,
-    },
-    WarningEntry {
-        mnemonic: "lexmatch_longest_match",
-        description: "Using `lexmatch` with longest-match semantics.",
-        id: 77,
-    },
-    WarningEntry {
         mnemonic: "result_error_return",
         description: "Using `Result[T, E]` where `E` is an error type.",
         id: 78,
+    },
+    WarningEntry {
+        mnemonic: "implicit_impl_as_method",
+        description: "`impl` implicitly promoted as method",
+        id: 79,
+    },
+    WarningEntry {
+        mnemonic: "regex_match_missing_before",
+        description: "Missing `before` binding in `regex match`.",
+        id: 80,
+    },
+    WarningEntry {
+        mnemonic: "regex_match_missing_after",
+        description: "Missing `after` binding in `regex match`.",
+        id: 81,
+    },
+    WarningEntry {
+        mnemonic: "ambiguous_braces",
+        description: "Ambiguous `{}` braces.",
+        id: 82,
+    },
+    WarningEntry {
+        mnemonic: "type_param_method",
+        description: "Calling method of type parameter in a deprecated way.",
+        id: 83,
+    },
+    WarningEntry {
+        mnemonic: "unqualified_record",
+        description: "Struct literal in a `let` binding without a type prefix.",
+        id: 84,
+    },
+    WarningEntry {
+        mnemonic: "unlabelled_break_in_labelled_loop",
+        description: "Unlabelled `break` directly inside a labelled loop.",
+        id: 85,
+    },
+    WarningEntry {
+        mnemonic: "unlabelled_continue_in_labelled_loop",
+        description: "Unlabelled `continue` directly inside a labelled loop.",
+        id: 86,
+    },
+    WarningEntry {
+        mnemonic: "guard_inexhaustive",
+        description: "`guard` condition is not exhaustive and may panic.",
+        id: 87,
+    },
+    WarningEntry {
+        mnemonic: "guard_redundant_bang",
+        description: "Redundant `!` on an exhaustive `guard`.",
+        id: 88,
+    },
+    WarningEntry {
+        mnemonic: "guard_redundant_else",
+        description: "Redundant `else` on an exhaustive `guard`.",
+        id: 89,
+    },
+    WarningEntry {
+        mnemonic: "unused_lexcase",
+        description: "`lexmatch`/`lexscan` branch that can never be selected because other branches takes precedence or its pattern matches nothing.",
+        id: 90,
+    },
+    WarningEntry {
+        mnemonic: "unused_errdefer",
+        description: "unused `errdefer` statement",
+        id: 91,
+    },
+    WarningEntry {
+        mnemonic: "fragile_catch_all",
+        description: "fragile `catch` handler that can be converted to `defer` or `errdefer`",
+        id: 92,
+    },
+    WarningEntry {
+        mnemonic: "unknown_constr_pat_on_exhaustive_type",
+        description: "using `TypeName::..` pattern on a type not marked with `#non_exhaustive`",
+        id: 93,
+    },
+    WarningEntry {
+        mnemonic: "unknown_intrinsic",
+        description: "`#intrinsic` attribute names an unknown intrinsic.",
+        id: 94,
+    },
+    WarningEntry {
+        mnemonic: "nan_pattern",
+        description: "Pattern on a NaN constant, which never matches.",
+        id: 95,
+    },
+    WarningEntry {
+        mnemonic: "unfenced_import",
+        description: "Deprecated import declarations outside frontmatter.",
+        id: 96,
     },
 ];
 
@@ -430,7 +510,7 @@ mod tests {
 
     use anyhow::{Context, bail};
     use expect_test::expect_file;
-    use moonutil::BINARIES;
+    use moonutil::toolchain::BINARIES;
 
     use super::{WARNING_ENTRIES, get_warning_entries_by_mnemonic, get_warning_entry};
 
@@ -450,11 +530,10 @@ mod tests {
         let description_start = header
             .find("description")
             .context("missing description column in `moonc check -warn-help`")?;
-        let id_start = header
+        header
             .find(" id ")
-            .map(|index| index + 1)
             .context("missing id column in `moonc check -warn-help`")?;
-        let state_start = header
+        header
             .find("state")
             .context("missing state column in `moonc check -warn-help`")?;
 
@@ -463,16 +542,24 @@ mod tests {
             .skip_while(|line| !line.starts_with("mnemonic"))
             .skip(1)
             .filter_map(|line| {
-                let id = line
-                    .get(id_start..state_start)
-                    .unwrap_or("")
-                    .trim()
-                    .parse::<u16>()
-                    .ok()?;
+                // Long mnemonics overflow their nominal column and shift the
+                // remaining fields, so parse the id and state from the right.
+                let (before_state, _) = line.trim_end().rsplit_once(' ')?;
+                let (entry, id) = before_state.trim_end().rsplit_once(' ')?;
+                let id = id.parse::<u16>().ok()?;
+                let entry = entry.trim_end();
+                let mnemonic_column = entry.get(..description_start)?;
+                let (mnemonic, description) = if mnemonic_column.ends_with(char::is_whitespace) {
+                    (mnemonic_column, entry.get(description_start..)?)
+                } else {
+                    let mnemonic_end = description_start
+                        + entry.get(description_start..)?.find(char::is_whitespace)?;
+                    (entry.get(..mnemonic_end)?, entry.get(mnemonic_end..)?)
+                };
                 Some(format!(
                     "{id:04}\t{}\t{}",
-                    line.get(..description_start).unwrap_or("").trim_end(),
-                    line.get(description_start..id_start).unwrap_or("").trim()
+                    mnemonic.trim_end(),
+                    description.trim()
                 ))
             })
             .collect::<Vec<_>>();

@@ -1,0 +1,4 @@
+import {
+  "username/indirect_dep/lib2",
+  "username/sub",
+}

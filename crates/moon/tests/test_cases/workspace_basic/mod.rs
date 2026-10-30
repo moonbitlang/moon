@@ -1,5 +1,5 @@
 use super::*;
-use moonutil::common::{MBTI_GENERATED, MOON_NO_WORKSPACE, MOON_WORK_ENV};
+use moonutil::constants::{MBTI_GENERATED, MOON_NO_WORKSPACE, MOON_WORK_ENV};
 use std::path::Path;
 
 fn assert_requires_target_module(stderr: &str, command: &str) {
@@ -37,6 +37,35 @@ fn write_file(path: &Path, content: &str) {
     std::fs::write(path, content).unwrap();
 }
 
+#[test]
+fn deprecated_packaging_config_reports_workspace_member_manifest() {
+    let dir = TestDir::new("workspace_basic.in");
+    write_file(
+        &dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+source = "src"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  include: ["src/**"],
+)"#,
+    );
+
+    let stderr = get_stderr(&dir, ["check"]);
+    let warning = "`include` in `$ROOT/app/moon.mod` is deprecated";
+    assert_eq!(
+        stderr.matches(warning).count(),
+        1,
+        "expected the warning to identify the workspace member manifest, got:\n{stderr}"
+    );
+}
+
 fn same_root_workspace_dir() -> TestDir {
     let dir = TestDir::new_empty();
 
@@ -46,30 +75,27 @@ fn same_root_workspace_dir() -> TestDir {
   ".",
   "./dep",
 ]
-preferred_target = "wasm-gc"
 "#,
     );
     write_file(
-        &dir.join("moon.mod.json"),
-        r#"{
-  "name": "alice/app",
-  "version": "0.1.0",
-  "source": "src",
-  "deps": {
-    "alice/liba": "0.1.0"
-  }
-}
-"#,
+        &dir.join("moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+source = "src"
+
+import {
+  "alice/liba@0.1.0",
+}"#,
     );
     write_file(
-        &dir.join("src/main/moon.pkg.json"),
-        r#"{
-  "is-main": true,
-  "import": [
-    "alice/liba/lib"
-  ]
+        &dir.join("src/main/moon.pkg"),
+        r#"import {
+  "alice/liba/lib",
 }
-"#,
+
+pkgtype(kind: "executable")"#,
     );
     write_file(
         &dir.join("src/main/main.mbt"),
@@ -79,15 +105,14 @@ preferred_target = "wasm-gc"
 "#,
     );
     write_file(
-        &dir.join("dep/moon.mod.json"),
-        r#"{
-  "name": "alice/liba",
-  "version": "0.1.1",
-  "source": "src"
-}
-"#,
+        &dir.join("dep/moon.mod"),
+        r#"name = "alice/liba"
+
+version = "0.1.1"
+
+source = "src""#,
     );
-    write_file(&dir.join("dep/src/lib/moon.pkg.json"), "{}\n");
+    write_file(&dir.join("dep/src/lib/moon.pkg"), "");
     write_file(
         &dir.join("dep/src/lib/lib.mbt"),
         r#"pub fn hello() -> String {
@@ -103,15 +128,14 @@ fn nested_workspace_under_unrelated_module_dir() -> TestDir {
     let dir = TestDir::new_empty();
 
     write_file(
-        &dir.join("outer/moon.mod.json"),
-        r#"{
-  "name": "alice/outer",
-  "version": "0.1.0",
-  "source": "src"
-}
-"#,
+        &dir.join("outer/moon.mod"),
+        r#"name = "alice/outer"
+
+version = "0.1.0"
+
+source = "src""#,
     );
-    write_file(&dir.join("outer/src/outer/moon.pkg.json"), "{}\n");
+    write_file(&dir.join("outer/src/outer/moon.pkg"), "");
     write_file(
         &dir.join("outer/src/outer/outer.mbt"),
         r#"pub fn outer() -> Int {
@@ -125,23 +149,20 @@ fn nested_workspace_under_unrelated_module_dir() -> TestDir {
         r#"members = [
   "./app",
 ]
-preferred_target = "wasm-gc"
 "#,
     );
     write_file(
-        &dir.join("outer/ws/app/moon.mod.json"),
-        r#"{
-  "name": "alice/app",
-  "version": "0.1.0",
-  "source": "src"
-}
-"#,
+        &dir.join("outer/ws/app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+source = "src""#,
     );
     write_file(
-        &dir.join("outer/ws/app/src/main/moon.pkg.json"),
-        r#"{
-  "is-main": true
-}
+        &dir.join("outer/ws/app/src/main/moon.pkg"),
+        r#"
+pkgtype(kind: "executable")
 "#,
     );
     write_file(
@@ -157,15 +178,14 @@ preferred_target = "wasm-gc"
 
 fn add_unlisted_nested_workspace_module(dir: &TestDir) {
     write_file(
-        &dir.join("outer/ws/tools/moon.mod.json"),
-        r#"{
-  "name": "alice/tools",
-  "version": "0.1.0",
-  "source": "src"
-}
-"#,
+        &dir.join("outer/ws/tools/moon.mod"),
+        r#"name = "alice/tools"
+
+version = "0.1.0"
+
+source = "src""#,
     );
-    write_file(&dir.join("outer/ws/tools/src/tool/moon.pkg.json"), "{}\n");
+    write_file(&dir.join("outer/ws/tools/src/tool/moon.pkg"), "");
     write_file(
         &dir.join("outer/ws/tools/src/tool/tool.mbt"),
         r#"pub fn tool() -> Int {
@@ -186,86 +206,62 @@ fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
 
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
-            moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core -pkg alice/liba/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/app/main/main.core -pkg alice/app/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core ./_build/wasm-gc/debug/build/alice/app/main/main.core -main alice/app/main -o ./_build/wasm-gc/debug/build/alice/app/main/main.wasm -pkg-config-path ./app/src/main/moon.pkg.json -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core -pkg alice/liba/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/app/main/main.core -pkg alice/app/main -pkg-type executable -i ./_build/wasm-gc/debug/build/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core ./_build/wasm-gc/debug/build/alice/app/main/main.core -main alice/app/main -o ./_build/wasm-gc/debug/build/alice/app/main/main.wasm -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
         "#]],
     );
 
     check(
-        get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
-            moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core -pkg alice/liba/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__internal_test_info.json ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --driver-kind internal
-            moonc build-package ./app/src/main/main.mbt ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -pkg alice/app/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -main alice/app/main -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg.json -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
-            moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.core -pkg alice/app/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__blackbox_test_info.json ./app/src/main/main_test.mbt --doctest-only ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --driver-kind blackbox
-            moonc build-package ./app/src/main/main_test.mbt ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -pkg alice/app/main_blackbox_test -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i ./_build/wasm-gc/debug/test/alice/app/main/main.mi:main -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main_blackbox_test:./app/src/main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.core ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -main alice/app/main_blackbox_test -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg.json -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources alice/app/main_blackbox_test:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/liba/lib/__internal_test_info.json ./liba/src/lib/lib.mbt --target wasm-gc --pkg-name alice/liba/lib --driver-kind internal
-            moonc build-package ./liba/src/lib/lib.mbt ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_internal_test.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -pkg alice/liba/lib -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -main alice/liba/lib -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg.json -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
-            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/liba/lib/__blackbox_test_info.json ./liba/src/lib/lib_test.mbt --doctest-only ./liba/src/lib/lib.mbt --target wasm-gc --pkg-name alice/liba/lib --driver-kind blackbox
-            moonc build-package ./liba/src/lib/lib_test.mbt ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_blackbox_test.mbt -doctest-only ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -pkg alice/liba/lib_blackbox_test -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -main alice/liba/lib_blackbox_test -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg.json -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core -pkg alice/liba/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__internal_test_info.json ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --async-runtime-package moonbitlang/core/async --driver-kind internal
+            moonc build-package ./app/src/main/main.mbt ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -pkg alice/app/main -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -main alice/app/main -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.core -pkg alice/app/main -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__blackbox_test_info.json ./app/src/main/main_test.mbt --doctest-only ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --async-runtime-package moonbitlang/core/async --driver-kind blackbox
+            moonc build-package ./app/src/main/main_test.mbt ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -pkg alice/app/main_blackbox_test -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i ./_build/wasm-gc/debug/test/alice/app/main/main.mi:main -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main_blackbox_test:./app/src/main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.core ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -main alice/app/main_blackbox_test -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources alice/app/main_blackbox_test:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/liba/lib/__internal_test_info.json ./liba/src/lib/lib.mbt --target wasm-gc --pkg-name alice/liba/lib --async-runtime-package moonbitlang/core/async --driver-kind internal
+            moonc build-package ./liba/src/lib/lib.mbt ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_internal_test.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -pkg alice/liba/lib -pkg-type executable -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -main alice/liba/lib -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/liba/lib/__blackbox_test_info.json ./liba/src/lib/lib_test.mbt --doctest-only ./liba/src/lib/lib.mbt --target wasm-gc --pkg-name alice/liba/lib --async-runtime-package moonbitlang/core/async --driver-kind blackbox
+            moonc build-package ./liba/src/lib/lib_test.mbt ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_blackbox_test.mbt -doctest-only ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -pkg alice/liba/lib_blackbox_test -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -main alice/liba/lib_blackbox_test -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
         "#]],
     );
 
-    if cfg!(windows) {
-        check(
-            get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
-            expect![[r#"
-                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
-                moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
-                cmd /c del ./liba/src/lib/moon.pkg.json
-                moonfmt ./app/src/main/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
-                cmd /c copy ./_build/wasm-gc/release/format/alice/app/main/moon.pkg ./app/src/main/moon.pkg
-                cmd /c del ./app/src/main/moon.pkg.json
-                moonfmt ./liba/moon.mod.json -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/alice/liba/moon.mod ./liba/moon.mod
-                cmd /c del ./liba/moon.mod.json
-                moonfmt ./app/moon.mod.json -o ./_build/wasm-gc/release/format/alice/app/moon.mod
-                cmd /c copy ./_build/wasm-gc/release/format/alice/app/moon.mod ./app/moon.mod
-                cmd /c del ./app/moon.mod.json
-                moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
-                moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
-                moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
-                moonfmt ./liba/src/lib/lib.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib.mbt
-            "#]],
-        );
-    } else {
-        check(
-            get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
-            expect![[r#"
-                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
-                moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
-                cp ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
-                rm ./liba/src/lib/moon.pkg.json
-                moonfmt ./app/src/main/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
-                cp ./_build/wasm-gc/release/format/alice/app/main/moon.pkg ./app/src/main/moon.pkg
-                rm ./app/src/main/moon.pkg.json
-                moonfmt ./liba/moon.mod.json -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
-                cp ./_build/wasm-gc/release/format/alice/liba/moon.mod ./liba/moon.mod
-                rm ./liba/moon.mod.json
-                moonfmt ./app/moon.mod.json -o ./_build/wasm-gc/release/format/alice/app/moon.mod
-                cp ./_build/wasm-gc/release/format/alice/app/moon.mod ./app/moon.mod
-                rm ./app/moon.mod.json
-                moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
-                moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
-                moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
-                moonfmt ./liba/src/lib/lib.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib.mbt
-            "#]],
-        );
-    }
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
+            moonfmt ./liba/src/lib/moon.pkg -w -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
+            moonfmt ./app/src/main/moon.pkg -w -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
+            moonfmt ./liba/moon.mod -w -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
+            moonfmt ./app/moon.mod -w -o ./_build/wasm-gc/release/format/alice/app/moon.mod
+            moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
+            moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
+            moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
+            moonfmt ./liba/src/lib/lib.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib.mbt
+        "#]],
+    );
 
-    let stderr = get_stderr(&dir, ["check", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
     assert!(stderr.contains("Finished. moon: ran "));
 
-    check(get_stdout(&dir, ["info"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["info", "--target", "wasm-gc"]),
+        expect![[r#""#]],
+    );
 
     let lib_mi_out =
         std::fs::read_to_string(dir.join("liba/src/lib").join(MBTI_GENERATED)).unwrap();
@@ -283,7 +279,6 @@ fn test_workspace_commands() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(&lib_mi_out);
 
@@ -302,11 +297,11 @@ fn test_workspace_commands() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(&main_mi_out);
 
-    let metadata = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
+    let metadata =
+        std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap();
     let metadata = replace_dir(&metadata, &dir);
     let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
 
@@ -382,10 +377,85 @@ fn test_empty_workspace_fmt_formats_workspace_manifest() {
 }
 
 #[test]
+fn test_workspace_preferred_target_warns() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::write(
+        dir.join("moon.work"),
+        r#"members = [
+  "./app",
+  "./liba",
+]
+preferred_target = "wasm-gc"
+"#,
+    )
+    .unwrap();
+
+    check(
+        get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["-C", "app", "clean"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["work", "use", "app"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+
+    check(
+        get_stderr(&dir, ["--quiet", "build", "--dry-run"]),
+        expect![[r#""#]],
+    );
+}
+
+#[test]
+fn test_workspace_fmt_removes_deprecated_preferred_target() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    check(
+        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["fmt"])
+        .assert()
+        .success();
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
+        expect![[r#"
+            members = [
+              "./app",
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn test_workspace_fmt_places_moon_mod_under_module_name() {
     let dir = TestDir::new("workspace_basic.in");
-    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
-    std::fs::remove_file(dir.join("liba/moon.mod.json")).unwrap();
+    std::fs::remove_file(dir.join("app/moon.mod")).unwrap();
+    std::fs::remove_file(dir.join("liba/moon.mod")).unwrap();
     std::fs::write(
         dir.join("app/moon.mod"),
         r#"name = "alice/app"
@@ -564,24 +634,6 @@ fn test_workspace_member_path_selector_uses_workspace_context() {
         !fmt_stderr.contains("skipping path `../liba/src/lib`"),
         "stderr: {fmt_stderr}"
     );
-
-    let check_no_mi_stderr = get_err_stderr(
-        &dir,
-        [
-            "-C",
-            "app",
-            "check",
-            "src/main",
-            "../liba/src/lib",
-            "--no-mi",
-            "--dry-run",
-        ],
-    );
-    assert!(
-        check_no_mi_stderr
-            .contains("`--no-mi` requires the selector to resolve to a single package"),
-        "stderr: {check_no_mi_stderr}"
-    );
 }
 
 #[test]
@@ -604,7 +656,7 @@ fn test_work_init_creates_empty_workspace() {
 }
 
 #[test]
-fn test_work_use_updates_workspace_and_preserves_preferred_target() {
+fn test_work_use_updates_workspace_and_preserves_deprecated_preferred_target() {
     let dir = TestDir::new("workspace_basic.in");
 
     std::fs::write(
@@ -624,8 +676,17 @@ preferred_target = "wasm-gc"
         "#]],
     );
 
+    let moon_work = std::fs::read_to_string(dir.join("moon.work")).unwrap();
+    let preferred_target = moon_work
+        .lines()
+        .find(|line| line.starts_with("preferred_target"))
+        .unwrap_or("");
     check(
-        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
+        preferred_target,
+        expect![[r#"preferred_target = "wasm-gc""#]],
+    );
+    check(
+        moon_work,
         expect![[r#"
             members = [
               "./liba",
@@ -642,10 +703,10 @@ fn test_work_sync_ignores_unrelated_ancestor_workspace() {
 
     std::fs::create_dir_all(dir.join("extra")).unwrap();
     std::fs::write(
-        dir.join("extra/moon.mod.json"),
-        r#"{
-  "name": "alice/extra"
-}"#,
+        dir.join("extra/moon.mod"),
+        r#"
+name = "alice/extra"
+"#,
     )
     .unwrap();
 
@@ -660,10 +721,10 @@ fn test_work_use_ignores_unrelated_ancestor_workspace() {
 
     std::fs::create_dir_all(dir.join("extra")).unwrap();
     std::fs::write(
-        dir.join("extra/moon.mod.json"),
-        r#"{
-  "name": "alice/extra"
-}"#,
+        dir.join("extra/moon.mod"),
+        r#"
+name = "alice/extra"
+"#,
     )
     .unwrap();
 
@@ -690,7 +751,6 @@ fn test_work_use_ignores_unrelated_ancestor_workspace() {
               "./app",
               "./liba",
             ]
-            preferred_target = "wasm-gc"
         "#]],
     );
 }
@@ -724,39 +784,39 @@ fn test_workspace_sync_updates_member_manifests() {
         get_stdout(&dir, ["work", "sync"]),
         expect![[r#"
             Synced workspace manifests:
-            app/moon.mod.json
+            app/moon.mod
         "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
+        std::fs::read_to_string(dir.join("app/moon.mod")).unwrap(),
         expect![[r#"
-            {
-              "name": "alice/app",
-              "version": "0.1.0",
-              "deps": {
-                "alice/liba": "0.1.1"
-              },
-              "source": "src"
+            name = "alice/app"
+
+            version = "0.1.0"
+
+            source = "src"
+
+            import {
+              "alice/liba@0.1.1",
             }"#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("liba/moon.mod.json")).unwrap(),
+        std::fs::read_to_string(dir.join("liba/moon.mod")).unwrap(),
         expect![[r#"
-            {
-              "name": "alice/liba",
-              "version": "0.1.1",
-              "source": "src"
-            }
-        "#]],
+            name = "alice/liba"
+
+            version = "0.1.1"
+
+            source = "src""#]],
     );
 }
 
 #[test]
 fn test_workspace_sync_patches_moon_mod_imports_without_dropping_comments() {
     let dir = TestDir::new("workspace_basic.in");
-    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::remove_file(dir.join("app/moon.mod")).unwrap();
     std::fs::write(
         dir.join("app/moon.mod"),
         r#"// app module
@@ -858,17 +918,83 @@ fn test_single_module_commands_from_member_dir_target_member_manifest() {
         expect![[r#""#]],
     );
 
-    let app_manifest = std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap();
+    let app_manifest = std::fs::read_to_string(dir.join("app/moon.mod")).unwrap();
     check(
         app_manifest.trim_end_matches('\n'),
         expect![[r#"
-            {
-              "name": "alice/app",
-              "version": "0.1.0",
-              "deps": {},
-              "source": "src"
-            }"#]],
+            name = "alice/app"
+
+            version = "0.1.0"
+
+            source = "src"
+
+            import {
+              }"#]],
     );
+}
+
+#[test]
+fn test_member_dir_tree_json_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true},{"name":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"workspace_member":true}],"edges":[{"from":0,"to":1,"name":"alice/liba","kind":"regular"}],"logs":[]}
+
+"#]]);
+}
+
+#[test]
+fn test_single_member_workspace_tree_json_marks_member() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[{"level":"warning","message":"`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead."}]}
+
+"#]]);
+}
+
+#[test]
+fn test_single_member_workspace_tree_text_omits_member_marker() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+
+"#]])
+        .stdout_eq(snapbox::str![[r#"
+fmt/workspace/app@0.1.0 (local [..]/app):
+  (no dependencies)
+
+"#]]);
+}
+
+#[test]
+fn test_member_dir_tree_package_json_output() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    moon_cmd(&dir)
+        .args(["-C", "app", "tree", "--package", "--json"])
+        .assert()
+        .success()
+        .stderr_eq("")
+        .stdout_eq(snapbox::str![[r#"
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"alice/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"rel":"main"},{"module":"alice/liba","version":"0.1.1","source":{"kind":"local","path":"[..]/liba"},"rel":"lib"}],"edges":[{"from":0,"to":1,"alias":"lib","kinds":["source"]}],"logs":[]}
+
+"#]]);
 }
 
 #[test]
@@ -884,85 +1010,75 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
-fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
+fn test_member_dir_tree_package_text_output() {
     let dir = TestDir::new("workspace_basic.in");
 
-    let stderr = get_stderr(
-        &dir,
-        [
-            "--manifest-path",
-            "app/moon.mod.json",
-            "add",
-            "moonbitlang/core",
-            "--no-update",
-        ],
-    );
-    assert!(
-        stderr.contains("no need to add `moonbitlang/core` as dependency"),
-        "expected add command to target app module, got:\n{stderr}"
-    );
-
-    let stderr = get_stderr(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "package", "--list"],
-    );
-    assert!(
-        stderr.contains("src/main/main.mbt"),
-        "expected package command to list the app member contents, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("Package to $ROOT/_build/publish/alice-app-0.1.0.zip"),
-        "expected package command to write the app member archive, got:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("liba/src/lib/lib.mbt"),
-        "expected package command to target only the app member, got:\n{stderr}"
-    );
-
     check(
-        std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
+        get_stdout(&dir, ["-C", "app", "tree", "--package"]),
         expect![[r#"
-            {
-              "name": "alice/app",
-              "version": "0.1.0",
-              "source": "src",
-              "deps": {
-                "alice/liba": "0.1.0"
-              }
-            }
+            alice/app@0.1.0 (local $ROOT/app) [main]:
+            └─ lib -> alice/liba@0.1.1 (local $ROOT/liba) [lib]
         "#]],
     );
 
     check(
-        get_stdout(
-            &dir,
-            [
-                "--manifest-path",
-                "app/moon.mod.json",
-                "remove",
-                "alice/liba",
-            ],
-        ),
-        expect![[r#""#]],
-    );
-
-    let app_manifest = std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap();
-    check(
-        app_manifest.trim_end_matches('\n'),
+        get_stdout(&dir, ["-C", "liba", "tree", "--package"]),
         expect![[r#"
-            {
-              "name": "alice/app",
-              "version": "0.1.0",
-              "deps": {},
-              "source": "src"
-            }"#]],
+            alice/liba@0.1.1 (local $ROOT/liba) [lib]:
+              (no dependencies)
+        "#]],
     );
 }
 
 #[test]
-fn test_manifest_path_targets_dsl_member_for_tree() {
+fn test_tree_package_json_bootstrap_error_keeps_package_schema() {
     let dir = TestDir::new("workspace_basic.in");
-    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    let assert = moon_cmd(&dir)
+        .args(["-C", "missing", "tree", "--package", "--json"])
+        .assert()
+        .failure()
+        .stderr_eq("");
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+
+    assert_eq!(report["status"], "failure");
+    assert!(
+        report.get("nodes").is_some(),
+        "package schema must contain nodes"
+    );
+    assert!(
+        report.get("modules").is_none(),
+        "package schema must not contain modules"
+    );
+}
+
+#[test]
+fn test_workspace_maintenance_uses_local_manifest_when_workspace_mode_is_off() {
+    let dir = same_root_workspace_dir();
+
+    check(
+        get_stdout_with_envs(&dir, ["work", "use", "./dep"], [(MOON_WORK_ENV, "off")]),
+        expect![[r#"
+            moon.work is already up to date
+        "#]],
+    );
+    assert!(
+        std::fs::read_to_string(dir.join("moon.work"))
+            .unwrap()
+            .contains(r#"".""#),
+        "work use must preserve existing members"
+    );
+
+    let stdout = get_stdout_with_envs(&dir, ["work", "sync"], [(MOON_WORK_ENV, "off")]);
+    assert!(
+        stdout.contains("Synced workspace manifests:"),
+        "expected work sync to use the local workspace, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_member_dir_targets_dsl_member_for_tree() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod")).unwrap();
     std::fs::write(
         dir.join("app/moon.mod"),
         r#"name = "alice/app"
@@ -980,7 +1096,7 @@ options(
     )
     .unwrap();
 
-    let tree = get_stdout(&dir, ["--manifest-path", "app/moon.mod", "tree"]);
+    let tree = get_stdout(&dir, ["-C", "app", "tree"]);
     assert!(
         tree.contains("alice/app@0.1.0"),
         "expected app module in tree output, got:\n{tree}"
@@ -996,9 +1112,9 @@ options(
 }
 
 #[test]
-fn test_manifest_path_targets_dsl_member_for_remove() {
+fn test_member_dir_targets_dsl_member_for_remove() {
     let dir = TestDir::new("workspace_basic.in");
-    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::remove_file(dir.join("app/moon.mod")).unwrap();
     std::fs::write(
         dir.join("app/moon.mod"),
         r#"// app module
@@ -1019,10 +1135,7 @@ options(
     .unwrap();
 
     check(
-        get_stdout(
-            &dir,
-            ["--manifest-path", "app/moon.mod", "remove", "alice/liba"],
-        ),
+        get_stdout(&dir, ["-C", "app", "remove", "alice/liba"]),
         expect![[r#""#]],
     );
 
@@ -1049,18 +1162,6 @@ options(
 }
 
 #[test]
-fn test_manifest_path_can_disable_implicit_workspace_mode() {
-    let dir = TestDir::new("workspace_basic.in");
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "build", "--dry-run"],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_registry_resolution_failure(&stderr);
-}
-
-#[test]
 fn test_workspace_root_cannot_use_workspace_with_env_override() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -1081,51 +1182,30 @@ fn test_same_root_module_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
-fn test_same_root_manifest_path_can_disable_implicit_workspace_mode() {
+fn test_same_root_workspace_warns_when_module_is_not_a_member() {
     let dir = same_root_workspace_dir();
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        ["--manifest-path", "moon.mod.json", "build", "--dry-run"],
-        [(MOON_WORK_ENV, "off")],
+    write_file(
+        &dir.join("moon.work"),
+        r#"members = [
+  "./dep",
+]
+"#,
     );
-    assert_registry_resolution_failure(&stderr);
-}
 
-#[test]
-fn test_same_root_workspace_manifest_can_disable_workspace_mode_with_env_override() {
-    let dir = same_root_workspace_dir();
+    moon_cmd(&dir)
+        .args(["build", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: `moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.
 
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        [
-            "--manifest-path",
-            "moon.work",
-            "build",
-            "--dry-run",
-            "--sort-input",
-        ],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_registry_resolution_failure(&stderr);
-}
+"#]]);
 
-#[test]
-fn test_workspace_manifest_path_cannot_use_workspace_with_env_override() {
-    let dir = TestDir::new("workspace_basic.in");
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        [
-            "--manifest-path",
-            "moon.work",
-            "build",
-            "--dry-run",
-            "--sort-input",
-        ],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_workspace_disabled_without_module(&stderr);
+    moon_cmd(&dir)
+        .args(["--quiet", "build", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .stderr_eq("");
 }
 
 #[test]
@@ -1279,7 +1359,6 @@ fn test_pinned_workspace_path_selects_outer_module_when_listed() {
         r#"members = [
   "../",
 ]
-preferred_target = "wasm-gc"
 "#,
     );
 
@@ -1301,29 +1380,6 @@ preferred_target = "wasm-gc"
     assert!(
         !stdout.contains("alice/app/main"),
         "expected pinned workspace root to avoid unlisted app module, got:\n{stdout}"
-    );
-}
-
-#[test]
-fn test_pinned_workspace_path_rejects_unlisted_manifest_path_module() {
-    let dir = nested_workspace_under_unrelated_module_dir();
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        ["--manifest-path", "outer/moon.mod.json", "tree"],
-        [(
-            MOON_WORK_ENV,
-            dir.join("outer/ws/moon.work")
-                .to_string_lossy()
-                .into_owned(),
-        )],
-    );
-
-    assert!(
-        stderr.contains(
-            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
-        ),
-        "expected pinned workspace membership error, got:\n{stderr}"
     );
 }
 
@@ -1393,6 +1449,13 @@ fn test_workspace_root_beats_unrelated_outer_module_boundary() {
         !stdout.contains("alice/outer/outer"),
         "expected workspace-root build to ignore the unrelated outer module, got:\n{stdout}"
     );
+
+    let stderr = get_err_stderr(&dir, ["-C", "outer/ws", "package", "--list"]);
+    assert!(
+        stderr
+            .contains("`moon package` cannot infer a target module in workspace `$ROOT/outer/ws`"),
+        "expected the unrelated outer module not to become the selected member, got:\n{stderr}"
+    );
 }
 
 #[test]
@@ -1423,7 +1486,7 @@ fn test_prove_targets_member_module_with_workspace_resolution() {
 
     let stdout = get_stdout(&dir, ["-C", "app", "prove", "--dry-run"]);
     assert!(
-        stdout.contains("moonc prove ./app/src/main/main.mbt"),
+        stdout.contains(" ./app/src/main/main.mbt -whyml-output-path "),
         "expected app prove dry-run to target the app member, got:\n{stdout}"
     );
     assert!(
@@ -1435,32 +1498,7 @@ fn test_prove_targets_member_module_with_workspace_resolution() {
         "expected app prove dry-run to keep workspace-local dependency resolution, got:\n{stdout}"
     );
 
-    let stdout = get_stdout(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "prove", "--dry-run"],
-    );
-    assert!(
-        stdout.contains("moonc prove ./app/src/main/main.mbt"),
-        "expected manifest-path prove dry-run to target the app member, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("-workspace-path ./app"),
-        "expected manifest-path prove dry-run to keep workspace-local context, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("alice/liba/lib"),
-        "expected manifest-path prove dry-run to keep workspace-local dependency resolution, got:\n{stdout}"
-    );
-
-    let stdout = get_stdout(
-        &dir,
-        [
-            "--manifest-path",
-            "liba/moon.mod.json",
-            "prove",
-            "--dry-run",
-        ],
-    );
+    let stdout = get_stdout(&dir, ["-C", "liba", "prove", "--dry-run"]);
     assert!(
         stdout.contains("alice/liba/lib"),
         "expected prove dry-run to target the liba module, got:\n{stdout}"
@@ -1480,15 +1518,15 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
         "expected doc dry-run to use the app module as moondoc root, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("-packages-json ./_build/packages.json"),
+        stdout.contains("-packages-json ./_build/wasm/debug/check/packages.json"),
         "expected doc dry-run to pass workspace metadata to moondoc, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("./_build/wasm-gc/debug/check/alice/app/main/main.mi"),
+        stdout.contains("./_build/wasm/debug/check/alice/app/main/main.mi"),
         "expected doc dry-run to keep the workspace build layout for the app module, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("./_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"),
+        stdout.contains("./_build/wasm/debug/check/alice/liba/lib/lib.mi"),
         "expected doc dry-run to keep the workspace build layout for dependencies, got:\n{stdout}"
     );
 
@@ -1500,15 +1538,6 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     assert!(
         stdout.contains("-serve-mode"),
         "expected doc --serve dry-run to enable serve mode for moondoc, got:\n{stdout}"
-    );
-
-    let stdout = get_stdout(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "doc", "--dry-run"],
-    );
-    assert!(
-        stdout.contains("moondoc ./app -o ./_build/doc"),
-        "expected manifest-path doc dry-run to target the app member, got:\n{stdout}"
     );
 
     let stdout = get_stdout(&dir, ["-C", "app/src/main", "doc", "--dry-run"]);
@@ -1523,11 +1552,12 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
         "expected member docs to be generated under the app module"
     );
 
-    let metadata = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
+    let metadata =
+        std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm", "debug")).unwrap();
     let metadata = replace_dir(&metadata, &dir);
     let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
 
-    assert_eq!(metadata["source_dir"], "$ROOT/app");
+    assert_eq!(metadata["source_dir"], "$ROOT");
     assert_eq!(metadata["name"], "workspace");
     assert_eq!(metadata["deps"], serde_json::json!(["alice/liba"]));
 
@@ -1539,7 +1569,7 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     assert_eq!(app_pkg["is-third-party"], serde_json::json!(false));
     assert_eq!(
         app_pkg["artifact"],
-        serde_json::json!("$ROOT/_build/wasm-gc/debug/check/alice/app/main/main.mi")
+        serde_json::json!("$ROOT/_build/wasm/debug/check/alice/app/main/main.mi")
     );
 
     let lib_pkg = packages
@@ -1549,6 +1579,6 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     assert_eq!(lib_pkg["is-third-party"], serde_json::json!(false));
     assert_eq!(
         lib_pkg["artifact"],
-        serde_json::json!("$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi")
+        serde_json::json!("$ROOT/_build/wasm/debug/check/alice/liba/lib/lib.mi")
     );
 }

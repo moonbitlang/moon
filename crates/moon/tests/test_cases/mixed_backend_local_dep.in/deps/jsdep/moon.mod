@@ -1,0 +1,3 @@
+name = "local/jsdep"
+
+version = "0.1.0"

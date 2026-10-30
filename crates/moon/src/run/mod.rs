@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -22,12 +22,17 @@ mod child;
 mod runtest;
 mod runtime;
 
+#[cfg(windows)]
+pub(crate) use child::assign_process_to_job;
 pub(crate) use child::run;
 pub(crate) use runtest::{
-    PackageFilter, TestFilter, TestIndex, TestOutlineEntry, collect_test_invocations,
+    PackageFilter, ReplaceableTestResults, TestFilter, TestIndex, collect_test_invocations,
     collect_test_outline, perform_promotion, run_tests,
 };
-pub(crate) use runtime::command_for;
+pub(crate) use runtime::{
+    ExecutionMode, command_for, command_for_with_moonrun_policy,
+    command_for_with_moonrun_policy_source_dir,
+};
 
 use std::sync::OnceLock;
 
@@ -89,8 +94,9 @@ pub(crate) fn shutdown_requested() -> bool {
     shutdown_token().is_cancelled()
 }
 
-/// Build the canonical Tokio runtime used by `moon run` facilities and install
-/// the global shutdown handler the first time it is called.
+/// Build the test command's Tokio runtime and install the global shutdown
+/// listener. The caller must retain it across every backend and update pass,
+/// driving it whenever test children are running.
 pub(crate) fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

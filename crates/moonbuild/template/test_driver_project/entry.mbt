@@ -27,7 +27,7 @@ fn main {
 
 ///|
 #cfg(target="js")
-extern "js" fn moonbit_test_driver_js_parse_args() -> Array[
+extern "js" fn moonbit_test_driver_js_parse_args() -> FixedArray[
   MoonBitTestDriverInternalTestEntry,
 ] =
   #|() => {
@@ -54,9 +54,10 @@ extern "js" fn moonbit_test_driver_js_parse_args() -> Array[
   #|}
 
 ///|
+/// Executes selected JavaScript tests from parsed test entries.
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(
-  tests : Array[MoonBitTestDriverInternalTestEntry],
+  tests : FixedArray[MoonBitTestDriverInternalTestEntry],
 ) -> Unit {
   let async_tests = []
   for i in 0..<tests.length() {
@@ -71,10 +72,28 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
-#cfg(any(target="wasm", target="wasm-gc"))
+#cfg(target="wasm")
+let moonbit_test_driver_internal_wasm_async_tests : Array[async () -> Unit] = []
+
+///|
+/// Executes one selected WebAssembly test and stores async work for finalization.
+#cfg(target="wasm")
 pub fn moonbit_test_driver_internal_execute(
   filename : MoonbitTestDriverInternalExternString,
-  index : Int,
+  index : Int32,
+) -> Unit {
+  let filename = moonbit_test_driver_internal_get_file_name(filename)
+  moonbit_test_driver_internal_do_execute(
+    moonbit_test_driver_internal_wasm_async_tests, filename, index,
+  )
+}
+
+///|
+/// Executes one selected WebAssembly GC test and drains async work immediately.
+#cfg(target="wasm-gc")
+pub fn moonbit_test_driver_internal_execute(
+  filename : MoonbitTestDriverInternalExternString,
+  index : Int32,
 ) -> Unit {
   let filename = moonbit_test_driver_internal_get_file_name(filename)
   let async_tests = []
@@ -83,7 +102,18 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
-#cfg(not(any(target="native", target="llvm")))
+/// Finishes pending WebAssembly async tests and coverage collection.
+#cfg(target="wasm")
+pub fn moonbit_test_driver_finish() -> Unit {
+  MoonBit_Async_Test_Driver_Impl::run_async_tests(
+    moonbit_test_driver_internal_wasm_async_tests,
+  )
+  // {COVERAGE_END}
+}
+
+///|
+/// Finishes coverage collection for backends without pending async work.
+#cfg(any(target="js", target="wasm-gc"))
 pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}
 }
@@ -92,22 +122,30 @@ pub fn moonbit_test_driver_finish() -> Unit {
 fn moonbit_test_driver_internal_do_execute(
   async_tests : Array[async () -> Unit],
   filename : String,
-  index : Int,
+  index : Int32,
 ) -> Unit {
   // These two are internalized to avoid unused warnings
 
-  fn handle_result(testname : String, message : String, skipped : Bool) {
+  fn handle_start() {
+    let file_name = moonbit_test_driver_internal_escape_json(filename)
+    @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
+    @moonbitlang/core/prelude.println(
+      "{\"type\":\"start\",\"file\":\{file_name},\"index\":\{index}}",
+    )
+    @moonbitlang/core/prelude.println("{END_MOONTEST}")
+  }
+
+  fn handle_result(_testname : String, message : String, skipped : Bool) {
     // In WASM, this function is called by the external test driver, but here
     // in native mode there's nothing that calls it, so we call it manually.
     if !skipped && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
       // {COVERAGE_END}
     }
-    let file_name = filename.escape()
-    let test_name = testname.escape()
-    let message = message.escape()
+    let file_name = moonbit_test_driver_internal_escape_json(filename)
+    let message = moonbit_test_driver_internal_escape_json(message)
     @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
     @moonbitlang/core/prelude.println(
-      "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
+      "{\"type\":\"result\",\"file\":\{file_name},\"index\":\{index},\"message\":\{message}}",
     )
     @moonbitlang/core/prelude.println("{END_MOONTEST}")
   }
@@ -124,19 +162,19 @@ fn moonbit_test_driver_internal_do_execute(
 
   try {
     if !(MoonBit_Test_Driver_Internal_No_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_With_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_Async_No_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_Async_With_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_With_Bench_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       )) {
       raise MoonBitTestDriverInternalSkipTest(name="")
     }

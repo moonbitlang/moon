@@ -1,49 +1,58 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::{
-    dep_dir::resolve_dep_dirs,
-    registry,
-    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
+    dependency_source, registry,
+    resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
-use anyhow::Context;
+use super::sync::SyncOutputOptions;
 use moonutil::{
-    common::{MOONBITLANG_CORE, read_module_desc_file_in_dir},
-    mooncakes::{
-        DirSyncResult, ModuleSource,
-        result::{DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules},
-    },
+    cache::CacheRoot,
+    constants::MOONBITLANG_CORE,
+    project::PackageDirs,
+    resolution::{DirSyncResult, ModuleDependencyGraph, ResolvedRootModules},
+    user_log::UserLog,
 };
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::PathBuf;
 
-/// Install a binary package globally or install project dependencies (deprecated without args)
+/// Install a binary package globally
 #[derive(Debug, clap::Parser)]
 #[clap(
     group = clap::ArgGroup::new("git_ref").multiple(false),
-    verbatim_doc_comment
+    verbatim_doc_comment,
+    after_help = "Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+Paste a public GitHub directory permalink containing a full 40-character
+commit SHA to install from its source archive. For branches or tags, use the
+repository URL, PATH_IN_REPO, and --branch or --tag instead."
 )]
 pub struct InstallSubcommand {
     #[clap(
         value_name = "SOURCE",
+        required_unless_present = "path",
         help = "Package path, local path, or git URL",
         long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nUse `/...` suffix to install all matching main packages."
     )]
@@ -52,7 +61,7 @@ pub struct InstallSubcommand {
     #[clap(
         value_name = "PATH_IN_REPO",
         help = "Filesystem path inside git repo (git SOURCE only)",
-        long_help = "Filesystem path inside the cloned git repository.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
+        long_help = "Filesystem path inside the repository source.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
     )]
     pub path_in_repo: Option<String>,
 
@@ -82,28 +91,15 @@ pub struct InstallSubcommand {
     pub tag: Option<String>,
 }
 
-pub fn install(
-    source_dir: &Path,
-    mooncakes_dir: &Path,
-    quiet: bool,
-    verbose: bool,
-    no_std: bool,
-) -> anyhow::Result<i32> {
-    let m = read_module_desc_file_in_dir(source_dir)?;
-    let m = Arc::new(m);
-    let ms = ModuleSource::from_local_module(&m, source_dir);
-    let (roots, _) = ResolvedModule::only_one_module(ms, m);
-    install_impl(mooncakes_dir, roots, quiet, verbose, false, no_std).map(|_| 0)
-}
-
 pub(crate) fn install_impl(
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     roots: ResolvedRootModules,
-    quiet: bool,
-    verbose: bool,
+    output_options: SyncOutputOptions,
+    user_log: &UserLog,
     dont_sync: bool,
     no_std: bool,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+    source_cache: &CacheRoot,
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let includes_core = roots
         .iter()
         .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
@@ -111,96 +107,31 @@ pub(crate) fn install_impl(
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
 
-    let resolve_config = ResolveConfig {
-        registry: registry::default_registry(),
+    let registry = if dont_sync {
+        registry::default_registry(user_log).for_frozen_dependencies()
+    } else {
+        registry::default_registry(user_log)
+    };
+    let module_resolution_config = ModuleResolutionConfig {
+        registry: &registry,
         inject_std: !includes_core && !no_std,
+        warn_deprecated: true,
     };
 
-    let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
-    let dep_dir = crate::dep_dir::DepDir::new(mooncakes_dir.to_path_buf());
-
-    crate::dep_dir::sync_deps(
-        &dep_dir,
-        resolve_config.registry.as_ref(),
+    let res = resolve_modules(&module_resolution_config, roots, user_log)?;
+    let dependency_user_log = if output_options.quiet {
+        user_log.with_level(log::LevelFilter::Error)
+    } else {
+        user_log.clone()
+    };
+    let dependency_source = dependency_source::select(
+        &dirs.mooncakes_dir,
+        source_cache,
         &res,
-        quiet,
-        dont_sync,
-    )
-    .context("When installing packages")?;
+        output_options.child_output,
+    )?;
+    let dependency_paths =
+        dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
 
-    let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
-
-    install_bin_deps(verbose, &res, &dir_sync_result)?;
-
-    Ok((res, dir_sync_result))
-}
-
-fn install_bin_deps(
-    verbose: bool,
-    res: &ResolvedEnv,
-    dep_dir: &DirSyncResult,
-) -> Result<(), anyhow::Error> {
-    for &main_module in res.input_module_ids() {
-        let Some(bin_deps) = res.module_info(main_module).bin_deps.as_ref() else {
-            continue;
-        };
-        let moon_path = moonutil::BINARIES.moonbuild.to_string_lossy();
-
-        let bin_deps_iter = res
-            .deps_keyed(main_module)
-            .filter(|(_, edge)| edge.kind == DependencyKind::Binary);
-        for (id, edge) in bin_deps_iter {
-            let info = bin_deps
-                .get(&edge.name.to_string()) // inefficient but fine for now
-                .unwrap();
-
-            let path = dep_dir.get(id).expect("Failed to get dep dir");
-            let mut cmd = std::process::Command::new(moon_path.as_ref());
-            // root_path
-            cmd.arg("-C");
-            cmd.arg(path);
-            cmd.args(["tool", "build-binary-dep"]);
-            // pkg_names
-            if let Some(pkgs) = info.bin_pkg.as_ref() {
-                cmd.args(pkgs.iter());
-            } else {
-                cmd.arg("--all-pkgs");
-            }
-            // install path
-            cmd.arg("--install-path");
-            cmd.arg(path);
-
-            if !verbose {
-                cmd.arg("--quiet");
-            }
-
-            // Run it
-            if verbose {
-                eprintln!("Installing binary dependency `{}`", edge.name);
-            }
-            let status = cmd
-                .spawn()
-                .with_context(|| {
-                    format!(
-                        "Failed to spawn build process for binary dep `{}`",
-                        edge.name
-                    )
-                })?
-                .wait()
-                .with_context(|| {
-                    format!(
-                        "Failed to wait for build process of binary dep `{}`",
-                        edge.name
-                    )
-                })?;
-            if !status.success() {
-                return Err(anyhow::anyhow!(
-                    "Building binary dependency `{}` failed",
-                    edge.name
-                ));
-            }
-        }
-    }
-
-    Ok(())
+    Ok((res, dependency_paths))
 }

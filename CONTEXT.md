@@ -1,0 +1,205 @@
+# MoonBuild
+
+MoonBuild turns MoonBit project declarations and package files into build targets, dependency relationships, and executable build commands.
+
+## Language
+
+**Package Declaration**:
+The declaration-level representation of a package: its identity, root, manifest configuration, and package-level declared capabilities.
+_Avoid_: Discovered package, package discovery result, package facts
+
+**Package File Set**:
+The set of MoonBuild-relevant file paths observed under an already known package root before target-specific selection.
+_Avoid_: Package file inventory, package file facts, source file discovery, package source files
+
+**File Content**:
+The bytes or text read from a file after it has been identified as relevant.
+_Avoid_: File facts
+
+**File Interpretation**:
+The meaning MoonBuild derives from a file path or file content before applying target-specific projection.
+_Avoid_: File facts, parsed file
+
+**Build Rule**:
+A declared or built-in rule that constrains how declarations, file sets, and file interpretations participate in a build.
+_Avoid_: Build fact
+
+**Build Target Projection**:
+The target-specific view produced by applying build rules to package declarations, package file sets, and file interpretations. It is not the source of truth for package content.
+_Avoid_: Build target facts, target file facts
+
+**Test Driver Event**:
+A record emitted by a generated test driver that describes a lifecycle or result fact for one selected test case.
+_Avoid_: Treating every driver record as a test result
+
+**Command Information Demand**:
+The level of package information a MoonBuild command needs before it can produce its result.
+_Avoid_: Always-full package model, eager package facts
+
+**Lightweight Command**:
+A MoonBuild command whose information demand stops before full dependency resolution and build target projection.
+_Avoid_: Partial resolve, incomplete build command
+
+**Module Resolution**:
+Selecting concrete module sources and versions and determining their dependency relationships.
+_Avoid_: Package resolution, unqualified dependency resolution when the domain is unclear
+
+**Module Request**:
+A named module requested with an explicit version or with its version unspecified. This does not decide whether remote metadata may be queried.
+_Avoid_: Resolved module, treating an unspecified version as a cache miss
+
+**Cached Latest Version**:
+The latest version of a module known locally from an earlier registry observation. It may be stale; the newest of an arbitrary subset of downloaded releases is not a cached latest version.
+_Avoid_: Current latest version, newest downloaded version
+
+**Current Latest Query**:
+An operation that asks the registry for a module's current latest version. A previously cached answer alone cannot satisfy it.
+_Avoid_: Cached latest lookup, latest without specifying freshness
+
+**Package Resolution**:
+Binding package imports and virtual-package references to packages and validating the resulting relationships.
+_Avoid_: Module resolution, unqualified dependency resolution when the domain is unclear
+
+**Resolved Project**:
+A project with selected module dependencies and validated package relationships, ready for build planning.
+_Avoid_: Resolve output, resolved environment
+
+**Module Dependency Graph**:
+The selected module identities, concrete sources and versions, root modules, and dependency relationships between modules.
+_Avoid_: Resolved environment, using package graph for module dependencies
+
+**Package Relations**:
+The resolved imports between package build targets, virtual-package associations, and derived backend support.
+_Avoid_: Resolved environment, confusing package relations with module dependency resolution
+
+## Command Communication
+
+**Command Result**:
+The stdout representation a MoonBuild command intentionally produces for a user or another program. It is not filtered by `--quiet` or `--verbose`.
+_Avoid_: User log, progress message, child output
+
+**User Log**:
+A MoonBuild-authored stderr message that explains an error, warning, informational event, or debugging detail. Its visibility is controlled by the command's user-log level.
+_Avoid_: Command result, tracing log, child output
+
+**Process Passthrough**:
+The stdout or stderr bytes of a child tool or executed program forwarded without MoonBuild changing their channel, content, or visibility.
+_Avoid_: Command result, user log
+
+**Progress Display**:
+Transient terminal status for concurrent or long-running work, rendered independently from durable user-log lines.
+_Avoid_: User log, command result
+
+## Package Execution
+
+**Executable Package Coordinate**:
+Registry selector containing a module, an optional package path, and an optional version selector that resolves to exactly one version of one main package for direct execution.
+_Avoid_: Install source, wildcard package selector, runwasm coordinate
+
+**Cached Executable Artifact**:
+The final runnable file retained for an Executable Package Coordinate and Target Backend so later executions can skip acquisition or building.
+_Avoid_: Installed binary, cached build workspace, source cache
+
+## Naming
+
+**Process Name**:
+A verb or verb phrase used for operations that locate, read, scan, parse, resolve, project, or lower build information.
+_Avoid_: Using process names for durable data entities
+
+**Entity Name**:
+A noun or noun phrase used for stable MoonBuild concepts produced or consumed by build stages. A distinct entity name does not require a distinct data container.
+_Avoid_: Using entity names for operations, adding containers only to mirror vocabulary
+
+## Build Planning
+
+**Build Plan**:
+A self-contained semantic plan for one Target Backend, composed from a Backend
+Plan, a Package Prebuild Plan, and the Build Artifact relationships between
+their actions.
+_Avoid_: Execution Plan, treating either subplan as the complete build
+
+**Backend Plan**:
+The backend-specific subplan that owns its semantic action membership and the
+shared planning information required to lower those actions.
+_Avoid_: Package Prebuild Plan, bare action set
+
+**Package Prebuild Plan**:
+The subplan that owns package-level file-generation actions whose meaning is
+independent of Target Backend. Its concrete inputs and outputs participate in
+Execution Plan dependency resolution rather than defining a second semantic
+artifact model.
+_Avoid_: Backend Plan, prebuild action graph
+
+**Build Artifact**:
+A logical build result identified independently of its physical realization
+and provider edge. Check, build, proof, and virtual-contract `.mi` files are
+distinct Build Artifacts even when their physical forms match.
+_Avoid_: Output path, action ID, build product
+
+**Dependency Artifact**:
+A Build Artifact belonging to a resolved dependency module outside the current
+project's root modules. This role is independent of execution order, cache
+eligibility, and whether an existing result can satisfy the requirement.
+_Avoid_: Preparation result, cached artifact, reusable artifact
+
+**Artifact Requirement**:
+A declaration that a Build Plan action needs a Build Artifact. It does not name the action that provides the artifact.
+_Avoid_: Action dependency, producer edge
+
+**Artifact Provider**:
+The Build Plan action connected by a provider edge to a Build Artifact.
+Provider association is graph topology rather than artifact identity. Every
+Artifact Requirement in a Build Plan has exactly one provider.
+_Avoid_: Provider-specific artifact identity, choosing a provider at each requirement call site
+
+**Execution Plan**:
+The executor-neutral graph of concrete execution actions, input paths, and declared physical outputs. Project builds produce it by lowering one backend-specific Build Plan; lightweight commands without logical Build Artifacts may construct it directly.
+_Avoid_: n2 graph, Build Plan, list of lowered commands
+
+**Execution Action**:
+One concrete command plus all execution behavior MoonBuild knows can affect it:
+input paths and their observation kinds, declared outputs, working directory,
+environment, response-file transport, diagnostics, and cache policy.
+_Avoid_: Build plan node, process ID, cache digest
+
+**Action ID**:
+A process-local arena handle for one Execution Action within its owning Execution Plan. It is not persistent identity and is not a cache key.
+_Avoid_: Build Artifact identity, action digest
+
+**Declared Action Output**:
+A concrete file or directory, identified by its path, that an execution action declares for dependency ordering, incremental execution, or caching. It may realize a Build Artifact, but it does not gain semantic identity merely because an executor tracks it.
+_Avoid_: Build Artifact, incidental output
+
+**Incidental Output**:
+A file or directory emitted as part of a tool's behavior but not declared independently to the execution layer. It cannot be requested, depended on, or cached independently by MoonBuild.
+_Avoid_: Build Artifact, declared action output
+
+## Native Build
+
+**Target Backend**:
+The user-visible backend selection for a build, such as Native, LLVM, Wasm, WasmGC, or JS.
+_Avoid_: Native target
+
+**Generated-C Native Backend**:
+The Native target backend implementation where `moonc link-core` emits C and MoonBuild invokes a C toolchain to compile and link it.
+_Avoid_: Native target, direct object target
+
+**Direct Object Native Target**:
+The concrete architecture/OS/ABI target used by the experimental direct object-code native path, such as `x86_64-pc-windows-msvc`.
+_Avoid_: Generated-C native backend, native backend
+
+**Native Payload Form**:
+The representation produced by MoonBit before the host C compiler or linker is invoked, such as generated C or direct object code.
+_Avoid_: Treating generated C and direct object linking as the same kind of backend choice
+
+**Native Toolchain**:
+The selected native compiler/linker used after MoonBit lowering, together with any ABI family, command environment, and runtime-linkage obligations it imposes on runtime, C stubs, and executable linking.
+_Avoid_: Raw compiler path, native backend mode
+
+**ABI Family**:
+The binary interface family fixed by the native toolchain. On Windows, MSVC and GNU-like toolchains are different ABI families and must not be mixed in one native executable.
+_Avoid_: Compiler flavor, executable style
+
+**CRT Linkage**:
+The C runtime linkage policy required by an ABI family. For MSVC, every native object participating in one executable must use a consistent CRT linkage policy.
+_Avoid_: Per-command compiler flag

@@ -1,0 +1,5 @@
+import {
+  "username/hello/dep",
+}
+
+pkgtype(kind: "executable")

@@ -1,25 +1,29 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use moonbuild::execution::{BuildConfig, OutputStyle};
+use moonutil::features::FeatureGate;
 use moonutil::{
-    common::{DiagnosticLevel, RunMode, SurfaceTarget, TargetBackend},
+    build_options::RunMode,
     cond_expr::OptLevel as BuildProfile,
+    target::{SurfaceTarget, TargetBackend},
+    test_metadata::DiagnosticLevel,
 };
 
 #[derive(Debug, clap::Parser, Clone)]
@@ -51,14 +55,6 @@ pub struct BuildFlags {
     /// Select output target
     #[clap(long, value_delimiter = ',')]
     pub target: Vec<SurfaceTarget>,
-
-    /// [Deprecated] Handle the selected targets sequentially
-    ///
-    /// This flag is deprecated, because all targets are handled sequentially
-    /// for now, until multi-target compilation is implemented (if any).
-    #[clap(long, requires = "target", hide = true)]
-    #[deprecated]
-    pub serial: bool,
 
     /// Enable coverage instrumentation
     #[clap(long)]
@@ -107,7 +103,6 @@ pub struct BuildFlags {
 }
 
 impl Default for BuildFlags {
-    #[allow(deprecated)]
     fn default() -> Self {
         Self {
             std: false,
@@ -117,7 +112,6 @@ impl Default for BuildFlags {
             strip: false,
             no_strip: false,
             target: Vec::new(),
-            serial: false,
             enable_coverage: false,
             sort_input: false,
             output_wat: false,
@@ -134,6 +128,22 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
+    pub(crate) fn execution_config(
+        &self,
+        unstable_features: &FeatureGate,
+        verbose: bool,
+    ) -> BuildConfig {
+        BuildConfig {
+            parallelism: self.jobs,
+            output_style: self.output_style(),
+            render_no_loc: self.render_no_loc,
+            diagnostic_limit: self.diagnostic_limit,
+            n2_explain: unstable_features.rr_n2_explain,
+            verbose,
+            ..Default::default()
+        }
+    }
+
     pub fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
         if self.target.is_empty() {
             return Ok(None);
@@ -143,35 +153,12 @@ impl BuildFlags {
         if targets.len() > 1 {
             bail!("`--target` only supports one target backend");
         }
-        let backends = moonutil::common::lower_surface_targets(targets);
+        let backends = moonutil::target::lower_surface_targets(targets);
         if backends.len() == 1 {
             Ok(Some(backends[0]))
         } else {
             bail!("`--target` only supports one target backend");
         }
-    }
-}
-
-/// The style to render diagnostics in.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OutputStyle {
-    /// The human-readable raw format directly from `moonc`
-    Raw,
-    /// Source code snippets with colors and formatting, rendered from JSON
-    Fancy,
-    /// Machine-readable output in JSON
-    Json,
-}
-
-impl OutputStyle {
-    /// Whether the output style requires `moonc` to emit JSON diagnostics.
-    pub fn needs_moonc_json(&self) -> bool {
-        matches!(self, OutputStyle::Fancy | OutputStyle::Json)
-    }
-
-    /// Whether the output style requires no rendering (i.e., raw diagnostics).
-    pub fn needs_no_render(&self) -> bool {
-        matches!(self, OutputStyle::Raw | OutputStyle::Json)
     }
 }
 
@@ -184,22 +171,6 @@ impl BuildFlags {
             (true, true) => unreachable!(
                 "unreachable: both std and no_std flags are set (should be prevented by conflicts_with)"
             ),
-        }
-    }
-
-    pub fn apply_default_debug(&mut self) {
-        if !self.debug && !self.release {
-            self.debug = true;
-        }
-    }
-
-    pub fn strip(&self) -> bool {
-        if self.strip {
-            true
-        } else if self.no_strip {
-            false
-        } else {
-            !self.debug
         }
     }
 
@@ -231,11 +202,6 @@ impl BuildFlags {
         } else {
             self.effective_profile(run_mode) == BuildProfile::Release
         }
-    }
-
-    /// Resolve whether to emit debug symbols for Rupes Recta compilation.
-    pub fn debug_symbols_for(&self, run_mode: RunMode) -> bool {
-        !self.strip_for(run_mode)
     }
 
     pub fn output_style(&self) -> OutputStyle {

@@ -1,28 +1,56 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Handles which runtime to use to run a specific output.
 
 use std::path::Path;
+use std::process::Command;
 
 use moonbuild::entry::TestArgs;
-use moonbuild_rupes_recta::model::{RunBackend, TccRunConfig};
-use tokio::process::Command;
+use moonbuild_rupes_recta::model::BackendConfig;
+
+/// The runtime mode used to execute one built artifact.
+#[derive(Clone, Copy)]
+pub(crate) enum ExecutionMode {
+    MoonRun,
+    Node,
+    Native,
+}
+
+impl From<ExecutionMode> for moonutil::run_handoff::ExecutionKind {
+    fn from(mode: ExecutionMode) -> Self {
+        match mode {
+            ExecutionMode::MoonRun => Self::Wasm,
+            ExecutionMode::Native => Self::Native,
+            ExecutionMode::Node => Self::Js,
+        }
+    }
+}
+
+impl From<&BackendConfig> for ExecutionMode {
+    fn from(backend: &BackendConfig) -> Self {
+        match backend {
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
+            BackendConfig::Js => Self::Node,
+            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => Self::Native,
+        }
+    }
+}
 
 /// Returns a command to run the given MoonBit executable of a specific
 /// `backend`. The returning command is suitable for adding more commandline
@@ -39,52 +67,77 @@ use tokio::process::Command;
 /// ### Note
 ///
 pub(crate) fn command_for(
-    backend: RunBackend,
-    tcc_run: Option<&TccRunConfig>,
+    mode: ExecutionMode,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> Command {
-    debug_assert!(tcc_run.is_none() || backend == RunBackend::Native);
+    command_for_with_moonrun_policy(mode, mbt_executable, test, None)
+}
 
-    match (backend, tcc_run) {
-        (RunBackend::Wasm | RunBackend::WasmGC, _) => {
-            let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
+pub(crate) fn command_for_with_moonrun_policy(
+    mode: ExecutionMode,
+    mbt_executable: &Path,
+    test: Option<&TestArgs>,
+    moonrun_policy: Option<&Path>,
+) -> Command {
+    command_for_with_moonrun_policy_source_dir(
+        mode,
+        mbt_executable,
+        test,
+        moonrun_policy,
+        None,
+        false,
+    )
+}
+
+pub(crate) fn command_for_with_moonrun_policy_source_dir(
+    mode: ExecutionMode,
+    mbt_executable: &Path,
+    test: Option<&TestArgs>,
+    moonrun_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
+    virtual_process_tree: bool,
+) -> Command {
+    match (mode, virtual_process_tree) {
+        (ExecutionMode::MoonRun, _) | (_, true) => {
+            let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
+            if virtual_process_tree {
+                cmd.arg("--virtual-process-tree");
+                cmd.arg("--virtual-process-kind");
+                cmd.arg(match mode {
+                    ExecutionMode::MoonRun => "wasm",
+                    ExecutionMode::Native => "native",
+                    ExecutionMode::Node => "js",
+                });
+            }
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
             }
-            cmd.arg(mbt_executable);
+            if let Some(policy) = moonrun_policy {
+                cmd.arg("--policy");
+                cmd.arg(dunce::simplified(policy));
+            }
+            if let Some(source_dir) = policy_source_dir {
+                debug_assert!(moonrun_policy.is_some());
+                cmd.arg("--policy-source-dir");
+                cmd.arg(source_dir);
+            }
+            cmd.arg(dunce::simplified(mbt_executable));
             cmd.arg("--");
             cmd
         }
-        (RunBackend::Js, _) => {
-            if test.is_some() {
-                // Also write package.json to the directory of the .js file being required
-                // to prevent node from finding the user's package.json with "type": "module"
-                if let Some(js_parent) = mbt_executable.parent() {
-                    let js_dir_package_json = js_parent.join("package.json");
-                    let _ = std::fs::write(js_dir_package_json, "{}");
-                }
-            }
-            let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
+        (ExecutionMode::Node, false) => {
+            let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
-            cmd.arg(mbt_executable);
+            cmd.arg(dunce::simplified(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
             }
             cmd
         }
-        (RunBackend::Native, Some(tcc_run)) => {
-            let tcc = tcc_run.internal_tcc();
-            let mut cmd = Command::new(tcc.cc_path());
-            cmd.arg(format!("@{}", mbt_executable.display()));
-            if let Some(t) = test {
-                cmd.arg(t.to_cli_args_for_native());
-            }
-            cmd
-        }
-        (RunBackend::Native | RunBackend::Llvm, _) => {
-            let mut cmd = Command::new(mbt_executable);
+        (ExecutionMode::Native, false) => {
+            let mut cmd = Command::new(dunce::simplified(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }

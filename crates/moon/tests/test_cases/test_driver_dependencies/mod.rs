@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use moonutil::common::{FileName, MbtTestInfo, MooncGenTestInfo};
+use moonutil::test_metadata::{FileName, MbtTestInfo, MooncGenTestInfo};
 
 use crate::{TestDir, get_stdout};
 
@@ -147,6 +147,7 @@ fn try_gen_output(dir: &Path, file: &Path, bench: bool) -> (String, MooncGenTest
             file_driver_output.as_os_str(),
             "--target=wasm-gc".as_ref(),
             "--pkg-name=test".as_ref(),
+            "--async-runtime-package=moonbitlang/core/async".as_ref(),
             "--driver-kind=blackbox".as_ref(),
             file.as_os_str(),
         ]

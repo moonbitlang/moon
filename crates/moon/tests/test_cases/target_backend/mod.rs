@@ -8,23 +8,23 @@ fn test_target_backend_cli_wiring_smoke() {
     check(
         get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
+            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
         "#]],
     );
-    check(
-        get_stdout(
-            &dir,
-            ["run", "main", "--dry-run", "--target", "js", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
-            node --enable-source-maps ./_build/js/debug/build/main/main.js
-        "#]],
-    );
+    moon_cmd(&dir)
+        .args(["run", "main", "--dry-run", "--target", "js", "--nostd"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
+[..]node[..] --enable-source-maps ./_build/js/debug/build/main/main.js
+
+"#]],
+        );
 }
 
 fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
@@ -49,7 +49,7 @@ fn assert_preferred_target_conflict_warning(stderr: &str) {
     );
 }
 
-fn assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
+fn assert_conflicting_workspace_preferred_targets_default_to_wasm(
     command: &str,
     stdout: &str,
     stderr: &str,
@@ -57,15 +57,12 @@ fn assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
     assert_preferred_target_conflict_warning(stderr);
     assert_contains_and_absent(
         stdout,
-        &[
-            "./_build/wasm-gc/",
-            "-target wasm-gc",
-            "./js_preferred/src/lib/extra.wasm-gc.mbt",
-            "./native_preferred/src/lib/extra.wasm-gc.mbt",
-        ],
+        &["./_build/wasm/", "-target wasm"],
         &[
             "./js_preferred/src/lib/extra.js.mbt",
+            "./js_preferred/src/lib/extra.wasm-gc.mbt",
             "./native_preferred/src/lib/extra.native.mbt",
+            "./native_preferred/src/lib/extra.wasm-gc.mbt",
         ],
     );
     assert!(
@@ -193,6 +190,59 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
 }
 
 #[test]
+fn test_moon_build_package_selection_uses_user_log_policy() {
+    let dir = TestDir::new("supported_targets_empty.in");
+    let assert = moon_cmd(&dir)
+        .args([
+            "build",
+            "lib",
+            "never",
+            "--verbose",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+        ])
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
+
+    assert!(
+        stderr.lines().any(|line| line == message),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains(&format!("Info: {message}")),
+        "stderr: {stderr}"
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        ["build", "lib", "never", "--target", "wasm-gc", "--dry-run"],
+    );
+    assert!(!stderr.contains(message), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_build_package_selection_preserves_warning_labels() {
+    let dir = TestDir::new("hello");
+
+    moon_cmd(&dir)
+        .args([
+            "build",
+            "--package",
+            "moonbitlang/core/array",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+Warning: Package 'moonbitlang/core/array' matched by name 'moonbitlang/core/array' is not in the main module, it may not be accessible.
+
+"#]]);
+}
+
+#[test]
 fn test_mixed_backend_split_check_keeps_single_package_patch_file_rule() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
@@ -258,12 +308,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
             "./shared/shared.mbt",
             "./web/main.mbt",
             "./deps/jsdep/lib/lib.mbt",
-        ],
-        &[
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let bundle_native = get_stdout(
@@ -276,12 +323,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
             "./shared/shared.mbt",
             "./server/main.mbt",
             "./deps/nativedep/lib/lib.mbt",
-        ],
-        &[
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
             "./deps/unuseddep/lib/lib.mbt",
         ],
+        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 }
 
@@ -354,6 +398,49 @@ fn test_supported_targets_empty_list_is_never_selected() {
 }
 
 #[test]
+fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
+    let dir = TestDir::new("supported_targets_empty.in");
+    let assert = moon_cmd(&dir)
+        .args(["info", "lib", "never", "--verbose", "--target", "wasm-gc"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
+
+    assert!(
+        stderr.lines().any(|line| line == message),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains(&format!("Info: {message}")),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_moon_info_quiet_keeps_command_result_and_suppresses_user_log() {
+    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let assert = moon_cmd(&dir)
+        .args(["info", "--target", "js", "--no-alias", "--quiet"])
+        .assert()
+        .success()
+        .stderr_eq("");
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    assert!(
+        stdout.contains(
+            "Package mixed/localdep/shared has requested interfaces different from canonical backend"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("pub fn shared_banner() -> String"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
     let dir = TestDir::new("supported_targets_module_intersection.in");
 
@@ -376,13 +463,14 @@ fn test_packages_json_contains_computed_supported_targets() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["check", "--sort-input"])
+        .args(["check", "--target", "wasm-gc", "--sort-input"])
         .assert()
         .success();
 
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
-            .unwrap();
+    let packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "wasm-gc", "debug")).unwrap(),
+    )
+    .unwrap();
     let packages = packages_json["packages"].as_array().unwrap();
 
     let lib = packages.iter().find(|pkg| pkg["rel"] == "lib").unwrap();
@@ -421,6 +509,93 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
     assert!(run_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("supports [native]"));
+}
+
+#[test]
+fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend() {
+    let dir = TestDir::new("workspace_conflicting_run_preferred_targets.in");
+
+    let js_stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "js_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    let js_stderr = get_stderr(
+        &dir,
+        [
+            "run",
+            "js_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    assert!(
+        !js_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {js_stderr}"
+    );
+    assert_contains_and_absent(
+        &js_stdout,
+        &["./_build/js/", "-target js"],
+        &["./_build/wasm-gc/", "./_build/native/", "-target wasm-gc"],
+    );
+
+    let native_stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "native_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    let native_stderr = get_stderr(
+        &dir,
+        [
+            "run",
+            "native_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    assert!(
+        !native_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {native_stderr}"
+    );
+    assert_contains_and_absent(
+        &native_stdout,
+        &["./_build/native/", "-target native"],
+        &["./_build/wasm-gc/", "./_build/js/", "-target wasm-gc"],
+    );
+}
+
+#[test]
+fn test_run_without_module_preference_ignores_unrelated_module_preference() {
+    let dir = TestDir::new("workspace_run_default_target_with_unrelated_preference.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "app/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+
+    assert_contains_and_absent(
+        &stdout,
+        &["./_build/wasm/", "-target wasm"],
+        &["./_build/js/", "-target js"],
+    );
 }
 
 #[test]
@@ -479,7 +654,7 @@ fn test_check_warns_when_test_target_is_never_realizable() {
     assert!(stderr.contains("Skipping whitebox tests for package"));
     assert!(stderr.contains("Skipping blackbox tests for package"));
     assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("unrealizable on every backend"));
+    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
 }
 
 #[test]
@@ -490,7 +665,7 @@ fn test_test_warns_when_test_target_is_never_realizable() {
     assert!(stderr.contains("Skipping whitebox tests for package"));
     assert!(stderr.contains("Skipping blackbox tests for package"));
     assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("unrealizable on every backend"));
+    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
 }
 
 #[test]
@@ -504,6 +679,7 @@ fn test_check_skips_backend_mismatched_tests_as_info() {
     assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
     assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
     assert!(verbose_stderr.contains("target is not realizable for this backend"));
+    assert!(!verbose_stderr.contains("Info: Skipping"));
 }
 
 #[test]
@@ -517,10 +693,18 @@ fn test_missing_supported_targets_root_warns_when_dep_declares() {
 
 #[test]
 fn test_legacy_supported_targets_warning_is_local_only() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
-    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
+    let dir = TestDir::new("supported_targets_legacy_warning.in");
+    let moon_home = tempfile::tempdir().unwrap();
+    let files = ["moon.mod", "lib/moon.pkg"]
+        .map(|path| (path, std::fs::read(dir.join("dep").join(path)).unwrap()));
+    cache_registry_package(moon_home.path(), "local/jsdep", "0.1.0", &files);
+    let stderr = get_stderr_with_envs(
+        &dir,
+        ["check", "--target", "js", "--dry-run"],
+        [("MOON_HOME", moon_home.path())],
+    );
     assert!(stderr.contains("Package `mixed/localdep/web` uses legacy array syntax"));
-    assert!(!stderr.contains("Package `mixed/localdep/jsdep` uses legacy array syntax"));
+    assert!(!stderr.contains("Package `local/jsdep/lib` uses legacy array syntax"));
 }
 
 #[test]
@@ -601,28 +785,50 @@ fn test_check_paths_split_by_module_preferred_targets() {
 }
 
 #[test]
-fn test_check_last_executed_backend_wins_for_packages_json() {
+fn test_check_publishes_backend_scoped_packages_json() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     get_stdout(&dir, ["check", "--sort-input"]);
-    let packages_json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
+    let packages_selector: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_selector_path(&dir)).unwrap())
             .unwrap();
+    let packages_index: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(packages_index_path(&dir)).unwrap()).unwrap();
+    let js_packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "js", "debug")).unwrap(),
+    )
+    .unwrap();
+    let native_packages_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scoped_packages_json_path(&dir, "native", "debug")).unwrap(),
+    )
+    .unwrap();
 
-    assert_eq!(packages_json["backend"], serde_json::json!("native"));
+    assert_eq!(
+        packages_selector,
+        serde_json::json!({
+            "backend": "native",
+            "opt_level": "debug"
+        })
+    );
+    assert_eq!(packages_index, serde_json::json!(["js", "native"]));
+    assert_eq!(js_packages_json["backend"], serde_json::json!("js"));
+    assert_eq!(native_packages_json["backend"], serde_json::json!("native"));
+    assert_eq!(js_packages_json["opt_level"], serde_json::json!("debug"));
+    assert_eq!(
+        native_packages_json["opt_level"],
+        serde_json::json!("debug")
+    );
 }
 
 #[test]
-fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_other_commands() {
+fn test_conflicting_workspace_preferred_targets_default_to_wasm_across_other_commands() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
     let commands = [("bundle", &["bundle", "--dry-run", "--sort-input"][..])];
 
     for (command, args) in commands {
         let stdout = get_stdout(&dir, args.iter().copied());
         let stderr = get_stderr(&dir, args.iter().copied());
-        assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
-            command, &stdout, &stderr,
-        );
+        assert_conflicting_workspace_preferred_targets_default_to_wasm(command, &stdout, &stderr);
     }
 }
 

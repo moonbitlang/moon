@@ -1,27 +1,25 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
-
 use moonutil::{
-    common::TargetBackend,
-    compiler_flags::CC,
-    mooncakes::{ModuleId, result::ResolvedEnv},
+    compiler_flags::{CompilerPaths, NativeAllocator},
+    resolution::{ModuleDependencyGraph, ModuleId},
+    target::TargetBackend,
 };
 
 use crate::discover::DiscoverResult;
@@ -31,41 +29,106 @@ slotmap::new_key_type! {
     pub struct PackageId;
 }
 
-/// User-visible backend selected for the build and run artifact shape.
+/// The selected backend and its backend-specific compile configuration.
 ///
-/// This mirrors [`TargetBackend`] and intentionally does not encode native C
-/// compiler or execution-tool choices.
-#[derive(Clone, Debug, Copy, PartialEq)]
-pub enum RunBackend {
-    WasmGC,
-    Wasm,
+/// This is the single source of truth after the user-visible target backend is
+/// resolved. Keeping backend-specific options inside the matching variant
+/// prevents invalid combinations such as WASI linking on a Native build.
+/// Native payload form is derived by planning and is not a caller option.
+#[derive(Clone, Debug)]
+pub enum BackendConfig {
+    Wasm {
+        use_wat: bool,
+        wasi_link: bool,
+        /// Select the MoonBit TLSF allocator when linking linear-memory Wasm.
+        new_allocator: bool,
+        collect_ref_cycle: bool,
+    },
+    WasmGc {
+        use_wat: bool,
+    },
     Js,
-    Native,
-    Llvm,
+    Native {
+        /// Direct object target permitted by the caller's host/environment.
+        /// Planning may still select generated C based on profile and packages.
+        direct_object_candidate: Option<NativeTarget>,
+        allocator: NativeAllocator,
+        /// Enable cycle collection in the native runtime for either payload form.
+        collect_ref_cycle: bool,
+        /// Supplied by command orchestration; RR does not infer the host OS.
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
+    Llvm {
+        allocator: NativeAllocator,
+        os: OperatingSystem,
+        compiler_paths: CompilerPaths,
+    },
 }
 
 pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
 
+/// Debug requirements selected by the caller before backend planning.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DebugInfoRequest {
+    pub symbols: DebugSymbols,
+    /// Request native runtime backtrace reporting independently of compiler
+    /// debug information. This alone does not guarantee source locations.
+    pub runtime_backtrace: bool,
+}
+
+/// Requested symbol detail, resolved after planning selects the payload form.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DebugSymbols {
+    #[default]
+    None,
+    /// Retain enough information to report MoonBit source locations on failure.
+    Backtrace,
+    Full,
+}
+
 /// Concrete native object-code backend selected under the `native` surface target.
 ///
-/// `RunBackend::Native` remains the user-visible native backend. This type
+/// `TargetBackend::Native` remains the user-visible native backend. This type
 /// only describes the experimental direct object-code lowering used behind it.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum NativeTarget {
     Aarch64AppleDarwin,
+    X86_64UnknownLinuxGnu,
+    X86_64PcWindowsMsvc,
+}
+
+/// The native implementation selected under the user-visible `native` backend.
+#[derive(Clone, Debug)]
+pub(crate) enum NativeBackendMode {
+    /// Legacy generated-C native path.
+    GeneratedC,
+    /// Experimental direct object-code native path.
+    DirectObject(DirectNativeMode),
+}
+
+/// Concrete direct object-code native implementation.
+#[derive(Clone, Debug)]
+pub(crate) enum DirectNativeMode {
+    Target(NativeTarget),
 }
 
 impl NativeTarget {
-    pub fn from_env_for_host() -> Option<Self> {
-        if std::env::var(ENV_MOONBIT_NEW_NATIVE).as_deref() != Ok("1") {
-            return None;
-        }
-        Self::from_host(std::env::consts::ARCH, std::env::consts::OS)
+    /// Interpret caller-supplied host and `MOONBIT_NEW_NATIVE` observations.
+    pub fn from_host_with_new_native_env(
+        arch: &str,
+        os: &str,
+        env_value: Option<&str>,
+    ) -> Option<Self> {
+        let target = Self::from_host(arch, os)?;
+        (env_value != Some("0")).then_some(target)
     }
 
     pub fn from_host(arch: &str, os: &str) -> Option<Self> {
         match (arch, os) {
             ("aarch64", "macos") => Some(Self::Aarch64AppleDarwin),
+            ("x86_64", "linux") => Some(Self::X86_64UnknownLinuxGnu),
+            ("x86_64", "windows") => Some(Self::X86_64PcWindowsMsvc),
             _ => None,
         }
     }
@@ -73,47 +136,86 @@ impl NativeTarget {
     pub fn moonc_target_flag(self) -> &'static str {
         match self {
             Self::Aarch64AppleDarwin => "aarch64-apple-darwin",
+            Self::X86_64UnknownLinuxGnu => "x86_64-unknown-linux-gnu",
+            Self::X86_64PcWindowsMsvc => "x86_64-pc-windows-msvc",
         }
     }
 }
 
-/// Configuration for the optional native `tcc -run` path.
-///
-/// Normal native execution, LLVM execution, and all non-native backends do not
-/// carry this value.
-#[derive(Clone, Debug)]
-pub struct TccRunConfig {
-    internal_tcc: CC,
-}
-
-impl TccRunConfig {
-    pub fn new(internal_tcc: CC) -> Self {
-        Self { internal_tcc }
+impl NativeBackendMode {
+    pub fn direct_target(&self) -> Option<NativeTarget> {
+        self.direct_native_mode().map(DirectNativeMode::target)
     }
 
-    pub fn internal_tcc(&self) -> &CC {
-        &self.internal_tcc
+    pub fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
+        match self {
+            Self::DirectObject(mode) => Some(mode),
+            Self::GeneratedC => None,
+        }
     }
 }
 
-impl RunBackend {
-    pub fn is_native(self) -> bool {
-        matches!(self, RunBackend::Native | RunBackend::Llvm)
+impl BackendConfig {
+    pub fn target_backend(&self) -> TargetBackend {
+        match self {
+            Self::Wasm { .. } => TargetBackend::Wasm,
+            Self::WasmGc { .. } => TargetBackend::WasmGC,
+            Self::Js => TargetBackend::Js,
+            Self::Native { .. } => TargetBackend::Native,
+            Self::Llvm { .. } => TargetBackend::LLVM,
+        }
     }
 
-    pub fn to_target(self) -> TargetBackend {
-        self.into()
+    pub fn native_allocator(&self) -> Option<NativeAllocator> {
+        match self {
+            Self::Native { allocator, .. } | Self::Llvm { allocator, .. } => Some(*allocator),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
+        }
+    }
+
+    pub(crate) fn collect_ref_cycle(&self) -> bool {
+        match self {
+            Self::Wasm {
+                collect_ref_cycle, ..
+            }
+            | Self::Native {
+                collect_ref_cycle, ..
+            } => *collect_ref_cycle,
+            Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => false,
+        }
+    }
+
+    pub(crate) fn os(&self) -> OperatingSystem {
+        match self {
+            Self::Native { os, .. } | Self::Llvm { os, .. } => *os,
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => OperatingSystem::None,
+        }
+    }
+
+    pub(crate) fn compiler_paths(&self) -> Option<&CompilerPaths> {
+        match self {
+            Self::Native { compiler_paths, .. } | Self::Llvm { compiler_paths, .. } => {
+                Some(compiler_paths)
+            }
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
+        }
+    }
+
+    pub fn wasi_link(&self) -> bool {
+        matches!(
+            self,
+            Self::Wasm {
+                wasi_link: true,
+                ..
+            }
+        )
     }
 }
 
-impl From<RunBackend> for TargetBackend {
-    fn from(val: RunBackend) -> Self {
-        match val {
-            RunBackend::WasmGC => TargetBackend::WasmGC,
-            RunBackend::Wasm => TargetBackend::Wasm,
-            RunBackend::Js => TargetBackend::Js,
-            RunBackend::Native => TargetBackend::Native,
-            RunBackend::Llvm => TargetBackend::LLVM,
+impl DirectNativeMode {
+    pub fn target(&self) -> NativeTarget {
+        match self {
+            Self::Target(target) => *target,
         }
     }
 }
@@ -138,7 +240,9 @@ pub enum TargetKind {
     /// import list.
     InlineTest,
     /// This is the subpackage designed originally for breaking cycles in
-    /// `moonbitlang/core`. It's expected to be used sparingly.
+    /// `moonbitlang/core`. It is internal-only; manifests cannot create it.
+    /// TODO: Restore manifest support only after source subsets and linking
+    /// are implemented.
     SubPackage,
 }
 
@@ -190,9 +294,8 @@ impl PackageId {
 ///
 /// Note: You may recognize that some nodes are keyed by [`BuildTarget`] while
 /// others are keyed by just [`PackageId`] or even [`ModuleId`]. This is because
-/// some artifacts (like C stubs and prebuild scripts) are shared by every
-/// target within the package/module, so they don't need to be duplicated for
-/// each target.
+/// some backend artifacts, such as C stubs, are shared by every target within
+/// the package/module and do not need to be duplicated for each target.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum BuildPlanNode {
     /// Check the given build target
@@ -208,19 +311,7 @@ pub enum BuildPlanNode {
     /// Build the i-th C file in the C stub list.
     BuildCStub(PackageId, u32), // change into global artifact list if we need non-package ones
 
-    /// Build an archive or link all C stubs for the given package.
-    ///
-    /// Archive building is for non-TCC native targets, so they can be
-    /// referenced during linking.
-    ///
-    /// Linking is for native targets using TCC to compile. TCC can't link with
-    /// Mach-O objects, so in Linux and MacOS we directly link the C stubs into
-    /// a shared library (which is in ELF format) and load it in TCC at runtime.
-    ///
-    /// FIXME: This node is not split into two separate Archive and Link nodes
-    /// because the action is determined by the default C compiler used in this
-    /// build. In theory this should be separated for better clarity, and maybe
-    /// determined by the C compiler overrides for each build target.
+    /// Archive all C stubs for the given package.
     ArchiveOrLinkCStubs(PackageId),
 
     /// Link the `.core` file into an executable or library for the given target.
@@ -228,21 +319,30 @@ pub enum BuildPlanNode {
 
     /// The final runnable artifact for a target.
     ///
-    /// For wasm and js, `LinkCore` already emits the final `.wasm`, `.wat`, or
-    /// `.js` artifact, so this node is retained as the final artifact node but
-    /// lowers to no command.
-    ///
-    /// For native targets, the output from `LinkCore` is a C file or object
-    /// file that needs further compilation and linking to become an executable.
-    ///
-    /// In TCC mode, since linking is done at the same time as running, this
-    /// step writes a response file containing the linking flags for TCC to use.
-    /// This is to avoid leaking and coupling linking logic into the runtime
-    /// execution logic.
+    /// This action exists only for native and LLVM targets, where the output
+    /// from `LinkCore` needs native linking. Generated C first passes through
+    /// `CompileGeneratedC`. Wasm and JavaScript `LinkCore` actions provide the final
+    /// executable artifact directly.
     MakeExecutable(BuildTarget),
+
+    /// Compile generated-C `LinkCore` output into a native object.
+    ///
+    /// This action exists only when the Native backend emits generated C and
+    /// a consumer needs the payload as an object for linking or archiving.
+    CompileGeneratedC(BuildTarget),
+
+    /// Archive a foreign-library package's payload, the C stubs it links, and
+    /// the native runtime into one static library for a foreign host.
+    ArchiveForeignLibrary(PackageId),
+
+    /// Generate the macOS dSYM bundle for a linked executable.
+    GenerateDsym(BuildTarget),
 
     /// Generate test driver and metadata for the given test target.
     GenerateTestInfo(BuildTarget),
+
+    /// Generate the package boundary used to run JavaScript tests under Node.
+    GenerateNodeTestPackageConfig(PackageId),
 
     /// Generate the `.mbti` interface file for the given target's package.
     /// This does not promote the `.mbti` into the source directory.
@@ -254,19 +354,14 @@ pub enum BuildPlanNode {
     /// This is only used in the standard library `moonbitlang/core` currently.
     Bundle(ModuleId),
 
-    /// Build the shared runtime library for native targets.
+    /// Build the i-th runtime C translation unit.
+    BuildRuntimeObject(u32),
+
+    /// Archive the runtime objects into the native runtime library.
     BuildRuntimeLib,
 
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.
     BuildVirtual(PackageId),
-
-    /// Run the i-th prebuild script in the prebuild script list.
-    RunPrebuild(PackageId, u32),
-
-    /// Run the i-th prebuild rule for `moonlex` predefined prebuild.
-    RunMoonLexPrebuild(PackageId, u32),
-    /// Run the i-th prebuild rule for `moonyacc` predefined prebuild.
-    RunMoonYaccPrebuild(PackageId, u32),
 
     /// Docs build for a single selected module.
     ///
@@ -277,34 +372,6 @@ pub enum BuildPlanNode {
 }
 
 impl BuildPlanNode {
-    pub fn check(target: BuildTarget) -> Self {
-        Self::Check(target)
-    }
-
-    pub fn prove(target: BuildTarget) -> Self {
-        Self::Prove(target)
-    }
-
-    pub fn emit_proof(target: BuildTarget) -> Self {
-        Self::EmitProof(target)
-    }
-
-    pub fn build_core(target: BuildTarget) -> Self {
-        Self::BuildCore(target)
-    }
-
-    pub fn link_core(target: BuildTarget) -> Self {
-        Self::LinkCore(target)
-    }
-
-    pub fn make_executable(target: BuildTarget) -> Self {
-        Self::MakeExecutable(target)
-    }
-
-    pub fn generate_test_info(target: BuildTarget) -> Self {
-        Self::GenerateTestInfo(target)
-    }
-
     /// Extract the target from a BuildPlanNode, if it has one
     pub fn extract_target(&self) -> Option<BuildTarget> {
         match *self {
@@ -314,23 +381,31 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::CompileGeneratedC(target)
+            | BuildPlanNode::GenerateDsym(target)
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
+            | BuildPlanNode::BuildRuntimeObject(_)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
+            | BuildPlanNode::ArchiveForeignLibrary(_)
+            | BuildPlanNode::GenerateNodeTestPackageConfig(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs(_)
-            | BuildPlanNode::BuildVirtual(_)
-            | BuildPlanNode::RunPrebuild(_, _)
-            | BuildPlanNode::RunMoonLexPrebuild(_, _)
-            | BuildPlanNode::RunMoonYaccPrebuild(_, _) => None,
+            | BuildPlanNode::BuildVirtual(_) => None,
         }
     }
 
     /// Return a human-readable description for this build plan node, resolving
-    /// PackageId/ModuleId to names.
-    pub fn human_desc(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    /// PackageId/ModuleId to names and rendering its backend and target kind as
+    /// one qualifier.
+    pub(crate) fn human_desc(
+        &self,
+        env: &ModuleDependencyGraph,
+        packages: &DiscoverResult,
+        backend: &str,
+    ) -> String {
         let file_basename = |path: &std::path::Path| {
             path.file_name()
                 .and_then(|name| name.to_str())
@@ -338,30 +413,30 @@ impl BuildPlanNode {
                 .unwrap_or_else(|| path.display().to_string())
         };
 
-        let kind_suffix = |kind: TargetKind| match kind {
-            TargetKind::Source => "",
-            TargetKind::WhiteboxTest => " (whitebox test)",
-            TargetKind::BlackboxTest => " (blackbox test)",
-            TargetKind::InlineTest => " (inline test)",
-            TargetKind::SubPackage => " (subpackage)",
+        let qualifier = |kind: TargetKind| match kind {
+            TargetKind::Source => format!(" ({backend})"),
+            TargetKind::WhiteboxTest => format!(" ({backend}, whitebox test)"),
+            TargetKind::BlackboxTest => format!(" ({backend}, blackbox test)"),
+            TargetKind::InlineTest => format!(" ({backend}, inline test)"),
+            TargetKind::SubPackage => format!(" ({backend}, subpackage)"),
         };
 
-        match self {
+        let description = match self {
             BuildPlanNode::Check(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("check {}{}", fqn, kind_suffix(build_target.kind))
+                format!("check {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::EmitProof(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("emit proof {}{}", fqn, kind_suffix(build_target.kind))
+                format!("emit proof {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::Prove(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("prove {}{}", fqn, kind_suffix(build_target.kind))
+                format!("prove {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("build {}{}", fqn, kind_suffix(build_target.kind))
+                format!("build {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCStub(package_id, index) => {
                 let pkg = packages.get_package(*package_id);
@@ -373,27 +448,44 @@ impl BuildPlanNode {
             }
             BuildPlanNode::LinkCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("link {}{}", fqn, kind_suffix(build_target.kind))
+                format!("link {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+                format!("make executable {}{}", fqn, qualifier(build_target.kind))
+            }
+            BuildPlanNode::CompileGeneratedC(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "compile generated C {}{}",
+                    fqn,
+                    qualifier(build_target.kind)
+                )
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package_id) => {
+                format!("archive foreign library {}", packages.fqn(*package_id))
+            }
+            BuildPlanNode::GenerateDsym(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("generate dSYM {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::GenerateTestInfo(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!(
                     "generate test driver for {}{}",
                     fqn,
-                    kind_suffix(build_target.kind)
+                    qualifier(build_target.kind)
+                )
+            }
+            BuildPlanNode::GenerateNodeTestPackageConfig(package_id) => {
+                format!(
+                    "generate Node test package config for {}",
+                    packages.fqn(*package_id)
                 )
             }
             BuildPlanNode::GenerateMbti(build_target) => {
                 let fqn = packages.fqn(build_target.package);
-                format!(
-                    "generate mbti for {}{}",
-                    fqn,
-                    kind_suffix(build_target.kind)
-                )
+                format!("generate mbti for {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::Bundle(module_id) => {
                 let module_src = env.module_source(*module_id);
@@ -403,53 +495,29 @@ impl BuildPlanNode {
                     module_src.version()
                 )
             }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("build runtime object {index}")
+            }
             BuildPlanNode::BuildRuntimeLib => "build runtime library".to_string(),
             BuildPlanNode::BuildVirtual(package_id) => {
                 format!("build virtual {}", packages.fqn(*package_id))
-            }
-            BuildPlanNode::RunPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let cmd = &pkg.raw.pre_build.as_ref().expect("prebuild exists")[*index as usize];
-                let outputs: Vec<String> = cmd
-                    .output()
-                    .iter()
-                    .map(|path| {
-                        std::path::Path::new(path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| path.clone())
-                    })
-                    .collect();
-                let joined = if outputs.is_empty() {
-                    "(no outputs)".to_string()
-                } else {
-                    outputs.join(", ")
-                };
-                format!("prebuild script {} {}", packages.fqn(*package_id), joined)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let input = &pkg.mbt_lex_files[*index as usize];
-                let input_name = file_basename(input.as_path());
-                format!("run moonlex {} {}", packages.fqn(*package_id), input_name)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let input = &pkg.mbt_yacc_files[*index as usize];
-                let input_name = file_basename(input.as_path());
-                format!("run moonyacc {} {}", packages.fqn(*package_id), input_name)
             }
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);
                 format!("build docs {}", src)
             }
+        };
+
+        if self.extract_target().is_some() {
+            description
+        } else {
+            format!("{description} ({backend})")
         }
     }
 
     /// Return a concise, human-readable identifier resolving PackageId/ModuleId to names.
     /// Single-line and stable; suitable for filenames/labels (e.g. n2 fileloc).
-    pub fn string_id(&self, env: &ResolvedEnv, packages: &DiscoverResult) -> String {
+    pub fn string_id(&self, env: &ModuleDependencyGraph, packages: &DiscoverResult) -> String {
         match self {
             BuildPlanNode::Check(t) => {
                 let fqn = packages.fqn(t.package);
@@ -483,9 +551,25 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@MakeExecutable", fqn, t.kind)
             }
+            BuildPlanNode::CompileGeneratedC(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@CompileGeneratedC", fqn, t.kind)
+            }
+            BuildPlanNode::ArchiveForeignLibrary(pkg) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@ArchiveForeignLibrary", fqn)
+            }
+            BuildPlanNode::GenerateDsym(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@GenerateDsym", fqn, t.kind)
+            }
             BuildPlanNode::GenerateTestInfo(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@GenerateTestInfo", fqn, t.kind)
+            }
+            BuildPlanNode::GenerateNodeTestPackageConfig(pkg) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@GenerateNodeTestPackageConfig", fqn)
             }
             BuildPlanNode::GenerateMbti(t) => {
                 let fqn = packages.fqn(t.package);
@@ -495,22 +579,13 @@ impl BuildPlanNode {
                 let src = env.module_source(*mid);
                 format!("{}@Bundle", src)
             }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("BuildRuntimeObject_{index}")
+            }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildVirtual(pkg) => {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@BuildVirtual", fqn)
-            }
-            BuildPlanNode::RunPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunPrebuild_{}", fqn, idx)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunMoonLexPrebuild_{}", fqn, idx)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunMoonYaccPrebuild_{}", fqn, idx)
             }
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);
@@ -518,13 +593,6 @@ impl BuildPlanNode {
             }
         }
     }
-}
-
-/// Represents a list of artifact(s) corresponding to a single build node.
-#[derive(Clone, Debug)]
-pub struct Artifacts {
-    pub node: BuildPlanNode,
-    pub artifacts: Vec<PathBuf>,
 }
 
 /// Supported operating systems for artifact generation
@@ -565,7 +633,7 @@ impl std::str::FromStr for OperatingSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::NativeTarget;
+    use super::{DirectNativeMode, NativeTarget};
 
     #[test]
     fn native_target_selection_is_host_specific() {
@@ -574,6 +642,78 @@ mod tests {
             Some(NativeTarget::Aarch64AppleDarwin)
         );
         assert_eq!(NativeTarget::from_host("x86_64", "macos"), None);
+        assert_eq!(
+            NativeTarget::from_host("x86_64", "linux"),
+            Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
+        assert_eq!(
+            NativeTarget::from_host("x86_64", "windows"),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
+        );
         assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
+    }
+
+    #[test]
+    fn new_native_defaults_on_for_supported_hosts() {
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", None),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("1")),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("0")),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("other")),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", None),
+            Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("1")),
+            Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("0")),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("other")),
+            Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", None),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("0")),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("1")),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("other")),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "macos", Some("1")),
+            None
+        );
+    }
+
+    #[test]
+    fn direct_native_mode_carries_only_target_choice() {
+        let mode = DirectNativeMode::Target(NativeTarget::X86_64PcWindowsMsvc);
+
+        assert_eq!(mode.target(), NativeTarget::X86_64PcWindowsMsvc);
     }
 }

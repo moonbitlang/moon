@@ -1,25 +1,25 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::common::{DriverKind, TargetBackend};
+use moonutil::{target::TargetBackend, test_metadata::DriverKind};
 
 use crate::build_lower::compiler::CmdlineAbstraction;
 
@@ -75,6 +75,9 @@ pub(crate) struct MoonGenTestDriver<'a> {
 
     /// Max concurrent test limit for `async test`
     pub max_concurrent_tests: Option<u32>,
+
+    /// Package that provides the async test runtime.
+    pub async_runtime_package: &'a str,
 }
 
 impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
@@ -84,26 +87,34 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
         // Output files
         args.extend([
             "--output-driver".to_string(),
-            self.output_driver.display().to_string(),
+            dunce::simplified(&self.output_driver).display().to_string(),
         ]);
         args.extend([
             "--output-metadata".to_string(),
-            self.output_metadata.display().to_string(),
+            dunce::simplified(&self.output_metadata)
+                .display()
+                .to_string(),
         ]);
 
         // Input files
         for file in self.files {
-            args.push(file.display().to_string());
+            args.push(dunce::simplified(file).display().to_string());
         }
 
         // Doctest-only files
         for file in self.doctest_only_files {
-            args.extend(["--doctest-only".to_string(), file.display().to_string()]);
+            args.extend([
+                "--doctest-only".to_string(),
+                dunce::simplified(file).display().to_string(),
+            ]);
         }
 
         // Patch file
         if let Some(patch_file) = &self.patch_file {
-            args.extend(["--patch-file".to_string(), patch_file.display().to_string()]);
+            args.extend([
+                "--patch-file".to_string(),
+                dunce::simplified(patch_file).display().to_string(),
+            ]);
         }
 
         // Configuration
@@ -112,6 +123,10 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
             self.target_backend.to_flag().to_string(),
         ]);
         args.extend(["--pkg-name".to_string(), self.pkg_name.to_string()]);
+        args.extend([
+            "--async-runtime-package".to_string(),
+            self.async_runtime_package.to_string(),
+        ]);
 
         // Bench mode
         if self.bench {

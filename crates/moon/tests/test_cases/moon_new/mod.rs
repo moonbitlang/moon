@@ -90,7 +90,7 @@ fn snapshot_layout_and_files(root: &Path) -> String {
 fn test_moon_run_main() {
     let dir = TestDir::new("moon_new/plain");
     check(
-        get_stdout(&dir, ["run", "main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -112,6 +112,8 @@ fn test_moon_new() {
                 "-C",
                 "./hello",
                 "run",
+                "--target",
+                "wasm-gc",
                 "--target-dir",
                 "./hello/target",
                 "cmd/main",
@@ -129,6 +131,8 @@ fn test_moon_new() {
                 "-C",
                 "./hello",
                 "run",
+                "--target",
+                "wasm-gc",
                 "--target-dir",
                 "./target",
                 "cmd/main",
@@ -146,6 +150,8 @@ fn test_moon_new() {
                 "-C",
                 "./hello",
                 "run",
+                "--target",
+                "wasm-gc",
                 "--target-dir",
                 "./target",
                 "cmd/main",
@@ -155,6 +161,61 @@ fn test_moon_new() {
             Hello
         "#]],
     );
+}
+
+#[test]
+fn test_moon_new_allows_pkg_id_project_names() {
+    let dir = TestDir::new_empty();
+    let valid_names = ["pkg-A", "_", "__", "_pkg", "pkg-", "pkg_", "A1-_"];
+
+    for (index, name) in valid_names.iter().enumerate() {
+        let path = format!("good{index}");
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&dir)
+            .args([
+                "new",
+                &path,
+                "--user",
+                "moonbitlang",
+                &format!("--name={name}"),
+            ])
+            .assert()
+            .success();
+    }
+
+    check(
+        get_stdout(
+            &dir.join("good0"),
+            ["run", "--target", "wasm-gc", "cmd/main"],
+        ),
+        expect![[r#"
+            Hello
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_new_rejects_invalid_pkg_id_project_names() {
+    let dir = TestDir::new_empty();
+    let invalid_names = ["", "-", "--", "-pkg", "1pkg", "pkg.name", "pkg/name"];
+
+    for (index, name) in invalid_names.iter().enumerate() {
+        let path = format!("bad{index}");
+        let args = vec![
+            "new".to_string(),
+            path.clone(),
+            "--user".to_string(),
+            "moonbitlang".to_string(),
+            format!("--name={name}"),
+        ];
+        let stderr = get_err_stderr(&dir, args);
+
+        assert!(
+            stderr.contains("Names must match package id syntax"),
+            "stderr for {name:?}: {stderr}"
+        );
+        assert!(!dir.join(path).exists());
+    }
 }
 
 #[test]
@@ -192,7 +253,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello1, ["run", "cmd/main"]),
+        get_stdout(&hello1, ["run", "--target", "wasm-gc", "cmd/main"]),
         expect![[r#"
             Hello
         "#]],
@@ -207,7 +268,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello2, ["run", "cmd/main"]),
+        get_stdout(&hello2, ["run", "--target", "wasm-gc", "cmd/main"]),
         expect![[r#"
             Hello
         "#]],
@@ -224,13 +285,13 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello3, ["test", "-v"]),
+        get_stdout(&hello3, ["test", "--target", "wasm-gc", "-v"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
     check(
-        get_stdout(&hello3, ["test"]),
+        get_stdout(&hello3, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
@@ -249,7 +310,7 @@ fn test_moon_new_new() {
         expect![[""]],
     );
     check(
-        get_stdout(&hello4, ["test", "-v"]),
+        get_stdout(&hello4, ["test", "--target", "wasm-gc", "-v"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],

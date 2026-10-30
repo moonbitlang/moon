@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -66,21 +66,24 @@ impl<'a> MoondocCommand<'a> {
 impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
     fn to_args(&self, args: &mut Vec<String>) {
         // Source directory (positional argument, first)
-        args.push(self.source_dir.display().to_string());
+        args.push(dunce::simplified(&self.source_dir).display().to_string());
 
-        // Output directory
+        // FIXME: moondoc joins package paths with `/`, which is invalid beneath
+        // a verbatim Windows prefix. Use the compatible spelling until it
+        // supports extended paths; documentation can still hit MAX_PATH when
+        // moondoc appends package names to this directory internally.
         args.push("-o".to_string());
-        args.push(self.output_dir.display().to_string());
+        args.push(dunce::simplified(&self.output_dir).display().to_string());
 
         // Standard library path
         if let Some(std_path) = &self.std_path {
             args.push("-std-path".to_string());
-            args.push(std_path.display().to_string());
+            args.push(dunce::simplified(std_path).display().to_string());
         }
 
         // Packages metadata file
         args.push("-packages-json".to_string());
-        args.push(self.packages_json.display().to_string());
+        args.push(dunce::simplified(&self.packages_json).display().to_string());
 
         // Serve mode (optional)
         if self.serve_mode {

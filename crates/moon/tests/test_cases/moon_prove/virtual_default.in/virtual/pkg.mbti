@@ -1,0 +1,3 @@
+package "username/prove_virtual/virtual"
+
+fn id(Int) -> Int

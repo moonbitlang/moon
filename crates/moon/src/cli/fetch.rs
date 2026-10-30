@@ -1,31 +1,33 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
 use colored::Colorize;
-use mooncake::registry::Registry;
+use mooncake::{
+    pkg::legacy_postadd,
+    registry::{RegistryClient, path::parse_module_path},
+};
 use moonutil::{
-    dirs::PackageDirs,
-    mooncakes::{ModuleName, RegistryConfig},
+    child_process::{ChildOutputMode, ManagedChildRunner},
+    project::PackageDirs,
+    user_log::UserLog,
 };
 
-use super::UniversalFlags;
-use crate::user_diagnostics::UserDiagnostics;
+use super::{UniversalFlags, registry_queries};
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -37,88 +39,46 @@ pub(crate) struct FetchSubcommand {
     #[clap(value_name = "MODULE[@VERSION]")]
     pub package_path: String,
 
-    /// Do not update the registry index before fetching
+    /// Do not refresh registry metadata before fetching
     #[clap(long)]
     pub no_update: bool,
 }
 
-pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
-    let index_dir = moonutil::moon_dir::index();
-    let mut index_updated = false;
+pub(crate) fn fetch_cli(
+    cli: UniversalFlags,
+    cmd: FetchSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let path = parse_module_path(&cmd.package_path)?;
+    let registry = RegistryClient::configured(user_log);
 
-    if !cmd.no_update {
-        let had_index = index_dir.exists();
-        let registry_config = RegistryConfig::load();
-        match mooncake::update::update(&index_dir, &registry_config) {
-            Ok(_) => index_updated = true,
-            Err(e) => {
-                if had_index {
-                    output.warn(format!(
-                        "failed to update registry index, continuing with existing index: {e}"
-                    ));
-                } else {
-                    return Err(e);
-                }
-            }
-        }
+    let allow_remote = !cmd.no_update;
+    let module = registry_queries::resolve_module(
+        &registry,
+        path.module_request()?,
+        allow_remote,
+        user_log,
+    )?;
+    let pkg_name = module.name();
+    let version = module.version();
+    if path.version.is_none() && !cli.quiet {
+        println!("Latest version of {pkg_name} is {version}");
     }
-
-    let package_path = cmd.package_path;
-    let parts: Vec<&str> = package_path.splitn(2, '@').collect();
-
-    let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if author_pkg.len() != 2 || author_pkg[0].is_empty() || author_pkg[1].is_empty() {
-        bail!("registry module name must be in the form of <author>/<module_name>[@<version>]");
-    }
-    let username = author_pkg[0];
-    let pkgname = author_pkg[1];
-    let pkg_name = ModuleName {
-        username: username.into(),
-        unqual: pkgname.into(),
-    };
-
-    let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
-
-    let version = if parts.len() == 2 {
-        let version_str = parts[1];
-        version_str.parse()?
-    } else {
-        let latest_version = registry
-            .get_latest_version(&pkg_name)
-            .ok_or_else(|| {
-                if index_updated {
-                    anyhow::anyhow!(
-                        "Could not find the latest published version of `{pkg_name}` in the registry"
-                    )
-                } else {
-                    anyhow::anyhow!(
-                        "Could not find the latest published version of `{pkg_name}` in the registry. Please consider running `moon update` to update the index."
-                    )
-                }
-            })?
-            .version
-            .clone()
-            .unwrap();
-        if !cli.quiet {
-            println!("Latest version of {pkg_name} is {latest_version}");
-        }
-        latest_version
-    };
 
     // If we are under a project, put it into `.repos` next to `.mooncakes`
     let source_dir = match cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())
-        .and_then(|mut query| query.package_dirs())
+        .and_then(|query| query.select(user_log))
+        .and_then(|project| project.package_dirs())
     {
         Ok(PackageDirs { source_dir, .. }) => source_dir,
         Err(_) => std::env::current_dir()?,
     };
     let repo_dir = source_dir.join(".repos");
     let pkg_dir = repo_dir
-        .join(username)
-        .join(pkgname)
+        .join(&*pkg_name.username)
+        .join(&*pkg_name.unqual)
         .join(version.to_string());
 
     if pkg_dir.exists() {
@@ -137,7 +97,9 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
         println!("Fetching {}@{version} to {}", pkg_name, pkg_dir.display());
     }
 
-    registry.install_to(&pkg_name, &version, &pkg_dir, cli.quiet)?;
+    registry.materialize_source_to(&module, &pkg_dir, user_log)?;
+    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
+    legacy_postadd::run(&pkg_dir, &child)?;
 
     if !cli.quiet {
         println!(

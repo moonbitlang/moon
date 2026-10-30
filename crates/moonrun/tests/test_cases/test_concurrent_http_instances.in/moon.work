@@ -1,0 +1,4 @@
+members = [
+  ".",
+  "../../../../../third_party/moonbitlang_async",
+]

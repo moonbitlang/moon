@@ -1,5 +1,5 @@
 use super::*;
-use moonutil::common::BUILD_DIR;
+use moonutil::constants::BUILD_DIR;
 
 #[test]
 #[ignore = "not implemented"]

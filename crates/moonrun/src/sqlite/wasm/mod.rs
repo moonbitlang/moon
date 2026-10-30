@@ -1,0 +1,53 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Backend-neutral SQLite import definitions and ABI validation.
+//!
+//! The `sqlite3_*` imports keep SQLite-shaped operations while adapting native
+//! pointers to a portable wasm ABI. Guest-memory pointers are unsigned wasm
+//! `i32` offsets, while SQLite-owned objects and the reserved VFS parameter are
+//! opaque `u64` Handles. The guest obtains their shared null value at runtime
+//! through `sqlite3_null_handle`.
+//!
+//! UTF-16 inputs and outputs use the little-endian code units stored by wasm.
+//! `sqlite3_prepare16_v2` receives a backing String plus a code-unit offset and
+//! length, and returns `pzTail` as an absolute code-unit offset in that same
+//! String. This preserves multiple-statement and `StringView` semantics without
+//! exposing a runtime-specific address. UTF-16 and blob bindings are copied by
+//! SQLite before the Guest Memory borrow ends. Error messages and variable-size
+//! columns use length-and-copy pairs instead of exposing borrowed native
+//! pointers. Column names follow the same length-and-copy convention. SQLite
+//! behavior and policy belong to the parent `sqlite` module. This layer checks
+//! decoded values and Guest Memory; backend adapters own engine-value conversion,
+//! memory acquisition, and result and trap conversion.
+//! One-shot jobs copy inputs before submission, capture owned results, and use
+//! the existing async pool for scheduling and completion. Prepare tails are relative
+//! to the copied SQL view. See `docs/dev/sqlite-jobs.md` for ownership rules.
+//! Callback-bearing extension APIs, varargs, process-global configuration, and
+//! custom VFSes are not supported.
+
+mod bind;
+mod column;
+mod connection;
+mod context;
+mod jobs;
+mod registry;
+mod statement;
+
+pub(crate) const MOONBIT_SQLITE_MODULE: &str = "moonbitlang/sqlite";
+pub(crate) use registry::register;

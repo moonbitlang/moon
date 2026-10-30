@@ -1,0 +1,347 @@
+# Global build state and cache design
+
+## Status
+
+This document records the intended direction for global dependency and build
+caches. Cache-root configuration and cleaning are implemented. Standalone
+`moon run` inputs reuse immutable registry dependency sources through the
+dependency cache. The pure canonical identity calculation for execution actions
+is also implemented in `moonbuild::execution::action_identity`, but builds do
+not yet read from or write to the global artifact cache and identity calculation
+is not connected to execution.
+
+## Problem
+
+Standalone commands such as `moon run -e` and `moon run mbtx` repeatedly
+download, unpack, and compile the same dependencies. Reusing one mutable
+`_build` directory is not a safe solution: concurrent or differently
+configured invocations can overwrite each other's state. Keeping every
+invocation entirely private avoids conflicts but wastes work, especially when
+most of the package graph is unchanged.
+
+Moon therefore needs two different global facilities:
+
+- a dependency-source cache for acquired and prepared package sources; and
+- a build cache for reusable compiler outputs such as `.mi` and `.core`.
+
+Mutable work directories remain private to an invocation. This separation is
+the central design constraint: globally share immutable inputs and validated
+outputs, never a live `_build` tree.
+
+## Decision summary
+
+| State | Owner and lifetime | Shared? |
+| --- | --- | --- |
+| Downloaded or prepared dependency sources | Dependency cache | Yes, immutable after publication |
+| Compiler artifacts (`.mi`, `.core`, and related outputs) | Build cache | Yes, after complete validation |
+| Compiler temporaries and generated working files | Invocation `_build` | No |
+| Final user-requested output | Command or project | No implicit global path |
+
+Source acquisition and compiler outputs have different identities, lifetimes,
+and cleanup rules, so they use separate caches. An artifact is reusable only
+when all compiler-observable inputs have the same identity. Directory names
+are for storage organization, not correctness.
+
+“Immutable after publication” is currently a cache contract, not filesystem
+enforcement. Module prebuild configuration still runs with the shared source
+directory as its working directory and can mutate it. Such mutation is
+unsupported; package authors and users are responsible for keeping prebuild
+configuration read-only with respect to dependency sources until Moon gains a
+private-copy or sandboxed prebuild model.
+
+## Implemented public seam
+
+Two environment variables select the cache roots:
+
+| Variable | Unset | `off` | Absolute path |
+| --- | --- | --- | --- |
+| `MOON_DEP_CACHE` | `$MOON_HOME/cache/deps` | Disable dependency caching | Use that dependency-cache root |
+| `MOON_BUILD_CACHE` | `$MOON_HOME/cache/build` | Disable build caching | Use that build-cache root |
+
+A relative path is rejected. `off` means that a build uses project-local or
+invocation-private state instead of the corresponding global cache. For a
+disabled dependency cache, dependencies still have to be downloaded and
+prepared privately; disabling the cache does not disable dependency
+resolution.
+
+`MOON_DEP_CACHE` currently affects registry dependencies of standalone
+`moon run` inputs: persistent `.mbt` and `.mbtx` files, inline `-e` programs,
+and stdin programs passed as `-`. Single-file check and test commands retain
+private dependency directories. Whenever a standalone command uses private
+dependencies, its `.mooncakes` directory lives under the per-script build root
+(for example, `_build/script.mbtx/.mooncakes`) and follows `--target-dir`.
+Ordinary projects and workspaces retain their project-local dependency
+directories.
+`MOON_BUILD_CACHE` still configures and cleans its future root only.
+
+HTTP registry metadata uses the same cache-root ownership and cleanup rules,
+with `MOON_REGISTRY_CACHE` and `moon clean --registry-cache`. Its separate
+layout is described in [Moon home layout](../reference/moon-home-layout.md).
+
+Canonical action identity is also implemented as a pure consumer of the Rupes
+Recta `ExecutionPlan`. It is not connected to build execution or either cache
+root yet.
+
+### Cleaning
+
+`moon clean` keeps its existing meaning and removes the project's local build
+directory. Global state is explicit:
+
+```text
+moon clean --dep-cache
+moon clean --build-cache
+moon clean --dep-cache --build-cache
+```
+
+When either cache flag is present, only the selected global cache roots are
+cleaned; the local `_build` is left alone. A disabled or missing root is a
+successful no-op, so these commands work outside a project.
+
+Cleaning is an explicit maintenance operation and does not acquire a lease
+from active readers. Users must not run `moon clean --dep-cache` concurrently
+with a command consuming shared dependency sources; doing so may make the
+active command fail. Consumption-lifetime coordination is deferred until the
+cache needs stronger operational guarantees.
+
+Deleting a user-configurable absolute path is dangerous. Moon therefore
+removes a non-empty root only when it contains Moon's matching ownership
+marker. Empty roots may be removed, and symlinked or unrecognized roots are
+refused. The marker is lifecycle safety metadata, not a promise about the
+future data layout.
+
+Initialization performs the same ownership checks before writing anything
+inside an existing root. An unrecognized non-empty directory is therefore left
+byte-for-byte unchanged, including any unrelated `.moon.lock`. An empty root
+is claimed with an exclusively created ownership marker; concurrent
+initializers may observe and validate that marker, but do not need to create a
+lock file before the root is owned.
+
+## Why `module@version` is not an artifact key
+
+A dependency source can be identified by a resolved module version, but its
+compiled interface cannot. Moon's version selection resolves one graph for the
+whole invocation. If that resolution selects a different version of an
+upstream package, a downstream package's `.mi` or `.core` can change even when
+the downstream source and version do not.
+
+For example, suppose `D` depends on `B` and `C`, while `B` requests `A@v1` and
+`C` requests `A@v2`. Resolution selects one version of `A` for the invocation.
+If `B` is compiled against the selected `A@v2`, its artifact cannot be assumed
+equivalent to an earlier `B` artifact compiled against `A@v1`.
+
+Moon does not guarantee that `.mi` or `.core` is invariant under such an
+upstream change. The cache must conservatively identify a complete compilation
+action, not merely a package version.
+
+## Artifact identity
+
+Artifact identity has three concepts:
+
+- **Action ID:** a digest of everything that can affect the compilation.
+- **Output ID:** a digest of the complete published result.
+- **Action record:** a small mapping from an action ID to its output ID and
+  output metadata.
+
+An action ID should include, in a deterministic encoding:
+
+- package source contents and relevant generated inputs;
+- compiler and tool identities;
+- target and all compiler options that affect emitted artifacts;
+- the exact resolved dependency graph visible to the action;
+- identities of imported dependency interfaces; and
+- environment values only when the compiler action actually observes them.
+
+This list is semantic, not a fixed serialization format. The first artifact
+cache implementation should begin from the compiler action already produced by
+Rupes Recta and audit every input at that boundary. It should prefer a
+conservative dependency set over an unsound hit. Later measurements can narrow
+the key to the interfaces actually read.
+
+The canonical lowering-boundary identity uses BLAKE3 and treats structured
+argv as the primary command semantics. It also includes the selected executor
+transport command, the effective explicit-or-inherited working directory,
+response-file path and contents, the effective inherited-plus-action
+environment, external input path and contents, output artifacts, and recursive
+producer identities. A producer edge contributes the producer digest, logical
+artifact kind, and concrete paths. Opaque numeric action IDs are only lookup
+keys within one lowering and never enter a persistent identity.
+
+For migrated package compilation outputs, the logical artifact kind is the
+exact `ArtifactKey` variant. Check MI, Build MI, Core IR, and virtual-contract
+MI therefore remain distinct through canonical action identity even when two
+variants currently resolve to the same physical suffix or path layout.
+
+The identity does not rewrite paths or interpret command text. Structured argv,
+the selected transport command, response-file contents, environment values,
+and every path are hashed exactly as lowering produced them. Moving a source,
+toolchain, work directory, or output therefore causes a conservative miss even
+when file contents are unchanged. Dependency and external-input sets are sorted
+canonically; argv and response-file contents retain their semantic ordering.
+
+This initial identity does not claim that actions are relocatable. A cache can
+reuse only actions whose lowering produces the same physical paths. A future
+relocatable execution model must first make path-dependent tool behavior
+explicit or path-independent; rewriting only the cache key would risk an
+incorrect hit.
+
+Installed standard-library interfaces are ordinary file inputs: each compiler
+action observes the `.mi` files reachable from its direct standard-library
+dependencies, so an unrelated standard-library change does not alter its
+identity. `all_pkgs.json` is derived
+transport metadata and is not hashed by raw file contents: the reachable
+producer closure is the semantic source of dependency identities. Actions that
+still observe unmodeled directory state, such as proof execution and
+documentation generation, are ineligible, as are arbitrary prebuild shell
+payloads. Their ineligibility propagates to consumers.
+
+Native C compilation actions include their source, package-local headers, the
+selected Moon toolchain include tree, resolved compiler binary, argv, effective
+working directory, and environment. Moon-owned runtime objects and archives
+that command construction selects are also explicit file inputs. Their
+physical source and toolchain paths remain part of the identity. Headers
+discovered implicitly through system or SDK include paths remain a documented
+best-effort boundary in the initial model; they are not recursively scanned by
+Moon.
+
+User-provided compiler and linker flags remain unstructured strings and may
+name additional files with tool-specific syntax. An action that executes with
+such flags is cache-ineligible until those inputs have a structured lowering
+model. Moon does not guess paths by parsing arbitrary command arguments.
+
+The identity deliberately excludes n2-only graph details, diagnostics metadata,
+descriptions, and dirty-output scheduling policy. Those attributes do not
+change the produced bytes.
+
+All outputs of one action must be treated as a unit. Moon should publish
+objects first and the action record last, using staging and atomic rename where
+the platform permits. A reader must see either a complete validated result or
+a miss. Concurrent writers of the same action should be harmless.
+
+The command that requested compilation is not automatically part of the key.
+For dependency packages, `build`, `run`, and `test` may share artifacts when
+they produce the same compiler action. They diverge only when their actual
+inputs or requested outputs differ.
+
+## Targets, cross compilation, and build constraints
+
+`.mi` and `.core` are target-dependent. Target information therefore belongs
+in the action ID from the beginning. It should not be represented only by a
+new directory layer, because future configuration will include more than one
+axis and some axes do not apply to every backend.
+
+Moon does not yet need to invent an OS and architecture for JavaScript, Wasm,
+or WasmGC. A future target descriptor can encode only applicable facts, for
+example backend plus optional operating system, architecture, ABI, and runtime
+capabilities. Native cross-checking can then select explicit OS and
+architecture values without changing the cache's correctness model.
+
+Conditional source selection should produce one explicit build configuration
+for each invocation. Dependency-requested feature unification is not part of
+this design. A future build-tag or `cfg` design should:
+
+- resolve to one explicit build configuration for an invocation;
+- participate in source selection before action IDs are computed;
+- include the resulting compiler-observable configuration in action IDs; and
+- avoid exposing cache paths as the user interface for selecting a target.
+
+This leaves syntax and policy open while fixing the invariant that different
+effective programs cannot share an action ID.
+
+## Standalone execution
+
+The desired standalone flow is:
+
+1. Resolve the package graph.
+2. Reuse or prepare immutable dependency sources.
+3. Create a private work directory for the invocation.
+4. Reuse matching dependency artifacts by action ID.
+5. Compile misses privately and publish complete reusable results.
+6. Link or run from private state, then remove it when appropriate.
+
+The script's own rapidly changing compilation may often miss, but its stable
+dependencies can still be hits. This is the main opportunity for faster script
+startup.
+
+The implemented source-only step gives each registry `module@version` one
+canonical directory:
+
+```text
+<dependency-cache>/v1/sources/<username>/<unqualified-name>/<version>
+```
+
+As in project-local `.mooncakes`, `/` inside a legacy unqualified module name
+is escaped as `+`. The archive checksum is deliberately not a path component.
+Registry versions are treated as immutable: each published directory contains
+cache-private `.moon-source-archive-checksum` metadata recording the registry
+index's SHA-256 for the ZIP archive that produced it. Reuse requires that
+recorded value to equal the current index value and validates the module
+manifest (`moon.mod` or `moon.mod.json`). If a registry republishes the same
+version with another checksum, Moon refuses to replace or coexist with the new
+source and asks the user to run `moon clean --dep-cache` explicitly.
+
+Source acquisition reads the archive checksum once and uses that value for
+both archive verification and the published metadata. Verification and
+extraction consume the same open archive handle, so replacing the
+version-keyed download-cache path cannot change the source being published.
+Verified download-cache hits do not acquire a lock. A miss uses a persistent
+version-ZIP sibling lock file, rechecks the cache, and holds the download lock
+only through download, verification, and publication; extraction proceeds from
+the verified open handle after releasing that lock. A miss is extracted in a
+same-filesystem staging directory, validated, annotated with the checksum, and
+published by rename while holding the dependency-cache lock. Existing entries
+are never replaced or pruned during resolution. Package installation uses one
+dependency-source interface to ensure the resolved sources exist and obtain
+their paths; project-local `.mooncakes` and the shared immutable cache are
+internal storage choices.
+Compiler outputs remain invocation-local and continue through the standalone
+n2 dependency graph.
+
+`post-add` hooks will not run in globally shared prepared sources. They make
+source state mutable and can have effects that are not captured by an artifact
+key. The initial shared-source flow should reject a dependency that requires
+`post-add`, rather than execute the hook or silently skip it. A sandboxed,
+explicitly keyed hook model would require a separate design.
+
+Moving `.mooncakes` wholesale into `_build` is not a prerequisite. Acquisition,
+prepared immutable sources, mutable work, and final outputs have different
+ownership and cleanup rules and should remain separate concepts.
+
+## Delivery stages
+
+Each stage should be useful and reviewable without requiring the next:
+
+1. **Root contract and lifecycle (implemented):** environment selection,
+   disabled semantics, safe explicit cleaning, and no internal data layout.
+2. **Prepared dependency sources (implemented for standalone `moon run`):**
+   immutable publication in the dependency cache, no shared `post-add`, and
+   private fallback when caching is off. Other command families remain local.
+3. **Private standalone work:** stop sharing mutable `_build` trees between
+   standalone invocations.
+4. **Action model (implemented, not execution-wired):** define and test
+   canonical action inputs at the Rupes Recta compiler boundary, including
+   resolved interfaces and target facts.
+5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
+   with concurrency and corruption tests.
+6. **Build constraints and cross compilation:** extend the target descriptor
+   and action identity without changing storage-path semantics.
+7. **Operations:** add recency tracking, pruning, diagnostics, and format
+   migration only after real cache data exists.
+
+The next implementation should choose one stage, write a failing end-to-end
+test first, and avoid introducing speculative directory structure for later
+stages.
+
+## References
+
+- [Go module cache](https://go.dev/ref/mod#module-cache): separation of
+  downloaded module state and compiled outputs.
+- [Go build IDs](https://go.dev/src/cmd/go/internal/work/buildid.go#L26):
+  action and output identities.
+- [Go action hashing](https://go.dev/src/cmd/go/internal/work/exec.go#L260):
+  inputs used to identify a compilation action.
+- [Go build constraints](https://pkg.go.dev/cmd/go#hdr-Build_constraints):
+  per-invocation source selection.
+- [Cargo features](https://doc.rust-lang.org/cargo/reference/features.html):
+  dependency-requested feature selection and unification.
+- [Cargo fingerprints](https://doc.rust-lang.org/nightly/nightly-rustc/cargo/core/compiler/fingerprint/index.html):
+  dependency and compiler-input invalidation.

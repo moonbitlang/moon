@@ -41,7 +41,7 @@ Moon Commands and Tools
   - test_moon_fmt
   - test_moon_fmt_002 (unix only)
   - test_moon_fmt_extra_args
-  - test_moon_fmt_block_style
+  - test_moon_fmt_rejects_block_style
   - test_moon_doc_dry_run
   - test_moon_doc
   - test_tracing_value
@@ -66,7 +66,7 @@ Memory and Export Configuration
 Package Dependencies and Testing
   - test_panic
   - test_validate_import
-  - test_multi_process
+  - test_check_waits_for_target_directory_lock
   - test_internal_package
   - test_nonexistent_package
   - test_blackbox_success
@@ -92,7 +92,7 @@ Package Dependencies and Testing
 Native Backend
   - native_backend_cc_flags (unix only)
   - native_backend_cc_flags_with_env_override (unix only)
-  - test_native_backend_tcc_run (unix only)
+  - test_native_backend_system_cc_fallback (unix only)
   - test_native_stub_in_pkg_json
   - test_use_cc_for_native_release (unix only)
   - no_main_just_init
@@ -111,7 +111,6 @@ Package Management
   - mooncake_cli_smoke_test (ignored = "where to download mooncake?")
   - test_moon_check_filter_package
   - test_moon_check_package_with_patch
-  - test_moon_install_bin
   - test_postadd_script
   - test_moonbitlang_x
   - test_third_party

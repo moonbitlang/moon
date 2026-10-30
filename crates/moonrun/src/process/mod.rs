@@ -1,0 +1,408 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Wasm-backend-neutral process operations owned by one moonrun Runtime.
+//!
+//! [`HostProcess`] is the module interface used by the async host. Policy,
+//! working-directory configuration, and child provenance stay above the
+//! private [`ambient`] implementation, which owns native operating-system
+//! execution. Supervised Runs instead resolve guest process identities and
+//! waits within their virtual process tree.
+
+mod ambient;
+mod job;
+mod lookup;
+mod moon;
+mod spawn;
+#[cfg(test)]
+mod tests;
+
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(windows)]
+use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::policy::{PolicyInheritance, ProcessPolicy};
+use crate::resource::ResourceRef;
+use crate::runtime::{Stdio, WorkingDirectory};
+
+pub(crate) use job::Job;
+pub(crate) use job::SpawnOptions;
+
+/// Process operations and child ownership shared by guest and worker threads.
+#[derive(Clone)]
+pub(crate) struct HostProcess {
+    policy: Option<ProcessPolicy>,
+    policy_inheritance: Option<PolicyInheritance>,
+    working_directory: Arc<WorkingDirectory>,
+    stdio: Arc<Stdio>,
+    child_authority: Option<Arc<ChildAuthorityState>>,
+    context: Option<crate::process_tree::ProcessContext>,
+    environment: Arc<crate::runtime::Env>,
+}
+
+#[derive(Default)]
+struct ChildAuthorityState {
+    // PID authority and stable-handle provenance must change atomically.
+    inner: Mutex<ChildAuthorityStateInner>,
+}
+
+#[derive(Default)]
+struct ChildAuthorityStateInner {
+    owned_child_pids: HashSet<i32>,
+    process_handle_pids: HashMap<u64, i32>,
+}
+
+impl HostProcess {
+    pub(crate) fn new(
+        policy: Option<ProcessPolicy>,
+        policy_inheritance: Option<PolicyInheritance>,
+        working_directory: Arc<WorkingDirectory>,
+        stdio: Arc<Stdio>,
+        context: Option<crate::process_tree::ProcessContext>,
+        environment: Arc<crate::runtime::Env>,
+    ) -> Self {
+        // Enforced process policy needs child provenance to authorize later
+        // PID and handle operations. Ambient execution preserves direct OS
+        // behavior and therefore does not create authority state.
+        let child_authority = policy
+            .is_some()
+            .then(|| Arc::new(ChildAuthorityState::default()));
+        Self {
+            policy,
+            policy_inheritance,
+            working_directory,
+            stdio,
+            child_authority,
+            context,
+            environment,
+        }
+    }
+
+    pub(crate) fn context(&self) -> Option<&crate::process_tree::ProcessContext> {
+        self.context.as_ref()
+    }
+
+    pub(crate) fn pid(&self) -> i32 {
+        self.context.as_ref().map_or_else(
+            || crate::async_sys::internal::env_util::stub::get_pid() as i32,
+            |context| context.pid(),
+        )
+    }
+
+    pub(crate) fn kill(&self, pid: i32) -> AsyncHostResult<()> {
+        if let Some(context) = &self.context {
+            return context.kill(pid);
+        }
+        self.with_owned_child_pid(pid, || {
+            let _ = crate::async_sys::process::kill_process(pid);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn terminate(&self, pid: i32, signal: i32) -> AsyncHostResult<()> {
+        if let Some(context) = &self.context {
+            return context.terminate(pid, signal);
+        }
+        self.with_owned_child_pid(pid, || {
+            let _ = crate::async_sys::process::terminate_process(pid, signal);
+            Ok(())
+        })
+    }
+
+    // Native-handle paths must never reinterpret a virtual PID as an
+    // operating-system process identity.
+    fn require_ambient(&self) -> AsyncHostResult<()> {
+        if self.context.is_none() {
+            return Ok(());
+        }
+        #[cfg(unix)]
+        return Err(AsyncHostError::Native(libc::ENOTSUP));
+        #[cfg(windows)]
+        return Err(AsyncHostError::Native(
+            windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED as i32,
+        ));
+    }
+
+    pub(crate) fn wait_job(
+        &self,
+        handle: Option<ResourceRef>,
+        tracked_pid: Option<i32>,
+        pid: i32,
+    ) -> AsyncHostResult<Job> {
+        if let Some(context) = &self.context {
+            #[cfg(unix)]
+            if handle.is_some() {
+                return Err(AsyncHostError::Badf);
+            }
+            #[cfg(windows)]
+            if let Some(handle) = &handle {
+                let handle = handle.as_process()?;
+                if !handle.matches(context, pid) {
+                    return Err(AsyncHostError::PermissionDenied);
+                }
+                return Ok(Job::wait_for_virtual_process(handle.wait()));
+            }
+            return Ok(Job::wait_for_virtual_process(context.wait(pid)?));
+        }
+        // On Unix, enforced authorization must inspect this provenance before
+        // reaping, so the worker defers the final reap to HostProcess.
+        #[cfg(unix)]
+        let defer_reap_for_authorization = self.child_authority.is_some();
+        Job::wait_for_process(
+            handle,
+            tracked_pid,
+            pid,
+            #[cfg(unix)]
+            defer_reap_for_authorization,
+        )
+    }
+
+    /// Interpret and authorize a job once, before handing owned execution
+    /// inputs to an OS primitive or the Engine's virtual child admission.
+    pub(crate) fn prepare_job(&self, job: &mut Job) -> AsyncHostResult<()> {
+        job.prepare(self)
+    }
+
+    pub(crate) fn finish_job(&self, job: &Job, ret: i64, err: i32) -> AsyncHostResult<()> {
+        job.finish(self, ret, err)
+    }
+
+    pub(crate) fn revoke_unclaimed_spawn(&self, job: &Job, ret: i64, err: i32) {
+        job.revoke_unclaimed_spawn(self, ret, err)
+    }
+
+    pub(crate) fn with_owned_child_pid<T>(
+        &self,
+        pid: i32,
+        f: impl FnOnce() -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        self.require_ambient()?;
+        let Some(state) = self.child_authority.as_deref() else {
+            return f();
+        };
+        let state = state.inner.lock().unwrap();
+        if !state.owned_child_pids.contains(&pid) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        f()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn finish_owned_child<T>(
+        &self,
+        pid: i32,
+        handle: Option<u64>,
+        f: impl FnOnce() -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        self.require_ambient()?;
+        let Some(state) = self.child_authority.as_deref() else {
+            return f();
+        };
+        let mut state = state.inner.lock().unwrap();
+        if !state.owned_child_pids.contains(&pid)
+            || handle.is_some_and(|handle| state.process_handle_pids.get(&handle) != Some(&pid))
+        {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        let result = f()?;
+        state.owned_child_pids.remove(&pid);
+        Ok(result)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn finish_process_handle<T>(
+        &self,
+        pid: i32,
+        handle: u64,
+        raw_handle: RawFd,
+        f: impl FnOnce() -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        self.require_ambient()?;
+        let Some(state) = self.child_authority.as_deref() else {
+            return f();
+        };
+        let mut state = state.inner.lock().unwrap();
+        if state.process_handle_pids.get(&handle) != Some(&pid) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        if crate::async_sys::process::process_id_from_handle(raw_handle)? != pid {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        let result = f()?;
+        state.owned_child_pids.remove(&pid);
+        Ok(result)
+    }
+
+    pub(crate) fn process_handle_pid(&self, handle: u64) -> AsyncHostResult<Option<i32>> {
+        if self.context.is_some() {
+            return Ok(None);
+        }
+        let Some(state) = self.child_authority.as_deref() else {
+            return Ok(None);
+        };
+        state
+            .inner
+            .lock()
+            .unwrap()
+            .process_handle_pids
+            .get(&handle)
+            .copied()
+            .map(Some)
+            .ok_or(AsyncHostError::PermissionDenied)
+    }
+
+    pub(crate) fn track_process_handle(&self, handle: u64, pid: i32) {
+        if self.context.is_some() {
+            return;
+        }
+        if let Some(state) = self.child_authority.as_deref() {
+            state
+                .inner
+                .lock()
+                .unwrap()
+                .process_handle_pids
+                .insert(handle, pid);
+        }
+    }
+
+    pub(crate) fn untrack_process_handle(&self, handle: u64) {
+        if let Some(state) = self.child_authority.as_deref() {
+            let mut state = state.inner.lock().unwrap();
+            if let Some(pid) = state.process_handle_pids.remove(&handle)
+                && !state
+                    .process_handle_pids
+                    .values()
+                    .any(|tracked_pid| *tracked_pid == pid)
+            {
+                state.owned_child_pids.remove(&pid);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_owned_child_pid(&self, pid: i32) -> AsyncHostResult<()> {
+        self.ensure_owned_child_pid(pid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_process_handle_pid(&self, handle: u64, pid: i32) -> AsyncHostResult<()> {
+        let Some(state) = self.child_authority.as_deref() else {
+            return Ok(());
+        };
+        if state.inner.lock().unwrap().process_handle_pids.get(&handle) == Some(&pid) {
+            Ok(())
+        } else {
+            Err(AsyncHostError::PermissionDenied)
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn track_owned_child(&self, pid: i32) {
+        self.track_spawned_child(pid);
+    }
+
+    #[cfg(unix)]
+    fn check_spawn_unix(
+        &self,
+        program: &std::ffi::OsStr,
+        argv: &[std::ffi::OsString],
+    ) -> AsyncHostResult<()> {
+        self.policy
+            .as_ref()
+            .map_or(Ok(()), |policy| policy.allows_unix(program, argv))
+    }
+
+    #[cfg(windows)]
+    fn check_spawn_windows(&self, command_line: &std::ffi::OsStr) -> AsyncHostResult<()> {
+        self.policy
+            .as_ref()
+            .map_or(Ok(()), |policy| policy.allows_windows(command_line))
+    }
+
+    fn check_wait(
+        &self,
+        has_handle: bool,
+        tracked_pid: Option<i32>,
+        pid: i32,
+    ) -> AsyncHostResult<()> {
+        if self.child_authority.is_none() {
+            return Ok(());
+        }
+        self.ensure_owned_child_pid(pid)?;
+        match (has_handle, tracked_pid) {
+            (false, None) => Ok(()),
+            (true, Some(tracked_pid)) if tracked_pid == pid => Ok(()),
+            _ => Err(AsyncHostError::PermissionDenied),
+        }
+    }
+
+    fn ensure_owned_child_pid(&self, pid: i32) -> AsyncHostResult<()> {
+        let Some(state) = self.child_authority.as_deref() else {
+            return Ok(());
+        };
+        if state.inner.lock().unwrap().owned_child_pids.contains(&pid) {
+            Ok(())
+        } else {
+            Err(AsyncHostError::PermissionDenied)
+        }
+    }
+
+    fn track_spawned_child(&self, pid: i32) {
+        if let Some(state) = self.child_authority.as_deref() {
+            state.inner.lock().unwrap().owned_child_pids.insert(pid);
+        }
+    }
+
+    fn finish_waited_child(&self, pid: i32, #[cfg(unix)] defer_reap: bool) -> AsyncHostResult<()> {
+        let Some(state) = self.child_authority.as_deref() else {
+            #[cfg(unix)]
+            if defer_reap {
+                crate::async_sys::process::reap_process(pid)?;
+            }
+            return Ok(());
+        };
+        let mut state = state.inner.lock().unwrap();
+        #[cfg(unix)]
+        if defer_reap {
+            crate::async_sys::process::reap_process(pid)?;
+        }
+        state.owned_child_pids.remove(&pid);
+        Ok(())
+    }
+
+    fn revoke_child_if_unreferenced(&self, pid: i32) {
+        let Some(state) = self.child_authority.as_deref() else {
+            return;
+        };
+        let mut state = state.inner.lock().unwrap();
+        if !state
+            .process_handle_pids
+            .values()
+            .any(|tracked_pid| *tracked_pid == pid)
+        {
+            state.owned_child_pids.remove(&pid);
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn cancel_wait(cancel: &crate::resource::ResourceRef) -> AsyncHostResult<()> {
+    ambient::cancel_wait_for_process(cancel)
+}

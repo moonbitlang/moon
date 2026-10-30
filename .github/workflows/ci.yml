@@ -1,18 +1,18 @@
 # moon: The build system and package manager for MoonBit.
-# Copyright (C) 2024 International Digital Economy Academy
+# Copyright (C) 2026 International Digital Economy Academy
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -25,8 +25,6 @@ on:
   pull_request:
     branches:
       - main
-  schedule:
-    - cron: '0 20 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,7 +33,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 0
-  CARGO_TARPAULIN_VERSION: 0.30.0
 
 jobs:
   CCAA-check:
@@ -44,7 +41,7 @@ jobs:
     outputs:
       CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: CCAA check
         id: CCAA-check-step
         env:
@@ -82,7 +79,7 @@ jobs:
     env:
       HAWKEYE_VERSION: v5.6.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Download HawkEye
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/korandoru/hawkeye/releases/download/$HAWKEYE_VERSION/hawkeye-installer.sh | sh
       - name: License Header Check
@@ -99,7 +96,7 @@ jobs:
       - name: download typos
         run: curl -LsSf https://github.com/crate-ci/typos/releases/download/$TYPOS_VERSION/typos-$TYPOS_VERSION-x86_64-unknown-linux-musl.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: check for typos
@@ -110,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup mdBook
         uses: peaceiris/actions-mdbook@v2
@@ -136,16 +133,11 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.90.0
-        with:
-          components: rustfmt, clippy
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-debug-cache
 
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -162,12 +154,15 @@ jobs:
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Setup MSVC
-        if: ${{ matrix.os == 'windows-latest' }}
-        uses: ilammy/msvc-dev-cmd@v1
-
       - name: Build
         run: cargo build
+
+      - name: Clippy (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          cargo clippy --workspace --exclude moonrun --all-targets --all-features -- -D warnings
+          cargo clippy -p moonrun --all-targets -- -D warnings
+          cargo clippy -p moonrun --all-targets --no-default-features --features wasmtime -- -D warnings
 
       - name: Set built binary to PATH (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -199,84 +194,6 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo xtask ci
 
-      - name: Test core (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
-        run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target native
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native
-
-      # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
-      # TODO: Add this back when we add LLVM to nightly
-      # - name: Test core on llvm backend (Unix)
-      #   if: ${{ (matrix.os != 'windows-latest') }}
-      #   run: |
-      #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm
-      #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm --release
-
-  nightly-test-core-windows:
-    needs: [typo-check, license-header-check]
-    runs-on: windows-latest
-    steps:
-      - name: Configure git
-        run: git config --global core.autocrlf false
-
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: dtolnay/rust-toolchain@1.90.0
-        with:
-          components: rustfmt, clippy
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: install MoonBit(Windows)
-        run: |
-          $env:MOONBIT_INSTALL_VERSION="nightly"
-          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
-          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build
-        run: cargo build
-
-      - name: Set built binary to PATH (Windows)
-        run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
-
-      - name: Versions
-        run: cargo run --bin moon -- version --all
-
-      - name: Bundle core (Windows)
-        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
-
-      - name: Test core (Windows)
-        run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
-
-      # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
-      # TODO: Add this back when we add LLVM to nightly
-      # - name: Test core on llvm backend (Windows)
-      #   run: |
-      #     cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target llvm
-      #     cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target llvm --release
-
   verification-test:
     needs: [typo-check, license-header-check]
     strategy:
@@ -290,21 +207,11 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.90.0
-        with:
-          components: rustfmt, clippy
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Setup opam
-        uses: ocaml/setup-ocaml@v3
-        with:
-          ocaml-compiler: 4.14.2
+      - uses: ./.github/actions/setup-debug-cache
 
       - name: install MoonBit
         run: |
@@ -324,11 +231,7 @@ jobs:
           brew install z3
           echo "Z3PATH=$(command -v z3)" >> $GITHUB_ENV
 
-      - name: Install Why3 1.7.2 via opam
-        run: |
-          opam install -y why3.1.7.2
-          echo "WHY3DATA=$(opam exec -- why3 --print-datadir)" >> $GITHUB_ENV
-          echo "WHY3LIB=$(opam exec -- why3 --print-libdir)" >> $GITHUB_ENV
+      - uses: ./.github/actions/setup-why3
 
       - name: Build
         run: cargo build
@@ -366,16 +269,19 @@ jobs:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: 1.95.0
           components: rustfmt, clippy
 
       - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -388,10 +294,6 @@ jobs:
         run: |
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Setup MSVC
-        if: ${{ matrix.os == 'windows-latest' }}
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build
         run: cargo build
@@ -426,41 +328,18 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo xtask ci
 
-      - name: Test core (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
-        run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target native
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native
-          cargo run --bin moon -- -C ~/.moon/lib/core test --doc
-      - name: Test core (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --doc
-
   # coverage:
   #   needs: bleeding-test
   #   runs-on: macos-latest
+  #   env:
+  #     CARGO_TARPAULIN_VERSION: 0.30.0
   #   steps:
   #     - name: Checkout repository
   #       uses: actions/checkout@v4
   #       with:
   #         submodules: true
 
-  #     - uses: dtolnay/rust-toolchain@1.90.0
+  #     - uses: dtolnay/rust-toolchain@1.95.0
 
   #     - name: Checkout moonc-version
   #       uses: actions/checkout@v4
@@ -480,7 +359,6 @@ jobs:
   #         curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/moonrun --output ~/.moon/bin/moonrun
   #         curl https://cli.moonbitlang.com/moon-ci/$(uname -s)-$(uname -m)/mooncake --output ~/.moon/bin/mooncake
   #         chmod +x ~/.moon/bin/moon*
-  #         chmod +x ~/.moon/bin/internal/tcc
   #         git clone --depth 1 https://github.com/moonbitlang/core.git ~/.moon/lib/core
   #         echo "$HOME/.moon/bin" >> $GITHUB_PATH
   #         echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH

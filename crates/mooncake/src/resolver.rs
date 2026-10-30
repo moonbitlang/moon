@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -20,32 +20,56 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use anyhow::Context;
-use moonutil::common::read_module_desc_file_in_dir;
-use moonutil::moon_dir;
-use moonutil::mooncakes::ModuleId;
-use moonutil::mooncakes::result::{ResolvedEnv, ResolvedRootModules};
-use moonutil::mooncakes::{ModuleName, ModuleSource, result};
+use moonutil::manifest::read_module_desc_file_in_dir;
+use moonutil::resolution::{
+    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
+    ResolvedRootModules,
+};
+use moonutil::toolchain;
+use moonutil::user_log::UserLog;
 use semver::Version;
 use thiserror::Error;
 
 use crate::registry::Registry;
 
-pub(crate) mod env;
+pub(crate) mod context;
 pub(crate) mod mvs;
 
 pub(crate) use mvs::MvsSolver;
 
-use self::env::ResolverEnv;
+use self::context::ModuleResolutionContext;
 
-/// Any error that may occur during dependency resolution.
+/// A failure to select module sources, versions, or dependency relationships.
 #[derive(Debug, Error)]
-pub(crate) enum ResolverError {
+pub(crate) enum ModuleResolutionError {
+    #[error(
+        "`bin-deps` is no longer supported in module `{module}`; remove it and run portable Wasm tools with `moonx` instead"
+    )]
+    RemovedBinaryDependencies { module: String },
     #[error(
         "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: module was not found in the registry"
     )]
     ModuleMissing {
         dependency: ModuleName,
         dependant: ModuleName,
+    },
+    #[error(
+        "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: version `{required}` was not found in the registry"
+    )]
+    VersionMissing {
+        dependency: ModuleName,
+        dependant: ModuleName,
+        required: Version,
+    },
+    #[error(
+        "Failed to read registry dependency `{dependency}@{required}` for module `{dependant}`: {source:#}"
+    )]
+    RegistryReadFailed {
+        dependency: ModuleName,
+        dependant: ModuleName,
+        required: Version,
+        #[source]
+        source: anyhow::Error,
     },
     #[error(
         "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: no version satisfies requirement `{required}`"
@@ -82,28 +106,34 @@ pub(crate) struct VersionConflict {
 }
 
 #[derive(Debug, Error)]
-#[error("{}", format_resolver_errors(.0))]
-pub(crate) struct ResolverErrors(pub(crate) Vec<ResolverError>);
+#[error("{}", format_module_resolution_errors(.0))]
+pub(crate) struct ModuleResolutionErrors(pub(crate) Vec<ModuleResolutionError>);
 
-/// The dependency resolver.
-pub(crate) trait Resolver {
-    /// Resolves the dependencies of a package using the given environment. The
-    /// function should write its results on `res`, which may be initialized
-    /// with other existing data earlier.
+/// The module dependency resolver.
+pub(crate) trait ModuleResolver {
+    /// Select module sources and versions, extending `module_graph` from its
+    /// existing root modules with their dependencies.
     ///
     /// If the dependencies cannot be resolved, this function should return
-    /// `false`. The errors should be emitted in `env`.
-    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool;
+    /// `false`. The errors should be emitted in `context`.
+    fn resolve(
+        &mut self,
+        context: &mut ModuleResolutionContext,
+        module_graph: &mut ModuleDependencyGraph,
+        user_log: &UserLog,
+    ) -> bool;
 }
 
-/// Goes through the resolved environment and checks for any duplicate module names.
+/// Check the module dependency graph for duplicate module names.
 ///
 /// Since the build system is not yet able to handle multiple versions of the same module,
 /// this function will return an error if any duplicate module names with different versions
 /// (implying incompatible versions of the same module are resolved) are found.
-fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), ResolverErrors> {
+fn assert_no_duplicate_module_names(
+    module_graph: &ModuleDependencyGraph,
+) -> Result<(), ModuleResolutionErrors> {
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
-    for (id, it) in result.all_modules_and_id() {
+    for (id, it) in module_graph.all_modules_and_id() {
         module_name_versions
             .entry(it.name().clone())
             .or_default()
@@ -112,9 +142,9 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
     let mut errs = vec![];
     for (name, versions) in module_name_versions {
         if versions.len() > 1 {
-            let err = ResolverError::ConflictingVersions {
+            let err = ModuleResolutionError::ConflictingVersions {
                 module: name.clone(),
-                conflicts: collect_version_conflicts(&versions, result),
+                conflicts: collect_version_conflicts(&versions, module_graph),
             };
             errs.push(err);
         }
@@ -122,13 +152,13 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
     if errs.is_empty() {
         Ok(())
     } else {
-        Err(ResolverErrors(errs))
+        Err(ModuleResolutionErrors(errs))
     }
 }
 
 fn collect_version_conflicts(
     versions: &[(ModuleId, ModuleSource)],
-    result: &ResolvedEnv,
+    module_graph: &ModuleDependencyGraph,
 ) -> Vec<VersionConflict> {
     let mut versions = versions.to_vec();
     versions.sort_by(|a, b| {
@@ -141,16 +171,19 @@ fn collect_version_conflicts(
         .into_iter()
         .map(|(id, source)| VersionConflict {
             selected: source,
-            chain: describe_dependency_chain(result, id),
+            chain: describe_dependency_chain(module_graph, id),
         })
         .collect()
 }
 
-fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<Vec<ModuleSource>> {
+fn describe_dependency_chain(
+    module_graph: &ModuleDependencyGraph,
+    target: ModuleId,
+) -> Option<Vec<ModuleSource>> {
     let mut queue = VecDeque::new();
     let mut prev = HashMap::<ModuleId, ModuleId>::new();
 
-    for &root in result.input_module_ids() {
+    for &root in module_graph.input_module_ids() {
         queue.push_back(root);
         prev.insert(root, root);
     }
@@ -160,7 +193,7 @@ fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<V
             break;
         }
 
-        for dep in result.deps(current) {
+        for dep in module_graph.deps(current) {
             if prev.contains_key(&dep) {
                 continue;
             }
@@ -186,7 +219,7 @@ fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<V
 
     Some(
         path.into_iter()
-            .map(|id| result.module_source(id).clone())
+            .map(|id| module_graph.module_source(id).clone())
             .collect(),
     )
 }
@@ -224,7 +257,7 @@ fn format_version_conflict(module: &ModuleName, conflicts: &[VersionConflict]) -
     lines.join("\n")
 }
 
-fn format_resolver_errors(errors: &[ResolverError]) -> String {
+fn format_module_resolution_errors(errors: &[ModuleResolutionError]) -> String {
     errors
         .iter()
         .map(ToString::to_string)
@@ -232,40 +265,113 @@ fn format_resolver_errors(errors: &[ResolverError]) -> String {
         .join("\n")
 }
 
-pub(crate) struct ResolveConfig {
-    pub(crate) registry: Box<dyn Registry>,
+/// Registry and standard-library policy for selecting module dependencies.
+pub(crate) struct ModuleResolutionConfig<'a> {
+    pub(crate) registry: &'a dyn Registry,
     pub(crate) inject_std: bool,
+    /// Explicit refresh reports fresh status after resolution.
+    pub(crate) warn_deprecated: bool,
 }
 
-pub(crate) fn resolve_with_default_env(
-    config: &ResolveConfig,
-    resolver: &mut dyn Resolver,
+pub(crate) fn resolve_modules_with_solver(
+    config: &ModuleResolutionConfig,
+    resolver: &mut dyn ModuleResolver,
     root: ResolvedRootModules,
-) -> Result<result::ResolvedEnv, ResolverErrors> {
-    let mut env = env::ResolverEnv::new(config.registry.as_ref());
-    let mut res = ResolvedEnv::from_root_modules(root);
-
-    if config.inject_std {
-        inject_std(&mut res)
-            .map_err(|e| ResolverErrors(vec![ResolverError::CannotInjectCore(e)]))?;
+    user_log: &UserLog,
+) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
+    // Historical dependency manifests may still contain bin-deps. Only roots
+    // used to execute them; reject those before any resolution or acquisition.
+    let removed_bin_deps = root
+        .iter()
+        .map(|(_, root)| root.module_info())
+        .filter(|module| {
+            module.ext.get("bin-deps").is_some_and(|value| {
+                !value.is_null() && !value.as_object().is_some_and(|deps| deps.is_empty())
+            })
+        })
+        .map(|module| ModuleResolutionError::RemovedBinaryDependencies {
+            module: module.name.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !removed_bin_deps.is_empty() {
+        return Err(ModuleResolutionErrors(removed_bin_deps));
     }
 
-    let status = resolver.resolve(&mut env, &mut res);
-    if env.any_errors() {
-        Err(ResolverErrors(env.into_errors()))
+    let mut context = ModuleResolutionContext::new(config.registry);
+    let mut module_graph = ModuleDependencyGraph::from_root_modules(root);
+
+    if config.inject_std {
+        inject_std(&mut module_graph).map_err(|e| {
+            ModuleResolutionErrors(vec![ModuleResolutionError::CannotInjectCore(e)])
+        })?;
+    }
+
+    let status = resolver.resolve(&mut context, &mut module_graph, user_log);
+    if context.any_errors() {
+        Err(ModuleResolutionErrors(context.into_errors()))
     } else {
         if !status {
             panic!("The resolver should not return `false` when no errors are found");
         }
-        assert_no_duplicate_module_names(&res)?;
-        Ok(res)
+        assert_no_duplicate_module_names(&module_graph)?;
+        if config.warn_deprecated {
+            warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+        }
+        Ok(module_graph)
+    }
+}
+
+fn warn_deprecated_dependencies(
+    module_graph: &ModuleDependencyGraph,
+    registry: &dyn Registry,
+    user_log: &UserLog,
+) {
+    if !user_log.is_enabled(log::Level::Warn) {
+        return;
+    }
+
+    // Only inspect the final graph: MVS can visit versions and dependencies that
+    // it later discards. Each selected module appears once, even in a diamond.
+    let mut modules = module_graph.all_modules_and_id().collect::<Vec<_>>();
+    modules.sort_unstable_by(|(_, a), (_, b)| a.name().cmp(b.name()));
+    for (id, source) in modules {
+        if !matches!(source.source(), ModuleSourceKind::Registry) {
+            continue;
+        }
+        // RegistryClient reuses the index metadata already read by resolution.
+        let Ok(Some(release)) = registry.version_info(source.name(), source.version()) else {
+            continue;
+        };
+        if !release.yanked {
+            continue;
+        };
+        // Registry-authored reasons may contain terminal control sequences.
+        // Strip those while preserving ordinary newlines and spacing.
+        let reason = anstream::adapter::strip_str(release.yanked_reason.as_deref().unwrap_or(""))
+            .to_string();
+        let mut warning = if reason.trim().is_empty() {
+            format!("Dependency `{source}` is deprecated.")
+        } else {
+            format!("Dependency `{source}` is deprecated: {reason}")
+        };
+        if let Some(chain) = describe_dependency_chain(module_graph, id)
+            && chain.len() > 2
+        {
+            let path = chain
+                .iter()
+                .map(|module| format!("{}@{}", module.name(), module.version()))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            warning.push_str(&format!("\n  required through {path}"));
+        }
+        user_log.warn(warning);
     }
 }
 
 /// Inject the definition of `moonbitlang/core` in the installation directory
 /// to the resolve graph, and mark it as the standard library.
-fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
-    let core_dir = moon_dir::core();
+fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
+    let core_dir = toolchain::core();
     let loaded_core = read_module_desc_file_in_dir(&core_dir).with_context(|| {
         if core_dir.exists() {
             format!(
@@ -284,17 +390,18 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
             )
         }
     })?;
-    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir);
-    let id = res.add_module(source, Arc::new(loaded_core));
-    res.register_stdlib(id);
+    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
+    let id = module_graph.add_module(source, Arc::new(loaded_core));
+    module_graph.register_stdlib(id);
 
     Ok(())
 }
 
-pub(crate) fn resolve_with_default_env_and_resolver(
-    config: &ResolveConfig,
+pub(crate) fn resolve_modules(
+    config: &ModuleResolutionConfig,
     root: ResolvedRootModules,
-) -> Result<result::ResolvedEnv, ResolverErrors> {
+    user_log: &UserLog,
+) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
     let mut resolver = MvsSolver;
-    resolve_with_default_env(config, &mut resolver, root)
+    resolve_modules_with_solver(config, &mut resolver, root, user_log)
 }

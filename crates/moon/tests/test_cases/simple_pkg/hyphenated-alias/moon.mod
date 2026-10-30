@@ -1,0 +1,3 @@
+name = "username/hyphenated-alias"
+
+version = "0.1.0"

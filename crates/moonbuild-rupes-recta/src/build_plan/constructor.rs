@@ -1,48 +1,52 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Core build plan construction logic.
 
-#[cfg(debug_assertions)]
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use crate::{
-    ResolveOutput,
-    build_plan::{FileDependencyKind, InputDirective},
+    CompileConfig, ResolvedProject,
+    build_plan::InputDirective,
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
-    user_warning::UserWarning,
 };
-use indexmap::IndexMap;
-use tracing::{Level, debug, instrument};
+use moonutil::user_log::UserLog;
+use tracing::{Level, instrument};
 
-use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
+use super::{
+    BuildPlan, BuildPlanConstructError,
+    artifact::{ArtifactKey, package_file_key, runtime_source_key},
+};
 
 /// The struct responsible for holding the states and dependencies used during
 /// the construction of a build plan.
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
-    pub(super) input: &'a ResolveOutput,
-    pub(super) build_env: &'a BuildEnvironment,
+    pub(super) input: &'a ResolvedProject,
+    pub(super) rel: &'a crate::pkg_solve::PackageRelations,
+    pub(super) config: &'a CompileConfig,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
-    pub(super) user_warnings: Vec<UserWarning>,
+    pub(super) user_log: &'a UserLog,
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
@@ -50,7 +54,10 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
+    pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
+    pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
+    pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -59,46 +66,64 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) need_node_sources: HashMap<BuildPlanNode, Vec<(&'static str, u32, u32)>>,
 }
 
+#[derive(Debug, Default)]
+pub(super) struct PackageFileSet {
+    pub(super) no_test_files: Vec<PathBuf>,
+    pub(super) whitebox_files: Vec<PathBuf>,
+    pub(super) blackbox_files: Vec<PathBuf>,
+    pub(super) mbtp_files: Vec<PathBuf>,
+}
+
 impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
-        resolved: &'a ResolveOutput,
-        build_env: &'a BuildEnvironment,
+        resolved: &'a ResolvedProject,
+        config: &'a CompileConfig,
         input_directive: &'a InputDirective,
         prebuild_config: Option<&'a PrebuildOutput>,
+        user_log: &'a UserLog,
     ) -> Self {
         Self {
             input: resolved,
-            build_env,
+            rel: &resolved.package_relations[&config.backend.target_backend()],
+            config,
             input_directive,
             prebuild_config,
-            user_warnings: Vec::new(),
+            user_log,
 
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
+            warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
+            package_file_sets: HashMap::new(),
+            package_native_compile: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }
     }
 
-    pub(super) fn finish(self) -> (BuildPlan, Vec<UserWarning>) {
-        (self.res, self.user_warnings)
+    pub(super) fn finish(self) -> BuildPlan {
+        self.res
     }
 
     pub(super) fn build(
         &mut self,
-        input: impl Iterator<Item = BuildPlanNode>,
+        input: impl Iterator<Item = ArtifactKey>,
     ) -> Result<(), BuildPlanConstructError> {
         assert!(
             self.pending.is_empty(),
             "Pending nodes should be empty before starting the build"
         );
 
-        // Add the input nodes to the pending list
-        for i in input {
-            self.need_node(i);
-            self.res.input_nodes.push(i);
+        let input = input.collect::<Vec<_>>();
+        self.res.requested_artifacts.extend(input.iter().cloned());
+
+        // Record the complete caller-requested set before selecting providers.
+        // Some artifacts share a provider only for a particular request shape;
+        // for example, an explicit proof report makes `Prove` provide the proof
+        // surface that dependencies would otherwise get from `EmitProof`.
+        for artifact in &input {
+            self.need_artifact_provider(artifact);
         }
 
         while let Some(node) = self.pending.pop() {
@@ -123,140 +148,22 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        self.postprocess_coalesce();
+        for artifact in &self.res.requested_artifacts {
+            assert!(
+                self.res.artifacts.provider(artifact).is_some(),
+                "requested artifact {artifact:?} has no provider in the build plan"
+            );
+        }
+        self.res.artifacts.validate();
+        self.warn_moon_cc_overrides();
 
         Ok(())
     }
 
-    /// Coalesce redundant nodes as a postprocess step.
+    /// Schedule a new action for dependency expansion.
     ///
-    /// `BuildCore(...)` and `Check(...)` both produce `.mi` files, so having
-    /// both in the graph will cause later stages to not know which one to use,
-    /// and result in an error. This function moves all edges from `Check(...)`
-    /// nodes to their corresponding `BuildCore(...)` nodes, if they exist. This
-    /// is also a fix for the virtual package semantics, because virtual
-    /// packages don't know if they will be built or checked.
-    fn postprocess_coalesce(&mut self) {
-        fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
-            if matches!(src, FileDependencyKind::AllFiles) {
-                *dst = FileDependencyKind::AllFiles;
-                return;
-            }
-
-            match dst {
-                FileDependencyKind::AllFiles => {
-                    *dst = FileDependencyKind::AllFiles;
-                }
-                FileDependencyKind::BuildCore {
-                    mi: dst_mi,
-                    core: dst_core,
-                } => {
-                    let FileDependencyKind::BuildCore { mi, core } = src else {
-                        panic!(
-                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                            dst, src
-                        );
-                    };
-                    *dst_mi |= mi;
-                    *dst_core |= core;
-                }
-                FileDependencyKind::ProofArtifacts {
-                    mi: dst_mi,
-                    mlw: dst_mlw,
-                    report: dst_report,
-                } => {
-                    let FileDependencyKind::ProofArtifacts { mi, mlw, report } = src else {
-                        panic!(
-                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                            dst, src
-                        );
-                    };
-                    *dst_mi |= mi;
-                    *dst_mlw |= mlw;
-                    *dst_report |= report;
-                }
-                FileDependencyKind::GenerateTestInfo { meta: dst_meta } => {
-                    let FileDependencyKind::GenerateTestInfo { meta } = src else {
-                        panic!(
-                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                            dst, src
-                        );
-                    };
-                    *dst_meta |= meta;
-                }
-            }
-        }
-
-        // list of nodes to coalesce and their input/output edges
-        let mut plan = IndexMap::new();
-        for node in self.res.all_nodes() {
-            let coalesced_to = match node {
-                BuildPlanNode::Check(build_target)
-                    if self
-                        .res
-                        .graph
-                        .contains_node(BuildPlanNode::BuildCore(build_target)) =>
-                {
-                    Some(BuildPlanNode::BuildCore(build_target))
-                }
-                _ => None,
-            };
-
-            if let Some(target_node) = coalesced_to {
-                debug!("Coalescing node {:?} to {:?}", node, target_node);
-                let in_edges = self
-                    .res
-                    .graph
-                    .edges_directed(node, petgraph::Incoming)
-                    .map(|(source, _, &edge)| (source, edge))
-                    .collect::<Vec<_>>();
-                let out_edges = self
-                    .res
-                    .graph
-                    .edges_directed(node, petgraph::Outgoing)
-                    .map(|(_, target, &edge)| (target, edge))
-                    .collect::<Vec<_>>();
-                plan.insert(node, (target_node, in_edges, out_edges));
-            }
-        }
-
-        // Perform the coalescing
-        for (&from, (to, in_edges, out_edges)) in &plan {
-            let to = *to;
-            // Input edges
-            for &(source, edge) in in_edges {
-                // Check if source is also coalesced
-                let source = if let Some((new_source, _, _)) = plan.get(&source) {
-                    *new_source
-                } else {
-                    source
-                };
-
-                // Insert or update the edge
-                if let Some(w) = self.res.graph.edge_weight_mut(source, to) {
-                    merge_edge_kind(w, edge);
-                } else {
-                    self.res.graph.add_edge(source, to, edge);
-                }
-            }
-
-            // Output edges
-            for &(target, edge) in out_edges {
-                // Skip if target is also coalesced -- handled in its own iteration
-                if plan.contains_key(&target) {
-                    continue;
-                }
-
-                self.res.graph.add_edge(to, target, edge);
-            }
-            self.res.graph.remove_node(from);
-        }
-    }
-
-    /// Tell the build graph that we need to calculate the graph portion of a
-    /// new node. To deduplicate pending nodes, this should be called before
-    /// adding relevant edges to the graph (since the latter will also add the
-    /// node into the graph).
+    /// Calling this repeatedly is harmless: pending and planned actions are
+    /// deduplicated independently of their artifact requirements.
     // #[track_caller] lets us capture the call-site (file:line:column) of need_node
     // so we can report where a node was requested if a later dependency build panics.
     #[cfg_attr(debug_assertions, track_caller)]
@@ -282,13 +189,12 @@ impl<'a> BuildPlanConstructor<'a> {
 
         if !self.resolved.contains(&node) {
             self.pending.push(node);
-            self.res.graph.add_node(node);
+            self.res.backend.insert(node);
         }
         node
     }
 
-    /// Tell the build graph that the given node has been resolved into a
-    /// concrete action specification.
+    /// Mark a planned action as resolved into a concrete action specification.
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn resolved_node(&mut self, node: BuildPlanNode) {
         debug_assert!(
@@ -297,8 +203,8 @@ impl<'a> BuildPlanConstructor<'a> {
             node
         );
         debug_assert!(
-            self.res.graph.contains_node(node),
-            "Node {:?} should be in the graph before resolving",
+            self.res.backend.contains(&node),
+            "Node {:?} should be in the plan before resolving",
             node
         );
         self.resolved.insert(node);
@@ -306,6 +212,326 @@ impl<'a> BuildPlanConstructor<'a> {
         // Ensure the resolved data is present in the build plan.
         // Panics if the node is not present in the resolved data.
         self.ensure_resolved(node);
+        self.register_artifact_outputs(node);
+    }
+
+    fn register_artifact_outputs(&mut self, node: BuildPlanNode) {
+        match node {
+            BuildPlanNode::Check(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::CheckMi {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::BuildCore(target) => {
+                let emits_mi = self
+                    .res
+                    .backend
+                    .build_target_infos
+                    .get(&target)
+                    .is_some_and(|info| {
+                        info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
+                    });
+                if emits_mi {
+                    self.res.artifacts.provide(
+                        node,
+                        ArtifactKey::BuildMi {
+                            package: target.package,
+                            target_kind: target.kind,
+                        },
+                    );
+                }
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::CoreIr {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::BuildVirtual(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::VirtualContractMi { package });
+            }
+            BuildPlanNode::EmitProof(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::ProofMi {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::ProofWhyml {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::Prove(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::ProofMi {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::ProofWhyml {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::ProofReport {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::BuildCStub(package, index) => {
+                let pkg = self.input.pkg_dirs.get_package(package);
+                let source = &pkg.c_stub_files[index as usize];
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::CStubObject {
+                        package,
+                        source: package_file_key(&pkg.root_path, source),
+                    },
+                );
+            }
+            BuildPlanNode::ArchiveOrLinkCStubs(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::CStubLibrary { package });
+            }
+            BuildPlanNode::LinkCore(target) => {
+                let artifact = if self.config.backend.target_backend().is_native() {
+                    ArtifactKey::LinkedCore {
+                        package: target.package,
+                        target_kind: target.kind,
+                    }
+                } else {
+                    ArtifactKey::Executable {
+                        package: target.package,
+                        target_kind: target.kind,
+                    }
+                };
+                self.res.artifacts.provide(node, artifact);
+            }
+            BuildPlanNode::MakeExecutable(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::Executable {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::CompileGeneratedC(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::GeneratedCObject {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::ForeignLibrary { package });
+            }
+            BuildPlanNode::GenerateDsym(_) => {}
+            BuildPlanNode::GenerateTestInfo(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::GeneratedTestDriver {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::GeneratedTestMetadata {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::NodeTestPackageConfig { package });
+            }
+            BuildPlanNode::Bundle(module) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::BundleResult { module });
+            }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                let info = self
+                    .res
+                    .backend
+                    .runtime_info
+                    .as_ref()
+                    .expect("runtime info should be present for runtime object nodes");
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::RuntimeObject {
+                        source: runtime_source_key(&info.source_files[index as usize]),
+                    },
+                );
+            }
+            BuildPlanNode::BuildRuntimeLib => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::RuntimeLibrary);
+            }
+            BuildPlanNode::GenerateMbti(target) => {
+                self.res.artifacts.provide(
+                    node,
+                    ArtifactKey::GeneratedMbti {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                );
+            }
+            BuildPlanNode::BuildDocs(module) => {
+                self.res
+                    .artifacts
+                    .provide(node, ArtifactKey::DocsDir { module });
+            }
+        }
+    }
+
+    /// Record an artifact requirement and schedule the artifact rule's unique
+    /// provider. The caller names only the artifact it consumes.
+    pub(super) fn require_artifact(&mut self, consumer: BuildPlanNode, artifact: ArtifactKey) {
+        self.need_artifact_provider(&artifact);
+        self.res.artifacts.require(consumer, artifact);
+    }
+
+    /// Schedule the action that provides one requested or required artifact.
+    fn need_artifact_provider(&mut self, artifact: &ArtifactKey) {
+        let provider = match artifact {
+            ArtifactKey::CheckMi {
+                package,
+                target_kind,
+            } => BuildPlanNode::Check(package.build_target(*target_kind)),
+            ArtifactKey::BuildMi {
+                package,
+                target_kind,
+            }
+            | ArtifactKey::CoreIr {
+                package,
+                target_kind,
+            } => BuildPlanNode::BuildCore(package.build_target(*target_kind)),
+            ArtifactKey::VirtualContractMi { package } => BuildPlanNode::BuildVirtual(*package),
+            ArtifactKey::ProofMi {
+                package,
+                target_kind,
+            }
+            | ArtifactKey::ProofWhyml {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
+                if self
+                    .res
+                    .requested_artifacts
+                    .contains(&ArtifactKey::ProofReport {
+                        package: *package,
+                        target_kind: *target_kind,
+                    })
+                {
+                    BuildPlanNode::Prove(target)
+                } else {
+                    BuildPlanNode::EmitProof(target)
+                }
+            }
+            ArtifactKey::ProofReport {
+                package,
+                target_kind,
+            } => BuildPlanNode::Prove(package.build_target(*target_kind)),
+            ArtifactKey::CStubObject { package, source } => {
+                let pkg = self.input.pkg_dirs.get_package(*package);
+                let index = pkg
+                    .c_stub_files
+                    .iter()
+                    .position(|path| package_file_key(&pkg.root_path, path) == *source)
+                    .expect("C stub artifact should name a declared C source");
+                BuildPlanNode::BuildCStub(*package, index as u32)
+            }
+            ArtifactKey::CStubLibrary { package } => BuildPlanNode::ArchiveOrLinkCStubs(*package),
+            ArtifactKey::LinkedCore {
+                package,
+                target_kind,
+            } => BuildPlanNode::LinkCore(package.build_target(*target_kind)),
+            ArtifactKey::GeneratedCObject {
+                package,
+                target_kind,
+            } => BuildPlanNode::CompileGeneratedC(package.build_target(*target_kind)),
+            ArtifactKey::ForeignLibrary { package } => {
+                assert!(
+                    self.config.backend.target_backend().is_native(),
+                    "foreign-library archives are only planned for Native and LLVM"
+                );
+                BuildPlanNode::ArchiveForeignLibrary(*package)
+            }
+            ArtifactKey::Executable {
+                package,
+                target_kind,
+            } => {
+                let target = package.build_target(*target_kind);
+                if self.config.backend.target_backend().is_native() {
+                    BuildPlanNode::MakeExecutable(target)
+                } else {
+                    BuildPlanNode::LinkCore(target)
+                }
+            }
+            ArtifactKey::GeneratedTestDriver {
+                package,
+                target_kind,
+            }
+            | ArtifactKey::GeneratedTestMetadata {
+                package,
+                target_kind,
+            } => BuildPlanNode::GenerateTestInfo(package.build_target(*target_kind)),
+            ArtifactKey::NodeTestPackageConfig { package } => {
+                BuildPlanNode::GenerateNodeTestPackageConfig(*package)
+            }
+            ArtifactKey::BundleResult { module } => BuildPlanNode::Bundle(*module),
+            ArtifactKey::RuntimeObject { source } => {
+                let info = self
+                    .res
+                    .backend
+                    .runtime_info
+                    .as_ref()
+                    .expect("runtime info should be planned before its object requirements");
+                let index = info
+                    .source_files
+                    .iter()
+                    .position(|path| runtime_source_key(path) == *source)
+                    .expect("runtime artifact should name a runtime source");
+                BuildPlanNode::BuildRuntimeObject(index as u32)
+            }
+            ArtifactKey::RuntimeLibrary => BuildPlanNode::BuildRuntimeLib,
+            ArtifactKey::GeneratedMbti {
+                package,
+                target_kind,
+            } => BuildPlanNode::GenerateMbti(package.build_target(*target_kind)),
+            ArtifactKey::DocsDir { module } => BuildPlanNode::BuildDocs(*module),
+        };
+
+        self.need_node(provider);
     }
 
     fn ensure_resolved(&self, node: BuildPlanNode) {
@@ -318,7 +544,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 let pkg = self.input.pkg_dirs.get_package(build_target.package);
                 if pkg.has_implementation() {
                     assert!(
-                        self.res.build_target_infos.contains_key(&build_target),
+                        self.res
+                            .backend
+                            .build_target_infos
+                            .contains_key(&build_target),
                         "Build target info for {:?} should be present when resolving node {:?}",
                         build_target,
                         node
@@ -328,7 +557,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::BuildCStub(build_target, _)
             | BuildPlanNode::ArchiveOrLinkCStubs(build_target) => {
                 assert!(
-                    self.res.c_stubs_info.contains_key(&build_target),
+                    self.res.backend.c_stubs_info.contains_key(&build_target),
                     "C stubs info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
@@ -336,89 +565,85 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::LinkCore(build_target) => {
                 assert!(
-                    self.res.link_core_info.contains_key(&build_target),
+                    self.res.backend.link_core_info.contains_key(&build_target),
                     "Link core info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
                 );
             }
-            BuildPlanNode::MakeExecutable(build_target) => {
-                // Non-native MakeExecutable nodes are final-artifact aliases over
-                // LinkCore output. Only native backends need extra lowering info
-                // for the C toolchain/runtime/stub linking step.
-                if self.build_env.target_backend.is_native() {
+            BuildPlanNode::MakeExecutable(build_target)
+            | BuildPlanNode::GenerateDsym(build_target) => {
+                assert!(
+                    self.res
+                        .backend
+                        .make_executable_info
+                        .contains_key(&build_target),
+                    "Make executable info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+                if matches!(node, BuildPlanNode::GenerateDsym(_)) {
                     assert!(
-                        self.res.make_executable_info.contains_key(&build_target),
-                        "Make executable info for {:?} should be present when resolving node {:?}",
+                        self.res.backend.dsymutil.is_some(),
+                        "dSYM info for {:?} should be present when resolving node {:?}",
                         build_target,
                         node
                     );
                 }
             }
-            BuildPlanNode::GenerateMbti(_build_target) => (),
+            BuildPlanNode::CompileGeneratedC(build_target) => {
+                assert!(
+                    self.res
+                        .backend
+                        .compile_generated_c_info
+                        .contains_key(&build_target),
+                    "Compile generated C info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                assert!(
+                    self.res.backend.foreign_library_info.contains_key(&package)
+                        && self.res.backend.runtime_info.is_some(),
+                    "Foreign library and runtime info for {:?} should be present when resolving node {:?}",
+                    package,
+                    node
+                );
+            }
+            BuildPlanNode::GenerateNodeTestPackageConfig(_) | BuildPlanNode::GenerateMbti(_) => (),
             BuildPlanNode::Bundle(module_id) => {
                 assert!(
-                    self.res.bundle_info.contains_key(&module_id),
+                    self.res.backend.bundle_info.contains_key(&module_id),
                     "Bundle info for module {:?} should be present when resolving node {:?}",
                     module_id,
                     node
                 );
             }
-            BuildPlanNode::BuildRuntimeLib => (),
-            BuildPlanNode::BuildDocs(_) => (),
-            BuildPlanNode::RunPrebuild(pkg, idx) => {
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                let info = self
+                    .res
+                    .backend
+                    .runtime_info
+                    .as_ref()
+                    .expect("Runtime info should be present for runtime object nodes");
                 assert!(
-                    self.res.prebuild_info.contains_key(&pkg),
-                    "Prebuild info for package {:?} should be present when resolving node {:?}",
-                    pkg,
-                    node
-                );
-                let v = &self.res.prebuild_info[&pkg];
-                assert!(
-                    (idx as usize) < v.len() && v[idx as usize].is_some(),
-                    "Prebuild info for package {:?} index {} should be present when resolving node {:?}",
-                    pkg,
-                    idx,
+                    (index as usize) < info.source_files.len(),
+                    "Runtime source index {} should be present when resolving node {:?}",
+                    index,
                     node
                 );
             }
-            BuildPlanNode::RunMoonLexPrebuild(_pkg, _idx) => (),
-            BuildPlanNode::RunMoonYaccPrebuild(_pkg, _idx) => (),
+            BuildPlanNode::BuildRuntimeLib => {
+                assert!(
+                    self.res.backend.runtime_info.is_some(),
+                    "Runtime info should be present when resolving node {:?}",
+                    node
+                );
+            }
+            BuildPlanNode::BuildDocs(_) => (),
             BuildPlanNode::BuildVirtual(_build_target) => (),
         }
-    }
-
-    /// Add an edge from `start` to `end`, depending on all files produced by `end`.
-    pub(super) fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
-        self.res
-            .graph
-            .add_edge(start, end, FileDependencyKind::AllFiles);
-    }
-
-    /// Add an edge from `start` to `end`, depending on specific files produced by `end`.
-    pub(super) fn add_edge_spec(
-        &mut self,
-        start: BuildPlanNode,
-        end: BuildPlanNode,
-        edge: FileDependencyKind,
-    ) {
-        // verify edge kind
-        match (edge, end) {
-            (FileDependencyKind::BuildCore { .. }, BuildPlanNode::BuildCore(..)) => {}
-            (FileDependencyKind::BuildCore { .. }, _) => {
-                panic!("BuildCore edge can only point to BuildCore node")
-            }
-            (
-                FileDependencyKind::ProofArtifacts { .. },
-                BuildPlanNode::EmitProof(..) | BuildPlanNode::Prove(..),
-            ) => {}
-            (FileDependencyKind::ProofArtifacts { .. }, _) => {
-                panic!("ProofArtifacts edge can only point to EmitProof or Prove node")
-            }
-            _ => (),
-        }
-
-        self.res.graph.add_edge(start, end, edge);
     }
 
     /// Debug-only helper that runs build_action_dependencies with panic capture and reporting.
@@ -455,8 +680,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    /// Calculate the build action's dependencies and insert relevant edges to the
-    /// build action graph.
+    /// Resolve one action and register its artifact requirements.
     fn build_action_dependencies(
         &mut self,
         node: BuildPlanNode,
@@ -472,33 +696,34 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::ArchiveOrLinkCStubs(target) => {
                 self.build_archive_or_link_c_stubs(node, target)
             }
-            BuildPlanNode::LinkCore(_) => {
-                panic!(
-                    "Link core should not appear in the wild without \
-                    accompanied by MakeExecutable. Anytime it is met in the \
-                    pending list, it should be already resolved."
-                )
+            BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
+            BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
+            BuildPlanNode::CompileGeneratedC(target) => {
+                self.build_compile_generated_c(node, target)
             }
-            BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
+            BuildPlanNode::ArchiveForeignLibrary(package) => {
+                self.build_foreign_library(node, package)
+            }
+            BuildPlanNode::GenerateDsym(_) => {
+                unreachable!("GenerateDsym nodes are resolved with their MakeExecutable node")
+            }
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
+            BuildPlanNode::GenerateNodeTestPackageConfig(_) => {
+                self.resolved_node(node);
+                Ok(())
+            }
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
+            BuildPlanNode::BuildRuntimeObject(index) => self.build_runtime_object(node, index),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
             BuildPlanNode::BuildDocs(module_id) => self.build_build_docs(node, module_id),
-            BuildPlanNode::RunPrebuild(package_id, index) => {
-                self.build_run_prebuild(node, package_id, index)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(_package_id, _index) => self.build_lex_prebuild(node),
-            BuildPlanNode::RunMoonYaccPrebuild(_package_id, _index) => {
-                self.build_yacc_prebuild(node)
-            }
             BuildPlanNode::BuildVirtual(target) => self.build_parse_mbti(node, target),
         }
     }
 
     /// Populate the target info for the given target, if not already present.
     pub(super) fn populate_target_info(&mut self, target: BuildTarget) {
-        if self.res.build_target_infos.contains_key(&target) {
+        if self.res.backend.build_target_infos.contains_key(&target) {
             // Already populated
             return;
         }
@@ -507,9 +732,8 @@ impl<'a> BuildPlanConstructor<'a> {
         let info = self.resolve_mbt_files_for_node(target);
         if target.kind == crate::model::TargetKind::BlackboxTest {
             let pkg = self.input.pkg_dirs.get_package(target.package);
-            let regular_files = info.regular_files.iter().cloned().collect();
-            self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
+            self.warn_if_main_package_uses_blackbox_inputs(pkg, &info.regular_files);
         }
-        self.res.build_target_infos.insert(target, info);
+        self.res.backend.build_target_infos.insert(target, info);
     }
 }

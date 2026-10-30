@@ -1,18 +1,18 @@
 // moon: The build system and package manager for MoonBit.
-// Copyright (C) 2024 International Digital Economy Academy
+// Copyright (C) 2026 International Digital Economy Academy
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
@@ -31,9 +31,9 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                     "--bin",
                     "moon",
                     "--",
+                    "-C",
+                    "crates/moonbuild/template/test_driver_project",
                     "check",
-                    "--manifest-path",
-                    "crates/moonbuild/template/test_driver_project/moon.mod",
                 ],
             },
             fix_script: None,
@@ -47,14 +47,14 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                     "--bin",
                     "moon",
                     "--",
+                    "-C",
+                    "crates/moonbuild/template/test_driver_project",
                     "fmt",
                     "--check",
-                    "--manifest-path",
-                    "crates/moonbuild/template/test_driver_project/moon.mod",
                 ],
             },
             fix_script: Some(
-                "cargo run --bin moon -- fmt --manifest-path crates/moonbuild/template/test_driver_project/moon.mod",
+                "cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project fmt",
             ),
         },
         Check {
@@ -66,11 +66,14 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
             fix_script: Some("cargo fmt"),
         },
         Check {
-            label: "cargo clippy --all-targets --all-features -- -D warnings",
+            label: "cargo clippy --workspace --exclude moonrun --all-targets --all-features -- -D warnings",
             command: Command {
                 program: "cargo",
                 args: &[
                     "clippy",
+                    "--workspace",
+                    "--exclude",
+                    "moonrun",
                     "--all-targets",
                     "--all-features",
                     "--",
@@ -79,7 +82,46 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                 ],
             },
             fix_script: Some(
-                "cargo clippy --fix --all-targets --all-features --allow-dirty --allow-staged",
+                "cargo clippy --fix --workspace --exclude moonrun --all-targets --all-features --allow-dirty --allow-staged",
+            ),
+        },
+        Check {
+            label: "cargo clippy -p moonrun --all-targets -- -D warnings",
+            command: Command {
+                program: "cargo",
+                args: &[
+                    "clippy",
+                    "-p",
+                    "moonrun",
+                    "--all-targets",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            },
+            fix_script: Some(
+                "cargo clippy --fix -p moonrun --all-targets --allow-dirty --allow-staged",
+            ),
+        },
+        Check {
+            label: "cargo clippy -p moonrun --all-targets --no-default-features --features wasmtime -- -D warnings",
+            command: Command {
+                program: "cargo",
+                args: &[
+                    "clippy",
+                    "-p",
+                    "moonrun",
+                    "--all-targets",
+                    "--no-default-features",
+                    "--features",
+                    "wasmtime",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            },
+            fix_script: Some(
+                "cargo clippy --fix -p moonrun --all-targets --no-default-features --features wasmtime --allow-dirty --allow-staged",
             ),
         },
     ];
