@@ -457,6 +457,7 @@ pub(super) fn udp_client_connect(
     zero_or_minus_one(context, result)
 }
 
+// Deprecated: upstream binds through thread_pool/make_bind_job.
 pub(super) fn bind(context: &mut ImportContext<'_>, fd: u64, addr: u32, addr_len: u32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {

@@ -498,6 +498,7 @@ declare_async_imports! {
 
     ported socket::udp_client_connect(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/udp_client_connect";
 
+    // Deprecated; use thread_pool/make_bind_job.
     helper socket::bind(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/bind";
 
     #[cfg(unix)]
@@ -863,6 +864,7 @@ declare_async_imports! {
     // guest-allocated MoonBit String.
     ported fs::get_tmp_path(ptr: u32, len: u32) -> i32 => "fs/get_tmp_path";
 
+    // Deprecated; use fs/get_tmp_path_len and fs/get_tmp_path.
     helper fs::get_tmp_path_buffer() -> u64 => "fs/get_tmp_path_buffer";
 
     ported fs::dir_buffer_min_size() -> u32 => "fs/dir_buffer_min_size";
