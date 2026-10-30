@@ -105,7 +105,7 @@ fn windows_tty_lifecycle_child() {
     assert!(packed_size & 0xffff_ffff > 0);
     let mut info = unsafe { std::mem::zeroed::<CONSOLE_SCREEN_BUFFER_INFO>() };
     assert_ne!(
-        unsafe { GetConsoleScreenBufferInfo(raw(&tty.control), &mut info) },
+        unsafe { GetConsoleScreenBufferInfo(raw(&tty.output), &mut info) },
         0
     );
     assert_eq!(
@@ -156,27 +156,27 @@ fn make_raw(state: &[u8]) -> Vec<u8> {
 }
 
 fn state_roundtrip(tty: &TtyResources) {
-    let saved = (mode(&tty.input), mode(&tty.control));
-    let state = get_state(&tty.input, &tty.control).unwrap();
+    let saved = (mode(&tty.input), mode(&tty.output));
+    let state = get_state(&tty.input, &tty.output).unwrap();
     assert_eq!(state.len(), state_size());
     assert_eq!(&state[..4], saved.0.to_le_bytes());
     assert_eq!(&state[4..], saved.1.to_le_bytes());
     let raw = make_raw(&state);
-    set_state(&tty.input, &tty.control, &raw).unwrap();
-    assert_eq!(get_state(&tty.input, &tty.control).unwrap(), raw);
-    let raw_modes = (mode(&tty.input), mode(&tty.control));
+    set_state(&tty.input, &tty.output, &raw).unwrap();
+    assert_eq!(get_state(&tty.input, &tty.output).unwrap(), raw);
+    let raw_modes = (mode(&tty.input), mode(&tty.output));
     for len in [0, state_size() - 1, state_size() + 1] {
         assert_eq!(
-            set_state(&tty.input, &tty.control, &vec![0; len]),
+            set_state(&tty.input, &tty.output, &vec![0; len]),
             Err(crate::async_host::AsyncHostError::Inval)
         );
-        assert_eq!((mode(&tty.input), mode(&tty.control)), raw_modes);
+        assert_eq!((mode(&tty.input), mode(&tty.output)), raw_modes);
     }
-    set_state(&tty.input, &tty.control, &state).unwrap();
-    assert_eq!((mode(&tty.input), mode(&tty.control)), saved);
+    set_state(&tty.input, &tty.output, &state).unwrap();
+    assert_eq!((mode(&tty.input), mode(&tty.output)), saved);
     // State is reusable bytes, not a consumed host Handle.
-    set_state(&tty.input, &tty.control, &state).unwrap();
-    assert_eq!((mode(&tty.input), mode(&tty.control)), saved);
+    set_state(&tty.input, &tty.output, &state).unwrap();
+    assert_eq!((mode(&tty.input), mode(&tty.output)), saved);
 }
 
 fn set_state_rolls_back_input_on_output_failure(tty: &TtyResources) {
@@ -194,22 +194,22 @@ fn set_state_rolls_back_input_on_output_failure(tty: &TtyResources) {
     assert_ne!(output, INVALID_HANDLE_VALUE);
     let output = Resource::new(output);
     let saved = mode(&tty.input);
-    let raw = make_raw(&get_state(&tty.input, &tty.control).unwrap());
+    let raw = make_raw(&get_state(&tty.input, &tty.output).unwrap());
     assert!(set_state(&tty.input, &output, &raw).is_err());
     assert_eq!(mode(&tty.input), saved);
 }
 
 fn guest_owns_state(tty: &TtyResources) {
-    let saved = (mode(&tty.input), mode(&tty.control));
-    let raw = make_raw(&[saved.0.to_le_bytes(), saved.1.to_le_bytes()].concat());
-    let raw_input = u32::from_le_bytes(raw[..4].try_into().unwrap());
-    let raw_output = u32::from_le_bytes(raw[4..].try_into().unwrap());
+    let saved = (mode(&tty.input), mode(&tty.output));
+    let raw_state = make_raw(&[saved.0.to_le_bytes(), saved.1.to_le_bytes()].concat());
+    let raw_input = u32::from_le_bytes(raw_state[..4].try_into().unwrap());
+    let raw_output = u32::from_le_bytes(raw_state[4..].try_into().unwrap());
     let engine = crate::Engine::default();
     for trap in [false, true] {
         let finish = if trap {
             "unreachable"
         } else {
-            "(call $check (call $set (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 41)))"
+            "(call $check (call $set (i64.load (i32.const 0)) (i64.load (i32.const 8)) (i32.const 41)))"
         };
         let source = format!(
             r#"(module
@@ -221,28 +221,27 @@ fn guest_owns_state(tty: &TtyResources) {
             (memory (export "memory") 1)
             (func $check (param $err i32) (if (local.get $err) (then unreachable)))
             (func (export "_start")
-                (call $check (call $open (i32.const 0) (i32.const 4)))
-                (call $check (i64.eq (i64.load (i32.const 0)) (i64.load (i32.const 16))))
-                (call $check (i64.eq (i64.load (i32.const 16)) (i64.load (i32.const 24))))
-                (call $check (i64.le_s (call $size (i64.load (i32.const 16))) (i64.const 0)))
+                ;; Too short a destination fails without opening anything.
+                (call $check (i32.ne (call $open (i32.const 0) (i32.const 1)) (i32.const -1)))
+                (call $check (i32.ne (call $open (i32.const 0) (i32.const 2)) (i32.const 2)))
+                (call $check (i64.eq (i64.load (i32.const 0)) (i64.load (i32.const 8))))
+                (call $check (i64.le_s (call $size (i64.load (i32.const 8))) (i64.const 0)))
                 ;; An invalid destination fails.
-                (call $check (i32.ne (call $get (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 65532)) (i32.const -1)))
-                (call $check (call $get (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 32)))
+                (call $check (i32.ne (call $get (i64.load (i32.const 0)) (i64.load (i32.const 8)) (i32.const 65532)) (i32.const -1)))
+                (call $check (call $get (i64.load (i32.const 0)) (i64.load (i32.const 8)) (i32.const 32)))
                 (call $check (i32.ne (i32.load (i32.const 32)) (i32.const {input_mode})))
                 (call $check (i32.ne (i32.load (i32.const 36)) (i32.const {output_mode})))
                 ;; The guest computes the raw state itself.
                 (i32.store (i32.const 48) (i32.const {raw_input}))
                 (i32.store (i32.const 52) (i32.const {raw_output}))
-                (call $check (call $set (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 48)))
+                (call $check (call $set (i64.load (i32.const 0)) (i64.load (i32.const 8)) (i32.const 48)))
                 ;; Move the saved bytes to an unaligned buffer and erase the original.
                 (memory.copy (i32.const 41) (i32.const 32) (i32.const 8))
                 (memory.fill (i32.const 32) (i32.const 0) (i32.const 8))
-                (call $check (i32.ne (call $set (i64.load (i32.const 0)) (i64.load (i32.const 16)) (i32.const 65532)) (i32.const -1)))
+                (call $check (i32.ne (call $set (i64.load (i32.const 0)) (i64.load (i32.const 8)) (i32.const 65532)) (i32.const -1)))
                 {finish}
                 (call $check (call $close (i64.load (i32.const 0))))
-                (call $check (call $close (i64.load (i32.const 8))))
-                (call $check (call $close (i64.load (i32.const 16))))
-                (call $check (call $close (i64.load (i32.const 24))))))"#,
+                (call $check (call $close (i64.load (i32.const 8))))))"#,
             input_mode = saved.0 as i32,
             output_mode = saved.1 as i32,
             raw_input = raw_input as i32,
@@ -263,11 +262,11 @@ fn guest_owns_state(tty: &TtyResources) {
         if trap {
             // Like upstream, dropping the Runtime closes Resources but does not
             // restore a configuration whose only saved copy belonged to the guest.
-            assert_ne!((mode(&tty.input), mode(&tty.control)), saved);
+            assert_ne!((mode(&tty.input), mode(&tty.output)), saved);
             assert_ne!(unsafe { SetConsoleMode(raw(&tty.input), saved.0) }, 0);
-            assert_ne!(unsafe { SetConsoleMode(raw(&tty.control), saved.1) }, 0);
+            assert_ne!(unsafe { SetConsoleMode(raw(&tty.output), saved.1) }, 0);
         } else {
-            assert_eq!((mode(&tty.input), mode(&tty.control)), saved);
+            assert_eq!((mode(&tty.input), mode(&tty.output)), saved);
         }
     }
 }
@@ -306,10 +305,9 @@ fn inject(input: &Resource, records: &[INPUT_RECORD]) {
 
 fn console_input_records(tty: TtyResources) {
     use crate::filesystem::Job;
-    let state = get_state(&tty.input, &tty.control).unwrap();
-    set_state(&tty.input, &tty.control, &make_raw(&state)).unwrap();
+    let state = get_state(&tty.input, &tty.output).unwrap();
+    set_state(&tty.input, &tty.output, &make_raw(&state)).unwrap();
     let input = Arc::new(tty.input);
-    let wakeup = Arc::new(tty.wakeup);
     assert_ne!(unsafe { FlushConsoleInputBuffer(raw(&input)) }, 0);
     let resize = INPUT_RECORD {
         EventType: WINDOW_BUFFER_SIZE_EVENT as u16,
@@ -340,29 +338,30 @@ fn console_input_records(tty: TtyResources) {
         resize,
     ];
     inject(&input, &records);
-    // The next read must clear cancellation left by a previous Job.
-    assert_ne!(unsafe { SetEvent(raw(&wakeup)) }, 0);
-    let mut job = Job::tty_read_console_input(input.clone(), wakeup.clone(), 24);
-    assert_eq!(job.run().unwrap(), 9);
+    // A cancelled Job leaves nothing behind for the next one.
+    let cancelled = Job::tty_read_console_input(input.clone(), 8).unwrap();
+    let cancel = cancelled.cancellation_resource().unwrap();
+    assert_ne!(unsafe { SetEvent(raw(&cancel)) }, 0);
+    drop(cancelled);
+    let mut job = Job::tty_read_console_input(input.clone(), 8).unwrap();
+    assert_eq!(job.run().unwrap(), 3);
     assert!(job.tty_read_console_input_resized().unwrap());
-    let mut memory = [0_u8; 18];
-    job.copy_read_console_result(0, &mut memory, 0, 0, 9)
+    let mut memory = [0_u8; 6];
+    job.copy_read_console_result(0, &mut memory, 0, 0, 3)
         .unwrap();
     let text: Vec<u16> = memory
         .chunks_exact(2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
         .collect();
-    assert_eq!(
-        text,
-        [0x03bb, 0xd83d, 0xde00, 0x1b, 0x5b, 0x49, 0x1b, 0x5b, 0x4f]
-    );
+    // Focus events are dropped, as in native.
+    assert_eq!(text, [0x03bb, 0xd83d, 0xde00]);
     inject(&input, &[resize]);
-    let mut short = Job::tty_read_console_input(input.clone(), wakeup.clone(), 2);
-    assert_eq!(short.run(), Err(crate::async_host::AsyncHostError::Inval));
-    let mut job = Job::tty_read_console_input(input.clone(), wakeup, 3);
+    let mut empty = Job::tty_read_console_input(input.clone(), 0).unwrap();
+    assert_eq!(empty.run(), Err(crate::async_host::AsyncHostError::Inval));
+    let mut job = Job::tty_read_console_input(input.clone(), 1).unwrap();
     assert_eq!(job.run().unwrap(), -1);
     assert!(job.tty_read_console_input_resized().unwrap());
-    set_state(&input, &tty.control, &state).unwrap();
+    set_state(&input, &tty.output, &state).unwrap();
 }
 
 fn console_read_cancellation() {
@@ -372,8 +371,7 @@ fn console_read_cancellation() {
         let tty = open().unwrap();
         assert_ne!(unsafe { FlushConsoleInputBuffer(raw(&tty.input)) }, 0);
         let input = Arc::new(tty.input);
-        let wakeup = Arc::new(tty.wakeup);
-        let job = crate::filesystem::Job::tty_read_console_input(input, wakeup, 3);
+        let job = crate::filesystem::Job::tty_read_console_input(input, 3).unwrap();
         let (started, ready) = mpsc::channel();
         let (release, resume) = mpsc::channel();
         let (completed, results) = mpsc::channel();

@@ -342,31 +342,13 @@ pub(super) fn make_write_console_job(
         .insert_job(FilesystemJob::write_console(file, data))
 }
 
-// A closed terminal passes invalid Handles. Like the native worker's EBADF,
-// that fails the Job instead of trapping.
-pub(super) fn make_tty_read_job(
-    context: &mut ImportContext<'_>,
-    input: u64,
-    wakeup: u64,
-    len: u32,
-) -> AsyncHostResult<u64> {
-    let job = (|| {
-        let input = context
-            .host
-            .acquire_resource_of_class(input, ResourceClass::File)?;
-        let wakeup = context
-            .host
-            .acquire_resource_of_class(wakeup, ResourceClass::File)?;
-        Ok(FilesystemJob::tty_read(input, wakeup, len))
-    })();
-    context.host.insert_job(filesystem_job_or_failed(job))
-}
-
-// Counts are UTF-16 code units, as for `make_read_console_job`.
+// Counts are UTF-16 code units, as for `make_read_console_job`. A closed
+// terminal passes an invalid Handle; like the native worker's EBADF, that
+// fails the Job instead of trapping. So does failing to create the Job's
+// cancellation event.
 pub(super) fn make_tty_read_console_input_job(
     context: &mut ImportContext<'_>,
     input: u64,
-    wakeup: u64,
     len: u32,
 ) -> AsyncHostResult<u64> {
     len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
@@ -374,10 +356,7 @@ pub(super) fn make_tty_read_console_input_job(
         let input = context
             .host
             .acquire_resource_of_class(input, ResourceClass::File)?;
-        let wakeup = context
-            .host
-            .acquire_resource_of_class(wakeup, ResourceClass::File)?;
-        Ok(FilesystemJob::tty_read_console_input(input, wakeup, len))
+        FilesystemJob::tty_read_console_input(input, len)
     })();
     context.host.insert_job(filesystem_job_or_failed(job))
 }

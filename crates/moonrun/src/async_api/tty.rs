@@ -21,6 +21,7 @@
 
 use super::context::ImportContext;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::tty::TtyResources;
 use crate::guest_memory::GuestMemory;
 
 fn errno_result(context: &mut ImportContext<'_>, result: AsyncHostResult<()>) -> i32 {
@@ -33,14 +34,17 @@ fn errno_result(context: &mut ImportContext<'_>, result: AsyncHostResult<()>) ->
     }
 }
 
-/// Fill `dst` with `[input, wakeup, control, output]` Handles.
+/// Fill `dst` with the terminal's Handles, `[terminal]` on Unix and
+/// `[input, output]` on Windows, and return their number.
 pub(super) fn open(context: &mut ImportContext<'_>, dst: u32, len: u32) -> i32 {
+    const COUNT: u32 = TtyResources::COUNT as u32;
     let result = (|| {
-        if len < 4 {
+        if len < COUNT {
             return Err(AsyncHostError::Fault);
         }
         // Validate the destination before opening anything.
-        context.with_memory_mut(|memory| Ok(memory.read_exact_mut(dst, 32).map(|_| ())?))?;
+        context
+            .with_memory_mut(|memory| Ok(memory.read_exact_mut(dst, 8 * COUNT).map(|_| ())?))?;
         let handles = context.host.tty_open()?;
         context.with_memory_mut(|memory| {
             for (index, handle) in handles.into_iter().enumerate() {
@@ -52,7 +56,10 @@ pub(super) fn open(context: &mut ImportContext<'_>, dst: u32, len: u32) -> i32 {
             Ok(())
         })
     })();
-    errno_result(context, result)
+    match errno_result(context, result) {
+        0 => COUNT as i32,
+        error => error,
+    }
 }
 
 /// Write the current terminal state, `tty::state_size` bytes, at `dst`.

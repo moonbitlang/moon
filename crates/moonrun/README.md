@@ -226,6 +226,13 @@ Ordinary Unix Jobs retain the thread pool's `pthread_kill(SIGUSR2)` path.
 If the Run does not accept a signal, the adapter applies the process's existing
 signal behavior.
 
+On Unix a terminal resize reaches the guest as `SIGWINCH`. A Run accepts it
+only after its guest opens the controlling terminal, since older guests treat
+every signal as cancellation; embedders forward it through the same
+`SignalSender`. The CLI also waits for `SIGWINCH`, installing a no-op handler
+when its action is the default, because macOS discards a blocked signal that
+is ignored by default. An unaccepted `SIGWINCH` is dropped.
+
 For external V8 termination, pass a `termination_channel` receiver through
 `RunOptions::with_termination_receiver`. Its `RunTerminator` can request an exit
 code or signal outcome from another thread; the first request wins. Acceptance
@@ -377,8 +384,9 @@ alternatives.
 `process.spawn` and `process.allow` cannot be used together. Set
 `process.spawn = true` only as a coarse allow-all escape hatch.
 
-`tty = true` lets the program open the controlling terminal (`/dev/tty` on Unix,
-the console on Windows), switch it to raw mode, and write to it. Filesystem
+`tty = true` lets the program open the controlling terminal (`/dev/tty` on
+Linux, the device behind it on macOS, the console on Windows), switch it to raw
+mode, read from it, and write to it. Filesystem
 rules do not grant terminal access.
 
 These rules authorize the logical request, not the executable file eventually

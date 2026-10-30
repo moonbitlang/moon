@@ -1084,9 +1084,9 @@ declare_async_imports! {
 
     // The controlling terminal, following src/tty/tty.c and
     // src/internal/event_loop/tty.c on async's tty branch, outside the pinned revision.
-    // Reads copy results with `get_read_result` / `get_read_console_result`.
-    helper thread_pool::make_tty_read_job(input: u64, wakeup: u64, len: u32) -> u64 => "thread_pool/make_tty_read_job";
-    helper thread_pool::make_tty_read_console_input_job(input: u64, wakeup: u64, len: u32) -> u64 => "thread_pool/make_tty_read_console_input_job";
+    // On Unix the guest reads the terminal Handle through the event bus. Windows
+    // console reads copy results with `get_read_console_result`.
+    helper thread_pool::make_tty_read_console_input_job(input: u64, len: u32) -> u64 => "thread_pool/make_tty_read_console_input_job";
     helper thread_pool::tty_read_console_input_job_get_resized(job: u64) -> i32 => "thread_pool/tty_read_console_input_job_get_resized";
     helper tty::open(dst: u32, len: u32) -> i32 => "tty/open";
     helper tty::get_state(input: u64, output: u64, dst: u32) -> i32 => "tty/get_state";

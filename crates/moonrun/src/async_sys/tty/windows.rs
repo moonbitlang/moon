@@ -25,7 +25,6 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Console::*;
-use windows_sys::Win32::System::Threading::CreateEventW;
 
 use super::TtyResources;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
@@ -59,16 +58,9 @@ fn open_console(name: *const u16) -> AsyncHostResult<OwnedHandle> {
 
 pub(super) fn open() -> AsyncHostResult<TtyResources> {
     let input = open_console(windows_sys::w!("CONIN$"))?;
-    let control = open_console(windows_sys::w!("CONOUT$"))?;
-    let output = control.try_clone().map_err(io_error)?;
-    let wakeup = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
-    if wakeup.is_null() {
-        return Err(last_error());
-    }
+    let output = open_console(windows_sys::w!("CONOUT$"))?;
     Ok(TtyResources {
         input: Resource::new(input.into_raw_handle()),
-        wakeup: Resource::new(wakeup),
-        control: Resource::new(control.into_raw_handle()),
         output: Resource::new(output.into_raw_handle()),
     })
 }

@@ -74,6 +74,8 @@ pub fn signal_channel() -> (SignalSender, SignalReceiver) {
             receiver_alive: true,
             interested: 0,
             #[cfg(unix)]
+            resize: false,
+            #[cfg(unix)]
             target: None,
             #[cfg(windows)]
             target: None,
@@ -109,7 +111,7 @@ impl SignalSender {
             if !state.receiver_alive {
                 return Err(SignalSendError::Disconnected);
             }
-            if state.interested & bit == 0 {
+            if state.interested_mask() & bit == 0 {
                 return Ok(false);
             }
             // Both Unix targets use nonblocking, coalesced wakeups. Keep the
@@ -172,6 +174,15 @@ impl SignalReceiver {
     pub(crate) fn configure(&self, all_signals: &[i32], signals: &[i32]) {
         self.shared.inner.lock().unwrap().interested =
             signal_mask(signals) & signal_mask(all_signals);
+    }
+
+    /// Deliver `SIGWINCH` from now on, as a resize rather than a cancellation
+    /// signal. Older guests treat every signal as cancellation, so only a Run
+    /// that opened the terminal opts in; reconfiguring cancellation signals
+    /// keeps it.
+    #[cfg(unix)]
+    pub(crate) fn enable_resize_signal(&self) {
+        self.shared.inner.lock().unwrap().resize = true;
     }
 
     #[cfg(unix)]
@@ -237,10 +248,24 @@ struct SignalState {
 struct SignalStateInner {
     receiver_alive: bool,
     interested: u32,
+    // Whether `SIGWINCH` is delivered, separate from the cancellation signals.
+    #[cfg(unix)]
+    resize: bool,
     #[cfg(unix)]
     target: Option<SignalTarget>,
     #[cfg(windows)]
     target: Option<CompletionPort>,
+}
+
+#[cfg(unix)]
+impl SignalStateInner {
+    fn interested_mask(&self) -> u32 {
+        if self.resize {
+            self.interested | signal_bit(libc::SIGWINCH)
+        } else {
+            self.interested
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -277,6 +302,41 @@ mod tests {
         let (sender, receiver) = signal_channel();
         drop(receiver);
         assert_eq!(sender.send(2), Err(SignalSendError::Disconnected));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resize_signal_is_delivered_only_after_opting_in() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
+        let (sender, receiver) = signal_channel();
+        let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
+        let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
+        let notifier = Arc::new(notifier);
+        let _target = receiver
+            .attach_completion_target(Arc::clone(&notifier))
+            .unwrap();
+        receiver.configure(&[libc::SIGINT], &[libc::SIGINT]);
+        assert_eq!(sender.send(libc::SIGWINCH), Ok(false));
+
+        receiver.enable_resize_signal();
+        assert_eq!(sender.send(libc::SIGWINCH), Ok(true));
+        let mut events = [0_u8; 8];
+        assert_eq!(notifier.fetch(&mut events).unwrap(), 4);
+        assert_eq!(
+            i32::from_ne_bytes(events[..4].try_into().unwrap()),
+            libc::SIGWINCH | i32::MIN
+        );
+
+        // Reconfiguring cancellation signals keeps the resize signal.
+        receiver.configure(&[libc::SIGINT], &[]);
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert_eq!(sender.send(libc::SIGWINCH), Ok(true));
+        assert_eq!(notifier.fetch(&mut events).unwrap(), 4);
+        assert_eq!(
+            i32::from_ne_bytes(events[..4].try_into().unwrap()),
+            libc::SIGWINCH | i32::MIN
+        );
     }
 
     #[cfg(windows)]

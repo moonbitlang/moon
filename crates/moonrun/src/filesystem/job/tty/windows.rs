@@ -20,22 +20,35 @@ use std::os::windows::io::AsRawHandle;
 
 use windows_sys::Win32::Foundation::{ERROR_OPERATION_ABORTED, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Console::{
-    FOCUS_EVENT, GetNumberOfConsoleInputEvents, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW,
+    GetNumberOfConsoleInputEvents, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW,
     WINDOW_BUFFER_SIZE_EVENT,
 };
-use windows_sys::Win32::System::Threading::{INFINITE, ResetEvent, WaitForMultipleObjects};
+use windows_sys::Win32::System::Threading::{CreateEventW, INFINITE, WaitForMultipleObjects};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_MENU;
 
-use super::TTY_READ_RESIZED;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use crate::resource::Resource;
+
+/// `TTY_READ_RESIZED` in the native runtime: the wait ended because the
+/// window was resized, and no input was consumed.
+const TTY_READ_RESIZED: i64 = -1;
 
 fn last_error() -> AsyncHostError {
     AsyncHostError::Native(std::io::Error::last_os_error().raw_os_error().unwrap_or(1))
 }
 
-/// Each record produces at most three UTF-16 code units (a focus sequence).
+/// The auto-reset event that cancels one Job's wait. Each Job owns its own,
+/// so a cancellation never leaks into the next read.
+pub(in crate::filesystem::job) fn make_cancel_event() -> AsyncHostResult<Resource> {
+    let cancel = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+    if cancel.is_null() {
+        return Err(last_error());
+    }
+    Ok(Resource::new(cancel))
+}
+
+/// Each record produces at most one UTF-16 code unit.
 fn records_to_text(records: &[INPUT_RECORD], text: &mut Vec<u16>) -> bool {
     let mut resized = false;
     for record in records {
@@ -49,14 +62,6 @@ fn records_to_text(records: &[INPUT_RECORD], text: &mut Vec<u16>) -> bool {
                     text.push(unit);
                 }
             }
-            FOCUS_EVENT => {
-                let focused = unsafe { record.Event.FocusEvent.bSetFocus } != 0;
-                text.extend_from_slice(&[
-                    0x1b,
-                    b'[' as u16,
-                    if focused { b'I' } else { b'O' } as u16,
-                ]);
-            }
             WINDOW_BUFFER_SIZE_EVENT => resized = true,
             _ => {}
         }
@@ -66,29 +71,25 @@ fn records_to_text(records: &[INPUT_RECORD], text: &mut Vec<u16>) -> bool {
 
 pub(in crate::filesystem::job) fn read_console_input(
     input: &Resource,
-    wakeup: &Resource,
+    cancel: &Resource,
     len: u32,
     result: &mut Option<Vec<u16>>,
     resized: &mut bool,
 ) -> AsyncHostResult<i64> {
     const MAX_RECORDS: usize = 256;
-    let max_records = (len / 3).min(MAX_RECORDS as u32);
-    // A shorter buffer cannot hold a focus event. Reject it before consuming input.
+    let max_records = len.min(MAX_RECORDS as u32);
+    // Reading no records would spin on the signaled console. Reject it before
+    // waiting.
     if max_records == 0 {
         return Err(AsyncHostError::Inval);
     }
     let input = input.as_handle()?.as_raw_handle();
-    let wakeup = wakeup.as_handle()?.as_raw_handle();
+    let cancel = cancel.as_handle()?.as_raw_handle();
     let mut records = unsafe { std::mem::zeroed::<[INPUT_RECORD; MAX_RECORDS]>() };
-    let mut text = Vec::with_capacity(max_records as usize * 3);
-    // Discard a previous Job's wake. The cancellation check below also covers
-    // cancellation of this Job before or during this reset.
-    if unsafe { ResetEvent(wakeup) } == 0 {
-        return Err(last_error());
-    }
+    let mut text = Vec::with_capacity(max_records as usize);
     loop {
         with_cancellable_region(|| {
-            let handles = [input, wakeup];
+            let handles = [input, cancel];
             match unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) } {
                 WAIT_OBJECT_0 => Ok(()),
                 ret if ret == WAIT_OBJECT_0 + 1 => {

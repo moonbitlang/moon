@@ -17,25 +17,22 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::{AsyncHost, AsyncHostResult, HostHandle};
-use crate::async_sys::tty;
+use crate::async_sys::tty::{self, TtyResources};
 use crate::resource::ResourceClass;
 
 impl AsyncHost {
-    /// Open the controlling terminal as
-    /// `[input, wakeup, control, output]`. On Unix the control Handle is the
-    /// input Handle, and the guest closes only the input Handle.
-    pub(crate) fn tty_open(&self) -> AsyncHostResult<[HostHandle; 4]> {
+    /// Open the controlling terminal, see `TtyResources`: `[terminal]` on
+    /// Unix, `[input, output]` on Windows.
+    pub(crate) fn tty_open(&self) -> AsyncHostResult<[HostHandle; TtyResources::COUNT]> {
         self.authorize_tty()?;
         let tty = tty::open()?;
-        let mut handles = self.handles.borrow_mut();
-        let input = handles.insert_resource(tty.input);
-        let wakeup = handles.insert_resource(tty.wakeup);
-        #[cfg(windows)]
-        let control = handles.insert_resource(tty.control);
+        // Resizes now arrive as `SIGWINCH`, which this guest expects.
         #[cfg(unix)]
-        let control = input;
-        let output = handles.insert_resource(tty.output);
-        Ok([input, wakeup, control, output])
+        self.signals.enable_resize_signal();
+        let mut handles = self.handles.borrow_mut();
+        Ok(tty
+            .into_resources()
+            .map(|resource| handles.insert_resource(resource)))
     }
 
     /// Fail unless the policy allows terminal access. Checked on every

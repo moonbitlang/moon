@@ -24,28 +24,45 @@ use crate::resource::Resource;
 #[cfg(all(test, windows))]
 mod tests;
 
+#[cfg(all(test, unix))]
+mod unix_tests;
+
 #[cfg(windows)]
 mod windows;
 
-/// The controlling terminal on Unix.
-#[cfg(unix)]
-const TTY_PATH: &str = "/dev/tty";
-
-/// The descriptors behind `tty/open`. On Unix the control descriptor is the
-/// input descriptor, so it has no entry of its own.
+/// The Resources behind `tty/open`, in the order the guest receives them. On
+/// Unix one descriptor serves as both input and output, so the guest can
+/// register it on the event bus.
 pub(crate) struct TtyResources {
-    pub(crate) input: Resource,
-    pub(crate) wakeup: Resource,
+    #[cfg(unix)]
+    pub(crate) terminal: Resource,
     #[cfg(windows)]
-    pub(crate) control: Resource,
+    pub(crate) input: Resource,
+    #[cfg(windows)]
     pub(crate) output: Resource,
+}
+
+impl TtyResources {
+    /// The number of Handles `tty/open` writes.
+    #[cfg(unix)]
+    pub(crate) const COUNT: usize = 1;
+    #[cfg(windows)]
+    pub(crate) const COUNT: usize = 2;
+
+    pub(crate) fn into_resources(self) -> [Resource; Self::COUNT] {
+        #[cfg(unix)]
+        return [self.terminal];
+        #[cfg(windows)]
+        return [self.input, self.output];
+    }
 }
 
 #[cfg(unix)]
 mod unix {
+    use std::ffi::CString;
     use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 
-    use super::{TTY_PATH, TtyResources};
+    use super::TtyResources;
     use crate::async_host::{AsyncHostError, AsyncHostResult};
     use crate::resource::Resource;
 
@@ -64,75 +81,64 @@ mod unix {
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
     }
 
-    fn dup(fd: RawFd) -> AsyncHostResult<OwnedFd> {
-        owned(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) })
-    }
-
-    /// Readable while `SIGWINCH` is pending. This only works while every
-    /// thread blocks `SIGWINCH`; the CLI blocks it before creating threads.
+    /// The path of the controlling terminal.
     #[cfg(target_os = "linux")]
-    fn open_resize_source() -> AsyncHostResult<OwnedFd> {
-        let mut set = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-        unsafe {
-            libc::sigemptyset(&mut set);
-            libc::sigaddset(&mut set, libc::SIGWINCH);
-        }
-        owned(unsafe { libc::signalfd(-1, &set, libc::SFD_CLOEXEC | libc::SFD_NONBLOCK) })
+    pub(super) fn tty_path() -> AsyncHostResult<CString> {
+        Ok(CString::new("/dev/tty").unwrap())
     }
 
-    /// Readable after `SIGWINCH` is generated. kqueue observes the signal
-    /// whatever the signal masks are.
+    /// The path of the controlling terminal. kqueue cannot poll `/dev/tty`,
+    /// so find the device behind it. Native reads `kp_eproc.e_tdev` through
+    /// `sysctl`; `proc_pidinfo` reports the same device without `kinfo_proc`,
+    /// which `libc` does not define.
     #[cfg(target_os = "macos")]
-    fn open_resize_source() -> AsyncHostResult<OwnedFd> {
-        let kq = owned(unsafe { libc::kqueue() })?;
-        unsafe {
-            libc::fcntl(kq.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
+    pub(super) fn tty_path() -> AsyncHostResult<CString> {
+        unsafe extern "C" {
+            fn devname(dev: libc::dev_t, kind: libc::mode_t) -> *mut libc::c_char;
         }
-        let event = libc::kevent {
-            ident: libc::SIGWINCH as usize,
-            filter: libc::EVFILT_SIGNAL,
-            flags: libc::EV_ADD,
-            fflags: 0,
-            data: 0,
-            udata: std::ptr::null_mut(),
-        };
+
+        let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
         let ret = unsafe {
-            libc::kevent(
-                kq.as_raw_fd(),
-                &event,
-                1,
-                std::ptr::null_mut(),
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDTBSDINFO,
                 0,
-                std::ptr::null(),
+                (&mut info as *mut libc::proc_bsdinfo).cast(),
+                size,
             )
         };
-        if ret < 0 {
+        // 0 on failure, with errno set.
+        if ret <= 0 {
             return Err(last_error());
         }
-        Ok(kq)
+        if ret != size {
+            return Err(AsyncHostError::Native(libc::EIO));
+        }
+        // `NODEV`
+        if info.e_tdev == u32::MAX {
+            return Err(AsyncHostError::Native(libc::ENXIO));
+        }
+        let name = unsafe { devname(info.e_tdev as libc::dev_t, libc::S_IFCHR) };
+        if name.is_null() {
+            return Err(AsyncHostError::Native(libc::ENXIO));
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr(name) };
+        let mut path = b"/dev/".to_vec();
+        path.extend_from_slice(name.to_bytes());
+        Ok(CString::new(path).unwrap())
     }
 
     pub(super) fn open() -> AsyncHostResult<TtyResources> {
-        let path = std::ffi::CString::new(TTY_PATH).unwrap();
-        let input = owned(unsafe {
+        let path = tty_path()?;
+        let terminal = owned(unsafe {
             libc::open(
                 path.as_ptr(),
                 libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
             )
         })?;
-        let output = dup(input.as_raw_fd())?;
-        let wakeup = open_resize_source()?;
-        // The guest thread too, in case an embedder did not block it.
-        let mut winch = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-        unsafe {
-            libc::sigemptyset(&mut winch);
-            libc::sigaddset(&mut winch, libc::SIGWINCH);
-            libc::pthread_sigmask(libc::SIG_BLOCK, &winch, std::ptr::null_mut());
-        }
         Ok(TtyResources {
-            input: Resource::new(input.into_raw_fd()),
-            wakeup: Resource::new(wakeup.into_raw_fd()),
-            output: Resource::new(output.into_raw_fd()),
+            terminal: Resource::new(terminal.into_raw_fd()),
         })
     }
 
