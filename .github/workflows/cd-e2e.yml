@@ -26,6 +26,10 @@ on:
 permissions:
   actions: read
   contents: read
+  id-token: write
+
+env:
+  BUILD_ARTIFACTS_BUCKET: ${{ secrets.MOONBIT_BUILD_ARTIFACTS_BUCKET }}
 
 jobs:
   e2e:
@@ -43,32 +47,32 @@ jobs:
     env:
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.MOONBIT_E2E_AWS_ROLE_ARN }}
+          aws-region: us-west-2
+          allowed-account-ids: ${{ secrets.MOONBIT_AWS_ACCOUNT_ID }}
+          mask-aws-account-id: true
+
       - name: Download release binaries (S3, Unix)
         if: ${{ runner.os != 'Windows' }}
         shell: bash
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           version=$(echo "$RELEASE_SHA" | cut -c 1-9)
           mkdir -p dist
           platform="$(uname -s)-$(uname -m)"
-          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/${platform}/moon" dist/moon
-          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/${platform}/moonrun" dist/moonrun
+          aws s3 cp "s3://${{ env.BUILD_ARTIFACTS_BUCKET }}/bleeding-moon/$version/${platform}/moon" dist/moon
+          aws s3 cp "s3://${{ env.BUILD_ARTIFACTS_BUCKET }}/bleeding-moonrun/$version/${platform}/moonrun" dist/moonrun
 
       - name: Download release binaries (S3, Windows)
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           $version = $env:RELEASE_SHA.Substring(0, 9)
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/moon.exe" dist/moon.exe
-          aws s3 cp "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/moonrun.exe" dist/moonrun.exe
+          aws s3 cp "s3://${{ env.BUILD_ARTIFACTS_BUCKET }}/bleeding-moon/$version/Windows-x86_64/moon.exe" dist/moon.exe
+          aws s3 cp "s3://${{ env.BUILD_ARTIFACTS_BUCKET }}/bleeding-moonrun/$version/Windows-x86_64/moonrun.exe" dist/moonrun.exe
 
       - name: Install MoonBit (Unix)
         if: ${{ runner.os != 'Windows' }}
