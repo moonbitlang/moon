@@ -16,6 +16,8 @@ The CLI accepts more than one argument grammar:
 - Clap parses ordinary Moon commands.
 - The executable name selects `moonx`.
 - generated build commands use the hidden `moon tool exec` parser.
+- `moon testcli` delegates every argument after the subcommand to the current
+  toolchain's `mooncram.wasm`, including help and version flags.
 - compatibility forms such as external `cram` commands and `help ide` delegate
   an opaque argument tail.
 
@@ -52,11 +54,13 @@ workspace state, or start a child process.
 
 The selector owns the interaction between Clap and compatibility grammar. It
 first selects executable-name and hidden-tool parsers, then parses ordinary
-Moon commands. A private artifact-handoff prefix is restricted to `moon run` and `moonx`;
-selection retains its path, and runtime opens it before applying `-C`. Opaque
-delegate tails have their own prefix parser where Clap cannot parse the complete invocation. Cram and external
-modules receive an already selected invocation; they do not inspect raw
-arguments or Clap errors.
+Moon commands. For `testcli`, selection splits off the opaque `Vec<OsString>`
+tail and uses Clap to validate the Moon-owned prefix and identify the command
+boundary. A private artifact-handoff prefix is restricted to `moon run` and
+`moonx`; selection retains its path, and runtime opens it before applying `-C`.
+Opaque delegate tails have their own prefix parser where Clap cannot parse the
+complete invocation. Cram and external modules receive an already selected
+invocation; they do not inspect raw arguments or Clap errors.
 
 ### Argument ownership at delegation points
 
@@ -71,6 +75,18 @@ option after that point belongs to the delegated executable. For example:
 
 `cram --help` remains Clap-rendered help for the Moon wrapper. Other cram
 parent flags and non-`test` subcommands belong to `moon-cram`.
+
+`testcli` always delegates, even with no arguments. It executes
+`moonrun <toolchain>/bin/mooncram.wasm -- <args>`, preserving argument order,
+empty arguments, non-UTF-8 OS strings, and literal `--` arguments. The wasm path
+comes from `moonutil::toolchain::bin()` and honors `MOON_TOOLCHAIN_ROOT`;
+`MOONRUN_OVERRIDE` follows the existing tool resolution rules. A preceding
+`-C` sets both the child's working directory and the base for relative runner
+lookup. A preceding `--trace` is rejected. Options after `testcli` belong to
+mooncram, so shell completion does not suggest Moon's global options there.
+Moon neither loads a project nor switches or installs a toolchain for this
+command. Wasm loading and guest argument validation belong to moonrun and
+mooncram; launch errors use the existing transparent-delegate error path.
 
 Clap help and parse failures retain Clap's native rendering and exit behavior.
 They occur before a Moon command runtime exists.
@@ -198,8 +214,8 @@ executor. User programs remain Process Passthrough.
 ## Regression coverage
 
 Selection tests use raw argument vectors and cover ordinary commands, JSON
-selection, executable-name dispatch, tool exec, IDE help, cram ownership, and
-trace placement.
+selection, executable-name dispatch, tool exec, IDE help, cram ownership,
+testcli's opaque arguments, and trace placement.
 
 Managed-child runner tests cover inherited and captured output on both output
 channels, stdin EOF, and success/failure classification.
@@ -207,6 +223,9 @@ channels, stdin EOF, and success/failure classification.
 Public CLI tests cover:
 
 - external and cram delegation with effective `-C` resolution;
+- testcli's wasm path, runner separator, argument boundaries, relative runner
+  overrides, inherited stdin/stdout/stderr and environment, and exit codes,
+  without a MoonBit project;
 - transparent delegate signal handling;
 - trace ownership around the cram delegation point;
 - complete traces before `cram test` and registry `runwasm` delegation;
