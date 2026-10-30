@@ -300,7 +300,7 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return Ok(());
         }
 
@@ -317,7 +317,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_check_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -336,7 +336,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_build_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -355,7 +355,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_build_outputs_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -394,7 +394,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
         // As with normal `.mi` dependencies, stdlib packages use installed
         // toolchain artifacts rather than planned local nodes.
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -423,7 +423,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // If the given target is a virtual package with default implementation,
         // we need to build its interface first. Injected stdlib contracts are
         // installed toolchain files and remain external to this plan.
-        if pkg.is_virtual() && !(self.config.stdlib_path.is_some() && pkg.is_stdlib) {
+        if pkg.is_virtual() && !pkg.is_stdlib {
             self.require_artifact(
                 node,
                 ArtifactKey::VirtualContractMi {
@@ -436,8 +436,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // the virtual package's interface first, unless that contract comes
         // from the injected stdlib.
         if let Some(vpkg_id) = self.rel.virt_impl.get(target.package)
-            && !(self.config.stdlib_path.is_some()
-                && self.input.pkg_dirs.is_stdlib_package(*vpkg_id))
+            && !self.input.pkg_dirs.is_stdlib_package(*vpkg_id)
         {
             self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
         }
@@ -1308,11 +1307,12 @@ impl<'a> BuildPlanConstructor<'a> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.rel.virtual_users.get(target.package);
 
-        let abort = if self.config.stdlib_path.is_some() {
-            self.input.pkg_dirs.abort_pkg()
-        } else {
-            None
-        };
+        // Only the injected stdlib's `abort` has a prebuilt default to link.
+        let abort = self
+            .input
+            .pkg_dirs
+            .abort_pkg()
+            .filter(|&abort| self.input.pkg_dirs.is_stdlib_package(abort));
         let abort_override_pkg =
             abort.and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
 

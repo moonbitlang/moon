@@ -157,9 +157,7 @@ impl<'a> LoweringContext<'a> {
         let no_mi = info.no_mi();
 
         if let Some(v_target) = info.check_mi_against {
-            let mi_path = if self.opt.stdlib_path.is_some()
-                && self.packages.is_stdlib_package(v_target.package)
-            {
+            let mi_path = if self.packages.is_stdlib_package(v_target.package) {
                 // Installed stdlib virtual contracts are known toolchain
                 // inputs, not artifacts produced by this Build Plan.
                 self.artifact_paths.mi_of_build_target(
@@ -235,7 +233,6 @@ impl<'a> LoweringContext<'a> {
         // dependency. Installed stdlib contracts have no provider in this
         // plan, so observe the exact `-check-mi`/`-impl-virtual` file.
         if let Some(target) = info.check_mi_against
-            && self.opt.stdlib_path.is_some()
             && self.packages.is_stdlib_package(target.package)
         {
             let path = match (&commons.check_mi, &commons.virtual_implementation) {
@@ -263,9 +260,7 @@ impl<'a> LoweringContext<'a> {
             // `_build/verif`. If stdlib later grows proof-related artifacts of
             // its own, this filter and the surrounding lowering logic should be
             // revisited.
-            .filter(|(_, dep, _)| {
-                !(self.opt.stdlib_path.is_some() && self.packages.is_stdlib_package(dep.package))
-            })
+            .filter(|(_, dep, _)| !self.packages.is_stdlib_package(dep.package))
             .map(|(_, dep, _)| {
                 let pkg = self.packages.get_package(dep.package);
                 compiler::DepProof::new(pkg.fqn.to_string(), proof_artifact_stem(&pkg.fqn))
@@ -292,7 +287,7 @@ impl<'a> LoweringContext<'a> {
                 .dep_graph
                 .neighbors_directed(current, Direction::Outgoing)
             {
-                if self.opt.stdlib_path.is_some() && self.packages.is_stdlib_package(dep.package) {
+                if self.packages.is_stdlib_package(dep.package) {
                     continue;
                 }
 
@@ -1391,9 +1386,7 @@ impl<'a> LoweringContext<'a> {
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
             .map(|(_, dep, w)| {
-                let in_file = if self.opt.stdlib_path.is_some()
-                    && self.packages.is_stdlib_package(dep.package)
-                {
+                let in_file = if self.packages.is_stdlib_package(dep.package) {
                     // Installed stdlib interfaces are selected by the known
                     // toolchain layout, outside this Build Plan's providers.
                     stdlib_deps.push(dep);
