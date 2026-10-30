@@ -96,6 +96,10 @@ pub(crate) enum DelegatedInvocation {
         current_dir: Option<PathBuf>,
         args: Vec<OsString>,
     },
+    TestCli {
+        current_dir: Option<PathBuf>,
+        args: Vec<OsString>,
+    },
     Login {
         current_dir: Option<PathBuf>,
     },
@@ -183,7 +187,24 @@ fn select_command(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::E
             .map(SelectedInvocation::Delegate);
     }
     let external_cram = select_external_cram(&raw_args);
-    let parsed = match MoonBuildCli::try_parse_from(&raw_args) {
+    // Clap validates only the Moon-owned prefix. Ask it to identify the
+    // command boundary too, since `testcli` can be an option value or a path
+    // under another command. This also preserves non-UTF-8 paths in the prefix.
+    let testcli = raw_args
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter(|(_, arg)| *arg == OsStr::new("testcli"))
+        .find_map(|(index, _)| {
+            let parsed = MoonBuildCli::try_parse_from(&raw_args[..=index]).ok()?;
+            matches!(parsed.subcommand, Some(MoonBuildSubcommands::TestCli))
+                .then_some((parsed, &raw_args[index + 1..]))
+        });
+    let (parsed, testcli_args) = match testcli {
+        Some((parsed, tail)) => (Ok(parsed), tail),
+        None => (MoonBuildCli::try_parse_from(&raw_args), [].as_slice()),
+    };
+    let parsed = match parsed {
         Ok(parsed) => parsed,
         Err(error) => {
             let delegated = match error.kind() {
@@ -223,6 +244,14 @@ fn select_command(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::E
 
     let current_dir = flags.source_tgt_dir.cwd.clone();
     match command {
+        MoonBuildSubcommands::TestCli => select_transparent_delegate(
+            "testcli",
+            flags.trace,
+            DelegatedInvocation::TestCli {
+                current_dir,
+                args: testcli_args.to_vec(),
+            },
+        ),
         MoonBuildSubcommands::External(args) => {
             let name = args
                 .first()
