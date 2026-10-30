@@ -186,9 +186,11 @@ fn run_cram_test(
         return Ok(ProcessAction::Exit(0));
     }
 
-    let cfg = build_cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose);
+    let cfg = crate::build_flags::execution_config(
+        &build_cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose,
+    );
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
         let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;

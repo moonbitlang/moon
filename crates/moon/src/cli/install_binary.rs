@@ -673,7 +673,7 @@ fn build_selected_package(
     rr_build::generate_all_pkgs_json(&build_meta)?;
 
     let result = moonbuild::execution::execute_build(
-        &build_flags.execution_config(&cli.unstable_feature, cli.verbose),
+        &crate::build_flags::execution_config(&build_flags, &cli.unstable_feature, cli.verbose),
         build_graph,
         &prepared.target_dir,
         user_log,

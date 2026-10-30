@@ -892,10 +892,9 @@ fn build_executable_from_plan(
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(build_meta)?;
 
-    let build_config = cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose)
-        .with_suppressed_progress(options.output.suppress_build_progress());
+    let build_config =
+        crate::build_flags::execution_config(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
+            .with_suppressed_progress(options.output.suppress_build_progress());
     let build_result =
         moonbuild::execution::execute_build(&build_config, build_graph, target_dir, user_log)?;
 

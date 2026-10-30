@@ -26,3 +26,11 @@ pub use crate::mooncakes::{
     DeprecateSubcommand, LoginSubcommand, MooncakeSubcommands, PackageSubcommand,
     PublishSubcommand, RegisterSubcommand, sync::AutoSyncFlags,
 };
+
+mod build_flags;
+mod moon;
+mod moonx;
+
+pub use build_flags::BuildFlags;
+pub use moon::{BuildSubcommand, MoonCli};
+pub use moonx::{MoonxCli, MoonxTarget};

@@ -27,7 +27,7 @@ replace Moon before tracing guards were dropped.
 
 ## Invocation selection
 
-`cli/invocation.rs` owns all argument interpretation. Its public operation is
+`cli/invocation.rs` owns top-level selection for the Moon executable. Its public operation is
 conceptually:
 
 ```rust
@@ -49,6 +49,23 @@ enum SelectedInvocation {
 
 It does not print, change directory, initialize output or tracing, inspect
 workspace state, or start a child process.
+
+The root grammar, build arguments, and moonx grammar live in
+`moonutil::cli_support`. `MoonCli<C>` composes the same root flags with a
+caller-selected subcommand enum; Moon supplies its complete enum. Other callers
+can compose a restricted enum from these canonical argument types without
+linking the build executor or duplicating supported options. A caller's enum
+must preserve the argument ownership of the commands it supports; unsupported
+commands are not recognized by searching their opaque tails.
+
+Shared parsing does not read process environment defaults. The explicit
+environment entry receives the caller's `MOON_UNSTABLE`, `NEW_MOON_MOD`, and
+`NEW_MOON_PKG` values, retaining command-line precedence and the existing manifest
+flag overrides. The native executable's command builder binds the ambient
+environment and keeps Clap's environment help metadata. This separation keeps
+library parsing from accidentally consulting an embedding host's environment.
+Build-executor configuration conversion remains in Moon; the shared build
+arguments only interpret backend, profile, and stripping choices.
 
 The selector owns the interaction between Clap and compatibility grammar. It
 first selects executable-name and hidden-tool parsers, then parses ordinary

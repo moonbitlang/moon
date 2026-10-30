@@ -107,6 +107,16 @@ requests shutdown, drains adopted roots, then presents that signal as its exit.
 Repeated signals during cleanup do not bypass teardown. After finalization,
 signal handling returns to the existing process fallback.
 
+## Shared Moon argument grammar
+
+Moon now consumes the shared root, build, and moonx argument definitions in
+`moonutil::cli_support`. The library parser accepts explicit environment inputs;
+Moon's native adapter retains ambient defaults. Build-executor configuration
+stays in Moon. Differential tests cover full versus restricted build parsing,
+and shared tests cover moonx argument tails and isolation from host environment.
+This provides the parser seam for the next dispatch change; virtual command
+selection and the handoff protocol have not changed yet.
+
 ## Follow-up order
 
 1. Manage preparation helpers and their compiler descendants as owned work;

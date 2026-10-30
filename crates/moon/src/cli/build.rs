@@ -25,7 +25,6 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonbuild_rupes_recta::pkg_name::PackageFQN;
 use moonutil::build_options::RunMode;
 use moonutil::cache::{CacheKind, resolve_cache_root};
-use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::locks::lock_directory;
 use moonutil::project::PackageDirs;
@@ -48,7 +47,7 @@ use crate::rr_build::CalcUserIntentOutput;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
-use super::{BuildFlags, UniversalFlags};
+use super::UniversalFlags;
 
 #[derive(Debug, Clone)]
 struct ResolvedBuildSelection {
@@ -65,32 +64,7 @@ impl ResolvedBuildSelection {
     }
 }
 
-/// Build the current package
-///
-/// A successful build also lists each executable and foreign library it built
-/// on stdout, with its package, target backend and absolute path. `--quiet`
-/// does not hide the list. With `--output-json`, each one is an `artifact`
-/// JSON message instead.
-#[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct BuildSubcommand {
-    /// Paths to the packages that should be built, or one standalone `.mbtx` file.
-    #[clap(name = "PATH", conflicts_with("package"))]
-    pub path: Vec<PathBuf>,
-
-    #[clap(flatten)]
-    pub build_flags: BuildFlags,
-
-    #[clap(flatten)]
-    pub auto_sync_flags: AutoSyncFlags,
-
-    /// Monitor the file system and automatically build artifacts
-    #[clap(long, short)]
-    pub watch: bool,
-
-    // package name (username/hello/lib)
-    #[clap(long, hide = true)]
-    pub package: Option<String>,
-}
+pub(crate) use moonutil::cli_support::BuildSubcommand;
 
 #[instrument(skip_all)]
 pub(crate) fn run_build(
@@ -365,9 +339,8 @@ fn execute_planned_builds(
         rr_build::generate_all_pkgs_json(build_meta)?;
     }
     let build_input = BuildInput::compose(build_inputs)?;
-    let config = cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose);
+    let config =
+        crate::build_flags::execution_config(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
     let result =
         moonbuild::execution::execute_build(&config, build_input, target_dir, output.user_log())?;
     result.print_info(cli.quiet, "building")?;

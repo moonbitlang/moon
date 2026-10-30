@@ -181,7 +181,8 @@ pub(crate) fn run_doc_rr(
     rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
 
     // Execute the build
-    let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
+    let cfg =
+        crate::build_flags::execution_config(&build_flags, &cli.unstable_feature, cli.verbose);
     let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 

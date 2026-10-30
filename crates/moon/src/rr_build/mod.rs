@@ -394,7 +394,8 @@ pub(crate) fn prepare_resolved_build(
         enable_coverage: build_flags.enable_coverage,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
         // In legacy impl, dry run always forces no JSON.
-        moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
+        moonc_output_json: !cli.dry_run
+            && crate::build_flags::output_style(build_flags).needs_moonc_json(),
         docs_serve: false,
         warning_condition: if build_flags.deny_warn {
             WarningCondition::Deny

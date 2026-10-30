@@ -55,7 +55,7 @@ pub struct UniversalFlags {
     pub dry_run: bool,
 
     /// Unstable flags to MoonBuild.
-    #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
+    #[clap(long, short = 'Z', default_value = "", value_parser = crate::features::FeatureGate::parse_cli_flags)]
     pub unstable_feature: Box<crate::features::FeatureGate>,
 }
 

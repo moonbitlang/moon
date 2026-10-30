@@ -23,7 +23,6 @@ use std::{
 };
 
 use anyhow::Context;
-use clap::CommandFactory;
 use moonutil::{
     command_output::CommandOutput,
     user_log::{UserLog, UserLogCapture, user_log_level},
@@ -31,7 +30,7 @@ use moonutil::{
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 use super::{
-    MoonBuildCli, MoonBuildSubcommands,
+    MoonBuildSubcommands,
     invocation::{
         self, ArtifactHandoffCommand, ArtifactHandoffInvocation, DelegatedInvocation, JsonCommand,
         JsonCommandOutcome, MoonCommand, MoonInvocation, SelectedInvocation,
@@ -77,7 +76,7 @@ fn run_artifact_handoff(invocation: ArtifactHandoffInvocation) -> i32 {
 
 fn write_help() -> i32 {
     let mut stderr = std::io::stderr().lock();
-    let _ = MoonBuildCli::command().write_long_help(&mut stderr);
+    let _ = super::moon_command().write_long_help(&mut stderr);
     let _ = writeln!(stderr);
     2
 }

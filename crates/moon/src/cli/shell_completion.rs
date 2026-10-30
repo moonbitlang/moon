@@ -16,8 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::MoonBuildCli;
-use clap::{Arg, Command, CommandFactory};
+use clap::{Arg, Command};
 use clap_complete::{Shell, generate};
 use moonutil::cli_support::UniversalFlags;
 use std::io::{self, Write};
@@ -171,7 +170,7 @@ pub(crate) fn gen_shellcomp(cli: &UniversalFlags, cmd: ShellCompSubCommand) -> a
 }
 
 fn generate_shell_completion(shell: Shell, mut writer: impl Write) {
-    let mut moon = adjust_shell_completion_command(MoonBuildCli::command());
+    let mut moon = adjust_shell_completion_command(super::moon_command());
     generate(shell, &mut moon, "moon", &mut writer);
 }
 

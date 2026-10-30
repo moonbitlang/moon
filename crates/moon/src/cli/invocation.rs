@@ -23,7 +23,7 @@ use std::{
     path::PathBuf,
 };
 
-use clap::{CommandFactory, Parser, error::ErrorKind};
+use clap::{FromArgMatches, error::ErrorKind};
 use moonutil::{
     cli_support::UniversalFlags, command_output::CommandOutput, user_log::UserLogCapture,
 };
@@ -136,7 +136,7 @@ pub(crate) fn select(mut raw_args: Vec<OsString>) -> Result<SelectedInvocation, 
         .is_some_and(|arg| arg == moonutil::run_handoff::HANDOFF_ARG)
     {
         if raw_args.len() < 3 {
-            return Err(MoonBuildCli::command().error(
+            return Err(super::moon_command().error(
                 ErrorKind::MissingRequiredArgument,
                 "Moonrun handoff requires a directory",
             ));
@@ -167,7 +167,7 @@ pub(crate) fn select(mut raw_args: Vec<OsString>) -> Result<SelectedInvocation, 
 }
 
 fn handoff_command_error() -> clap::Error {
-    MoonBuildCli::command().error(
+    super::moon_command().error(
         ErrorKind::ArgumentConflict,
         "Moonrun handoff requires `moon run` or `moonx`",
     )
@@ -183,7 +183,10 @@ fn select_command(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::E
             .map(SelectedInvocation::Delegate);
     }
     let external_cram = select_external_cram(&raw_args);
-    let parsed = match MoonBuildCli::try_parse_from(&raw_args) {
+    let parsed = match super::moon_command()
+        .try_get_matches_from(&raw_args)
+        .and_then(|matches| MoonBuildCli::from_arg_matches(&matches))
+    {
         Ok(parsed) => parsed,
         Err(error) => {
             let delegated = match error.kind() {
@@ -304,7 +307,7 @@ fn select_transparent_delegate(
 }
 
 fn trace_conflict(command: &str) -> clap::Error {
-    MoonBuildCli::command().error(
+    super::moon_command().error(
         ErrorKind::ArgumentConflict,
         format!("`--trace` is not supported before delegated command `{command}`"),
     )

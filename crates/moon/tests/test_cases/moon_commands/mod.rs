@@ -1465,6 +1465,46 @@ Feature flags enabled: rr_moon_mod,rr_moon_pkg
 }
 
 #[test]
+fn test_moon_version_flag_uses_environment_defaults() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .env("MOON_UNSTABLE", "rr_n2_explain")
+        .env("NEW_MOON_MOD", "0")
+        .env("NEW_MOON_PKG", "0")
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon [..]
+moonc [..]
+moonrun [..]
+
+Feature flags enabled: rr_n2_explain
+
+"#]])
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .env("MOON_UNSTABLE", "invalid-env-default")
+        .env("NEW_MOON_MOD", "0")
+        .env("NEW_MOON_PKG", "0")
+        .args(["-Z", "rr_export_build_plan", "--version"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon [..]
+moonc [..]
+moonrun [..]
+
+Feature flags enabled: rr_export_build_plan
+
+"#]])
+        .stderr_eq("");
+}
+
+#[test]
 fn test_moon_flag_without_subcommand_shows_help() {
     let dir = TestDir::new_empty();
     snapbox::cmd::Command::new(moon_bin())

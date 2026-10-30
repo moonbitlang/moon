@@ -165,8 +165,11 @@ fn run_bundle_rr_from_discovered(
         let build_input = BuildInput::compose(build_inputs)?;
 
         let result = moonbuild::execution::execute_build(
-            &cmd.build_flags
-                .execution_config(&cli.unstable_feature, cli.verbose),
+            &crate::build_flags::execution_config(
+                &cmd.build_flags,
+                &cli.unstable_feature,
+                cli.verbose,
+            ),
             build_input,
             target_dir,
             user_log,

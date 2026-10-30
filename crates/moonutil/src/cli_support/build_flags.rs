@@ -1,0 +1,190 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Shared build arguments and their pure interpretation.
+
+use crate::{
+    build_options::RunMode,
+    cond_expr::OptLevel as BuildProfile,
+    target::{SurfaceTarget, TargetBackend},
+    test_metadata::DiagnosticLevel,
+};
+use anyhow::bail;
+
+#[derive(Debug, clap::Parser, Clone)]
+pub struct BuildFlags {
+    /// Enable the standard library (default)
+    #[clap(long, hide = true, conflicts_with = "no_std")]
+    pub std: bool,
+
+    /// Disable the standard library
+    #[clap(long = "nostd", hide = true, conflicts_with = "std")]
+    pub no_std: bool,
+
+    /// Emit debug information
+    #[clap(long, short = 'g')]
+    pub debug: bool,
+
+    /// Compile in release mode
+    #[clap(long, conflicts_with = "debug")]
+    pub release: bool,
+
+    /// Enable stripping debug information
+    #[clap(long, conflicts_with = "no_strip")]
+    pub strip: bool,
+
+    /// Disable stripping debug information
+    #[clap(long, conflicts_with = "strip")]
+    pub no_strip: bool,
+
+    /// Select output target
+    #[clap(long, value_delimiter = ',')]
+    pub target: Vec<SurfaceTarget>,
+
+    /// Enable coverage instrumentation
+    #[clap(long)]
+    pub enable_coverage: bool,
+
+    /// Sort input files
+    #[clap(long)]
+    pub sort_input: bool,
+
+    /// Output WAT instead of WASM
+    // TODO: we need a more general name, like `--emit-asm` or even `--emit={binary,asm}`
+    #[clap(long)]
+    pub output_wat: bool,
+
+    /// Treat all warnings as errors
+    #[clap(long, short)]
+    pub deny_warn: bool,
+
+    /// Don't render diagnostics (in raw human-readable format)
+    #[clap(long)]
+    pub no_render: bool,
+
+    /// Output diagnostics in JSON format
+    #[clap(long, conflicts_with = "no_render")]
+    pub output_json: bool,
+
+    /// Warn list config
+    #[clap(long, allow_hyphen_values = true)]
+    pub warn_list: Option<String>,
+
+    /// Enable value tracing
+    #[clap(long, hide = true)]
+    pub enable_value_tracing: bool,
+
+    /// Set the max number of jobs to run in parallel
+    #[clap(short = 'j', long)]
+    pub jobs: Option<usize>,
+
+    /// Render no-location diagnostics starting from a certain level
+    #[clap(long, value_name = "MIN_LEVEL", default_value = "error")]
+    pub render_no_loc: DiagnosticLevel,
+
+    /// Limit the number of rendered diagnostics
+    #[clap(long = "diagnostic-limit", value_name = "N")]
+    pub diagnostic_limit: Option<usize>,
+}
+
+impl Default for BuildFlags {
+    fn default() -> Self {
+        Self {
+            std: false,
+            no_std: false,
+            debug: false,
+            release: false,
+            strip: false,
+            no_strip: false,
+            target: Vec::new(),
+            enable_coverage: false,
+            sort_input: false,
+            output_wat: false,
+            deny_warn: false,
+            no_render: false,
+            output_json: false,
+            warn_list: None,
+            enable_value_tracing: false,
+            jobs: None,
+            render_no_loc: DiagnosticLevel::Error,
+            diagnostic_limit: None,
+        }
+    }
+}
+
+impl BuildFlags {
+    pub fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
+        if self.target.is_empty() {
+            return Ok(None);
+        }
+        let targets = &self.target;
+
+        if targets.len() > 1 {
+            bail!("`--target` only supports one target backend");
+        }
+        let backends = crate::target::lower_surface_targets(targets);
+        if backends.len() == 1 {
+            Ok(Some(backends[0]))
+        } else {
+            bail!("`--target` only supports one target backend");
+        }
+    }
+}
+
+impl BuildFlags {
+    pub fn std(&self) -> bool {
+        match (self.std, self.no_std) {
+            (false, false) => true,
+            (true, false) => true,
+            (false, true) => false,
+            (true, true) => unreachable!(
+                "unreachable: both std and no_std flags are set (should be prevented by conflicts_with)"
+            ),
+        }
+    }
+
+    /// Resolve the effective build profile for Rupes Recta compilation.
+    pub fn effective_profile(&self, run_mode: RunMode) -> BuildProfile {
+        if self.debug {
+            BuildProfile::Debug
+        } else if self.release {
+            BuildProfile::Release
+        } else {
+            match run_mode {
+                RunMode::Bench | RunMode::Bundle => BuildProfile::Release,
+                RunMode::Build
+                | RunMode::Run
+                | RunMode::Test
+                | RunMode::Check
+                | RunMode::Prove
+                | RunMode::Format => BuildProfile::Debug,
+            }
+        }
+    }
+
+    /// Resolve whether to strip debug info for Rupes Recta compilation.
+    pub fn strip_for(&self, run_mode: RunMode) -> bool {
+        if self.strip {
+            true
+        } else if self.no_strip {
+            false
+        } else {
+            self.effective_profile(run_mode) == BuildProfile::Release
+        }
+    }
+}
