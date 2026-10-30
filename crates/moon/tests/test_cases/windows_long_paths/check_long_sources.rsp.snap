@@ -170,7 +170,7 @@ library
 -i
 $TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle\builtin\builtin.mi:moonbitlang/core/builtin
 -i
-$TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle\prelude\prelude.mi:moonbitlang/core/prelude
+$TOOLCHAIN\lib\core\_build\wasm-gc\release\bundle\prelude\prelude.mi:prelude
 -pkg-sources
 test/long-source-paths/$PACKAGE:\\?\$ROOT\$PACKAGE
 -target

@@ -74,11 +74,15 @@ important ones and why they exist.
   installed stdlib packages reach `moonc` only as explicit `-i` imports.
   `builtin` is needed because `moonc` resolves some names re-exported by
   `prelude`, such as the `Failure` constructor, only when `builtin` is loaded.
-  The implicit edges use the full package names (`moonbitlang/core/prelude`
-  and `moonbitlang/core/builtin`) as their aliases, so they never collide with
-  a user package or import named `prelude` or `builtin`, and user code still
-  has to import either package to write `@prelude.xxx` or `@builtin.xxx`. Any
-  other stdlib package must be imported explicitly.
+  The implicit prelude edge uses `prelude` as its compiler-facing alias,
+  reserving that alias for the core prelude. A user import or blackbox-test
+  self-import named `prelude` conflicts with this implicit edge and is rejected
+  by package resolution; a graceful migration for existing uses is deferred.
+  Fully qualified `@moonbitlang/core/prelude.xxx`
+  references in generated test drivers remain valid. The implicit builtin edge
+  keeps `moonbitlang/core/builtin` as its alias, so user packages and imports
+  can still use `builtin`; user code must explicitly import builtin to write
+  `@builtin.xxx`. Any other stdlib package must be imported explicitly.
 - **RR consumes the selected resolver.** `CompileConfig`, `LoweringContext`,
   `BuildMeta`, metadata generation, and `all_pkgs.json` generation all consume
   the same selected `ArtifactPathResolver`. `metadata.rs` and `all_pkgs.rs`

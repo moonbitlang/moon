@@ -551,18 +551,16 @@ fn inject_implicit_stdlib_usage(builder: &mut PackageGraphBuilder<'_>, pid: Pack
 
     trace!("Injecting implicit stdlib usage for package {:?}", pid);
 
-    // User code never refers to these imports by alias, so both use the full
-    // package name. A short alias such as `builtin` would collide with a user
-    // package or import of the same name, and would let `@builtin.xxx` compile
-    // without importing `builtin` like any other core package.
-    for name in [
-        MOONBITLANG_CORE_PRELUDE,
+    for (name, alias) in [
+        (MOONBITLANG_CORE_PRELUDE, "prelude"),
         // Prelude re-exports types defined in `builtin` (e.g.
         // `pub using @builtin {type Failure}`), but a type's constructors
         // stay with its definition. Without `-std-path`, `moonc` only sees
         // `builtin.mi` through an explicit `-i`, so constructors such as
         // `Failure(..)` would be unresolved unless `builtin` is imported too.
-        MOONBITLANG_CORE_BUILTIN,
+        // Keep builtin's full name as its alias so user imports can use
+        // `builtin` without colliding with the implicit dependency.
+        (MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_BUILTIN),
     ] {
         let Some(implicit_pid) = builder.packages.get_package_id_by_name(name) else {
             continue; // no-std scenario
@@ -585,7 +583,7 @@ fn inject_implicit_stdlib_usage(builder: &mut PackageGraphBuilder<'_>, pid: Pack
                 from,
                 to,
                 DepEdge {
-                    short_alias: name.into(),
+                    short_alias: alias.into(),
                     import_all: false,
                     kind,
                 },
