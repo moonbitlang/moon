@@ -177,15 +177,14 @@ fn generate_shell_completion(shell: Shell, mut writer: impl Write) {
 
 fn adjust_shell_completion_command(cmd: Command) -> Command {
     // Clap global args are inherited by all subcommands and can't be disabled
-    // per-subcommand. For shell completion we don't want global args on `moon ide`,
-    // so strip them from the root and reattach them as regular args everywhere
-    // except `ide`.
+    // per-subcommand. Opaque delegates own all arguments after their name, so
+    // reattach globals as regular args only to commands that interpret them.
     let cmd = add_ide_completion(cmd);
 
     let common_args = collect_global_args(&cmd);
     let mut cmd = strip_all_globals(cmd);
     for subcmd in cmd.get_subcommands_mut() {
-        if subcmd.get_name() == "ide" {
+        if matches!(subcmd.get_name(), "ide" | "testcli") {
             continue;
         }
         *subcmd = add_common_args_recursive(subcmd.clone(), &common_args);
@@ -257,6 +256,26 @@ fn add_common_args_recursive(mut cmd: Command, common_args: &[Arg]) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn testcli_completion_does_not_offer_moon_global_options() {
+        let mut command = adjust_shell_completion_command(MoonBuildCli::command());
+        command.build();
+        let testcli = command.find_subcommand("testcli").unwrap();
+        let build = command.find_subcommand("build").unwrap();
+        for global in collect_global_args(&MoonBuildCli::command()) {
+            assert!(
+                testcli
+                    .get_arguments()
+                    .all(|arg| arg.get_id() != global.get_id())
+            );
+            assert!(
+                build
+                    .get_arguments()
+                    .any(|arg| arg.get_id() == global.get_id())
+            );
+        }
+    }
 
     fn render_shell_completion(shell: Shell) -> String {
         let mut output = Vec::new();
