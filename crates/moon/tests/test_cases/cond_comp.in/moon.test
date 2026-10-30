@@ -250,7 +250,7 @@
           },
           {
             "path": "moonbitlang/core/prelude",
-            "alias": "moonbitlang/core/prelude",
+            "alias": "prelude",
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
@@ -262,7 +262,7 @@
           },
           {
             "path": "moonbitlang/core/prelude",
-            "alias": "moonbitlang/core/prelude",
+            "alias": "prelude",
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
@@ -274,7 +274,7 @@
           },
           {
             "path": "moonbitlang/core/prelude",
-            "alias": "moonbitlang/core/prelude",
+            "alias": "prelude",
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
@@ -297,7 +297,7 @@
           "-i",
           "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
           "-i",
-          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude",
+          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
           "-pkg-sources",
           "username/hello/lib:[WORK_DIR]/src/lib",
           "-target",
@@ -335,7 +335,7 @@
           "-i",
           "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
           "-i",
-          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude",
+          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
           "-pkg-sources",
           "username/hello/lib_blackbox_test:[WORK_DIR]/src/lib",
           "-target",
@@ -386,7 +386,7 @@
           },
           {
             "path": "moonbitlang/core/prelude",
-            "alias": "moonbitlang/core/prelude",
+            "alias": "prelude",
             "fspath": "[MOON_HOME]/lib/core/prelude"
           },
           {
@@ -403,7 +403,7 @@
           },
           {
             "path": "moonbitlang/core/prelude",
-            "alias": "moonbitlang/core/prelude",
+            "alias": "prelude",
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
@@ -415,7 +415,7 @@
           },
           {
             "path": "moonbitlang/core/prelude",
-            "alias": "moonbitlang/core/prelude",
+            "alias": "prelude",
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
@@ -436,7 +436,7 @@
           "-i",
           "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
           "-i",
-          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude",
+          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
           "-pkg-sources",
           "username/hello/main:[WORK_DIR]/src/main",
           "-target",
@@ -467,7 +467,7 @@
           "-i",
           "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin",
           "-i",
-          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude",
+          "[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude",
           "-pkg-sources",
           "username/hello/main_blackbox_test:[WORK_DIR]/src/main",
           "-target",

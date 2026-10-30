@@ -178,7 +178,7 @@ fn test_tracing_value_for_single_file_dry_run() {
     check(
         output.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME"),
         expect![[r#"
-            moonc build-package ./main.mbtx -ignore-import-declaration -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:moonbitlang/core/prelude' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -enable-value-tracing -workspace-path . -all-pkgs ./_build/main.mbtx/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./main.mbtx -ignore-import-declaration -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -pkg moon/test/single -pkg-type executable -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources moon/test/single:. -target wasm-gc -g -O0 -source-map -enable-value-tracing -workspace-path . -all-pkgs ./_build/main.mbtx/wasm-gc/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/main.mbtx/wasm-gc/debug/build/single/single.core -main moon/test/single -o ./_build/main.mbtx/wasm-gc/debug/build/single/single.wasm -pkg-config-path ./moon.pkg.json -pkg-sources moon/test/single:. -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
             '$MOONRUN_OVERRIDE' ./_build/main.mbtx/wasm-gc/debug/build/single/single.wasm --
         "#]],
