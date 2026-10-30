@@ -398,6 +398,22 @@ mod tests {
 
     #[test]
     fn returns_native_enoexec_without_starting_a_shell() {
+        if std::env::var_os("MOONRUN_ENOEXEC_TEST").is_none() {
+            // A concurrent test can fork while fs::write holds the script
+            // open. Its inherited writer causes ETXTBSY until exec/exit,
+            // even after this test closes its CLOEXEC descriptor. Create
+            // and execute the fixture away from unrelated test forks.
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "process::ambient::fork_exec::tests::returns_native_enoexec_without_starting_a_shell",
+                ])
+                .env("MOONRUN_ENOEXEC_TEST", "1")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
         let tmp = tempfile::tempdir().unwrap();
         let script = tmp.path().join("no-shebang");
         std::fs::write(&script, "exit 23\n").unwrap();
@@ -472,6 +488,20 @@ mod tests {
 
     #[test]
     fn retries_frozen_candidates_but_preserves_direct_exec_errors() {
+        if std::env::var_os("MOONRUN_FROZEN_EXEC_TEST").is_none() {
+            // Like the ENOEXEC fixture, these scripts must not be inherited
+            // while open for writing by another test's concurrent fork.
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "process::ambient::fork_exec::tests::retries_frozen_candidates_but_preserves_direct_exec_errors",
+                ])
+                .env("MOONRUN_FROZEN_EXEC_TEST", "1")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
         let tmp = tempfile::tempdir().unwrap();
         let first = tmp.path().join("first");
         let second = tmp.path().join("second");
