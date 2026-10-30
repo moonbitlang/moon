@@ -21,6 +21,66 @@
 use super::*;
 use crate::runtime::{Executable, RuntimeConfig, WorkingDirectory};
 
+#[test]
+fn cross_device_native_error_is_preserved_as_xdev() {
+    #[cfg(unix)]
+    let code = libc::EXDEV;
+    #[cfg(windows)]
+    let code = windows_sys::Win32::Foundation::ERROR_NOT_SAME_DEVICE as i32;
+    assert_eq!(
+        path_error_to_errno(crate::filesystem::PathError::Io(
+            std::io::Error::from_raw_os_error(code)
+        )),
+        WASI_ERRNO_XDEV,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rename_across_filesystems_does_not_copy_or_remove_the_source() {
+    use std::os::unix::fs::MetadataExt;
+
+    let source_dir = tempfile::tempdir().unwrap();
+    // Linux CI supplies tmpfs here. A runner without a second writable
+    // filesystem can still exercise the portable native-error mapping test.
+    let Ok(target_dir) = tempfile::tempdir_in("/dev/shm") else {
+        eprintln!("no writable /dev/shm for the cross-filesystem rename control");
+        return;
+    };
+    if fs::metadata(source_dir.path()).unwrap().dev()
+        == fs::metadata(target_dir.path()).unwrap().dev()
+    {
+        eprintln!("temporary directories share a filesystem; cross-filesystem control unavailable");
+        return;
+    }
+    let source = source_dir.path().join("source");
+    let target = target_dir.path().join("target");
+    fs::write(&source, b"keep").unwrap();
+    assert_eq!(
+        fs::rename(&source, &target).unwrap_err().raw_os_error(),
+        Some(libc::EXDEV)
+    );
+    let context = tests::test_context(Path::new("/"));
+    let source_bytes = source.as_os_str().as_encoded_bytes();
+    let target_bytes = target.as_os_str().as_encoded_bytes();
+    let mut memory = [source_bytes, target_bytes].concat();
+    assert_eq!(
+        path_rename_impl(
+            &context,
+            &mut memory,
+            3,
+            0,
+            source_bytes.len() as u32,
+            3,
+            source_bytes.len() as u32,
+            target_bytes.len() as u32,
+        ),
+        Err(WASI_ERRNO_XDEV),
+    );
+    assert_eq!(fs::read(source).unwrap(), b"keep");
+    assert!(!target.exists());
+}
+
 fn context(root: &Path, policy: &str) -> WasiContext {
     let policy_file = root.join("policy.toml");
     fs::write(&policy_file, policy).unwrap();
@@ -334,4 +394,146 @@ fn acquired_file_access_survives_a_host_rename() {
         open(&context, 3, "renamed", 0, WASI_RIGHT_FD_READ, 0, 0),
         Err(WASI_ERRNO_ACCESS)
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn readlink_requires_authority_for_the_link_entry() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("file"), b"keep").unwrap();
+    std::os::unix::fs::symlink("file", root.path().join("link")).unwrap();
+    let context = context(root.path(), "[fs]\nread = [\"file\"]\n");
+    let mut memory = [0; 128];
+    memory[..4].copy_from_slice(b"link");
+    assert_eq!(
+        path_readlink_impl(&context, &mut memory, 3, 0, 4, 32, 64, 96),
+        Err(WASI_ERRNO_ACCESS)
+    );
+    open(&context, 3, "link", 0, WASI_RIGHT_FD_READ, 0, 0).unwrap();
+}
+
+#[test]
+fn filesystem_allow_all_does_not_widen_the_preopen() {
+    let outer = tempfile::tempdir().unwrap();
+    let root = outer.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(outer.path().join("outside"), b"secret").unwrap();
+    let context = context(&root, "[fs]\nread = [\"*\"]\nwrite = [\"*\"]\n");
+    assert_eq!(
+        open(&context, 3, "../outside", 0, WASI_RIGHT_FD_READ, 0, 0),
+        Err(WASI_ERRNO_NOTCAPABLE)
+    );
+}
+
+#[test]
+fn unlink_file_keeps_native_file_only_semantics() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("directory")).unwrap();
+    let context = context(root.path(), "[fs]\nwrite = [\".\"]\n");
+    let mut memory = *b"directory";
+    assert!(path_unlink_file_impl(&context, &mut memory, 3, 0, 9).is_err());
+    assert!(root.path().join("directory").is_dir());
+    path_remove_directory_impl(&context, &mut memory, 3, 0, 9).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_suffixes_cannot_turn_entry_permissions_into_target_permissions() {
+    for target_operand in [false, true] {
+        for suffix in ["/", "//", "/."] {
+            let root = tempfile::tempdir().unwrap();
+            fs::create_dir(root.path().join("allowed")).unwrap();
+            fs::create_dir(root.path().join("denied")).unwrap();
+            fs::create_dir(root.path().join("allowed/moved")).unwrap();
+            std::os::unix::fs::symlink("../denied", root.path().join("allowed/link")).unwrap();
+            let context = context(root.path(), "[fs]\nwrite = [\"allowed\"]\n");
+            let link = format!("allowed/link{suffix}");
+            let (source, target) = if target_operand {
+                ("allowed/moved", link.as_str())
+            } else {
+                (link.as_str(), "allowed/moved")
+            };
+            let mut memory = [0; 128];
+            memory[..source.len()].copy_from_slice(source.as_bytes());
+            memory[64..64 + target.len()].copy_from_slice(target.as_bytes());
+            assert_eq!(
+                path_rename_impl(
+                    &context,
+                    &mut memory,
+                    3,
+                    0,
+                    source.len() as u32,
+                    3,
+                    64,
+                    target.len() as u32
+                ),
+                Err(WASI_ERRNO_ACCESS),
+                "source={source} target={target}"
+            );
+            memory[..link.len()].copy_from_slice(link.as_bytes());
+            assert_eq!(
+                path_remove_directory_impl(&context, &mut memory, 3, 0, link.len() as u32),
+                Err(WASI_ERRNO_ACCESS)
+            );
+            assert!(root.path().join("denied").is_dir());
+            assert!(root.path().join("allowed/link").is_symlink());
+            assert!(root.path().join("allowed/moved").is_dir());
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_suffixes_cannot_escape_the_preopen_without_a_policy() {
+    let outer = tempfile::tempdir().unwrap();
+    let root = outer.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::create_dir(outer.path().join("outside")).unwrap();
+    std::os::unix::fs::symlink("../outside", root.join("link")).unwrap();
+    let context = super::tests::test_context(&root);
+    let mut memory = [0; 128];
+    memory[..5].copy_from_slice(b"link/");
+    memory[64..69].copy_from_slice(b"moved");
+    assert_eq!(
+        path_rename_impl(&context, &mut memory, 3, 0, 5, 3, 64, 5),
+        Err(WASI_ERRNO_NOTCAPABLE)
+    );
+    assert_eq!(
+        path_remove_directory_impl(&context, &mut memory, 3, 0, 5),
+        Err(WASI_ERRNO_NOTCAPABLE)
+    );
+    assert!(outer.path().join("outside").is_dir());
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_directory_suffix_distinguishes_new_entry_from_dangling_link() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("allowed")).unwrap();
+    fs::create_dir(root.path().join("denied")).unwrap();
+    fs::create_dir(root.path().join("allowed/source")).unwrap();
+    std::os::unix::fs::symlink("../denied/new", root.path().join("allowed/link")).unwrap();
+    for context in [
+        context(root.path(), "[fs]\nwrite = [\"allowed\"]\n"),
+        super::tests::test_context(root.path()),
+    ] {
+        let mut memory = [0; 128];
+        memory[..13].copy_from_slice(b"allowed/link/");
+        memory[64..78].copy_from_slice(b"allowed/source");
+        // WASI already rejects dangling final symlinks; '/' must not evade it.
+        assert_eq!(
+            path_create_directory_impl(&context, &mut memory, 3, 0, 13),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+        assert_eq!(
+            path_rename_impl(&context, &mut memory, 3, 64, 14, 3, 0, 13),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+        assert!(!root.path().join("denied/new").exists());
+        assert!(root.path().join("allowed/source").is_dir());
+    }
+    let context = context(root.path(), "[fs]\nwrite = [\"allowed\"]\n");
+    let mut memory = *b"allowed/new/";
+    path_create_directory_impl(&context, &mut memory, 3, 0, 12).unwrap();
+    assert!(root.path().join("allowed/new").is_dir());
 }

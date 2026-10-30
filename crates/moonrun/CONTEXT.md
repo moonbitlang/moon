@@ -65,7 +65,8 @@ _Avoid_: Moonrun Policy, Runtime Configuration, process-global state
 Authorization input that answers which fully interpreted host operations are
 allowed. It does not own or select Runtime State such as Env, Runtime Working
 Directory, stdio bindings, VFS configuration, child tables, or OS handles.
-Moonrun Policy does not implicitly configure or restrict WASI descriptors.
+Moonrun Policy constrains WASI filesystem effects without selecting its
+descriptors, preopens, or stdio bindings.
 _Avoid_: Runtime Configuration, Runtime State, WASI sandbox, virtual filesystem
 
 **Effective Authority**:
@@ -118,10 +119,10 @@ _Avoid_: process-global fallback, stdio policy, Host Stdio forwarding service
 
 **WASI Capability Surface**:
 The files and directories reachable through WASI descriptors and preopens.
-WASI access is configured separately from Moonrun Policy, even when both
-surfaces ultimately access the same host filesystem. A runtime adapter must
-configure both explicitly instead of treating one as enforcement for the
-other.
+WASI descriptor rights and preopen containment constrain access in addition to
+Moonrun filesystem policy. A descriptor grant does not bypass that policy;
+filesystem policy does not create descriptors or widen their rights. Explicitly
+bound stdio remains a separate resource grant.
 _Avoid_: Moonrun Policy, FFI permissions
 
 **Runtime Working Directory**:
@@ -145,8 +146,8 @@ Filesystem Job payloads, execution, and result interpretation. Wasm runtime
 adapters only convert values and expose imports; the thread pool only schedules
 Filesystem Jobs and delivers their Completions. Other Host Domains may ask it
 to interpret and authorize filesystem intents without transferring their own
-domain semantics to the Host Filesystem. WASI does not pass through the Host
-Filesystem.
+domain semantics to the Host Filesystem. WASI retains descriptor and preopen
+semantics while using the Host Filesystem for authorized filesystem effects.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Host Network**:

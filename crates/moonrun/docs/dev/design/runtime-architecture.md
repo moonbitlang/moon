@@ -428,7 +428,7 @@ not a requirement for one global policy object on every call.
 | SQLite file access | SQLite Host using filesystem authorization | Account for database, journal, temporary-file, and auxiliary access; retain existing policy restrictions on SQLite behavior |
 | Env, cwd, executable identity | Runtime-owned state and its provisioning | State selection is distinct from permission; exposing environment values is an explicit data grant |
 | Stdio, passed files, sockets, and directory resources | Granting owner plus the receiving domain | Validate lifetime, kind, provenance, and allowed use; a Handle is not an unchecked OS descriptor |
-| WASIp1 filesystem and descriptors | WASI descriptor and preopen authority | Currently independent of Moonrun Policy; shares Runtime Env/stdio and derives its preopen from cwd. Uniform authority requires explicit integration |
+| WASIp1 filesystem and descriptors | WASI descriptor/preopen authority plus Host Filesystem | Filesystem effects use shared domain authorization and native operations; acquired-file I/O retains descriptor rights. Runtime Env/stdio remain shared; stdio is a separate resource grant |
 | Build helpers and compiler descendants | Host-selected preparation plus separately delegated execution authority | Currently retain host access; guest Wasm policy does not sandbox preparation |
 | Native executables and Node | Host Process admission plus an explicit native execution contract | Prepared native/JS artifacts are not yet executed by Engine. Native guest process mode preserves existing OS spawn paths; spawn permission does not restrict arbitrary native syscalls |
 | Other imports touching host state | The relevant domain or Runtime dependency | Audit clocks, randomness, library initialization, and any direct raw imports; declare unrestricted exposure or enforce a rule rather than assuming filesystem policy covers them |
@@ -468,8 +468,9 @@ domain operations retain their unrestricted behavior; Virtual mode alone does
 not change that. Current policy inheritance does not implement a general
 intersection of parent authority, child policy, WASI grants, and resource
 delegation. Inherited policy currently takes precedence over delivered policy;
-that precedence is not a complete restriction algebra. WASI and trusted native
-helpers remain separate authority surfaces. SQLite's native VFS and temporary
+that precedence is not a complete restriction algebra. WASI filesystem effects
+now share domain authorization, while descriptor/resource delegation and trusted
+native helpers still require their own authority contracts. SQLite's native VFS and temporary
 files, and native TLS system-trust discovery, also need their trusted scope
 stated explicitly; existing path checks do not mediate every library effect.
 A host may deliberately grant ambient native execution, in which case Effective

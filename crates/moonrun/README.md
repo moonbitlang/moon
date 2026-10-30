@@ -31,8 +31,9 @@ Host Domains for async operations, filesystem and environment access, SQLite,
 memory-sanitizer state, policy, and termination. Wasmtime supports both `wasm`
 and `wasm-gc`, including JS-string builtins with `_` imported string constants,
 the MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface
-as V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy;
-both engine adapters invoke the same shared WASIp1 host operations.
+as V8. WASIp1 descriptor rights and preopen containment remain required in
+addition to Moonrun filesystem policy; all engine adapters invoke the same
+shared WASIp1 host operations.
 
 ## Experimental virtual process tree
 
@@ -393,12 +394,17 @@ system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
 deny that surface, and process spawning is disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
-`moonbitlang/async` and moonrun's own non-WASI `__moonbit_*_unstable` FFI
-surfaces. WASI operations generally remain outside Moonrun Policy
-(`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`), with one shared-state
-exception: `environ_get` and `environ_sizes_get` expose the Runtime environment
-realized from the `env` policy. WASI descriptors, preopens, and other WASI
-operations are still configured separately from Moonrun Policy.
+`moonbitlang/async`, moonrun's `__moonbit_*_unstable` filesystem imports, and
+supported WASIp1 filesystem operations. WASI retains descriptor rights and
+preopen containment, and its path operations additionally require the Runtime's
+filesystem grants. Open checks cover native access and creation/truncation;
+readlink and removal check the link entry, with directory traversal required
+by suffixes such as `link/` checked against the traversed target. I/O on an
+already-acquired file uses its grant and descriptor rights without reopening or
+reauthorizing the original pathname. WASI environment calls expose the same
+Runtime Env realized from `env` provisioning. Bound stdio remains an explicit
+resource grant; filesystem policy does not disable it. Other WASI facilities,
+such as randomness, are not controlled by `fs` or `net` rules.
 
 An empty JSON object denies all policy-covered filesystem, network, and
 environment access:

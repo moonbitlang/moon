@@ -33,9 +33,7 @@ fn filesystem_policy_applies_to_legacy_async_and_wasi_imports() {
         std::fs::write(directory.path().join("file"), b"keep").unwrap();
         let module = engine.compile("filesystem-authority.wasm", wat::parse_str(format!(r#"(module
             (import "_" "file" (global $file (ref extern)))
-            (import "_" "legacy" (global $directory (ref extern)))
             (import "__moonbit_fs_unstable" "read_file_to_bytes_new" (func $legacy_read (param externref) (result i32)))
-            (import "__moonbit_fs_unstable" "create_dir" (func $legacy_mkdir (param externref)))
             (import "__moonbit_fs_unstable" "remove_file_new" (func $legacy_remove (param externref) (result i32)))
             (import "moonbitlang/async" "thread_pool/make_open_job" (func $async_open (param i32 i32 i32 i32 i32 i32 i32) (result i64)))
             (import "moonbitlang/async" "thread_pool/open_job_get_fd" (func $async_fd (param i64) (result i64)))
@@ -108,4 +106,36 @@ fn access_errno() -> i32 {
     {
         windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED as i32
     }
+}
+
+#[test]
+fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
+    let engine = Engine::default();
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input");
+    let output = directory.path().join("output");
+    let policy = directory.path().join("policy.json");
+    std::fs::write(&input, b"grant").unwrap();
+    std::fs::write(&policy, "{}").unwrap();
+    let module = engine.compile("stdio-grant.wasm", wat::parse_str(r#"(module
+        (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
+        (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+        (memory (export "memory") 1)
+        (func (export "_start")
+            i32.const 0 i32.const 32 i32.store
+            i32.const 4 i32.const 5 i32.store
+            i32.const 0 i32.const 0 i32.const 1 i32.const 8 call $read if unreachable end
+            i32.const 8 i32.load i32.const 5 i32.ne if unreachable end
+            i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write if unreachable end
+            i32.const 8 i32.load i32.const 5 i32.ne if unreachable end))"#).unwrap()).unwrap();
+    let options = RunOptions::default()
+        .with_policy_file(policy)
+        .with_working_directory(WorkingDirectory::Fixed(directory.path().to_owned()))
+        .with_stdio(
+            std::fs::File::open(input).unwrap(),
+            std::fs::File::create(&output).unwrap(),
+            tempfile::tempfile().unwrap(),
+        );
+    assert_eq!(engine.run(&module, options).unwrap(), RunOutcome::Completed);
+    assert_eq!(std::fs::read(output).unwrap(), b"grant");
 }

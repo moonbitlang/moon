@@ -20,10 +20,14 @@
 //!
 //! Wasm runtime adapters convert guest values and expose imports. This module owns
 //! filesystem authorization, OS operations, and the guest-visible error text.
-//! WASI has its own descriptor and preopen capability model and does not pass
-//! through this module.
+//! WASI retains its descriptor and preopen capability model and uses this
+//! domain for authorized filesystem effects.
 
 mod job;
+mod native;
+mod path_ops;
+
+pub(crate) use path_ops::{FileOpenOptions, PathError};
 
 pub(crate) use job::{Job, stdio_kind};
 
@@ -173,9 +177,14 @@ impl HostFs {
     }
 
     pub(crate) fn read_dir(&self, path: &str) -> Result<Vec<String>, HostFsError> {
-        self.ensure_read(path)?;
-        read_dir_entries(&self.resolved(path))
-            .map_err(|_| HostFsError::operation(format!("Failed to read directory: {path}")))
+        self.read_directory(Path::new(path))
+            .map(read_dir_entries)
+            .map_err(|error| match error {
+                PathError::Denied => HostFsError::permission_denied(path),
+                PathError::Io(_) => {
+                    HostFsError::operation(format!("Failed to read directory: {path}"))
+                }
+            })
     }
 
     pub(crate) fn is_file(&self, path: &str) -> bool {
@@ -187,9 +196,13 @@ impl HostFs {
     }
 
     pub(crate) fn remove_file(&self, path: &str) -> Result<(), HostFsError> {
-        self.ensure_remove(path)?;
-        std::fs::remove_file(self.resolved(path))
-            .map_err(|_| HostFsError::operation(format!("Failed to remove file: {path}")))
+        self.unlink_file(Path::new(path))
+            .map_err(|error| match error {
+                PathError::Denied => HostFsError::permission_denied(path),
+                PathError::Io(_) => {
+                    HostFsError::operation(format!("Failed to remove file: {path}"))
+                }
+            })
     }
 
     pub(crate) fn remove_dir(&self, path: &str) -> Result<(), HostFsError> {
@@ -262,11 +275,15 @@ impl HostFs {
     }
 
     pub(crate) fn read_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
-        let result = self.ensure_read(path).and_then(|()| {
-            read_dir_entries(&self.resolved(path)).map_err(|error| {
-                HostFsError::operation(format!("Failed to read directory {path}: {error}"))
-            })
-        });
+        let result = self
+            .read_directory(Path::new(path))
+            .map(read_dir_entries)
+            .map_err(|error| match error {
+                PathError::Denied => HostFsError::permission_denied(path),
+                PathError::Io(error) => {
+                    HostFsError::operation(format!("Failed to read directory {path}: {error}"))
+                }
+            });
         match result {
             Ok(files) => {
                 results.dir_files = files;
@@ -285,11 +302,14 @@ impl HostFs {
     }
 
     pub(crate) fn remove_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
-        let result = self.ensure_remove(path).and_then(|()| {
-            std::fs::remove_file(self.resolved(path)).map_err(|error| {
-                HostFsError::operation(format!("Failed to remove file {path}: {error}"))
-            })
-        });
+        let result = self
+            .unlink_file(Path::new(path))
+            .map_err(|error| match error {
+                PathError::Denied => HostFsError::permission_denied(path),
+                PathError::Io(error) => {
+                    HostFsError::operation(format!("Failed to remove file {path}: {error}"))
+                }
+            });
         operation_status(results, result)
     }
 
@@ -486,7 +506,31 @@ fn canonicalize_existing_prefix(path: &Path) -> AsyncHostResult<PathBuf> {
     Err(AsyncHostError::PermissionDenied)
 }
 
+/// A Unix directory suffix makes the named component participate in directory
+/// traversal, even for an operation normally acting on the final link entry.
+/// Inspect the original bytes: Path::file_name deliberately ignores this suffix.
+/// The returned path is only for inspection; native operations retain `path`.
+pub(crate) fn entry_before_directory_suffix(path: &Path) -> Option<PathBuf> {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    if cfg!(unix) && (bytes.ends_with(b"/") || bytes.ends_with(b"/.")) {
+        Some(path.parent()?.join(path.file_name()?))
+    } else {
+        None
+    }
+}
+
 fn canonicalize_entry_path(path: &Path) -> AsyncHostResult<PathBuf> {
+    if let Some(entry) = entry_before_directory_suffix(path) {
+        if let Ok(resolved) = std::fs::canonicalize(path) {
+            return Ok(resolved);
+        }
+        // A dangling link is not a missing directory entry. Prefix fallback
+        // would authorize the link's name while mkdir/rename may create its target.
+        if std::fs::symlink_metadata(entry).is_ok_and(|metadata| metadata.is_symlink()) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        return canonicalize_existing_prefix(path);
+    }
     let parent = path.parent().ok_or(AsyncHostError::PermissionDenied)?;
     let file_name = path.file_name().ok_or(AsyncHostError::PermissionDenied)?;
     Ok(normalize_path(
@@ -521,15 +565,11 @@ fn authorization_target_at(base: Option<&Path>, path: &OsStr) -> String {
     )
 }
 
-fn read_dir_entries(path: &Path) -> std::io::Result<Vec<String>> {
-    Ok(std::fs::read_dir(path)?
+fn read_dir_entries(entries: std::fs::ReadDir) -> Vec<String> {
+    entries
         .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let entry_path = entry.path();
-            let relative_path = entry_path.strip_prefix(path).unwrap();
-            relative_path.to_str().map(ToOwned::to_owned)
-        })
-        .collect())
+        .filter_map(|entry| entry.file_name().to_str().map(ToOwned::to_owned))
+        .collect()
 }
 
 fn operation_status(results: &mut FsOperationResults, result: Result<(), HostFsError>) -> i32 {
@@ -807,6 +847,39 @@ mod tests {
         let lock = host.authorize_resource_lock(Some(&saved_path), true);
         assert_eq!(metadata, Err(AsyncHostError::PermissionDenied));
         assert_eq!(lock, Err(AsyncHostError::PermissionDenied));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_suffix_policy_rejects_dangling_links_but_allows_new_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        std::os::unix::fs::symlink("../denied/new", allowed.join("link")).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let link = allowed.join("link/");
+        assert!(matches!(
+            host.create_directory(&link),
+            Err(PathError::Denied)
+        ));
+        let source = allowed.join("source");
+        std::fs::create_dir(&source).unwrap();
+        assert!(matches!(
+            host.rename(&source, &link),
+            Err(PathError::Denied)
+        ));
+        assert!(source.is_dir());
+        assert!(!denied.join("new").exists());
+
+        host.create_directory(&allowed.join("new/")).unwrap();
+        host.rename(&source, &allowed.join("new/")).unwrap();
+        assert!(!source.exists());
+        assert!(allowed.join("new").is_dir());
     }
 
     #[cfg(unix)]
