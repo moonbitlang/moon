@@ -38,6 +38,14 @@ async fn main {
     ignore(@process.spawn_orphan("moon", ["run", "src/virtual_parent", "--", "adopted"]))
     return
   }
+  if args.length() > 1 && args[1] == "orphan-loop" {
+    // Let the CLI own SIGTERM even if this root has not returned when its
+    // child prints ready. Engine tests separately cover adoption ordering.
+    @signal.set_global_cancellation_signals([])
+    println("root spawning")
+    ignore(@process.spawn_orphan("moon", ["run", "src/virtual_parent", "--", "loop"]))
+    return
+  }
   if args.length() > 1 && args[1] == "adopted" {
     println("adopted child completed")
     return
