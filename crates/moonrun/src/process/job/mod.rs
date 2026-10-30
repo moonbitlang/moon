@@ -511,6 +511,41 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn ambient_spawn_does_not_require_a_recoverable_cwd_path() {
+        const CHILD: &str = "MOONRUN_TEST_UNLINKED_SPAWN_CWD";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "process::job::tests::ambient_spawn_does_not_require_a_recoverable_cwd_path",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+
+        // Only this isolated test process changes cwd. An unlinked directory
+        // remains a valid inherited cwd even though getcwd cannot name it.
+        let directory = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(directory.path()).unwrap();
+        std::fs::remove_dir(directory.path()).unwrap();
+        assert!(std::env::current_dir().is_err());
+        let mut job = spawn_job("/usr/bin/true", Vec::new());
+        host(WorkingDirectory::Ambient, Stdio::Ambient)
+            .prepare_job(&mut job)
+            .unwrap();
+        let pid = job.run().unwrap() as i32;
+        assert_eq!(
+            Job::wait_for_process(None, None, pid, false).unwrap().run(),
+            Ok(0)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn fixed_child_cwd_preserves_explicit_empty_value() {
         let directory = tempfile::tempdir().unwrap();
         let root = dunce::canonicalize(directory.path()).unwrap();
