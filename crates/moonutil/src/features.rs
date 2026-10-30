@@ -141,25 +141,34 @@ features! {
     (stable, wasi_link, "Pass `-wasi` for wasi-oriented run/test/main wasm builds")
 }
 
+impl FeatureGate {
+    /// Interpret explicit CLI flags without observing the process environment.
+    pub fn parse_cli_flags(s: &str) -> Result<Box<Self>, FeatureGateParseError> {
+        Self::parse_with_manifest_defaults(s, true, true).map(Box::new)
+    }
+
+    /// Manifest defaults retain their existing precedence over explicit flags.
+    pub fn parse_with_manifest_defaults(
+        s: &str,
+        new_mod: bool,
+        new_pkg: bool,
+    ) -> Result<Self, FeatureGateParseError> {
+        let mut this = Self::parse_features_internal(s)?;
+        this.rr_moon_mod = new_mod;
+        this.rr_moon_pkg = new_pkg;
+        Ok(this)
+    }
+}
+
 impl FromStr for FeatureGate {
     type Err = FeatureGateParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut this = Self::parse_features_internal(s)?;
-
-        // By default, enable rr_moon_mod unless NEW_MOON_MOD=0 is set
-        this.rr_moon_mod = true;
-        if let Ok("0") = std::env::var("NEW_MOON_MOD").as_deref() {
-            this.rr_moon_mod = false;
-        }
-
-        // By default, enable rr_moon_pkg unless NEW_MOON_PKG=0 is set
-        this.rr_moon_pkg = true;
-        if let Ok("0") = std::env::var("NEW_MOON_PKG").as_deref() {
-            this.rr_moon_pkg = false;
-        }
-
-        Ok(this)
+        Self::parse_with_manifest_defaults(
+            s,
+            std::env::var("NEW_MOON_MOD").as_deref() != Ok("0"),
+            std::env::var("NEW_MOON_PKG").as_deref() != Ok("0"),
+        )
     }
 }
 

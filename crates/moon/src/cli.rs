@@ -115,22 +115,15 @@ fn standalone_mbtx_path<'a>(
     Ok(Some(path))
 }
 
-#[derive(Debug, clap::Parser)]
-#[clap(
-    name = "moon",
-    about = "The build system and package manager for MoonBit.",
-    override_usage = "moon [OPTIONS] <COMMAND>"
-)]
-pub(crate) struct MoonBuildCli {
-    #[clap(subcommand)]
-    pub subcommand: Option<MoonBuildSubcommands>,
+pub(crate) type MoonBuildCli = moonutil::cli_support::MoonCli<MoonBuildSubcommands>;
 
-    /// Print all version information and exit
-    #[clap(short = 'V', long)]
-    pub version: bool,
-
-    #[clap(flatten)]
-    pub flags: UniversalFlags,
+/// The executable adapter owns ambient environment defaults and their help text.
+pub(crate) fn moon_command() -> clap::Command {
+    use clap::CommandFactory;
+    MoonBuildCli::command().mut_arg("unstable_feature", |arg| {
+        arg.env("MOON_UNSTABLE")
+            .value_parser(clap::value_parser!(Box<moonutil::features::FeatureGate>))
+    })
 }
 
 #[derive(Debug, clap::Parser)]
@@ -245,4 +238,88 @@ fn gen_docs_for_moon_help_page() {
     let file_path =
         std::path::PathBuf::from(&manifest_dir).join("../../docs/manual/src/commands.md");
     expect_test::expect_file!(file_path).assert_eq(&markdown);
+}
+
+#[cfg(test)]
+mod shared_parser_tests {
+    use super::*;
+
+    #[derive(Debug, clap::Subcommand)]
+    enum BuildCommands {
+        Build(Box<BuildSubcommand>),
+    }
+
+    #[test]
+    fn full_and_restricted_frontends_share_build_argument_semantics() {
+        for args in [
+            vec!["moon", "build"],
+            vec![
+                "moon",
+                "-C",
+                "project with spaces",
+                "--target-dir",
+                "out",
+                "build",
+                "-q",
+                "-j2",
+                "--target=wasm,js",
+                "pkg",
+            ],
+            vec![
+                "moon",
+                "-qv",
+                "build",
+                "--release",
+                "--no-strip",
+                "--warn-list",
+                "-a",
+                "--",
+                "-package",
+            ],
+            vec![
+                "moon",
+                "-Z",
+                "rr_n2_explain",
+                "build",
+                "--watch",
+                "--frozen",
+                "--dry-run",
+            ],
+            vec!["moon", "build", "--help"],
+            vec!["moon", "--help"],
+            vec!["moon", "-V"],
+            vec!["moon", "build", "--debug", "--release"],
+            vec!["moon", "build", "--jobs", "invalid"],
+            vec!["moon", "build", "-C", "late-directory"],
+        ] {
+            let full = MoonBuildCli::try_parse_from_with_env(&args, |_| None);
+            let restricted =
+                moonutil::cli_support::MoonCli::<BuildCommands>::try_parse_from_with_env(
+                    &args,
+                    |_| None,
+                );
+            match (full, restricted) {
+                (Ok(full), Ok(restricted)) => {
+                    assert_eq!(full.version, restricted.version, "{args:?}");
+                    assert_eq!(
+                        format!("{:?}", full.flags),
+                        format!("{:?}", restricted.flags),
+                        "{args:?}"
+                    );
+                    match (full.subcommand, restricted.subcommand) {
+                        (
+                            Some(MoonBuildSubcommands::Build(full)),
+                            Some(BuildCommands::Build(restricted)),
+                        ) => assert_eq!(format!("{full:?}"), format!("{restricted:?}"), "{args:?}"),
+                        (None, None) => {}
+                        _ => panic!("command selection differs for {args:?}"),
+                    }
+                }
+                (Err(full), Err(restricted)) => {
+                    assert_eq!(full.kind(), restricted.kind(), "{args:?}")
+                }
+                results => panic!("parsing differs for {args:?}: {results:?}"),
+            }
+        }
+    }
 }

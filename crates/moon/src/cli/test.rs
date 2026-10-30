@@ -1034,9 +1034,8 @@ fn run_test_workflow(
     for (build_meta, _) in &build_metas_and_filters {
         rr_build::generate_all_pkgs_json(build_meta)?;
     }
-    let build_config = cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose);
+    let build_config =
+        crate::build_flags::execution_config(cmd.build_flags, &cli.unstable_feature, cli.verbose);
     // n2 consumes its graph, so retain a copy for snapshot-update rebuilds.
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
     let build_metas = build_metas_and_filters

@@ -796,9 +796,8 @@ fn run_planned_checks(
         return Ok(true);
     }
 
-    let mut cfg = cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose);
+    let mut cfg =
+        crate::build_flags::execution_config(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
     for (build_meta, build_input) in &planned_runs {

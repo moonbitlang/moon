@@ -334,7 +334,11 @@ pub(crate) fn run_info(
         .unzip();
     let build_input = BuildInput::compose(build_inputs)?;
     // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildFlags::default().execution_config(&cli.unstable_feature, cli.verbose);
+    let cfg = crate::build_flags::execution_config(
+        &BuildFlags::default(),
+        &cli.unstable_feature,
+        cli.verbose,
+    );
     let result =
         moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
     let print_result = result.print_info(cli.quiet, "generating mbti files");
