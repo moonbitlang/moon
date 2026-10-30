@@ -289,10 +289,12 @@ It is installed once before Engine initialization and lives until process
 exit. On Unix, the CLI blocks its managed signals before creating other
 threads, a dedicated `sigwait` thread consumes them, and child processes use
 the signal mask preserved before broker installation. On Windows, one
-console-control handler performs the same forwarding role. The adapter
-directly forwards each captured signal to the CLI Run's Signal Sender. If that
-Run does not accept the signal, the adapter
-applies the process's existing platform behavior. The library Engine never
+console-control handler performs the same forwarding role. The adapter forwards each captured signal to the CLI Run's Signal Sender. In
+ordinary mode an unaccepted signal uses the process's existing platform
+behavior. The virtual CLI instead requests Engine namespace shutdown and waits
+for adopted descendants before presenting the first unhandled signal. Signals
+during that cleanup cannot bypass it; after session finalization they return
+to the process fallback. The library Engine never
 installs this adapter.
 _Avoid_: Runtime signal handler, Engine signal handler, global Run target
 
@@ -307,7 +309,10 @@ The Moonrun execution host that prepares reusable Loaded Modules, executes Runs,
 and owns a namespace of admitted process identities and their lifecycle. Clones
 share that namespace and backend; a newly constructed Engine has an independent
 namespace. Execution placement and guest process behavior are separate choices.
-An Engine does not own a Runtime's virtual environment.
+An Engine does not own a Runtime's virtual environment. `request_shutdown`
+closes managed and Virtual admission and requests termination of all admitted
+members, including adopted descendants; it does not wait or affect Native
+caller-thread Runs outside its process table.
 _Avoid_: Runtime, Instance, Run, execution thread, thread pool
 
 **Instance**:

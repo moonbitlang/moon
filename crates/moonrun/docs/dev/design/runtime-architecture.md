@@ -129,7 +129,21 @@ Cancelling a wait must preserve the child and an unread result. Managed results
 are published after thread reaping. A caller-thread virtual execution reserves
 its result for the synchronous caller and removes its identity on return.
 Neither `Terminating` nor dropping an Engine promises that blocked work has
-stopped. The caller owns descendant shutdown and waiting.
+stopped. `request_shutdown(outcome)` closes managed and Virtual admission and
+requests termination of all admitted members under the same process-table lock.
+It includes adopted descendants without changing single-member `terminate`
+semantics. The caller still owns waiting and result consumption. Native
+caller-thread execution has no table entry and retains its separate control.
+
+The virtual CLI owns its Engine namespace. It forwards cooperative signals to
+the root while the root accepts them; otherwise it retains the first signal,
+requests namespace shutdown, and drains adopted roots before applying that
+signal to the host. Initialization and finalization are part of this signal
+policy, so early signals cannot miss admission and signals during cleanup
+cannot bypass it. After finalization, the process signal fallback applies.
+Normal root completion still permits adopted descendants to finish naturally.
+Preparation-helper cancellation remains separate work: a retained termination
+currently waits for helper exit and prevents subsequent artifact execution.
 
 Current limits: the library interface is experimental. Virtual execution,
 managed spawning, and external forced interruption currently require V8. These

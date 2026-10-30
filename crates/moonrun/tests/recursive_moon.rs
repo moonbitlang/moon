@@ -175,6 +175,98 @@ arg with spaces
         .assert()
         .success()
         .stdout_eq("root spawning\nadopted child completed\n");
+
+    #[cfg(unix)]
+    {
+        use std::io::{BufRead, BufReader};
+        use std::os::unix::process::{CommandExt, ExitStatusExt};
+        use std::process::{Child, Command, Stdio};
+        use std::sync::mpsc;
+        use std::time::Instant;
+
+        struct ChildGuard(Option<Child>);
+
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                if let Some(mut child) = self.0.take() {
+                    // This test alone creates the group. Failure before the
+                    // ready handshake must also stop a still-running build
+                    // helper; never signal the test runner's process group.
+                    unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let stderr = tempfile::tempfile().unwrap();
+        let mut child = ChildGuard(Some(
+            Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .current_dir(&project)
+                .args(["--virtual-process-tree", "--policy"])
+                .arg(&policy)
+                .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
+                .arg("orphan-loop")
+                .env("TMPDIR", temporary.path())
+                .env("TMP", temporary.path())
+                .env("TEMP", temporary.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(stderr.try_clone().unwrap())
+                .process_group(0)
+                .spawn()
+                .unwrap(),
+        ));
+        let stdout = child.0.as_mut().unwrap().stdout.take().unwrap();
+        let (send, receive) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let lines = BufReader::new(stdout)
+                .lines()
+                .take(2)
+                .collect::<std::io::Result<Vec<_>>>();
+            let _ = send.send(lines);
+        });
+        let lines = match receive.recv_timeout(Duration::from_secs(30)) {
+            Ok(lines) => {
+                reader.join().unwrap();
+                lines.unwrap()
+            }
+            Err(error) => {
+                drop(child);
+                reader.join().unwrap();
+                panic!("adopted child did not start: {error}\n{}", contents(stderr));
+            }
+        };
+        assert_eq!(lines, ["root spawning", "ready"]);
+        // The second line comes from the delivered Wasm, after Moon has exited.
+        // Its handoff directory must remain owned until session shutdown reaps
+        // that execution. This does not exercise build-helper cancellation.
+        let handoffs = fs::read_dir(temporary.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.join("result.json").is_file())
+            .collect::<Vec<_>>();
+        assert_eq!(handoffs.len(), 1, "expected one live artifact handoff");
+        let pid = child.0.as_ref().unwrap().id() as libc::pid_t;
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.0.as_mut().unwrap().try_wait().unwrap() {
+                // try_wait has reaped this PID. Disarm the guard before any
+                // assertion, so failure cannot signal a subsequently reused ID.
+                drop(child.0.take());
+                break status;
+            }
+            assert!(Instant::now() < deadline, "CLI shutdown did not finish");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(status.signal(), Some(libc::SIGTERM), "{}", contents(stderr));
+        assert!(
+            fs::read_dir(temporary.path()).unwrap().next().is_none(),
+            "CLI exited before cleaning its adopted child's handoff: {handoffs:?}",
+        );
+    }
 }
 
 fn contents(mut file: File) -> String {

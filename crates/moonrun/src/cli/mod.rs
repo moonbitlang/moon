@@ -17,5 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 mod process_signals;
+mod session;
 
 pub(super) use process_signals::ProcessSignals;
+pub(super) use session::Session;

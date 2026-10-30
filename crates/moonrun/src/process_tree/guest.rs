@@ -105,6 +105,7 @@ impl ProcessContext {
     ) -> AsyncHostResult<T> {
         let mut entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
+            .entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if entry.info.parent != Some(self.pid) || entry.waiting {
@@ -118,7 +119,7 @@ impl ProcessContext {
         let accepted = accept(status)?;
         drop(result_guard);
         // The completion mutex must be released before removing its owner.
-        drop(entries.remove(&VirtualPid(pid)));
+        drop(entries.entries.remove(&VirtualPid(pid)));
         Ok(accepted)
     }
 
@@ -130,6 +131,7 @@ impl ProcessContext {
     ) -> AsyncHostResult<i32> {
         let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
+            .entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if entry.info.parent != Some(self.pid) || entry.waiting {
@@ -162,6 +164,7 @@ impl ProcessContext {
     pub(crate) fn kill(&self, pid: i32) -> AsyncHostResult<()> {
         let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
+            .entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
@@ -197,6 +200,7 @@ impl ProcessContext {
         };
         let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
+            .entries
             .get(&VirtualPid(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
@@ -223,6 +227,7 @@ impl ProcessContext {
         let pid = VirtualPid(pid);
         let entries = self.engine.processes.0.lock().unwrap();
         if entries
+            .entries
             .get(&pid)
             .is_none_or(|entry| entry.info.parent != Some(self.pid))
         {
@@ -232,7 +237,7 @@ impl ProcessContext {
             pid,
             cancel: Arc::new(WaitCancellation {
                 context: self.clone(),
-                completion: Arc::clone(&entries[&pid].completion),
+                completion: Arc::clone(&entries.entries[&pid].completion),
                 cancelled: AtomicBool::new(false),
             }),
             claim: None,
@@ -246,10 +251,11 @@ impl ProcessContext {
         // Handle observations do not own an exclusive wait claim. Preserve
         // another waiter's result, and remove only the observed entry.
         if entries
+            .entries
             .get(&pid)
             .is_some_and(|entry| !entry.waiting && Arc::ptr_eq(&entry.completion, completion))
         {
-            entries.remove(&pid);
+            entries.entries.remove(&pid);
         }
     }
 }
@@ -391,7 +397,7 @@ impl ProcessWait {
             return;
         }
         if let Some(claim) = self.claim.take() {
-            claim.table.lock().unwrap().remove(&claim.pid);
+            claim.table.lock().unwrap().entries.remove(&claim.pid);
         } else if !self.claim_on_run {
             // Windows handles retain their cached status independently; the
             // guest need not call get_process_result to release this entry.
@@ -431,6 +437,13 @@ mod tests {
     use std::sync::{Mutex, mpsc};
     use std::time::Duration;
 
+    fn test_table(entries: BTreeMap<VirtualPid, Entry>) -> super::super::Table {
+        Arc::new(Mutex::new(super::super::TableState {
+            entries,
+            shutting_down: false,
+        }))
+    }
+
     fn test_engine(table: super::super::Table) -> crate::Engine {
         let mut engine = crate::Engine::default();
         engine.processes = super::super::ProcessTable(table);
@@ -445,7 +458,7 @@ mod tests {
         let (signals, _signals) = crate::signal_channel();
         let context = ProcessContext {
             pid,
-            engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
+            engine: test_engine(test_table(BTreeMap::from([(
                 pid,
                 Entry {
                     info: ProcessInfo {
@@ -458,7 +471,7 @@ mod tests {
                     completion: Arc::new(ProcessCompletion::default()),
                     waiting: false,
                 },
-            )])))),
+            )]))),
         };
         assert_eq!(context.terminate(pid.get(), 0), Ok(()));
         for signal in [-1, libc::SIGSTOP, libc::SIGCONT, i32::MAX] {
@@ -492,7 +505,7 @@ mod tests {
             let completion = Arc::new(ProcessCompletion::default());
             let context = ProcessContext {
                 pid: parent,
-                engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
+                engine: test_engine(test_table(BTreeMap::from([(
                     child,
                     Entry {
                         info: ProcessInfo {
@@ -505,7 +518,7 @@ mod tests {
                         completion: completion.clone(),
                         waiting: false,
                     },
-                )])))),
+                )]))),
             };
             let (send, received) = mpsc::channel();
             let cancelled = Arc::new(std::task::Waker::from(Arc::new(Notify(send.clone(), 1))));
@@ -576,7 +589,16 @@ mod tests {
                 context.observe_exit(child.get(), || panic!("already reaped")),
                 Err(AsyncHostError::PermissionDenied),
             );
-            assert!(context.engine.processes.0.lock().unwrap().is_empty());
+            assert!(
+                context
+                    .engine
+                    .processes
+                    .0
+                    .lock()
+                    .unwrap()
+                    .entries
+                    .is_empty()
+            );
         }
     }
 
@@ -590,7 +612,7 @@ mod tests {
             let completion = Arc::new(ProcessCompletion::default());
             let context = ProcessContext {
                 pid: VirtualPid(1),
-                engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
+                engine: test_engine(test_table(BTreeMap::from([(
                     child,
                     Entry {
                         info: ProcessInfo {
@@ -603,7 +625,7 @@ mod tests {
                         completion: completion.clone(),
                         waiting: false,
                     },
-                )])))),
+                )]))),
             };
             let runtime = Runtime::new(
                 crate::runtime::RuntimeConfig {
@@ -661,7 +683,7 @@ mod tests {
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
             pid: parent,
-            engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
+            engine: test_engine(test_table(BTreeMap::from([(
                 child,
                 Entry {
                     info: ProcessInfo {
@@ -674,7 +696,7 @@ mod tests {
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },
-            )])))),
+            )]))),
         };
         let first = ProcessHandle::open(&owner, child.get()).unwrap();
         let second = ProcessHandle::open(&owner, child.get()).unwrap();
@@ -714,10 +736,11 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
+                .entries
                 .contains_key(&child)
         );
         wait.consume();
-        assert!(owner.engine.processes.0.lock().unwrap().is_empty());
+        assert!(owner.engine.processes.0.lock().unwrap().entries.is_empty());
         assert_eq!(first.read_exit(Ok), Ok(code));
         // Model a supervisor taking the owned Run result. Handles still own
         // the status, and completion wins over cancellation on Windows.
@@ -815,7 +838,7 @@ mod tests {
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
             pid: VirtualPid(1),
-            engine: test_engine(Arc::new(Mutex::new(BTreeMap::from([(
+            engine: test_engine(test_table(BTreeMap::from([(
                 child,
                 Entry {
                     info: ProcessInfo {
@@ -828,7 +851,7 @@ mod tests {
                     completion: completion.clone(),
                     waiting: false,
                 },
-            )])))),
+            )]))),
         };
         let mut cancelled = owner.wait(child.get()).unwrap();
         cancelled.claim_on_run = false;
@@ -840,6 +863,7 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
+                .entries
                 .contains_key(&child)
         );
         cancelled.cancellation().cancel().unwrap();
@@ -853,6 +877,7 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
+                .entries
                 .contains_key(&child)
         );
 
@@ -868,6 +893,7 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
+                .entries
                 .contains_key(&child)
         );
         assert_eq!(unread.run(), Ok(23));
@@ -879,6 +905,7 @@ mod tests {
                 .0
                 .lock()
                 .unwrap()
+                .entries
                 .contains_key(&child)
         );
 
@@ -887,14 +914,14 @@ mod tests {
         assert_eq!(accepted.run(), Ok(23));
         let claim = WaitClaim::new(owner.engine.processes.0.clone(), child).unwrap();
         accepted.consume();
-        assert!(owner.engine.processes.0.lock().unwrap()[&child].waiting);
+        assert!(owner.engine.processes.0.lock().unwrap().entries[&child].waiting);
         drop(claim);
         let mut accepted = owner.wait(child.get()).unwrap();
         accepted.claim_on_run = false;
         assert_eq!(accepted.run(), Ok(23));
         accepted.consume();
         accepted.consume();
-        assert!(owner.engine.processes.0.lock().unwrap().is_empty());
+        assert!(owner.engine.processes.0.lock().unwrap().entries.is_empty());
     }
 
     #[test]
@@ -916,7 +943,7 @@ mod tests {
             let parent = VirtualPid(1);
             let child = VirtualPid(2);
             let completion = Arc::new(ProcessCompletion::default());
-            let table = Arc::new(Mutex::new(BTreeMap::from([(
+            let table = test_table(BTreeMap::from([(
                 child,
                 Entry {
                     info: ProcessInfo {
@@ -929,7 +956,7 @@ mod tests {
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },
-            )])));
+            )]));
             let context = ProcessContext {
                 pid: parent,
                 engine: test_engine(Arc::clone(&table)),
@@ -959,7 +986,7 @@ mod tests {
             );
             started.recv_timeout(Duration::from_secs(5)).unwrap();
             if !before_wait {
-                while !table.lock().unwrap()[&child].waiting {
+                while !table.lock().unwrap().entries[&child].waiting {
                     std::thread::yield_now();
                 }
                 assert!(matches!(
@@ -979,7 +1006,7 @@ mod tests {
             assert!(thread_pool::errno_is_cancelled(result.job.err()));
             thread_pool::free_worker(worker);
             drop(result);
-            assert!(!table.lock().unwrap()[&child].waiting);
+            assert!(!table.lock().unwrap().entries[&child].waiting);
             assert!(completion.result.lock().unwrap().is_none());
 
             *completion.result.lock().unwrap() = Some(Ok(RunOutcome::Exited(42)));
@@ -997,14 +1024,14 @@ mod tests {
             drop(completed_and_cancelled);
             let mut unread = context.wait(child.get()).unwrap();
             assert_eq!(unread.run(), Ok(42));
-            assert!(table.lock().unwrap()[&child].waiting);
+            assert!(table.lock().unwrap().entries[&child].waiting);
             drop(unread);
-            assert!(!table.lock().unwrap()[&child].waiting);
+            assert!(!table.lock().unwrap().entries[&child].waiting);
             let mut accepted = context.wait(child.get()).unwrap();
             assert_eq!(accepted.run(), Ok(42));
             accepted.consume();
             accepted.consume();
-            assert!(table.lock().unwrap().is_empty());
+            assert!(table.lock().unwrap().entries.is_empty());
         }
     }
 }

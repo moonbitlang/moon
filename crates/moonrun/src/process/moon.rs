@@ -160,6 +160,9 @@ impl Spawn {
         let name = Path::new(&program)
             .file_name()
             .ok_or(AsyncHostError::Inval)?;
+        // FIXME: Select supported virtual commands separately from the helper
+        // protocol. A Moon basename currently sends every subcommand to handoff,
+        // which accepts only `moon run`/moonx (including run's stdin input mode).
         let moon = if cfg!(windows) {
             name.eq_ignore_ascii_case("moon") || name.eq_ignore_ascii_case("moon.exe")
         } else {
