@@ -162,7 +162,11 @@ pub struct DiscoveredPackage {
     /// the input for `BuildVirtual`.
     pub virtual_mbti_files: Vec<PathBuf>,
 
-    /// Whether this package is part of the standard library.    
+    /// Whether this package comes from the injected prebuilt standard library.
+    ///
+    /// Its artifacts are installed toolchain files rather than outputs of the
+    /// build plan. Packages of `moonbitlang/core` are not marked when building
+    /// core itself, and no package is marked when the stdlib is not injected.
     pub is_stdlib: bool,
 }
 
