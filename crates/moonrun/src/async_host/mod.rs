@@ -5343,6 +5343,9 @@ mod tests {
         std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
         let host = host_with_policy(&policy_file);
         let mut job = successful_process_job();
+        host.process
+            .prepare_job(job.process_mut().unwrap())
+            .unwrap();
         job.set_ret(i64::from(0x8000_0000u32));
 
         AsyncHost::finish_process_job(&host.process, &job).unwrap();

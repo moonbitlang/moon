@@ -481,6 +481,7 @@ mod tests {
     use super::*;
     use crate::runtime::{Env, WorkingDirectory};
 
+    #[cfg(unix)]
     fn host(working_directory: WorkingDirectory, stdio: Stdio) -> HostProcess {
         HostProcess::new(
             None,
