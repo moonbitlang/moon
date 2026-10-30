@@ -49,7 +49,7 @@ pub(crate) struct Engine {
 
 #[derive(Debug)]
 pub(crate) struct CompiledModule {
-    code: api::Compiled,
+    code: api::SharedModule,
     functions: Arc<std::collections::BTreeMap<u32, String>>,
 }
 
@@ -116,7 +116,7 @@ impl Engine {
             }
         }
         Ok(CompiledModule {
-            code: module.serialize(),
+            code: module.share()?,
             functions: Arc::new(functions),
         })
     }
@@ -148,7 +148,7 @@ impl Engine {
             memory_sanitizer: memory_sanitizer.clone(),
         })?;
         let stack_limit = stack::Limit::new(&store, self.stack_size)?;
-        let module = store.module(&compiled.code)?;
+        let module = store.obtain(&compiled.code)?;
         let registry = (|| -> api::Result<_> {
             let mut registry = wasm_imports::Registry::new(&store, &module)?;
             registry.register_exceptions()?;

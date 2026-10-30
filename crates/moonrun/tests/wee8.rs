@@ -195,18 +195,41 @@ fn unsupported_imports_and_start_memory_are_host_errors() {
 }
 
 #[test]
-fn proposals_and_unsupported_options_fail_before_execution() {
+fn shared_memory_runs_but_cannot_be_borrowed_by_host_imports() {
     let engine = Engine::default();
-    let error = engine
+    let module = engine
         .compile(
-            "unsupported.wasm",
-            wat::parse_str(r#"(module (memory (export "memory") 1 1 shared))"#).unwrap(),
+            "shared.wasm",
+            wat::parse_str(
+                r#"(module
+        (memory (export "memory") 1 1 shared)
+        (func (export "_start")
+            i32.const 0 i32.const 42 i32.atomic.store
+            i32.const 0 i32.atomic.load i32.const 42 i32.ne if unreachable end))"#,
+            )
+            .unwrap(),
         )
-        .unwrap_err();
-    assert!(
-        format!("{error:#}").contains("shared memory is unsupported in C API"),
-        "{error:#}"
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, RunOptions::default()).unwrap(),
+        RunOutcome::Completed
     );
+
+    // Accepting shared Wasm memory must not expose an exclusive Rust slice.
+    let module = engine
+        .compile(
+            "shared-host-access.wasm",
+            wat::parse_str(
+                r#"(module
+        (import "wasi_snapshot_preview1" "args_sizes_get" (func $sizes (param i32 i32) (result i32)))
+        (memory (export "memory") 1 1 shared)
+        (func (export "_start") i32.const 0 i32.const 4 call $sizes drop))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let error = engine.run(&module, RunOptions::default()).unwrap_err();
+    assert!(format!("{error:#}").contains("shared memory"), "{error:#}");
 }
 
 #[test]
@@ -258,17 +281,44 @@ fn gc_modules_reuse_compilation_with_fresh_guest_references() {
 }
 
 #[test]
-fn unsupported_gc_boundary_types_fail_during_compilation() {
+fn gc_exports_compile_but_unsupported_entry_signatures_fail_on_call() {
     let engine = Engine::default();
     for source in [
-        r#"(module (type $s (struct)) (func (export "f") (result (ref $s)) struct.new $s))"#,
-        r#"(module (type $a (array i32)) (global (export "g") (ref null $a) (ref.null $a)))"#,
+        r#"(module
+        (type $s (struct))
+        (func $f (export "f") (result (ref $s)) struct.new $s)
+        (func (export "_start") call $f drop))"#,
+        r#"(module
+        (type $a (array i32))
+        (global $g (export "g") (ref null $a) (ref.null $a))
+        (func (export "_start") global.get $g ref.is_null i32.eqz if unreachable end))"#,
     ] {
-        let error = engine
+        let module = engine
             .compile("boundary.wasm", wat::parse_str(source).unwrap())
-            .unwrap_err();
-        assert!(format!("{error:#}").contains("C API"), "{error:#}");
+            .unwrap();
+        assert_eq!(
+            engine.run(&module, RunOptions::default()).unwrap(),
+            RunOutcome::Completed
+        );
     }
+
+    // Only the entry called by Moonrun needs a host-representable signature.
+    let module = engine
+        .compile(
+            "gc-entry.wasm",
+            wat::parse_str(
+                r#"(module
+        (type $s (struct))
+        (func (export "_start") (result (ref $s)) struct.new $s))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let error = engine.run(&module, RunOptions::default()).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("function signature"),
+        "{error:#}"
+    );
 }
 
 #[test]
