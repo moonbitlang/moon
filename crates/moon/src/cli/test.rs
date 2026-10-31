@@ -1118,7 +1118,7 @@ fn run_tests_with_updates(
     // One runtime owns the shutdown listener across all backends and update
     // passes. Dropping a per-worker or per-pass runtime would lose that listener
     // while other test processes still need cancellation.
-    let rt = crate::run::default_rt().context("Failed to create test runtime")?;
+    let rt = crate::run::TestRuntime::new().context("Failed to create test runtime")?;
     let mut exit_code = 0;
     'backends: for (build_meta, mut filter) in builds {
         let build_meta = Arc::new(build_meta);

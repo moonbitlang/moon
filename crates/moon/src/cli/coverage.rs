@@ -88,7 +88,7 @@ pub(crate) fn run_coverage(
 ) -> anyhow::Result<ProcessAction> {
     let res = match cmd.cmd {
         CoverageSubcommands::Analyze(args) => run_coverage_analyze(cli, args, output),
-        CoverageSubcommands::Report(args) => run_coverage_report(cli, args, output),
+        CoverageSubcommands::Report(args) => run_coverage_report(cli, args, 0, output),
         CoverageSubcommands::Clean => {
             run_coverage_clean(cli, output.user_log()).map(ProcessAction::from)
         }
@@ -112,7 +112,7 @@ fn run_coverage_analyze(
         ..cli.clone()
     };
     let test_output = CommandOutput::new(test_cli.user_log_level());
-    run_test(test_cli, test_flags, &test_output)?;
+    let test_result = run_test(test_cli, test_flags, &test_output)?;
 
     let mut report_flags = CoverageReportSubcommand::default();
     report_flags.args.push("-f=simp_caret".into());
@@ -120,7 +120,9 @@ fn run_coverage_analyze(
         report_flags.args.push(format!("-p={package}"));
     }
     report_flags.args.extend(args.extra_flags);
-    run_coverage_report(cli, report_flags, output)
+    // A report is still useful after assertion failures, but a successful
+    // reporter must not hide the test command's nonzero exit code.
+    run_coverage_report(cli, report_flags, test_result, output)
 }
 
 fn run_coverage_clean(cli: UniversalFlags, user_log: &UserLog) -> Result<i32, anyhow::Error> {
@@ -140,6 +142,7 @@ fn run_coverage_clean(cli: UniversalFlags, user_log: &UserLog) -> Result<i32, an
 fn run_coverage_report(
     cli: UniversalFlags,
     args: CoverageReportSubcommand,
+    success_code: i32,
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {
     // if help is requested, delegate to the external command
@@ -148,6 +151,7 @@ fn run_coverage_report(
             vec!["--help".to_owned()],
             &std::env::current_dir().unwrap_or(".".into()),
             cli.dry_run,
+            success_code,
             "Unable to get help from coverage utility",
             output,
         );
@@ -167,6 +171,7 @@ fn run_coverage_report(
         args.args,
         &src,
         cli.dry_run,
+        success_code,
         "Unable to run coverage report",
         output,
     )
@@ -189,6 +194,7 @@ fn run_coverage_reporter(
     args: Vec<String>,
     cwd: &Path,
     dry_run: bool,
+    success_code: i32,
     error_context: &'static str,
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {
@@ -211,18 +217,17 @@ fn run_coverage_reporter(
         .args(args);
     if dry_run {
         output.write_result(|writer| write_coverage_report_command(writer, &command, cwd))?;
-        Ok(ProcessAction::Exit(0))
-    } else if use_moon_cove {
+        Ok(ProcessAction::Exit(success_code))
+    } else if use_moon_cove && success_code == 0 {
         Ok(ProcessAction::Delegate(command))
     } else {
-        let code = command
-            .status()
-            .context(error_context)?
-            .code()
-            .ok_or_else(|| {
-                anyhow::anyhow!("Coverage report command exited without a status code")
-            })?;
-        Ok(ProcessAction::Exit(code))
+        // `exec` would replace Moon and lose the test result. Wait instead
+        // when that result must survive a successful report.
+        Ok(ProcessAction::Run {
+            command,
+            success_code,
+            error_context,
+        })
     }
 }
 

@@ -40,47 +40,43 @@ use tokio_util::sync::CancellationToken;
 
 /// Process-wide cancellation token toggled when we observe a shutdown signal.
 static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
-/// Ensures we only install the shutdown handler task once per process.
-static SHUTDOWN_HANDLER: OnceLock<()> = OnceLock::new();
+/// Tokio retains its signal registrations after cleanup, so a test runtime
+/// cannot be restarted in this process after restoring the incoming handlers.
+static TEST_RUNTIME_STARTED: OnceLock<()> = OnceLock::new();
+
+#[cfg(unix)]
+const SHUTDOWN_SIGNALS: [libc::c_int; 3] = [libc::SIGTERM, libc::SIGINT, libc::SIGQUIT];
 
 fn install_shutdown_handler(rt: &tokio::runtime::Runtime) {
-    SHUTDOWN_HANDLER.get_or_init(|| {
-        let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
-        let handle = rt.handle().clone();
-        handle.spawn(async move {
-            #[cfg(not(windows))]
-            {
-                let mut terminate =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                        .expect("Failed to wait on SigTerm");
-                let mut interrupt =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-                        .expect("Failed to wait on SigInt");
-                let mut quit = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::quit())
-                    .expect("Failed to wait on SigQuit");
-                tokio::select! {
-                    _ = terminate.recv() => {},
-                    _ = interrupt.recv() => {},
-                    _ = quit.recv() => {},
-                }
-                token.cancel();
+    let token = SHUTDOWN_TOKEN.get_or_init(CancellationToken::new).clone();
+    rt.spawn(async move {
+        #[cfg(unix)]
+        {
+            let [mut terminate, mut interrupt, mut quit] = SHUTDOWN_SIGNALS.map(|signal| {
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::from_raw(signal))
+                    .expect("Failed to wait on shutdown signal")
+            });
+            tokio::select! {
+                _ = terminate.recv() => {},
+                _ = interrupt.recv() => {},
+                _ = quit.recv() => {},
             }
-            #[cfg(windows)]
-            {
-                let mut ctrl_break =
-                    tokio::signal::windows::ctrl_break().expect("Failed to wait on ctrl+break");
-                let mut ctrl_c =
-                    tokio::signal::windows::ctrl_c().expect("Failed to wait on ctrl+c");
-                let mut ctrl_close =
-                    tokio::signal::windows::ctrl_close().expect("Failed to wait on ctrl+close");
-                tokio::select! {
-                    _ = ctrl_break.recv() => {},
-                    _ = ctrl_c.recv() => {},
-                    _ = ctrl_close.recv() => {},
-                }
-                token.cancel();
+            token.cancel();
+        }
+        #[cfg(windows)]
+        {
+            let mut ctrl_break =
+                tokio::signal::windows::ctrl_break().expect("Failed to wait on ctrl+break");
+            let mut ctrl_c = tokio::signal::windows::ctrl_c().expect("Failed to wait on ctrl+c");
+            let mut ctrl_close =
+                tokio::signal::windows::ctrl_close().expect("Failed to wait on ctrl+close");
+            tokio::select! {
+                _ = ctrl_break.recv() => {},
+                _ = ctrl_c.recv() => {},
+                _ = ctrl_close.recv() => {},
             }
-        });
+            token.cancel();
+        }
     });
 }
 
@@ -94,13 +90,65 @@ pub(crate) fn shutdown_requested() -> bool {
     shutdown_token().is_cancelled()
 }
 
-/// Build the test command's Tokio runtime and install the global shutdown
-/// listener. The caller must retain it across every backend and update pass,
-/// driving it whenever test children are running.
-pub(crate) fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    install_shutdown_handler(&runtime);
-    Ok(runtime)
+/// Owns the test runtime and its process-wide shutdown handlers. Retain it
+/// across every backend and update pass. Dropping it ends the test phase and
+/// restores incoming Unix signal dispositions, including inherited ignores.
+pub(crate) struct TestRuntime {
+    // Taken during Drop so the listener stops before its handlers are restored.
+    runtime: Option<tokio::runtime::Runtime>,
+    #[cfg(unix)]
+    signal_handlers: [(libc::c_int, libc::sigaction); SHUTDOWN_SIGNALS.len()],
+}
+
+impl TestRuntime {
+    pub(crate) fn new() -> std::io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        #[cfg(unix)]
+        let mut signal_handlers = SHUTDOWN_SIGNALS.map(|signal| {
+            // SAFETY: sigaction is plain C data, filled by the query below.
+            (signal, unsafe { std::mem::zeroed::<libc::sigaction>() })
+        });
+        #[cfg(unix)]
+        for (signal, handler) in &mut signal_handlers {
+            // SAFETY: the signal is valid and handler is a writable sigaction.
+            if unsafe { libc::sigaction(*signal, std::ptr::null(), handler) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        TEST_RUNTIME_STARTED
+            .set(())
+            .map_err(|()| std::io::Error::other("test runtime can only be started once"))?;
+        install_shutdown_handler(&runtime);
+        Ok(Self {
+            runtime: Some(runtime),
+            #[cfg(unix)]
+            signal_handlers,
+        })
+    }
+
+    pub(crate) fn block_on<F: std::future::Future>(&self, future: F) -> F::Output {
+        self.runtime
+            .as_ref()
+            .expect("test runtime is present until drop")
+            .block_on(future)
+    }
+}
+
+impl Drop for TestRuntime {
+    fn drop(&mut self) {
+        drop(self.runtime.take());
+        #[cfg(unix)]
+        for (signal, handler) in &self.signal_handlers {
+            // SAFETY: restore the complete disposition returned by sigaction.
+            if unsafe { libc::sigaction(*signal, handler, std::ptr::null_mut()) } != 0 {
+                tracing::error!(
+                    signal,
+                    error = %std::io::Error::last_os_error(),
+                    "Failed to restore test signal handler"
+                );
+            }
+        }
+    }
 }

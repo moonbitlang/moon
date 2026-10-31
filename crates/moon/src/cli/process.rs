@@ -21,11 +21,19 @@ use std::{
     process::{Command, ExitStatus},
 };
 
+use anyhow::Context;
+
 /// The only process-wide actions a selected Moon invocation may request.
 pub(crate) enum ProcessAction {
     Exit(i32),
     Delegate(Command),
     DelegateWithPolicyRelay(Command, moonutil::policy_transport::PolicyRelay),
+    /// Wait for the child, preserving its failure or returning `success_code`.
+    Run {
+        command: Command,
+        success_code: i32,
+        error_context: &'static str,
+    },
 }
 
 impl From<i32> for ProcessAction {
@@ -43,6 +51,31 @@ pub(crate) fn execute(action: ProcessAction) -> anyhow::Result<i32> {
             Ok(delegate_with_policy_relay(&mut command, relay)?
                 .code()
                 .unwrap_or(0))
+        }
+        ProcessAction::Run {
+            mut command,
+            success_code,
+            error_context,
+        } => {
+            #[cfg(windows)]
+            install_ctrl_c_passthrough_handler()?;
+
+            let status = command.status().context(error_context)?;
+            if status.success() {
+                return Ok(success_code);
+            }
+            if let Some(code) = status.code() {
+                return Ok(code);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+
+                if let Some(signal) = status.signal() {
+                    return Ok(128 + signal);
+                }
+            }
+            anyhow::bail!("{error_context}: command exited without a status code")
         }
     }
 }
