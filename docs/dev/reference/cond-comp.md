@@ -39,6 +39,13 @@ and `not(...)`. `not` takes exactly one condition. `all()` is true and `any()`
 is false. Each `#cfg(...)` takes exactly one condition; stacked attributes
 are combined with AND. Unknown targets and unsupported expressions are errors.
 
+`target = "native"` matches both Native C and LLVM, consistently with source-file
+selection and the compiler's `#cfg` attributes. `target = "llvm"` matches only
+LLVM. Boolean operators use these expanded sets: `not(target = "native")`
+excludes both backends, while `all(target = "native", target = "llvm")` selects
+only LLVM. This does not change the exact backend sets declared by
+`supported_targets`.
+
 Repeated import blocks are concatenated in declaration order. Conditions work
 with regular imports, `for "test"`, and `for "wbtest"` (including their legacy
 prefix forms). Unannotated blocks remain unconditional. Aliases, including
