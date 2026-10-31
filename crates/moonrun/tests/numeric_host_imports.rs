@@ -17,6 +17,80 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[test]
+fn synchronous_jobs_reuse_constructors_and_result_getters_without_a_pool() {
+    let engine = moonrun::Engine::default();
+    let module = engine
+        .compile(
+            "synchronous-jobs.wasm",
+            wat::parse_str(
+                r#"(module
+                    (import "moonbitlang/async" "thread_pool/make_sleep_job"
+                        (func $sleep (param i32) (result i64)))
+                    (import "moonbitlang/async" "thread_pool/make_statx_job"
+                        (func $stat (param i32 i32 i32 i32 i64 i32) (result i64)))
+                    (import "moonbitlang/async" "fd_util/invalid_fd"
+                        (func $invalid (result i64)))
+                    (import "moonbitlang/async" "thread_pool/run_job"
+                        (func $run (param i64)))
+                    (import "moonbitlang/async" "thread_pool/job_get_ret"
+                        (func $ret (param i64) (result i32)))
+                    (import "moonbitlang/async" "thread_pool/job_get_err"
+                        (func $err (param i64) (result i32)))
+                    (import "moonbitlang/async" "thread_pool/get_stat_result"
+                        (func $copy (param i64 i32 i32)))
+                    (import "moonbitlang/async" "thread_pool/free_job"
+                        (func $free (param i64)))
+                    (memory (export "memory") 1)
+                    (data (i32.const 0) ".\00")
+                    ;; Scalar jobs can run during instantiation without guest memory.
+                    (func $init (local $job i64)
+                        (local.set $job (call $sleep (i32.const 0)))
+                        (call $run (local.get $job))
+                        (if (call $err (local.get $job)) (then unreachable))
+                        (if (call $ret (local.get $job)) (then unreachable))
+                        (call $free (local.get $job)))
+                    (start $init)
+                    (func (export "_start") (local $job i64)
+                        (local.set $job (call $stat
+                            (i32.const 0) (i32.const 1) (i32.const 1)
+                            (i32.const 16) (call $invalid) (i32.const 1)))
+                        (call $run (local.get $job))
+                        (if (call $err (local.get $job)) (then unreachable))
+                        (if (call $ret (local.get $job)) (then unreachable))
+                        ;; Results stay host-owned until copied into the current memory.
+                        (drop (memory.grow (i32.const 1)))
+                        (call $copy (local.get $job) (i32.const 65536) (i32.const 16))
+                        (if (i32.ne (i32.load (i32.const 65536)) (i32.const 16))
+                            (then unreachable))
+                        (if (i32.ne (i32.load (i32.const 65540)) (i32.const 1))
+                            (then unreachable))
+                        (if (i64.ne (i64.load (i32.const 65544)) (i64.const 2))
+                            (then unreachable))
+                        (call $free (local.get $job))
+                        ;; Invalid requests use the ordinary job error and copy-out path.
+                        (local.set $job (call $stat
+                            (i32.const 0) (i32.const 1) (i32.const 256)
+                            (i32.const 16) (call $invalid) (i32.const 1)))
+                        (call $run (local.get $job))
+                        (if (i32.eqz (call $err (local.get $job))) (then unreachable))
+                        (if (i32.ne (call $ret (local.get $job)) (i32.const -1))
+                            (then unreachable))
+                        (i32.store (i32.const 65536) (i32.const 123))
+                        (call $copy (local.get $job) (i32.const 65536) (i32.const 16))
+                        (if (i32.ne (i32.load (i32.const 65536)) (i32.const 123))
+                            (then unreachable))
+                        (call $free (local.get $job))))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.run(&module, moonrun::RunOptions::default()).unwrap(),
+        moonrun::RunOutcome::Completed
+    );
+}
+
+#[test]
 fn async_resource_spawn_requires_reserved_absence_sentinel() {
     #[cfg(unix)]
     let (imports, inputs, flags) = (

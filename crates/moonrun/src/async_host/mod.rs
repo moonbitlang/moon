@@ -6263,6 +6263,24 @@ mod tests {
     }
 
     #[test]
+    fn synchronous_job_does_not_enqueue_a_worker_completion() {
+        let host = default_host();
+        let poll = host.poll_create().unwrap();
+        host.init_thread_pool(poll).unwrap();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+
+        host.run_job(job).unwrap();
+        assert_eq!(
+            host.with_job(job, |job| (job.ret(), job.err())).unwrap(),
+            (0, 0)
+        );
+        assert_eq!(host.poll_wait(poll, 0, &Default::default()).unwrap(), 0);
+        assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
+        host.free_job(job).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[test]
     fn dropping_host_retires_ready_reserved_and_completed_job_handles() {
         let host = default_host();
         let keys = Rc::clone(&host.handles.borrow().keys);
