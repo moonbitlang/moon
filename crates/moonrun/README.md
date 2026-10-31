@@ -563,6 +563,12 @@ Moonrun Policy authorizes operations performed by supported moonrun-owned host
 interfaces. It is not an operating-system syscall sandbox or a complete
 resource-isolation mechanism. In particular:
 
+- On macOS, `SystemRoot` TLS verification uses system trust services. These
+  services may fetch issuer certificates or revocation information independently
+  of `net` permissions, using destinations from the certificate chain. Requests
+  can occur before peer acceptance and disclose certificate identifiers to
+  responders; they are not restricted to Apple hosts. See
+  [macOS TLS verification](docs/dev/README.md#tls-certificate-verification-on-macos).
 - SQLite supports private in-memory databases and file-backed databases through
   the default native VFS. Guest-selected database paths are authorized by
   Moonrun Policy when the connection is opened. Connections require read

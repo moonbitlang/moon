@@ -28,15 +28,27 @@ use openssl::ssl::{
     SslStream, SslVerifyMode,
 };
 use openssl::x509::{X509, X509Ref, store::X509StoreBuilder, verify::X509CheckFlags};
+#[cfg(target_os = "macos")]
+use openssl::{ex_data::Index, ssl::StatusType};
 
 use super::{
     TLS_CLOSED_STATUS, TLS_ERROR_STATUS, TLS_RENEGOTIATION_STATUS, TLS_SUCCESS_STATUS,
     TLS_WOULD_BLOCK_STATUS, TlsConfig, TlsFileType, TlsTrust,
 };
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "openssl_tests.rs"]
+mod tests;
+
+#[cfg(target_os = "macos")]
+#[path = "sectrust.rs"]
+mod sectrust;
+
 pub(crate) struct TlsConnection {
     stream: Option<SslStream<QueueStream>>,
     pending_ssl: Option<Ssl>,
+    #[cfg(target_os = "macos")]
+    server_trust: Option<Index<Ssl, sectrust::ServerTrust>>,
     // TlsConnection and OpenSSL's QueueStream adapter stay on the same
     // execution thread. RefCell scopes their temporary mutable access without
     // a lock.
@@ -63,25 +75,47 @@ impl TlsConnection {
         if trust != TlsTrust::CustomRoot && !root_certificates.is_empty() {
             return Err("TLS root certificates require custom root trust".to_string());
         }
+        if host.contains('\0') {
+            return Err("TLS hostname contains NUL".to_string());
+        }
         let mut ctx = SslContextBuilder::new(SslMethod::tls())
             .map_err(|error| format!("failed to create TLS client context: {error}"))?;
         ctx.set_mode(SslMode::ENABLE_PARTIAL_WRITE | SslMode::ACCEPT_MOVING_WRITE_BUFFER);
         match trust {
             TlsTrust::NoVerification => ctx.set_verify(SslVerifyMode::NONE),
             TlsTrust::SystemRoot => {
-                ctx.set_verify(SslVerifyMode::PEER);
-                load_system_root_paths(&mut ctx)
-                    .map_err(|error| format!("failed to load system TLS roots: {error}"))?;
+                #[cfg(target_os = "macos")]
+                {
+                    // SecTrust owns acceptance through the status callback,
+                    // after the peer's certificate and optional OCSP staple.
+                    ctx.set_verify(SslVerifyMode::NONE);
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    ctx.set_verify(SslVerifyMode::PEER);
+                    load_system_root_paths(&mut ctx)
+                        .map_err(|error| format!("failed to load system TLS roots: {error}"))?;
+                }
             }
             TlsTrust::CustomRoot => {
                 ctx.set_verify(SslVerifyMode::PEER);
             }
         }
 
+        #[cfg(target_os = "macos")]
+        let server_trust = (trust == TlsTrust::SystemRoot)
+            .then(|| sectrust::configure(&mut ctx))
+            .transpose()?;
         let mut ssl = Ssl::new(&ctx.build())
             .map_err(|error| format!("failed to create TLS client: {error}"))?;
         if trust == TlsTrust::CustomRoot {
             configure_custom_root_store(&mut ssl, &root_certificates)?;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(index) = server_trust {
+            ssl.set_ex_data(index, sectrust::ServerTrust::new(host));
+            ssl.set_status_type(StatusType::OCSP)
+                .map_err(|error| format!("failed to request TLS OCSP response: {error}"))?;
         }
         ssl.set_connect_state();
         if !host.is_empty() {
@@ -96,7 +130,13 @@ impl TlsConnection {
             }
         }
 
-        Self::new(ssl, TlsMode::Client)
+        let connection = Self::new(ssl, TlsMode::Client)?;
+        #[cfg(target_os = "macos")]
+        let connection = Self {
+            server_trust,
+            ..connection
+        };
+        Ok(connection)
     }
 
     pub(crate) fn server(config: TlsConfig) -> Result<Self, String> {
@@ -149,6 +189,8 @@ impl TlsConnection {
         Ok(Self {
             stream: None,
             pending_ssl: Some(ssl),
+            #[cfg(target_os = "macos")]
+            server_trust: None,
             state,
             mode,
             shutdown_started: false,
@@ -281,12 +323,23 @@ impl TlsConnection {
     ) -> i32 {
         self.last_bytes_read = 0;
         self.last_bytes_to_write = 0;
+        // A failed trust decision terminates the connection even if the guest
+        // consumes its diagnostic and retries a different TLS operation.
+        #[cfg(target_os = "macos")]
+        if let Some(error) = self.platform_trust_error() {
+            return self.error(error.to_owned());
+        }
         let scoped = self.state.borrow_mut().begin_scoped(input, output);
         if let Err(error) = scoped {
             return self.error(error);
         }
 
         let status = f(self);
+        #[cfg(target_os = "macos")]
+        let status = match self.platform_trust_error() {
+            Some(error) => self.error(error.to_owned()),
+            None => status,
+        };
 
         let counters = self.state.borrow_mut().end_scoped();
         match counters {
@@ -485,6 +538,17 @@ impl TlsConnection {
                 .map(server_endpoint_certificate_hash)
                 .transpose(),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn platform_trust_error(&self) -> Option<&str> {
+        let index = self.server_trust?;
+        let ssl = self
+            .stream
+            .as_ref()
+            .map(|stream| stream.ssl())
+            .or(self.pending_ssl.as_deref())?;
+        ssl.ex_data(index)?.error.as_deref()
     }
 
     fn is_init_finished(&self) -> bool {
@@ -718,17 +782,11 @@ fn configure_hostname_verification(
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn load_system_root_paths(ctx: &mut SslContextBuilder) -> Result<(), openssl::error::ErrorStack> {
     let mut loaded = false;
     let probe = openssl_probe::probe();
 
-    #[cfg(target_os = "macos")]
-    let cert_file = probe.cert_file.or_else(|| {
-        let cert_file = std::path::PathBuf::from("/etc/ssl/cert.pem");
-        cert_file.exists().then_some(cert_file)
-    });
-
-    #[cfg(not(target_os = "macos"))]
     let cert_file = probe.cert_file;
 
     if let Some(cert_file) = cert_file {

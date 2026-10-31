@@ -266,6 +266,45 @@ unsupported. `Terminating` does not promise bounded teardown. See
 `tests/process_tree.rs`, `tests/guest_process_control.rs`, `tests/recursive_moon.rs`
 and `tests/moon_handoff.rs`.
 
+## TLS certificate verification on macOS
+
+For `SystemRoot` clients, OpenSSL performs the TLS protocol and macOS SecTrust
+decides whether the server certificate is trusted. This includes macOS trust
+settings and automatically distributed certificate distrust information that a
+PEM root bundle cannot express. `CustomRoot` remains an exclusive OpenSSL trust
+store; `NoVerification` keeps its explicit opt-out behavior.
+
+SecTrust runs synchronously inside OpenSSL's client status callback, after the
+server certificate and optional OCSP staple are available. With OCSP requested,
+OpenSSL invokes this callback on full TLS 1.2 and TLS 1.3 handshakes even if the
+server supplies no staple. Unlike the earlier certificate callback, this point
+includes TLS 1.2's later CertificateStatus message. The hostname is checked
+independently of SNI; an omitted hostname keeps chain validation without a name
+check. Peer certificates are supplied as chain-building candidates, never as
+trust anchors.
+
+Rejection aborts the OpenSSL handshake before the connection becomes usable.
+The diagnostic is retained in the SSL object's trust state so that consuming a
+guest error or retrying another operation cannot clear the rejection. TLS 1.2
+renegotiation remains supported: every full handshake evaluates current system
+trust, including handshakes advanced inside OpenSSL reads and writes. An
+abbreviated renegotiation exchanges no certificates and reuses the authenticated
+session without a new SecTrust evaluation, matching OpenSSL's session-resumption
+semantics. Clients create a fresh context for each connection and do not install
+a session from another connection.
+
+SecTrust retains Apple's default network-fetch policy independently of Moonrun's
+guest socket permissions. System trust services may fetch missing issuer
+certificates and revocation information using URLs from the certificate chain;
+destinations include CA-operated services and are not limited to Apple servers.
+These requests can occur before the peer is accepted, disclose certificate
+identifiers and network metadata to responders, and delay the synchronous
+handshake. Moonrun's guest network policy does not provide complete network
+isolation for these system-service interactions.
+
+Installed distrust data, cached responses, and supplied OCSP responses also
+participate in evaluation; failure never falls back to the PEM bundle.
+
 ## Worker cancellation
 
 The cancellation protocol follows upstream async #595. Workers acknowledge a
