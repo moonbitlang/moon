@@ -264,9 +264,11 @@ deprecation status may therefore be stale for either registry backend.
 These warnings are User Logs, so `--quiet` suppresses them and
 structured commands capture them with their other logs.
 
-In HTTP registry mode, `moon update` explicitly refreshes the selected versions'
-advisory status and each module's current latest version. It suppresses cached
-deprecation warnings during its initial resolution and reports the fresh status
+In mixed and HTTP registry modes, `moon update` explicitly refreshes the selected
+versions' advisory status and each module's current latest version. Mixed mode
+synchronizes Git once for public modules and refreshes private modules through
+HTTP. It suppresses cached deprecation warnings during its initial resolution
+and reports the fresh status
 as its Command Result, including with `--quiet`. The resolved versions and
 declarations do not change. See [Moon home layout](moon-home-layout.md) for the
 refresh and cache lifecycle.

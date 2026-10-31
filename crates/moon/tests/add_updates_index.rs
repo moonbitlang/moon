@@ -62,7 +62,7 @@ version = "0.0.1"
 }
 
 #[test]
-fn test_moon_add_no_update_skips_registry_update() {
+fn test_git_mode_add_no_update_skips_registry_update() {
     // Setup: isolated Moon project + empty MOON_HOME.
     let project = tempfile::tempdir().unwrap();
     write_minimal_moon_mod(project.path());
@@ -73,6 +73,7 @@ fn test_moon_add_no_update_skips_registry_update() {
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -95,7 +96,7 @@ fn test_moon_add_no_update_skips_registry_update() {
 }
 
 #[test]
-fn test_moon_add_updates_registry_index_by_default() {
+fn test_git_mode_add_updates_registry_index_by_default() {
     if !git_writes_allowed() {
         return;
     }
@@ -114,6 +115,7 @@ fn test_moon_add_updates_registry_index_by_default() {
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .env("MOONCAKES_REGISTRY", registry_base.path())
         .stdout(Stdio::piped())
@@ -143,7 +145,7 @@ fn test_moon_add_updates_registry_index_by_default() {
 }
 
 #[test]
-fn test_moon_add_no_update_suggests_update_on_failure() {
+fn test_git_mode_add_no_update_suggests_update_on_failure() {
     // Setup: isolated Moon project + empty MOON_HOME.
     let project = tempfile::tempdir().unwrap();
     write_minimal_moon_mod(project.path());
@@ -154,6 +156,7 @@ fn test_moon_add_no_update_suggests_update_on_failure() {
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
