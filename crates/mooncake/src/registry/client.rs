@@ -519,19 +519,36 @@ fn download_registry_asset(
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<u8>> {
     user_log.info(format!("Downloading {url}"));
-    let response = http
-        .get(url)
-        .send()
-        .with_context(|| format!("failed to download registry asset from {url}"))?;
-    if response.status() == StatusCode::NOT_FOUND {
-        bail!("Prebuilt wasm asset does not exist");
+    // Reqwest's request retries do not cover failures while reading the body.
+    let mut body_retries = 0;
+    loop {
+        let response = http
+            .get(url)
+            .send()
+            .with_context(|| format!("failed to download registry asset from {url}"))?;
+        if response.status() == StatusCode::NOT_FOUND {
+            bail!("Prebuilt wasm asset does not exist");
+        }
+        let response = response
+            .error_for_status()
+            .with_context(|| format!("registry asset download returned error status for {url}"))?;
+        match response.bytes() {
+            Ok(data) => return Ok(data.to_vec()),
+            Err(error) if body_retries < 3 => {
+                body_retries += 1;
+                tracing::debug!(
+                    %url,
+                    %error,
+                    body_retries,
+                    "Retrying registry asset after response body read failure"
+                );
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to read registry asset response from {url}"));
+            }
+        }
     }
-    let data = response
-        .error_for_status()
-        .with_context(|| format!("registry asset download returned error status for {url}"))?
-        .bytes()
-        .with_context(|| format!("failed to read registry asset response from {url}"))?;
-    Ok(data.to_vec())
 }
 
 fn ensure_cached_wasm(
