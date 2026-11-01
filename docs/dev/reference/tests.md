@@ -80,11 +80,8 @@ metadata directly and does not require executable artifacts.
    final report is rendered either as compact text (default) or JSON lines (when
    `--test-failure-json` is on).
 
-Coverage runs `moonrun <toolchain-root>/bin/moon_cove.wasm -- ...` by default,
-without registry access or a separate version selection. Only
-`MOON_COVE_REPORT_ENABLED=0` (or case-insensitive `false`) selects the legacy
-`moon_cove_report`, whose executable can be selected with
-`MOON_COVE_REPORT_OVERRIDE`.
+Coverage runs `moonrun <toolchain-root>/bin/moon_cove.wasm -- ...`, using the
+reporter bundled with the selected toolchain.
 
 ## Test execution parallelism
 
