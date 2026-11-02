@@ -133,6 +133,7 @@ mod test_moon_info;
 mod test_moonbitlang_x;
 mod test_outline;
 mod test_release;
+mod testcli;
 // TODO: Re-enable when a published lijunchen/hello18 version uses
 // moon.mod and moon.pkg instead of JSON manifests.
 // mod third_party;
