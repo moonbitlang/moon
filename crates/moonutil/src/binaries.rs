@@ -46,7 +46,6 @@ const EXECUTABLE_OVERRIDES: &[&str] = &[
     "MOONINFO_OVERRIDE",
     "MOONRUN_OVERRIDE",
     "MOON_CRAM_OVERRIDE",
-    "MOON_COVE_REPORT_OVERRIDE",
     "MOON_NODE_OVERRIDE",
 ];
 
@@ -158,7 +157,6 @@ pub struct CachedBinaries {
     pub mooninfo: LazyLock<PathBuf>,
     pub moonrun: LazyLock<PathBuf>,
     pub moon_cram: LazyLock<PathBuf>,
-    pub moon_cove_report: LazyLock<PathBuf>,
     pub node: LazyLock<Option<PathBuf>>,
     pub python: LazyLock<Option<PathBuf>>,
     pub git: LazyLock<Option<PathBuf>>,
@@ -189,9 +187,6 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
     mooninfo: LazyLock::new(|| moon_executable("mooninfo", "MOONINFO_OVERRIDE")),
     moonrun: LazyLock::new(|| moon_executable("moonrun", "MOONRUN_OVERRIDE")),
     moon_cram: LazyLock::new(|| moon_executable("moon-cram", "MOON_CRAM_OVERRIDE")),
-    moon_cove_report: LazyLock::new(|| {
-        moon_executable("moon_cove_report", "MOON_COVE_REPORT_OVERRIDE")
-    }),
     node: LazyLock::new(|| optional_executable(&["node.cmd", "node"], "MOON_NODE_OVERRIDE")),
     python: LazyLock::new(|| optional_executable(&["python", "python3"], "MOON_PYTHON_OVERRIDE")),
     git: LazyLock::new(|| optional_executable(&["git"], "MOON_GIT_OVERRIDE")),

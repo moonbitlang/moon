@@ -820,7 +820,7 @@ Otherwise, synchronize the Git registry index and symbols as before. This mode a
 
 Code coverage utilities
 
-Runs the toolchain's `bin/moon_cove.wasm` through `moonrun` by default. Set `MOON_COVE_REPORT_ENABLED=0` (or `false`) to use the legacy `moon_cove_report` instead.
+Runs the toolchain's `bin/moon_cove.wasm` through `moonrun`.
 
 **Usage:** `moon coverage <COMMAND>`
 
@@ -840,7 +840,7 @@ Run test with instrumentation and report coverage
 
 ###### **Arguments:**
 
-* `<EXTRA_FLAGS>` — Extra flags passed directly to the selected coverage reporter
+* `<EXTRA_FLAGS>` — Extra flags passed directly to `moon_cove`
 
 ###### **Options:**
 
