@@ -29,7 +29,6 @@ use super::registry_runner;
 pub(crate) struct MoonxInvocation {
     pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
     pub(crate) experimental_policy: Option<PathBuf>,
-    pub(crate) virtual_process_tree: bool,
     pub(crate) verbose: bool,
     input: String,
     args: Vec<String>,
@@ -49,7 +48,6 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
     Ok(MoonxInvocation {
         handoff: None,
         experimental_policy: cli.experimental_policy,
-        virtual_process_tree: cli.virtual_process_tree,
         verbose: cli.verbose,
         input,
         args,
@@ -63,7 +61,6 @@ pub(crate) fn prepare(
     let MoonxInvocation {
         handoff,
         experimental_policy,
-        virtual_process_tree,
         verbose,
         input,
         args,
@@ -108,7 +105,6 @@ pub(crate) fn prepare(
         policy,
         policy_source_dir,
         policy_relay,
-        virtual_process_tree,
         &args,
         user_log,
     )

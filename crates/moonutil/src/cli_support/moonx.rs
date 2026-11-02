@@ -54,10 +54,6 @@ pub struct MoonxCli {
     #[arg(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 
-    /// Run Wasm descendants in the same virtual process tree (experimental)
-    #[arg(long)]
-    pub virtual_process_tree: bool,
-
     /// Show progress and execution details
     #[arg(short = 'v', long)]
     pub verbose: bool,
@@ -94,12 +90,20 @@ mod tests {
 
     #[test]
     fn rejects_removed_options_and_requires_input() {
-        assert_eq!(
-            MoonxCli::try_parse_from(["moonx", "--quiet", "user/module"])
-                .unwrap_err()
-                .kind(),
-            ErrorKind::UnknownArgument
-        );
+        for option in [
+            "--quiet",
+            "--virtual-process-tree",
+            "--mixed-process-tree",
+            "--virtualize",
+            "--allowed-native-processes",
+        ] {
+            assert_eq!(
+                MoonxCli::try_parse_from(["moonx", option, "user/module"])
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::UnknownArgument,
+            );
+        }
         assert_eq!(
             MoonxCli::try_parse_from(["moonx"]).unwrap_err().kind(),
             ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand

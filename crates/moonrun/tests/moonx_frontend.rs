@@ -116,10 +116,10 @@ fn contents(mut file: File) -> String {
 #[cfg(feature = "v8")]
 #[test]
 fn cancellation_before_frontend_completion_keeps_streams_untouched() {
-    use moonrun::{GuestProcessMode, RunTermination, termination_channel};
+    use moonrun::{RunTermination, termination_channel};
 
     let engine = Engine::default();
-    for mode in [GuestProcessMode::Native, GuestProcessMode::Virtual] {
+    for virtualize in [false, true] {
         for flag in ["--help", "--unknown-option"] {
             let (terminator, receiver) = termination_channel();
             assert!(terminator.terminate(RunTermination::Exit(7)));
@@ -131,7 +131,7 @@ fn cancellation_before_frontend_completion_keeps_streams_untouched() {
                         Path::new("moonx"),
                         &[flag.into()],
                         RunOptions::default()
-                            .with_guest_process_mode(mode)
+                            .with_virtualize(virtualize)
                             .with_termination_receiver(receiver)
                             .with_stdio(
                                 tempfile::tempfile().unwrap(),

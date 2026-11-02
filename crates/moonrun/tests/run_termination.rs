@@ -54,10 +54,7 @@ mod v8 {
         let engine = Engine::default();
         let directory = tempfile::tempdir().unwrap();
         let missing = directory.path().join("missing.wasm");
-        for mode in [
-            moonrun::GuestProcessMode::Native,
-            moonrun::GuestProcessMode::Virtual,
-        ] {
+        for virtualize in [false, true] {
             let (terminator, receiver) = termination_channel();
             assert!(terminator.terminate(RunTermination::Exit(7)));
             assert_eq!(
@@ -65,7 +62,7 @@ mod v8 {
                     .run_file(
                         &missing,
                         RunOptions::default()
-                            .with_guest_process_mode(mode)
+                            .with_virtualize(virtualize)
                             .with_termination_receiver(receiver),
                     )
                     .unwrap(),
@@ -80,7 +77,7 @@ mod v8 {
                     .run_file(
                         &missing,
                         RunOptions::default()
-                            .with_guest_process_mode(mode)
+                            .with_virtualize(virtualize)
                             .with_termination_receiver(receiver)
                     )
                     .is_err()

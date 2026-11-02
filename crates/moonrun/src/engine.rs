@@ -31,7 +31,7 @@ use clap::Parser;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub(crate) use backend::SUPPORTS_RUN_TERMINATION;
@@ -54,23 +54,6 @@ impl EngineConfig {
     }
 }
 
-/// How guest process operations are routed within one execution.
-///
-/// This choice is independent of whether the host calls [`Engine::run`] or
-/// [`Engine::spawn`]. Neither mode provides an operating-system sandbox.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum GuestProcessMode {
-    /// Preserve native child-process operations and ambient defaults.
-    #[default]
-    Native,
-    /// Use this Engine's virtual process identities and child control.
-    ///
-    /// Roots capture an owned environment and fixed cwd unless supplied by the
-    /// caller. Recursive moonx children derive their state from their Runtime.
-    /// Currently requires V8 and supports only recursive moonx children.
-    Virtual,
-}
-
 /// Configuration for one execution, independent of thread placement.
 #[derive(Debug, Default)]
 pub struct RunOptions {
@@ -78,7 +61,7 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) runtime: RuntimeConfig,
-    pub(crate) guest_process_mode: GuestProcessMode,
+    pub(crate) virtualize: Option<bool>,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
@@ -92,9 +75,24 @@ pub(crate) struct TestArgs {
 }
 
 impl RunOptions {
-    pub fn with_guest_process_mode(mut self, mode: GuestProcessMode) -> Self {
-        self.guest_process_mode = mode;
+    /// Use owned root environment/cwd and Engine-managed process identities.
+    /// Requires V8 and currently supports only internal moonx children.
+    /// The existing process policy authorizes those invocations; virtualization
+    /// does not grant additional permissions or sandbox preparation helpers.
+    pub fn with_virtualize(mut self, virtualize: bool) -> Self {
+        self.virtualize = Some(virtualize);
         self
+    }
+
+    /// Effective execution behavior: an explicit embedding choice takes
+    /// precedence over the selected policy, which otherwise defaults to false.
+    pub fn virtualize(&self) -> bool {
+        self.virtualize.unwrap_or_else(|| {
+            self.runtime
+                .selected_policy
+                .as_ref()
+                .is_some_and(|policy| policy.virtualize)
+        })
     }
 
     /// Supply an owned environment. An empty iterator means an empty environment.
@@ -118,7 +116,7 @@ impl RunOptions {
     // Only host-facing entries may fill absent root inputs from ambient state.
     // Guest derivation supplies complete inputs before process admission.
     pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
-        if self.guest_process_mode == GuestProcessMode::Virtual {
+        if self.virtualize() {
             self.runtime.capture_host_state()?;
         }
         Ok(())
@@ -160,22 +158,23 @@ impl RunOptions {
             .context("invalid MoonBit test arguments")
     }
 
-    /// Select additional restrictions; inherited restrictions remain in force.
-    pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
-        self.runtime.policy_file = Some(policy_file.into());
-        self.runtime.policy_source_dir = None;
-        self
+    /// Read and resolve a selected policy once. Its restrictions are additional
+    /// to any inherited ceiling; its Env provisioning uses the Run's source Env.
+    pub fn with_policy_file(self, policy_file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        self.with_policy_file_source_dir(policy_file, None)
     }
 
     #[doc(hidden)]
     pub fn with_policy_file_source_dir(
         mut self,
-        policy_file: impl Into<PathBuf>,
-        source_dir: impl Into<PathBuf>,
-    ) -> Self {
-        self.runtime.policy_file = Some(policy_file.into());
-        self.runtime.policy_source_dir = Some(source_dir.into());
-        self
+        policy_file: impl AsRef<Path>,
+        source_dir: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        self.runtime.selected_policy = Some(
+            crate::policy::read_file(policy_file.as_ref(), source_dir)
+                .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?,
+        );
+        Ok(self)
     }
 
     /// Receive the internal restriction transfer format, not a user policy document.
@@ -380,11 +379,11 @@ impl fmt::Debug for Module {
 /// Environment, cwd and stdio default to ambient process state; callers can
 /// bind an owned environment, owned streams and a fixed cwd. Ambient guest
 /// environment mutations must not race other process-environment access.
-/// [`GuestProcessMode::Virtual`] provides owned root state and guest process
+/// [`RunOptions::with_virtualize`] provides owned root state and guest process
 /// control. Parent links alone do not imply state or permission inheritance.
 /// Dropping an Engine does not terminate or join its executions; callers must
 /// explicitly terminate and wait when required. [`Engine::request_shutdown`]
-/// closes managed and Virtual admission and requests termination of all admitted
+/// closes managed and virtualized admission and requests termination of all admitted
 /// members; Native caller-thread Runs retain their independent control.
 /// OS signal capture is left to the caller; a signal channel can direct
 /// cooperative delivery to one Run.
@@ -476,8 +475,8 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        self.run_inline(options, signals, |engine, options, signals, termination| {
-            engine.run_in_scope(module, options, signals, termination)
+        self.run_inline(options, signals, |engine, options, signals, scope| {
+            engine.run_in_scope(module, options, signals, scope.termination())
         })
     }
 
@@ -536,13 +535,13 @@ impl Engine {
         self.run_inline(
             options,
             signal_channel().1,
-            |engine, options, signals, termination| {
+            |engine, options, signals, scope| {
                 engine.execute_moon_in_scope(
                     executable,
                     args,
                     options,
                     signals,
-                    termination,
+                    scope,
                     #[cfg(windows)]
                     false,
                 )
@@ -556,10 +555,10 @@ impl Engine {
         args: &[std::ffi::OsString],
         mut options: RunOptions,
         signals: crate::SignalReceiver,
-        termination: &TerminationRequest,
+        scope: &mut crate::process_tree::ExecutionScope<'_>,
         #[cfg(windows)] no_console_window: bool,
     ) -> anyhow::Result<RunOutcome> {
-        if let Some(outcome) = termination.get() {
+        if let Some(outcome) = scope.termination().get() {
             return Ok(outcome.into());
         }
         // Select the invocation before entering artifact preparation. A frontend
@@ -592,7 +591,7 @@ impl Engine {
             executable,
             args,
             &options.runtime,
-            termination,
+            scope.termination(),
             #[cfg(windows)]
             no_console_window,
         )? {
@@ -603,11 +602,12 @@ impl Engine {
         };
         options.args = program.args;
         options.runtime.working_directory = WorkingDirectory::Fixed(program.working_directory);
-        if options.runtime.policy_file.is_none()
+        if options.runtime.selected_policy.is_none()
             && let Some((policy, source_dir)) = program.policy
         {
-            options = options.with_policy_file_source_dir(policy, source_dir);
+            options = options.with_policy_file_source_dir(policy, Some(&source_dir))?;
         }
+        scope.bind_virtual(self, &mut options, &signals)?;
         // The delivery directory outlives Runtime construction and execution. Its
         // cleanup finishes before the Engine finalizes the execution result.
         self.execute_artifact_in_scope(
@@ -622,7 +622,7 @@ impl Engine {
             },
             options,
             signals,
-            termination,
+            scope.termination(),
         )
     }
 
@@ -647,10 +647,10 @@ impl Engine {
             }
             moonutil::run_handoff::ExecutionKind::Native
             | moonutil::run_handoff::ExecutionKind::Js => {
-                // FIXME: Admit native executables and Node through the Engine's native
-                // process nodes, sharing PID, wait, cancellation and reaping ownership.
+                // FIXME: Remove these unsupported kinds with Wasm-only handoff.
+                // Native and Node commands belong to ordinary OS execution.
                 anyhow::bail!(
-                    "native process nodes (including Node) are not yet supported in virtual process trees"
+                    "execution of delivered native or Node artifacts is not yet supported"
                 )
             }
         }
@@ -673,9 +673,9 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        self.run_inline(options, signals, |engine, options, signals, termination| {
+        self.run_inline(options, signals, |engine, options, signals, scope| {
             let module = engine.load_file(file)?;
-            engine.run_in_scope(&module, options, signals, termination)
+            engine.run_in_scope(&module, options, signals, scope.termination())
         })
     }
 }

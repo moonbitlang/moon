@@ -48,14 +48,21 @@ private cached registry artifacts.
 
 Deliver these as separate changes in dependency order:
 
-1. [ ] Add native process members to Engine for explicit mixed execution,
-   including ordinary authorized guest commands and delivered native/Node
-   artifacts. Preserve env, cwd, stdio, termination, wait, shutdown, and reaping;
-   pure Virtual execution remains moonx-only.
-2. [ ] Reuse native process management for preparation helpers and compiler
-   descendants. The preparation FIXME waits for helper exit before publishing
-   cancellation. Use a Unix process group or Windows Job for noninteractive
-   preparation; Moon/n2 cooperative cancellation is a separate protocol.
+- [x] Select virtualization through `process.virtualize` in the policy file,
+  with an explicit embedding override. Keep existing `spawn`/`allow` permissions
+  in both modes and remove execution-mode CLI flags. Load selected configuration
+  once while preserving inherited restriction composition.
+- [ ] Add native process members to Engine for ordinary authorized guest
+  commands, preserving env, cwd, stdio, termination, wait, shutdown, and reaping.
+- [ ] Limit artifact handoff to Wasm; native/Node commands use ordinary OS spawn
+  rather than a separate delivered-artifact executor.
+- [ ] Extend internal classification from moonx to moonrun using shared CLI
+  grammar. Moonrun loads Wasm directly; it does not need a preparation helper.
+  Both frontends use existing process authorization and Engine execution.
+- [ ] Reuse native process management for preparation helpers and compiler
+  descendants. The preparation FIXME waits for helper exit before publishing
+  cancellation. Use a Unix process group or Windows Job for noninteractive
+  preparation; Moon/n2 cooperative cancellation is a separate protocol.
 
 Contracts: [artifact preparation](design/runtime-architecture.md#artifact-preparation-and-command-selection)
 and [execution ownership](design/runtime-architecture.md#library-contract-and-execution-ownership).

@@ -24,10 +24,7 @@ use std::io::{Read, Seek, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use moonrun::{
-    Engine, GuestProcessMode, ProcessState, RunOptions, RunOutcome, RunTermination,
-    WorkingDirectory,
-};
+use moonrun::{Engine, ProcessState, RunOptions, RunOutcome, RunTermination, WorkingDirectory};
 use moonutil::run_handoff::{HANDOFF_ARG, RunHandoff};
 
 const SOURCE: &str = r#"----
@@ -76,9 +73,11 @@ fn moon_commands_run_in_virtual_tree() {
     fs::write(root.join("script.mbtx"), SOURCE).unwrap();
     fs::write(
         root.join("policy.toml"),
-        "[env.set]\nHANDOFF_POLICY = 'child'\n",
+        "[env.set]\nHANDOFF_POLICY = 'child'\n[process]\nvirtualize = true\n",
     )
     .unwrap();
+    let virtual_policy = root.join("virtual.toml");
+    fs::write(&virtual_policy, "[process]\nvirtualize = true\n").unwrap();
     let tree = Engine::default();
 
     // Virtual frontend completion matches the native CLI's redirected output
@@ -105,7 +104,7 @@ fn moon_commands_run_in_virtual_tree() {
                 &moonx,
                 &args.iter().map(Into::into).collect::<Vec<_>>(),
                 RunOptions::default()
-                    .with_guest_process_mode(GuestProcessMode::Virtual)
+                    .with_virtualize(true)
                     .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
                     .with_stdio(
                         tempfile::tempfile().unwrap(),
@@ -143,7 +142,7 @@ fn moon_commands_run_in_virtual_tree() {
         let stdout = tempfile::tempfile().unwrap();
         let stderr = tempfile::tempfile().unwrap();
         let options = RunOptions::default()
-            .with_guest_process_mode(GuestProcessMode::Virtual)
+            .with_virtualize(true)
             .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
             .with_stdio(
                 stdin,
@@ -170,13 +169,25 @@ fn moon_commands_run_in_virtual_tree() {
         };
         assert_eq!(output, format!("{pid}\n{expected}"), "{diagnostics}");
 
-        // The public Moon/moonx switch starts a virtual root without requiring
-        // callers to locate the built artifact or invoke moonrun themselves.
+        // Policy selects the CLI's virtual root before Session setup.
         let mut cli_args = args.clone();
-        cli_args.insert(
-            usize::from(program == moon),
-            "--virtual-process-tree".into(),
-        );
+        if !cli_args.iter().any(|arg| arg == "--experimental-policy") {
+            let position = usize::from(program == moon);
+            cli_args.splice(
+                position..position,
+                [
+                    if program == moon {
+                        "--wasm-policy".into()
+                    } else {
+                        "--experimental-policy".into()
+                    },
+                    virtual_policy.as_os_str().to_owned(),
+                ],
+            );
+        }
+        if program == moon {
+            cli_args.insert(1, "--target=wasm".into());
+        }
         let output = snapbox::cmd::Command::new(program)
             .current_dir(root)
             .args(&cli_args)
@@ -196,7 +207,7 @@ fn moon_commands_run_in_virtual_tree() {
 
     // Inline execution consumes the same delivery, arguments, and policy as
     // spawn, with guest process identity selected independently of placement.
-    for mode in [GuestProcessMode::Virtual, GuestProcessMode::Native] {
+    for virtualize in [false, true] {
         let stdout = tempfile::tempfile().unwrap();
         let stderr = tempfile::tempfile().unwrap();
         let result = tree.run_moon(
@@ -208,7 +219,7 @@ fn moon_commands_run_in_virtual_tree() {
                 "inline arg".into(),
             ],
             RunOptions::default()
-                .with_guest_process_mode(mode)
+                .with_virtualize(virtualize)
                 .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
                 .with_stdio(
                     tempfile::tempfile().unwrap(),
@@ -221,18 +232,67 @@ fn moon_commands_run_in_virtual_tree() {
         let output = contents(stdout);
         let (pid, rest) = output.split_once('\n').unwrap();
         let pid = pid.trim().parse::<i32>().unwrap();
-        match mode {
-            GuestProcessMode::Virtual => assert!(pid >= 1 << 30),
-            GuestProcessMode::Native => assert_eq!(pid, std::process::id() as i32),
+        if virtualize {
+            assert!(pid >= 1 << 30);
+        } else {
+            assert_eq!(pid, std::process::id() as i32);
         }
         assert_eq!(rest, "inline arg\nSome(child)\n", "{diagnostics}");
+        assert!(tree.snapshot().is_empty());
+    }
+
+    // An embedded policy is discovered after preparation. Both placements
+    // resolve it before Wasm starts; managed execution retains its original PID.
+    fs::write(
+        root.join("embedded.mbtx"),
+        SOURCE.replacen(
+            "----\nimport",
+            "----\npermission(process: { \"virtualize\": true })\nimport",
+            1,
+        ),
+    )
+    .unwrap();
+    for (managed, inherited) in [(false, false), (true, false), (false, true), (true, true)] {
+        let stdout = tempfile::tempfile().unwrap();
+        let options = RunOptions::default()
+            .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
+            .with_stdio(
+                tempfile::tempfile().unwrap(),
+                stdout.try_clone().unwrap(),
+                tempfile::tempfile().unwrap(),
+            );
+        let options = if inherited {
+            options
+                .with_inherited_policy(include_bytes!("fixtures/deny_restrictions.json").to_vec())
+        } else {
+            options
+        };
+        let args = ["embedded.mbtx".into()];
+        let admitted = if managed {
+            let pid = tree.spawn_moon(None, &moonx, &args, options).unwrap();
+            assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Completed);
+            Some(pid)
+        } else {
+            assert_eq!(
+                tree.run_moon(&moonx, &args, options).unwrap(),
+                RunOutcome::Completed
+            );
+            None
+        };
+        let output = contents(stdout);
+        let (pid, rest) = output.split_once('\n').unwrap();
+        assert!(pid.parse::<i32>().unwrap() >= 1 << 30);
+        if let Some(admitted) = admitted {
+            assert_eq!(pid, admitted.to_string());
+        }
+        assert_eq!(rest, "None\n");
         assert!(tree.snapshot().is_empty());
     }
 
     // Inherited restrictions do not hide an unreadable child policy.
     let stdout = tempfile::tempfile().unwrap();
     let options = RunOptions::default()
-        .with_guest_process_mode(GuestProcessMode::Virtual)
+        .with_virtualize(true)
         .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
         .with_inherited_policy(include_bytes!("fixtures/deny_restrictions.json").to_vec())
         .with_environment([("HANDOFF_POLICY", "parent")])
@@ -269,7 +329,7 @@ fn moon_commands_run_in_virtual_tree() {
                 "script.mbtx".into(),
             ],
             RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_virtualize(true)
                 .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
                 .with_inherited_policy(include_bytes!("fixtures/deny_restrictions.json").to_vec())
                 .with_environment([("HANDOFF_POLICY", "parent")])
@@ -325,13 +385,11 @@ fn moon_commands_run_in_virtual_tree() {
                 "-e".into(),
                 "fn main {\n  abort(\"handoff trap\")\n}".into(),
             ],
-            RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
-                .with_stdio(
-                    tempfile::tempfile().unwrap(),
-                    tempfile::tempfile().unwrap(),
-                    stderr.try_clone().unwrap(),
-                ),
+            RunOptions::default().with_virtualize(true).with_stdio(
+                tempfile::tempfile().unwrap(),
+                tempfile::tempfile().unwrap(),
+                stderr.try_clone().unwrap(),
+            ),
         )
         .unwrap();
     assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Exited(1));
@@ -345,7 +403,7 @@ fn moon_commands_run_in_virtual_tree() {
     ] {
         let stdout = tempfile::tempfile().unwrap();
         let options = RunOptions::default()
-            .with_guest_process_mode(GuestProcessMode::Virtual)
+            .with_virtualize(true)
             .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
             .with_stdio(
                 tempfile::tempfile().unwrap(),
@@ -388,33 +446,14 @@ fn moon_commands_run_in_virtual_tree() {
             None,
             moon,
             &js_args.map(OsString::from),
-            RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+            RunOptions::default().with_virtualize(true),
         )
         .unwrap();
     let error = anyhow::Error::from(tree.wait(child).unwrap_err());
     assert!(
-        format!("{error:#}").contains("native process nodes"),
+        format!("{error:#}").contains("execution of delivered native or Node artifacts"),
         "{error:#}"
     );
-    let output = snapbox::cmd::Command::new(moon)
-        .args([
-            "run",
-            "--virtual-process-tree",
-            "--target=js",
-            "-e",
-            "fn main {}",
-        ])
-        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
-        .assert()
-        .failure()
-        .get_output()
-        .clone();
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("native process nodes")
-    );
-
     // The producer uses existing registry acquisition, including its pinned
     // artifact cache. This fixture must not need a live registry or a compiler.
     let cached =
@@ -437,7 +476,8 @@ fn moon_commands_run_in_virtual_tree() {
 
     let output = snapbox::cmd::Command::new(&moonx)
         .args([
-            "--virtual-process-tree",
+            "--experimental-policy",
+            virtual_policy.to_str().unwrap(),
             "moonbitlang/parser/cmd/moonfmt@0.3.3",
             "registry arg",
         ])
@@ -496,13 +536,11 @@ fn moon_commands_run_in_virtual_tree() {
                 None,
                 &helper,
                 &args,
-                RunOptions::default()
-                    .with_guest_process_mode(GuestProcessMode::Virtual)
-                    .with_stdio(
-                        tempfile::tempfile().unwrap(),
-                        stdout.try_clone().unwrap(),
-                        tempfile::tempfile().unwrap(),
-                    ),
+                RunOptions::default().with_virtualize(true).with_stdio(
+                    tempfile::tempfile().unwrap(),
+                    stdout.try_clone().unwrap(),
+                    tempfile::tempfile().unwrap(),
+                ),
             )
             .unwrap();
         let (mut helper, _) = listener.accept().unwrap();
@@ -558,7 +596,7 @@ fn moon_commands_run_in_virtual_tree() {
             moon,
             &["run".into(), "loop.wasm".into()],
             RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_virtualize(true)
                 .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
                 .with_stdio(
                     tempfile::tempfile().unwrap(),

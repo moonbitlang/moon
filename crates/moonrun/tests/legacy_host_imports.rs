@@ -236,10 +236,11 @@ fn environment_mutations_are_owned_by_each_run() {
     for _ in 0..2 {
         for options in [
             RunOptions::default().with_environment([("HOST_IMPORT_TEST", "λ🦀")]),
-            RunOptions::default().with_policy_file(&policy),
+            RunOptions::default().with_policy_file(&policy).unwrap(),
             RunOptions::default()
                 .with_environment([("HOST_IMPORT_TEST", "overridden"), ("EXTRA", "removed")])
-                .with_policy_file(&policy),
+                .with_policy_file(&policy)
+                .unwrap(),
         ] {
             assert_eq!(engine.run(&module, options).unwrap(), RunOutcome::Completed);
         }

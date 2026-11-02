@@ -25,29 +25,44 @@ use std::path::{Path, PathBuf};
 use super::{Policy, config::PolicyConfig, fs::FsRules, net::NetRules, process::ProcessRules};
 use crate::runtime::EnvConfig;
 
-pub(crate) fn read_file(
-    path: &Path,
-    source_dir: Option<&Path>,
-) -> anyhow::Result<(Policy, EnvConfig)> {
+/// One selected file's construction inputs. Only `policy` is inherited;
+/// execution behavior and Env provisioning are not authorization rules.
+pub(crate) struct LoadedPolicy {
+    pub(crate) policy: Policy,
+    pub(crate) environment: EnvConfig,
+    pub(crate) virtualize: bool,
+}
+
+impl std::fmt::Debug for LoadedPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedPolicy")
+            .field("virtualize", &self.virtualize)
+            .finish_non_exhaustive()
+    }
+}
+
+pub(crate) fn read_file(path: &Path, source_dir: Option<&Path>) -> anyhow::Result<LoadedPolicy> {
     let config = PolicyConfig::from_file(path)?;
     let directory = source_dir.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
     resolve(config, directory)
 }
 
-pub(super) fn resolve(
-    config: PolicyConfig,
-    directory: &Path,
-) -> anyhow::Result<(Policy, EnvConfig)> {
+pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<LoadedPolicy> {
     let mut config = canonicalize(config, directory)?;
     let environment = config.env.take().unwrap_or_default();
-    Ok((
-        Policy::new(
+    let virtualize = config
+        .process
+        .as_ref()
+        .is_some_and(|process| process.virtualize);
+    Ok(LoadedPolicy {
+        policy: Policy::new(
             FsRules::from_canonical_config(config.fs.unwrap_or_default()),
             NetRules::from_config(config.net.unwrap_or_default())?,
             ProcessRules::from_config(config.process.unwrap_or_default())?,
         ),
         environment,
-    ))
+        virtualize,
+    })
 }
 
 /// Resolve source-relative policy values into a transport-independent form.
@@ -89,6 +104,105 @@ fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<
 mod tests {
     use super::*;
     use crate::policy::config;
+
+    #[test]
+    fn selected_configuration_is_frozen_before_admission() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("policy.toml");
+        std::fs::write(
+            &path,
+            r#"
+[process]
+virtualize = true
+allow = [{ program = "moonx", args_prefix = ["tool.mbtx"] }]
+[env]
+required_from_host = ["VALUE"]
+"#,
+        )
+        .unwrap();
+        // Loading must not provision from the embedding process environment.
+        let options = crate::RunOptions::default()
+            .with_policy_file(&path)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert!(options.virtualize());
+        let options = options.with_virtualize(false);
+        assert!(!options.virtualize());
+        let (policy, environment) = options
+            .runtime
+            .realize_policy(crate::runtime::Env::owned([("VALUE".into(), "child".into())]).unwrap())
+            .unwrap();
+        assert_eq!(environment.get(OsStr::new("VALUE")), Some("child".into()));
+        let process = policy.unwrap().process();
+        #[cfg(unix)]
+        {
+            process
+                .allows_unix("moonx".as_ref(), &["moonx".into(), "tool.mbtx".into()])
+                .unwrap();
+            assert!(
+                process
+                    .allows_unix("moonx".as_ref(), &["moonx".into(), "other.mbtx".into()])
+                    .is_err()
+            );
+        }
+        #[cfg(windows)]
+        {
+            process
+                .allows_windows("moonx.exe tool.mbtx".as_ref())
+                .unwrap();
+            assert!(
+                process
+                    .allows_windows("moonx.exe other.mbtx".as_ref())
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn inherited_ceiling_does_not_select_execution_or_suppress_child_configuration() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("policy.json");
+        let parent = include_bytes!("../../tests/fixtures/deny_restrictions.json").to_vec();
+        for virtualize in [false, true] {
+            std::fs::write(
+                &path,
+                format!(r#"{{"process":{{"virtualize":{virtualize},"spawn":true}}}}"#),
+            )
+            .unwrap();
+            for parent_first in [false, true] {
+                let options = if parent_first {
+                    crate::RunOptions::default()
+                        .with_inherited_policy(parent.clone())
+                        .with_policy_file(&path)
+                        .unwrap()
+                } else {
+                    crate::RunOptions::default()
+                        .with_policy_file(&path)
+                        .unwrap()
+                        .with_inherited_policy(parent.clone())
+                };
+                assert_eq!(options.virtualize(), virtualize);
+                let (policy, _) = options
+                    .runtime
+                    .realize_policy(crate::runtime::Env::owned([]).unwrap())
+                    .unwrap();
+                let policy = policy.unwrap();
+                let process = policy.process();
+                #[cfg(unix)]
+                assert!(
+                    process
+                        .allows_unix("moonx".as_ref(), &["moonx".into()])
+                        .is_err()
+                );
+                #[cfg(windows)]
+                assert!(process.allows_windows("moonx.exe".as_ref()).is_err());
+                let transfer = policy.open_transfer().unwrap().read().unwrap();
+                let child = crate::RunOptions::default().with_inherited_policy(transfer.clone());
+                assert!(!child.virtualize());
+                assert!(!String::from_utf8(transfer).unwrap().contains("virtualize"));
+            }
+        }
+    }
 
     fn config_with_fs_roots(read: Vec<PathBuf>, write: Vec<PathBuf>) -> PolicyConfig {
         PolicyConfig {

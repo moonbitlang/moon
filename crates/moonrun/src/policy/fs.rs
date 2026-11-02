@@ -242,7 +242,7 @@ mod tests {
     use crate::async_host::AsyncHostError;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
-        let (policy, _) = crate::policy::source::resolve(
+        let selected = crate::policy::source::resolve(
             super::super::config::PolicyConfig {
                 fs: Some(FsConfig { read, write }),
                 ..Default::default()
@@ -250,7 +250,7 @@ mod tests {
             config_dir,
         )
         .unwrap();
-        policy.filesystem()
+        selected.policy.filesystem()
     }
 
     fn authorize(policy: &FsPolicy, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {

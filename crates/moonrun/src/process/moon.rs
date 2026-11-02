@@ -218,7 +218,7 @@ impl Spawn {
             };
         let [stdin, stdout, stderr] = stdio;
         let mut run = RunOptions::default()
-            .with_guest_process_mode(crate::GuestProcessMode::Virtual)
+            .with_virtualize(true)
             .with_environment(env)
             .with_working_directory(WorkingDirectory::Fixed(cwd))
             .with_stdio(

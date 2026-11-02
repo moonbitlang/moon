@@ -49,7 +49,7 @@ pub(crate) fn prepare_moon(
         return Ok(Preparation::Exited(outcome.into()));
     }
     let directory = tempfile::tempdir().context("failed to create Moon artifact handoff")?;
-    let handoff = RunHandoff::new(directory.path(), config.policy_file.is_some())?;
+    let handoff = RunHandoff::new(directory.path(), config.selected_policy.is_some())?;
     let mut command = Command::new(executable);
     command
         .arg(HANDOFF_ARG)

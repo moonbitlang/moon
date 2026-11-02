@@ -18,9 +18,7 @@
 
 #![cfg(feature = "v8")]
 
-use moonrun::{
-    Engine, GuestProcessMode, ProcessError, ProcessState, RunOptions, RunOutcome, RunTermination,
-};
+use moonrun::{Engine, ProcessError, ProcessState, RunOptions, RunOutcome, RunTermination};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -70,11 +68,7 @@ fn guest_process_control() {
                 )
                 .unwrap();
             let pid = tree
-                .spawn(
-                    None,
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
+                .spawn(None, &module, RunOptions::default().with_virtualize(true))
                 .unwrap();
             #[cfg(unix)]
             let expected = RunOutcome::KilledBySignal(libc::SIGKILL);
@@ -85,18 +79,10 @@ fn guest_process_control() {
         "pid_isolation" => {
             let other = Engine::default();
             let foreign = other
-                .spawn(
-                    None,
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
+                .spawn(None, &module, RunOptions::default().with_virtualize(true))
                 .unwrap();
             let unrelated = tree
-                .spawn(
-                    None,
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
+                .spawn(None, &module, RunOptions::default().with_virtualize(true))
                 .unwrap();
             // OS, foreign, unrelated PIDs and process-group selectors must
             // all be rejected. An accidental OS kill would kill this bounded
@@ -129,12 +115,7 @@ fn guest_process_control() {
                     )
                     .unwrap();
                     let caller = tree
-                        .spawn(
-                            None,
-                            &module,
-                            RunOptions::default()
-                                .with_guest_process_mode(GuestProcessMode::Virtual),
-                        )
+                        .spawn(None, &module, RunOptions::default().with_virtualize(true))
                         .unwrap();
                     let ProcessError::RunFailed(error) = tree.wait(caller).unwrap_err() else {
                         panic!("expected rejection by the guest process interface");
@@ -232,20 +213,18 @@ fn guest_process_control() {
                 .spawn(
                     None,
                     &parent_module,
-                    RunOptions::default()
-                        .with_guest_process_mode(GuestProcessMode::Virtual)
-                        .with_stdio(
-                            input.reopen().unwrap(),
-                            marker.reopen().unwrap(),
-                            diagnostics.reopen().unwrap(),
-                        ),
+                    RunOptions::default().with_virtualize(true).with_stdio(
+                        input.reopen().unwrap(),
+                        marker.reopen().unwrap(),
+                        diagnostics.reopen().unwrap(),
+                    ),
                 )
                 .unwrap();
             let child = tree
                 .spawn(
                     Some(parent),
                     &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    RunOptions::default().with_virtualize(true),
                 )
                 .unwrap();
             input.write_all(&child.get().to_le_bytes()).unwrap();
@@ -294,18 +273,11 @@ fn guest_process_control() {
                 )
                 .unwrap();
             let pid = tree
-                .spawn(
-                    None,
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
+                .spawn(None, &module, RunOptions::default().with_virtualize(true))
                 .unwrap();
             assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Exited(pid.get()));
             let RunOutcome::Exited(inline_pid) = engine
-                .run(
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
+                .run(&module, RunOptions::default().with_virtualize(true))
                 .unwrap()
             else {
                 panic!("virtual inline Run did not return its PID");

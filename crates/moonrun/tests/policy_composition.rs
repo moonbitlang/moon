@@ -63,9 +63,11 @@ fn inherited_and_child_policies_both_restrict_filesystem_access() {
                 options
                     .with_inherited_policy(parent.clone())
                     .with_policy_file(&child)
+                    .unwrap()
             } else {
                 options
                     .with_policy_file(&child)
+                    .unwrap()
                     .with_inherited_policy(parent.clone())
             };
             assert_eq!(

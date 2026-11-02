@@ -81,9 +81,9 @@ responsibilities have distinct owners within that interface.
 `Engine::run` executes on the calling thread; `spawn(parent, module, options)`
 creates a managed thread whose result is consumed by `wait`. Both reuse Modules
 and consume `RunOptions`. Thread placement does not select guest process
-behavior: `GuestProcessMode::Native` is the compatibility default, and
-`with_guest_process_mode(GuestProcessMode::Virtual)` selects virtual identities
-and child control. A managed execution has a host control identity in either
+behavior: `process.virtualize` defaults to false, while a true value selects
+virtual identities and child control. The explicit Rust `with_virtualize` builder
+overrides that configuration without changing authorization. A managed execution has a host control identity in either
 mode; guest process operations use virtual identities only in Virtual mode.
 
 `Engine::new` creates an independent process namespace. Clones share its backend
@@ -186,9 +186,10 @@ cannot replace the private handoff prefix. Guest spawn still resolves and
 authorizes the executable before admission. Classification does not grant
 additional authority.
 
-Mixed execution must be explicitly selected rather than used as a fallback
-from Virtual mode. Its native children and prepared native/Node artifacts need
-the same ownership of state, termination, completion, and reaping as Wasm Runs.
+The mixed-execution follow-up will admit ordinary native children permitted by
+the existing process rules. These members need the same ownership of state,
+termination, completion, and reaping as Wasm Runs. Artifact handoff will be
+limited to Wasm; native and Node commands use ordinary OS execution.
 
 Noninteractive preparation should own its helper and compiler descendants as a
 cancellation scope, using a Unix process group or Windows Job. Cancelling that
@@ -497,6 +498,24 @@ Windows spawn path assigns the embedding process to a global Job Object; this
 is not a child-owned cancellation scope. Such facilities need an explicit host
 coordination contract and controlled Runtime use. Runtime-local objects do not
 isolate them.
+
+## Execution configuration
+
+The selected policy file colocates `process.virtualize` with process permission
+syntax, but these fields have separate owners. Source loading produces resolved
+Policy rules, Env provisioning configuration, and the execution choice once.
+Engine consumes the execution choice before admission; Runtime composes the
+resolved rules with inherited restrictions and provisions Env from the caller's
+source. Inherited restriction transfer carries neither execution configuration
+nor Env provisioning. Internal children receive their parent's execution choice
+explicitly through Host Process; parentage alone does not supply it.
+
+A policy discovered through Moon's Wasm handoff is loaded before Wasm starts.
+A managed execution reuses its existing identity; an inline execution admits
+under the namespace shutdown lock only if virtualization becomes enabled.
+Host-selected policy suppresses the delivered source, while inherited authority
+always remains an additional ceiling and does not suppress child configuration.
+Runtime does not change execution mode after construction.
 
 ## Overall authority and FFI mapping
 
