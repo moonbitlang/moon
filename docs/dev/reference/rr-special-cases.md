@@ -39,7 +39,7 @@ important ones and why they exist.
 ## Artifact path overrides
 
 - **Stdlib bundle paths are toolchain facts.** The bundled stdlib layout
-  (`_build/<backend>/release/bundle`, `core.core`, package `.mi`
+  (`_build/<backend>/release/bundle`, package `.core` and `.mi`
   files, and related paths) is owned by `moonutil::toolchain`, backed by the
   internal toolchain-layout helpers. RR may translate an already selected
   stdlib root into concrete artifact paths, but it should not rediscover the

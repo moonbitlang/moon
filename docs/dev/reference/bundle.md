@@ -13,5 +13,6 @@ installed sidecars. An implementation-check `.impl.mi` is a local check output,
 not a `moon bundle` product and not part of the installed bundle.
 
 `moonbitlang/core/abort` is an ordinary package and is included in `core.core`.
-Linking the installed standard library needs only `core.core`; older core
-versions with a virtual `abort` package are no longer supported.
+Linking against the installed standard library uses the per-package `.core`
+files in the bundle, not `core.core`; older core versions with a virtual
+`abort` package are no longer supported.
