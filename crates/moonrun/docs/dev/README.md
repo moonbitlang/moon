@@ -291,10 +291,10 @@ block cleanup; this interface does not promise bounded termination.
 
 Current permission coverage is unchanged. Helpers retain host access, and
 cancellation during preparation waits for helper exit before preventing Wasm
-startup; helper-group cancellation remains a FIXME. Prepared native/Node
-artifacts and ordinary native guest spawning with virtualization enabled remain
-unsupported. A spawn denied by the process policy
-returns a permission error before lookup or resource acquisition. `Terminating` does not promise bounded teardown. See
+startup; helper-group cancellation remains a FIXME. Handoff carries Wasm only;
+native/JS targets are rejected by the helper before building. Ordinary native
+guest spawning with virtualization enabled remains unsupported. A spawn denied
+by the process policy returns a permission error before lookup or resource acquisition. `Terminating` does not promise bounded teardown. See
 `tests/process_tree.rs`, `tests/guest_process_control.rs`, `tests/recursive_moon.rs`
 and `tests/moon_handoff.rs`.
 

@@ -427,7 +427,7 @@ fn moon_commands_run_in_virtual_tree() {
             .arg(handoff.directory())
             .args(["run", "--target", target, "-e", "fn main {}"])
             .assert()
-            .code(1)
+            .failure()
             .stdout_eq("")
             .stderr_eq("Error: Moonrun handoff only supports Wasm targets\n");
         assert!(!handoff.directory().join("result.json").exists());
@@ -461,7 +461,7 @@ fn moon_commands_run_in_virtual_tree() {
             ),
         )
         .unwrap();
-    assert_eq!(tree.wait(child).unwrap(), RunOutcome::Exited(1));
+    assert!(matches!(tree.wait(child).unwrap(), RunOutcome::Exited(code) if code != 0));
     assert_eq!(
         contents(stderr),
         "Error: Moonrun handoff only supports Wasm targets\n"

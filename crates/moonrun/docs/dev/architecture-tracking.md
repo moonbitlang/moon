@@ -46,7 +46,7 @@ private cached registry artifacts.
 
 ## Execution work
 
-Deliver these as separate changes in dependency order:
+Deliver the remaining items as separate changes:
 
 - [x] Select virtualization through `process.virtualize` in the policy file,
   with explicit embedding and `moonrun --virtual-process` overrides. IPC uses
@@ -57,7 +57,7 @@ Deliver these as separate changes in dependency order:
   adapters, keeping parsing separate from execution and process-global setup.
 - [ ] Add native process members to Engine for ordinary authorized guest
   commands, preserving env, cwd, stdio, termination, wait, shutdown, and reaping.
-- [ ] Limit artifact handoff to Wasm; native/Node commands use ordinary OS spawn
+- [x] Limit artifact handoff to Wasm; native/Node commands use ordinary OS spawn
   rather than a separate delivered-artifact executor.
 - [ ] Extend internal classification from moonx to moonrun using shared CLI
   grammar. Moonrun loads Wasm directly; it does not need a preparation helper.

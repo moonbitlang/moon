@@ -71,9 +71,10 @@ temporary block does not escape into the test program.
 
 A private prefix, `--moonrun-artifact-handoff <directory>`, lets a moonrun
 supervisor request `moon run` preparation without program execution. Moon
-copies the executable, its execution kind, optional Wasm source map and policy
-before releasing build locks or deleting temporary source. It publishes the result manifest last and
-exits; the supervisor requires successful helper exit before consuming it.
+copies the Wasm executable, optional source map and policy before releasing
+build locks or deleting temporary source. Handoff accepts Wasm targets only;
+native, JS and LLVM targets are rejected before input consumption or building.
+Moon publishes the result manifest last and exits; the supervisor requires successful helper exit before consuming it.
 Arguments and the effective cwd travel in that manifest. Dry-run, build-only,
 and profiling are rejected in this mode.
 
@@ -83,9 +84,8 @@ existing `process.spawn` / `process.allow` rules authorize all guest spawns in
 both modes. Moon does not parse execution settings or forward separate mode
 flags. As before, `--wasm-policy` only applies to Wasm execution; native/Node
 roots execute outside Moonrun.
-A handoff returns to the existing Engine. Unsupported native/JS delivery is
-scheduled for removal in the Wasm-only handoff cleanup; native and Node commands
-use ordinary OS execution.
+A handoff returns Wasm to the existing Engine. Native/Node programs keep the
+ordinary process-execution path; there is no Engine native/JS delivery branch.
 
 ## Why Unix `exec` was rejected
 
