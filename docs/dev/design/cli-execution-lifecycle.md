@@ -91,9 +91,8 @@ comes from `moonutil::toolchain::bin()` and honors `MOON_TOOLCHAIN_ROOT`;
 `-C` sets both the child's working directory and the base for relative runner
 lookup. A preceding `--trace` is rejected. Options after `testcli` belong to
 mooncram, so shell completion does not suggest Moon's global options there.
-Moon neither loads a project nor switches or installs a toolchain for this
-command. Wasm loading and guest argument validation belong to moonrun and
-mooncram; launch errors use the existing transparent-delegate error path.
+No MoonBit project is required. Wasm loading and guest argument validation
+belong to moonrun and mooncram.
 
 Clap help and parse failures retain Clap's native rendering and exit behavior.
 They occur before a Moon command runtime exists.
