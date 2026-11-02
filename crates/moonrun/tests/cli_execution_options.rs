@@ -18,6 +18,33 @@
 
 use std::{fs, time::Duration};
 
+#[cfg(feature = "v8")]
+#[test]
+fn managed_roots_accept_wasm_contents_regardless_of_extension() {
+    let directory = tempfile::tempdir().unwrap();
+    let wasm = wat::parse_str(
+        r#"(module
+        (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+        (func (export "_start") i32.const 23 call $exit))"#,
+    )
+    .unwrap();
+    for name in ["program.bin", "program"] {
+        let file = directory.path().join(name);
+        fs::write(&file, &wasm).unwrap();
+        for flag in ["--daemon", "--virtual-process"] {
+            snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .env_remove(moonrun::ipc::ENDPOINT_ENV)
+                .arg(flag)
+                .arg(&file)
+                .timeout(Duration::from_secs(10))
+                .assert()
+                .code(23)
+                .stdout_eq("")
+                .stderr_eq("");
+        }
+    }
+}
+
 #[test]
 fn incompatible_configuration_fails_before_loading_wasm_or_connecting() {
     let directory = tempfile::tempdir().unwrap();
