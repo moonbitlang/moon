@@ -60,6 +60,13 @@ impl ProcessContext {
         self.pid.get()
     }
 
+    pub(crate) fn spawn_native(
+        &self,
+        spawn: crate::process::NativeSpawn,
+    ) -> AsyncHostResult<super::SpawnedProcess> {
+        self.engine.spawn_native(self.pid, spawn)
+    }
+
     pub(crate) fn spawn_moon(
         &self,
         executable: &std::path::Path,
@@ -174,23 +181,14 @@ impl ProcessContext {
         let outcome = RunTermination::KilledBySignal(libc::SIGKILL);
         #[cfg(windows)]
         let outcome = RunTermination::Exit(1);
-        entry.terminator.terminate(outcome);
-        Ok(())
+        entry
+            .control
+            .terminate(outcome)
+            .map(|_| ())
+            .map_err(super::native::io_error)
     }
 
     pub(crate) fn terminate(&self, pid: i32, signal: i32) -> AsyncHostResult<()> {
-        #[cfg(unix)]
-        {
-            if signal == libc::SIGKILL {
-                return self.kill(pid);
-            }
-            // Only the signals with guest cancellation/default termination
-            // semantics are implemented. In particular, stop/continue must
-            // never accidentally turn into termination.
-            if ![0, libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
-                return Err(AsyncHostError::Inval);
-            }
-        }
         // Match the native Windows adapter: graceful cancellation targets a
         // process group with Ctrl-Break, independently of the signal argument.
         #[cfg(windows)]
@@ -206,20 +204,34 @@ impl ProcessContext {
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
             return Err(AsyncHostError::PermissionDenied);
         }
+        let (terminator, signals) = match &entry.control {
+            super::ProcessControl::Native(child) => {
+                return child.signal(signal).map_err(super::native::io_error);
+            }
+            super::ProcessControl::Run {
+                terminator,
+                signals,
+            } => (terminator, signals),
+        };
         #[cfg(unix)]
-        if signal == 0 {
-            return Ok(());
+        {
+            if signal == libc::SIGKILL {
+                terminator.terminate(RunTermination::KilledBySignal(signal));
+                return Ok(());
+            }
+            if ![0, libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+                return Err(AsyncHostError::Inval);
+            }
+            if signal == 0 {
+                return Ok(());
+            }
         }
-        match entry.signals.send(signal) {
+        match signals.send(signal) {
             Ok(true) | Err(crate::SignalSendError::Disconnected) => return Ok(()),
             Ok(false) => {}
             Err(_) => return Err(AsyncHostError::Io),
         }
-        // An unhandled cancellation signal takes its default action on this
-        // Run only. Accepted signals leave the caller's grace period in charge.
-        entry
-            .terminator
-            .terminate(RunTermination::KilledBySignal(signal));
+        terminator.terminate(RunTermination::KilledBySignal(signal));
         Ok(())
     }
 
@@ -466,8 +478,10 @@ mod tests {
                         parent: None,
                         state: ProcessState::Running,
                     },
-                    terminator,
-                    signals,
+                    control: super::super::ProcessControl::Run {
+                        terminator,
+                        signals,
+                    },
                     completion: Arc::new(ProcessCompletion::default()),
                     waiting: false,
                 },
@@ -513,8 +527,10 @@ mod tests {
                             parent: Some(parent),
                             state: ProcessState::Running,
                         },
-                        terminator: crate::termination_channel().0,
-                        signals: crate::signal_channel().0,
+                        control: super::super::ProcessControl::Run {
+                            terminator: crate::termination_channel().0,
+                            signals: crate::signal_channel().0,
+                        },
                         completion: completion.clone(),
                         waiting: false,
                     },
@@ -620,8 +636,10 @@ mod tests {
                             parent: Some(VirtualPid(1)),
                             state: ProcessState::Running,
                         },
-                        terminator: crate::termination_channel().0,
-                        signals: crate::signal_channel().0,
+                        control: super::super::ProcessControl::Run {
+                            terminator: crate::termination_channel().0,
+                            signals: crate::signal_channel().0,
+                        },
                         completion: completion.clone(),
                         waiting: false,
                     },
@@ -691,8 +709,10 @@ mod tests {
                         parent: Some(parent),
                         state: ProcessState::Running,
                     },
-                    terminator: crate::termination_channel().0,
-                    signals: crate::signal_channel().0,
+                    control: super::super::ProcessControl::Run {
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },
@@ -793,16 +813,13 @@ mod tests {
             }),
             Arc::new(crate::runtime::Env::owned([]).unwrap()),
         );
-        // Use an existing executable so malformed payloads are tested
-        // independently of executable-not-found errors. Validation must fail
-        // before any virtual child is admitted, even for a non-Moon image.
-        #[cfg(windows)]
-        let executable = std::env::current_exe().unwrap();
+        // Malformed internal moonx payloads fail before lookup/admission.
+        // Native requests retain their platform's raw environment semantics.
         for (argument, environment) in [("bad\0arg", "A=B"), ("ok", "=invalid")] {
             #[cfg(unix)]
             let mut job = crate::process::Job::spawn_unix(
-                "moon".into(),
-                vec!["moon".into(), argument.into()],
+                "moonx".into(),
+                vec!["moonx".into(), argument.into()],
                 vec![environment.into()],
                 None,
                 None,
@@ -814,7 +831,7 @@ mod tests {
             );
             #[cfg(windows)]
             let mut job = crate::process::Job::spawn_windows(
-                format!("\"{}\" {argument}", executable.display()).into(),
+                format!("moonx.exe {argument}").into(),
                 format!("{environment}\0\0").encode_utf16().collect(),
                 None,
                 None,
@@ -846,8 +863,10 @@ mod tests {
                         parent: Some(VirtualPid(1)),
                         state: ProcessState::Running,
                     },
-                    terminator: crate::termination_channel().0,
-                    signals: crate::signal_channel().0,
+                    control: super::super::ProcessControl::Run {
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: completion.clone(),
                     waiting: false,
                 },
@@ -951,8 +970,10 @@ mod tests {
                         parent: Some(parent),
                         state: ProcessState::Running,
                     },
-                    terminator: crate::termination_channel().0,
-                    signals: crate::signal_channel().0,
+                    control: super::super::ProcessControl::Run {
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },

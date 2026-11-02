@@ -26,7 +26,6 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(windows)]
 use super::ambient;
 use super::ambient::Executable;
 use super::{HostProcess, SpawnOptions, lookup};
@@ -54,7 +53,7 @@ pub(super) struct SpawnRequest {
 }
 
 #[derive(Debug)]
-pub(super) struct NativeSpawn {
+pub(crate) struct NativeSpawn {
     // Keep the original argv/command line: lookup must not rewrite guest argv0
     // or change the lexical request that the process policy authorized.
     pub(super) request: SpawnRequest,
@@ -68,6 +67,7 @@ pub(super) struct NativeSpawn {
 pub(super) enum PreparedSpawn {
     Native(Box<NativeSpawn>),
     Moon(Box<super::moon::Spawn>),
+    ManagedNative(crate::process_tree::ProcessContext, Box<NativeSpawn>),
 }
 
 impl HostProcess {
@@ -83,6 +83,19 @@ impl HostProcess {
         #[cfg(windows)]
         self.check_spawn_windows(&request.command_line)?;
 
+        #[cfg(unix)]
+        let invokes_moonx = moonutil::constants::is_moonx_executable(&request.path);
+        // Keep unrestricted Ambient Windows on the raw CreateProcess path.
+        // Only routing or inherited authority needs argument decoding here.
+        #[cfg(windows)]
+        let arguments = (self.context.is_some() || self.policy_inheritance.is_some())
+            .then(|| ambient::lookup::parse_command_line(&request.command_line).map_err(io_error))
+            .transpose()?;
+        #[cfg(windows)]
+        let invokes_moonx = arguments
+            .as_ref()
+            .is_some_and(|args| moonutil::constants::is_moonx_executable(&args[0]));
+        let internal_moonx = self.context.is_some() && invokes_moonx;
         if let WorkingDirectory::Fixed(root) = self.working_directory.as_ref() {
             request.cwd = Some(match request.cwd {
                 Some(cwd) if cwd.is_empty() => cwd,
@@ -102,21 +115,9 @@ impl HostProcess {
             // Do not call getcwd just to inherit Ambient cwd: its pathname can
             // be unavailable while the directory remains usable.
             #[cfg(unix)]
-            let (executable, invokes_moonx) = (
-                Executable::Ambient(request.path.clone()),
-                moonutil::constants::is_moonx_executable(&request.path),
-            );
+            let executable = Executable::Ambient(request.path.clone());
             #[cfg(windows)]
-            let (executable, invokes_moonx) = (
-                Executable::Ambient,
-                if self.policy_inheritance.is_some() {
-                    let arguments = ambient::lookup::parse_command_line(&request.command_line)
-                        .map_err(io_error)?;
-                    moonutil::constants::is_moonx_executable(&arguments[0])
-                } else {
-                    false
-                },
-            );
+            let executable = Executable::Ambient;
             request.configure_stdio(&self.stdio)?;
             return Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
                 request,
@@ -161,8 +162,12 @@ impl HostProcess {
         let (arguments, plan) = {
             use std::os::windows::ffi::OsStrExt;
 
-            let arguments =
-                ambient::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
+            let arguments = match arguments {
+                Some(arguments) => arguments,
+                None => {
+                    ambient::lookup::parse_command_line(&request.command_line).map_err(io_error)?
+                }
+            };
             let program = &arguments[0];
             let searches_path = !program
                 .encode_wide()
@@ -214,7 +219,9 @@ impl HostProcess {
             (arguments, plan)
         };
         request.configure_stdio(&self.stdio)?;
-        if let Some(context) = &self.context {
+        if let Some(context) = &self.context
+            && internal_moonx
+        {
             #[cfg(unix)]
             let spawn = super::moon::Spawn::unix(
                 context.clone(),
@@ -241,16 +248,11 @@ impl HostProcess {
             return Ok(PreparedSpawn::Moon(Box::new(spawn)));
         }
         #[cfg(unix)]
-        let (executable, invokes_moonx) = (
-            Executable::Prepared(plan),
-            moonutil::constants::is_moonx_executable(&request.path),
-        );
+        let executable = Executable::Prepared(plan);
         #[cfg(windows)]
-        let (executable, invokes_moonx) = (
-            Executable::Prepared(ambient::lookup::select_image(&plan).map_err(io_error)?),
-            moonutil::constants::is_moonx_executable(&arguments[0]),
-        );
-        Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
+        let executable =
+            Executable::Prepared(ambient::lookup::select_image(&plan).map_err(io_error)?);
+        let spawn = Box::new(NativeSpawn {
             request,
             _stdio_owner: Arc::clone(&self.stdio),
             executable,
@@ -259,7 +261,74 @@ impl HostProcess {
             } else {
                 None
             },
-        })))
+        });
+        Ok(match &self.context {
+            Some(context) => PreparedSpawn::ManagedNative(context.clone(), spawn),
+            None => PreparedSpawn::Native(spawn),
+        })
+    }
+}
+
+impl NativeSpawn {
+    pub(crate) fn spawn_owned(self) -> AsyncHostResult<super::NativeChild> {
+        #[cfg(unix)]
+        ambient::child::ensure_waitable_children().map_err(io_error)?;
+        let mut resource = None;
+        let pid = self.run(
+            &mut resource,
+            #[cfg(windows)]
+            ambient::SpawnOwner::Engine,
+        )? as i32;
+        #[cfg(windows)]
+        let handle = match resource {
+            Some(crate::resource::ResourcePublication::Unpublished(handle)) => handle,
+            _ => unreachable!("CreateProcess must return its owned process handle"),
+        };
+        // A managed native child uses WNOWAIT to keep its Unix identity stable;
+        // its optional pidfd is internal and must not be exposed to the guest.
+        #[cfg(unix)]
+        drop(resource);
+        Ok(super::NativeChild::new(
+            pid,
+            #[cfg(windows)]
+            handle,
+        ))
+    }
+
+    pub(crate) fn run(
+        self,
+        result: &mut Option<crate::resource::ResourcePublication>,
+        #[cfg(windows)] owner: ambient::SpawnOwner,
+    ) -> AsyncHostResult<i64> {
+        let Self {
+            request,
+            _stdio_owner,
+            executable,
+            policy_inheritance,
+        } = self;
+        #[cfg(unix)]
+        return ambient::run_spawn_job_unix(
+            executable,
+            request.args,
+            request.env,
+            request.stdio,
+            request.cwd,
+            request.options,
+            policy_inheritance,
+            result,
+        );
+        #[cfg(windows)]
+        return ambient::run_spawn_job_windows(
+            executable,
+            request.command_line,
+            request.env,
+            request.stdio,
+            request.cwd,
+            request.options,
+            policy_inheritance,
+            owner,
+            result,
+        );
     }
 }
 

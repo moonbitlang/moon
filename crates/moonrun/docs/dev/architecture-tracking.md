@@ -111,8 +111,9 @@ signal handling returns to the existing process fallback.
 
 - [x] Share moonx's authoritative grammar between Moon and Moonrun, including
   its opaque program-argument tail. Keep ordinary Moon CLI definitions in Moon.
-- [x] Restrict guest virtual spawn to moonx for local `.mbtx` files and registry
-  packages. Other commands report unsupported; there is no native fallback.
+- [x] Restrict internal guest execution to moonx for local `.mbtx` files and
+  registry packages. Other commands run as native members when allowed by the
+  same process policy.
 - [x] Classify before preparation: complete help/version and argument errors
   through the embedded frontend and bound streams without a helper or handoff
   directory. Successful execution requests still require delivered artifacts.
@@ -123,22 +124,29 @@ use `moon run`. Their preparation interface does not expand guest spawn support.
 Recursive tests use the pinned async implementation with a private cached
 registry artifact and local scripts; no live registry dependency is introduced.
 
-## Execution configuration
+## Mixed native members
 
 - [x] Configure `process.virtualize` through the existing policy file and retain
   an embedding override. Reuse `spawn`/`allow` authorization in both modes,
   including internal moonx. Remove execution-mode CLI flags; Moon forwards the
-  selected policy. Virtual guest execution remains moonx-only.
-- [x] Parse the selected policy once for Engine execution selection and Runtime
-  authorization. Bind a delivered policy before Wasm begins, reusing an already
-  admitted identity when present.
+  selected policy. A virtual tree allowing only moonx stays moonx-only.
+- [x] Admit ordinary authorized native children with Engine identities. Reuse
+  request preparation and OS spawn, retaining native spawn errors and actual
+  exit status. Share wait cancellation, adoption, shutdown and result reaping.
+- [x] Keep stable native control through final reap; do not expose raw native
+  IDs/handles as the guest's virtual process identity. Report shutdown errors
+  after attempting all members and permit retries.
+
+This slice owns directly admitted native children. It neither adopts their OS
+descendants nor cancels preparation helper trees. Admission remains locked
+through native spawn; a slow OS launch can delay shutdown. Prepared native/Node
+artifacts are the next execution slice and still return unsupported here.
 
 ## Follow-up order
 
-1. Add ordinary authorized native children to Engine for mixed execution, then
-   support delivered native/Node artifacts. Keep process permission separate
-   from virtualization and preserve single-member control, wait, shutdown and
-   reaping through the same supervision interface.
+1. Reuse the native member implementation for delivered native/Node artifacts.
+   Keep delivery ownership through native execution and cleanup. A virtual tree
+   with only moonx authorized remains moonx-only.
 2. Reuse native process management for preparation helpers and their compiler
    descendants. Cancellation currently waits for helper exit and prevents
    subsequent Wasm execution. Prefer a Unix process group / Windows Job for

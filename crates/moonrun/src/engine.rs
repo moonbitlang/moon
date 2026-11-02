@@ -76,9 +76,11 @@ pub(crate) struct TestArgs {
 
 impl RunOptions {
     /// Use owned root environment/cwd and Engine-managed process identities.
-    /// Requires V8 and currently supports only internal moonx children.
-    /// The existing process policy authorizes those invocations; virtualization
-    /// does not grant additional permissions or sandbox preparation helpers.
+    /// Requires V8. Internal moonx Runs and permitted native children share the
+    /// namespace; the existing process policy authorizes both.
+    ///
+    /// Native children are not OS-sandboxed. On Unix, the embedding host must
+    /// leave their reaping to Engine and must not enable SIGCHLD auto-reaping.
     pub fn with_virtualize(mut self, virtualize: bool) -> Self {
         self.virtualize = Some(virtualize);
         self

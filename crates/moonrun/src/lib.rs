@@ -79,7 +79,7 @@ mod wasmtime;
 mod wee8;
 
 pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome};
-pub use process_tree::{ProcessError, ProcessInfo, ProcessState, VirtualPid};
+pub use process_tree::{ProcessError, ProcessInfo, ProcessState, ShutdownError, VirtualPid};
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use run_termination::{
     RunTermination, RunTerminationReceiver, RunTerminator, termination_channel,

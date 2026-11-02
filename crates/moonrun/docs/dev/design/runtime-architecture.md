@@ -94,8 +94,9 @@ admission nor lookup reconstructs Runtime state from a process entry.
 
 `run_moon` and `spawn_moon` share Moon preparation and artifact dispatch.
 They are host-selected entries and can prepare `moon run` as well as moonx.
-Guest virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
-or registry packages. Other commands return unsupported without native fallback.
+Virtual guest spawn interprets moonx internally, for local `.mbtx` files or
+registry packages. Other commands use the same process policy and are managed OS
+children; a denied native launch fails before executable lookup.
 Engine uses the shared moonx grammar before entering preparation. Help/version
 and parse errors complete through the embedded frontend and bound stdio; no
 helper or handoff directory is created. Responses use plain text and Clap's
@@ -145,6 +146,15 @@ requests termination of all admitted members under the same process-table lock.
 It includes adopted descendants without changing single-member `terminate`
 semantics. The caller still owns waiting and result consumption. Native
 caller-thread execution has no table entry and retains its separate control.
+
+Native members retain their real native identity below Engine's virtual PID.
+Native spawn and table publication form one admission transaction, after a
+reaper has been reserved. Native completion is the real OS wait result; forced
+Run termination does not overwrite it. Unix observation with WNOWAIT and locked
+reaping prevent control of a recycled PID; Windows retains the original
+process HANDLE. Shutdown attempts all members and reports native failures,
+leaving admission closed while permitting failed termination to be retried.
+Ordinary OS grandchildren are outside the Engine namespace.
 
 The virtual CLI owns its Engine namespace. It forwards cooperative signals to
 the root while the root accepts them; otherwise it retains the first signal,

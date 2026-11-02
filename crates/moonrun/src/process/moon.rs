@@ -161,8 +161,6 @@ impl Spawn {
             .entries();
         // Guest Virtual spawn only admits moonx. Host-selected Engine preparation
         // is a separate entry; a Moon basename must not enable arbitrary commands.
-        // FIXME: Add other native children through Engine supervision when mixed
-        // execution is implemented, rather than sending them through handoff.
         if !moonutil::constants::is_moonx_executable(&program) {
             #[cfg(unix)]
             return Err(AsyncHostError::Native(libc::ENOTSUP));

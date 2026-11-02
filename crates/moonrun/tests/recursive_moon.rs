@@ -183,6 +183,116 @@ grandchild
 arg with spaces
 
 "#]]);
+    // All three CLI entry points use the file, without forwarding mode flags.
+    let mixed_policy = root.join("mixed-policy.json");
+    let mut mixed: serde_json::Value = serde_json::from_slice(&fs::read(&policy).unwrap()).unwrap();
+    mixed["process"] = serde_json::json!({"virtualize":true,"spawn":true});
+    fs::write(&mixed_policy, serde_json::to_vec(&mixed).unwrap()).unwrap();
+    for (executable, prefix, entry) in [
+        (
+            moon,
+            vec!["run", "--target=wasm", "--wasm-policy"],
+            "src/virtual_parent",
+        ),
+        (
+            moonx.as_path(),
+            vec!["--experimental-policy"],
+            "test/virtual/main@0.0.1",
+        ),
+        (
+            Path::new(snapbox::cmd::cargo_bin!("moonrun")),
+            vec!["--policy"],
+            "_build/wasm/debug/build/virtual_parent/virtual_parent.wasm",
+        ),
+    ] {
+        snapbox::cmd::Command::new(executable)
+            .current_dir(&project)
+            .args(prefix)
+            .arg(&mixed_policy)
+            .arg(entry)
+            .arg("mixed")
+            .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+            .env("MOON_HOME", &moon_home)
+            .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+            .timeout(Duration::from_secs(90))
+            .assert()
+            .success()
+            .stdout_eq("mixed completed\n");
+    }
+
+    // Native permission applies in both modes. Full policy still requires
+    // explicit process authorization and environment provisioning.
+    let matrix_policy = root.join("matrix.json");
+    let child_policy = root.join("child-policy.json");
+    fs::write(
+        &child_policy,
+        br#"{"process":{"virtualize":false,"spawn":true}}"#,
+    )
+    .unwrap();
+    for virtualize in [false, true] {
+        for (allowed, expected) in [
+            (serde_json::json!({"spawn":true}), "allowed\n"),
+            (serde_json::json!({"spawn":false}), "denied\n"),
+            (
+                serde_json::json!({"allow":[{"program":"moon"}]}),
+                "allowed\n",
+            ),
+            (
+                serde_json::json!({"allow":[{"program":"other"}]}),
+                "denied\n",
+            ),
+            (serde_json::json!({"allow":[]}), "denied\n"),
+            (
+                serde_json::json!({"allow":[{"program":"moon","args_prefix":["--version"]}]}),
+                "allowed\n",
+            ),
+            (
+                serde_json::json!({"allow":[{"program":"moon","args_prefix":["build"]}]}),
+                "denied\n",
+            ),
+        ] {
+            mixed["process"] = allowed;
+            mixed["process"]["virtualize"] = virtualize.into();
+            fs::write(&matrix_policy, serde_json::to_vec(&mixed).unwrap()).unwrap();
+            snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .current_dir(&project)
+                .arg("--policy")
+                .arg(&matrix_policy)
+                .arg("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm")
+                .arg("native-permission")
+                .env("NATIVE_PERMISSION_ENV", "preserved")
+                .timeout(Duration::from_secs(30))
+                .assert()
+                .success()
+                .stdout_eq(expected);
+        }
+        // Full inherited authority wins over a child's selected file in both
+        // external and internal moonx. The file cannot reopen native launches.
+        for (parent, expected) in [
+            (serde_json::json!([{"program":"moonx"}]), "denied\n"),
+            (
+                serde_json::json!([{"program":"moonx"},{"program":"moon","args_prefix":["--version"]}]),
+                "allowed\n",
+            ),
+        ] {
+            mixed["process"] = serde_json::json!({"virtualize":virtualize,"allow":parent});
+            fs::write(&matrix_policy, serde_json::to_vec(&mixed).unwrap()).unwrap();
+            snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .current_dir(&project)
+                .arg("--policy")
+                .arg(&matrix_policy)
+                .arg("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm")
+                .arg("native-inheritance")
+                .arg(&child_policy)
+                .env("NATIVE_PERMISSION_ENV", "preserved")
+                .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
+                .timeout(Duration::from_secs(30))
+                .assert()
+                .success()
+                .stdout_eq(expected);
+        }
+    }
+
     let denied_policy = root.join("denied.json");
     fs::write(&denied_policy, br#"{"process":{"virtualize":true}}"#).unwrap();
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))

@@ -25,6 +25,41 @@ fn exit(code : Int) = "moonbitlang/async" "runtime/exit"
 async fn main {
   let args = @env.args()
   let program = "test/virtual/main@0.0.1"
+  if args.length() > 1 && args[1] == "native-permission" {
+    assert_eq(@env.get_env_var("NATIVE_PERMISSION_ENV"), Some("preserved"))
+    let permitted = try {
+      let (code, output) = @process.collect_stdout("moon", ["--version"])
+      assert_eq(code, 0)
+      assert_true(output.text().contains("moon "))
+      true
+    } catch { _ => false }
+    println(if permitted { "allowed" } else { "denied" })
+    return
+  }
+  if args.length() > 1 && args[1] == "native-inheritance" {
+    let (code, output) = @process.collect_stdout(
+      "moonx", ["--experimental-policy", args[2], program, "native-permission"],
+    )
+    assert_eq(code, 0)
+    println(output.text().trim(char_set="\r\n"))
+    return
+  }
+  if args.length() > 1 && (args[1] == "mixed" || args[1] == "mixed-child") {
+    // An ordinary Moon invocation uses a managed native child. The recursive
+    // moonx below must preserve native permission and real async pipe/handle waits.
+    let (code, output) = @process.collect_stdout("moon", ["--version"])
+    assert_eq(code, 0)
+    assert_true(output.text().contains("moon "))
+    if args[1] == "mixed" {
+      let (code, output) = @process.collect_stdout("moonx", [program, "mixed-child"])
+      assert_eq(code, 0)
+      assert_eq(output.text(), "mixed child completed\n")
+      println("mixed completed")
+    } else {
+      println("mixed child completed")
+    }
+    return
+  }
   if args.length() > 1 && args[1] == "denied" {
     let denied = try {
       ignore(@process.run("moonx", [program]))
@@ -102,6 +137,12 @@ async fn main {
       assert_eq(code, 2)
       assert_true(error.text().length() > 0)
     }
+
+    // A child policy cannot widen the parent's native-process ceiling.
+    let (code, _) = @process.collect_stderr(
+      "moonx", ["--experimental-policy", "missing-policy.toml", program, "mixed-child"],
+    )
+    assert_true(code != 0)
 
     // A cancelled wait leaves the child available for a later wait_pid.
     let (read, output) = @process.read_from_process()

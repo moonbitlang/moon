@@ -49,8 +49,10 @@ impl Session {
     pub(crate) fn attach_engine(&self, engine: &Engine) {
         let mut state = self.state.lock().unwrap();
         assert!(state.engine.is_none() && !state.finished);
-        if let Some(outcome) = state.shutdown {
-            engine.request_shutdown(outcome);
+        if let Some(outcome) = state.shutdown
+            && let Err(error) = engine.request_shutdown(outcome)
+        {
+            eprintln!("moonrun: {error}");
         }
         state.engine = Some(engine.clone());
     }
@@ -62,13 +64,17 @@ impl Session {
         }
         // Once shutdown starts, repeated signals cannot skip cleanup by
         // falling back to host termination, or replace the first exit reason.
-        if state.shutdown.is_some() || self.root_signals.send(signal) == Ok(true) {
+        if state.shutdown.is_none() && self.root_signals.send(signal) == Ok(true) {
             return true;
         }
-        let outcome = RunTermination::KilledBySignal(signal);
+        let outcome = state
+            .shutdown
+            .unwrap_or(RunTermination::KilledBySignal(signal));
         state.shutdown = Some(outcome);
-        if let Some(engine) = &state.engine {
-            engine.request_shutdown(outcome);
+        if let Some(engine) = &state.engine
+            && let Err(error) = engine.request_shutdown(outcome)
+        {
+            eprintln!("moonrun: {error}");
         }
         true
     }
@@ -103,7 +109,7 @@ mod tests {
 
         let engine = Engine::default();
         session.attach_engine(&engine);
-        assert!(!engine.request_shutdown(RunTermination::Exit(42)));
+        assert!(!engine.request_shutdown(RunTermination::Exit(42)).unwrap());
         assert!(session.send(1));
         // An admission error caused by the early signal must also present the
         // signal, rather than escape the CLI before its shutdown policy runs.
@@ -111,7 +117,11 @@ mod tests {
             session.finish(Err("admission closed")),
             Ok(RunOutcome::KilledBySignal(2))
         );
-        assert!(Engine::default().request_shutdown(RunTermination::Exit(0)));
+        assert!(
+            Engine::default()
+                .request_shutdown(RunTermination::Exit(0))
+                .unwrap()
+        );
     }
 
     #[test]
@@ -122,7 +132,7 @@ mod tests {
         session.attach_engine(&engine);
         drop(receiver);
         assert!(session.send(15));
-        assert!(!engine.request_shutdown(RunTermination::Exit(0)));
+        assert!(!engine.request_shutdown(RunTermination::Exit(0)).unwrap());
         assert_eq!(
             session.finish::<()>(Ok(RunOutcome::Completed)),
             Ok(RunOutcome::KilledBySignal(15))
@@ -141,7 +151,7 @@ mod tests {
             let engine = Engine::default();
             session.attach_engine(&engine);
             assert_eq!(session.finish(outcome), outcome);
-            assert!(engine.request_shutdown(RunTermination::Exit(0)));
+            assert!(engine.request_shutdown(RunTermination::Exit(0)).unwrap());
         }
     }
 
@@ -161,7 +171,7 @@ mod tests {
             gate.wait();
             session.attach_engine(&engine);
         });
-        assert!(!engine.request_shutdown(RunTermination::Exit(0)));
+        assert!(!engine.request_shutdown(RunTermination::Exit(0)).unwrap());
         assert_eq!(
             session.finish::<()>(Ok(RunOutcome::Completed)),
             Ok(RunOutcome::KilledBySignal(2))
@@ -190,7 +200,7 @@ mod tests {
             );
             assert!(!session.send(1));
             assert_eq!(
-                engine.request_shutdown(RunTermination::Exit(42)),
+                engine.request_shutdown(RunTermination::Exit(42)).unwrap(),
                 !cancel_before_finish
             );
         }

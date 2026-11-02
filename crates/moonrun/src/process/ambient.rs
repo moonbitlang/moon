@@ -43,9 +43,16 @@ use crate::resource::ResourceRef;
 use super::job::SpawnOptions;
 use crate::resource::ResourcePublication;
 
+pub(crate) mod child;
 #[cfg(target_os = "linux")]
 mod fork_exec;
 pub(super) mod lookup;
+
+#[cfg(windows)]
+pub(crate) enum SpawnOwner {
+    Ambient,
+    Engine,
+}
 
 #[cfg(unix)]
 #[derive(Debug)]
@@ -106,6 +113,7 @@ ported_fns! {
         cwd: Option<OsString>,
         options: SpawnOptions,
         policy_inheritance: Option<PolicyInheritance>,
+        owner: SpawnOwner,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_windows(
@@ -116,6 +124,7 @@ ported_fns! {
             cwd,
             options,
             policy_inheritance,
+            owner,
             result,
         )
     }
@@ -575,6 +584,7 @@ fn spawn_process_windows(
     cwd: Option<OsString>,
     options: SpawnOptions,
     policy_inheritance: Option<PolicyInheritance>,
+    owner: SpawnOwner,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     use std::os::windows::ffi::OsStrExt;
@@ -613,7 +623,7 @@ fn spawn_process_windows(
         Some(inheritance) => Some(inheritance.open_transfer().map_err(policy_transfer_error)?),
         None => None,
     };
-    let job_object = if options.is_orphan {
+    let job_object = if options.is_orphan || matches!(owner, SpawnOwner::Engine) {
         None
     } else {
         global_job_object()?
@@ -1511,6 +1521,7 @@ mod windows_tests {
                     is_orphan: true,
                 },
                 None,
+                SpawnOwner::Ambient,
                 &mut result,
             )
             .map(|_| {
