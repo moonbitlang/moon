@@ -560,8 +560,7 @@ mod tests {
         let environment =
             Env::owned([("PATH".into(), directory.path().as_os_str().to_owned())]).unwrap();
         let (mut policy, _) =
-            crate::policy::load_inherited_json(br#"{"process":{"spawn":true}}"#, &environment)
-                .unwrap();
+            crate::policy::load_json(br#"{"process":{"spawn":true}}"#, &environment).unwrap();
         let process = HostProcess::new(
             policy.take_process_policy(),
             policy.take_policy_inheritance(),

@@ -22,7 +22,7 @@ use anyhow::Context;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use super::{PolicyInheritance, config::PolicyConfig};
+use super::{FsPolicy, NetPolicy, PolicyInheritance, ProcessPolicy, config::PolicyConfig};
 use crate::runtime::EnvConfig;
 
 pub(crate) fn read_file(
@@ -41,7 +41,11 @@ pub(super) fn resolve(
     let mut config = canonicalize(config, directory)?;
     let environment = config.env.take().unwrap_or_default();
     Ok((
-        PolicyInheritance::from_resolved_config(config)?,
+        PolicyInheritance::new(
+            FsPolicy::from_canonical_config(config.fs.unwrap_or_default()),
+            NetPolicy::from_config(config.net.unwrap_or_default())?,
+            ProcessPolicy::from_config(config.process.unwrap_or_default())?,
+        ),
         environment,
     ))
 }

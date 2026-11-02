@@ -555,7 +555,7 @@ Runtime isolation prevents access to the original resource behind another
 Runtime's Handles; cross-Runtime resource transfer needs explicit rebinding.
 
 Enforcement limits: policy loading separates environment provisioning from
-domain rules and transports canonical inherited policy. Without a policy,
+domain rules and transports resolved restrictions independently of user policy syntax. Without a policy,
 domain operations retain their unrestricted behavior; Virtual mode alone does
 not change that. Inherited policy takes precedence over delivered policy, which
 does not implement intersection of parent authority, child policy, WASI grants,

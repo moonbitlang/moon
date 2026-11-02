@@ -24,10 +24,7 @@ use anyhow::{bail, ensure};
 
 use crate::async_host::AsyncHostResult;
 
-use super::{
-    config::{ProcessConfig, ProcessRuleConfig},
-    sandbox_denied,
-};
+use super::{config::ProcessConfig, sandbox_denied, transfer};
 
 #[derive(Clone, Debug)]
 pub(crate) enum ProcessPolicy {
@@ -44,22 +41,29 @@ pub(crate) struct ProcessRule {
 }
 
 impl ProcessPolicy {
-    pub(super) fn to_config(&self) -> ProcessConfig {
+    pub(super) fn to_transfer(&self) -> transfer::Process {
         match self {
-            Self::AllowAll => ProcessConfig {
-                spawn: true,
-                allow: Vec::new(),
-            },
-            Self::Scoped(rules) => ProcessConfig {
-                spawn: false,
-                allow: rules
+            Self::AllowAll => transfer::Process::AllowAll,
+            Self::Scoped(rules) => transfer::Process::Scoped(
+                rules
                     .iter()
-                    .map(|rule| ProcessRuleConfig {
+                    .map(|rule| transfer::Command {
                         program: rule.program.clone(),
                         args_prefix: rule.args_prefix.clone(),
                     })
                     .collect(),
-            },
+            ),
+        }
+    }
+
+    pub(super) fn from_transfer(value: transfer::Process) -> anyhow::Result<Self> {
+        match value {
+            transfer::Process::AllowAll => Ok(Self::AllowAll),
+            transfer::Process::Scoped(rules) => rules
+                .into_iter()
+                .map(|rule| ProcessRule::new(rule.program, rule.args_prefix))
+                .collect::<anyhow::Result<_>>()
+                .map(Self::Scoped),
         }
     }
 
@@ -76,7 +80,7 @@ impl ProcessPolicy {
             .into_iter()
             .enumerate()
             .map(|(index, rule)| {
-                ProcessRule::from_config(rule)
+                ProcessRule::new(rule.program, rule.args_prefix)
                     .map_err(|error| error.context(format!("invalid process.allow[{index}]")))
             })
             .collect::<anyhow::Result<_>>()?;
@@ -118,24 +122,21 @@ impl ProcessPolicy {
 }
 
 impl ProcessRule {
-    fn from_config(config: ProcessRuleConfig) -> anyhow::Result<Self> {
-        ensure!(!config.program.is_empty(), "program must not be empty");
+    fn new(program: String, args_prefix: Vec<String>) -> anyhow::Result<Self> {
+        ensure!(!program.is_empty(), "program must not be empty");
+        ensure!(!program.contains('\0'), "program must not contain NUL");
         ensure!(
-            !config.program.contains('\0'),
-            "program must not contain NUL"
-        );
-        ensure!(
-            config.args_prefix.iter().all(|arg| !arg.contains('\0')),
+            args_prefix.iter().all(|arg| !arg.contains('\0')),
             "args_prefix must not contain NUL"
         );
 
         #[cfg(windows)]
         let windows_command_line_prefix =
-            encode_windows_command_line_prefix(&config.program, &config.args_prefix);
+            encode_windows_command_line_prefix(&program, &args_prefix);
 
         Ok(Self {
-            program: config.program,
-            args_prefix: config.args_prefix,
+            program,
+            args_prefix,
             #[cfg(windows)]
             windows_command_line_prefix,
         })
@@ -222,6 +223,7 @@ fn matches_windows_command_line_prefix(command_line: &[u16], prefix: &[u16]) -> 
 
 #[cfg(test)]
 mod tests {
+    use super::super::config::ProcessRuleConfig;
     use super::*;
     #[cfg(unix)]
     use crate::async_host::AsyncHostError;

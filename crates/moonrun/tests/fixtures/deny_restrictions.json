@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "restrictions": {
+    "fs": { "read": [], "write": [] },
+    "net": { "dns": [], "connect": [], "bind": [] },
+    "process": { "kind": "scoped", "value": [] }
+  }
+}

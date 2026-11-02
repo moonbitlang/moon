@@ -113,14 +113,24 @@ Construction separates four responsibilities:
 | `policy/source.rs` | Read a policy document, resolve source-relative filesystem roots, and separate restrictions from Env provisioning |
 | `PolicyInheritance` | Retain validated, immutable domain rules with resolved roots; supply domain policies without file I/O or parsing |
 | Runtime Env provisioning | Construct Env from the selected source environment and provisioning rules |
-| Policy transfer adapter | Encode resolved rules for an external process and validate received rules without resolving their roots again |
+| `policy/transfer.rs` | Encode typed restrictions in an internal, versioned format; validate received rules without resolving roots or parsing user rule strings |
 
 Virtual children receive typed restrictions. Their environment, cwd, and stdio
 are separate construction inputs derived by Host Process. Policy inheritance
-does not replay the parent's Env provisioning. External process transfers use
-the existing policy schema; its Env wildcard selects values passed through the
-normal child environment. The hidden serialized-input builder is a transport
-entry point, not the in-process inheritance interface.
+does not replay the parent's Env provisioning. An external child receives values
+through its OS environment; Runtime construction owns that snapshot separately
+from restriction decoding. The hidden serialized-input builder accepts only the
+internal transfer format. It does not accept user policy documents.
+
+User configuration is an input language, not an inheritance format. Transfer
+records distinguish wildcard, IP, and DNS-name rules explicitly, preserve native
+path bytes or units, and contain no Env provisioning. Domain adapters validate
+received semantic values without reclassifying them from strings. Deterministic
+caches such as Windows command-line prefixes may be rebuilt from the transferred
+command and arguments; they do not require source files or ambient inputs.
+Unknown versions, fields, and invalid rules fail decoding. The experimental
+internal protocol evolves independently of the user configuration schema;
+processes exchanging restrictions must support the same transfer version.
 
 Resolved rules retain no policy-file reference. Changing the source document or
 replacing a resolved root with a symlink must not redirect a descendant's grant.

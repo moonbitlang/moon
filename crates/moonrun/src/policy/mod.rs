@@ -30,6 +30,7 @@ mod net;
 mod policy_inheritance;
 mod process;
 mod source;
+mod transfer;
 
 pub(crate) use source::read_file;
 
@@ -109,15 +110,11 @@ pub(crate) fn load_file_with_source_dir(
 }
 
 #[cfg(test)]
-pub(crate) fn load_inherited_json(
+pub(crate) fn load_json(
     contents: &[u8],
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let (restrictions, env) = PolicyInheritance::from_transfer(contents)?;
-    Ok((
-        restrictions.policy(),
-        EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
-    ))
+    realize_config(serde_json::from_slice(contents)?, Path::new("."), source)
 }
 
 #[cfg(test)]
@@ -260,16 +257,25 @@ fn main {}
             .unwrap();
 
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
-        let inherited: PolicyConfig = serde_json::from_slice(&contents).unwrap();
-        let fs = inherited.fs.unwrap();
-        assert_eq!(fs.read, [canonical_read]);
-        assert_eq!(fs.write, [canonical_write]);
-        assert_eq!(inherited.net.unwrap().dns, ["example.com"]);
-        let env = inherited.env.unwrap();
-        assert_eq!(env.from_host, ["*"]);
-        assert!(env.required_from_host.is_empty());
-        assert!(env.set.is_empty());
-        assert!(inherited.process.unwrap().spawn);
+        let mut inherited = PolicyInheritance::from_transfer(&contents)
+            .unwrap()
+            .policy();
+        let fs = inherited.take_filesystem_policy().unwrap();
+        fs.authorize(Some(&canonical_read), FsIntents::read(), "read")
+            .unwrap();
+        fs.authorize(Some(&canonical_write), FsIntents::write(), "write")
+            .unwrap();
+        assert!(
+            fs.authorize(Some(&canonical_write), FsIntents::read(), "read")
+                .is_err()
+        );
+        inherited
+            .take_network_policy()
+            .unwrap()
+            .check_dns("example.com".as_ref())
+            .unwrap();
+        #[cfg(unix)]
+        check_process_spawn(inherited, "program".as_ref(), &["program".into()]).unwrap();
     }
 
     #[test]
@@ -287,8 +293,9 @@ fn main {}
             .unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
-        let (inherited, _) =
-            load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
+        let inherited = PolicyInheritance::from_transfer(&contents)
+            .unwrap()
+            .policy();
 
         #[cfg(unix)]
         assert_eq!(
@@ -507,8 +514,9 @@ fn main {}
             .unwrap();
         std::fs::rename(&allowed, directory.path().join("moved")).unwrap();
         std::os::unix::fs::symlink(&outside, &allowed).unwrap();
-        let (mut child, _) =
-            load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
+        let mut child = PolicyInheritance::from_transfer(&contents)
+            .unwrap()
+            .policy();
         let target = std::fs::canonicalize(&outside).unwrap().join("secret");
         assert_eq!(
             child.take_filesystem_policy().unwrap().authorize(
@@ -519,6 +527,6 @@ fn main {}
             Err(AsyncHostError::PermissionDenied)
         );
         std::fs::remove_file(&allowed).unwrap();
-        load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
+        PolicyInheritance::from_transfer(&contents).unwrap();
     }
 }

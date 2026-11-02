@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use crate::async_host::AsyncHostResult;
 
-use super::{config::FsConfig, sandbox_denied};
+use super::{config::FsConfig, sandbox_denied, transfer};
 
 /// Restricts async filesystem operations to native host roots.
 ///
@@ -46,20 +46,50 @@ pub(crate) struct FsIntents {
 }
 
 impl FsPolicy {
-    pub(super) fn to_config(&self) -> FsConfig {
+    pub(super) fn to_transfer(&self) -> transfer::Filesystem {
         let roots = |roots: &[FsRoot]| {
             roots
                 .iter()
                 .map(|root| match root {
-                    FsRoot::Any => PathBuf::from("*"),
-                    FsRoot::Path(path) => path.clone(),
+                    FsRoot::Any => transfer::Root::Any,
+                    FsRoot::Path(path) => transfer::Root::Path(path.as_os_str().to_owned()),
                 })
                 .collect()
         };
-        FsConfig {
+        transfer::Filesystem {
             read: roots(&self.read_roots),
             write: roots(&self.write_roots),
         }
+    }
+
+    pub(super) fn from_transfer(value: transfer::Filesystem) -> anyhow::Result<Self> {
+        let roots = |roots: Vec<transfer::Root>| {
+            roots
+                .into_iter()
+                .map(|root| match root {
+                    transfer::Root::Any => Ok(FsRoot::Any),
+                    transfer::Root::Path(path) => {
+                        let path = PathBuf::from(path);
+                        anyhow::ensure!(
+                            path.is_absolute(),
+                            "inherited filesystem roots must be absolute"
+                        );
+                        anyhow::ensure!(
+                            !path.as_os_str().as_encoded_bytes().contains(&0)
+                                && !path
+                                    .components()
+                                    .any(|part| matches!(part, std::path::Component::ParentDir)),
+                            "invalid inherited filesystem root"
+                        );
+                        Ok(FsRoot::Path(path))
+                    }
+                })
+                .collect::<anyhow::Result<Vec<_>>>()
+        };
+        Ok(Self {
+            read_roots: roots(value.read)?,
+            write_roots: roots(value.write)?,
+        })
     }
 
     /// Construct runtime enforcement from roots canonicalized by `policy`.

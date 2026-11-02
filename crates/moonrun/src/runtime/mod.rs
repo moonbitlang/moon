@@ -190,11 +190,15 @@ impl Runtime {
             Some(mask) => mask,
             None => current_signal_mask()?,
         };
-        let source_environment = config
-            .default_environment
-            .map(Env::owned)
-            .transpose()?
-            .unwrap_or_else(Env::ambient);
+        let source_environment = match (config.default_environment, &config.inherited_policy) {
+            (Some(entries), _) => Env::owned(entries)?,
+            // An external child receives its values through the OS environment.
+            // Own that snapshot so guest mutations cannot alter the embedding host.
+            (None, Some(policy::InheritedPolicyInput::Transfer(_))) => {
+                Env::owned(Env::ambient().entries())?
+            }
+            (None, _) => Env::ambient(),
+        };
         let (mut policy, provisioning) = match (
             config.inherited_policy,
             config.policy_file.as_deref(),
@@ -203,9 +207,9 @@ impl Runtime {
                 (inherited.policy(), None)
             }
             (Some(policy::InheritedPolicyInput::Transfer(contents)), _) => {
-                let (inherited, environment) = policy::PolicyInheritance::from_transfer(&contents)
+                let inherited = policy::PolicyInheritance::from_transfer(&contents)
                     .context("failed to load inherited sandbox policy (experimental)")?;
-                (inherited.policy(), Some(environment))
+                (inherited.policy(), None)
             }
             (None, Some(path)) => {
                 let (rules, environment) = policy::read_file(path, config.policy_source_dir.as_deref())
@@ -356,6 +360,26 @@ mod tests {
             Some("child".into())
         );
         assert!(!runtime.environment().is_ambient());
+    }
+
+    #[test]
+    fn transferred_restrictions_keep_environment_mutations_runtime_owned() {
+        let key = "MOONRUN_TRANSFER_ENV_ISOLATION_TEST";
+        let before = std::env::var_os(key);
+        let config = crate::RunOptions::default()
+            .with_inherited_policy(
+                include_bytes!("../../tests/fixtures/deny_restrictions.json").to_vec(),
+            )
+            .runtime;
+        let (_, signals) = crate::run_signal::signal_channel();
+        let runtime = Runtime::new(config, Executable::unavailable(), signals).unwrap();
+        assert!(!runtime.environment().is_ambient());
+        assert_eq!(runtime.environment().get(key.as_ref()), before);
+        runtime
+            .environment()
+            .set(key.into(), "child".into())
+            .unwrap();
+        assert_eq!(std::env::var_os(key), before);
     }
 
     #[test]

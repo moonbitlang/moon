@@ -23,7 +23,7 @@ use anyhow::Context;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 
-use super::{config::NetConfig, sandbox_denied};
+use super::{config::NetConfig, sandbox_denied, transfer};
 
 #[derive(Clone, Debug)]
 pub(crate) struct NetPolicy {
@@ -55,12 +55,7 @@ pub(crate) struct SocketRule {
 enum SocketHostRule {
     Any,
     Ip(IpAddr),
-    Name {
-        pattern: DnsPattern,
-        // Legacy syntax classifies raw host spelling before DNS normalization.
-        // Keep that spelling so transfer cannot turn a DNS name into an IP or *.
-        spelling: String,
-    },
+    Name(DnsPattern),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,12 +71,37 @@ struct SocketAddr {
 }
 
 impl NetPolicy {
-    pub(super) fn to_config(&self) -> NetConfig {
-        NetConfig {
-            dns: self.dns.iter().map(DnsPattern::encode).collect(),
-            connect: self.connect.iter().map(SocketRule::encode).collect(),
-            bind: self.bind.iter().map(SocketRule::encode).collect(),
+    pub(super) fn to_transfer(&self) -> transfer::Network {
+        transfer::Network {
+            dns: self.dns.iter().map(DnsPattern::to_transfer).collect(),
+            connect: self.connect.iter().map(SocketRule::to_transfer).collect(),
+            bind: self.bind.iter().map(SocketRule::to_transfer).collect(),
         }
+    }
+
+    pub(super) fn from_transfer(value: transfer::Network) -> anyhow::Result<Self> {
+        let policy = Self {
+            dns: value
+                .dns
+                .into_iter()
+                .map(DnsPattern::from_transfer)
+                .collect::<anyhow::Result<_>>()?,
+            connect: value
+                .connect
+                .into_iter()
+                .map(SocketRule::from_transfer)
+                .collect::<anyhow::Result<_>>()?,
+            bind: value
+                .bind
+                .into_iter()
+                .map(SocketRule::from_transfer)
+                .collect::<anyhow::Result<_>>()?,
+        };
+        anyhow::ensure!(
+            !policy.bind.iter().any(SocketRule::requires_dns),
+            "bind restrictions cannot use DNS names"
+        );
+        Ok(policy)
     }
 
     pub(super) fn from_config(config: NetConfig) -> anyhow::Result<Self> {
@@ -188,12 +208,33 @@ impl NetOperation {
 }
 
 impl DnsPattern {
-    fn encode(&self) -> String {
+    fn to_transfer(&self) -> transfer::DnsPattern {
         match self {
-            Self::Any => "*".into(),
-            Self::Exact(name) => name.clone(),
-            Self::Subdomain(suffix) => format!("*.{suffix}"),
+            Self::Any => transfer::DnsPattern::Any,
+            Self::Exact(name) => transfer::DnsPattern::Exact(name.clone()),
+            Self::Subdomain(suffix) => transfer::DnsPattern::Subdomain(suffix.clone()),
         }
+    }
+
+    fn from_transfer(value: transfer::DnsPattern) -> anyhow::Result<Self> {
+        let pattern = match value {
+            transfer::DnsPattern::Any => Self::Any,
+            transfer::DnsPattern::Exact(name) => {
+                anyhow::ensure!(
+                    name != "*" && !name.starts_with("*."),
+                    "invalid exact DNS restriction"
+                );
+                Self::Exact(name)
+            }
+            transfer::DnsPattern::Subdomain(suffix) => Self::Subdomain(suffix),
+        };
+        if let Self::Exact(name) | Self::Subdomain(name) = &pattern {
+            anyhow::ensure!(
+                !name.is_empty() && normalize_dns_name(name) == *name,
+                "inherited DNS names must be normalized"
+            );
+        }
+        Ok(pattern)
     }
 
     fn parse(pattern: &str) -> anyhow::Result<Self> {
@@ -227,24 +268,34 @@ impl DnsPattern {
 }
 
 impl SocketRule {
-    fn encode(&self) -> String {
-        let host = match &self.host {
-            SocketHostRule::Any => "*".into(),
-            SocketHostRule::Ip(IpAddr::V4(ip)) => ip.to_string(),
-            SocketHostRule::Ip(IpAddr::V6(ip)) => format!("[{ip}]"),
-            SocketHostRule::Name { spelling, .. } => {
-                if spelling.contains(':') || spelling.starts_with('[') {
-                    format!("[{spelling}]")
-                } else {
-                    spelling.clone()
+    fn to_transfer(&self) -> transfer::SocketRule {
+        transfer::SocketRule {
+            host: match &self.host {
+                SocketHostRule::Any => transfer::SocketHost::Any,
+                SocketHostRule::Ip(ip) => transfer::SocketHost::Ip(*ip),
+                SocketHostRule::Name(pattern) => transfer::SocketHost::Name(pattern.to_transfer()),
+            },
+            port: match self.port {
+                SocketPortRule::Any => transfer::SocketPort::Any,
+                SocketPortRule::Exact(port) => transfer::SocketPort::Exact(port),
+            },
+        }
+    }
+
+    fn from_transfer(value: transfer::SocketRule) -> anyhow::Result<Self> {
+        Ok(Self {
+            host: match value.host {
+                transfer::SocketHost::Any => SocketHostRule::Any,
+                transfer::SocketHost::Ip(ip) => SocketHostRule::Ip(ip),
+                transfer::SocketHost::Name(pattern) => {
+                    SocketHostRule::Name(DnsPattern::from_transfer(pattern)?)
                 }
-            }
-        };
-        let port = match self.port {
-            SocketPortRule::Any => "*".into(),
-            SocketPortRule::Exact(port) => port.to_string(),
-        };
-        format!("{host}:{port}")
+            },
+            port: match value.port {
+                transfer::SocketPort::Any => SocketPortRule::Any,
+                transfer::SocketPort::Exact(port) => SocketPortRule::Exact(port),
+            },
+        })
     }
 
     fn parse(rule: &str) -> anyhow::Result<Self> {
@@ -254,10 +305,7 @@ impl SocketRule {
         } else if let Ok(ip) = host.parse() {
             SocketHostRule::Ip(ip)
         } else {
-            SocketHostRule::Name {
-                pattern: DnsPattern::parse(host)?,
-                spelling: host.to_owned(),
-            }
+            SocketHostRule::Name(DnsPattern::parse(host)?)
         };
         let port = if port == "*" {
             SocketPortRule::Any
@@ -275,26 +323,26 @@ impl SocketRule {
         match &self.host {
             SocketHostRule::Any => true,
             SocketHostRule::Ip(ip) => host.parse::<IpAddr>().is_ok_and(|host_ip| host_ip == *ip),
-            SocketHostRule::Name { pattern, .. } => pattern.matches(host),
+            SocketHostRule::Name(pattern) => pattern.matches(host),
         }
     }
 
     fn allows_resolved_name(&self, host: &str) -> bool {
         match &self.host {
-            SocketHostRule::Name { pattern, .. } => pattern.matches(host),
+            SocketHostRule::Name(pattern) => pattern.matches(host),
             SocketHostRule::Any | SocketHostRule::Ip(_) => false,
         }
     }
 
     fn requires_dns(&self) -> bool {
-        matches!(self.host, SocketHostRule::Name { .. })
+        matches!(self.host, SocketHostRule::Name(_))
     }
 
     fn matches(&self, addr: SocketAddr) -> bool {
         (match &self.host {
             SocketHostRule::Any => true,
             SocketHostRule::Ip(ip) => *ip == addr.ip,
-            SocketHostRule::Name { .. } => false,
+            SocketHostRule::Name(_) => false,
         }) && match self.port {
             SocketPortRule::Any => true,
             SocketPortRule::Exact(port) => port == addr.port,
@@ -428,7 +476,9 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-            let child = NetPolicy::from_config(parent.to_config()).unwrap();
+            let encoded = serde_json::to_vec(&parent.to_transfer()).unwrap();
+            let child =
+                NetPolicy::from_transfer(serde_json::from_slice(&encoded).unwrap()).unwrap();
             for policy in [parent, child] {
                 assert_eq!(
                     policy.check_socket(NetOperation::Connect, &address, &[]),

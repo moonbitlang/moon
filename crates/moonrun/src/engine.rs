@@ -179,6 +179,7 @@ impl RunOptions {
         self
     }
 
+    /// Receive the internal restriction transfer format, not a user policy document.
     #[doc(hidden)]
     pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
         self.runtime.policy_file = None;
