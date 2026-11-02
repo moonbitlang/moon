@@ -80,14 +80,7 @@ pub(crate) fn command_for_with_moonrun_policy(
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
 ) -> Command {
-    command_for_with_moonrun_policy_source_dir(
-        mode,
-        mbt_executable,
-        test,
-        moonrun_policy,
-        None,
-        false,
-    )
+    command_for_with_moonrun_policy_source_dir(mode, mbt_executable, test, moonrun_policy, None)
 }
 
 pub(crate) fn command_for_with_moonrun_policy_source_dir(
@@ -96,20 +89,10 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
-    virtual_process_tree: bool,
 ) -> Command {
-    match (mode, virtual_process_tree) {
-        (ExecutionMode::MoonRun, _) | (_, true) => {
+    match mode {
+        ExecutionMode::MoonRun => {
             let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
-            if virtual_process_tree {
-                cmd.arg("--virtual-process-tree");
-                cmd.arg("--virtual-process-kind");
-                cmd.arg(match mode {
-                    ExecutionMode::MoonRun => "wasm",
-                    ExecutionMode::Native => "native",
-                    ExecutionMode::Node => "js",
-                });
-            }
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
@@ -127,7 +110,7 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
             cmd.arg("--");
             cmd
         }
-        (ExecutionMode::Node, false) => {
+        ExecutionMode::Node => {
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
             cmd.arg(dunce::simplified(mbt_executable));
@@ -136,7 +119,7 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
             }
             cmd
         }
-        (ExecutionMode::Native, false) => {
+        ExecutionMode::Native => {
             let mut cmd = Command::new(dunce::simplified(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());

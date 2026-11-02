@@ -81,10 +81,10 @@ responsibilities have distinct owners within that interface.
 `Engine::run` executes on the calling thread; `spawn(parent, module, options)`
 creates a managed thread whose result is consumed by `wait`. Both reuse Modules
 and consume `RunOptions`. Thread placement does not select guest process
-behavior: `GuestProcessMode::Native` is the compatibility default, and
-`with_guest_process_mode(GuestProcessMode::Virtual)` selects virtual identities
-and child control. A managed execution has a host control identity in either
-mode; guest process operations use virtual identities only in Virtual mode.
+behavior: `with_virtualize(false)` preserves native behavior, while
+`with_virtualize(true)` selects virtual identities and child control. Native
+and internal moonx launches use the existing process policy in both cases. A
+managed execution has a host control identity regardless of guest virtualization.
 
 `Engine::new` creates an independent process namespace. Clones share its backend
 and process table. Table entries retain relationships, control, and completion,
@@ -94,7 +94,7 @@ admission nor lookup reconstructs Runtime state from a process entry.
 
 `run_moon` and `spawn_moon` share Moon preparation and artifact dispatch.
 They are host-selected entries and can prepare `moon run` as well as moonx.
-Guest Virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
+Guest virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
 or registry packages. Other commands return unsupported without native fallback.
 Engine uses the shared moonx grammar before entering preparation. Help/version
 and parse errors complete through the embedded frontend and bound stdio; no
@@ -140,7 +140,7 @@ Cancelling a wait must preserve the child and an unread result. Managed results
 are published after thread reaping. A caller-thread virtual execution reserves
 its result for the synchronous caller and removes its identity on return.
 Neither `Terminating` nor dropping an Engine promises that blocked work has
-stopped. `request_shutdown(outcome)` closes managed and Virtual admission and
+stopped. `request_shutdown(outcome)` closes managed and virtualized admission and
 requests termination of all admitted members under the same process-table lock.
 It includes adopted descendants without changing single-member `terminate`
 semantics. The caller still owns waiting and result consumption. Native
@@ -404,10 +404,10 @@ introducing new host-global fallbacks for Runtime-owned inputs.
 Current implementation: `RunOptions::with_environment` selects an owned source
 environment; policy provisioning, when present, consumes that source. An empty
 iterator stays empty rather than inheriting host values. Host entries capture
-Virtual root defaults through `RuntimeConfig::capture_host_state`; guest spawn
-derivation in Host Process selects Virtual mode and supplies environment, cwd,
-stdio, and inherited policy explicitly. Admission rejects an incomplete Virtual
-configuration rather than falling back to host state. Parent links do not
+virtualized root defaults through `RuntimeConfig::capture_host_state`; guest
+spawn derivation in Host Process preserves that mode and supplies environment,
+cwd, stdio, and inherited policy explicitly. Admission rejects incomplete
+virtualized configuration rather than falling back to host state. Parent links do not
 participate in deriving configuration or policy.
 
 Current limits: Ambient Runs can mutate the host environment.
@@ -472,6 +472,15 @@ Trusted host grants are a separate operation and must not be inferred from
 parentage, a policy filename, or knowledge of another Runtime's handle number.
 Runtime isolation prevents access to the original resource behind another
 Runtime's Handles; cross-Runtime resource transfer needs explicit rebinding.
+
+`process.virtualize` is construction input colocated in the policy file with
+process authorization. Engine consumes that choice before creating the Runtime;
+Host Process checks the existing `spawn`/`allow` rules before any spawn lookup or
+resource acquisition, including internal moonx. The selected file is parsed once.
+An explicit host `with_virtualize` overrides its execution choice without changing
+permissions. Inherited policy keeps the same full-policy precedence; internal
+moonx receives the canonical configuration directly and external moonx relays it
+through the existing anonymous OS handle. Unrestricted execution needs no transfer.
 
 Current limits: policy loading separates environment provisioning from domain
 rules and transports canonical inherited policy. Without a policy, existing

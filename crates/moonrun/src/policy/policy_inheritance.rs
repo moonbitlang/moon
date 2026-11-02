@@ -18,25 +18,28 @@
 
 //! The canonical policy representation published for descendant Runs.
 //!
-//! Policy construction keeps immutable serialized bytes. A spawn job worker
-//! materializes them into an anonymous OS-backed transfer only after it
+//! Policy construction keeps the canonical configuration. A spawn job worker
+//! serializes it into an anonymous OS-backed transfer only after it
 //! recognizes a direct moonx spawn, so ordinary Runs do not depend on temporary
 //! storage or expose a filesystem pathname.
 
 use std::io::{Seek, Write};
-use std::sync::Arc;
-
-use anyhow::Context;
 
 use super::config::{EnvConfig, PolicyConfig};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct PolicyInheritance {
-    contents: Arc<[u8]>,
+    config: PolicyConfig,
+}
+
+impl std::fmt::Debug for PolicyInheritance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolicyInheritance").finish_non_exhaustive()
+    }
 }
 
 impl PolicyInheritance {
-    pub(super) fn from_config(config: &PolicyConfig) -> anyhow::Result<Self> {
+    pub(super) fn from_config(config: &PolicyConfig) -> Self {
         let mut inherited = config.clone();
         // Env owns the Run's current values. They cross the process boundary
         // through the normal process environment rather than this payload.
@@ -45,22 +48,21 @@ impl PolicyInheritance {
             ..Default::default()
         });
 
-        let contents = serde_json::to_vec_pretty(&inherited)
-            .context("failed to serialize inherited Moonrun Policy")?;
-        Ok(Self {
-            contents: contents.into(),
-        })
+        Self { config: inherited }
     }
 
-    pub(crate) fn contents(&self) -> Vec<u8> {
-        self.contents.to_vec()
+    pub(crate) fn apply_to(&self, runtime: &mut crate::runtime::RuntimeConfig) {
+        runtime.policy = Some(super::PolicyInput {
+            config: self.config.clone(),
+            source_dir: ".".into(),
+        });
     }
 
     pub(crate) fn open_transfer(
         &self,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
         let mut file = tempfile::tempfile()?;
-        file.write_all(&self.contents)?;
+        serde_json::to_writer(&mut file, &self.config)?;
         file.flush()?;
         file.rewind()?;
         moonutil::policy_transport::PolicyTransfer::from_file(file)
@@ -73,7 +75,7 @@ mod tests {
 
     #[test]
     fn inherited_transfer_outlives_the_canonical_representation() {
-        let inheritance = PolicyInheritance::from_config(&PolicyConfig::default()).unwrap();
+        let inheritance = PolicyInheritance::from_config(&PolicyConfig::default());
         let transfer = inheritance.open_transfer().unwrap();
 
         drop(inheritance);
@@ -85,7 +87,7 @@ mod tests {
 
     #[test]
     fn each_transfer_has_an_independent_file_position() {
-        let inheritance = PolicyInheritance::from_config(&PolicyConfig::default()).unwrap();
+        let inheritance = PolicyInheritance::from_config(&PolicyConfig::default());
         let first = inheritance.open_transfer().unwrap();
         let second = inheritance.open_transfer().unwrap();
         let first_contents = first.read().unwrap();

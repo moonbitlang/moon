@@ -39,8 +39,8 @@ wrappers or deprecation stages. Complex executable discovery is deferred.
   authoritative source for each field and making the source of inherited state
   and authority explicit rather than deriving either from a parent PID. Make
   the host configuration available through `with_environment`, including an
-  explicit empty environment. Select Native or Virtual guest process behavior
-  independently of thread placement. Only Virtual host entries capture missing
+  explicit empty environment. Select process virtualization and process authorization independently
+  of each other and thread placement. Virtualized host entries capture missing
   root inputs; guest derivation supplies complete Runtime inputs.
 - [x] Make the regular Host Process path prepare the operation before execution,
   with clear ownership of interpretation, authorization, and admission.
@@ -111,7 +111,7 @@ signal handling returns to the existing process fallback.
 
 - [x] Share moonx's authoritative grammar between Moon and Moonrun, including
   its opaque program-argument tail. Keep ordinary Moon CLI definitions in Moon.
-- [x] Restrict guest Virtual spawn to moonx for local `.mbtx` files and registry
+- [x] Restrict guest virtual spawn to moonx for local `.mbtx` files and registry
   packages. Other commands report unsupported; there is no native fallback.
 - [x] Classify before preparation: complete help/version and argument errors
   through the embedded frontend and bound streams without a helper or handoff
@@ -123,13 +123,22 @@ use `moon run`. Their preparation interface does not expand guest spawn support.
 Recursive tests use the pinned async implementation with a private cached
 registry artifact and local scripts; no live registry dependency is introduced.
 
+## Execution configuration
+
+- [x] Configure `process.virtualize` through the existing policy file and retain
+  an embedding override. Reuse `spawn`/`allow` authorization in both modes,
+  including internal moonx. Remove execution-mode CLI flags; Moon forwards the
+  selected policy. Virtual guest execution remains moonx-only.
+- [x] Parse the selected policy once for Engine execution selection and Runtime
+  authorization. Bind a delivered policy before Wasm begins, reusing an already
+  admitted identity when present.
+
 ## Follow-up order
 
-1. Add native process members to Engine for mixed execution. Besides delivered
-   native/Node artifacts, support ordinary authorized guest native commands.
-   Preserve env, cwd, stdio, single-member termination, wait, shutdown, and reaping
-   through the same supervision interface. Pure Virtual execution remains
-   moonx-only; mixed execution must be explicitly selected, not a fallback.
+1. Add ordinary authorized native children to Engine for mixed execution, then
+   support delivered native/Node artifacts. Keep process permission separate
+   from virtualization and preserve single-member control, wait, shutdown and
+   reaping through the same supervision interface.
 2. Reuse native process management for preparation helpers and their compiler
    descendants. Cancellation currently waits for helper exit and prevents
    subsequent Wasm execution. Prefer a Unix process group / Windows Job for
@@ -161,7 +170,7 @@ These follow-ups do not all belong in the current milestone.
   stdio, inherited policy, and executable identity through artifact handoff.
 - Ordinary Engine execution retains its standalone termination and teardown
   contract across supported backends.
-- `run` and `spawn` preserve the selected guest process mode; Engine clones
+- `run` and `spawn` preserve the selected process configuration; Engine clones
   share control while new Engines have independent namespaces. Explicit empty
   environments do not fall back to host values.
 - Native Ambient lookup preserves platform observation timing. Native-control

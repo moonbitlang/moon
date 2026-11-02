@@ -87,6 +87,58 @@ impl Policy {
     }
 }
 
+/// A selected policy source, read once before execution admission. Environment
+/// provisioning remains deferred until the Run's source Env is available.
+#[derive(Clone)]
+pub(crate) struct PolicyInput {
+    config: PolicyConfig,
+    source_dir: PathBuf,
+}
+
+impl std::fmt::Debug for PolicyInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolicyInput").finish_non_exhaustive()
+    }
+}
+
+impl PolicyInput {
+    pub(crate) fn from_file(path: &Path, source_dir: Option<&Path>) -> anyhow::Result<Self> {
+        let config = PolicyConfig::from_file(path)
+            .context("failed to load sandbox policy (experimental)")?;
+        let source_dir = source_dir
+            .or_else(|| path.parent())
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        Ok(Self {
+            config,
+            source_dir: std::path::absolute(source_dir)?,
+        })
+    }
+
+    pub(crate) fn from_inherited(contents: &[u8]) -> anyhow::Result<Self> {
+        let config = serde_json::from_slice(contents)
+            .context("failed to parse inherited JSON Moonrun Policy")?;
+        Ok(Self {
+            config,
+            source_dir: PathBuf::from("."),
+        })
+    }
+
+    pub(crate) fn virtualize(&self) -> bool {
+        self.config
+            .process
+            .as_ref()
+            .is_some_and(|process| process.virtualize)
+    }
+
+    pub(crate) fn realize(
+        self,
+        source: &crate::runtime::Env,
+    ) -> anyhow::Result<(Policy, EnvProvisioning)> {
+        realize_config(self.config, &self.source_dir, source)
+    }
+}
+
 /// Load a policy document into its two construction-time outputs.
 ///
 /// The source format still colocates environment provisioning with operational
@@ -97,25 +149,21 @@ pub(crate) fn load_file(path: &Path) -> anyhow::Result<(Policy, EnvProvisioning)
     load_file_with_source_dir(path, None, &crate::runtime::Env::ambient())
 }
 
+#[cfg(test)]
 pub(crate) fn load_file_with_source_dir(
     path: &Path,
     source_dir: Option<&Path>,
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let config = PolicyConfig::from_file(path)?;
-    let config_dir = source_dir.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
-    realize_config(config, config_dir, source)
+    PolicyInput::from_file(path, source_dir)?.realize(source)
 }
 
+#[cfg(test)]
 pub(crate) fn load_inherited_json(
     contents: &[u8],
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let config = serde_json::from_slice(contents)
-        .context("failed to parse inherited JSON Moonrun Policy")?;
-    // Inherited policies contain absolute filesystem roots. Running the same
-    // canonicalization confirms that those roots still resolve here.
-    realize_config(config, Path::new("."), source)
+    PolicyInput::from_inherited(contents)?.realize(source)
 }
 
 fn realize_config(
@@ -124,7 +172,7 @@ fn realize_config(
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
     let config = canonicalize(config, config_dir)?;
-    let policy_inheritance = PolicyInheritance::from_config(&config)?;
+    let policy_inheritance = PolicyInheritance::from_config(&config);
     let fs = Some(FsPolicy::from_canonical_config(
         config.fs.unwrap_or_default(),
     ));
@@ -192,6 +240,71 @@ mod tests {
 
     use super::*;
     use crate::async_host::AsyncHostError;
+
+    #[test]
+    fn selected_policy_is_read_once_for_execution_and_authorization() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("policy.toml");
+        std::fs::write(
+            &path,
+            r#"
+[process]
+virtualize = true
+allow = [{ program = "moonx", args_prefix = ["tool.mbtx"] }]
+"#,
+        )
+        .unwrap();
+        let options = crate::RunOptions::default()
+            .with_policy_file(&path)
+            .unwrap();
+        assert!(options.virtualize());
+        std::fs::remove_file(path).unwrap();
+        let options = options.with_virtualize(false);
+        assert!(!options.virtualize());
+        let (mut policy, _) = options
+            .runtime
+            .policy
+            .unwrap()
+            .realize(&crate::runtime::Env::ambient())
+            .unwrap();
+        let process = policy.take_process_policy().unwrap();
+        #[cfg(unix)]
+        {
+            assert!(
+                process
+                    .allows_unix("moonx".as_ref(), &["moonx".into(), "tool.mbtx".into()])
+                    .is_ok()
+            );
+            assert!(
+                process
+                    .allows_unix("moonx".as_ref(), &["moonx".into(), "other.mbtx".into()])
+                    .is_err()
+            );
+            assert!(
+                process
+                    .allows_unix("moon".as_ref(), &["moon".into(), "--version".into()])
+                    .is_err()
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert!(
+                process
+                    .allows_windows("moonx.exe tool.mbtx".as_ref())
+                    .is_ok()
+            );
+            assert!(
+                process
+                    .allows_windows("moonx.exe other.mbtx".as_ref())
+                    .is_err()
+            );
+            assert!(
+                process
+                    .allows_windows("moon.exe --version".as_ref())
+                    .is_err()
+            );
+        }
+    }
 
     fn config_with_fs_roots(read: Vec<PathBuf>, write: Vec<PathBuf>) -> PolicyConfig {
         PolicyConfig {
@@ -408,6 +521,7 @@ fn main {}
                 process: Some(config::ProcessConfig {
                     spawn: true,
                     allow: Vec::new(),
+                    ..Default::default()
                 }),
             },
             tmp.path(),
@@ -630,6 +744,7 @@ fn main {}
                 process: Some(config::ProcessConfig {
                     spawn: true,
                     allow: Vec::new(),
+                    ..Default::default()
                 }),
                 ..PolicyConfig::default()
             },

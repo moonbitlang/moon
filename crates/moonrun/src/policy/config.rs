@@ -66,6 +66,8 @@ pub(super) struct EnvConfig {
 #[serde(deny_unknown_fields)]
 pub(super) struct ProcessConfig {
     #[serde(default)]
+    pub(super) virtualize: bool,
+    #[serde(default)]
     pub(super) spawn: bool,
     #[serde(default)]
     pub(super) allow: Vec<ProcessRuleConfig>,
@@ -197,7 +199,7 @@ permission(
   env: { "set": { "APP_ENV": "embedded" } },
   fs: { "read": ["."], "write": ["scratch"] },
   net: { "connect": ["example.com:443"] },
-  process: { "allow": [{ "program": "git", "args_prefix": ["status"] }] },
+  process: { "virtualize": true, "allow": [{ "program": "git", "args_prefix": ["status"] }] },
 )
 ---
 
@@ -217,6 +219,7 @@ fn main {}
         assert_eq!(fs.write, [PathBuf::from("scratch")]);
         assert_eq!(config.net.unwrap().connect, ["example.com:443"]);
         let process = config.process.unwrap();
+        assert!(process.virtualize);
         assert!(!process.spawn);
         assert_eq!(process.allow[0].program, "git");
         assert_eq!(process.allow[0].args_prefix, ["status"]);

@@ -31,7 +31,7 @@ use clap::Parser;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub(crate) use backend::SUPPORTS_RUN_TERMINATION;
@@ -54,23 +54,6 @@ impl EngineConfig {
     }
 }
 
-/// How guest process operations are routed within one execution.
-///
-/// This choice is independent of whether the host calls [`Engine::run`] or
-/// [`Engine::spawn`]. Neither mode provides an operating-system sandbox.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum GuestProcessMode {
-    /// Preserve native child-process operations and ambient defaults.
-    #[default]
-    Native,
-    /// Use this Engine's virtual process identities and child control.
-    ///
-    /// Roots capture an owned environment and fixed cwd unless supplied by the
-    /// caller. Recursive moonx children derive their state from their Runtime.
-    /// Currently requires V8 and supports only recursive moonx children.
-    Virtual,
-}
-
 /// Configuration for one execution, independent of thread placement.
 #[derive(Debug, Default)]
 pub struct RunOptions {
@@ -78,7 +61,7 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) runtime: RuntimeConfig,
-    pub(crate) guest_process_mode: GuestProcessMode,
+    pub(crate) virtualize: Option<bool>,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
@@ -92,9 +75,24 @@ pub(crate) struct TestArgs {
 }
 
 impl RunOptions {
-    pub fn with_guest_process_mode(mut self, mode: GuestProcessMode) -> Self {
-        self.guest_process_mode = mode;
+    /// Use owned root environment/cwd and Engine-managed process identities.
+    /// Requires V8 and currently supports only internal moonx children.
+    /// The existing process policy authorizes those invocations; virtualization
+    /// does not grant additional permissions or sandbox preparation helpers.
+    pub fn with_virtualize(mut self, virtualize: bool) -> Self {
+        self.virtualize = Some(virtualize);
         self
+    }
+
+    /// Effective execution behavior: an explicit embedding choice takes
+    /// precedence over the selected policy, which otherwise defaults to false.
+    pub fn virtualize(&self) -> bool {
+        self.virtualize.unwrap_or_else(|| {
+            self.runtime
+                .policy
+                .as_ref()
+                .is_some_and(crate::policy::PolicyInput::virtualize)
+        })
     }
 
     /// Supply an owned environment. An empty iterator means an empty environment.
@@ -118,7 +116,7 @@ impl RunOptions {
     // Only host-facing entries may fill absent root inputs from ambient state.
     // Guest derivation supplies complete inputs before process admission.
     pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
-        if self.guest_process_mode == GuestProcessMode::Virtual {
+        if self.virtualize() {
             self.runtime.capture_host_state()?;
         }
         Ok(())
@@ -160,31 +158,37 @@ impl RunOptions {
             .context("invalid MoonBit test arguments")
     }
 
-    pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
-        self.runtime.policy_file = Some(policy_file.into());
-        self.runtime.policy_source_dir = None;
-        self.runtime.inherited_policy = None;
-        self
+    /// Read a policy once. Runtime construction later realizes its domain
+    /// permissions and environment using this same parsed input.
+    pub fn with_policy_file(mut self, policy_file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        self.runtime.policy = Some(crate::policy::PolicyInput::from_file(
+            policy_file.as_ref(),
+            None,
+        )?);
+        Ok(self)
     }
 
+    /// Select a delivered/CLI policy only when no full inherited or host policy
+    /// has already been selected.
     #[doc(hidden)]
-    pub fn with_policy_file_source_dir(
+    pub fn with_fallback_policy_file(
         mut self,
-        policy_file: impl Into<PathBuf>,
-        source_dir: impl Into<PathBuf>,
-    ) -> Self {
-        self.runtime.policy_file = Some(policy_file.into());
-        self.runtime.policy_source_dir = Some(source_dir.into());
-        self.runtime.inherited_policy = None;
-        self
+        policy_file: impl AsRef<Path>,
+        source_dir: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        if self.runtime.policy.is_none() {
+            self.runtime.policy = Some(crate::policy::PolicyInput::from_file(
+                policy_file.as_ref(),
+                source_dir,
+            )?);
+        }
+        Ok(self)
     }
 
     #[doc(hidden)]
-    pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
-        self.runtime.policy_file = None;
-        self.runtime.policy_source_dir = None;
-        self.runtime.inherited_policy = Some(policy);
-        self
+    pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> anyhow::Result<Self> {
+        self.runtime.policy = Some(crate::policy::PolicyInput::from_inherited(&policy)?);
+        Ok(self)
     }
 
     /// Select the working-directory behavior for this run.
@@ -377,11 +381,11 @@ impl fmt::Debug for Module {
 /// Environment, cwd and stdio default to ambient process state; callers can
 /// bind an owned environment, owned streams and a fixed cwd. Ambient guest
 /// environment mutations must not race other process-environment access.
-/// [`GuestProcessMode::Virtual`] provides owned root state and guest process
+/// [`RunOptions::with_virtualize`] provides owned root state and guest process
 /// control. Parent links alone do not imply state or permission inheritance.
 /// Dropping an Engine does not terminate or join its executions; callers must
 /// explicitly terminate and wait when required. [`Engine::request_shutdown`]
-/// closes managed and Virtual admission and requests termination of all admitted
+/// closes managed and virtualized admission and requests termination of all admitted
 /// members; Native caller-thread Runs retain their independent control.
 /// OS signal capture is left to the caller; a signal channel can direct
 /// cooperative delivery to one Run.
@@ -473,8 +477,8 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        self.run_inline(options, signals, |engine, options, signals, termination| {
-            engine.run_in_scope(module, options, signals, termination)
+        self.run_inline(options, signals, |engine, options, signals, scope| {
+            engine.run_in_scope(module, options, signals, scope.termination())
         })
     }
 
@@ -533,13 +537,13 @@ impl Engine {
         self.run_inline(
             options,
             signal_channel().1,
-            |engine, options, signals, termination| {
+            |engine, options, signals, scope| {
                 engine.execute_moon_in_scope(
                     executable,
                     args,
                     options,
                     signals,
-                    termination,
+                    scope,
                     #[cfg(windows)]
                     false,
                 )
@@ -553,43 +557,46 @@ impl Engine {
         args: &[std::ffi::OsString],
         mut options: RunOptions,
         signals: crate::SignalReceiver,
-        termination: &TerminationRequest,
+        scope: &mut crate::process_tree::ExecutionScope<'_>,
         #[cfg(windows)] no_console_window: bool,
     ) -> anyhow::Result<RunOutcome> {
-        if let Some(outcome) = termination.get() {
+        if let Some(outcome) = scope.termination().get() {
             return Ok(outcome.into());
         }
         // Select the invocation before entering artifact preparation. A frontend
         // response is already complete: it needs neither a helper nor handoff
         // storage. Parsing also keeps private handoff flags out of the frontend
         // position without interpreting the program's opaque argument tail.
-        if moonutil::constants::is_moonx_executable(executable.as_os_str())
-            && let Err(response) = moonutil::cli_support::MoonxCli::try_parse_from(
+        if moonutil::constants::is_moonx_executable(executable.as_os_str()) {
+            match moonutil::cli_support::MoonxCli::try_parse_from(
                 std::iter::once(executable.as_os_str()).chain(args.iter().map(OsString::as_os_str)),
-            )
-        {
-            let output = response.render().to_string();
-            // Mirror Clap's CLI exit: output failure does not change the exit
-            // code. Use plain text on the bound streams, never the host's TTY
-            // detection or process-wide print/exit functions.
-            if response.use_stderr() {
-                let _ = options
-                    .runtime
-                    .stdio
-                    .with_stderr(|out| out.write_all(output.as_bytes()));
-            } else {
-                let _ = options
-                    .runtime
-                    .stdio
-                    .with_stdout(|out| out.write_all(output.as_bytes()));
+            ) {
+                Ok(_) => {}
+                Err(response) => {
+                    let output = response.render().to_string();
+                    // Mirror Clap's CLI exit: output failure does not change the exit
+                    // code. Use plain text on the bound streams, never the host's TTY
+                    // detection or process-wide print/exit functions.
+                    if response.use_stderr() {
+                        let _ = options
+                            .runtime
+                            .stdio
+                            .with_stderr(|out| out.write_all(output.as_bytes()));
+                    } else {
+                        let _ = options
+                            .runtime
+                            .stdio
+                            .with_stdout(|out| out.write_all(output.as_bytes()));
+                    }
+                    return Ok(RunOutcome::Exited(response.exit_code()));
+                }
             }
-            return Ok(RunOutcome::Exited(response.exit_code()));
         }
         let (program, _directory) = match crate::prepare_artifact::prepare_moon(
             executable,
             args,
             &options.runtime,
-            termination,
+            scope.termination(),
             #[cfg(windows)]
             no_console_window,
         )? {
@@ -600,12 +607,10 @@ impl Engine {
         };
         options.args = program.args;
         options.runtime.working_directory = WorkingDirectory::Fixed(program.working_directory);
-        if options.runtime.inherited_policy.is_none()
-            && options.runtime.policy_file.is_none()
-            && let Some((policy, source_dir)) = program.policy
-        {
-            options = options.with_policy_file_source_dir(policy, source_dir);
+        if let Some((policy, source_dir)) = program.policy {
+            options = options.with_fallback_policy_file(policy, Some(&source_dir))?;
         }
+        scope.bind_virtual(self, &mut options, &signals)?;
         // The delivery directory outlives Runtime construction and execution. Its
         // cleanup finishes before the Engine finalizes the execution result.
         self.execute_artifact_in_scope(
@@ -620,7 +625,7 @@ impl Engine {
             },
             options,
             signals,
-            termination,
+            scope.termination(),
         )
     }
 
@@ -648,7 +653,7 @@ impl Engine {
                 // FIXME: Admit native executables and Node through the Engine's native
                 // process nodes, sharing PID, wait, cancellation and reaping ownership.
                 anyhow::bail!(
-                    "native process nodes (including Node) are not yet supported in virtual process trees"
+                    "execution of delivered native or Node artifacts is not yet supported"
                 )
             }
         }
@@ -671,9 +676,9 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        self.run_inline(options, signals, |engine, options, signals, termination| {
+        self.run_inline(options, signals, |engine, options, signals, scope| {
             let module = engine.load_file(file)?;
-            engine.run_in_scope(&module, options, signals, termination)
+            engine.run_in_scope(&module, options, signals, scope.termination())
         })
     }
 }

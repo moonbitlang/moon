@@ -112,10 +112,6 @@ pub(crate) struct RunSubcommand {
     #[clap(long = "wasm-policy", value_name = "PATH")]
     pub(crate) moonrun_policy: Option<PathBuf>,
 
-    /// Run Wasm descendants in the same virtual process tree (experimental)
-    #[clap(long, conflicts_with = "profile")]
-    pub virtual_process_tree: bool,
-
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -303,7 +299,6 @@ fn run_source_as_single_file(
         build_flags,
         args,
         moonrun_policy,
-        virtual_process_tree,
         auto_sync_flags,
         build_only,
         profile,
@@ -316,7 +311,6 @@ fn run_source_as_single_file(
         build_flags,
         args,
         moonrun_policy,
-        virtual_process_tree,
         auto_sync_flags,
         build_only,
         profile,
@@ -363,7 +357,6 @@ fn build_wasm_file_executable_from_arg(
             None,
             cmd.moonrun_policy.as_deref(),
             None,
-            cmd.virtual_process_tree,
         );
         run_cmd.args(&cmd.args);
         let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
@@ -391,7 +384,7 @@ pub(crate) fn run_run(
     if cmd.handoff.is_some() && (cli.dry_run || cmd.build_only || cmd.profile) {
         bail!("Moonrun handoff cannot be combined with --dry-run, --build-only, or --profile");
     }
-    if (cmd.handoff.is_some() || cmd.virtual_process_tree) && cmd.build_flags.target.is_empty() {
+    if cmd.handoff.is_some() && cmd.build_flags.target.is_empty() {
         cmd.build_flags.target.push(SurfaceTarget::Wasm);
     }
     if cmd.profile {
@@ -509,7 +502,6 @@ pub(crate) fn build_standalone_wasm(
         },
         args: Vec::new(),
         moonrun_policy: None,
-        virtual_process_tree: false,
         auto_sync_flags: AutoSyncFlags { frozen },
         build_only: false,
         profile: false,
@@ -643,7 +635,6 @@ fn get_run_cmd(
     argv: &[String],
     moonrun_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
-    virtual_process_tree: bool,
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy_source_dir(
@@ -652,7 +643,6 @@ fn get_run_cmd(
         None,
         moonrun_policy,
         policy_source_dir,
-        virtual_process_tree,
     );
     cmd.args(argv);
     cmd
@@ -860,13 +850,7 @@ fn build_executable_from_plan(
             rr_build::write_dry_run(writer, &build_graph, source_dir)?;
 
             if options.print_dry_run_run_command {
-                let run_cmd = get_run_cmd(
-                    build_meta,
-                    &cmd.args,
-                    moonrun_policy,
-                    policy_source_dir,
-                    cmd.virtual_process_tree,
-                );
+                let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
                 writeln!(
                     writer,
                     "{}",
@@ -951,7 +935,6 @@ fn run_executable(
         None,
         moonrun_policy,
         policy_source_dir,
-        cmd.virtual_process_tree,
     );
     run_cmd.args(&cmd.args);
     let user_log = output.user_log();

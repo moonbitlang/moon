@@ -33,20 +33,6 @@ struct Commandline {
     #[clap(allow_hyphen_values = true)]
     args: Vec<String>,
 
-    /// Run moonx descendants in this virtual process tree (experimental).
-    #[clap(long)]
-    virtual_process_tree: bool,
-
-    /// Execution type supplied by Moon after building or acquiring an artifact.
-    #[clap(
-        long,
-        hide = true,
-        value_enum,
-        default_value = "wasm",
-        requires = "virtual_process_tree"
-    )]
-    virtual_process_kind: moonutil::run_handoff::ExecutionKind,
-
     /// Don't print stack trace
     #[clap(long)]
     no_stack_trace: bool,
@@ -57,11 +43,11 @@ struct Commandline {
     #[clap(long)]
     stack_size: Option<usize>,
 
-    /// Experimental: sandbox wasm runtime host access using a JSON policy file.
+    /// Experimental: sandbox wasm runtime host access using a JSON, TOML, or .mbtx policy file.
     #[clap(
         long,
         value_name = "PATH",
-        long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON policy file. WASI is not covered.
+        long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON, TOML, or .mbtx policy file. WASI is not covered.
 
 Supplying --policy enables deny-by-default mode: omitted or empty fs, net, and env objects deny that surface, and process spawning is disabled unless explicitly allowed.
 
@@ -87,6 +73,8 @@ Environment values default to empty in sandbox policy mode. Use env.from_host fo
 Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so net.connect containing "api.deepseek.com:443" does not require a separate dns entry. Bind rules must use IP addresses or *.
 
 Process spawning is disabled by default. process.allow entries match the exact requested program and, when args_prefix is present, a prefix of complete argument tokens. Omitting args_prefix allows any arguments for that program. Multiple entries are alternatives. process.spawn and process.allow cannot be used together.
+
+process.virtualize defaults to false. Set it to true for Engine-managed identities, owned environment/cwd and internal moonx execution (V8 only). The same spawn/allow rules authorize every guest spawn in both modes. For a moonx-only virtual tree use process.virtualize=true with process.allow=[{"program":"moonx"}].
 
 Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes. Scoped rules authorize the logical request, not the executable eventually selected through PATH or other OS lookup."#
     )]
@@ -122,15 +110,14 @@ fn main() -> anyhow::Result<()> {
     if let Some(test_args) = matches.test_args {
         options = options.with_test_args(test_args);
     }
-    // An inherited policy is host-owned and cannot be replaced by a child CLI
-    // argument. Each Run publishes its own canonical copy for future children.
-    if let Some(policy) = inherited_policy {
-        options = options.with_inherited_policy(policy);
-    } else if let Some(policy) = matches.policy {
-        options = match matches.policy_source_dir {
-            Some(source_dir) => options.with_policy_file_source_dir(policy, source_dir),
-            None => options.with_policy_file(policy),
-        };
+    // Inherited authority takes precedence over explicit or embedded policy.
+    // Read only the selected source, before choosing the CLI signal owner.
+    if let Some(authority) = inherited_policy {
+        options = options.with_inherited_policy(authority)?;
+    }
+    if let Some(policy) = matches.policy {
+        options =
+            options.with_fallback_policy_file(policy, matches.policy_source_dir.as_deref())?;
     }
     #[cfg(unix)]
     {
@@ -138,8 +125,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     let (signal_sender, signal_receiver) = signal_channel();
-    let session = matches
-        .virtual_process_tree
+    let session = options
+        .virtualize()
         .then(|| Session::new(signal_sender.clone()));
     let _process_signals = match &session {
         Some(session) => ProcessSignals::install_session(session.clone())?,
@@ -154,8 +141,8 @@ fn main() -> anyhow::Result<()> {
             .spawn_executable_with_signal_receiver(
                 None,
                 &matches.path,
-                matches.virtual_process_kind,
-                options.with_guest_process_mode(moonrun::GuestProcessMode::Virtual),
+                moonutil::run_handoff::ExecutionKind::Wasm,
+                options,
                 signal_receiver,
             )
             .and_then(|root| engine.wait(root));

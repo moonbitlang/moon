@@ -18,7 +18,7 @@
 
 #![cfg(feature = "v8")]
 
-use moonrun::{Engine, GuestProcessMode, RunOptions, RunOutcome, WorkingDirectory};
+use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 use std::fs::{self, File};
 use std::io::{Read, Seek};
 use std::path::Path;
@@ -104,7 +104,7 @@ fn recursive_moon_processes() {
     fs::write(
         &policy,
         serde_json::to_vec(&serde_json::json!({
-            "process": { "spawn": true }, "env": { "from_host": ["*"], "set": {
+            "process": { "virtualize": true, "allow": [{"program":"moonx"}] }, "env": { "from_host": ["*"], "set": {
                 "PATH": path.to_str().unwrap(),
                 "MOON_HOME": moon_home.to_str().unwrap(),
                 "MOON_TOOLCHAIN_ROOT": moonutil::toolchain::toolchain_root().to_str().unwrap(),
@@ -121,8 +121,9 @@ fn recursive_moon_processes() {
             moon,
             &["run".into(), "src/virtual_parent".into()],
             RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_virtualize(true)
                 .with_policy_file(&policy)
+                .unwrap()
                 .with_working_directory(WorkingDirectory::Fixed(project.clone()))
                 .with_stdio(
                     tempfile::tempfile().unwrap(),
@@ -150,7 +151,7 @@ fn recursive_moon_processes() {
 
     snapbox::cmd::Command::new(moon)
         .current_dir(&project)
-        .args(["run", "--virtual-process-tree", "--wasm-policy"])
+        .args(["run", "--target=wasm", "--wasm-policy"])
         .arg(&policy)
         .arg("src/virtual_parent")
         .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
@@ -168,7 +169,6 @@ arg with spaces
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
-        .arg("--virtual-process-tree")
         .arg("--policy")
         .arg(&policy)
         .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
@@ -184,10 +184,10 @@ arg with spaces
 
 "#]]);
     let denied_policy = root.join("denied.json");
-    fs::write(&denied_policy, b"{}").unwrap();
+    fs::write(&denied_policy, br#"{"process":{"virtualize":true}}"#).unwrap();
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
-        .args(["--virtual-process-tree", "--policy"])
+        .args(["--policy"])
         .arg(&denied_policy)
         .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
         .arg("denied")
@@ -198,7 +198,7 @@ arg with spaces
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
-        .args(["--virtual-process-tree", "--policy"])
+        .args(["--policy"])
         .arg(&policy)
         .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
         .arg("orphan")
@@ -235,7 +235,7 @@ arg with spaces
         let mut child = ChildGuard(Some(
             Command::new(snapbox::cmd::cargo_bin!("moonrun"))
                 .current_dir(&project)
-                .args(["--virtual-process-tree", "--policy"])
+                .args(["--policy"])
                 .arg(&policy)
                 .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
                 .arg("orphan-loop")

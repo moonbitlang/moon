@@ -27,7 +27,7 @@ mod working_directory;
 
 use std::cell::RefCell;
 use std::ffi::OsString;
-use std::path::PathBuf;
+
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -137,12 +137,10 @@ pub(crate) struct Runtime {
 
 /// Construction input shared by artifact preparation and its eventual Runtime.
 /// Moving these inputs transfers ownership; only Runtime realizes the state
-/// and loads the policy sources into domain authorization rules.
+/// and realizes the parsed policy into domain authorization rules.
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
-    pub(crate) policy_file: Option<PathBuf>,
-    pub(crate) policy_source_dir: Option<PathBuf>,
-    pub(crate) inherited_policy: Option<Vec<u8>>,
+    pub(crate) policy: Option<policy::PolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
     // Explicit policy provisioning takes precedence over the source environment.
@@ -193,27 +191,14 @@ impl Runtime {
             .map(Env::owned)
             .transpose()?
             .unwrap_or_else(Env::ambient);
-        let (mut policy, env_provisioning) = match (
-            config.inherited_policy.as_deref(),
-            config.policy_file.as_deref(),
-        ) {
-            (Some(contents), _) => {
-                let (policy, env) = policy::load_inherited_json(contents, &source_environment)
-                    .context("failed to load inherited sandbox policy (experimental)")?;
+        let (mut policy, env_provisioning) = match config.policy {
+            Some(input) => {
+                let (policy, env) = input
+                    .realize(&source_environment)
+                    .context("failed to realize Moonrun policy")?;
                 (policy, Some(env))
             }
-            (None, Some(path)) => {
-                let loaded = policy::load_file_with_source_dir(
-                    path,
-                    config.policy_source_dir.as_deref(),
-                    &source_environment,
-                );
-                let (policy, env) = loaded.context(
-                    "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-                )?;
-                (policy, Some(env))
-            }
-            (None, None) => (Policy::allow_all(), None),
+            None => (Policy::allow_all(), None),
         };
         let environment = Arc::new(
             match env_provisioning {
@@ -334,15 +319,14 @@ impl Drop for Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn host_capture_preserves_explicit_empty_environment_and_fixed_directory() {
         let directory = PathBuf::from("unresolved-directory");
-        let policy = PathBuf::from("unloaded-policy.json");
         let mut config = RuntimeConfig {
             default_environment: Some(Vec::new()),
             working_directory: WorkingDirectory::Fixed(directory.clone()),
-            policy_file: Some(policy.clone()),
             ..Default::default()
         };
 
@@ -350,7 +334,6 @@ mod tests {
 
         assert_eq!(config.default_environment, Some(Vec::new()));
         assert_eq!(config.working_directory, WorkingDirectory::Fixed(directory));
-        assert_eq!(config.policy_file, Some(policy));
     }
 
     #[test]
