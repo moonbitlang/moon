@@ -197,15 +197,24 @@ fn test_package_graph_export_is_written_per_backend() {
 #[test]
 fn test_package_tree_shows_selected_backend_imports() {
     let dir = TestDir::new("conditional_imports/fixture");
-    moon_cmd(&dir)
-        .args(["tree", "--package", "--target", "native"])
-        .assert()
-        .success()
-        .stdout_eq(snapbox::str![[r#"
+    for package in ["native", "native_test"] {
+        std::fs::write(
+            dir.join(format!("{package}/moon.pkg")),
+            "supported_targets = \"native+llvm\"\n",
+        )
+        .unwrap();
+    }
+    for backend in ["native", "llvm"] {
+        moon_cmd(&dir)
+            .args(["tree", "--package", "--target", backend])
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
 [..] [app]:
 └─ platform -> [..] [native]
 ...
 "#]]);
+    }
     moon_cmd(&dir)
         .args(["tree", "--package", "--target", "js"])
         .assert()

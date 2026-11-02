@@ -326,7 +326,13 @@ impl Parser {
                         message: err.to_string(),
                         loc,
                     })?;
-                Ok(vec![target])
+                // Expand native to include LLVM before evaluating boolean conditions,
+                // matching source-file selection and the compiler's #cfg semantics.
+                Ok(TargetBackend::all()
+                    .iter()
+                    .copied()
+                    .filter(|backend| backend.matches_file_target(target))
+                    .collect())
             }
             Token::LIDENT((loc, op)) if matches!(op.as_str(), "all" | "any" | "not") => {
                 self.skip();
@@ -574,10 +580,10 @@ import {{ "example/after" }}
                 (
                     key.to_owned(),
                     json!([
-                        {"path": "example/default", "targets": ["Native"]},
-                        {"path": "example/renamed", "alias": "renamed", "targets": ["Native"]},
-                        {"path": "example/legacy", "alias": "legacy", "targets": ["Native"]},
-                        {"path": "example/all", "import-all": true, "targets": ["Native"]},
+                        {"path": "example/default", "targets": ["Native", "LLVM"]},
+                        {"path": "example/renamed", "alias": "renamed", "targets": ["Native", "LLVM"]},
+                        {"path": "example/legacy", "alias": "legacy", "targets": ["Native", "LLVM"]},
+                        {"path": "example/all", "import-all": true, "targets": ["Native", "LLVM"]},
                     ]),
                 ),
                 ("import".to_owned(), json!(["example/after"])),
@@ -599,15 +605,29 @@ fn parse_import_cfg_expressions() {
         (r#"target = "wasm""#, &["Wasm"]),
         (r#"target = "wasm-gc""#, &["WasmGC"]),
         (r#"target = "js""#, &["Js"]),
-        (r#"target = "native""#, &["Native"]),
+        (r#"target = "native""#, &["Native", "LLVM"]),
         (r#"target = "llvm""#, &["LLVM"]),
+        (r#"not(target = "native")"#, &["Wasm", "WasmGC", "Js"]),
+        (
+            r#"not(target = "llvm")"#,
+            &["Wasm", "WasmGC", "Js", "Native"],
+        ),
+        (r#"all(target = "native", target = "llvm")"#, &["LLVM"]),
+        (
+            r#"all(target = "native", not(target = "llvm"))"#,
+            &["Native"],
+        ),
+        (
+            r#"any(target = "native", target = "llvm")"#,
+            &["Native", "LLVM"],
+        ),
         (
             r#"any(target = "native", target = "js",)"#,
-            &["Js", "Native"],
+            &["Js", "Native", "LLVM"],
         ),
         (
             r#"all(any(target = "native", target = "js"), not(target = "js"), true)"#,
-            &["Native"],
+            &["Native", "LLVM"],
         ),
         (r#"all(target = "native", target = "js")"#, &[]),
     ] {
@@ -639,7 +659,7 @@ import { "example/dep" }
         dsl.entries,
         vec![(
             "import".to_owned(),
-            json!([{"path": "example/dep", "targets": ["Native"]}]),
+            json!([{"path": "example/dep", "targets": ["Native", "LLVM"]}]),
         )],
     );
 }

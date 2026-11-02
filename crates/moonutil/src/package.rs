@@ -1844,15 +1844,21 @@ import { "example/lib/wbtest" } for "wbtest"
     assert_eq!(pkg.wbtest_imports[0].get_path(), "example/lib/wbtest");
     for &backend in TargetBackend::all() {
         assert!(pkg.imports[0].supports_backend(backend));
-        assert_eq!(pkg.imports[1].supports_backend(backend), backend == Native);
-        assert_eq!(pkg.imports[2].supports_backend(backend), backend != Native);
+        assert_eq!(
+            pkg.imports[1].supports_backend(backend),
+            matches!(backend, Native | LLVM)
+        );
+        assert_eq!(
+            pkg.imports[2].supports_backend(backend),
+            !matches!(backend, Native | LLVM)
+        );
         assert_eq!(
             pkg.test_imports[0].supports_backend(backend),
-            matches!(backend, Native | Js)
+            matches!(backend, Native | LLVM | Js)
         );
         assert_eq!(
             pkg.wbtest_imports[0].supports_backend(backend),
-            backend == Native
+            matches!(backend, Native | LLVM)
         );
     }
 }
@@ -1959,6 +1965,9 @@ fn convert_pkg_dsl_duplicate_warnings_respect_import_conditions() {
     ] {
         for (first, second, overlaps) in [
             (r#"target = "native""#, r#"not(target = "native")"#, false),
+            (r#"target = "native""#, r#"target = "llvm""#, true),
+            (r#"not(target = "native")"#, r#"target = "llvm""#, false),
+            (r#"target = "native""#, r#"not(target = "llvm")"#, true),
             ("false", "true", false),
             ("any()", "all()", false),
             ("true", r#"target = "native""#, true),
@@ -2036,7 +2045,7 @@ import { "example/lib/unconditional" }
         assert!(pkg.imports[3].supports_backend(backend));
         assert_eq!(
             pkg.test_imports[0].supports_backend(backend),
-            backend == Native
+            matches!(backend, Native | LLVM)
         );
     }
     assert!(matches!(
