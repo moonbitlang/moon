@@ -178,15 +178,7 @@ fn check_graph_uses_debug_profile_without_codegen_flags() {
     for (label, args) in [
         (
             "default check",
-            [
-                "check",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
+            ["check", "--target", "wasm-gc", "--dry-run", "--sort-input"].as_slice(),
         ),
         (
             "explicit debug check",
@@ -196,7 +188,6 @@ fn check_graph_uses_debug_profile_without_codegen_flags() {
                 "wasm-gc",
                 "--dry-run",
                 "--debug",
-                "--nostd",
                 "--sort-input",
             ]
             .as_slice(),
@@ -219,15 +210,7 @@ fn build_graph_uses_selected_profile() {
     for (label, args, profile) in [
         (
             "default build",
-            [
-                "build",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
+            ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"].as_slice(),
             "debug",
         ),
         (
@@ -238,7 +221,6 @@ fn build_graph_uses_selected_profile() {
                 "wasm-gc",
                 "--dry-run",
                 "--release",
-                "--nostd",
                 "--sort-input",
             ]
             .as_slice(),
@@ -252,7 +234,6 @@ fn build_graph_uses_selected_profile() {
                 "wasm-gc",
                 "--dry-run",
                 "--debug",
-                "--nostd",
                 "--sort-input",
             ]
             .as_slice(),
@@ -294,7 +275,6 @@ fn run_graph_uses_selected_profile() {
                 "--target",
                 "wasm-gc",
                 "--dry-run",
-                "--nostd",
                 "--sort-input",
             ]
             .as_slice(),
@@ -309,7 +289,6 @@ fn run_graph_uses_selected_profile() {
                 "wasm-gc",
                 "--dry-run",
                 "--release",
-                "--nostd",
                 "--sort-input",
             ]
             .as_slice(),
@@ -324,7 +303,6 @@ fn run_graph_uses_selected_profile() {
                 "wasm-gc",
                 "--dry-run",
                 "--debug",
-                "--nostd",
                 "--sort-input",
             ]
             .as_slice(),
@@ -370,7 +348,7 @@ fn native_run_cli_flags_match_requested_debug_info() {
             ("no-strip", ["--no-strip"].as_slice(), Some(true)),
             ("strip", ["--debug", "--strip"].as_slice(), Some(false)),
         ] {
-            let mut args = vec!["run", package, "--dry-run", "--nostd", "--sort-input"];
+            let mut args = vec!["run", package, "--dry-run", "--sort-input"];
             args.extend_from_slice(target_args);
             args.extend_from_slice(extra_args);
             let (cli, cmd) = parse_run_command(&args);

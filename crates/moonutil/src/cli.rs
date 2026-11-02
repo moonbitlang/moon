@@ -20,14 +20,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::dirs::{SourceTargetDirs, WorkspaceEnv};
 
-// #[derive(clap::Parser)]
-// pub struct StdInfo {
-//     #[arg(long)]
-//     std: bool,
-//     #[arg(long, default = "false")]
-//     no_std: bool,
-// }
-
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
 #[clap(next_help_heading = "Common Options")]
 pub struct UniversalFlags {

@@ -358,7 +358,7 @@ pub(crate) fn prepare_resolved_build(
         },
     };
     info!("Final backend configuration: {:?}", backend);
-    let stdlib_path = (build_flags.std() && !is_core).then(moonutil::toolchain::core);
+    let stdlib_path = (!is_core).then(moonutil::toolchain::core);
     if target_backend == TargetBackend::LLVM
         && !cli.dry_run
         && let Some(core_root) = &stdlib_path

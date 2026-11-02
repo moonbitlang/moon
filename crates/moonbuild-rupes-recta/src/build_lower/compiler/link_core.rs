@@ -55,7 +55,7 @@ pub(crate) struct MooncLinkCore<'a> {
     // Package configuration
     /// The package name to source path mapping of all packages involved in the build.
     pub package_sources: &'a [PackageSource<'a>],
-    /// Pass [None] for no_std, otherwise provide PackageSource for core
+    /// Source mapping for the prebuilt standard library, absent when building core itself.
     pub stdlib_core_source: Option<PackageSource<'a>>,
 
     // Target and compilation configuration
@@ -169,7 +169,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
             args.push(pkg_source.to_arg());
         }
 
-        // Standard library (if not no_std)
+        // Source mapping for the prebuilt standard library.
         if let Some(ref stdlib_core) = self.stdlib_core_source {
             args.push("-pkg-sources".to_string());
             args.push(stdlib_core.to_arg());

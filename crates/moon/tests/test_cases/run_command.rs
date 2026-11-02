@@ -58,10 +58,7 @@ fn cakenew_test() {
 #[test]
 fn capture_abort_test() {
     let dir = super::TestDir::new("capture_abort_test.in");
-    moon_cmd(&dir)
-        .args(["run", "main", "--nostd"])
-        .assert()
-        .failure();
+    moon_cmd(&dir).args(["run", "main"]).assert().failure();
 }
 
 #[test]

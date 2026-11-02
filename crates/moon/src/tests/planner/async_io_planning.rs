@@ -46,14 +46,8 @@ fn assert_async_io_flag(commands: &[Vec<String>], expected: bool) {
 #[test]
 fn check_propagates_package_async_io_to_test_targets() {
     let fixture = PlanningFixture::new("use_async_io").expect("fixture should resolve");
-    let (cli, cmd) = parse_check_command(&[
-        "check",
-        "--target",
-        "wasm-gc",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) =
+        parse_check_command(&["check", "--target", "wasm-gc", "--dry-run", "--sort-input"]);
     let graph = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("check graph should plan");
@@ -78,14 +72,8 @@ fn check_propagates_package_async_io_to_test_targets() {
 #[test]
 fn build_package_propagates_package_async_io_to_all_test_targets() {
     let fixture = PlanningFixture::new("use_async_io").expect("fixture should resolve");
-    let (cli, cmd) = parse_test_command(&[
-        "test",
-        "--target",
-        "wasm-gc",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) =
+        parse_test_command(&["test", "--target", "wasm-gc", "--dry-run", "--sort-input"]);
     let graph = fixture
         .plan_test_with_cli(&cli, &cmd)
         .expect("test graph should plan");

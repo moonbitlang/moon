@@ -56,13 +56,12 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     user_log: &UserLog,
-    no_std: bool,
     workspace_env: WorkspaceEnv,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        return resolve_workspace_sync(dirs, cli, output_options, user_log, no_std, workspace);
+        return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace);
     }
 
     let module = read_module_desc_file_in_dir(&dirs.source_dir)?;
@@ -76,7 +75,6 @@ pub fn auto_sync(
         output_options,
         user_log,
         cli.dont_sync(),
-        no_std,
         &CacheRoot::Disabled,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
@@ -88,7 +86,6 @@ fn resolve_workspace_sync(
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     user_log: &UserLog,
-    no_std: bool,
     workspace: &WorkspaceLayout,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     let mut roots = ResolvedRootModules::with_key();
@@ -105,7 +102,6 @@ fn resolve_workspace_sync(
         output_options,
         user_log,
         cli.dont_sync(),
-        no_std,
         &CacheRoot::Disabled,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
@@ -146,7 +142,6 @@ pub fn auto_sync_for_single_file_rr(
         output_options,
         user_log,
         sync_flags.dont_sync(),
-        false,
         source_cache,
     )?;
 

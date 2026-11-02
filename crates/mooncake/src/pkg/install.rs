@@ -97,7 +97,6 @@ pub(crate) fn install_impl(
     output_options: SyncOutputOptions,
     user_log: &UserLog,
     dont_sync: bool,
-    no_std: bool,
     source_cache: &CacheRoot,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let includes_core = roots
@@ -114,7 +113,7 @@ pub(crate) fn install_impl(
     };
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
-        inject_std: !includes_core && !no_std,
+        inject_std: !includes_core,
         warn_deprecated: true,
     };
 

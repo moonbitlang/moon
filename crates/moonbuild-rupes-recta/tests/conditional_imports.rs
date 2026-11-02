@@ -65,8 +65,7 @@ fn discover(packages: &[(&str, &str)]) -> (tempfile::TempDir, DiscoveredProject)
     let mut module_dirs = DirSyncResult::new();
     module_dirs.insert(mid, dir.path().to_owned());
     let log = UserLog::new(log::LevelFilter::Error);
-    let config =
-        ProjectPreparationConfig::new_with_load_defaults(false, true, false, WorkspaceEnv::Auto);
+    let config = ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
     let discovered = discover_synced_project(&config, (module_graph, module_dirs), &log).unwrap();
     (dir, discovered)
 }

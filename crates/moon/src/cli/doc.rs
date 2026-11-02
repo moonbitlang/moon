@@ -128,7 +128,6 @@ pub(crate) fn run_doc_rr(
     let build_flags = BuildFlags::default();
     let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );

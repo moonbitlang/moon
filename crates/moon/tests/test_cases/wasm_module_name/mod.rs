@@ -28,7 +28,6 @@ fn release_binary_wasm_builds_name_the_linked_package() {
                 "--target",
                 target,
                 "--dry-run",
-                "--nostd",
                 "--sort-input",
             ],
         );
@@ -51,7 +50,6 @@ fn release_binary_wasm_build_omits_an_undeclared_version() {
             "--target",
             "wasm",
             "--dry-run",
-            "--nostd",
             "--sort-input",
         ],
     );
@@ -66,12 +64,9 @@ fn release_binary_wasm_build_omits_an_undeclared_version() {
 fn non_release_or_non_binary_builds_do_not_set_a_wasm_module_name() {
     let dir = TestDir::new("wasm_module_name/versioned");
     let cases: &[(&[&str], &str)] = &[
+        (&["build", "--target", "wasm", "--dry-run"], "debug Wasm"),
         (
-            &["build", "--target", "wasm", "--dry-run", "--nostd"],
-            "debug Wasm",
-        ),
-        (
-            &["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+            &["build", "--target", "wasm-gc", "--dry-run"],
             "debug WasmGC",
         ),
         (
@@ -82,7 +77,6 @@ fn non_release_or_non_binary_builds_do_not_set_a_wasm_module_name() {
                 "wasm",
                 "--output-wat",
                 "--dry-run",
-                "--nostd",
             ],
             "Wasm WAT",
         ),
@@ -94,41 +88,19 @@ fn non_release_or_non_binary_builds_do_not_set_a_wasm_module_name() {
                 "wasm-gc",
                 "--output-wat",
                 "--dry-run",
-                "--nostd",
             ],
             "WasmGC WAT",
         ),
         (
-            &[
-                "build",
-                "--release",
-                "--target",
-                "js",
-                "--dry-run",
-                "--nostd",
-            ],
+            &["build", "--release", "--target", "js", "--dry-run"],
             "JavaScript",
         ),
         (
-            &[
-                "build",
-                "--release",
-                "--target",
-                "native",
-                "--dry-run",
-                "--nostd",
-            ],
+            &["build", "--release", "--target", "native", "--dry-run"],
             "Native",
         ),
         (
-            &[
-                "build",
-                "--release",
-                "--target",
-                "llvm",
-                "--dry-run",
-                "--nostd",
-            ],
+            &["build", "--release", "--target", "llvm", "--dry-run"],
             "LLVM",
         ),
     ];
@@ -153,7 +125,6 @@ fn release_wasm_tests_use_the_source_package_name() {
             "--target",
             "wasm-gc",
             "--dry-run",
-            "--nostd",
             "--sort-input",
         ],
     );

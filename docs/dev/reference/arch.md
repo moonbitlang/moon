@@ -221,8 +221,8 @@ Toolchain and host facts follow the same rule. `moonutil::toolchain` owns facts
 about the selected MoonBit toolchain tree, including known tool binaries and
 the shipped standard-library artifact layout. Command orchestration decides
 whether those facts apply to the current build, then passes the selected facts
-forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
-!is_core`; RR lowering, metadata generation, and `all_pkgs.json` generation
+forward. In particular, `rr_build` chooses `stdlib_path` from `!is_core`;
+RR lowering, metadata generation, and `all_pkgs.json` generation
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
 not need to be eager: non-native builds do not resolve native-only OS/toolchain

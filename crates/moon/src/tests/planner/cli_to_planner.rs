@@ -55,8 +55,6 @@ fn command_string_run_parses_as_expected() {
                     "fn main { println(\"hello\") }",
                 ),
                 build_flags: BuildFlags {
-                    std: false,
-                    no_std: false,
                     debug: false,
                     release: false,
                     strip: false,
@@ -157,8 +155,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
             },
             TestSubcommand {
                 build_flags: BuildFlags {
-                    std: false,
-                    no_std: false,
                     debug: false,
                     release: false,
                     strip: false,

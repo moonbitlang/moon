@@ -553,13 +553,9 @@ fn prepare_native_build(
             module_dir.display()
         )
     })?;
-    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
-        false,
-        false,
-        false,
-        cli.workspace_env.clone(),
-    )
-    .with_sync_output(sync_output);
+    let preparation_config =
+        ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
+            .with_sync_output(sync_output);
     let synced_modules = moonbuild_rupes_recta::sync_module_dependencies(
         &preparation_config,
         &package_dirs,

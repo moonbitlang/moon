@@ -46,7 +46,7 @@ fn stdlib_abort_uses_normal_build_pipeline() {
     std::fs::write(bundle.join("prelude/prelude.mi"), "").unwrap();
     std::fs::write(bundle.join("core.core"), "").unwrap();
 
-    for state in ["absent", "stale", "bundled", "missing_artifact", "no_std"] {
+    for state in ["absent", "stale", "bundled", "missing_artifact"] {
         if state == "stale" {
             std::fs::create_dir_all(bundle.join("abort")).unwrap();
             std::fs::write(bundle.join("abort/abort.core"), "").unwrap();
@@ -98,17 +98,13 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                 state == "bundled"
             );
         }
-        let mut args = vec!["build", "--target", "wasm-gc", "--dry-run"];
-        if state == "no_std" {
-            args.push("--nostd");
-        }
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())
             .env("MOON_CORE_OVERRIDE", core.path())
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
             .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
-            .args(args)
+            .args(["build", "--target", "wasm-gc", "--dry-run"])
             .assert()
             .success();
         let nodes: Vec<serde_json::Value> = std::fs::read_to_string(&graph)
@@ -133,7 +129,7 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                 .any(|input| input.as_str().unwrap().ends_with("abort/abort.core")),
             "{state}: {inputs:?}"
         );
-        assert_eq!(command.contains("bundle/core.core"), state != "no_std");
+        assert!(command.contains("bundle/core.core"));
     }
 
     // Core's abort package can be tested and instrumented like any other package.

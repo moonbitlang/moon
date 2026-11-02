@@ -104,7 +104,6 @@ pub fn add(
         SyncOutputOptions::default(),
         user_log,
         false,
-        true,
         &moonutil::cache::CacheRoot::Disabled,
     )?;
 

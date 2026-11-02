@@ -280,7 +280,6 @@ pub(crate) fn run_info(
     let build_flags = BuildFlags::default();
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
-        !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );

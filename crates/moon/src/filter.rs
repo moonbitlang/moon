@@ -610,12 +610,8 @@ mod tests {
     }
 
     fn discover_project(source_dir: &Path) -> DiscoveredProject {
-        let cfg = ProjectPreparationConfig::new_with_load_defaults(
-            false,
-            false,
-            false,
-            WorkspaceEnv::Auto,
-        );
+        let cfg =
+            ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
         let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,

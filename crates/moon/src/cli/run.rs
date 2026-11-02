@@ -560,7 +560,6 @@ fn build_package_executable(
 
     let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
@@ -764,7 +763,6 @@ fn build_single_file_executable(
     // Resolve single-file project (synthesized package around the file)
     let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )

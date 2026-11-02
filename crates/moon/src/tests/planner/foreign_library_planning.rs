@@ -32,10 +32,7 @@ fn native_backends_build_foreign_libraries_as_libraries() {
 
     for target in ["native", "llvm"] {
         assert_eq!(
-            requested_build_artifacts(
-                &fixture,
-                &["build", "--dry-run", "--target", target, "--nostd"]
-            ),
+            requested_build_artifacts(&fixture, &["build", "--dry-run", "--target", target]),
             [
                 "username/hello/lib foreign library",
                 "username/hello/main executable",
@@ -47,10 +44,7 @@ fn native_backends_build_foreign_libraries_as_libraries() {
     // Wasm and JS still request `Executable` for a foreign library; see the
     // FIXME in `UserIntent::append_artifacts`.
     assert_eq!(
-        requested_build_artifacts(
-            &fixture,
-            &["build", "--dry-run", "--target", "wasm-gc", "--nostd"]
-        ),
+        requested_build_artifacts(&fixture, &["build", "--dry-run", "--target", "wasm-gc"]),
         [
             "username/hello/lib executable",
             "username/hello/main executable",

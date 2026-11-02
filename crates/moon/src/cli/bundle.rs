@@ -185,7 +185,6 @@ fn sync_and_discover_bundle_project(
     let preparation_config =
         moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
             cmd.auto_sync_flags.frozen,
-            !cmd.build_flags.std(),
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
         );

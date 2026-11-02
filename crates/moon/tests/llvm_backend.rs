@@ -32,21 +32,25 @@ fn native_file_conditions_match_compiler_cfg_on_llvm() {
         ),
         (
             "consumer.mbt",
-            "#cfg(target=\"native\")\npub fn answer() -> Int { from_manifest() + from_filename() }\n",
+            r#"#cfg(target="native")
+pub fn answer() -> Int { from_manifest() + from_filename() }
+pub fn require_native_answer() -> Int { answer() }
+"#,
         ),
     ] {
         std::fs::write(project.path().join(name), contents).unwrap();
     }
 
     // The compiler enables native declarations for LLVM too, so file selection
-    // must retain their implementations without requiring an installed stdlib.
+    // must retain their implementations. The unconditional caller ensures
+    // disabling the native cfg cannot make this test pass vacuously.
     for backend in ["native", "llvm"] {
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
-            .args(["check", "--nostd", "--target", backend])
+            .args(["check", "--target", backend])
             .assert()
             .success()
             .stdout_eq("");
