@@ -36,7 +36,6 @@ pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
 pub const MOONBITLANG_CORE_BUILTIN: &str = "moonbitlang/core/builtin";
 pub const MOONBITLANG_CORE_PRELUDE: &str = "moonbitlang/core/prelude";
 pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";
-pub const MOONBITLANG_ABORT: &str = "moonbitlang/core/abort";
 
 pub static MOD_NAME_STDLIB: ModuleName = ModuleName {
     username: arcstr::literal!("moonbitlang"),

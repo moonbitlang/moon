@@ -485,14 +485,13 @@ fn resolve_virtual_usages(
     Ok(v_user)
 }
 
-use crate::special_cases::{CORE_MODULE_TUPLE, is_self_coverage_lib, should_skip_coverage};
+use crate::special_cases::{CORE_MODULE_TUPLE, is_self_coverage_lib};
 
 /// Inject the dependency to `moonbitlang/core/coverage` for core module packages.
 ///
 /// This injects coverage at the solver layer so later stages don't need to
 /// special-case coverage wiring. We deliberately skip:
 /// - the coverage package itself and builtin (self-coverage libs)
-/// - packages that should skip coverage entirely
 /// - blackbox tests (legacy behavior doesn't link coverage there)
 fn inject_core_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
     let pkg = builder.packages.get_package(pid);
@@ -505,7 +504,7 @@ fn inject_core_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: Packag
         return;
     };
 
-    if is_self_coverage_lib(&pkg.fqn) || should_skip_coverage(&pkg.fqn) {
+    if is_self_coverage_lib(&pkg.fqn) {
         return;
     }
 

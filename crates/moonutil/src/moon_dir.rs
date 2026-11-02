@@ -285,12 +285,6 @@ pub fn core_bundle(backend: TargetBackend) -> PathBuf {
     core_bundle_in(&core(), backend)
 }
 
-pub fn abort_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    core_bundle_in(core_root, backend)
-        .join("abort")
-        .join("abort.core")
-}
-
 pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
     core_bundle_in(core_root, backend).join("core.core")
 }
@@ -304,14 +298,6 @@ pub fn core_package_mi_in(
     core_bundle_in(core_root, backend)
         .join(package_path)
         .join(format!("{package_last_segment}.mi"))
-}
-
-// core.core & abort.core(virtual pkg default impl)
-pub fn core_core(backend: TargetBackend) -> Vec<String> {
-    vec![
-        abort_core_in(&core(), backend).display().to_string(),
-        core_core_in(&core(), backend).display().to_string(),
-    ]
 }
 
 #[test]

@@ -278,22 +278,8 @@ fn metadata_check_command(
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
 ) -> Option<Vec<String>> {
-    let artifact = metadata_check_mi_path(ctx, artifact_paths, target, backend)?;
+    let artifact = metadata_mi_path(ctx, artifact_paths, target, backend);
     check_commands.get(&artifact).cloned()
-}
-
-fn metadata_check_mi_path(
-    ctx: &ResolvedProject,
-    artifact_paths: &ArtifactPathResolver,
-    target: BuildTarget,
-    backend: TargetBackend,
-) -> Option<PathBuf> {
-    // `abort` is redirected to prebuilt stdlib artifacts, which only provide a
-    // source `.mi`; test targets have no importable `.mi` to look up here.
-    if target.kind != TargetKind::Source && ctx.pkg_dirs.abort_pkg() == Some(target.package) {
-        return None;
-    }
-    Some(metadata_mi_path(ctx, artifact_paths, target, backend))
 }
 
 fn edge_to_alias_json(

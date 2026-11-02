@@ -53,7 +53,7 @@ use crate::{
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
-    special_cases::{is_self_coverage_lib, should_skip_coverage},
+    special_cases::is_self_coverage_lib,
     target_layout::proof_artifact_stem,
 };
 
@@ -105,7 +105,6 @@ impl<'a> LoweringContext<'a> {
     ) -> (bool, bool) {
         let enable_coverage = self.opt.enable_coverage
             && (!is_build || target.kind != TargetKind::BlackboxTest)
-            && !should_skip_coverage(fqn)
             && !self.is_module_third_party(package.module);
         let self_coverage = enable_coverage && is_self_coverage_lib(fqn);
         (enable_coverage, self_coverage)
@@ -666,14 +665,6 @@ impl<'a> LoweringContext<'a> {
         let mut stdlib_inputs = Vec::new();
         // Add core for the standard library
         if let Some(stdlib) = &self.opt.stdlib_path {
-            // When present, the abort default must precede core.core to
-            // preserve initialization order.
-            if info.link_stdlib_abort {
-                stdlib_inputs.push(moonutil::toolchain::abort_core_in(
-                    stdlib,
-                    self.opt.backend.target_backend(),
-                ));
-            }
             stdlib_inputs.push(moonutil::toolchain::core_core_in(
                 stdlib,
                 self.opt.backend.target_backend(),

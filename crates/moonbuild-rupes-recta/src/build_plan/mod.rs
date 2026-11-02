@@ -438,11 +438,6 @@ impl BuildTargetInfo {
 pub struct LinkCoreInfo {
     /// The targets in **initialization order**.
     pub(crate) linked_order: Vec<BuildTarget>,
-
-    /// Link the prebuilt abort default only when the injected stdlib declares
-    /// the package and this target does not override it. Package discovery,
-    /// rather than artifact existence, determines compatibility with older core.
-    pub link_stdlib_abort: bool,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library
     // pub std: bool,
@@ -697,16 +692,7 @@ pub fn build_plan(
     };
     constructor.res.backend.moonc_stacktrace = config.debug_info.symbols == DebugSymbols::Backtrace
         && constructor.res.backend.direct_native_target().is_some();
-    // Preserve the caller-requested executable scope for Native selection,
-    // then drop test artifacts excluded by the standard-library special cases.
-    constructor.build(input.into_iter().filter(|artifact| {
-        artifact.package_target().is_none_or(|target| {
-            !target.kind.is_test()
-                || !crate::special_cases::should_skip_tests(
-                    &resolved.pkg_dirs.get_package(target.package).fqn,
-                )
-        })
-    }))?;
+    constructor.build(input.into_iter())?;
     let result = constructor.finish();
 
     info!(

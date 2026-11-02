@@ -7,10 +7,6 @@ important ones and why they exist.
 
 ## Discovery-time injections
 
-- **Record `moonbitlang/core/abort` when present.** During discovery, if
-  `moonbitlang/core/abort` exists in the resolved package set, we record its
-  package ID via `DiscoverResult::set_abort_pkg`. This preserves the legacy
-  override behavior without synthesizing a separate package.
 - **Merge coverage sources into builtin.** `inject_core_coverage_into_builtin`
   copies `moonbitlang/core/coverage` sources into `moonbitlang/core/builtin` so
   downstream compilation steps see a builtin package that already contains the
@@ -33,29 +29,17 @@ important ones and why they exist.
 
 ## Build/test filtering logic
 
-- **Tests can be dropped per package.** `special_cases::should_skip_tests` lists
-  packages that should not produce test targets (currently just
-  `moonbitlang/core/abort`). `build_plan::build_plan`
-  uses this to discard matching test artifact requests before planning.
-- **Coverage rules differ per package.** `should_skip_coverage` ensures abort is
-  never instrumented, while `is_self_coverage_lib` says builtin/coverage should
-  use themselves when linking coverage support. These predicates are reused by
-  the solver and later lowering stages.
+- **Coverage rules differ per package.** `is_self_coverage_lib` says
+  builtin/coverage should use themselves when linking coverage support. The
+  solver and later lowering stages share this predicate.
 - **Builtin detection helpers.** `is_builtin_lib` centralizes the logic for
   spotting `moonbitlang/core/builtin`, allowing downstream code to keep a single
   source of truth whenever builtin needs override behavior.
 
 ## Artifact path overrides
 
-- **Abort artifacts live beside the stdlib.** Artifact path resolution checks
-  whether a `.core` or `.mi` request targets the recorded abort package. If so,
-  and **only when stdlib is injected**, the resolver switches to the stdlib’s
-  prebuilt `abort` outputs via `moonutil::toolchain` because those artifacts are
-  shipped as part of the toolchain rather than being rebuilt per project. When
-  **building the stdlib itself**, the abort package must resolve to local
-  `_build/...` artifacts, so the prebuilt paths are explicitly *not* used.
 - **Stdlib bundle paths are toolchain facts.** The bundled stdlib layout
-  (`_build/<backend>/release/bundle`, `abort/abort.core`, package `.mi`
+  (`_build/<backend>/release/bundle`, `core.core`, package `.mi`
   files, and related paths) is owned by `moonutil::toolchain`, backed by the
   internal toolchain-layout helpers. RR may translate an already selected
   stdlib root into concrete artifact paths, but it should not rediscover the
@@ -89,17 +73,6 @@ important ones and why they exist.
   should render paths from the supplied resolver; they should not call
   `moonutil::toolchain::core()` or otherwise decide whether prebuilt stdlib
   artifacts are in use.
-- **The prebuilt abort default is optional.** Link planning includes it only
-  when stdlib is injected, discovery found `moonbitlang/core/abort`, and the
-  target does not override it. Lowering uses that decision for both compiler
-  arguments and execution inputs. Core versions without abort do not need its
-  artifact, even if a stale `abort.core` remains on disk. A declared abort
-  package with a missing artifact still fails normally.
-- **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
-  package ID if it exists, even when building the stdlib. Build-mode decisions
-  (use prebuilt paths vs local artifacts) are gated by whether stdlib is
-  injected (`config.stdlib_path.is_some()` / `stdlib_dir.is_some()`), not by
-  mutating `abort_pkg`.
 - **Metadata files respect stdlib mode.** When either `packages.json` or
   `all_pkgs.json` is generated for the stdlib (core module), it is generated
   without a stdlib directory so package metadata and indirect dependency
@@ -117,9 +90,6 @@ important ones and why they exist.
 
 ## Runtime + tooling side effects
 
-- **Skip abort during coverage/test runs.** `special_cases::should_skip_tests`
-  and `should_skip_coverage` prevent abort from producing test targets or being
-  instrumented for coverage.
 - **Core coverage is folded into builtin artifacts.** Once coverage sources are
   merged into builtin and coverage edges are injected, the rest of the pipeline
   can assume builtin already carries every helper needed for coverage-enabled

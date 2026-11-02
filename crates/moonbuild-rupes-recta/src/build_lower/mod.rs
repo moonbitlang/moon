@@ -399,7 +399,6 @@ mod tests {
             target,
             LinkCoreInfo {
                 linked_order: Vec::new(),
-                link_stdlib_abort: false,
             },
         );
 
@@ -538,7 +537,6 @@ mod tests {
             target,
             LinkCoreInfo {
                 linked_order: vec![target],
-                link_stdlib_abort: false,
             },
         );
         plan.test_insert_c_stubs_info(
