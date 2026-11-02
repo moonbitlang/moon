@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+pub(super) use crate::runtime::EnvConfig;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -49,17 +49,6 @@ pub(super) struct NetConfig {
     pub(super) connect: Vec<String>,
     #[serde(default)]
     pub(super) bind: Vec<String>,
-}
-
-#[derive(Clone, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct EnvConfig {
-    #[serde(default)]
-    pub(super) from_host: Vec<String>,
-    #[serde(default)]
-    pub(super) required_from_host: Vec<String>,
-    #[serde(default)]
-    pub(super) set: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]

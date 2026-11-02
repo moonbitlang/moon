@@ -46,6 +46,22 @@ pub(crate) struct FsIntents {
 }
 
 impl FsPolicy {
+    pub(super) fn to_config(&self) -> FsConfig {
+        let roots = |roots: &[FsRoot]| {
+            roots
+                .iter()
+                .map(|root| match root {
+                    FsRoot::Any => PathBuf::from("*"),
+                    FsRoot::Path(path) => path.clone(),
+                })
+                .collect()
+        };
+        FsConfig {
+            read: roots(&self.read_roots),
+            write: roots(&self.write_roots),
+        }
+    }
+
     /// Construct runtime enforcement from roots canonicalized by `policy`.
     pub(super) fn from_canonical_config(config: FsConfig) -> Self {
         Self {
@@ -165,7 +181,7 @@ mod tests {
     use crate::async_host::AsyncHostError;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
-        let config = crate::policy::canonicalize(
+        let (restrictions, _) = crate::policy::source::resolve(
             super::super::config::PolicyConfig {
                 fs: Some(FsConfig { read, write }),
                 ..Default::default()
@@ -173,7 +189,7 @@ mod tests {
             config_dir,
         )
         .unwrap();
-        FsPolicy::from_canonical_config(config.fs.unwrap())
+        restrictions.policy().take_filesystem_policy().unwrap()
     }
 
     fn authorize(policy: &FsPolicy, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {

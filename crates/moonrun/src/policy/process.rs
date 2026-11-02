@@ -37,15 +37,32 @@ pub(crate) enum ProcessPolicy {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ProcessRule {
-    #[cfg(unix)]
     program: String,
-    #[cfg(unix)]
     args_prefix: Vec<String>,
     #[cfg(windows)]
     windows_command_line_prefix: Vec<u16>,
 }
 
 impl ProcessPolicy {
+    pub(super) fn to_config(&self) -> ProcessConfig {
+        match self {
+            Self::AllowAll => ProcessConfig {
+                spawn: true,
+                allow: Vec::new(),
+            },
+            Self::Scoped(rules) => ProcessConfig {
+                spawn: false,
+                allow: rules
+                    .iter()
+                    .map(|rule| ProcessRuleConfig {
+                        program: rule.program.clone(),
+                        args_prefix: rule.args_prefix.clone(),
+                    })
+                    .collect(),
+            },
+        }
+    }
+
     pub(super) fn from_config(config: ProcessConfig) -> anyhow::Result<Self> {
         if config.spawn && !config.allow.is_empty() {
             bail!("process.spawn and process.allow cannot be used together");
@@ -117,9 +134,7 @@ impl ProcessRule {
             encode_windows_command_line_prefix(&config.program, &config.args_prefix);
 
         Ok(Self {
-            #[cfg(unix)]
             program: config.program,
-            #[cfg(unix)]
             args_prefix: config.args_prefix,
             #[cfg(windows)]
             windows_command_line_prefix,

@@ -104,6 +104,34 @@ against pathname and symlink races.
 - No-policy controls preserve platform behavior. Tests distinguish policy denial
   from OS errors and cover directory suffixes and links.
 
+## Runtime construction and inheritance
+
+Construction separates four responsibilities:
+
+| Owner | Input and output |
+| --- | --- |
+| `policy/source.rs` | Read a policy document, resolve source-relative filesystem roots, and separate restrictions from Env provisioning |
+| `PolicyInheritance` | Retain validated, immutable domain rules with resolved roots; supply domain policies without file I/O or parsing |
+| Runtime Env provisioning | Construct Env from the selected source environment and provisioning rules |
+| Policy transfer adapter | Encode resolved rules for an external process and validate received rules without resolving their roots again |
+
+Virtual children receive typed restrictions. Their environment, cwd, and stdio
+are separate construction inputs derived by Host Process. Policy inheritance
+does not replay the parent's Env provisioning. External process transfers use
+the existing policy schema; its Env wildcard selects values passed through the
+normal child environment. The hidden serialized-input builder is a transport
+entry point, not the in-process inheritance interface.
+
+Resolved rules retain no policy-file reference. Changing the source document or
+replacing a resolved root with a symlink must not redirect a descendant's grant.
+Transfer decoding requires absolute roots (or the wildcard) and performs no
+filesystem lookup. This preserves pathname rules, not stable directory identity
+or protection against races during authorized operations.
+
+Construction tests cover typed child state, transfer round trips, root replacement,
+and source-file independence. Source selection and additional restriction
+composition have a separate contract below.
+
 ## Restriction composition
 
 A child request must satisfy delegated parent restrictions and any additional

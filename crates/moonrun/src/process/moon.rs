@@ -227,7 +227,7 @@ impl Spawn {
                 duplicate(stderr, StdioStream::Stderr)?,
             );
         if let Some(policy) = policy {
-            run = run.with_inherited_policy(policy.contents());
+            run = run.with_parent_policy(policy);
         }
         Ok(Self {
             context,

@@ -55,7 +55,12 @@ pub(crate) struct SocketRule {
 enum SocketHostRule {
     Any,
     Ip(IpAddr),
-    Name(DnsPattern),
+    Name {
+        pattern: DnsPattern,
+        // Legacy syntax classifies raw host spelling before DNS normalization.
+        // Keep that spelling so transfer cannot turn a DNS name into an IP or *.
+        spelling: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +76,14 @@ struct SocketAddr {
 }
 
 impl NetPolicy {
+    pub(super) fn to_config(&self) -> NetConfig {
+        NetConfig {
+            dns: self.dns.iter().map(DnsPattern::encode).collect(),
+            connect: self.connect.iter().map(SocketRule::encode).collect(),
+            bind: self.bind.iter().map(SocketRule::encode).collect(),
+        }
+    }
+
     pub(super) fn from_config(config: NetConfig) -> anyhow::Result<Self> {
         let dns = config
             .dns
@@ -175,6 +188,14 @@ impl NetOperation {
 }
 
 impl DnsPattern {
+    fn encode(&self) -> String {
+        match self {
+            Self::Any => "*".into(),
+            Self::Exact(name) => name.clone(),
+            Self::Subdomain(suffix) => format!("*.{suffix}"),
+        }
+    }
+
     fn parse(pattern: &str) -> anyhow::Result<Self> {
         let pattern = normalize_dns_name(pattern);
         if pattern.is_empty() {
@@ -206,6 +227,26 @@ impl DnsPattern {
 }
 
 impl SocketRule {
+    fn encode(&self) -> String {
+        let host = match &self.host {
+            SocketHostRule::Any => "*".into(),
+            SocketHostRule::Ip(IpAddr::V4(ip)) => ip.to_string(),
+            SocketHostRule::Ip(IpAddr::V6(ip)) => format!("[{ip}]"),
+            SocketHostRule::Name { spelling, .. } => {
+                if spelling.contains(':') || spelling.starts_with('[') {
+                    format!("[{spelling}]")
+                } else {
+                    spelling.clone()
+                }
+            }
+        };
+        let port = match self.port {
+            SocketPortRule::Any => "*".into(),
+            SocketPortRule::Exact(port) => port.to_string(),
+        };
+        format!("{host}:{port}")
+    }
+
     fn parse(rule: &str) -> anyhow::Result<Self> {
         let (host, port) = split_host_port(rule)?;
         let host = if host == "*" {
@@ -213,7 +254,10 @@ impl SocketRule {
         } else if let Ok(ip) = host.parse() {
             SocketHostRule::Ip(ip)
         } else {
-            SocketHostRule::Name(DnsPattern::parse(host)?)
+            SocketHostRule::Name {
+                pattern: DnsPattern::parse(host)?,
+                spelling: host.to_owned(),
+            }
         };
         let port = if port == "*" {
             SocketPortRule::Any
@@ -231,26 +275,26 @@ impl SocketRule {
         match &self.host {
             SocketHostRule::Any => true,
             SocketHostRule::Ip(ip) => host.parse::<IpAddr>().is_ok_and(|host_ip| host_ip == *ip),
-            SocketHostRule::Name(pattern) => pattern.matches(host),
+            SocketHostRule::Name { pattern, .. } => pattern.matches(host),
         }
     }
 
     fn allows_resolved_name(&self, host: &str) -> bool {
         match &self.host {
-            SocketHostRule::Name(pattern) => pattern.matches(host),
+            SocketHostRule::Name { pattern, .. } => pattern.matches(host),
             SocketHostRule::Any | SocketHostRule::Ip(_) => false,
         }
     }
 
     fn requires_dns(&self) -> bool {
-        matches!(self.host, SocketHostRule::Name(_))
+        matches!(self.host, SocketHostRule::Name { .. })
     }
 
     fn matches(&self, addr: SocketAddr) -> bool {
         (match &self.host {
             SocketHostRule::Any => true,
             SocketHostRule::Ip(ip) => *ip == addr.ip,
-            SocketHostRule::Name(_) => false,
+            SocketHostRule::Name { .. } => false,
         }) && match self.port {
             SocketPortRule::Any => true,
             SocketPortRule::Exact(port) => port == addr.port,
@@ -368,6 +412,38 @@ fn parse_socket_addr(addr: &[u8]) -> AsyncHostResult<SocketAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transfer_preserves_dns_provenance_for_ip_and_wildcard_spelling() {
+        let address = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        for (rule, lookup) in [
+            ("*.:443", "127.0.0.1"),
+            ("127.0.0.1.:443", "127.0.0.1"),
+            ("[::1.]:443", "::1"),
+            ("[[name]:443", "[name"),
+            ("API.Example.COM.:443", "api.example.com"),
+        ] {
+            let parent = NetPolicy::from_config(NetConfig {
+                connect: vec![rule.into()],
+                ..Default::default()
+            })
+            .unwrap();
+            let child = NetPolicy::from_config(parent.to_config()).unwrap();
+            for policy in [parent, child] {
+                assert_eq!(
+                    policy.check_socket(NetOperation::Connect, &address, &[]),
+                    Err(AsyncHostError::PermissionDenied),
+                    "{rule}"
+                );
+                let grants = policy
+                    .resolved_connect_rules(lookup.as_ref(), std::slice::from_ref(&address))
+                    .unwrap();
+                policy
+                    .check_socket(NetOperation::Connect, &address, &grants)
+                    .unwrap();
+            }
+        }
+    }
 
     #[test]
     fn dns_wildcard_matches_only_subdomains() {
