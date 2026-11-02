@@ -241,15 +241,6 @@ pub struct DiscoverResult {
     /// later, this map will not work, and a per-module package name map should
     /// be used instead.
     packages_rev_map: HashMap<String, PackageId>,
-
-    /// A special case: `moonbitlang/core/abort`, a standard library package that
-    /// needs special treatments.
-    ///
-    /// Note: this is purely a discovery-time record. It is set whenever abort
-    /// is present, regardless of whether we are building the stdlib itself or
-    /// injecting a prebuilt stdlib. Build-mode checks decide whether the
-    /// prebuilt abort artifacts are used.
-    abort_pkg: Option<PackageId>,
 }
 
 /// A local project discovered directly from the file system without dependency resolution.
@@ -305,10 +296,6 @@ impl DiscoverResult {
         Ok(id)
     }
 
-    pub(super) fn set_abort_pkg(&mut self, id: PackageId) {
-        self.abort_pkg = Some(id);
-    }
-
     /// Get a package by its ID. This operation is infallible because PackageId
     /// is only created by this struct.
     pub fn get_package(&self, id: PackageId) -> &DiscoveredPackage {
@@ -357,10 +344,6 @@ impl DiscoverResult {
     pub fn fqn(&self, id: PackageId) -> PackageFQN {
         let pkg = &self.packages[id];
         pkg.fqn.clone()
-    }
-
-    pub fn abort_pkg(&self) -> Option<PackageId> {
-        self.abort_pkg
     }
 
     pub fn is_stdlib_package(&self, id: PackageId) -> bool {

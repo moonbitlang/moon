@@ -16,14 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-// Exercise discovery, planning, and lowering without requiring a compiler/core
-// pair that has already removed abort. Artifact contents are irrelevant to dry runs.
+// Exercise ordinary stdlib packages through discovery, bundling, and linking.
+// Artifact contents are irrelevant to dry runs.
 #[test]
-fn stdlib_abort_is_optional() {
+fn stdlib_abort_uses_normal_build_pipeline() {
     let project = tempfile::tempdir().unwrap();
     std::fs::write(
         project.path().join("moon.mod"),
-        "name = \"test/optional_abort\"\n",
+        "name = \"test/stdlib_abort\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -46,43 +46,21 @@ fn stdlib_abort_is_optional() {
     std::fs::write(bundle.join("prelude/prelude.mi"), "").unwrap();
     std::fs::write(bundle.join("core.core"), "").unwrap();
 
-    for state in [
-        "absent",
-        "stale",
-        "present",
-        "missing_artifact",
-        "no_std",
-        "overridden",
-    ] {
+    for state in ["absent", "stale", "bundled", "missing_artifact", "no_std"] {
         if state == "stale" {
             std::fs::create_dir_all(bundle.join("abort")).unwrap();
             std::fs::write(bundle.join("abort/abort.core"), "").unwrap();
         }
-        if state == "present" {
+        if state == "bundled" {
             std::fs::create_dir(core.path().join("abort")).unwrap();
-            std::fs::write(
-                core.path().join("abort/moon.pkg"),
-                "options(\"virtual\": { \"has-default\": true })\n",
-            )
-            .unwrap();
-            std::fs::write(core.path().join("abort/pkg.mbti"), "").unwrap();
+            std::fs::write(core.path().join("abort/moon.pkg"), "").unwrap();
             std::fs::write(core.path().join("abort/abort.mbt"), "").unwrap();
         }
         if state == "missing_artifact" {
             std::fs::remove_file(bundle.join("abort/abort.core")).unwrap();
         }
-        if state == "overridden" {
-            std::fs::create_dir(project.path().join("replacement")).unwrap();
-            std::fs::write(
-                project.path().join("replacement/moon.pkg"),
-                "options(implement: \"moonbitlang/core/abort\")\n",
-            )
-            .unwrap();
-            std::fs::write(project.path().join("replacement/impl.mbt"), "").unwrap();
-            std::fs::write(project.path().join("moon.pkg"), "pkgtype(kind: \"executable\")\noptions(overrides: [\"test/optional_abort/replacement\"])\n").unwrap();
-        }
         let graph = project.path().join("graph.jsonl");
-        if matches!(state, "absent" | "present") {
+        if matches!(state, "absent" | "bundled") {
             snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
                 .current_dir(core.path())
                 .env("MOON_DEP_CACHE", "off")
@@ -102,7 +80,7 @@ fn stdlib_abort_is_optional() {
                     .unwrap()
                     .iter()
                     .any(|output| output.as_str().unwrap().ends_with("abort/abort.core"))),
-                state == "present"
+                state != "absent"
             );
             let bundle_node = nodes
                 .iter()
@@ -112,11 +90,12 @@ fn stdlib_abort_is_optional() {
                         .is_some_and(|cmd| cmd.contains(" bundle-core "))
                 })
                 .unwrap();
-            assert!(
-                !bundle_node["command"]
+            assert_eq!(
+                bundle_node["command"]
                     .as_str()
                     .unwrap()
-                    .contains("abort/abort.core")
+                    .contains("abort/abort.core"),
+                state == "bundled"
             );
         }
         let mut args = vec!["build", "--target", "wasm-gc", "--dry-run"];
@@ -147,21 +126,63 @@ fn stdlib_abort_is_optional() {
             .unwrap();
         let command = link["command"].as_str().unwrap();
         let inputs = link["inputs"].as_array().unwrap();
-        assert_eq!(
-            command.contains("abort/abort.core"),
-            matches!(state, "present" | "missing_artifact"),
-            "{state}: {command}"
-        );
-        assert_eq!(
-            inputs
+        assert!(!command.contains("abort/abort.core"), "{state}: {command}");
+        assert!(
+            !inputs
                 .iter()
                 .any(|input| input.as_str().unwrap().ends_with("abort/abort.core")),
-            matches!(state, "present" | "missing_artifact"),
             "{state}: {inputs:?}"
         );
         assert_eq!(command.contains("bundle/core.core"), state != "no_std");
-        if state == "overridden" {
-            assert!(command.contains("replacement/replacement.core"));
-        }
     }
+
+    // Core's abort package can be tested and instrumented like any other package.
+    std::fs::create_dir(core.path().join("coverage")).unwrap();
+    std::fs::write(core.path().join("coverage/moon.pkg"), "").unwrap();
+    let graph = project.path().join("test-graph.jsonl");
+    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+        .current_dir(core.path())
+        .env("MOON_DEP_CACHE", "off")
+        .env("MOON_WORK", "off")
+        .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
+        .args([
+            "test",
+            "--package",
+            "moonbitlang/core/abort",
+            "--target",
+            "wasm-gc",
+            "--enable-coverage",
+            "--dry-run",
+        ])
+        .assert()
+        .success();
+    let nodes: Vec<serde_json::Value> = std::fs::read_to_string(graph)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let abort_test = nodes
+        .iter()
+        .find(|node| {
+            node["outputs"].as_array().unwrap().iter().any(|output| {
+                output
+                    .as_str()
+                    .unwrap()
+                    .ends_with("abort/abort.internal_test.core")
+            })
+        })
+        .unwrap();
+    assert!(
+        abort_test["command"]
+            .as_str()
+            .unwrap()
+            .contains(" -enable-coverage")
+    );
+    assert!(
+        abort_test["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|input| input.as_str().unwrap().ends_with("coverage/coverage.mi"))
+    );
 }

@@ -286,7 +286,6 @@ mod tests {
             target,
             LinkCoreInfo {
                 linked_order: vec![target],
-                link_stdlib_abort: false,
             },
         );
         plan.test_insert_foreign_library_info(

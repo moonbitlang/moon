@@ -985,7 +985,7 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Performing DFS post-order traversal to collect dependencies");
 
         // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, _, link_stdlib_abort) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, _) = self.dfs_link_core_sources(target)?;
 
         // The traversal has already replaced unnecessary dependencies.
         for target in &link_core_deps {
@@ -1002,7 +1002,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
         let link_core_info = LinkCoreInfo {
             linked_order: targets,
-            link_stdlib_abort,
         };
         self.res
             .backend
@@ -1022,7 +1021,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         debug_assert!(self.config.backend.target_backend().is_native());
 
-        let (link_core_deps, c_stub_deps, _) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
 
         let payload = if matches!(&self.config.backend, BackendConfig::Native { .. })
@@ -1250,7 +1249,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // A foreign library exports its source target; tests link executables.
         let target = package.build_target(TargetKind::Source);
-        let (_, c_stub_packages, _) = self.dfs_link_core_sources(target)?;
+        let (_, c_stub_packages) = self.dfs_link_core_sources(target)?;
 
         // Archive members are objects. Generated C needs its own compile step,
         // while direct-object and LLVM linking already produce an object.
@@ -1303,18 +1302,9 @@ impl<'a> BuildPlanConstructor<'a> {
     fn dfs_link_core_sources(
         &self,
         target: BuildTarget,
-    ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>, bool), BuildPlanConstructError> {
+    ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.rel.virtual_users.get(target.package);
-
-        // Only the injected stdlib's `abort` has a prebuilt default to link.
-        let abort = self
-            .input
-            .pkg_dirs
-            .abort_pkg()
-            .filter(|&abort| self.input.pkg_dirs.is_stdlib_package(abort));
-        let abort_override_pkg =
-            abort.and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
 
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
@@ -1327,8 +1317,6 @@ impl<'a> BuildPlanConstructor<'a> {
         // package itself and its blackbox test target both being added, which
         // is redundant.
         let mut c_stub_deps: IndexSet<PackageId> = IndexSet::new();
-        // Core versions without abort need no separate default implementation.
-        let link_stdlib_abort = abort.is_some() && abort_override_pkg.is_none();
 
         let graph = &self.rel.dep_graph;
 
@@ -1365,11 +1353,6 @@ impl<'a> BuildPlanConstructor<'a> {
                     };
                 }
 
-                // Skip abort entirely
-                if abort.is_some_and(|x| node.package == x) {
-                    continue;
-                }
-
                 trace!(?node, "Pre-order: push marker, then schedule children");
                 // Push post-order marker
                 stack.push((node, true));
@@ -1384,18 +1367,6 @@ impl<'a> BuildPlanConstructor<'a> {
                             || !self.input.pkg_dirs.is_stdlib_package(dep.package)
                     })
                     .collect();
-
-                if curr == target
-                    && let Some(override_pkg) = abort_override_pkg
-                {
-                    let override_target = BuildTarget {
-                        package: override_pkg,
-                        kind: TargetKind::Source,
-                    };
-                    if !deps.contains(&override_target) {
-                        deps.push(override_target);
-                    }
-                }
 
                 deps.sort_by(|a, b| {
                     let pa = self.input.pkg_dirs.get_package(a.package);
@@ -1459,7 +1430,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
 
-        Ok((link_core_deps, c_stub_deps, link_stdlib_abort))
+        Ok((link_core_deps, c_stub_deps))
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

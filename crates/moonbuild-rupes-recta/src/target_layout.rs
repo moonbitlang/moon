@@ -687,19 +687,6 @@ impl ArtifactPathResolver {
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
-        // Special case: `abort` lives in core.
-        // Only redirect abort to prebuilt stdlib artifacts when stdlib is injected.
-        if let Some(stdlib_dir) = self.stdlib_dir()
-            && let Some(abort) = pkg_list.abort_pkg()
-            && abort == target.package
-        {
-            if target.kind == TargetKind::Source {
-                return moonutil::toolchain::abort_core_in(stdlib_dir, backend);
-            } else {
-                panic!("Cannot import `.mi` for moonbitlang/core/abort");
-            }
-        }
-
         self.target_layout
             .core_of_build_target(pkg_list, target, backend)
     }
@@ -778,9 +765,6 @@ impl ArtifactPathResolver {
         // installed stdlib artifact.
         if let Some(stdlib_dir) = self.stdlib_dir() {
             let pkg = pkg_list.get_package(target.package);
-            if pkg_list.abort_pkg() == Some(target.package) && target.kind != TargetKind::Source {
-                panic!("Cannot import `.mi` for moonbitlang/core/abort");
-            }
             if pkg.is_stdlib {
                 return Some(MiPathResult::Std(stdlib_mi_path(
                     stdlib_dir, backend, &pkg.fqn,

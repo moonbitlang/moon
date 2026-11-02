@@ -52,7 +52,7 @@ use moonutil::resolution::{
 use moonutil::target::TargetBackend;
 use moonutil::{
     constants::{
-        MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOONBITLANG_ABORT,
+        MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON,
         is_ignored_directory_name,
     },
     manifest::{
@@ -108,10 +108,6 @@ pub fn discover_packages(
             user_log,
             false,
         )?;
-    }
-
-    if let Some(id) = res.get_package_id_by_name(MOONBITLANG_ABORT) {
-        res.set_abort_pkg(id);
     }
 
     info!(
@@ -179,10 +175,6 @@ pub fn discover_local_project(
             user_log,
             true,
         )?;
-    }
-
-    if let Some(id) = pkg_dirs.get_package_id_by_name(MOONBITLANG_ABORT) {
-        pkg_dirs.set_abort_pkg(id);
     }
 
     info!(

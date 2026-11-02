@@ -32,16 +32,11 @@ use crate::pkg_name::PackageFQN;
 // string segments
 const MOONBIT: &str = "moonbitlang";
 const CORE: &str = "core";
-const ABORT: &str = "abort";
 const BUILTIN: &str = "builtin";
 const COVERAGE: &str = "coverage";
 pub(crate) const CORE_MODULE: &str = "moonbitlang/core";
 pub(crate) const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
 
-/// Libraries that should not be tested
-const SKIP_TEST_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
-/// Libraries that should not be covered
-const SKIP_COVERAGE_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
 /// Libraries that should use themselves for coverage
 const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
     &[(MOONBIT, CORE, BUILTIN), (MOONBIT, CORE, COVERAGE)];
@@ -67,18 +62,6 @@ pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
 
 fn name_matches(package_fqn: &PackageFQN, target: (&str, &str, &str)) -> bool {
     *package_fqn == target
-}
-
-pub(crate) fn should_skip_tests(package_fqn: &PackageFQN) -> bool {
-    SKIP_TEST_LIBS
-        .iter()
-        .any(|&target| name_matches(package_fqn, target))
-}
-
-pub(crate) fn should_skip_coverage(package_fqn: &PackageFQN) -> bool {
-    SKIP_COVERAGE_LIBS
-        .iter()
-        .any(|&target| name_matches(package_fqn, target))
 }
 
 pub(crate) fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
