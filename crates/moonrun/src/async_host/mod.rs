@@ -189,6 +189,32 @@ impl AsyncHostError {
     }
 }
 
+impl From<std::io::Error> for AsyncHostError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Native(error.raw_os_error().unwrap_or(native_errno::INVAL))
+    }
+}
+
+impl From<crate::filesystem::FsError> for AsyncHostError {
+    fn from(error: crate::filesystem::FsError) -> Self {
+        match error {
+            crate::filesystem::FsError::Denied => Self::PermissionDenied,
+            crate::filesystem::FsError::Io(error) => error.into(),
+        }
+    }
+}
+
+// Existing async_sys temp-directory primitives still use the async error type.
+// Keep that compatibility conversion at the ABI boundary, not in the OS layer.
+impl From<AsyncHostError> for crate::filesystem::FsError {
+    fn from(error: AsyncHostError) -> Self {
+        match error {
+            AsyncHostError::PermissionDenied => Self::Denied,
+            _ => Self::Io(std::io::Error::from_raw_os_error(error.errno())),
+        }
+    }
+}
+
 impl From<GuestMemoryError> for AsyncHostError {
     fn from(_error: GuestMemoryError) -> Self {
         Self::Fault
@@ -3592,7 +3618,9 @@ impl AsyncHost {
         file: Option<&Resource>,
     ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
-        filesystem.authorize_resource_metadata(file.canonical_path())
+        filesystem
+            .authorize_resource_metadata(file.canonical_path())
+            .map_err(Into::into)
     }
 
     fn check_file_lock_policy(
@@ -3601,7 +3629,9 @@ impl AsyncHost {
         exclusive: bool,
     ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
-        filesystem.authorize_resource_lock(file.canonical_path(), exclusive)
+        filesystem
+            .authorize_resource_lock(file.canonical_path(), exclusive)
+            .map_err(Into::into)
     }
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
@@ -3910,7 +3940,10 @@ impl AsyncHost {
         ] {
             if let Err(error) = self.filesystem.authorize_read(path.as_os_str()) {
                 return self.with_tls_pending_mut(handle, |pending| {
-                    pending.set_error(format!("failed to access {label} file: {error:?}"))
+                    pending.set_error(format!(
+                        "failed to access {label} file: {:?}",
+                        AsyncHostError::from(error)
+                    ))
                 });
             }
         }

@@ -551,7 +551,7 @@ mod tests {
         let imports = v8::Object::new(scope);
         let values = std::rc::Rc::new(State::new(scope).unwrap());
         let mut retained = Vec::new();
-        crate::host_imports::register_values(&mut super::super::wasm_imports::Registry {
+        crate::unstable_api::register_values(&mut super::super::wasm_imports::Registry {
             object: imports,
             scope,
             data: std::rc::Rc::new(()),

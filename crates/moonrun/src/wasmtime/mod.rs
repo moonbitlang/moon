@@ -257,7 +257,7 @@ fn linker_for_module(
     crate::async_api::register(&mut registry)?;
     crate::sqlite::wasm::register(&mut registry)?;
     crate::core_api::register(&mut registry)?;
-    crate::host_imports::register(&mut registry, module_name, args)?;
+    crate::unstable_api::register(&mut registry, module_name, args)?;
     let mut defined = HashSet::new();
 
     for import in module.imports() {

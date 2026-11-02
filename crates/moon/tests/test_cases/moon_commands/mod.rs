@@ -451,10 +451,6 @@ fn test_runwasm_help_marks_policy_as_experimental() {
         !help.contains("TOML"),
         "expected runwasm help to advertise only JSON policies, got:\n{help}"
     );
-    assert!(
-        help.contains("WASI is not covered"),
-        "expected runwasm help to explain policy scope, got:\n{help}"
-    );
 }
 
 #[test]

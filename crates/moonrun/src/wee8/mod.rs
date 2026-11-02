@@ -157,7 +157,7 @@ impl Engine {
             crate::async_api::register(&mut registry)?;
             crate::sqlite::wasm::register(&mut registry)?;
             crate::core_api::register(&mut registry)?;
-            crate::host_imports::register(&mut registry, module_name, args)?;
+            crate::unstable_api::register(&mut registry, module_name, args)?;
             // The GC compiler uses the legacy character ABI. Reuse the same
             // per-run UTF-16 writer as V8 and Wasmtime, including surrogate pairs.
             registry.func_wrap(

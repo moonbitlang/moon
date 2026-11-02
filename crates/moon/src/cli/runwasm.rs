@@ -58,10 +58,7 @@ pub(crate) struct RunWasmSubcommand {
     #[clap(value_name = "LOCAL_PACKAGE|PACKAGE[@VERSION]")]
     pub package: String,
 
-    /// Experimental: pass a moonrun JSON policy file for moonbitlang/async runtime access.
-    ///
-    /// The policy applies to moonbitlang/async and moonrun-owned unstable FFI;
-    /// WASI is not covered.
+    /// Experimental: pass a moonrun JSON policy file for runtime host access.
     #[clap(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 

@@ -304,9 +304,7 @@ and reused on later runs.
 
 ###### **Options:**
 
-* `--experimental-policy <PATH>` — Experimental: pass a moonrun JSON policy file for moonbitlang/async runtime access.
-
-   The policy applies to moonbitlang/async and moonrun-owned unstable FFI; WASI is not covered.
+* `--experimental-policy <PATH>` — Experimental: pass a moonrun JSON policy file for runtime host access
 
 
 

@@ -519,20 +519,26 @@ impl Job {
                 follow_symlink,
                 ..
             } => check_path_metadata_policy(filesystem, None, path, *follow_symlink),
-            Kind::Realpath { path, .. } => filesystem.authorize_metadata(path),
+            Kind::Realpath { path, .. } => filesystem.authorize_metadata(path).map_err(Into::into),
             #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => filesystem.authorize_metadata(path),
-            Kind::Access { path, access } => filesystem.authorize_access(path, *access),
-            Kind::Chmod { path, .. } => filesystem.authorize_write(path),
+            Kind::InotifyAddWatch { path, .. } => {
+                filesystem.authorize_metadata(path).map_err(Into::into)
+            }
+            Kind::Access { path, access } => filesystem
+                .authorize_access(path, *access)
+                .map_err(Into::into),
+            Kind::Chmod { path, .. } => filesystem.authorize_write(path).map_err(Into::into),
             Kind::Flock { file, exclusive } => {
                 check_file_lock_policy(filesystem, file.as_deref(), *exclusive)
             }
-            Kind::Remove { path } => filesystem.authorize_remove(path),
+            Kind::Remove { path } => filesystem.authorize_remove(path).map_err(Into::into),
             Kind::Rename {
                 old_path, new_path, ..
-            } => filesystem.authorize_rename(old_path, new_path),
+            } => filesystem
+                .authorize_rename(old_path, new_path)
+                .map_err(Into::into),
             Kind::Symlink { path, .. } | Kind::Mkdir { path, .. } | Kind::Rmdir { path } => {
-                filesystem.authorize_write_entry(path)
+                filesystem.authorize_write_entry(path).map_err(Into::into)
             }
             Kind::Read { .. }
             | Kind::Write { .. }
@@ -930,7 +936,9 @@ impl OpenJobResult {
 
 fn check_file_metadata_policy(filesystem: &HostFs, file: Option<&Resource>) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
-    filesystem.authorize_resource_metadata(file.canonical_path())
+    filesystem
+        .authorize_resource_metadata(file.canonical_path())
+        .map_err(Into::into)
 }
 
 fn check_path_metadata_policy(
@@ -940,12 +948,16 @@ fn check_path_metadata_policy(
     follow_symlink: bool,
 ) -> AsyncHostResult<()> {
     match (parent, follow_symlink) {
-        (None, true) => filesystem.authorize_metadata(path),
-        (None, false) => filesystem.authorize_entry_metadata(path),
-        (Some(parent), true) => filesystem.authorize_metadata_at(parent.canonical_path(), path),
-        (Some(parent), false) => {
-            filesystem.authorize_entry_metadata_at(parent.canonical_path(), path)
-        }
+        (None, true) => filesystem.authorize_metadata(path).map_err(Into::into),
+        (None, false) => filesystem
+            .authorize_entry_metadata(path)
+            .map_err(Into::into),
+        (Some(parent), true) => filesystem
+            .authorize_metadata_at(parent.canonical_path(), path)
+            .map_err(Into::into),
+        (Some(parent), false) => filesystem
+            .authorize_entry_metadata_at(parent.canonical_path(), path)
+            .map_err(Into::into),
     }
 }
 
@@ -955,7 +967,9 @@ fn check_file_lock_policy(
     exclusive: bool,
 ) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
-    filesystem.authorize_resource_lock(file.canonical_path(), exclusive)
+    filesystem
+        .authorize_resource_lock(file.canonical_path(), exclusive)
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

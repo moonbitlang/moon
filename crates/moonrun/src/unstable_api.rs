@@ -16,13 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Shared definitions for MoonBit's legacy host ABI. Adapters retain only
-//! value representation, rooting, memory access and error/termination delivery.
+//! Shared definitions for the legacy `__moonbit_*_unstable` import family.
+//! Keep this compatibility ABI separate from `moonbitlang/core` and async.
+//! Adapters own value conversion, error presentation, and ABI-specific state.
 use crate::{
-    filesystem::{FsOperationResults, HostFs},
     runtime::Runtime,
     wasm_imports::{Caller, ExternRef, ImportError, ImportRegistry},
 };
+mod filesystem;
+use crate::filesystem::HostFs;
+use filesystem::{FsOperationResults, UnstableFs};
 use std::sync::{Arc, Mutex};
 type Ref<'a> = Option<ExternRef<'a>>;
 type Result<T> = std::result::Result<T, ImportError>;
@@ -81,9 +84,12 @@ pub(crate) fn register<R: ImportRegistry<Runtime>>(
     registry.func_wrap(FS, "read_dir", read_dir)?;
     registry.func_wrap(FS, "current_dir", current_dir)?;
     for (name, operation) in [
-        ("create_dir", HostFs::create_dir as fn(&HostFs, &str) -> _),
-        ("remove_file", HostFs::remove_file),
-        ("remove_dir", HostFs::remove_dir),
+        (
+            "create_dir",
+            (|fs, path| UnstableFs(fs).create_dir(path)) as fn(&HostFs, &str) -> _,
+        ),
+        ("remove_file", |fs, path| UnstableFs(fs).remove_file(path)),
+        ("remove_dir", |fs, path| UnstableFs(fs).remove_dir(path)),
     ] {
         registry.func_wrap(
             FS,
@@ -97,9 +103,12 @@ pub(crate) fn register<R: ImportRegistry<Runtime>>(
         )?;
     }
     for (name, operation) in [
-        ("is_file", HostFs::is_file as fn(&HostFs, &str) -> bool),
-        ("is_dir", HostFs::is_dir),
-        ("path_exists", HostFs::path_exists),
+        (
+            "is_file",
+            (|fs, path| UnstableFs(fs).is_file(path)) as fn(&HostFs, &str) -> bool,
+        ),
+        ("is_dir", |fs, path| UnstableFs(fs).is_dir(path)),
+        ("path_exists", |fs, path| UnstableFs(fs).path_exists(path)),
     ] {
         registry.func_wrap(
             FS,
@@ -118,14 +127,27 @@ pub(crate) fn register<R: ImportRegistry<Runtime>>(
     for (name, operation) in [
         (
             "read_file_to_bytes_new",
-            HostFs::read_file_to_bytes_new as fn(&HostFs, &mut FsOperationResults, &str) -> i32,
+            (|fs, results, path| UnstableFs(fs).read_file_to_bytes_new(results, path))
+                as fn(&HostFs, &mut FsOperationResults, &str) -> i32,
         ),
-        ("create_dir_new", HostFs::create_dir_new),
-        ("read_dir_new", HostFs::read_dir_new),
-        ("is_file_new", HostFs::is_file_new),
-        ("is_dir_new", HostFs::is_dir_new),
-        ("remove_file_new", HostFs::remove_file_new),
-        ("remove_dir_new", HostFs::remove_dir_new),
+        ("create_dir_new", |fs, results, path| {
+            UnstableFs(fs).create_dir_new(results, path)
+        }),
+        ("read_dir_new", |fs, results, path| {
+            UnstableFs(fs).read_dir_new(results, path)
+        }),
+        ("is_file_new", |fs, results, path| {
+            UnstableFs(fs).is_file_new(results, path)
+        }),
+        ("is_dir_new", |fs, results, path| {
+            UnstableFs(fs).is_dir_new(results, path)
+        }),
+        ("remove_file_new", |fs, results, path| {
+            UnstableFs(fs).remove_file_new(results, path)
+        }),
+        ("remove_dir_new", |fs, results, path| {
+            UnstableFs(fs).remove_dir_new(results, path)
+        }),
     ] {
         let results = Arc::clone(&results);
         registry.func_wrap(
@@ -151,9 +173,11 @@ pub(crate) fn register<R: ImportRegistry<Runtime>>(
                 let filesystem = caller.with_data(|runtime| Arc::clone(runtime.filesystem()));
                 let mut results = state.lock().unwrap_or_else(|e| e.into_inner());
                 // Preserve authorization before converting an untrusted byte payload.
-                Ok(filesystem.write_bytes_to_file_new(&mut results, &path, || {
-                    caller.values().bytes(&contents).map_err(|e| e.to_string())
-                }))
+                Ok(
+                    UnstableFs(&filesystem).write_bytes_to_file_new(&mut results, &path, || {
+                        caller.values().bytes(&contents).map_err(|e| e.to_string())
+                    }),
+                )
             },
         ),
     )?;
@@ -427,7 +451,7 @@ fn read_file_to_string<'call>(
 ) -> Result<Ref<'call>> {
     let path = caller.values().string(&path)?;
     let contents = caller
-        .with_data(|runtime| runtime.filesystem().read_file_to_string(&path))
+        .with_data(|runtime| UnstableFs(runtime.filesystem()).read_file_to_string(&path))
         .map_err(|e| ImportError::Host(e.into()))?;
     caller.values().new_string(&contents)
 }
@@ -439,7 +463,9 @@ fn write_string_to_file<'call>(
     let path = caller.values().string(&path)?;
     let contents = caller.values().string(&contents)?;
     caller
-        .with_data(|runtime| runtime.filesystem().write_string_to_file(&path, &contents))
+        .with_data(|runtime| {
+            UnstableFs(runtime.filesystem()).write_string_to_file(&path, &contents)
+        })
         .map_err(|e| ImportError::Host(e.into()))
 }
 fn write_bytes_to_file<'call>(
@@ -449,7 +475,7 @@ fn write_bytes_to_file<'call>(
 ) -> Result<()> {
     let path = caller.values().string(&path)?;
     let filesystem = caller.with_data(|runtime| Arc::clone(runtime.filesystem()));
-    filesystem
+    UnstableFs(&filesystem)
         .write_bytes_to_file::<anyhow::Error>(&path, || {
             caller.values().bytes(&contents).map_err(Into::into)
         })
@@ -458,12 +484,12 @@ fn write_bytes_to_file<'call>(
 fn read_dir<'call>(mut caller: Caller<'_, 'call, Runtime>, path: Ref<'call>) -> Result<Ref<'call>> {
     let path = caller.values().string(&path)?;
     let entries = caller
-        .with_data(|runtime| runtime.filesystem().read_dir(&path))
+        .with_data(|runtime| UnstableFs(runtime.filesystem()).read_dir(&path))
         .map_err(|e| ImportError::Host(e.into()))?;
     caller.values().new_strings(entries)
 }
 fn current_dir<'call>(mut caller: Caller<'_, 'call, Runtime>) -> Result<Ref<'call>> {
-    let path = caller.with_data(|runtime| runtime.filesystem().current_dir());
+    let path = caller.with_data(|runtime| UnstableFs(runtime.filesystem()).current_dir());
     caller.values().new_string(&path)
 }
 fn read_bytes_from_stdin<'call>(mut caller: Caller<'_, 'call, Runtime>) -> Result<Ref<'call>> {
