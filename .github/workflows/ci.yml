@@ -175,12 +175,14 @@ jobs:
 
       - name: Versions
         run: cargo run --bin moon -- version --all
+      # --all excludes LLVM, but the LLVM check regression needs its stdlib.
+      # Prepare it explicitly instead of relying on platform-specific installers.
       - name: Bundle core (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
-        run: cargo run --bin moon -- -C ~/.moon/lib/core bundle --all
+        run: cargo run --bin moon -- -C ~/.moon/lib/core bundle --all --target llvm
       - name: Bundle core (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
-        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
+        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all --target llvm
 
       - name: moon update
         run: |
