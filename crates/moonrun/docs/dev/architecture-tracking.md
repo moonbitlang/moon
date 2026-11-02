@@ -107,41 +107,41 @@ requests shutdown, drains adopted roots, then presents that signal as its exit.
 Repeated signals during cleanup do not bypass teardown. After finalization,
 signal handling returns to the existing process fallback.
 
+## Moonx-only guest execution
+
+- [x] Share moonx's authoritative grammar between Moon and Moonrun, including
+  its opaque program-argument tail. Keep ordinary Moon CLI definitions in Moon.
+- [x] Restrict guest Virtual spawn to moonx for local `.mbtx` files and registry
+  packages. Other commands report unsupported; there is no native fallback.
+- [x] Classify before preparation: complete help/version and argument errors
+  through the embedded frontend and bound streams without a helper or handoff
+  directory. Successful execution requests still require delivered artifacts.
+  Guest arguments cannot replace the host's private handoff prefix.
+
+Host-selected `Engine::run_moon` / `spawn_moon` and the CLI's root entry may still
+use `moon run`. Their preparation interface does not expand guest spawn support.
+Recursive tests use the pinned async implementation with a private cached
+registry artifact and local scripts; no live registry dependency is introduced.
+
 ## Follow-up order
 
-1. Manage preparation helpers and their compiler descendants as owned work;
-   cancel them without admitting the delivered program afterwards. This remains
-   a FIXME: shutdown currently retains cancellation and waits for helper exit.
-   Prefer a Unix process group / Windows Job for ordinary noninteractive build
-   work. First narrow virtual command selection and separate it from the
-   artifact-preparation protocol. Virtual spawn currently checks only the
-   `moon`/`moonx` executable name and unconditionally adds the handoff prefix;
-   Moon accepts that prefix only for `moon run` and `moonx`. Consequently,
-   `moon build` is rejected while `moon run -` enters preparation. Ordinary
-   Native spawn does not use this dispatch. The intended scope is build
-   preparation and moonx, not general interactive Moon commands; public
-   `moon build` must retain build-only semantics. A dedicated preparation
-   entry (for example under `moon tool`) should reuse Moon's build logic and
-   moonx's existing artifact delivery without inheriting all of `moon run`'s
-   input modes. Reuse Moon's authoritative argument parser, including global
-   options and opaque argument tails, rather than duplicating its grammar in
-   moonrun. If Host Process must classify before spawning, extract the pure
-   parser for both consumers; do not add a separate probe process. Parsing and
-   execution-strategy selection remain distinct responsibilities. Deliver this
-   command-selection work separately from both session shutdown and helper
-   cancellation.
-   Do not expand this step into a Moon/n2 cooperative cancellation protocol by
-   default; n2 waits for running tasks but does not actively cancel them.
-2. Execute native programs and Node through shared supervision. Define ambient
-   versus constrained native authority and preserve artifact dependencies and
-   execution location.
-   Add external Moon/moonx delegation only with an explicit execution and
-   authority contract behind Engine's interface.
+1. Add native process members to Engine for mixed execution. Besides delivered
+   native/Node artifacts, support ordinary authorized guest native commands.
+   Preserve env, cwd, stdio, single-member termination, wait, shutdown, and reaping
+   through the same supervision interface. Pure Virtual execution remains
+   moonx-only; mixed execution must be explicitly selected, not a fallback.
+2. Reuse native process management for preparation helpers and their compiler
+   descendants. Cancellation currently waits for helper exit and prevents
+   subsequent Wasm execution. Prefer a Unix process group / Windows Job for
+   noninteractive preparation; do not expand this into a Moon/n2 cooperative
+   cancellation protocol by default.
 3. Extend total authorization and monotonic child restrictions, including WASI
-   grants and explicit resource delegation.
-4. Complete executable lookup compatibility, Windows special paths, trusted
+   grants and explicit resource delegation. This is a separate runtime policy
+   workstream, not a prerequisite for process-tree functionality; existing
+   authorization and policy inheritance must continue to hold.
+4. Complete edge cases in executable lookup, Windows special paths, trusted
    Moon identification, and stable file identity as required by the isolation
-   contract.
+   contract. Keep normal env/cwd/stdio and lookup behavior correct in each step.
 5. Add cancellation to synchronous host operations individually. Completion
    continues to require actual teardown.
 

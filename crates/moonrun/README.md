@@ -38,15 +38,19 @@ both engine adapters invoke the same shared WASIp1 host operations.
 
 Use `moonx --virtual-process-tree script.mbtx` (or a registry package),
 `moon run --virtual-process-tree <input>`, or
-`moonrun --virtual-process-tree program.wasm`. The root and its recursive
-`moon run` / `moonx` children run in one host process, with separate virtual PIDs,
+`moonrun --virtual-process-tree program.wasm`. Guest spawn supports only `moonx`,
+with either a local `.mbtx` file or a registry package. The root and its recursive
+moonx children run in one host process, with separate virtual PIDs,
 Run state, cwd and environments. Existing async process APIs provide spawning,
 waiting and signals. The CLI waits for descendants and returns the root's status.
 This mode currently requires V8; ordinary invocation keeps native spawning.
 
 Moon helpers still build or download artifacts with host access, then hand Wasm
 back to the Engine. Child Runs inherit the parent's policy and requested
-environment/stdio. Other native commands are not yet supported in virtual mode.
+environment/stdio. Guest `moon` invocations and other native commands report
+unsupported at spawn; they do not fall back to native execution. Moonx help,
+version and argument errors complete through the shared frontend with bound
+stdout/stderr and the CLI exit status, without launching a preparation helper.
 Cancellation during a build waits for the helper to exit; blocking host I/O can
 also delay teardown.
 
@@ -270,8 +274,13 @@ To prepare a program with Moon or moonx, `run_moon(executable, args, options)`
 prepares and executes on the calling thread; `spawn_moon(parent, executable,
 args, options)` provides the same flow on a managed thread. Pass program
 arguments in the Moon invocation's `args`, not `RunOptions::with_args`.
-Preparation still starts an external helper with host access. The helper only
-delivers the artifact; Engine executes Wasm and owns cleanup. Native/Node
+These host-selected preparation entries also accept `moon run`; the moonx-only
+restriction applies to guest spawn, not to trusted embedding callers.
+Moonx help/version and argument errors use Moonrun's embedded frontend and
+plain-text output on the supplied streams, without requiring the selected
+helper executable or handoff storage. Guest spawn still performs executable
+lookup and authorization before admission. Valid execution requests start an
+external preparation helper with host access. The helper only delivers the artifact; Engine executes Wasm and owns cleanup. Native/Node
 artifact execution and delegation of the whole invocation to another process
 remain unsupported by this flow.
 

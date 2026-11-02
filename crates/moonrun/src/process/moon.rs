@@ -16,13 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Resolve an authorized guest Moon invocation into a supervised child.
+//! Resolve an authorized guest moonx invocation into a supervised child.
 
 #[cfg(unix)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use super::SpawnOptions;
 use super::lookup::LookupPlan;
@@ -157,18 +159,11 @@ impl Spawn {
         let env = Env::owned(env)
             .map_err(|_| AsyncHostError::Inval)?
             .entries();
-        let name = Path::new(&program)
-            .file_name()
-            .ok_or(AsyncHostError::Inval)?;
-        // FIXME: Select supported virtual commands separately from the helper
-        // protocol. A Moon basename currently sends every subcommand to handoff,
-        // which accepts only `moon run`/moonx (including run's stdin input mode).
-        let moon = if cfg!(windows) {
-            name.eq_ignore_ascii_case("moon") || name.eq_ignore_ascii_case("moon.exe")
-        } else {
-            name == "moon" || name == "moon.exe"
-        };
-        if !moon && !moonutil::constants::is_moonx_executable(&program) {
+        // Guest Virtual spawn only admits moonx. Host-selected Engine preparation
+        // is a separate entry; a Moon basename must not enable arbitrary commands.
+        // FIXME: Add other native children through Engine supervision when mixed
+        // execution is implemented, rather than sending them through handoff.
+        if !moonutil::constants::is_moonx_executable(&program) {
             #[cfg(unix)]
             return Err(AsyncHostError::Native(libc::ENOTSUP));
             #[cfg(windows)]

@@ -38,7 +38,9 @@ The child process inherits the caller's working directory, environment,
 standard streams, and signal behavior. `moonx` returns the child's exit code.
 
 `--virtual-process-tree` starts moonrun's experimental virtual supervision for
-the resolved Wasm and its recursive Moon/moonx children. Acquisition and building
+the resolved Wasm and its recursive moonx children. Guest spawn in that mode
+accepts only moonx, including local `.mbtx` files and registry coordinates;
+`moon` and other native commands are unsupported. Acquisition and building
 stay in Moon; the switch precedes the input. See [moonrun](../../../../crates/moonrun/README.md#experimental-virtual-process-tree).
 
 By default, `moonx` emits no informational output of its own. With `--verbose`,
@@ -74,6 +76,19 @@ launching moonrun. Registry acquisition and standalone builds keep their normal
 caches. The helper copies the Wasm and optional source map/policy, then returns
 arguments and cwd in a manifest. The supervisor's policy takes precedence.
 See [artifact delivery](../design/moon-run-process-lifecycle.md#supervised-artifact-delivery).
+
+Moon and Moonrun share the moonx grammar in `moonutil::cli_support`. Moonrun
+classifies the invocation before artifact preparation. Help/version and parse
+errors complete inside the Engine using this embedded frontend, with plain-text
+output on the bound stdout/stderr and Clap's exit status. No helper or handoff
+directory is created for those responses. Guest spawn still resolves and
+authorizes its executable before admission; direct embedding calls need no
+helper executable to produce a frontend response.
+
+Only valid execution requests enter artifact preparation, and successful helper
+exit still requires a delivered artifact. Options after the input remain opaque
+program arguments. A frontend-position private handoff prefix is rejected by the
+shared grammar; the host adds its own prefix only when starting preparation.
 
 ## Standalone `.mbtx`
 

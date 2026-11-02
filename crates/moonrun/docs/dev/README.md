@@ -207,9 +207,11 @@ for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
 
-`run_moon` and `spawn_moon` ask a host-selected Moon/moonx helper to hand off
-Wasm, source map, arguments, cwd and optional policy, then use the same Engine
-artifact execution flow. `prepare_artifact` only prepares the artifact and
+`run_moon` and `spawn_moon` classify moonx through the shared frontend first.
+Help/version and parse errors complete with bound stdio and CLI status, without
+a helper or handoff directory. Execution requests ask a host-selected Moon/moonx
+helper to hand off Wasm, source map, arguments, cwd and optional policy, then use
+the same Engine artifact execution flow. `prepare_artifact` only prepares the artifact and
 borrows termination control. Engine retains its private delivery directory
 through Runtime teardown and cleanup; normal build caches stay with Moon.
 `run_file` also places file loading inside its execution scope. A Run borrows
