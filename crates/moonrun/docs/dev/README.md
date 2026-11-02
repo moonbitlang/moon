@@ -5,14 +5,14 @@
 - [Runtime architecture](design/runtime-architecture.md): read before changing
   embedding interfaces, host imports, virtualized state, or authorization. It
   defines ownership, the three host-operation layers, authority mapping, and
-  current enforcement gaps under [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
+  enforcement limits under [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
 - [Process preparation](design/runtime-architecture.md#virtualization-and-inheritance):
   caller versus child lookup inputs, frozen Unix search, explicit Windows images,
-  and the current limits of lexical process authorization.
-- [Architecture tracking](architecture-tracking.md): the current ownership and
-  execution milestone after recursive virtual process trees, and deferred work.
+  and the limits of lexical process authorization.
+- [Architecture tracking](architecture-tracking.md): completion status, open
+  tasks, and dependencies for execution, authority, and embedding work.
 - [Authority closure](design/authority-closure.md): cross-surface filesystem
-  enforcement and the remaining child restriction and resource delegation work.
+  enforcement, restriction composition, resource grants, and acceptance criteria.
 - [Host handles](host-handles.md): registration, validation, owning tables, and
   operation-specific ownership rules.
 - [Current executable path semantics](current-exe-semantics.md): load-time path

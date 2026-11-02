@@ -1,199 +1,97 @@
 # Moonrun architecture tracking
 
-The first milestone following [#2401](https://github.com/moonbitlang/moon/pull/2401)
-establishes ownership and execution interfaces for the existing Wasm virtual
-process path. It is complete when helper cancellation and native execution can
-be added without redesigning Runtime state, guest imports, and supervision
-together.
+This file records implementation status and work dependencies following
+[#2401](https://github.com/moonbitlang/moon/pull/2401). Contracts and acceptance
+criteria belong in the [runtime architecture guide](design/runtime-architecture.md)
+and [authority design](design/authority-closure.md), under
+[ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
 
-## Design contract
+## Ownership and execution
 
-[ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md)
-records the accepted direction. The
-[runtime architecture guide](design/runtime-architecture.md) owns the lasting
-requirements for library embedding, one execution-host interface, the
-three host-operation layers, per-Runtime virtualization, authority mapping, and
-child derivation. Its implementation
-guidance and acceptance scenarios apply to every item below. This file owns
-sequencing and completion status, not a second copy of those principles.
+- [x] Separate artifact preparation from execution admission and reaping.
+- [x] Carry Runtime construction inputs through one configuration.
+- [x] Unify execution and supervision in Engine.
+- [x] Separate host creation from guest child derivation, with explicit state
+  and authority inputs.
+- [x] Prepare Host Process requests before execution, with single-use inputs.
+- [x] Separate pure executable lookup from OS observations and preserve native
+  lookup where the platform can express Runtime state.
 
-## Current milestone
-
-Only this milestone is expanded into implementation work. Preserve ordinary
-Wasm invocation and its arguments, environment, cwd, stdio, policy, and exit
-behavior. Virtual process interfaces have no current consumers: change them
-directly when needed for the intended architecture, without compatibility
-wrappers or deprecation stages. Complex executable discovery is deferred.
-
-- [x] Separate artifact preparation from execution admission and reaping. Keep
-  one termination receiver alive through preparation, Run execution, and
-  cleanup; a Run borrows that control without finalizing its owner.
-- [x] Replace scattered Runtime construction arguments with one configuration
-  transferred through preparation to Runtime, retaining the public RunOptions
-  builders and existing policy behavior.
-- [x] Unify public execution and supervision in Engine. New Engines own separate
-  namespaces; clones share backend and process control. Preserve caller-thread
-  `run`, managed `spawn`/`wait`, reusable Modules, and shared `run_moon` /
-  `spawn_moon` preparation without a separate command model.
-- [x] Complete the host-creation and guest-derivation interfaces, keeping one
-  authoritative source for each field and making the source of inherited state
-  and authority explicit rather than deriving either from a parent PID. Make
-  the host configuration available through `with_environment`, including an
-  explicit empty environment. Select Native or Virtual guest process behavior
-  independently of thread placement. Only Virtual host entries capture missing
-  root inputs; guest derivation supplies complete Runtime inputs.
-- [x] Make the regular Host Process path prepare the operation before execution,
-  with clear ownership of interpretation, authorization, and admission.
-- [x] Preserve native execution lookup wherever the primitive expresses the
-  Runtime state: fully Ambient on every platform, and Ambient Env with Fixed
-  cwd on Linux. Interpret Fixed cwd on Darwin and Windows instead of leaking
-  host caller-directory behavior. Separate pure lookup calculation from OS
-  observations and Host Process orchestration; interpreted Linux PATH search
-  uses one child.
-
-Each independently reviewable change should test its intended behavior through
-its execution interface. Existing virtual interfaces and tests do not impose a
-backward compatibility requirement. Architectural vocabulary
-belongs in the crate glossary; implemented behavior belongs in the developer
-index and its linked references. Keep this file focused on sequencing and
-remaining work.
-
-Engine now owns execution scopes, including file loading and Moon artifact
-preparation. `prepare_artifact` borrows control and produces an artifact;
-Engine executes it and finalizes the result after cleanup. `RuntimeConfig`
-remains the single set of construction inputs. The process table stores only
-relationships, control, and completion, so it does not retain Runtime through an
-Engine ownership cycle. The public tree wrapper and internal command module
-have been removed.
-
-This completes the ownership and execution milestone. Host Process now prepares
-native and virtual requests through one entry: existing lexical authorization,
-Runtime state interpretation and child configuration, then a single-use
-execution payload. Native lookup remains with libc or CreateProcessW when
-both Env and cwd are Ambient. Linux can also express Fixed cwd with child
-chdir. Darwin and Windows need explicit lookup for Fixed cwd because their
-native primitives still observe the host caller directory. Policy presence
-does not select this path. Owned Env supplies caller lookup inputs, including
-absent PATH; child Env is separate. Virtual Moon derivation requires a plan
-because Engine executes it instead of a native OS spawn. Interpreted lookup
-captures cwd only when relative candidates need a base or Engine needs a
-complete child configuration. Absolute lookup may inherit Ambient cwd without
-requiring a recoverable pathname. The architecture guide records the native
-reference, deliberate virtualization choices, and downstream async contract.
-
-`process/spawn.rs` owns interpretation, authorization, and binding;
-`process/lookup.rs` is pure candidate calculation with explicit inputs;
-`process/ambient/lookup.rs` supplies OS observations. The split remains inside
-the crate. Linux executes a prepared PATH search with one child and an execve
-loop, while native Ambient search stays with libc. Permission coverage has not
-expanded.
-The remaining native execution and helper cancellation work can build on these
-boundaries without moving Runtime interpretation into ABI adapters or workers.
+Contracts: [execution ownership](design/runtime-architecture.md#library-contract-and-execution-ownership),
+[host-operation layers](design/runtime-architecture.md#three-layers-for-host-operations),
+and [virtualization](design/runtime-architecture.md#virtualization-and-inheritance).
+Evidence: [execution acceptance cases](design/runtime-architecture.md#applying-the-design-to-changes).
 
 ## Session shutdown
 
-- [x] Close managed and Virtual admission atomically with requesting termination
-  of every admitted Engine member, including adopted descendants. Keep
-  single-member termination separate and leave result reaping to the owner.
-- [x] Let the virtual CLI finish cleanup after an unhandled signal, including
-  signals received before root admission or while waiting for adopted children.
-  Preserve ordinary non-virtual CLI signal behavior and normal orphan completion.
+- [x] Close managed and Virtual admission while requesting termination of all
+  admitted Engine members.
+- [x] Forward CLI signals through namespace shutdown and adopted-root reaping.
 
-`Engine::request_shutdown` is irreversible for its process namespace and shared
-by clones. It requests termination; `wait` still observes actual completion.
-Native caller-thread Runs have no table membership and retain their independent
-termination channels. The CLI records the first unhandled session signal,
-requests shutdown, drains adopted roots, then presents that signal as its exit.
-Repeated signals during cleanup do not bypass teardown. After finalization,
-signal handling returns to the existing process fallback.
+Contract and limits: [execution ownership](design/runtime-architecture.md#library-contract-and-execution-ownership).
 
 ## Moonx-only guest execution
 
 - [x] Share moonx's authoritative grammar between Moon and Moonrun, including
   its opaque program-argument tail. Keep ordinary Moon CLI definitions in Moon.
 - [x] Restrict guest Virtual spawn to moonx for local `.mbtx` files and registry
-  packages. Other commands report unsupported; there is no native fallback.
-- [x] Classify before preparation: complete help/version and argument errors
-  through the embedded frontend and bound streams without a helper or handoff
-  directory. Successful execution requests still require delivered artifacts.
-  Guest arguments cannot replace the host's private handoff prefix.
+  packages; reject other commands without native fallback.
+- [x] Complete help/version and argument errors through the embedded frontend
+  and bound streams before creating a helper or handoff directory.
 
-Host-selected `Engine::run_moon` / `spawn_moon` and the CLI's root entry may still
-use `moon run`. Their preparation interface does not expand guest spawn support.
-Recursive tests use the pinned async implementation with a private cached
-registry artifact and local scripts; no live registry dependency is introduced.
+Contract: [command selection](design/runtime-architecture.md#artifact-preparation-and-command-selection).
+Evidence: [frontend tests](../../tests/moonx_frontend.rs) and
+[recursive guest tests](../../tests/recursive_moon.rs), using local scripts and
+private cached registry artifacts.
 
-## Parallel authority work
+## Execution work
 
-Authority closure proceeds independently of command selection, preparation
-helper cancellation, and native/Node execution. The
-[workstream plan](design/authority-closure.md) records ownership and acceptance
-criteria. WASI filesystem effects now use Host Filesystem authorization and
-native execution, in addition to WASI rights and path containment. Child
-restriction composition and explicit resource delegation remain follow-ups.
+Deliver these as separate changes in dependency order:
 
-Host-global embedding ownership is separate: Job/process-group lifetime belongs
-with helper and native execution; signal, Winsock, and diagnostic ownership can
-be addressed independently. Authority changes include only embedding fixes
-necessary for their enforcement. Execution strategies must preserve authority
-without duplicating policy inside argument parsing or OS primitives.
+1. [ ] Add native process members to Engine for explicit mixed execution,
+   including ordinary authorized guest commands and delivered native/Node
+   artifacts. Preserve env, cwd, stdio, termination, wait, shutdown, and reaping;
+   pure Virtual execution remains moonx-only.
+2. [ ] Reuse native process management for preparation helpers and compiler
+   descendants. The preparation FIXME waits for helper exit before publishing
+   cancellation. Use a Unix process group or Windows Job for noninteractive
+   preparation; Moon/n2 cooperative cancellation is a separate protocol.
 
-## Follow-up order
+Contracts: [artifact preparation](design/runtime-architecture.md#artifact-preparation-and-command-selection)
+and [execution ownership](design/runtime-architecture.md#library-contract-and-execution-ownership).
 
-1. Add native process members to Engine for mixed execution. Besides delivered
-   native/Node artifacts, support ordinary authorized guest native commands.
-   Preserve env, cwd, stdio, single-member termination, wait, shutdown, and reaping
-   through the same supervision interface. Pure Virtual execution remains
-   moonx-only; mixed execution must be explicitly selected, not a fallback.
-2. Reuse native process management for preparation helpers and their compiler
-   descendants. Cancellation currently waits for helper exit and prevents
-   subsequent Wasm execution. Prefer a Unix process group / Windows Job for
-   noninteractive preparation; do not expand this into a Moon/n2 cooperative
-   cancellation protocol by default.
-3. Extend total authorization and monotonic child restrictions, including WASI
-   grants and explicit resource delegation. This is a separate runtime policy
-   workstream, not a prerequisite for process-tree functionality; existing
-   authorization and policy inheritance must continue to hold.
-4. Complete edge cases in executable lookup, Windows special paths, trusted
-   Moon identification, and stable file identity as required by the isolation
-   contract. Keep normal env/cwd/stdio and lookup behavior correct in each step.
-5. Add cancellation to synchronous host operations individually. Completion
-   continues to require actual teardown.
+## Authority work
 
-Concrete isolation problems on normal paths may be fixed independently. In
-particular, audit the embedding ownership of process-global facilities such as
-Winsock cleanup, Unix signal handlers, and the Windows global Job Object, plus
-diagnostic routing. An owned Env alone does not isolate native library state.
-These follow-ups do not all belong in the current milestone.
+- [x] Apply Host Filesystem policy across unstable, async, and supported WASI
+  filesystem operations, retaining WASI rights and preopen containment.
+- [ ] Compose inherited restrictions with additional child restrictions.
+  Policy selection uses precedence rather than intersection.
+- [ ] Define explicit resource delegation and attenuation for files, sockets,
+  stdio, and directory resources.
+- [ ] Audit indirect host effects, including SQLite auxiliary files, TLS trust
+  discovery, clocks, randomness, and library initialization.
+- [ ] Define helper and native-execution grants together with execution work.
 
-## Verification targets
+Contracts: [authority design](design/authority-closure.md). Acceptance cases:
+[filesystem checks](design/authority-closure.md#filesystem-acceptance-criteria),
+[restriction composition](design/authority-closure.md#restriction-composition),
+and [resource delegation](design/authority-closure.md#resource-delegation).
 
-- Termination remains authoritative through file loading, preparation, Run
-  execution, and cleanup. Managed completion waits for thread reaping.
-- Cancelling a wait preserves the child and its unread result; terminating one
-  member leaves other members usable.
-- Root and recursive guest execution preserve arguments, cwd, environment,
-  stdio, inherited policy, and executable identity through artifact handoff.
-- Ordinary Engine execution retains its standalone termination and teardown
-  contract across supported backends.
-- `run` and `spawn` preserve the selected guest process mode; Engine clones
-  share control while new Engines have independent namespaces. Explicit empty
-  environments do not fall back to host values.
-- Native Ambient lookup preserves platform observation timing. Native-control
-  regressions compare caller/child cwd behavior on each platform, including
-  relative PATH entries. Separate Runtime tests exercise Fixed caller cwd and
-  an independent child-cwd override; native fidelity alone does not prove cwd
-  virtualization. Selection depends on Runtime state and platform behavior,
-  not policy presence.
-- Interpreted preparation uses caller Runtime PATH independently of child Env,
-  resolves cwd according to the platform, and preserves lexical policy denial
-  before lookup or transfer-file effects. Execution does not reinterpret its
-  plan using later Runtime values. Cwd is captured only when required by the
-  plan; otherwise the native operation can inherit it. Pure lookup tests need no OS or
-  filesystem fixtures; execution tests cover Linux candidate retries within
-  one child process.
+## Embedding and compatibility work
 
-- Spawn preparation failures follow async's completion/errno/free sequence;
-  result handles are read only after success. Native controls cover the Linux
-  compatibility executor's raw argv/envp and error behavior, plus Windows
-  empty and NUL-terminated native strings.
+These tasks have no dependency on command classification. Concrete isolation
+failures on ordinary paths can be addressed as separate fixes.
+
+- [ ] Coordinate process-global signal dispositions, Winsock lifetime, and the
+  Windows Job containing the embedding process.
+- [ ] Route diagnostics through an embedding-owned destination; policy denial
+  writes to host stderr.
+- [ ] Separate OS mechanisms in Job runners and `async_sys` from ABI and domain
+  responsibilities as those operations change.
+- [ ] Complete executable lookup compatibility, Windows special-path handling,
+  trusted Moon identification, and stable file identity.
+- [ ] Add cancellation to synchronous host operations that can block teardown.
+
+Contracts: [embedding](design/runtime-architecture.md#library-contract-and-execution-ownership),
+[lookup](design/runtime-architecture.md#virtualization-and-inheritance), and
+[ownership across host facilities](design/authority-closure.md#ownership).
