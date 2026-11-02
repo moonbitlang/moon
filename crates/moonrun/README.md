@@ -55,8 +55,8 @@ supply the same `process` fields. Files retain their existing deny-by-default
 semantics for omitted filesystem, network, environment and process rules.
 
 Virtualization gives the root and internal moonx descendants separate virtual
-PIDs, Env and cwd in one Engine. Guest spawn currently supports only moonx;
-other commands remain unsupported even when authorized. Existing async APIs provide spawning, waiting,
+PIDs, Env and cwd in one Engine. Authorized ordinary commands are OS children
+managed in that same namespace. Existing async APIs provide spawning, waiting,
 and signals. The CLI waits for descendants and returns the root's status.
 Virtualization currently requires V8; it defaults to `false`.
 
@@ -78,9 +78,10 @@ back to Engine. Guest process rules do not gate these host-owned helpers.
 Moonx help/version and argument errors finish through the embedded frontend
 without a preparation helper.
 
-Ordinary native children, delivered native/Node artifacts, helper-tree
-cancellation, and blocking host-I/O cancellation remain follow-up work.
-Preparation cancellation still waits for the helper to exit.
+Native programs have the host user's OS access; Wasm filesystem/network policy
+does not sandbox them. Their OS descendants do not automatically become Engine
+members. Delivered native/Node artifacts, helper-tree cancellation, and blocking
+host-I/O cancellation remain follow-up work.
 
 ## Experimental wee8 backend
 
@@ -290,6 +291,21 @@ capture missing Env and cwd values once; explicit values, including an empty
 environment, remain authoritative. With virtualization off, Runs retain Ambient defaults on
 managed threads too, so embedding callers must coordinate any process-global
 environment access or supply owned environments.
+
+Embedding Unix applications must leave Engine-owned native children to its
+sole reaper: do not reap them through another waiter (including `waitpid(-1)`
+in a SIGCHLD handler), or enable SIGCHLD automatic reaping while they exist.
+Managed native spawn rejects `SIGCHLD=SIG_IGN` and `SA_NOCLDWAIT` before creating
+a child, without modifying the host's signal disposition. This requirement
+lets WNOWAIT retain the native identity until Engine revokes control and reaps.
+
+`request_shutdown(outcome)` closes admission and attempts every member, returning
+`Result<bool, ShutdownError>`. An error lists native members the OS refused to
+terminate; the namespace stays closed and failures may be retried. The boolean
+reports whether this call first closed admission. Callers still wait for actual
+cleanup. Native forced termination uses SIGKILL on Unix or TerminateProcess on
+Windows; native wait reports its actual OS exit, even if it exited before the
+request. The requested outcome remains the Wasm termination result.
 
 `terminate` requests termination of one managed or active virtual execution;
 `snapshot` reports identities still tracked by that Engine. A caller-thread

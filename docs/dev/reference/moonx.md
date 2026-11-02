@@ -38,14 +38,15 @@ standard streams, and signal behavior. `moonx` returns the child's exit code.
 
 The selected policy's `process.virtualize = true` starts Moonrun's experimental
 virtual supervision for the resolved Wasm and recursive internal moonx Runs.
-Other guest commands remain unsupported with virtualization enabled.
-Virtualization defaults to `false`; authorization remains
+Permitted ordinary guest commands use OS children with virtual identities and
+shared wait/shutdown. Virtualization defaults to `false`; authorization remains
 with `process.spawn` / `process.allow` in either mode. For a moonx-only tree,
 set `virtualize = true` and `allow = [{ program = "moonx" }]`. Internal moonx
 requires authorization too; preparation helpers remain host-owned.
 
-Ordinary native children, delivered native/Node artifacts and preparation-helper
-tree cancellation remain follow-ups. See [moonrun](../../../../crates/moonrun/README.md#experimental-virtual-process-tree).
+Native programs retain host OS access, and their OS children are not automatically
+Engine members. Delivered native/Node artifacts and preparation-helper tree
+cancellation remain follow-ups. See [moonrun](../../../../crates/moonrun/README.md#experimental-virtual-process-tree).
 
 By default, `moonx` emits no informational output of its own. With `--verbose`,
 registry or script dependency acquisition, build progress, and execution

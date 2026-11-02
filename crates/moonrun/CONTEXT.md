@@ -312,7 +312,8 @@ namespace. Execution placement and guest process behavior are separate choices.
 An Engine does not own a Runtime's virtual environment. `request_shutdown`
 closes managed and virtualized admission and requests termination of all admitted
 members, including adopted descendants; it does not wait or affect Native
-caller-thread Runs outside its process table.
+caller-thread Runs outside its process table. Native members own an OS child
+and report its actual exit status; they are not Wasm Runs.
 _Avoid_: Runtime, Instance, Run, execution thread, thread pool
 
 **Instance**:

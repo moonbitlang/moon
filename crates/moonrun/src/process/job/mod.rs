@@ -58,6 +58,11 @@ enum Kind {
         spawn: Option<Box<NativeSpawn>>,
         result: Option<ResourcePublication>,
     },
+    ManagedNative {
+        context: crate::process_tree::ProcessContext,
+        spawn: Option<Box<NativeSpawn>>,
+        result: Option<ResourcePublication>,
+    },
     SpawnMoon {
         request: Box<super::moon::Spawn>,
         result: Option<ResourcePublication>,
@@ -181,7 +186,9 @@ impl Job {
 
     pub(crate) fn take_spawn_result(&mut self) -> AsyncHostResult<Option<ResourcePublication>> {
         match &mut self.kind {
-            Kind::NativeSpawn { result, .. } | Kind::SpawnMoon { result, .. } => Ok(result.take()),
+            Kind::NativeSpawn { result, .. }
+            | Kind::SpawnMoon { result, .. }
+            | Kind::ManagedNative { result, .. } => Ok(result.take()),
             _ => Err(AsyncHostError::Badf),
         }
     }
@@ -191,7 +198,9 @@ impl Job {
         resource: ResourcePublication,
     ) -> AsyncHostResult<()> {
         match &mut self.kind {
-            Kind::NativeSpawn { result, .. } | Kind::SpawnMoon { result, .. } => {
+            Kind::NativeSpawn { result, .. }
+            | Kind::SpawnMoon { result, .. }
+            | Kind::ManagedNative { result, .. } => {
                 *result = Some(resource);
                 Ok(())
             }
@@ -230,35 +239,29 @@ impl Job {
         match &mut self.kind {
             // No OS primitive can execute a guest request that skipped its owner.
             Kind::PendingSpawn(_) => Err(AsyncHostError::Inval),
-            Kind::NativeSpawn { spawn, result } => {
-                let NativeSpawn {
-                    request,
-                    _stdio_owner,
-                    executable,
-                    policy_inheritance,
-                } = *spawn.take().ok_or(AsyncHostError::Inval)?;
-                #[cfg(unix)]
-                return ambient::run_spawn_job_unix(
-                    executable,
-                    request.args,
-                    request.env,
-                    request.stdio,
-                    request.cwd,
-                    request.options,
-                    policy_inheritance,
-                    result,
-                );
+            Kind::NativeSpawn { spawn, result } => spawn.take().ok_or(AsyncHostError::Inval)?.run(
+                result,
                 #[cfg(windows)]
-                return ambient::run_spawn_job_windows(
-                    executable,
-                    request.command_line,
-                    request.env,
-                    request.stdio,
-                    request.cwd,
-                    request.options,
-                    policy_inheritance,
-                    result,
-                );
+                ambient::SpawnOwner::Ambient,
+            ),
+            Kind::ManagedNative {
+                context,
+                spawn,
+                result,
+            } => {
+                let spawned = context.spawn_native(*spawn.take().ok_or(AsyncHostError::Inval)?)?;
+                let pid = spawned.pid.get();
+                #[cfg(windows)]
+                {
+                    *result = Some(ResourcePublication::Unpublished(
+                        crate::resource::Resource::process(
+                            crate::process_tree::ProcessHandle::from_spawn(context, spawned),
+                        ),
+                    ));
+                }
+                #[cfg(unix)]
+                let _ = result;
+                Ok(i64::from(pid))
             }
             Kind::SpawnMoon { request, result } => request.run(result),
             Kind::WaitForVirtualProcess(wait) => wait.run(),
@@ -292,6 +295,11 @@ impl Job {
                         spawn: Some(spawn),
                         result: None,
                     },
+                    PreparedSpawn::ManagedNative(context, spawn) => Kind::ManagedNative {
+                        context,
+                        spawn: Some(spawn),
+                        result: None,
+                    },
                     PreparedSpawn::Moon(request) => Kind::SpawnMoon {
                         request,
                         result: None,
@@ -306,7 +314,9 @@ impl Job {
                 ..
             } => process.check_wait(handle.is_some(), *tracked_pid, *pid),
             Kind::WaitForVirtualProcess(_) => Ok(()),
-            Kind::NativeSpawn { .. } | Kind::SpawnMoon { .. } => Err(AsyncHostError::Inval),
+            Kind::NativeSpawn { .. } | Kind::SpawnMoon { .. } | Kind::ManagedNative { .. } => {
+                Err(AsyncHostError::Inval)
+            }
         }
     }
 

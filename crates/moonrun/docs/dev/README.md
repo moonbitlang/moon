@@ -208,6 +208,42 @@ for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
 
+Permitted native commands use OS children owned by Engine and the same virtual
+identities and guest wait APIs. Moonx uses the internal frontend and Wasm
+handoff. Both routes use the same process policy and inherit its existing
+full-policy precedence.
+A native child receives interpreted env/cwd/stdio and uses the existing native
+spawn primitive. Spawn errors are returned before any guest PID is published.
+The Engine reserves a reaper before OS spawn and holds admission through table
+publication; shutdown can therefore wait for an in-progress OS spawn, but
+cannot miss a successfully started child. Failed spawn cancels the reservation.
+
+Native and Wasm entries share parentage, adoption, wait claims and completion.
+Native soft signals go to the OS: Unix supports the native signal numbers;
+Windows Ctrl-Break retains console process-group semantics and requires a
+shared console. Forced Engine termination kills only the direct native child
+(SIGKILL on Unix; TerminateProcess on Windows). The requested RunTermination is
+a Wasm result; native wait always reports the actual OS exit. Windows uses a
+requested Exit(code), or code 1 for KilledBySignal, when forcing native exit.
+Its original process HANDLE stays internal; guests receive the usual virtual
+ProcessHandle. Unix observes exit with WNOWAIT, then revokes native PID control
+and reaps under one lifecycle lock. Retained virtual identities cannot signal
+a subsequently recycled OS PID. Cancelling a guest wait never cancels this
+sole native reaper or loses the unread result.
+
+Embedding Unix applications must leave Engine-owned native children to its
+sole reaper: do not reap them through another waiter (including `waitpid(-1)`
+in a SIGCHLD handler), or enable SIGCHLD automatic reaping while they exist.
+Managed native spawn rejects `SIGCHLD=SIG_IGN` and `SA_NOCLDWAIT` before creating
+a child, without modifying the host's signal disposition. This requirement
+lets WNOWAIT retain the native identity until Engine revokes control and reaps.
+
+Native programs have the host user's OS access; runtime filesystem/network
+policies do not sandbox them. Their own OS children do not automatically become
+Engine members. Managed native execution does not use the ambient Windows global Job Object to
+bind the embedding host's lifetime. Helper-tree cancellation and delivered
+native/Node artifacts remain separate follow-ups.
+
 `run_moon` and `spawn_moon` classify moonx through the shared frontend first.
 Help/version and parse errors complete with bound stdio and CLI status, without
 a helper or handoff directory. Execution requests ask a host-selected Moon/moonx
@@ -258,7 +294,11 @@ managed and virtualized admission under the same lock as spawning, then requests
 termination of every admitted member, including adopted descendants. Clones
 share this irreversible state; independent Engines do not. It does not join,
 reap results, or affect Native caller-thread Runs outside the process table.
-Existing per-process termination requests keep their first outcome.
+Existing accepted termination requests keep their first outcome. Shutdown
+attempts every member and returns `Result<bool, ShutdownError>`; failures list
+the native members the OS refused to terminate. Admission stays closed and a
+later call retries failed requests. Success requests termination, not bounded
+completion. The CLI reports failures and retries on another signal.
 
 With `process.virtualize = true`, the CLI normally waits for adopted descendants
 and presents the root outcome. A signal the root does not accept instead closes
@@ -274,8 +314,7 @@ block cleanup; this interface does not promise bounded termination.
 Current permission coverage is unchanged. Helpers retain host access, and
 cancellation during preparation waits for helper exit before preventing Wasm
 startup; helper-group cancellation remains a FIXME. Prepared native/Node
-artifacts and ordinary native guest spawning with virtualization enabled remain
-unsupported. A spawn denied by the process policy
+artifacts remain unsupported. A spawn denied by the process policy
 returns a permission error before lookup or resource acquisition. `Terminating` does not promise bounded teardown. See
 `tests/process_tree.rs`, `tests/guest_process_control.rs`, `tests/recursive_moon.rs`
 and `tests/moon_handoff.rs`.

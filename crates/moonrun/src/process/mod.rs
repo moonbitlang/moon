@@ -42,8 +42,10 @@ use crate::policy::{PolicyInheritance, ProcessPolicy};
 use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
+pub(crate) use ambient::child::NativeChild;
 pub(crate) use job::Job;
 pub(crate) use job::SpawnOptions;
+pub(crate) use spawn::NativeSpawn;
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]

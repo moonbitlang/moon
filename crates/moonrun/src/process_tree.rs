@@ -19,6 +19,7 @@
 //! Execution admission, control, and reaping owned by the Engine.
 
 mod guest;
+mod native;
 #[cfg(windows)]
 pub(crate) use guest::ProcessHandle;
 pub(crate) use guest::{ProcessContext, ProcessWait};
@@ -110,6 +111,12 @@ pub enum ProcessError {
     InvalidVirtualConfiguration,
     #[error("failed to prepare or start a virtual process")]
     Spawn(#[from] std::io::Error),
+    #[error("failed to control native member {pid}")]
+    NativeControl {
+        pid: VirtualPid,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("virtual process Run failed")]
     RunFailed(#[source] anyhow::Error),
     #[error("virtual process {0} panicked")]
@@ -118,8 +125,7 @@ pub enum ProcessError {
 
 struct Entry {
     info: ProcessInfo,
-    terminator: RunTerminator,
-    signals: crate::SignalSender,
+    control: ProcessControl,
     completion: Arc<ProcessCompletion>,
     waiting: bool,
 }
@@ -130,11 +136,47 @@ impl Entry {
         // A caller-supplied terminator reaches the shared request directly.
         // Derive this state from that request instead of requiring every
         // termination source to update a second copy in the process table.
-        if info.state == ProcessState::Running && self.terminator.requested().is_some() {
+        if info.state == ProcessState::Running && self.control.termination_requested() {
             info.state = ProcessState::Terminating;
         }
         info
     }
+}
+
+// Control differs; identity, parentage, completion and wait claims do not.
+enum ProcessControl {
+    Run {
+        terminator: RunTerminator,
+        signals: crate::SignalSender,
+    },
+    Native(Arc<crate::process::NativeChild>),
+}
+
+impl ProcessControl {
+    fn termination_requested(&self) -> bool {
+        match self {
+            Self::Run { terminator, .. } => terminator.requested().is_some(),
+            Self::Native(child) => child.termination_requested(),
+        }
+    }
+
+    fn terminate(&self, outcome: RunTermination) -> std::io::Result<bool> {
+        match self {
+            Self::Run { terminator, .. } => Ok(terminator.terminate(outcome)),
+            Self::Native(child) => child.kill(match outcome {
+                RunTermination::Exit(code) => code as u32,
+                RunTermination::KilledBySignal(_) => 1,
+            }),
+        }
+    }
+}
+
+/// Admission is closed even if some native members could not be terminated.
+/// Every member was attempted; failed requests may be retried.
+#[derive(Debug, Error)]
+#[error("failed to terminate Engine members: {failures:?}")]
+pub struct ShutdownError {
+    pub failures: Vec<(VirtualPid, std::io::Error)>,
 }
 
 #[derive(Debug, Default)]
@@ -273,8 +315,10 @@ impl ExecutionScope<'_> {
                         parent: None,
                         state: ProcessState::Running,
                     },
-                    terminator: self.receiver.sender(),
-                    signals: signals.sender(),
+                    control: ProcessControl::Run {
+                        terminator: self.receiver.sender(),
+                        signals: signals.sender(),
+                    },
                     completion: Arc::new(ProcessCompletion::default()),
                     waiting: true,
                 },
@@ -580,8 +624,10 @@ impl Engine {
                     parent,
                     state: ProcessState::Running,
                 },
-                terminator,
-                signals,
+                control: ProcessControl::Run {
+                    terminator,
+                    signals,
+                },
                 completion,
                 waiting: false,
             },
@@ -594,6 +640,9 @@ impl Engine {
 
     /// Request forced termination of one member, without affecting descendants.
     /// Acceptance is not completion; synchronous host I/O may delay `wait`.
+    /// For Wasm, `outcome` specifies its requested result. Native Unix children
+    /// receive SIGKILL; Windows uses Exit(code), or code 1 for KilledBySignal.
+    /// Native waits always report the actual OS exit status.
     /// Unknown IDs are errors and are never forwarded to the operating system.
     pub fn terminate(
         &self,
@@ -604,32 +653,47 @@ impl Engine {
         let entry = table.entries.get(&pid).ok_or(ProcessError::NotFound(pid))?;
         // Lock order is table then termination. Run completion acquires the
         // table only after execution has closed the termination channel.
-        Ok(entry.terminator.terminate(outcome))
+        entry
+            .control
+            .terminate(outcome)
+            .map_err(|source| ProcessError::NativeControl { pid, source })
     }
 
     /// Close admission and request termination of every admitted execution.
     ///
     /// This includes adopted descendants and is shared by clones of this
-    /// Engine. The first call returns `true`; later calls return `false` and
-    /// leave the first requests intact. Existing per-process termination
-    /// requests retain their own first outcome.
+    /// Engine. The boolean reports whether this call first closed admission.
+    /// Successful retries return `Ok(false)`, including after an earlier error,
+    /// and leave already accepted requests intact. Existing per-process termination
+    /// requests retain their own first outcome. Errors list native members that
+    /// could not be terminated; admission stays closed and another call retries.
     ///
     /// This only requests shutdown. Callers must still wait for cleanup and
     /// reap the members they own. Native caller-thread Runs are not admitted
     /// to the process table and are unaffected. Dropping an Engine does not
     /// implicitly request shutdown.
-    pub fn request_shutdown(&self, outcome: RunTermination) -> bool {
+    pub fn request_shutdown(&self, outcome: RunTermination) -> Result<bool, ShutdownError> {
         let mut table = self.processes.0.lock().unwrap();
-        if table.shutting_down {
-            return false;
-        }
+        let first = !table.shutting_down;
         table.shutting_down = true;
-        // The existing table -> termination lock order also serializes with
-        // parent exit/adoption. Wake callbacks must never re-enter the table.
-        for entry in table.entries.values() {
-            entry.terminator.terminate(outcome);
+        // Attempt every member, even after a native error. Requests accepted
+        // earlier are idempotent; failed native requests remain retryable.
+        let failures: Vec<_> = table
+            .entries
+            .values()
+            .filter_map(|entry| {
+                entry
+                    .control
+                    .terminate(outcome)
+                    .err()
+                    .map(|error| (entry.info.pid, error))
+            })
+            .collect();
+        if failures.is_empty() {
+            Ok(first)
+        } else {
+            Err(ShutdownError { failures })
         }
-        true
     }
 
     /// Join and reap exactly once, including Run failures and thread panics.
@@ -745,7 +809,7 @@ mod tests {
                     let pid = options.runtime.process_context.as_ref().unwrap().pid;
                     assert_eq!(engine.snapshot()[0].pid, pid);
                     assert!(options.runtime.default_environment.is_some());
-                    engine.request_shutdown(RunTermination::Exit(77));
+                    engine.request_shutdown(RunTermination::Exit(77))?;
                     Ok(RunOutcome::Completed)
                 },
             )
@@ -784,7 +848,7 @@ mod tests {
                 crate::signal_channel().1,
                 |engine, options, signals, scope| {
                     assert!(engine.snapshot().is_empty());
-                    engine.request_shutdown(RunTermination::Exit(77));
+                    engine.request_shutdown(RunTermination::Exit(77))?;
                     let mut options = options
                         .with_inherited_policy(br#"{"process":{"virtualize":true}}"#.to_vec())?;
                     scope.bind_virtual(engine, &mut options, &signals)?;
@@ -803,8 +867,13 @@ mod tests {
     #[test]
     fn shutdown_closes_managed_and_virtual_admission_only_in_its_engine() {
         let engine = Engine::default();
-        assert!(engine.request_shutdown(RunTermination::Exit(17)));
-        assert!(!engine.clone().request_shutdown(RunTermination::Exit(18)));
+        assert!(engine.request_shutdown(RunTermination::Exit(17)).unwrap());
+        assert!(
+            !engine
+                .clone()
+                .request_shutdown(RunTermination::Exit(18))
+                .unwrap()
+        );
         assert!(matches!(
             engine.spawn_execution(
                 None,
@@ -882,7 +951,7 @@ mod tests {
                         );
                         let request = started.recv_timeout(Duration::from_secs(5)).unwrap();
                         if before_adoption {
-                            assert!(engine.request_shutdown(RunTermination::Exit(31)));
+                            assert!(engine.request_shutdown(RunTermination::Exit(31)).unwrap());
                             assert_eq!(request.get(), Some(RunTermination::Exit(31)));
                         } else {
                             // Ending just the parent leaves its child running.
@@ -900,10 +969,10 @@ mod tests {
             let child = child.unwrap();
             assert_eq!(engine.snapshot()[0].parent, None);
             if !before_adoption {
-                assert!(engine.request_shutdown(RunTermination::Exit(31)));
+                assert!(engine.request_shutdown(RunTermination::Exit(31)).unwrap());
             }
             assert_eq!(engine.snapshot()[0].state, ProcessState::Terminating);
-            assert!(!engine.request_shutdown(RunTermination::Exit(32)));
+            assert!(!engine.request_shutdown(RunTermination::Exit(32)).unwrap());
             release.send(()).unwrap();
             assert_eq!(engine.wait(child).unwrap(), RunOutcome::Exited(31));
             assert!(engine.snapshot().is_empty());
@@ -940,7 +1009,7 @@ mod tests {
             let gate = Arc::clone(&gate);
             thread::spawn(move || {
                 gate.wait();
-                engine.request_shutdown(RunTermination::Exit(23))
+                engine.request_shutdown(RunTermination::Exit(23)).unwrap()
             })
         };
         gate.wait();
@@ -1282,8 +1351,10 @@ mod tests {
                         parent: None,
                         state: ProcessState::Running,
                     },
-                    terminator,
-                    signals: crate::signal_channel().0,
+                    control: ProcessControl::Run {
+                        terminator,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: process_completion,
                     waiting: false,
                 },
@@ -1404,9 +1475,10 @@ mod tests {
                 )
                 .unwrap();
             run_returned.recv_timeout(Duration::from_secs(5)).unwrap();
-            let terminator = tree.processes.0.lock().unwrap().entries[&spawned.pid]
-                .terminator
-                .clone();
+            let terminator = match &tree.processes.0.lock().unwrap().entries[&spawned.pid].control {
+                ProcessControl::Run { terminator, .. } => terminator.clone(),
+                _ => unreachable!(),
+            };
             let accepted = tree
                 .terminate(spawned.pid, RunTermination::Exit(42))
                 .unwrap();
@@ -1461,9 +1533,10 @@ mod tests {
             .unwrap();
         let tree = engine;
         let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
-        let terminator = tree.processes.0.lock().unwrap().entries[&pid]
-            .terminator
-            .clone();
+        let terminator = match &tree.processes.0.lock().unwrap().entries[&pid].control {
+            ProcessControl::Run { terminator, .. } => terminator.clone(),
+            _ => unreachable!(),
+        };
         let table = Arc::downgrade(&tree.processes.0);
         drop(tree);
         assert!(table.upgrade().is_some());
