@@ -156,7 +156,6 @@ pub struct ProjectPreparationConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     dependency_source_cache: CacheRoot,
-    no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
     workspace_env: WorkspaceEnv,
@@ -311,7 +310,6 @@ impl ProjectPreparationConfig {
     /// and defaults for the remaining options.
     pub fn new_with_load_defaults(
         frozen: bool,
-        no_std: bool,
         enable_coverage: bool,
         workspace_env: WorkspaceEnv,
     ) -> Self {
@@ -319,7 +317,6 @@ impl ProjectPreparationConfig {
             sync_flags: AutoSyncFlags { frozen },
             sync_output: SyncOutputOptions::default(),
             dependency_source_cache: CacheRoot::Disabled,
-            no_std,
             enable_coverage,
             workspace_env,
         }
@@ -328,7 +325,6 @@ impl ProjectPreparationConfig {
     /// Create project preparation settings with the given sync and build flags.
     pub fn new(
         sync_flags: AutoSyncFlags,
-        no_std: bool,
         enable_coverage: bool,
         workspace_env: WorkspaceEnv,
     ) -> Self {
@@ -336,7 +332,6 @@ impl ProjectPreparationConfig {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
             dependency_source_cache: CacheRoot::Disabled,
-            no_std,
             enable_coverage,
             workspace_env,
         }
@@ -388,7 +383,6 @@ pub fn sync_module_dependencies(
         &cfg.sync_flags,
         cfg.sync_output,
         user_log,
-        cfg.no_std,
         cfg.workspace_env.clone(),
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;

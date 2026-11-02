@@ -20,7 +20,6 @@ fn test_moon_test_patch() {
             "./patch.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_dry_run_graph.jsonl.snap"],
     );
@@ -60,7 +59,6 @@ fn test_moon_test_patch() {
             "./patch_wbtest.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_wbtest_dry_run_graph.jsonl.snap"],
     );
@@ -101,7 +99,6 @@ fn test_moon_test_patch() {
             "./patch_test.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_bbtest_dry_run_graph.jsonl.snap"],
     );
@@ -142,7 +139,6 @@ fn test_moon_test_patch() {
             "./2.patch_test.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_2_bbtest_dry_run_graph.jsonl.snap"],
     );
@@ -182,7 +178,6 @@ fn test_moon_test_patch() {
             "./2.patch_wbtest.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_2_wbtest_dry_run_graph.jsonl.snap"],
     );

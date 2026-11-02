@@ -50,14 +50,7 @@ fn test_js_format() {
     let dir = TestDir::new("backend/js_format");
     let stdout = get_stdout(
         &dir,
-        [
-            "build",
-            "--target",
-            "js",
-            "--sort-input",
-            "--dry-run",
-            "--nostd",
-        ],
+        ["build", "--target", "js", "--sort-input", "--dry-run"],
     );
     println!("{stdout}");
     let stdout_lines = stdout.lines().collect::<Vec<_>>();
@@ -83,7 +76,7 @@ fn test_js_format() {
     assert!(get_link_core_of("lib3").contains("-target js"));
     assert!(get_link_core_of("lib3").contains("-js-format iife"));
 
-    let _ = get_stdout(&dir, ["build", "--target", "js", "--release", "--nostd"]);
+    let _ = get_stdout(&dir, ["build", "--target", "js", "--release"]);
     let t = dir.join(BUILD_DIR).join("js").join("release").join("build");
     check(
         std::fs::read_to_string(t.join("lib0").join("lib0.js"))

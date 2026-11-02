@@ -90,7 +90,7 @@ fn expected_package_runs(expected: &[(TargetBackend, &[&str])]) -> Vec<PlannedPa
 fn target_backend_build_planning_respects_default_and_explicit_backend() {
     let fixture = PlanningFixture::new("target_backend").expect("fixture should resolve");
 
-    let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--nostd", "--sort-input"]);
+    let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--sort-input"]);
     let default_graph = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("default build graph should plan");
@@ -100,14 +100,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
         &["./_build/js/debug/build/main/main.js", "-target js"],
     );
 
-    let (cli, cmd) = parse_build_command(&[
-        "build",
-        "--dry-run",
-        "--target",
-        "js",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--target", "js", "--sort-input"]);
     let js_graph = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
@@ -124,14 +117,8 @@ fn many_target_planning_selects_requested_backends() {
     let all_packages = &["username/hello/lib", "username/hello/link"];
     let root_packages = &["username/hello/link"];
 
-    let (cli, cmd) = parse_check_command(&[
-        "check",
-        "--target",
-        "js,wasm",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) =
+        parse_check_command(&["check", "--target", "js,wasm", "--dry-run", "--sort-input"]);
     let runs = lower_surface_targets(&cmd.build_flags.target)
         .into_iter()
         .flat_map(|target| {
@@ -148,14 +135,8 @@ fn many_target_planning_selects_requested_backends() {
         ],
     );
 
-    let (cli, cmd) = parse_build_command(&[
-        "build",
-        "--target",
-        "js,wasm",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) =
+        parse_build_command(&["build", "--target", "js,wasm", "--dry-run", "--sort-input"]);
     let runs = lower_surface_targets(&cmd.build_flags.target)
         .into_iter()
         .flat_map(|target| {
@@ -172,14 +153,8 @@ fn many_target_planning_selects_requested_backends() {
         ],
     );
 
-    let (cli, cmd) = parse_bundle_command(&[
-        "bundle",
-        "--target",
-        "js,wasm",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) =
+        parse_bundle_command(&["bundle", "--target", "js,wasm", "--dry-run", "--sort-input"]);
     let runs = lower_surface_targets(&cmd.build_flags.target)
         .into_iter()
         .flat_map(|target| {
@@ -190,14 +165,8 @@ fn many_target_planning_selects_requested_backends() {
         .collect::<Vec<_>>();
     assert_target_backend_runs(runs, &[TargetBackend::Wasm, TargetBackend::Js]);
 
-    let (cli, cmd) = parse_test_command(&[
-        "test",
-        "--target",
-        "js,wasm",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) =
+        parse_test_command(&["test", "--target", "js,wasm", "--dry-run", "--sort-input"]);
     let runs = lower_surface_targets(&cmd.build_flags.target)
         .into_iter()
         .flat_map(|target| {
@@ -220,14 +189,7 @@ fn all_target_test_planning_selects_every_concrete_backend() {
     let fixture = PlanningFixture::new("targets/many_targets").expect("fixture should resolve");
     let packages = &["username/hello/lib", "username/hello/link"];
 
-    let (cli, cmd) = parse_test_command(&[
-        "test",
-        "--target",
-        "all",
-        "--dry-run",
-        "--nostd",
-        "--sort-input",
-    ]);
+    let (cli, cmd) = parse_test_command(&["test", "--target", "all", "--dry-run", "--sort-input"]);
     let runs = lower_surface_targets(&cmd.build_flags.target)
         .into_iter()
         .flat_map(|target| {

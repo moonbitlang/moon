@@ -45,8 +45,7 @@ fn warnings(packages: &[(&str, &str)], backends: &[TargetBackend]) -> Vec<String
     let mut module_dirs = DirSyncResult::new();
     module_dirs.insert(mid, dir.path().to_owned());
     let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    let config =
-        ProjectPreparationConfig::new_with_load_defaults(false, true, false, WorkspaceEnv::Auto);
+    let config = ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
     discover_synced_project(&config, (module_graph, module_dirs), &log)
         .unwrap()
         .resolve_packages(backends, &log)

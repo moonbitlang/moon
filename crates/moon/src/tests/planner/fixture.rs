@@ -88,7 +88,6 @@ impl PlanningFixture {
             moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
                 true,
                 false,
-                false,
                 WorkspaceEnv::Auto,
             );
         let synced_modules =

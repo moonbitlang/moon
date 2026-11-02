@@ -552,7 +552,6 @@ fn run_test_in_single_file_rr(
     // Resolve synthesized single-file project
     let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
@@ -918,7 +917,6 @@ pub(crate) fn sync_and_discover_test_or_bench_project(
     let preparation_config =
         moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
             cmd.auto_sync_flags.frozen,
-            !cmd.build_flags.std(),
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
         );

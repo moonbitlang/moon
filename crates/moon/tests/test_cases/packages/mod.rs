@@ -19,10 +19,7 @@ fn test_error_duplicate_alias() {
 #[test]
 fn test_import_all_with_named_alias_dry_run() {
     let dir = TestDir::new("packages/import_all_with_named_alias");
-    let out = get_stdout(
-        &dir,
-        ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
-    );
+    let out = get_stdout(&dir, ["build", "--target", "wasm-gc", "--dry-run"]);
     assert!(
         out.contains("./_build/wasm-gc/debug/build/dep/dep.mi:*dep"),
         "{out}"
@@ -32,17 +29,14 @@ fn test_import_all_with_named_alias_dry_run() {
 #[test]
 fn test_import_all_with_named_alias_conflicts_with_alias() {
     let dir = TestDir::new("packages/import_all_with_named_alias_conflict");
-    let out = get_err_stderr(&dir, ["check", "--dry-run", "--nostd"]);
+    let out = get_err_stderr(&dir, ["check", "--dry-run"]);
     assert!(out.contains("same alias 'dep'"), "{out}");
 }
 
 #[test]
 fn test_import_all_with_named_alias_blackbox_self_alias_rewrite() {
     let dir = TestDir::new("packages/import_all_with_named_alias");
-    let out = get_stdout(
-        &dir,
-        ["test", "lib", "--target", "wasm-gc", "--dry-run", "--nostd"],
-    );
+    let out = get_stdout(&dir, ["test", "lib", "--target", "wasm-gc", "--dry-run"]);
     assert!(
         out.contains(
             "./_build/wasm-gc/debug/test/dep/dep.mi:*test/import_all_with_named_alias/dep"
@@ -55,16 +49,13 @@ fn test_import_all_with_named_alias_blackbox_self_alias_rewrite() {
 fn test_core_order() {
     let dir = TestDir::new("packages/core_order");
     check(
-        get_stdout(
-            &dir,
-            ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
-        ),
+        get_stdout(&dir, ["build", "--target", "wasm-gc", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./T/t.mbt -o ./_build/wasm-gc/debug/build/T/T.core -pkg lijunchen/hello/T -pkg-type library -pkg-sources lijunchen/hello/T:./T -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./B/b.mbt -o ./_build/wasm-gc/debug/build/B/B.core -pkg lijunchen/hello/B -pkg-type library -i ./_build/wasm-gc/debug/build/T/T.mi:T -pkg-sources lijunchen/hello/B:./B -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./A/a.mbt -o ./_build/wasm-gc/debug/build/A/A.core -pkg lijunchen/hello/A -pkg-type library -i ./_build/wasm-gc/debug/build/T/T.mi:T -pkg-sources lijunchen/hello/A:./A -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg lijunchen/hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/A/A.mi:A -i ./_build/wasm-gc/debug/build/B/B.mi:B -pkg-sources lijunchen/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/T/T.core ./_build/wasm-gc/debug/build/A/A.core ./_build/wasm-gc/debug/build/B/B.core ./_build/wasm-gc/debug/build/main/main.core -main lijunchen/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources lijunchen/hello/T:./T -pkg-sources lijunchen/hello/A:./A -pkg-sources lijunchen/hello/B:./B -pkg-sources lijunchen/hello/main:./main -target wasm-gc -g -O0 -source-map
+            moonc build-package ./T/t.mbt -o ./_build/wasm-gc/debug/build/T/T.core -pkg lijunchen/hello/T -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/hello/T:./T -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./B/b.mbt -o ./_build/wasm-gc/debug/build/B/B.core -pkg lijunchen/hello/B -pkg-type library -i ./_build/wasm-gc/debug/build/T/T.mi:T -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/hello/B:./B -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./A/a.mbt -o ./_build/wasm-gc/debug/build/A/A.core -pkg lijunchen/hello/A -pkg-type library -i ./_build/wasm-gc/debug/build/T/T.mi:T -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/hello/A:./A -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg lijunchen/hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/A/A.mi:A -i ./_build/wasm-gc/debug/build/B/B.mi:B -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources lijunchen/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/T/T.core ./_build/wasm-gc/debug/build/A/A.core ./_build/wasm-gc/debug/build/B/B.core ./_build/wasm-gc/debug/build/main/main.core -main lijunchen/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources lijunchen/hello/T:./T -pkg-sources lijunchen/hello/A:./A -pkg-sources lijunchen/hello/B:./B -pkg-sources lijunchen/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
         "#]],
     );
 }

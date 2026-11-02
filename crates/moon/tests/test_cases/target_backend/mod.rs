@@ -6,21 +6,21 @@ const PREFERRED_TARGET_CONFLICT_WARNING: &str = "Multiple local modules specify 
 fn test_target_backend_cli_wiring_smoke() {
     let dir = TestDir::new("target_backend");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
+        get_stdout(&dir, ["build", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
+            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm/release/bundle/core.core' ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm -g -O0 -wasi
         "#]],
     );
     moon_cmd(&dir)
-        .args(["run", "main", "--dry-run", "--target", "js", "--nostd"])
+        .args(["run", "main", "--dry-run", "--target", "js"])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
+moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/js/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/js/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
 [..]node[..] --enable-source-maps ./_build/js/debug/build/main/main.js
 
 "#]],
@@ -517,23 +517,11 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
 
     let js_stdout = get_stdout(
         &dir,
-        [
-            "run",
-            "js_preferred/src/main",
-            "--dry-run",
-            "--sort-input",
-            "--nostd",
-        ],
+        ["run", "js_preferred/src/main", "--dry-run", "--sort-input"],
     );
     let js_stderr = get_stderr(
         &dir,
-        [
-            "run",
-            "js_preferred/src/main",
-            "--dry-run",
-            "--sort-input",
-            "--nostd",
-        ],
+        ["run", "js_preferred/src/main", "--dry-run", "--sort-input"],
     );
     assert!(
         !js_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
@@ -552,7 +540,6 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
             "native_preferred/src/main",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ],
     );
     let native_stderr = get_stderr(
@@ -562,7 +549,6 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
             "native_preferred/src/main",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ],
     );
     assert!(
@@ -580,16 +566,7 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
 fn test_run_without_module_preference_ignores_unrelated_module_preference() {
     let dir = TestDir::new("workspace_run_default_target_with_unrelated_preference.in");
 
-    let stdout = get_stdout(
-        &dir,
-        [
-            "run",
-            "app/src/main",
-            "--dry-run",
-            "--sort-input",
-            "--nostd",
-        ],
-    );
+    let stdout = get_stdout(&dir, ["run", "app/src/main", "--dry-run", "--sort-input"]);
 
     assert_contains_and_absent(
         &stdout,

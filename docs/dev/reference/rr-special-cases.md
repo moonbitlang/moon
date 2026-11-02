@@ -48,7 +48,7 @@ important ones and why they exist.
 ## Stdlib injection boundaries
 
 - **Stdlib injection is selected before RR lowering.** The `moon` command layer
-  computes `stdlib_path` from `use_std && !is_core` while building
+  computes `stdlib_path` from `!is_core` while building
   `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   `None`, so stdlib packages resolve to local `_build/...` artifacts.

@@ -28,14 +28,6 @@ use moonutil::{
 
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildFlags {
-    /// Enable the standard library (default)
-    #[clap(long, hide = true, conflicts_with = "no_std")]
-    pub(crate) std: bool,
-
-    /// Disable the standard library
-    #[clap(long = "nostd", hide = true, conflicts_with = "std")]
-    pub(crate) no_std: bool,
-
     /// Emit debug information
     #[clap(long, short = 'g')]
     pub debug: bool,
@@ -105,8 +97,6 @@ pub struct BuildFlags {
 impl Default for BuildFlags {
     fn default() -> Self {
         Self {
-            std: false,
-            no_std: false,
             debug: false,
             release: false,
             strip: false,
@@ -163,17 +153,6 @@ impl BuildFlags {
 }
 
 impl BuildFlags {
-    pub fn std(&self) -> bool {
-        match (self.std, self.no_std) {
-            (false, false) => true,
-            (true, false) => true,
-            (false, true) => false,
-            (true, true) => unreachable!(
-                "unreachable: both std and no_std flags are set (should be prevented by conflicts_with)"
-            ),
-        }
-    }
-
     /// Resolve the effective build profile for Rupes Recta compilation.
     pub fn effective_profile(&self, run_mode: RunMode) -> BuildProfile {
         if self.debug {
@@ -212,6 +191,26 @@ impl BuildFlags {
             (true, true) => unreachable!(
                 "unreachable: both no_render and output_json flags are set (should be prevented by conflicts_with)"
             ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{Parser, error::ErrorKind};
+
+    use crate::cli::MoonBuildCli;
+
+    #[test]
+    fn build_commands_reject_removed_stdlib_flags() {
+        for command in [
+            "build", "check", "run", "test", "bench", "bundle", "doc", "info", "prove",
+        ] {
+            for flag in ["--std", "--nostd"] {
+                let error = MoonBuildCli::try_parse_from(["moon", command, flag])
+                    .expect_err("removed standard-library flags must be rejected");
+                assert_eq!(error.kind(), ErrorKind::UnknownArgument, "{command} {flag}");
+            }
         }
     }
 }
