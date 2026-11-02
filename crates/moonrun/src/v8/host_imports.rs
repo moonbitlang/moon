@@ -139,7 +139,7 @@ pub(super) fn install<'s>(
         async_api::register(&mut registry).unwrap();
         core_api::register(&mut registry).unwrap();
         sqlite::wasm::register(&mut registry).unwrap();
-        crate::host_imports::register(&mut registry, wasm_file_name, args).unwrap();
+        crate::unstable_api::register(&mut registry, wasm_file_name, args).unwrap();
     }
 
     {

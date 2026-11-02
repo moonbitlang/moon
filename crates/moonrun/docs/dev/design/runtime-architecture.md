@@ -188,10 +188,48 @@ separate ownership concerns, outside the per-import call chain.
 
 Shared ABI definitions are part of adaptation, not a fourth semantic layer.
 Their main homes are [wasm_imports](../../../src/wasm_imports),
-[async_api](../../../src/async_api), [host_imports.rs](../../../src/host_imports.rs),
+[async_api](../../../src/async_api), [core_api.rs](../../../src/core_api.rs),
+[unstable_api.rs](../../../src/unstable_api.rs),
 and domain-specific import registrations. The V8, Wasmtime, and wee8 adapters
 provide engine conversion and memory access. Pure value conversions need no
 artificial Host Domain or permission check.
+
+The import family identifies the guest contract, not a separate implementation
+of each host operation:
+
+| ABI family | Guest contract | Shared definitions |
+| --- | --- | --- |
+| WASI | WASIp1 calls, descriptor rights, and preopens | `wasi/imports.rs` |
+| Core | `moonbitlang/core` imports | `core_api.rs` |
+| Async | `moonbitlang/async` imports | `async_api/` |
+| Unstable | Legacy `__moonbit_*_unstable` imports, retained until retirement | `unstable_api.rs` and `unstable_api/` |
+
+For filesystem requests, the current shared path is:
+
+```mermaid
+flowchart LR
+    W[WASI adaptation] --> F[Filesystem domain: HostFs and Jobs]
+    A[Async adaptation] --> F
+    U[Unstable adaptation] --> F
+    F --> R[std::fs or filesystem::os]
+```
+
+HostFs owns filesystem interpretation and authorization; Filesystem Jobs carry
+async execution and results within that same domain.
+Core currently exposes executable-path queries rather than this filesystem
+surface; those use Runtime Executable state. New operations should select their
+semantic owner instead of passing through HostFs merely to match the diagram.
+The Unstable API owns its legacy error/getter contract, not separate filesystem
+policy or mechanisms. Its retirement should remove that adaptation without
+removing shared host behavior.
+
+`std::fs` supplies ordinary OS operations directly. `filesystem::os` supplements
+it with mechanisms that need custom platform handling; currently this is
+rename with explicit replacement and cross-device options. Other custom async
+mechanisms still reside in Job runners and `async_sys`; move them as their
+responsibilities are separated, without adding forwarding wrappers around std.
+Likewise, remove `AsyncHost` only if extracting its responsibilities leaves it
+unnecessary; deletion is a possible outcome, not a separate migration goal.
 
 Host Filesystem, Host Network, Host Process, SQLite Host, and WASI own their
 respective semantics. Env, Working Directory, and Stdio supply shared

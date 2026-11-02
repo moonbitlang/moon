@@ -142,8 +142,9 @@ _Avoid_: sandbox root, virtual filesystem root, captured cwd
 **Host Filesystem**:
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed filesystem operations. It owns filesystem authorization,
-Filesystem Job payloads, execution, and result interpretation. Wasm runtime
-adapters only convert values and expose imports; the thread pool only schedules
+Filesystem Job payloads, execution, and domain results. ABI adapters convert
+values, expose imports, and present errors in their ABI (including Unstable API strings
+and WASI errno); the thread pool only schedules
 Filesystem Jobs and delivers their Completions. Other Host Domains may ask it
 to interpret and authorize filesystem intents without transferring their own
 domain semantics to the Host Filesystem. WASI retains descriptor and preopen
@@ -342,6 +343,17 @@ can cover preparation, a Wasm Run, and cleanup; a Run is not that entire
 lifecycle. Supervision does not require a separate public owner or command
 object.
 _Avoid_: Runtime, Host Process, separate execution host
+
+**Unstable API**:
+The legacy `__moonbit_*_unstable` import family, retained for existing guests
+until its eventual retirement; it uses the same Host Domains as other import
+families rather than owning separate host behavior.
+_Avoid_: Core API, all host imports, stale implementation
+
+**Core API**:
+The imports exposed under `moonbitlang/core`, distinct from the legacy
+Unstable API even when both are consumed by Core library code.
+_Avoid_: Unstable API, all Core library imports
 
 **Async API**:
 The backend-neutral `moonbitlang/async` import definitions and ABI validation

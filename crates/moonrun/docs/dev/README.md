@@ -112,7 +112,8 @@ before the host can access exported Guest Memory.
 
 The imports are grouped by their guest ABI:
 
-- `host_imports.rs` registers the legacy host ABI once for all adapters;
+- `unstable_api.rs` registers the legacy `__moonbit_*_unstable` ABI once for all
+  adapters, separately from the `moonbitlang/core` imports in `core_api.rs`;
   `v8/values.rs` supplies V8's native string/array/builder/reader representation.
 - `wasm_imports/payload.rs` shares the typed Rust payload representation used by
   Wasmtime and wee8. String conversion belongs to each adapter: Wasmtime uses

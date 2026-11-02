@@ -41,7 +41,6 @@ mod engine;
 mod filesystem;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod guest_memory;
-mod host_imports;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
 mod native_stack;
@@ -63,6 +62,7 @@ mod runtime;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod source_map;
 mod sqlite;
+mod unstable_api;
 #[cfg(feature = "v8")]
 mod util;
 #[cfg(feature = "v8")]

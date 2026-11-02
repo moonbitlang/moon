@@ -35,6 +35,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_>) -> i32 {
     match context
         .filesystem()
         .temp_dir()
+        .map_err(AsyncHostError::from)
         .and_then(|path| encode_guest_units(&path))
         .and_then(|units| i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault))
     {

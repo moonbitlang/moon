@@ -16,37 +16,33 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Native filesystem mechanisms; no Runtime state or policy decisions.
+//! Operating-system filesystem mechanisms, independent of runtime policy and ABIs.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
-use std::ffi::OsString;
+use std::{io, path::Path};
 
-/// Cross-device copying is a permitted fallback, never a guarantee. Unix
-/// rename remains a single rename syscall. WASI disallows copy/delete fallback;
-/// the native async ABI retains its existing Windows behavior explicitly.
+/// Cross-device copying is a permitted Windows fallback, never a guarantee.
+/// Unix rename does not copy between filesystems.
 #[derive(Clone, Copy)]
 pub(super) enum CrossDevice {
     Reject,
     AllowCopy,
 }
 
+pub(super) struct RenameOptions {
+    pub(super) replace: bool,
+    pub(super) cross_device: CrossDevice,
+}
+
 #[cfg(unix)]
-pub(super) fn rename(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-    _cross_device: CrossDevice,
-) -> AsyncHostResult<()> {
+pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -> io::Result<()> {
+    let RenameOptions {
+        replace,
+        cross_device: _cross_device,
+    } = options;
     // Ordinary replacement needs no extended rename syscall. Keep the standard
     // library's native route, including on kernels/profiles without renameat2.
     if replace {
-        return std::fs::rename(old_path, new_path).map_err(|error| {
-            AsyncHostError::Native(
-                error
-                    .raw_os_error()
-                    .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-            )
-        });
+        return std::fs::rename(old_path, new_path);
     }
     let old_path = path_to_cstring(old_path)?;
     let new_path = path_to_cstring(new_path)?;
@@ -72,21 +68,22 @@ pub(super) fn rename(
         )
     };
     if ret < 0 {
-        Err(last_native_error())
+        Err(io::Error::last_os_error())
     } else {
         Ok(())
     }
 }
 
 #[cfg(windows)]
-pub(super) fn rename(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-    cross_device: CrossDevice,
-) -> AsyncHostResult<()> {
+pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -> io::Result<()> {
+    let RenameOptions {
+        replace,
+        cross_device,
+    } = options;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-    use windows_sys::Win32::Foundation::{ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{
+        ERROR_INVALID_ADDRESS, ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::Storage::FileSystem::{
         CreateFileW, DELETE, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
         FILE_FLAG_OPEN_REPARSE_POINT, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ,
@@ -97,13 +94,7 @@ pub(super) fn rename(
     // std already implements replacement without COPY_ALLOWED, including its
     // long-path conversion. Reuse that contract instead of duplicating it.
     if replace && matches!(cross_device, CrossDevice::Reject) {
-        return std::fs::rename(old_path, new_path).map_err(|error| {
-            AsyncHostError::Native(
-                error
-                    .raw_os_error()
-                    .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-            )
-        });
+        return std::fs::rename(old_path, new_path);
     }
 
     let old_path = path_to_wide(old_path);
@@ -120,14 +111,17 @@ pub(super) fn rename(
         )
     };
     if handle == INVALID_HANDLE_VALUE {
-        return Err(last_native_error());
+        return Err(io::Error::last_os_error());
     }
     let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
 
-    let filename_len = new_path.len().checked_sub(1).ok_or(AsyncHostError::Inval)?;
+    let filename_len = new_path
+        .len()
+        .checked_sub(1)
+        .ok_or_else(|| io::Error::from_raw_os_error(ERROR_INVALID_PARAMETER as i32))?;
     let buffer_size = std::mem::size_of::<FILE_RENAME_INFO>()
         .checked_add(filename_len * std::mem::size_of::<u16>())
-        .ok_or(AsyncHostError::Fault)?;
+        .ok_or_else(|| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
     // The variable-length Win32 structure contains pointer-aligned fields.
     let mut buffer = vec![0usize; buffer_size.div_ceil(std::mem::size_of::<usize>())];
     let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
@@ -135,7 +129,7 @@ pub(super) fn rename(
         (*info).Anonymous.Flags = if replace { 3 } else { 0 };
         (*info).RootDirectory = std::ptr::null_mut();
         (*info).FileNameLength = u32::try_from(filename_len * std::mem::size_of::<u16>())
-            .map_err(|_| AsyncHostError::Fault)?;
+            .map_err(|_| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
         std::ptr::copy_nonoverlapping(
             new_path.as_ptr(),
             (*info).FileName.as_mut_ptr(),
@@ -148,19 +142,18 @@ pub(super) fn rename(
             handle.as_raw_handle(),
             FileRenameInfoEx,
             info.cast(),
-            u32::try_from(buffer_size).map_err(|_| AsyncHostError::Fault)?,
+            u32::try_from(buffer_size)
+                .map_err(|_| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?,
         )
     };
     if ret != 0 {
         return Ok(());
     }
 
-    let error = std::io::Error::last_os_error()
-        .raw_os_error()
-        .unwrap_or_else(|| AsyncHostError::Inval.errno());
+    let error = io::Error::last_os_error();
     drop(handle);
-    if error != ERROR_INVALID_PARAMETER as i32 {
-        return Err(AsyncHostError::Native(error));
+    if error.raw_os_error() != Some(ERROR_INVALID_PARAMETER as i32) {
+        return Err(error);
     }
 
     let flags = if matches!(cross_device, CrossDevice::AllowCopy) {
@@ -173,30 +166,26 @@ pub(super) fn rename(
         0
     };
     if unsafe { MoveFileExW(old_path.as_ptr(), new_path.as_ptr(), flags) } == 0 {
-        Err(last_native_error())
+        Err(io::Error::last_os_error())
     } else {
         Ok(())
     }
 }
 
 #[cfg(unix)]
-fn path_to_cstring(path: OsString) -> AsyncHostResult<std::ffi::CString> {
-    use std::os::unix::ffi::OsStringExt;
-    std::ffi::CString::new(path.into_vec()).map_err(|_| AsyncHostError::Inval)
+fn path_to_cstring(path: &Path) -> io::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+    std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))
 }
 
 #[cfg(windows)]
-fn path_to_wide(path: OsString) -> Vec<u16> {
+fn path_to_wide(path: &Path) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
-    path.encode_wide().chain(std::iter::once(0)).collect()
-}
-
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
+    path.as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 #[cfg(test)]
@@ -220,10 +209,12 @@ mod tests {
         // The standard-library control accepts the same non-verbatim path.
         std::fs::rename(&source, &target).unwrap();
         rename(
-            target.clone().into(),
-            source.clone().into(),
-            true,
-            CrossDevice::Reject,
+            &target,
+            &source,
+            RenameOptions {
+                replace: true,
+                cross_device: CrossDevice::Reject,
+            },
         )
         .unwrap();
         assert_eq!(std::fs::read(source).unwrap(), b"keep");
@@ -240,24 +231,51 @@ mod tests {
             std::fs::write(&target, b"target").unwrap();
             assert!(
                 rename(
-                    source.clone().into(),
-                    target.clone().into(),
-                    false,
-                    cross_device
+                    &source,
+                    &target,
+                    RenameOptions {
+                        replace: false,
+                        cross_device
+                    }
                 )
                 .is_err()
             );
             assert_eq!(std::fs::read(&source).unwrap(), b"source");
             assert_eq!(std::fs::read(&target).unwrap(), b"target");
             rename(
-                source.clone().into(),
-                target.clone().into(),
-                true,
-                cross_device,
+                &source,
+                &target,
+                RenameOptions {
+                    replace: true,
+                    cross_device,
+                },
             )
             .unwrap();
             assert!(!source.exists());
             assert_eq!(std::fs::read(&target).unwrap(), b"source");
+        }
+    }
+
+    #[test]
+    fn failed_rename_retains_the_os_error_code() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("missing");
+        let target = directory.path().join("target");
+        let expected = std::fs::rename(&source, &target).unwrap_err();
+        assert!(expected.raw_os_error().is_some());
+        for cross_device in [CrossDevice::Reject, CrossDevice::AllowCopy] {
+            for replace in [false, true] {
+                let error = rename(
+                    &source,
+                    &target,
+                    RenameOptions {
+                        replace,
+                        cross_device,
+                    },
+                )
+                .unwrap_err();
+                assert_eq!(error.raw_os_error(), expected.raw_os_error());
+            }
         }
     }
 }

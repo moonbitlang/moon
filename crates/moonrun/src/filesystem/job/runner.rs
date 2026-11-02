@@ -228,8 +228,9 @@ ported_fns! {
         new_path: OsString,
         replace: bool,
     ) -> AsyncHostResult<i64> {
-        crate::filesystem::native::rename(old_path, new_path, replace,
-            crate::filesystem::native::CrossDevice::AllowCopy)?;
+        crate::filesystem::os::rename(
+            std::path::Path::new(&old_path), std::path::Path::new(&new_path),
+            crate::filesystem::os::RenameOptions { replace, cross_device: crate::filesystem::os::CrossDevice::AllowCopy })?;
         Ok(0)
     }
 
@@ -1795,11 +1796,13 @@ mod tests {
             old_link.clone().into_os_string(),
         )
         .unwrap();
-        crate::filesystem::native::rename(
-            old_link.clone().into_os_string(),
-            new_link.clone().into_os_string(),
-            false,
-            crate::filesystem::native::CrossDevice::AllowCopy,
+        crate::filesystem::os::rename(
+            &old_link,
+            &new_link,
+            crate::filesystem::os::RenameOptions {
+                replace: false,
+                cross_device: crate::filesystem::os::CrossDevice::AllowCopy,
+            },
         )
         .unwrap();
         assert!(target.is_dir());

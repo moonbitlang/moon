@@ -23,7 +23,7 @@ pub(crate) mod imports;
 #[cfg(test)]
 mod authority_tests;
 
-use crate::filesystem::{FileOpenOptions, HostFs, PathError};
+use crate::filesystem::{FileOpenOptions, FsError, HostFs};
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Env, Runtime, Stdio, StdioStream};
 use rand::{RngCore, rngs::OsRng};
@@ -557,10 +557,10 @@ fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<Re
     })
 }
 
-fn path_error_to_errno(error: PathError) -> WasiErrno {
+fn fs_error_to_errno(error: FsError) -> WasiErrno {
     match error {
-        PathError::Denied => WASI_ERRNO_ACCESS,
-        PathError::Io(error) => io_error_to_errno(&error),
+        FsError::Denied => WASI_ERRNO_ACCESS,
+        FsError::Io(error) => io_error_to_errno(&error),
     }
 }
 
@@ -818,7 +818,7 @@ pub(crate) fn path_open_impl(
         let metadata = context
             .filesystem
             .metadata(&resolved.host_path)
-            .map_err(path_error_to_errno)?;
+            .map_err(fs_error_to_errno)?;
         if !metadata.is_dir() {
             return Err(WASI_ERRNO_NOTDIR);
         }
@@ -841,7 +841,7 @@ pub(crate) fn path_open_impl(
         let file = context
             .filesystem
             .open_file(&resolved.host_path, options)
-            .map_err(path_error_to_errno)?;
+            .map_err(fs_error_to_errno)?;
         DescriptorKind::File(Mutex::new(file))
     };
 
@@ -880,7 +880,7 @@ pub(crate) fn path_readlink_impl(
     let link_target = context
         .filesystem
         .read_link(&resolved.host_path)
-        .map_err(path_error_to_errno)?;
+        .map_err(fs_error_to_errno)?;
     #[cfg(unix)]
     let link_bytes = {
         use std::os::unix::ffi::OsStrExt;
@@ -920,7 +920,7 @@ pub(crate) fn path_create_directory_impl(
     context
         .filesystem
         .create_directory(&resolved.host_path)
-        .map_err(path_error_to_errno)
+        .map_err(fs_error_to_errno)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -959,7 +959,7 @@ pub(crate) fn path_rename_impl(
     context
         .filesystem
         .rename(&old_resolved.host_path, &new_resolved.host_path)
-        .map_err(path_error_to_errno)
+        .map_err(fs_error_to_errno)
 }
 
 pub(crate) fn path_remove_directory_impl(
@@ -982,7 +982,7 @@ pub(crate) fn path_remove_directory_impl(
     context
         .filesystem
         .remove_empty_directory(&resolved.host_path)
-        .map_err(path_error_to_errno)
+        .map_err(fs_error_to_errno)
 }
 
 pub(crate) fn path_unlink_file_impl(
@@ -1005,7 +1005,7 @@ pub(crate) fn path_unlink_file_impl(
     context
         .filesystem
         .unlink_file(&resolved.host_path)
-        .map_err(path_error_to_errno)
+        .map_err(fs_error_to_errno)
 }
 
 fn parse_poll_subscriptions(
@@ -1401,9 +1401,9 @@ pub(crate) fn fd_readdir_impl(
         .filesystem
         .read_directory(&dir_path)
         .map_err(|error| match error {
-            PathError::Denied => WASI_ERRNO_ACCESS,
+            FsError::Denied => WASI_ERRNO_ACCESS,
             // Preserve the existing WASI enumeration error contract for native IO.
-            PathError::Io(_) => WASI_ERRNO_IO,
+            FsError::Io(_) => WASI_ERRNO_IO,
         })?;
     let entries = collect_directory_entries(directory)?;
     let start = usize::try_from(cookie).map_err(|_| WASI_ERRNO_INVAL)?;

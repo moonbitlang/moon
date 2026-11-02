@@ -91,12 +91,22 @@ Acceptance tests (`wasi/authority_tests.rs` and `tests/filesystem_authority.rs`)
 - No-policy controls preserve existing results across supported backends, with
   tests organized by semantic operation and shared adapter coverage.
 
-`filesystem/path_ops.rs` owns synchronous authorization plus execution, using
-`std::fs` and `filesystem/native.rs` for native mechanisms. Core directory enumeration and
-file removal reuse the same operations. `FileOpenOptions` supplies both the
+`filesystem/host.rs` defines `HostFs` and owns path interpretation, authorization,
+and synchronous effects. `std::fs` and `filesystem/os.rs` provide OS mechanisms;
+`filesystem/mod.rs` only declares modules and their exports. Unstable API directory
+enumeration and file removal reuse the same authorized operations. `FileOpenOptions` supplies both the
 native options and the authorization intent; WASI does not pass a separate
-permission description that could disagree with execution. Domain errors
-preserve policy denial separately from native I/O errors for ABI translation.
+permission description that could disagree with execution. `FsError` preserves policy denial separately from I/O errors for ABI translation.
+The OS module accepts host paths and explicit `RenameOptions`, returns
+`io::Result`, and depends on neither Runtime/policy nor async/WASI error types.
+It delegates to the standard library where its contract suffices. Existing
+ported async primitives outside this module are not all migrated by this change.
+
+`unstable_api/filesystem.rs` owns the unstable ABI's error strings and per-run getter state;
+WASI maps domain errors to WASI errno and async maps them to `AsyncHostError`.
+A lazy write payload is authorized before decoding, then decoded before any
+file creation or truncation. This preserves failure order without moving guest
+value decoding into the filesystem domain.
 
 The three layers remain ABI adaptation, Host Filesystem interpretation and
 authorization, and native mechanisms. WASI does not invoke async Jobs to reuse

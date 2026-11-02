@@ -28,7 +28,7 @@ fn cross_device_native_error_is_preserved_as_xdev() {
     #[cfg(windows)]
     let code = windows_sys::Win32::Foundation::ERROR_NOT_SAME_DEVICE as i32;
     assert_eq!(
-        path_error_to_errno(crate::filesystem::PathError::Io(
+        fs_error_to_errno(crate::filesystem::FsError::Io(
             std::io::Error::from_raw_os_error(code)
         )),
         WASI_ERRNO_XDEV,
