@@ -1036,7 +1036,7 @@ mod tests {
             WorkingDirectory::Fixed(directory.path().to_owned()),
         ] {
             let (mut policy, _) =
-                policy::load_inherited_json(b"{}", &crate::runtime::Env::ambient()).unwrap();
+                policy::load_json(b"{}", &crate::runtime::Env::ambient()).unwrap();
             let filesystem = HostFs::new(
                 policy.take_filesystem_policy(),
                 Arc::new(Env::ambient()),

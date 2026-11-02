@@ -29,19 +29,22 @@ mod fs;
 mod net;
 mod policy_inheritance;
 mod process;
+mod source;
+mod transfer;
 
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+pub(crate) use source::read_file;
 
-use anyhow::Context;
-
+#[cfg(test)]
 use self::config::PolicyConfig;
 pub(crate) use self::fs::{FsIntents, FsPolicy};
 pub(crate) use self::net::{NetOperation, NetPolicy, SocketRule};
-pub(crate) use self::policy_inheritance::PolicyInheritance;
+pub(crate) use self::policy_inheritance::{InheritedPolicyInput, PolicyInheritance};
 pub(crate) use self::process::ProcessPolicy;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(test)]
 use crate::runtime::EnvProvisioning;
+#[cfg(test)]
+use std::path::Path;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Policy {
@@ -87,98 +90,44 @@ impl Policy {
     }
 }
 
-/// Load a policy document into its two construction-time outputs.
-///
-/// The source format still colocates environment provisioning with operational
-/// authorization. Splitting them here prevents that historical file layout
-/// from making provisioning part of the realized `Policy`.
+// These helpers exercise the complete construction path in domain tests.
 #[cfg(test)]
 pub(crate) fn load_file(path: &Path) -> anyhow::Result<(Policy, EnvProvisioning)> {
     load_file_with_source_dir(path, None, &crate::runtime::Env::ambient())
 }
 
+#[cfg(test)]
 pub(crate) fn load_file_with_source_dir(
     path: &Path,
     source_dir: Option<&Path>,
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let config = PolicyConfig::from_file(path)?;
-    let config_dir = source_dir.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
-    realize_config(config, config_dir, source)
-}
-
-pub(crate) fn load_inherited_json(
-    contents: &[u8],
-    source: &crate::runtime::Env,
-) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let config = serde_json::from_slice(contents)
-        .context("failed to parse inherited JSON Moonrun Policy")?;
-    // Inherited policies contain absolute filesystem roots. Running the same
-    // canonicalization confirms that those roots still resolve here.
-    realize_config(config, Path::new("."), source)
-}
-
-fn realize_config(
-    config: PolicyConfig,
-    config_dir: &Path,
-    source: &crate::runtime::Env,
-) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let config = canonicalize(config, config_dir)?;
-    let policy_inheritance = PolicyInheritance::from_config(&config)?;
-    let fs = Some(FsPolicy::from_canonical_config(
-        config.fs.unwrap_or_default(),
-    ));
-    let net = Some(NetPolicy::from_config(config.net.unwrap_or_default())?);
-    let env = config.env.unwrap_or_default();
-    let env_provisioning =
-        EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?;
-    let process = Some(ProcessPolicy::from_config(
-        config.process.unwrap_or_default(),
-    )?);
+    let (restrictions, env) = read_file(path, source_dir)?;
     Ok((
-        Policy {
-            fs,
-            net,
-            process,
-            policy_inheritance: Some(policy_inheritance),
-        },
-        env_provisioning,
+        restrictions.policy(),
+        EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
     ))
 }
 
-/// Resolve source-relative policy values into a transport-independent form.
-///
-/// Environment provisioning and runtime rule validation deliberately remain
-/// part of configuration realization; only filesystem roots depend on the
-/// policy source directory.
-fn canonicalize(mut config: PolicyConfig, config_dir: &Path) -> anyhow::Result<PolicyConfig> {
-    if let Some(fs) = config.fs.as_mut() {
-        fs.read = canonicalize_roots(std::mem::take(&mut fs.read), config_dir)?;
-        fs.write = canonicalize_roots(std::mem::take(&mut fs.write), config_dir)?;
-    }
-    Ok(config)
+#[cfg(test)]
+pub(crate) fn load_json(
+    contents: &[u8],
+    source: &crate::runtime::Env,
+) -> anyhow::Result<(Policy, EnvProvisioning)> {
+    realize_config(serde_json::from_slice(contents)?, Path::new("."), source)
 }
 
-fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    roots
-        .into_iter()
-        .map(|root| {
-            if root.as_os_str() == OsStr::new("*") {
-                return Ok(root);
-            }
-            let path = if root.is_absolute() {
-                root
-            } else {
-                config_dir.join(root)
-            };
-            std::fs::canonicalize(&path).with_context(|| {
-                format!(
-                    "failed to resolve sandbox filesystem root {}",
-                    path.display()
-                )
-            })
-        })
-        .collect()
+#[cfg(test)]
+fn realize_config(
+    config: config::PolicyConfig,
+    directory: &Path,
+    source: &crate::runtime::Env,
+) -> anyhow::Result<(Policy, EnvProvisioning)> {
+    let (restrictions, env) = source::resolve(config, directory)?;
+    Ok((
+        restrictions.policy(),
+        EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
+    ))
 }
 
 #[cfg(test)]
@@ -192,13 +141,6 @@ mod tests {
 
     use super::*;
     use crate::async_host::AsyncHostError;
-
-    fn config_with_fs_roots(read: Vec<PathBuf>, write: Vec<PathBuf>) -> PolicyConfig {
-        PolicyConfig {
-            fs: Some(config::FsConfig { read, write }),
-            ..Default::default()
-        }
-    }
 
     fn check_ambient_open(
         mut policy: Policy,
@@ -241,47 +183,6 @@ mod tests {
     }
 
     #[test]
-    fn canonicalize_resolves_filesystem_roots_and_preserves_wildcards() {
-        let tmp = tempfile::tempdir().unwrap();
-        let read = tmp.path().join("read");
-        let write = tmp.path().join("write");
-        std::fs::create_dir(&read).unwrap();
-        std::fs::create_dir(&write).unwrap();
-        let canonical_read = std::fs::canonicalize(&read).unwrap();
-        let canonical_write = std::fs::canonicalize(&write).unwrap();
-
-        let config = canonicalize(
-            PolicyConfig {
-                fs: Some(config::FsConfig {
-                    read: vec![PathBuf::from("read"), PathBuf::from("*")],
-                    write: vec![write.clone()],
-                }),
-                net: Some(config::NetConfig {
-                    dns: vec!["example.com".to_owned()],
-                    ..Default::default()
-                }),
-                env: Some(config::EnvConfig {
-                    from_host: vec!["PATH".to_owned()],
-                    ..Default::default()
-                }),
-                process: Some(config::ProcessConfig {
-                    spawn: true,
-                    ..Default::default()
-                }),
-            },
-            tmp.path(),
-        )
-        .unwrap();
-
-        let fs = config.fs.unwrap();
-        assert_eq!(fs.read, [canonical_read, PathBuf::from("*")]);
-        assert_eq!(fs.write, [canonical_write]);
-        assert_eq!(config.net.unwrap().dns, ["example.com"]);
-        assert_eq!(config.env.unwrap().from_host, ["PATH"]);
-        assert!(config.process.unwrap().spawn);
-    }
-
-    #[test]
     fn embedded_policy_can_resolve_roots_from_its_logical_source_directory() {
         let source_dir = tempfile::tempdir().unwrap();
         let allowed = source_dir.path().join("allowed");
@@ -309,73 +210,6 @@ fn main {}
         let allowed = std::fs::canonicalize(allowed).unwrap();
 
         check_ambient_open(policy, allowed.as_os_str(), 0, 0, false).unwrap();
-    }
-
-    #[test]
-    fn canonicalize_is_idempotent() {
-        let tmp = tempfile::tempdir().unwrap();
-        let target = tmp.path().join("target");
-        std::fs::create_dir(&target).unwrap();
-        let canonical_target = std::fs::canonicalize(&target).unwrap();
-
-        let first = canonicalize(
-            config_with_fs_roots(vec![PathBuf::from("target")], Vec::new()),
-            tmp.path(),
-        )
-        .unwrap();
-        let second = canonicalize(first, Path::new("unrelated-source-directory")).unwrap();
-
-        assert_eq!(second.fs.unwrap().read, [canonical_target]);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn canonicalize_resolves_symlinks() {
-        let tmp = tempfile::tempdir().unwrap();
-        let target = tmp.path().join("target");
-        let alias = tmp.path().join("alias");
-        std::fs::create_dir(&target).unwrap();
-        std::os::unix::fs::symlink(&target, &alias).unwrap();
-        let canonical_target = std::fs::canonicalize(&target).unwrap();
-
-        let config =
-            canonicalize(config_with_fs_roots(vec![alias], Vec::new()), tmp.path()).unwrap();
-
-        assert_eq!(config.fs.unwrap().read, [canonical_target]);
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    #[test]
-    fn canonicalize_preserves_non_utf8_paths() {
-        use std::os::unix::ffi::OsStringExt;
-
-        let tmp = tempfile::tempdir().unwrap();
-        let name = std::ffi::OsString::from_vec(b"allowed-\xff".to_vec());
-        let root = tmp.path().join(&name);
-        std::fs::create_dir(&root).unwrap();
-
-        let config = canonicalize(
-            config_with_fs_roots(vec![PathBuf::from(name)], Vec::new()),
-            tmp.path(),
-        )
-        .unwrap();
-
-        assert_eq!(config.fs.unwrap().read, [root]);
-    }
-
-    #[test]
-    fn canonicalize_reports_the_resolved_missing_root() {
-        let tmp = tempfile::tempdir().unwrap();
-        let missing = tmp.path().join("missing");
-        let error = match canonicalize(
-            config_with_fs_roots(vec![PathBuf::from("missing")], Vec::new()),
-            tmp.path(),
-        ) {
-            Ok(_) => panic!("expected a missing root to fail canonicalization"),
-            Err(error) => error,
-        };
-
-        assert!(error.to_string().contains(&missing.display().to_string()));
     }
 
     #[test]
@@ -423,16 +257,25 @@ fn main {}
             .unwrap();
 
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
-        let inherited: PolicyConfig = serde_json::from_slice(&contents).unwrap();
-        let fs = inherited.fs.unwrap();
-        assert_eq!(fs.read, [canonical_read]);
-        assert_eq!(fs.write, [canonical_write]);
-        assert_eq!(inherited.net.unwrap().dns, ["example.com"]);
-        let env = inherited.env.unwrap();
-        assert_eq!(env.from_host, ["*"]);
-        assert!(env.required_from_host.is_empty());
-        assert!(env.set.is_empty());
-        assert!(inherited.process.unwrap().spawn);
+        let mut inherited = PolicyInheritance::from_transfer(&contents)
+            .unwrap()
+            .policy();
+        let fs = inherited.take_filesystem_policy().unwrap();
+        fs.authorize(Some(&canonical_read), FsIntents::read(), "read")
+            .unwrap();
+        fs.authorize(Some(&canonical_write), FsIntents::write(), "write")
+            .unwrap();
+        assert!(
+            fs.authorize(Some(&canonical_write), FsIntents::read(), "read")
+                .is_err()
+        );
+        inherited
+            .take_network_policy()
+            .unwrap()
+            .check_dns("example.com".as_ref())
+            .unwrap();
+        #[cfg(unix)]
+        check_process_spawn(inherited, "program".as_ref(), &["program".into()]).unwrap();
     }
 
     #[test]
@@ -450,8 +293,9 @@ fn main {}
             .unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
-        let (inherited, _) =
-            load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
+        let inherited = PolicyInheritance::from_transfer(&contents)
+            .unwrap()
+            .policy();
 
         #[cfg(unix)]
         assert_eq!(
@@ -648,5 +492,41 @@ fn main {}
         let mut addr = vec![0; crate::async_sys::socket::ipv4_addr_size() as usize];
         crate::async_sys::socket::init_ip_addr(&mut addr, u32::from(ip), u32::from(port)).unwrap();
         addr.into_boxed_slice()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inherited_roots_do_not_follow_replaced_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let allowed = directory.path().join("allowed");
+        let outside = directory.path().join("outside");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let file = directory.path().join("policy.json");
+        std::fs::write(&file, r#"{"fs":{"read":["allowed"]}}"#).unwrap();
+        let (mut parent, _) = load_file(&file).unwrap();
+        let contents = parent
+            .take_policy_inheritance()
+            .unwrap()
+            .open_transfer()
+            .unwrap()
+            .read()
+            .unwrap();
+        std::fs::rename(&allowed, directory.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &allowed).unwrap();
+        let mut child = PolicyInheritance::from_transfer(&contents)
+            .unwrap()
+            .policy();
+        let target = std::fs::canonicalize(&outside).unwrap().join("secret");
+        assert_eq!(
+            child.take_filesystem_policy().unwrap().authorize(
+                Some(&target),
+                FsIntents::read(),
+                "secret"
+            ),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        std::fs::remove_file(&allowed).unwrap();
+        PolicyInheritance::from_transfer(&contents).unwrap();
     }
 }

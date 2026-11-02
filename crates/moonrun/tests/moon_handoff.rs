@@ -234,7 +234,8 @@ fn moon_commands_run_in_virtual_tree() {
     let options = RunOptions::default()
         .with_guest_process_mode(GuestProcessMode::Virtual)
         .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
-        .with_inherited_policy(br#"{"env":{"set":{"HANDOFF_POLICY":"parent"}}}"#.to_vec())
+        .with_inherited_policy(include_bytes!("fixtures/deny_restrictions.json").to_vec())
+        .with_environment([("HANDOFF_POLICY", "parent")])
         .with_stdio(
             tempfile::tempfile().unwrap(),
             stdout.try_clone().unwrap(),

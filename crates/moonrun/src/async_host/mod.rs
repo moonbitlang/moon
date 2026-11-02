@@ -4720,7 +4720,7 @@ mod tests {
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let environment = Env::owned([("PATH".into(), caller_bin.into_os_string())]).unwrap();
-        let (policy, _) = policy::load_inherited_json(
+        let (policy, _) = policy::load_json(
             br#"{"process":{"allow":[{"program":"moonrun-owned-path-probe","args_prefix":["allowed"]}]}}"#,
             &environment,
         )
@@ -4844,7 +4844,7 @@ mod tests {
         // creation. Neither failure may replace the earlier policy denial.
         let environment =
             Env::owned([("PATH".into(), std::env::temp_dir().into_os_string())]).unwrap();
-        let (policy, _) = policy::load_inherited_json(b"{}", &environment).unwrap();
+        let (policy, _) = policy::load_json(b"{}", &environment).unwrap();
         let host = test_host(policy, environment);
         #[cfg(unix)]
         let mut spawn: Job = ProcessJob::spawn_unix(

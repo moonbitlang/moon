@@ -64,6 +64,8 @@ and [execution ownership](design/runtime-architecture.md#library-contract-and-ex
 
 - [x] Apply Host Filesystem policy across unstable, async, and supported WASI
   filesystem operations, retaining WASI rights and preopen containment.
+- [x] Separate policy source loading, resolved restrictions, Env provisioning,
+  and external transfer; use typed inheritance for virtual children.
 - [ ] Compose inherited restrictions with additional child restrictions.
   Policy selection uses precedence rather than intersection.
 - [ ] Define explicit resource delegation and attenuation for files, sockets,

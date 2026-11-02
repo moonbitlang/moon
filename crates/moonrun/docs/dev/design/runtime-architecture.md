@@ -374,6 +374,12 @@ through its parent's Host Process, which derives the child before admission.
 Already-resolved state and authorization must not be reconstructed from the
 process tree later.
 
+[Policy construction](authority-closure.md#runtime-construction-and-inheritance)
+separates source loading, resolved domain rules, Env provisioning, and external
+transfer. In-process children receive typed restrictions rather than serialized
+policy documents. Neither inheritance nor decoding resolves filesystem roots
+again; source-relative resolution belongs to initial file loading.
+
 Guest-visible executable origin records a load-time pathname; see
 [current executable semantics](../current-exe-semantics.md). It is not a stable
 file identity proving which OS executable an authorization decision permits.
@@ -549,7 +555,7 @@ Runtime isolation prevents access to the original resource behind another
 Runtime's Handles; cross-Runtime resource transfer needs explicit rebinding.
 
 Enforcement limits: policy loading separates environment provisioning from
-domain rules and transports canonical inherited policy. Without a policy,
+domain rules and transports resolved restrictions independently of user policy syntax. Without a policy,
 domain operations retain their unrestricted behavior; Virtual mode alone does
 not change that. Inherited policy takes precedence over delivered policy, which
 does not implement intersection of parent authority, child policy, WASI grants,

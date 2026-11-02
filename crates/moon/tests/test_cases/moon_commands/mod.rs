@@ -279,7 +279,7 @@ fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
     let inherited_policy = dir.join("inherited-policy.json");
     std::fs::write(
         &inherited_policy,
-        r#"{"env":{"set":{"MBTX_POLICY":"inherited"}}}"#,
+        include_bytes!("../../../../moonrun/tests/fixtures/deny_restrictions.json"),
     )
     .unwrap();
     let transfer = moonutil::policy_transport::PolicyTransfer::from_file(
@@ -291,6 +291,7 @@ fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
         .current_dir(&dir)
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .env("MBTX_POLICY", "inherited")
         .arg("malformed_embedded_policy.mbtx");
     let relay = transfer.into_relay().attach_to(&mut command).unwrap();
 

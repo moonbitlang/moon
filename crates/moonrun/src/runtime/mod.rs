@@ -44,6 +44,8 @@ use crate::run_signal::SignalReceiver;
 use crate::sqlite::SqliteHost;
 
 pub(crate) use environment::Env;
+pub(crate) use environment_provisioning::EnvConfig;
+#[cfg(test)]
 pub(crate) use environment_provisioning::EnvProvisioning;
 pub(crate) use executable::Executable;
 pub(crate) use handles::Handles;
@@ -142,7 +144,7 @@ pub(crate) struct Runtime {
 pub(crate) struct RuntimeConfig {
     pub(crate) policy_file: Option<PathBuf>,
     pub(crate) policy_source_dir: Option<PathBuf>,
-    pub(crate) inherited_policy: Option<Vec<u8>>,
+    pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
     // Explicit policy provisioning takes precedence over the source environment.
@@ -188,36 +190,37 @@ impl Runtime {
             Some(mask) => mask,
             None => current_signal_mask()?,
         };
-        let source_environment = config
-            .default_environment
-            .map(Env::owned)
-            .transpose()?
-            .unwrap_or_else(Env::ambient);
-        let (mut policy, env_provisioning) = match (
-            config.inherited_policy.as_deref(),
+        let source_environment = match (config.default_environment, &config.inherited_policy) {
+            (Some(entries), _) => Env::owned(entries)?,
+            // An external child receives its values through the OS environment.
+            // Own that snapshot so guest mutations cannot alter the embedding host.
+            (None, Some(policy::InheritedPolicyInput::Transfer(_))) => {
+                Env::owned(Env::ambient().entries())?
+            }
+            (None, _) => Env::ambient(),
+        };
+        let (mut policy, provisioning) = match (
+            config.inherited_policy,
             config.policy_file.as_deref(),
         ) {
-            (Some(contents), _) => {
-                let (policy, env) = policy::load_inherited_json(contents, &source_environment)
+            (Some(policy::InheritedPolicyInput::Resolved(inherited)), _) => {
+                (inherited.policy(), None)
+            }
+            (Some(policy::InheritedPolicyInput::Transfer(contents)), _) => {
+                let inherited = policy::PolicyInheritance::from_transfer(&contents)
                     .context("failed to load inherited sandbox policy (experimental)")?;
-                (policy, Some(env))
+                (inherited.policy(), None)
             }
             (None, Some(path)) => {
-                let loaded = policy::load_file_with_source_dir(
-                    path,
-                    config.policy_source_dir.as_deref(),
-                    &source_environment,
-                );
-                let (policy, env) = loaded.context(
-                    "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-                )?;
-                (policy, Some(env))
+                let (rules, environment) = policy::read_file(path, config.policy_source_dir.as_deref())
+                    .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?;
+                (rules.policy(), Some(environment))
             }
             (None, None) => (Policy::allow_all(), None),
         };
         let environment = Arc::new(
-            match env_provisioning {
-                Some(provisioning) => provisioning.realize(),
+            match provisioning {
+                Some(config) => config.provision(&source_environment),
                 None => Ok(source_environment),
             }
             .context("failed to construct the Runtime environment")?,
@@ -334,6 +337,50 @@ impl Drop for Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolved_inheritance_uses_child_state_without_replaying_parent_provisioning() {
+        let source = tempfile::tempdir().unwrap();
+        let file = source.path().join("policy.json");
+        std::fs::write(
+            &file,
+            r#"{"env":{"set":{"VALUE":"parent"}},"process":{"spawn":true}}"#,
+        )
+        .unwrap();
+        let (inherited, _) = policy::read_file(&file, None).unwrap();
+        std::fs::remove_file(file).unwrap();
+        let config = crate::RunOptions::default()
+            .with_environment([("VALUE", "child")])
+            .with_parent_policy(inherited)
+            .runtime;
+        let (_, signals) = crate::run_signal::signal_channel();
+        let runtime = Runtime::new(config, Executable::unavailable(), signals).unwrap();
+        assert_eq!(
+            runtime.environment().get("VALUE".as_ref()),
+            Some("child".into())
+        );
+        assert!(!runtime.environment().is_ambient());
+    }
+
+    #[test]
+    fn transferred_restrictions_keep_environment_mutations_runtime_owned() {
+        let key = "MOONRUN_TRANSFER_ENV_ISOLATION_TEST";
+        let before = std::env::var_os(key);
+        let config = crate::RunOptions::default()
+            .with_inherited_policy(
+                include_bytes!("../../tests/fixtures/deny_restrictions.json").to_vec(),
+            )
+            .runtime;
+        let (_, signals) = crate::run_signal::signal_channel();
+        let runtime = Runtime::new(config, Executable::unavailable(), signals).unwrap();
+        assert!(!runtime.environment().is_ambient());
+        assert_eq!(runtime.environment().get(key.as_ref()), before);
+        runtime
+            .environment()
+            .set(key.into(), "child".into())
+            .unwrap();
+        assert_eq!(std::env::var_os(key), before);
+    }
 
     #[test]
     fn host_capture_preserves_explicit_empty_environment_and_fixed_directory() {

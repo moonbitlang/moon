@@ -25,6 +25,24 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 
 use super::Env;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EnvConfig {
+    #[serde(default)]
+    pub(crate) from_host: Vec<String>,
+    #[serde(default)]
+    pub(crate) required_from_host: Vec<String>,
+    #[serde(default)]
+    pub(crate) set: BTreeMap<String, String>,
+}
+
+impl EnvConfig {
+    pub(crate) fn provision(self, source: &Env) -> anyhow::Result<Env> {
+        EnvProvisioning::new(self.from_host, self.required_from_host, self.set, source)?.realize()
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct EnvProvisioning {

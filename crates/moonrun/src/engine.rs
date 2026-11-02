@@ -179,11 +179,19 @@ impl RunOptions {
         self
     }
 
+    /// Receive the internal restriction transfer format, not a user policy document.
     #[doc(hidden)]
     pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
         self.runtime.policy_file = None;
         self.runtime.policy_source_dir = None;
-        self.runtime.inherited_policy = Some(policy);
+        self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Transfer(policy));
+        self
+    }
+
+    pub(crate) fn with_parent_policy(mut self, policy: crate::policy::PolicyInheritance) -> Self {
+        self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Resolved(policy));
+        self.runtime.policy_file = None;
+        self.runtime.policy_source_dir = None;
         self
     }
 
