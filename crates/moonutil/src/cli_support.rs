@@ -26,3 +26,7 @@ pub use crate::mooncakes::{
     DeprecateSubcommand, LoginSubcommand, MooncakeSubcommands, PackageSubcommand,
     PublishSubcommand, RegisterSubcommand, sync::AutoSyncFlags,
 };
+
+mod moonx;
+
+pub use moonx::{MoonxCli, MoonxTarget};

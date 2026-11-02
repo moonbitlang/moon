@@ -33,7 +33,7 @@ struct Commandline {
     #[clap(allow_hyphen_values = true)]
     args: Vec<String>,
 
-    /// Run Moon/moonx descendants in this virtual process tree (experimental).
+    /// Run moonx descendants in this virtual process tree (experimental).
     #[clap(long)]
     virtual_process_tree: bool,
 

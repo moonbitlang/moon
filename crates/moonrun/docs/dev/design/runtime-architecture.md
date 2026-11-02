@@ -93,6 +93,17 @@ Process Context without forming an ownership cycle through the table. Neither
 admission nor lookup reconstructs Runtime state from a process entry.
 
 `run_moon` and `spawn_moon` share Moon preparation and artifact dispatch.
+They are host-selected entries and can prepare `moon run` as well as moonx.
+Guest Virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
+or registry packages. Other commands return unsupported without native fallback.
+Engine uses the shared moonx grammar before entering preparation. Help/version
+and parse errors complete through the embedded frontend and bound stdio; no
+helper or handoff directory is created. Responses use plain text and Clap's
+stream/exit-code rules, including best-effort diagnostic writes. Direct host
+entries need no helper executable for these responses; guest spawn still
+resolves and authorizes the executable before admission. Only valid execution
+requests enter preparation, where successful helper exit requires an artifact.
+Program arguments remain opaque after the input.
 `run_file` places loading within the same execution scope as its Run. Internal
 `RuntimeConfig` and Host Domains remain private; public `RunOptions` builders
 provide the needed control, including owned environments, with one internal

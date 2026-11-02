@@ -316,6 +316,8 @@ impl Engine {
     /// under the PID allocated here. `args` are Moon's arguments, including
     /// `run` for Moon; pass program arguments there rather than in `options`.
     ///
+    /// Moonx frontend responses complete under this PID using the embedded
+    /// grammar and bound stdio, without launching a helper or preparing files.
     /// Build/download helpers retain host access. Termination during preparation
     /// is retained until the helper exits and prevents subsequent Wasm execution.
     pub fn spawn_moon(

@@ -27,6 +27,7 @@ use crate::wasmtime as backend;
 #[cfg(all(feature = "wee8", not(feature = "v8")))]
 use crate::wee8 as backend;
 use anyhow::Context;
+use clap::Parser;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
@@ -65,8 +66,8 @@ pub enum GuestProcessMode {
     /// Use this Engine's virtual process identities and child control.
     ///
     /// Roots capture an owned environment and fixed cwd unless supplied by the
-    /// caller. Recursive Moon children derive their state from their Runtime.
-    /// Currently requires V8 and supports only recursive Moon children.
+    /// caller. Recursive moonx children derive their state from their Runtime.
+    /// Currently requires V8 and supports only recursive moonx children.
     Virtual,
 }
 
@@ -515,9 +516,11 @@ impl Engine {
         })
     }
 
-    /// Prepare a program with a host-selected Moon or moonx executable, then
-    /// execute it on the calling thread. Program arguments belong in `args`.
-    /// The preparation helper still runs as an external process with host access.
+    /// Execute a host-selected Moon or moonx invocation on the calling thread.
+    /// Program arguments belong in `args`. Moonx frontend responses (including
+    /// help/version and parse errors) use the embedded grammar and bound stdio,
+    /// without launching the selected executable. Execution requests prepare
+    /// artifacts through an external helper with host access, then run them here.
     pub fn run_moon(
         &self,
         executable: &Path,
@@ -553,6 +556,35 @@ impl Engine {
         termination: &TerminationRequest,
         #[cfg(windows)] no_console_window: bool,
     ) -> anyhow::Result<RunOutcome> {
+        if let Some(outcome) = termination.get() {
+            return Ok(outcome.into());
+        }
+        // Select the invocation before entering artifact preparation. A frontend
+        // response is already complete: it needs neither a helper nor handoff
+        // storage. Parsing also keeps private handoff flags out of the frontend
+        // position without interpreting the program's opaque argument tail.
+        if moonutil::constants::is_moonx_executable(executable.as_os_str())
+            && let Err(response) = moonutil::cli_support::MoonxCli::try_parse_from(
+                std::iter::once(executable.as_os_str()).chain(args.iter().map(OsString::as_os_str)),
+            )
+        {
+            let output = response.render().to_string();
+            // Mirror Clap's CLI exit: output failure does not change the exit
+            // code. Use plain text on the bound streams, never the host's TTY
+            // detection or process-wide print/exit functions.
+            if response.use_stderr() {
+                let _ = options
+                    .runtime
+                    .stdio
+                    .with_stderr(|out| out.write_all(output.as_bytes()));
+            } else {
+                let _ = options
+                    .runtime
+                    .stdio
+                    .with_stdout(|out| out.write_all(output.as_bytes()));
+            }
+            return Ok(RunOutcome::Exited(response.exit_code()));
+        }
         let (program, _directory) = match crate::prepare_artifact::prepare_moon(
             executable,
             args,

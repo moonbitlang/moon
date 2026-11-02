@@ -50,6 +50,13 @@ enum SelectedInvocation {
 It does not print, change directory, initialize output or tracing, inspect
 workspace state, or start a child process.
 
+The moonx grammar lives in `moonutil::cli_support`, shared with Moonrun's
+invocation dispatch. Engine completes help/version and parse errors using the
+embedded frontend and bound streams, before any artifact preparation. Only valid
+execution requests launch the preparation helper. Ordinary Moon command
+definitions remain in Moon; guest virtual spawn does not interpret or admit
+those commands.
+
 The selector owns the interaction between Clap and compatibility grammar. It
 first selects executable-name and hidden-tool parsers, then parses ordinary
 Moon commands. A private artifact-handoff prefix is restricted to `moon run` and `moonx`;
