@@ -289,15 +289,42 @@ pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
     core_bundle_in(core_root, backend).join("core.core")
 }
 
+/// Path to the prebuilt `.mi` of one stdlib package.
 pub fn core_package_mi_in(
     core_root: &Path,
     backend: TargetBackend,
     package_path: &str,
     package_last_segment: &str,
 ) -> PathBuf {
+    core_package_artifact_in(core_root, backend, package_path, package_last_segment, "mi")
+}
+
+/// Path to the prebuilt `.core` of one stdlib package.
+pub fn core_package_core_in(
+    core_root: &Path,
+    backend: TargetBackend,
+    package_path: &str,
+    package_last_segment: &str,
+) -> PathBuf {
+    core_package_artifact_in(
+        core_root,
+        backend,
+        package_path,
+        package_last_segment,
+        "core",
+    )
+}
+
+fn core_package_artifact_in(
+    core_root: &Path,
+    backend: TargetBackend,
+    package_path: &str,
+    package_last_segment: &str,
+    extension: &str,
+) -> PathBuf {
     core_bundle_in(core_root, backend)
         .join(package_path)
-        .join(format!("{package_last_segment}.mi"))
+        .join(format!("{package_last_segment}.{extension}"))
 }
 
 #[test]
