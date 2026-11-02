@@ -66,8 +66,8 @@ and [execution ownership](design/runtime-architecture.md#library-contract-and-ex
   filesystem operations, retaining WASI rights and preopen containment.
 - [x] Separate policy source loading, resolved restrictions, Env provisioning,
   and external transfer; use typed inheritance for virtual children.
-- [ ] Compose inherited restrictions with additional child restrictions.
-  Policy selection uses precedence rather than intersection.
+- [x] Compose inherited restrictions with additional child restrictions.
+  Preserve the conjunction through descendant policy transport.
 - [ ] Define explicit resource delegation and attenuation for files, sockets,
   stdio, and directory resources.
 - [ ] Audit indirect host effects, including SQLite auxiliary files, TLS trust

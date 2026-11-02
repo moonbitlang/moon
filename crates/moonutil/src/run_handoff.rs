@@ -47,7 +47,7 @@ pub const HANDOFF_ARG: &str = "--moonrun-artifact-handoff";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Request {
-    inherited_policy: bool,
+    policy_override: bool,
 }
 
 /// The caller owns this private directory until the resulting Run finishes.
@@ -87,9 +87,11 @@ pub struct PreparedProgram {
 }
 
 impl RunHandoff {
-    pub fn new(directory: &Path, inherited_policy: bool) -> anyhow::Result<Self> {
+    /// `policy_override` means the caller selected an explicit policy file.
+    /// An inherited authority ceiling alone must not suppress child policy.
+    pub fn new(directory: &Path, policy_override: bool) -> anyhow::Result<Self> {
         let directory = dunce::canonicalize(directory)?;
-        let request = Request { inherited_policy };
+        let request = Request { policy_override };
         serde_json_lenient::to_writer(File::create(directory.join("request.json"))?, &request)?;
         Ok(Self { directory, request })
     }
@@ -129,7 +131,7 @@ impl RunHandoff {
         if let Some(source_map) = &source_map {
             fs::write(self.directory.join("program.map"), source_map)?;
         }
-        let policy = if self.request.inherited_policy {
+        let policy = if self.request.policy_override {
             None
         } else {
             policy

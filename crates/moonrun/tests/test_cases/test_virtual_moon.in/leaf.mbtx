@@ -1,6 +1,6 @@
 ----
 import { "moonbitlang/core/env" }
-permission(env: true)
+permission(env: { "from_host": ["VIRTUAL_CHAIN"] })
 ----
 #unsafe_skip_stub_check
 fn pid() -> Int = "moonbitlang/async" "env_util/getpid"

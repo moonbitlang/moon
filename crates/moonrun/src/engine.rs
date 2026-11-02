@@ -160,10 +160,10 @@ impl RunOptions {
             .context("invalid MoonBit test arguments")
     }
 
+    /// Select additional restrictions; inherited restrictions remain in force.
     pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
         self.runtime.policy_file = Some(policy_file.into());
         self.runtime.policy_source_dir = None;
-        self.runtime.inherited_policy = None;
         self
     }
 
@@ -175,23 +175,18 @@ impl RunOptions {
     ) -> Self {
         self.runtime.policy_file = Some(policy_file.into());
         self.runtime.policy_source_dir = Some(source_dir.into());
-        self.runtime.inherited_policy = None;
         self
     }
 
     /// Receive the internal restriction transfer format, not a user policy document.
     #[doc(hidden)]
     pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
-        self.runtime.policy_file = None;
-        self.runtime.policy_source_dir = None;
         self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Transfer(policy));
         self
     }
 
     pub(crate) fn with_parent_policy(mut self, policy: crate::policy::PolicyInheritance) -> Self {
         self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Resolved(policy));
-        self.runtime.policy_file = None;
-        self.runtime.policy_source_dir = None;
         self
     }
 
@@ -608,8 +603,7 @@ impl Engine {
         };
         options.args = program.args;
         options.runtime.working_directory = WorkingDirectory::Fixed(program.working_directory);
-        if options.runtime.inherited_policy.is_none()
-            && options.runtime.policy_file.is_none()
+        if options.runtime.policy_file.is_none()
             && let Some((policy, source_dir)) = program.policy
         {
             options = options.with_policy_file_source_dir(policy, source_dir);

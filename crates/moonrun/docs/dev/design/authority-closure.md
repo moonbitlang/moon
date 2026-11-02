@@ -150,12 +150,36 @@ empty allowlist denies that domain. Unioning path roots, DNS patterns, or proces
 argument lists does not implement intersection. Trusted host grants are a
 separate operation from guest child derivation.
 
-Acceptance cases must cover repeated child derivation and serialization, empty
-and absent restrictions, and child attempts to widen parent grants. These are
-requirements for composition, not guarantees supplied by policy precedence:
-Runtime construction selects inherited policy ahead of a policy file, and
-Engine selects delivered policy only when neither configured nor inherited
-policy exists. That selection does not apply additional child restrictions.
+Composition joins resolved restrictions without file I/O, parsing, or Env
+provisioning. Domain policies retain shared references to each restriction's
+compiled rules and require every restriction to allow the operation. DNS-derived
+connection grants belong to the restriction that authorized the name, so one
+grant cannot satisfy another restriction's checks.
+
+No child policy adds no restriction. A supplied policy file retains its
+existing deny-by-default meaning: omitted domains and empty allowlists deny
+that domain. An explicit policy file selects the child's policy instead of an
+embedded declaration; neither can replace the inherited ceiling. Invalid or
+missing selected child policies fail execution instead of being ignored.
+
+Transfer version 2 carries a nonempty sequence of typed restriction groups,
+including when only one group is present. Version 1 is rejected; the user policy
+format is unchanged. Decoding preserves group boundaries so conjunction and DNS
+provenance survive repeated inheritance. Unknown versions and empty collections
+fail closed.
+
+Environment provisioning is consumed during construction. Child provisioning
+reads the delegated source Env, and inherited transfers contain no captured
+values or provisioning to replay. The resulting Env travels through the normal
+child-environment mechanism.
+
+Acceptance cases cover repeated derivation and transfer, absent and empty child
+policies, overlapping path roots, command prefixes, DNS-derived grants, and
+attempts to widen inherited restrictions. Unit tests in `policy/composition_tests.rs`
+and the domain tests cover these rules; `tests/policy_composition.rs`,
+`tests/moon_handoff.rs`, and the Moon/moonx tests cover construction and process
+transport. Composition of domain policies does not implement resource
+attenuation or native confinement.
 
 ## Resource delegation
 

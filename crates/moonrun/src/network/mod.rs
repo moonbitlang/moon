@@ -29,7 +29,7 @@ use std::os::windows::io::AsRawSocket;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::socket as sys;
-use crate::policy::{NetOperation, NetPolicy, SocketRule};
+use crate::policy::{NetOperation, NetPolicy, ResolvedConnectRule};
 use crate::resource::{Resource, ResourceClass, ResourceRef};
 
 pub(crate) use job::Job;
@@ -43,8 +43,8 @@ pub(crate) use job::Job;
 #[derive(Debug)]
 pub(crate) struct HostNetwork {
     policy: Option<NetPolicy>,
-    // DNS results are Runtime provenance, not part of the clonable policy.
-    resolved_connect: RefCell<Vec<SocketRule>>,
+    // DNS results are Runtime provenance, not part of the cloneable policy.
+    resolved_connect: RefCell<Vec<ResolvedConnectRule>>,
 }
 
 impl HostNetwork {

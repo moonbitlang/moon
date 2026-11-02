@@ -18,6 +18,7 @@
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
 
@@ -27,8 +28,40 @@ use super::{config::FsConfig, sandbox_denied, transfer};
 ///
 /// This is not a virtual filesystem. `HostFs` resolves runtime paths before
 /// asking these immutable rules whether the resulting target is allowed.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct FsPolicy {
+    restrictions: Vec<Arc<FsRestriction>>,
+}
+
+impl Default for FsPolicy {
+    fn default() -> Self {
+        Self::from_restrictions([Arc::new(FsRestriction::default())])
+    }
+}
+
+impl FsPolicy {
+    pub(super) fn from_restrictions(
+        restrictions: impl IntoIterator<Item = Arc<FsRestriction>>,
+    ) -> Self {
+        Self {
+            restrictions: restrictions.into_iter().collect(),
+        }
+    }
+
+    pub(crate) fn authorize(
+        &self,
+        path: Option<&Path>,
+        intents: FsIntents,
+        target: &str,
+    ) -> AsyncHostResult<()> {
+        self.restrictions
+            .iter()
+            .try_for_each(|restriction| restriction.authorize(path, intents, target))
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct FsRestriction {
     read_roots: Vec<FsRoot>,
     write_roots: Vec<FsRoot>,
 }
@@ -45,7 +78,7 @@ pub(crate) struct FsIntents {
     write: bool,
 }
 
-impl FsPolicy {
+impl FsRestriction {
     pub(super) fn to_transfer(&self) -> transfer::Filesystem {
         let roots = |roots: &[FsRoot]| {
             roots

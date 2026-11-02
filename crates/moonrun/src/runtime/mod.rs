@@ -155,6 +155,32 @@ pub(crate) struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Resolve selected sources and provision Env; restriction composition only
+    /// joins compiled rules and never observes host state.
+    pub(crate) fn realize_policy(&self, source: Env) -> anyhow::Result<(Policy, Env)> {
+        let mut restrictions = match &self.inherited_policy {
+            Some(policy::InheritedPolicyInput::Resolved(inherited)) => Some(inherited.clone()),
+            Some(policy::InheritedPolicyInput::Transfer(contents)) => {
+                Some(policy::PolicyInheritance::from_transfer(contents)?)
+            }
+            None => None,
+        };
+        let environment = match &self.policy_file {
+            Some(path) => {
+                let (child, provisioning) =
+                    policy::read_file(path, self.policy_source_dir.as_deref())?;
+                restrictions = Some(match restrictions {
+                    Some(parent) => parent.restrict(child),
+                    None => child,
+                });
+                provisioning.provision(&source)?
+            }
+            None => source,
+        };
+        let policy = restrictions.map_or_else(Policy::allow_all, |rules| rules.policy());
+        Ok((policy, environment))
+    }
+
     /// Capture missing host state before creating a virtual root.
     /// Guest children already carry state derived by their Host Process and
     /// must not use this host fallback. Policy is realized by Runtime later.
@@ -181,7 +207,7 @@ pub(crate) fn current_signal_mask() -> anyhow::Result<libc::sigset_t> {
 
 impl Runtime {
     pub(crate) fn new(
-        config: RuntimeConfig,
+        mut config: RuntimeConfig,
         executable: Executable,
         signals: SignalReceiver,
     ) -> anyhow::Result<Self> {
@@ -190,7 +216,8 @@ impl Runtime {
             Some(mask) => mask,
             None => current_signal_mask()?,
         };
-        let source_environment = match (config.default_environment, &config.inherited_policy) {
+        let source_environment = match (config.default_environment.take(), &config.inherited_policy)
+        {
             (Some(entries), _) => Env::owned(entries)?,
             // An external child receives its values through the OS environment.
             // Own that snapshot so guest mutations cannot alter the embedding host.
@@ -199,32 +226,10 @@ impl Runtime {
             }
             (None, _) => Env::ambient(),
         };
-        let (mut policy, provisioning) = match (
-            config.inherited_policy,
-            config.policy_file.as_deref(),
-        ) {
-            (Some(policy::InheritedPolicyInput::Resolved(inherited)), _) => {
-                (inherited.policy(), None)
-            }
-            (Some(policy::InheritedPolicyInput::Transfer(contents)), _) => {
-                let inherited = policy::PolicyInheritance::from_transfer(&contents)
-                    .context("failed to load inherited sandbox policy (experimental)")?;
-                (inherited.policy(), None)
-            }
-            (None, Some(path)) => {
-                let (rules, environment) = policy::read_file(path, config.policy_source_dir.as_deref())
-                    .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?;
-                (rules.policy(), Some(environment))
-            }
-            (None, None) => (Policy::allow_all(), None),
-        };
-        let environment = Arc::new(
-            match provisioning {
-                Some(config) => config.provision(&source_environment),
-                None => Ok(source_environment),
-            }
-            .context("failed to construct the Runtime environment")?,
-        );
+        let (mut policy, environment) = config.realize_policy(source_environment)
+            .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?;
+        let environment = Arc::new(environment);
+
         let filesystem_policy = policy.take_filesystem_policy();
         let network_policy = policy.take_network_policy();
         let process_policy = policy.take_process_policy();

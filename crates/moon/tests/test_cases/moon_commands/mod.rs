@@ -272,7 +272,7 @@ fn test_moonx_explicit_policy_skips_malformed_embedded_policy() {
 }
 
 #[test]
-fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
+fn test_moonx_inherited_policy_rejects_malformed_child_policy() {
     let dir = TestDir::new("moon_test_single_file.in");
     let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
     let moonx = moonx_bin(&bin_dir);
@@ -297,8 +297,17 @@ fn test_moonx_inherited_policy_skips_malformed_embedded_policy() {
 
     snapbox::cmd::Command::from_std(command)
         .assert()
-        .success()
-        .stdout_eq("inherited\n");
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+...
+Error: failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes
+
+Caused by:
+    0: invalid .mbtx permission in `[..]/malformed_embedded_policy.mbtx`
+    1: policy.env: invalid type: sequence, expected struct EnvConfig at line 2 column 8
+
+"#]]);
     relay.finish().unwrap();
 }
 

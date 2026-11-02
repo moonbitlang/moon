@@ -557,9 +557,9 @@ Runtime's Handles; cross-Runtime resource transfer needs explicit rebinding.
 Enforcement limits: policy loading separates environment provisioning from
 domain rules and transports resolved restrictions independently of user policy syntax. Without a policy,
 domain operations retain their unrestricted behavior; Virtual mode alone does
-not change that. Inherited policy takes precedence over delivered policy, which
-does not implement intersection of parent authority, child policy, WASI grants,
-and resource delegation. The [authority design](authority-closure.md) specifies
+not change that. Inherited and selected child policies form a conjunction of domain
+restrictions. WASI rights remain additional checks; general resource delegation
+requires its own enforcement. The [authority design](authority-closure.md) specifies
 those contracts and the filesystem enforcement boundary.
 
 SQLite's native VFS and temporary files, and native TLS system-trust discovery,
@@ -603,7 +603,7 @@ contract becomes enforceable rather than treating planned coverage as passing:
 | Scope-owned termination and cleanup | [run_termination.rs](../../../tests/run_termination.rs), process-tree unit tests; retain caller-thread and managed execution through loading, preparation, and cleanup |
 | Recursive handoff and child control | [recursive_moon.rs](../../../tests/recursive_moon.rs), [moon_handoff.rs](../../../tests/moon_handoff.rs), [guest_process_control.rs](../../../tests/guest_process_control.rs); preserve arguments, cwd, Env, stdio, policy, and executable origin through handoff |
 | Equivalent ABI semantics | [legacy_host_imports.rs](../../../tests/legacy_host_imports.rs), [numeric_host_imports.rs](../../../tests/numeric_host_imports.rs), [wasi_imports.rs](../../../tests/wasi_imports.rs), [filesystem_authority.rs](../../../tests/filesystem_authority.rs); preserve ABI contracts and shared denial behavior |
-| Monotonic delegation | Policy inheritance tests cover precedence; composition and delegation require the acceptance cases in the [authority design](authority-closure.md) |
+| Monotonic delegation | Policy composition tests cover inherited and additional domain restrictions; resource delegation has separate acceptance cases in the [authority design](authority-closure.md) |
 
 Process-preparation acceptance cases must also cover:
 

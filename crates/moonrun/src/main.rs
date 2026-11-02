@@ -122,11 +122,11 @@ fn main() -> anyhow::Result<()> {
     if let Some(test_args) = matches.test_args {
         options = options.with_test_args(test_args);
     }
-    // An inherited policy is host-owned and cannot be replaced by a child CLI
-    // argument. Each Run publishes its own canonical copy for future children.
+    // A child policy adds restrictions without replacing the inherited ceiling.
     if let Some(policy) = inherited_policy {
         options = options.with_inherited_policy(policy);
-    } else if let Some(policy) = matches.policy {
+    }
+    if let Some(policy) = matches.policy {
         options = match matches.policy_source_dir {
             Some(source_dir) => options.with_policy_file_source_dir(policy, source_dir),
             None => options.with_policy_file(policy),

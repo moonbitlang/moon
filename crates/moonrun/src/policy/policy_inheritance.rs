@@ -21,9 +21,10 @@
 use std::sync::Arc;
 
 use super::{FsPolicy, NetPolicy, Policy, ProcessPolicy};
+use super::{fs::FsRestriction, net::NetRestriction, process::ProcessRestriction};
 
 #[derive(Clone, Debug)]
-pub(crate) struct PolicyInheritance(pub(super) Arc<ResolvedRestrictions>);
+pub(crate) struct PolicyInheritance(pub(super) Arc<[ResolvedRestrictions]>);
 
 /// In-process children share resolved rules; only external children decode a transfer.
 #[derive(Debug)]
@@ -34,23 +35,38 @@ pub(crate) enum InheritedPolicyInput {
 
 /// Constructed from validated domain rules. Source loading resolves filesystem
 /// roots; transfer decoding validates their representation without resolving them.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct ResolvedRestrictions {
-    pub fs: FsPolicy,
-    pub net: NetPolicy,
-    pub process: ProcessPolicy,
+    pub fs: Arc<FsRestriction>,
+    pub net: Arc<NetRestriction>,
+    pub process: Arc<ProcessRestriction>,
 }
 
 impl PolicyInheritance {
-    pub(super) fn new(fs: FsPolicy, net: NetPolicy, process: ProcessPolicy) -> Self {
-        Self(Arc::new(ResolvedRestrictions { fs, net, process }))
+    pub(super) fn new(fs: FsRestriction, net: NetRestriction, process: ProcessRestriction) -> Self {
+        Self(Arc::from([ResolvedRestrictions {
+            fs: Arc::new(fs),
+            net: Arc::new(net),
+            process: Arc::new(process),
+        }]))
+    }
+
+    /// Conjoin resolved restrictions without parsing, host observation, or Env provisioning.
+    pub(crate) fn restrict(self, additional: Self) -> Self {
+        Self(self.0.iter().chain(additional.0.iter()).cloned().collect())
     }
 
     pub(crate) fn policy(&self) -> Policy {
         Policy {
-            fs: Some(self.0.fs.clone()),
-            net: Some(self.0.net.clone()),
-            process: Some(self.0.process.clone()),
+            fs: Some(FsPolicy::from_restrictions(
+                self.0.iter().map(|rules| Arc::clone(&rules.fs)),
+            )),
+            net: Some(NetPolicy::from_restrictions(
+                self.0.iter().map(|rules| Arc::clone(&rules.net)),
+            )),
+            process: Some(ProcessPolicy::from_restrictions(
+                self.0.iter().map(|rules| Arc::clone(&rules.process)),
+            )),
             policy_inheritance: Some(self.clone()),
         }
     }

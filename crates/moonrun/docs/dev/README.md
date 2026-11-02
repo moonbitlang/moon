@@ -232,7 +232,7 @@ empty environment. Host-facing Virtual entries capture only missing root Env
 and cwd values. Guest Host Process derives complete child inputs from current
 Runtime state and the guest request, selects Virtual mode, and submits them
 without host fallback. Policy provisioning reads the supplied environment;
-policy inheritance retains its existing precedence. Parentage never selects
+inherited and selected child policies both constrain domain operations. Parentage never selects
 state or authority. Native mode preserves Ambient defaults unless the caller
 supplies owned state.
 

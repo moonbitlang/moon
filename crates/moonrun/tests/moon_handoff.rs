@@ -229,7 +229,7 @@ fn moon_commands_run_in_virtual_tree() {
         assert!(tree.snapshot().is_empty());
     }
 
-    // Parent-provided canonical policy wins even over an unreadable child file.
+    // Inherited restrictions do not hide an unreadable child policy.
     let stdout = tempfile::tempfile().unwrap();
     let options = RunOptions::default()
         .with_guest_process_mode(GuestProcessMode::Virtual)
@@ -253,8 +253,35 @@ fn moon_commands_run_in_virtual_tree() {
             options,
         )
         .unwrap();
+    assert!(matches!(tree.wait(pid).unwrap(), RunOutcome::Exited(code) if code != 0));
+    assert_eq!(contents(stdout), "");
+
+    // A delivered policy provisions the child Env and adds restrictions even
+    // when the supervisor already carries an inherited ceiling.
+    let stdout = tempfile::tempfile().unwrap();
+    let pid = tree
+        .spawn_moon(
+            None,
+            &moonx,
+            &[
+                "--experimental-policy".into(),
+                "policy.toml".into(),
+                "script.mbtx".into(),
+            ],
+            RunOptions::default()
+                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
+                .with_inherited_policy(include_bytes!("fixtures/deny_restrictions.json").to_vec())
+                .with_environment([("HANDOFF_POLICY", "parent")])
+                .with_stdio(
+                    tempfile::tempfile().unwrap(),
+                    stdout.try_clone().unwrap(),
+                    tempfile::tempfile().unwrap(),
+                ),
+        )
+        .unwrap();
     assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Completed);
-    assert_eq!(contents(stdout), format!("{pid}\nSome(parent)\n"));
+    assert_eq!(contents(stdout), format!("{pid}\nSome(child)\n"));
 
     // Export mode must never execute the program, and temporary source cleanup
     // cannot invalidate its copied artifact or embedded policy source.

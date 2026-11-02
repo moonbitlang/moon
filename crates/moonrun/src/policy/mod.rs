@@ -24,6 +24,8 @@
 //! global policy object in the Host domains. Environment provisioning is also
 //! consumed during construction and does not become a runtime policy check.
 
+#[cfg(test)]
+mod composition_tests;
 mod config;
 mod fs;
 mod net;
@@ -37,7 +39,7 @@ pub(crate) use source::read_file;
 #[cfg(test)]
 use self::config::PolicyConfig;
 pub(crate) use self::fs::{FsIntents, FsPolicy};
-pub(crate) use self::net::{NetOperation, NetPolicy, SocketRule};
+pub(crate) use self::net::{NetOperation, NetPolicy, ResolvedConnectRule};
 pub(crate) use self::policy_inheritance::{InheritedPolicyInput, PolicyInheritance};
 pub(crate) use self::process::ProcessPolicy;
 use crate::async_host::{AsyncHostError, AsyncHostResult};

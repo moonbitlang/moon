@@ -22,7 +22,10 @@ use anyhow::Context;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use super::{FsPolicy, NetPolicy, PolicyInheritance, ProcessPolicy, config::PolicyConfig};
+use super::{
+    PolicyInheritance, config::PolicyConfig, fs::FsRestriction, net::NetRestriction,
+    process::ProcessRestriction,
+};
 use crate::runtime::EnvConfig;
 
 pub(crate) fn read_file(
@@ -42,9 +45,9 @@ pub(super) fn resolve(
     let environment = config.env.take().unwrap_or_default();
     Ok((
         PolicyInheritance::new(
-            FsPolicy::from_canonical_config(config.fs.unwrap_or_default()),
-            NetPolicy::from_config(config.net.unwrap_or_default())?,
-            ProcessPolicy::from_config(config.process.unwrap_or_default())?,
+            FsRestriction::from_canonical_config(config.fs.unwrap_or_default()),
+            NetRestriction::from_config(config.net.unwrap_or_default())?,
+            ProcessRestriction::from_config(config.process.unwrap_or_default())?,
         ),
         environment,
     ))
