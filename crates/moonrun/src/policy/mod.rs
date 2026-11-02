@@ -649,4 +649,39 @@ fn main {}
         crate::async_sys::socket::init_ip_addr(&mut addr, u32::from(ip), u32::from(port)).unwrap();
         addr.into_boxed_slice()
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn inherited_roots_do_not_follow_replaced_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let allowed = directory.path().join("allowed");
+        let outside = directory.path().join("outside");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let file = directory.path().join("policy.json");
+        std::fs::write(&file, r#"{"fs":{"read":["allowed"]}}"#).unwrap();
+        let (mut parent, _) = load_file(&file).unwrap();
+        let contents = parent
+            .take_policy_inheritance()
+            .unwrap()
+            .open_transfer()
+            .unwrap()
+            .read()
+            .unwrap();
+        std::fs::rename(&allowed, directory.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &allowed).unwrap();
+        let (mut child, _) =
+            load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
+        let target = std::fs::canonicalize(&outside).unwrap().join("secret");
+        assert_eq!(
+            child.take_filesystem_policy().unwrap().authorize(
+                Some(&target),
+                FsIntents::read(),
+                "secret"
+            ),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        std::fs::remove_file(&allowed).unwrap();
+        load_inherited_json(&contents, &crate::runtime::Env::ambient()).unwrap();
+    }
 }
