@@ -119,6 +119,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn user_documents_are_not_inherited_restrictions() {
+        for document in [
+            br#"{}"#.as_slice(),
+            br#"{"env":{"set":{"INJECTED":"value"}}}"#,
+            br#"{"process":{"spawn":true}}"#,
+        ] {
+            assert!(PolicyInheritance::from_transfer(document).is_err());
+        }
+    }
+
+    #[test]
+    fn inheritance_transport_is_not_a_user_policy_document() {
+        let rules = PolicyInheritance::from_config(&PolicyConfig::default()).unwrap();
+        let contents = rules.open_transfer().unwrap().read().unwrap();
+        assert!(serde_json::from_slice::<PolicyConfig>(&contents).is_err());
+        let value: serde_json::Value = serde_json::from_slice(&contents).unwrap();
+        assert!(value.get("env").is_none());
+    }
+
+    #[test]
     fn transfer_round_trip_preserves_resolved_rule_shapes() {
         // Exercise every encoding shape, including normalized names, IPv6,
         // wildcard ports, and arguments requiring Windows quoting.
