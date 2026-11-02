@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-10-22.
+// Snapshot generated from `moonc check -warn-help` on 2026-11-02.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -485,6 +485,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unfenced_import",
         description: "Deprecated import declarations outside frontmatter.",
         id: 96,
+    },
+    WarningEntry {
+        mnemonic: "regex_runtime_fallback",
+        description: "Regex match over the compile limits, which runs on the runtime engine.",
+        id: 97,
     },
 ];
 

@@ -35,7 +35,7 @@ use moonutil::{
     manifest::read_module_desc_file_in_dir,
     project::WorkspaceEnv,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},
-    target::TargetBackend::{self, Js, Native},
+    target::TargetBackend::{self, Js, LLVM, Native},
     user_log::UserLog,
 };
 
@@ -87,7 +87,7 @@ fn resolved_project_already_contains_each_backends_graph() {
             resolved.package_relations[&backend]
                 .dep_graph
                 .contains_edge(app, native),
-            backend == Native,
+            matches!(backend, Native | LLVM),
         );
     }
 }
@@ -311,7 +311,8 @@ import { "example/conditional/common" @native_common }
     for &backend in TargetBackend::all() {
         let supported = &resolved.package_relations[&backend].realizable_supported_targets
             [&target(&resolved, "consumer", TargetKind::Source)];
-        assert!(supported.contains(&backend));
+        // The native import includes LLVM, but its dependency only supports Native C.
+        assert_eq!(supported.contains(&backend), backend != LLVM);
     }
 }
 
