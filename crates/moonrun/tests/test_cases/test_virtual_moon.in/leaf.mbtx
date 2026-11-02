@@ -4,8 +4,10 @@ permission(env: true)
 ----
 #unsafe_skip_stub_check
 fn pid() -> Int = "moonbitlang/async" "env_util/getpid"
-fn main {
+fn main raise {
   println(pid())
   println(@env.get_env_var("VIRTUAL_CHAIN").unwrap())
-  println(@env.args()[1])
+  let args = @env.args()
+  assert_eq(args[2:], ["--help", "--target", "native", "--moonrun-artifact-handoff"])
+  println(args[1])
 }

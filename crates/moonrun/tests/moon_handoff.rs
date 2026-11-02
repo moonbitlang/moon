@@ -81,6 +81,49 @@ fn moon_commands_run_in_virtual_tree() {
     .unwrap();
     let tree = Engine::default();
 
+    // Virtual frontend completion matches the native CLI's redirected output
+    // and status, while the managed PID remains waitable and is reaped normally.
+    for (args, code) in [
+        (vec!["--help"], 0),
+        (vec!["--version"], 0),
+        (vec![], 2),
+        (vec!["--target", "native"], 2),
+        (vec!["--unknown-option"], 2),
+    ] {
+        let native = snapbox::cmd::Command::new(&moonx)
+            .args(&args)
+            .env("NO_COLOR", "1")
+            .assert()
+            .code(code)
+            .get_output()
+            .clone();
+        let stdout = tempfile::tempfile().unwrap();
+        let stderr = tempfile::tempfile().unwrap();
+        let pid = tree
+            .spawn_moon(
+                None,
+                &moonx,
+                &args.iter().map(Into::into).collect::<Vec<_>>(),
+                RunOptions::default()
+                    .with_guest_process_mode(GuestProcessMode::Virtual)
+                    .with_working_directory(WorkingDirectory::Fixed(root.to_owned()))
+                    .with_stdio(
+                        tempfile::tempfile().unwrap(),
+                        stdout.try_clone().unwrap(),
+                        stderr.try_clone().unwrap(),
+                    ),
+            )
+            .unwrap();
+        assert_eq!(
+            tree.wait(pid).unwrap(),
+            RunOutcome::Exited(code),
+            "{args:?}"
+        );
+        assert_eq!(contents(stdout).as_bytes(), native.stdout, "{args:?}");
+        assert_eq!(contents(stderr).as_bytes(), native.stderr, "{args:?}");
+        assert!(tree.snapshot().is_empty());
+    }
+
     let inline = format!("-e={SOURCE}");
     // Actual compiler output must see the very same virtual PID allocated
     // before building, including when the source was a temporary inline file.

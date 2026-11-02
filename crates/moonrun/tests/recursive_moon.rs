@@ -67,6 +67,27 @@ fn recursive_moon_processes() {
     .unwrap();
     fs::create_dir(project.join("subdir")).unwrap();
     fs::copy(fixture.join("leaf.mbtx"), project.join("subdir/leaf.mbtx")).unwrap();
+    fs::write(project.join("invalid.mbtx"), "this is invalid MoonBit").unwrap();
+    let untrusted_handoff = project.join("untrusted-handoff");
+    fs::create_dir(&untrusted_handoff).unwrap();
+    moonutil::run_handoff::RunHandoff::new(&untrusted_handoff, false).unwrap();
+    // Compile the recursive guest against the pinned async sources, then serve
+    // those exact bytes through a private registry cache. Recursive moonx
+    // invocations need neither registry networking nor a different async version.
+    snapbox::cmd::Command::new(moon)
+        .current_dir(&project)
+        .args(["build", "--target", "wasm", "src/virtual_parent"])
+        .timeout(Duration::from_secs(90))
+        .assert()
+        .success();
+    let moon_home = root.join("moon-home");
+    let cached = moon_home.join("registry/cache/assets/test/virtual/0.0.1/main/main.wasm");
+    fs::create_dir_all(cached.parent().unwrap()).unwrap();
+    fs::copy(
+        project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"),
+        cached,
+    )
+    .unwrap();
     // Both helper names resolve inside the guest's PATH, including recursive
     // calls. No process-global environment mutation is needed.
     let helper_moon = root.join(format!("moon{}", std::env::consts::EXE_SUFFIX));
@@ -80,9 +101,18 @@ fn recursive_moon_processes() {
     )
     .unwrap();
     let policy = root.join("parent-policy.json");
-    fs::write(&policy, serde_json::to_vec(&serde_json::json!({
-        "process": { "spawn": true }, "env": { "from_host": ["*"], "set": { "PATH": path.to_str().unwrap() } }
-    })).unwrap()).unwrap();
+    fs::write(
+        &policy,
+        serde_json::to_vec(&serde_json::json!({
+            "process": { "spawn": true }, "env": { "from_host": ["*"], "set": {
+                "PATH": path.to_str().unwrap(),
+                "MOON_HOME": moon_home.to_str().unwrap(),
+                "MOON_TOOLCHAIN_ROOT": moonutil::toolchain::toolchain_root().to_str().unwrap(),
+            } }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     let stdout = tempfile::tempfile().unwrap();
     let stderr = tempfile::tempfile().unwrap();
     let parent = tree
@@ -116,6 +146,7 @@ fn recursive_moon_processes() {
     assert!(ids.iter().all(|pid| *pid >= 1 << 30));
     assert_eq!(&lines[3..], ["grandchild", "arg with spaces"]);
     assert!(tree.snapshot().is_empty(), "descendants were not reaped");
+    assert!(!untrusted_handoff.join("result.json").exists());
 
     snapbox::cmd::Command::new(moon)
         .current_dir(&project)
