@@ -44,7 +44,6 @@ fn stdlib_abort_uses_normal_build_pipeline() {
     let bundle = core.path().join("_build/wasm-gc/release/bundle");
     std::fs::create_dir_all(bundle.join("prelude")).unwrap();
     std::fs::write(bundle.join("prelude/prelude.mi"), "").unwrap();
-    std::fs::write(bundle.join("core.core"), "").unwrap();
 
     for state in ["absent", "stale", "bundled", "missing_artifact"] {
         if state == "stale" {
@@ -129,7 +128,18 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                 .any(|input| input.as_str().unwrap().ends_with("abort/abort.core")),
             "{state}: {inputs:?}"
         );
-        assert!(command.contains("bundle/core.core"));
+        // Reachable stdlib packages are linked from their own installed cores.
+        assert!(!command.contains("core.core"), "{state}: {command}");
+        assert!(
+            command.contains("bundle/prelude/prelude.core"),
+            "{state}: {command}"
+        );
+        assert!(
+            inputs
+                .iter()
+                .any(|input| input.as_str().unwrap().ends_with("prelude/prelude.core")),
+            "{state}: {inputs:?}"
+        );
     }
 
     // Core's abort package can be tested and instrumented like any other package.

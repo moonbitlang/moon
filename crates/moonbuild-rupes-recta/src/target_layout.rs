@@ -687,6 +687,20 @@ impl ArtifactPathResolver {
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
+        // Injected stdlib packages are linked from their installed `.core`.
+        if let Some(stdlib_dir) = self.stdlib_dir() {
+            let pkg = pkg_list.get_package(target.package);
+            if pkg.is_stdlib {
+                assert_eq!(
+                    target.kind,
+                    TargetKind::Source,
+                    "only the source target of injected stdlib package {} can be linked",
+                    pkg.fqn
+                );
+                return stdlib_core_path(stdlib_dir, backend, &pkg.fqn);
+            }
+        }
+
         self.target_layout
             .core_of_build_target(pkg_list, target, backend)
     }

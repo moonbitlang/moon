@@ -436,7 +436,9 @@ impl BuildTargetInfo {
 
 #[derive(Debug)]
 pub struct LinkCoreInfo {
-    /// The targets in **initialization order**.
+    /// The targets in **initialization order**. When the stdlib is injected,
+    /// this includes the reachable stdlib packages, whose `.core` files are
+    /// installed rather than produced by this plan.
     pub(crate) linked_order: Vec<BuildTarget>,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library

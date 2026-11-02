@@ -186,6 +186,12 @@ When actually building a package, the pipeline depends on the backend:
    This step reads in all CoreIR files produced by the package and all its transitive dependencies,
    and links into an executable output.
    For JS/WASM backends, this already outputs the final executable.
+   When the prebuilt standard library is injected, the stdlib packages reached
+   through imports (including the implicit `prelude` and `builtin` imports) are
+   linked from their installed
+   `<core>/_build/<backend>/release/bundle/<pkg>/<name>.core` files, in the
+   same dependency order as local packages. The bundled `core.core` is not
+   used for linking.
 3. **Compile generated C**, via `CompileGeneratedC`, when `LinkCore` emits C.
    This produces a `GeneratedCObject`, using one compile-only invocation.
    Direct-object and LLVM payloads already are object files and skip this step.

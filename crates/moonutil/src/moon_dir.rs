@@ -285,10 +285,6 @@ pub fn core_bundle(backend: TargetBackend) -> PathBuf {
     core_bundle_in(&core(), backend)
 }
 
-pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    core_bundle_in(core_root, backend).join("core.core")
-}
-
 /// Path to the prebuilt `.mi` of one stdlib package.
 pub fn core_package_mi_in(
     core_root: &Path,
