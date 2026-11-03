@@ -54,6 +54,13 @@ wasmparser = { version = "=0.258.0", default-features = false, features = ["std"
 openssl.workspace = true
 openssl-probe.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+foreign-types.workspace = true
+openssl-sys.workspace = true
+
 [target."cfg(unix)".dependencies]
 libc.workspace = true
 
