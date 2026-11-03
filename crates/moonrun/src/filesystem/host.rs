@@ -589,6 +589,76 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn creation_policy_does_not_walk_past_unresolved_symlinks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let link = allowed.join("link");
+        std::os::unix::fs::symlink("../denied/missing", &link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
+
+        assert!(matches!(
+            host.write_file(&link, b"escape"),
+            Err(FsError::Denied)
+        ));
+        assert!(matches!(
+            host.open_file(
+                &link,
+                FileOpenOptions {
+                    read: false,
+                    write: true,
+                    append: false,
+                    create: true,
+                    create_new: false,
+                    truncate: false,
+                }
+            ),
+            Err(FsError::Denied)
+        ));
+        // Walking past a missing descendant must still inspect its link ancestor.
+        assert!(matches!(
+            host.create_directory_all(&link.join("child")),
+            Err(FsError::Denied)
+        ));
+        assert!(!denied.join("missing").exists());
+
+        host.create_directory_all(&allowed.join("new/child"))
+            .unwrap();
+        host.write_file(&allowed.join("new/file"), b"allowed")
+            .unwrap();
+        let renamed = allowed.join("renamed");
+        host.rename(&link, &renamed).unwrap();
+        assert_eq!(
+            std::fs::read_link(&renamed).unwrap(),
+            Path::new("../denied/missing")
+        );
+        host.unlink_file(&renamed).unwrap();
+        assert!(std::fs::symlink_metadata(renamed).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unrestricted_creation_keeps_native_dangling_link_behavior() {
+        let tmp = tempfile::tempdir().unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink("missing", &link).unwrap();
+        let host = host_fs(None, Arc::new(Env::ambient()));
+
+        host.write_file(&link, b"native").unwrap();
+        assert_eq!(
+            std::fs::read(tmp.path().join("missing")).unwrap(),
+            b"native"
+        );
+        assert!(std::fs::symlink_metadata(link).unwrap().is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn directory_suffix_policy_rejects_dangling_links_but_allows_new_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
