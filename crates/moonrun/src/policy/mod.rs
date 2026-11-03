@@ -28,6 +28,8 @@
 mod composition_tests;
 mod config;
 mod fs;
+#[cfg(test)]
+mod glob_tests;
 mod net;
 mod process;
 mod source;
