@@ -72,8 +72,15 @@ _Avoid_: Runtime Configuration, Runtime State, WASI sandbox, virtual filesystem
 **Effective Authority**:
 The host effects reachable by a guest through all exposed operations and
 delegated resources, including their combinations. Moonrun Policy contributes
-to this authority alongside WASI grants and permitted helper or native execution.
+to this authority alongside WASI grants, trusted host work, and permitted helper
+or native execution.
 _Avoid_: Moonrun Policy, Runtime Configuration, virtual process identity
+
+**Trusted Host Work**:
+Ancillary effects explicitly permitted by a host service's contract, rather
+than authorized individually by guest Policy. A native implementation alone
+does not make an operation trusted host work.
+_Avoid_: unrestricted native I/O, guest resource grant
 
 **Policy Rule**:
 An individual authorization condition, such as a program and argument prefix.

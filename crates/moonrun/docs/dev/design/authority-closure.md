@@ -225,13 +225,33 @@ access to both. A directory grant does not authorize a database symlink target
 outside that grant. These checks precede SQLite's open and are not VFS mediation.
 
 Each exposed host effect needs an explicit contract: an enforced rule,
-trusted host work, or unrestricted exposure. Filesystem policy alone does not
-mediate SQLite auxiliary files, TLS trust discovery, clocks, randomness, or
-library initialization. Tests for those surfaces must exercise indirect effects
-as well as the immediate import.
+trusted host work, or unrestricted exposure. SQLite auxiliary files, clocks,
+randomness, and library initialization require their own classification;
+filesystem policy alone does not mediate them. Tests for those surfaces must
+exercise indirect effects as well as the immediate import.
 
 Helper and native execution need explicit grants coordinated with execution
 ownership. Permission to invoke a program does not confine the program's
 filesystem, network, or process access. Guest Wasm rules do not sandbox build
 helpers or arbitrary native syscalls. Any stronger claim requires separate
 enforcement and acceptance tests.
+
+### TLS trust services
+
+OS and library-managed certificate validation is trusted host work. Trust-store
+discovery, certificate-chain completion, and revocation checks may access host
+files, caches, and network services without individual `fs` or `net` policy
+checks. Enabling a policy does not force cache-only validation or disable
+native certificate retrieval. Trust modes and certificate/hostname checks
+retain their normal semantics.
+
+Guest-selected private-key and certificate files remain subject to HostFs read
+authorization. Explicit guest DNS lookups, connects, and binds remain subject
+to HostNetwork authorization. The exception covers the trust service's own
+work, not arbitrary I/O performed by a native library.
+
+The three-layer boundary is unchanged: adapters decode guest TLS requests,
+the host checks explicit path and network effects, and the platform/library
+implements certificate validation. Tests should distinguish denied explicit
+guest access from permitted trust-service activity, without requiring all
+backends to use the same trust store or retrieval mechanism.

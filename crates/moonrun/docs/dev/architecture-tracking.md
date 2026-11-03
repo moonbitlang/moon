@@ -77,8 +77,12 @@ and [execution ownership](design/runtime-architecture.md#library-contract-and-ex
   Preserve the conjunction through descendant policy transport.
 - [ ] Define explicit resource delegation and attenuation for files, sockets,
   stdio, and directory resources.
-- [ ] Audit indirect host effects, including SQLite auxiliary files, TLS trust
-  discovery, clocks, randomness, and library initialization.
+- [x] Classify OS/library-managed TLS certificate discovery, chain completion,
+  and revocation checks as trusted host work; retain authorization of explicit
+  guest file and network access. See the
+  [TLS contract](design/authority-closure.md#tls-trust-services).
+- [ ] Audit indirect host effects, including SQLite auxiliary files, clocks,
+  randomness, and library initialization.
 - [ ] Define helper and native-execution grants together with execution work.
 
 Contracts: [authority design](design/authority-closure.md). Acceptance cases:
