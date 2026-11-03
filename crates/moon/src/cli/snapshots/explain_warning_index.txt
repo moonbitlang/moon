@@ -88,3 +88,4 @@
 0095	nan_pattern	Pattern on a NaN constant, which never matches.
 0096	unfenced_import	Deprecated import declarations outside frontmatter.
 0097	regex_runtime_fallback	Regex match over the compile limits, which runs on the runtime engine.
+0098	cancellable_defer	Fragile cancellable async code inside `defer`/`errdefer`
