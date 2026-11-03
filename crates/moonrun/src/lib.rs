@@ -34,6 +34,10 @@ compile_error!(
 mod async_api;
 mod async_host;
 mod async_sys;
+// The binary and internal invocation adapters share this grammar. It is not
+// part of the stable embedding interface.
+#[doc(hidden)]
+pub mod cli_support;
 mod core_api;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod engine;
@@ -41,6 +45,7 @@ mod engine;
 mod filesystem;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod guest_memory;
+pub mod ipc;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
 mod native_stack;

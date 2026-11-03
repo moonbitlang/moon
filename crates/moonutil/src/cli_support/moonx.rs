@@ -54,6 +54,10 @@ pub struct MoonxCli {
     #[arg(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 
+    /// Share one execution host with descendants for this run (no persistent daemon)
+    #[arg(long)]
+    pub daemon: bool,
+
     /// Show progress and execution details
     #[arg(short = 'v', long)]
     pub verbose: bool,
@@ -131,6 +135,17 @@ mod tests {
             assert_eq!(input, "script.mbtx");
             assert_eq!(tail, expected);
         }
+    }
+
+    #[test]
+    fn daemon_is_an_execution_option_only_before_the_input() {
+        let parsed = MoonxCli::try_parse_from(["moonx", "--daemon", "script.mbtx"]).unwrap();
+        assert!(parsed.daemon);
+        assert!(parsed.input_and_args().1.is_empty());
+
+        let parsed = MoonxCli::try_parse_from(["moonx", "script.mbtx", "--daemon"]).unwrap();
+        assert!(!parsed.daemon);
+        assert_eq!(parsed.input_and_args().1, ["--daemon"]);
     }
 
     #[test]

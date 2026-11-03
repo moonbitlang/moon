@@ -95,6 +95,7 @@ pub(crate) fn run_runwasm(
         cmd.experimental_policy.as_deref(),
         None,
         None,
+        false,
         &cmd.args,
         output.user_log(),
     )

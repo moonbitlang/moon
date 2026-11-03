@@ -49,9 +49,12 @@ private cached registry artifacts.
 Deliver these as separate changes in dependency order:
 
 - [x] Select virtualization through `process.virtualize` in the policy file,
-  with an explicit embedding override. Keep existing `spawn`/`allow` permissions
-  in both modes and remove execution-mode CLI flags. Load selected configuration
+  with explicit embedding and `moonrun --virtual-process` overrides. IPC uses
+  `process.ipc`, `with_ipc`, or `moonrun`/`moonx --daemon`. Keep existing `spawn`/`allow` permissions
+  in both modes. Load selected configuration
   once while preserving inherited restriction composition.
+- [x] Share moonrun's CLI grammar between the binary and library frontend
+  adapters, keeping parsing separate from execution and process-global setup.
 - [ ] Add native process members to Engine for ordinary authorized guest
   commands, preserving env, cwd, stdio, termination, wait, shutdown, and reaping.
 - [ ] Limit artifact handoff to Wasm; native/Node commands use ordinary OS spawn

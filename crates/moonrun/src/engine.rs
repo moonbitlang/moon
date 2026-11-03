@@ -62,6 +62,7 @@ pub struct RunOptions {
     pub(crate) test_args: Option<String>,
     pub(crate) runtime: RuntimeConfig,
     pub(crate) virtualize: Option<bool>,
+    pub(crate) ipc: Option<bool>,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
@@ -95,6 +96,21 @@ impl RunOptions {
         })
     }
 
+    /// Offer this Run's native descendants an IPC entry into the same Engine.
+    /// IPC-enabled Runs participate in Engine shutdown supervision without
+    /// changing guest process identity. Normal completion joins their delegates.
+    /// Each entry retains the Run's effective policy ceiling. V8 only;
+    /// guest PID routing remains native. Disabled unless selected explicitly.
+    pub fn with_ipc(mut self, enabled: bool) -> Self {
+        self.ipc = Some(enabled);
+        self
+    }
+
+    pub fn ipc(&self) -> bool {
+        self.ipc
+            .unwrap_or_else(|| self.runtime.selected_policy.as_ref().is_some_and(|p| p.ipc))
+    }
+
     /// Supply an owned environment. An empty iterator means an empty environment.
     /// Policy environment provisioning, when present, takes precedence.
     /// Guest changes affect only this execution's environment.
@@ -116,7 +132,7 @@ impl RunOptions {
     // Only host-facing entries may fill absent root inputs from ambient state.
     // Guest derivation supplies complete inputs before process admission.
     pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
-        if self.virtualize() {
+        if self.virtualize() || self.ipc() {
             self.runtime.capture_host_state()?;
         }
         Ok(())
@@ -383,8 +399,8 @@ impl fmt::Debug for Module {
 /// control. Parent links alone do not imply state or permission inheritance.
 /// Dropping an Engine does not terminate or join its executions; callers must
 /// explicitly terminate and wait when required. [`Engine::request_shutdown`]
-/// closes managed and virtualized admission and requests termination of all admitted
-/// members; Native caller-thread Runs retain their independent control.
+/// closes managed, virtualized and IPC-enabled admission and requests termination of
+/// all admitted members. Ordinary native caller-thread Runs retain independent control.
 /// OS signal capture is left to the caller; a signal channel can direct
 /// cooperative delivery to one Run.
 #[derive(Clone, Debug)]
@@ -491,6 +507,15 @@ impl Engine {
         termination: &TerminationRequest,
     ) -> anyhow::Result<RunOutcome> {
         debug_assert!(options.termination_receiver.is_none());
+        let mut options = options;
+        if options.ipc() {
+            anyhow::ensure!(SUPPORTS_RUN_TERMINATION, "IPC sessions require V8");
+            anyhow::ensure!(
+                !options.virtualize(),
+                "IPC virtual process sessions are not supported yet"
+            );
+            options.runtime.ipc_engine = Some(self.clone());
+        }
         let outcome = (|| {
             if let Some(outcome) = termination.get() {
                 return Ok(BackendRunOutcome::Terminated(outcome));
@@ -565,27 +590,41 @@ impl Engine {
         // response is already complete: it needs neither a helper nor handoff
         // storage. Parsing also keeps private handoff flags out of the frontend
         // position without interpreting the program's opaque argument tail.
-        if moonutil::constants::is_moonx_executable(executable.as_os_str())
-            && let Err(response) = moonutil::cli_support::MoonxCli::try_parse_from(
+        if moonutil::constants::is_moonx_executable(executable.as_os_str()) {
+            match moonutil::cli_support::MoonxCli::try_parse_from(
                 std::iter::once(executable.as_os_str()).chain(args.iter().map(OsString::as_os_str)),
-            )
-        {
-            let output = response.render().to_string();
-            // Mirror Clap's CLI exit: output failure does not change the exit
-            // code. Use plain text on the bound streams, never the host's TTY
-            // detection or process-wide print/exit functions.
-            if response.use_stderr() {
-                let _ = options
-                    .runtime
-                    .stdio
-                    .with_stderr(|out| out.write_all(output.as_bytes()));
-            } else {
-                let _ = options
-                    .runtime
-                    .stdio
-                    .with_stdout(|out| out.write_all(output.as_bytes()));
+            ) {
+                Ok(frontend) => {
+                    if frontend.daemon {
+                        anyhow::ensure!(
+                            !options.virtualize(),
+                            "IPC virtual process sessions are not supported yet"
+                        );
+                        options = options.with_ipc(true);
+                        // This choice is already known: include preparation in
+                        // Engine shutdown just as with_ipc(true) does at entry.
+                        scope.bind_supervision(self, &mut options, &signals)?;
+                    }
+                }
+                Err(response) => {
+                    let output = response.render().to_string();
+                    // Mirror Clap's CLI exit: output failure does not change the exit
+                    // code. Use plain text on the bound streams, never the host's TTY
+                    // detection or process-wide print/exit functions.
+                    if response.use_stderr() {
+                        let _ = options
+                            .runtime
+                            .stdio
+                            .with_stderr(|out| out.write_all(output.as_bytes()));
+                    } else {
+                        let _ = options
+                            .runtime
+                            .stdio
+                            .with_stdout(|out| out.write_all(output.as_bytes()));
+                    }
+                    return Ok(RunOutcome::Exited(response.exit_code()));
+                }
             }
-            return Ok(RunOutcome::Exited(response.exit_code()));
         }
         let (program, _directory) = match crate::prepare_artifact::prepare_moon(
             executable,
@@ -607,7 +646,7 @@ impl Engine {
         {
             options = options.with_policy_file_source_dir(policy, Some(&source_dir))?;
         }
-        scope.bind_virtual(self, &mut options, &signals)?;
+        scope.bind_supervision(self, &mut options, &signals)?;
         // The delivery directory outlives Runtime construction and execution. Its
         // cleanup finishes before the Engine finalizes the execution result.
         self.execute_artifact_in_scope(

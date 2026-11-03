@@ -83,6 +83,50 @@ impl HostProcess {
         #[cfg(windows)]
         self.check_spawn_windows(&request.command_line)?;
 
+        #[cfg(unix)]
+        if let Some(endpoint) = &self.ipc_endpoint {
+            // This is host-owned session routing, not a guest Env default.
+            // Bind it even for an explicit child environment; ordinary native
+            // descendants can pass it on without knowing anything about IPC.
+            use std::os::unix::ffi::OsStrExt;
+            let prefix = format!("{}=", crate::ipc::ENDPOINT_ENV);
+            request
+                .env
+                .retain(|entry| !entry.as_bytes().starts_with(prefix.as_bytes()));
+            let mut entry = OsString::from(prefix);
+            entry.push(endpoint);
+            request.env.push(entry);
+        }
+
+        #[cfg(windows)]
+        if let Some(endpoint) = &self.ipc_endpoint {
+            use std::os::windows::ffi::OsStrExt;
+            let prefix: Vec<u16> = format!("{}=", crate::ipc::ENDPOINT_ENV)
+                .encode_utf16()
+                .collect();
+            // Windows environment keys are case-insensitive. Preserve all other
+            // raw entries, including hidden drive directories and their order.
+            let mut env = Vec::with_capacity(request.env.len());
+            for entry in request
+                .env
+                .split(|unit| *unit == 0)
+                .take_while(|entry| !entry.is_empty())
+            {
+                let reserved = entry.len() >= prefix.len()
+                    && entry.iter().zip(&prefix).all(|(a, b)| {
+                        *a == *b || (*a <= 127 && (*a as u8).to_ascii_uppercase() as u16 == *b)
+                    });
+                if !reserved {
+                    env.extend_from_slice(entry);
+                    env.push(0);
+                }
+            }
+            env.extend(prefix);
+            env.extend(endpoint.as_os_str().encode_wide());
+            env.extend([0, 0]);
+            request.env = env;
+        }
+
         if let WorkingDirectory::Fixed(root) = self.working_directory.as_ref() {
             request.cwd = Some(match request.cwd {
                 Some(cwd) if cwd.is_empty() => cwd,
@@ -283,7 +327,7 @@ fn io_error(error: std::io::Error) -> AsyncHostError {
 impl SpawnRequest {
     pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         #[cfg(unix)]
-        if matches!(runtime_stdio, Stdio::Owned(_)) {
+        if matches!(runtime_stdio, Stdio::Bound(_)) {
             for (slot, stream) in self.stdio.iter_mut().zip(StdioStream::ALL) {
                 if slot.is_none() {
                     let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;

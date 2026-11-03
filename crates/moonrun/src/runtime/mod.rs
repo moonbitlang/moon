@@ -125,6 +125,8 @@ impl HostKeys {
 /// realizes them once, distributes domain policy together with shared Runtime
 /// State, wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
+    // Stop IPC admission and finish delegated Runs before releasing host state.
+    _ipc_server: Option<crate::ipc::server::IpcServer>,
     environment: Arc<Env>,
     executable: Executable,
     working_directory: Arc<WorkingDirectory>,
@@ -141,6 +143,7 @@ pub(crate) struct Runtime {
 /// and provisions Env while composing the already resolved policy rules.
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
+    pub(crate) ipc_engine: Option<crate::Engine>,
     pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
@@ -245,6 +248,18 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
+        let ipc_server = config
+            .ipc_engine
+            .take()
+            .map(|engine| {
+                crate::ipc::server::IpcServer::start(
+                    engine,
+                    policy.clone(),
+                    #[cfg(unix)]
+                    child_signal_mask,
+                )
+            })
+            .transpose()?;
         let process = HostProcess::new(
             policy,
             Arc::clone(&working_directory),
@@ -252,6 +267,8 @@ impl Runtime {
             config.process_context,
             Arc::clone(&environment),
         );
+        let process =
+            process.with_ipc_endpoint(ipc_server.as_ref().map(|server| server.endpoint()));
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,
@@ -265,6 +282,7 @@ impl Runtime {
         );
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
+            _ipc_server: ipc_server,
             environment,
             executable,
             working_directory,
@@ -310,7 +328,8 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        // Async Host is dropped first and joins workers that can use SQLite.
+        // Field order drains IPC delegates, then Async Host joins its workers
+        // before SQLite state is released.
         // Release guest-held recursive mutex entries before any worker join.
         self.sqlite.release_entered_mutexes();
         // Keep the historical opt-in name for compatibility even though the

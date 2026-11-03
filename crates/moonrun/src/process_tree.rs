@@ -230,7 +230,7 @@ impl std::fmt::Debug for ProcessTable {
 }
 
 /// Borrow the execution owner's control and exit guard. A policy delivered by
-/// preparation can bind virtual state before Runtime starts: spawned executions
+/// preparation can bind supervision before Runtime starts: spawned executions
 /// reuse their admitted PID, while an inline invocation admits only when needed.
 /// The owner closes the receiver before dropping the guard, including on unwind.
 pub(crate) struct ExecutionScope<'a> {
@@ -243,13 +243,13 @@ impl ExecutionScope<'_> {
         &self.receiver.request
     }
 
-    pub(crate) fn bind_virtual(
+    pub(crate) fn bind_supervision(
         &mut self,
         engine: &Engine,
         options: &mut RunOptions,
         signals: &crate::SignalReceiver,
     ) -> Result<(), ProcessError> {
-        if !options.virtualize() {
+        if !options.virtualize() && !options.ipc() {
             return Ok(());
         }
         if !SUPPORTS_RUN_TERMINATION {
@@ -286,7 +286,9 @@ impl ExecutionScope<'_> {
             });
             pid
         };
-        options.runtime.process_context = Some(ProcessContext {
+        // IPC participates in host shutdown without changing guest identity or
+        // routing native spawns through the virtual process tree.
+        options.runtime.process_context = options.virtualize().then(|| ProcessContext {
             pid,
             engine: engine.clone(),
         });
@@ -295,13 +297,28 @@ impl ExecutionScope<'_> {
 }
 
 impl Engine {
-    fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
+    pub(crate) fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
         self.config
             .stack_size
             .unwrap_or(1024)
             .checked_mul(1024)
             .filter(|bytes| *bytes != 0)
             .ok_or(ProcessError::InvalidStackSize)
+    }
+
+    /// Resolve the guest budget and native allocation once for any execution
+    /// thread, including IPC workers. Preserve the caller's native headroom.
+    pub(crate) fn execution_stack(&self) -> Result<(usize, usize), ProcessError> {
+        let guest_stack_budget = self.guest_stack_budget()?;
+        let required_stack = guest_stack_budget
+            .checked_add(2 * 1024 * 1024)
+            .ok_or(ProcessError::InvalidStackSize)?;
+        let (low, high) = crate::native_stack::bounds()?;
+        let native_stack_size = high
+            .checked_sub(low)
+            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
+        let thread_stack_size = required_stack.max(native_stack_size);
+        Ok((guest_stack_budget, thread_stack_size))
     }
 
     /// Start a Run on a new thread, with an optional live parent in this Engine.
@@ -431,9 +448,9 @@ impl Engine {
             &mut ExecutionScope<'_>,
         ) -> anyhow::Result<RunOutcome>,
     ) -> anyhow::Result<RunOutcome> {
-        let virtual_process = options.virtualize();
+        let supervised = options.virtualize() || options.ipc();
         if !SUPPORTS_RUN_TERMINATION {
-            if virtual_process {
+            if supervised {
                 return Err(ProcessError::UnsupportedBackend.into());
             }
             anyhow::ensure!(
@@ -457,7 +474,7 @@ impl Engine {
                 receiver: &receiver,
                 exit: &mut exit,
             };
-            scope.bind_virtual(self, &mut options, &signals)?;
+            scope.bind_supervision(self, &mut options, &signals)?;
             execute(self, options, signals, &mut scope)
         })();
         let result = match receiver.close() {
@@ -489,15 +506,7 @@ impl Engine {
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
         }
-        let guest_stack_budget = self.guest_stack_budget()?;
-        let required_stack = guest_stack_budget
-            .checked_add(2 * 1024 * 1024)
-            .ok_or(ProcessError::InvalidStackSize)?;
-        let (low, high) = crate::native_stack::bounds()?;
-        let native_stack_size = high
-            .checked_sub(low)
-            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
-        let thread_stack_size = required_stack.max(native_stack_size);
+        let (guest_stack_budget, thread_stack_size) = self.execution_stack()?;
         options.native_stack_budget = Some(guest_stack_budget);
         if options.virtualize()
             && (options.runtime.default_environment.is_none()
@@ -615,8 +624,8 @@ impl Engine {
     /// requests retain their own first outcome.
     ///
     /// This only requests shutdown. Callers must still wait for cleanup and
-    /// reap the members they own. Native caller-thread Runs are not admitted
-    /// to the process table and are unaffected. Dropping an Engine does not
+    /// reap the members they own. Native caller-thread Runs without IPC are not
+    /// admitted to the process table and are unaffected. Dropping an Engine does not
     /// implicitly request shutdown.
     pub fn request_shutdown(&self, outcome: RunTermination) -> bool {
         let mut table = self.processes.0.lock().unwrap();
@@ -743,7 +752,7 @@ mod tests {
                 |engine, options, signals, scope| {
                     assert!(engine.snapshot().is_empty());
                     let mut options = options.with_policy_file(&policy_path)?;
-                    scope.bind_virtual(engine, &mut options, &signals)?;
+                    scope.bind_supervision(engine, &mut options, &signals)?;
                     let pid = options.runtime.process_context.as_ref().unwrap().pid;
                     assert_eq!(engine.snapshot()[0].pid, pid);
                     assert!(options.runtime.default_environment.is_some());
@@ -764,7 +773,7 @@ mod tests {
                 move |engine, options, signals, scope| {
                     let pid = engine.snapshot()[0].pid;
                     let mut options = options.with_policy_file(&policy_path)?;
-                    scope.bind_virtual(engine, &mut options, &signals)?;
+                    scope.bind_supervision(engine, &mut options, &signals)?;
                     assert_eq!(options.runtime.process_context.unwrap().pid, pid);
                     assert_eq!(engine.snapshot().len(), 1);
                     Ok(RunOutcome::Completed)
@@ -790,7 +799,7 @@ mod tests {
                     assert!(engine.snapshot().is_empty());
                     engine.request_shutdown(RunTermination::Exit(77));
                     let mut options = options.with_policy_file(&policy_path)?;
-                    scope.bind_virtual(engine, &mut options, &signals)?;
+                    scope.bind_supervision(engine, &mut options, &signals)?;
                     panic!("closed namespace admitted a delivered virtual root")
                 },
             )
@@ -997,6 +1006,35 @@ mod tests {
                 .unwrap(),
             RunOutcome::Completed
         );
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn ipc_inline_execution_is_supervised_without_virtualizing_guest_identity() {
+        let engine = Engine::default();
+        let outcome = engine.run_inline(
+            RunOptions::default().with_ipc(true),
+            crate::signal_channel().1,
+            |engine, options, _, scope| {
+                assert!(options.runtime.process_context.is_none());
+                assert!(options.runtime.default_environment.is_some());
+                assert_eq!(engine.snapshot().len(), 1);
+                assert!(engine.request_shutdown(RunTermination::Exit(17)));
+                assert_eq!(scope.termination().get(), Some(RunTermination::Exit(17)));
+                assert!(
+                    engine
+                        .run_inline(
+                            RunOptions::default().with_ipc(true),
+                            crate::signal_channel().1,
+                            |_, _, _, _| panic!("shutdown admitted another IPC Run"),
+                        )
+                        .is_err()
+                );
+                Ok(RunOutcome::Completed)
+            },
+        );
+        assert_eq!(outcome.unwrap(), RunOutcome::Exited(17));
+        assert!(engine.snapshot().is_empty());
     }
 
     #[cfg(feature = "v8")]

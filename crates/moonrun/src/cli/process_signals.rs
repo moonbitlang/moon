@@ -18,18 +18,26 @@
 
 use moonrun::SignalSender;
 
-use super::session::Session;
+use super::session::CliSession;
 
 enum SignalTarget {
     Run(SignalSender),
-    Session(Session),
+    Session(CliSession),
+    Remote(moonrun::ipc::ClientRunControl),
 }
 
 impl SignalTarget {
     fn send(&self, signal: i32) -> bool {
+        #[cfg(windows)]
+        if matches!(self, Self::Remote(..)) && ![0, 1].contains(&signal) {
+            // Only C/BREAK permit asynchronous cleanup after this handler
+            // returns. CLOSE/LOGOFF/SHUTDOWN retain native forced-loss behavior.
+            return false;
+        }
         match self {
             Self::Run(sender) => sender.send(signal) == Ok(true),
             Self::Session(session) => session.send(signal),
+            Self::Remote(remote) => remote.signal(signal).is_ok(),
         }
     }
 }
@@ -39,7 +47,11 @@ impl ProcessSignals {
         Self::install_target(SignalTarget::Run(sender))
     }
 
-    pub(crate) fn install_session(session: Session) -> std::io::Result<Self> {
+    pub(crate) fn install_remote(control: moonrun::ipc::ClientRunControl) -> std::io::Result<Self> {
+        Self::install_target(SignalTarget::Remote(control))
+    }
+
+    pub(crate) fn install_session(session: CliSession) -> std::io::Result<Self> {
         Self::install_target(SignalTarget::Session(session))
     }
 }
@@ -210,6 +222,7 @@ unsafe extern "system" fn console_control_handler(control: u32) -> i32 {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::cli::HostSignalPolicy;
     use std::os::unix::process::CommandExt;
     use std::process::Command;
     use std::time::Duration;
@@ -224,7 +237,7 @@ mod tests {
         if let Some(mode) = std::env::var_os(BLOCKED_SIGNAL_CHILD) {
             let (sender, _receiver) = moonrun::signal_channel();
             let _process_signals = if mode == "finished-session" {
-                let session = Session::new(sender);
+                let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
                 session
                     .finish::<()>(Ok(moonrun::RunOutcome::Completed))
                     .unwrap();

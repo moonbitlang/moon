@@ -162,9 +162,7 @@ impl Policy {
         Ok(Self(rule_groups.into()))
     }
 
-    pub(crate) fn open_transfer(
-        &self,
-    ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
+    pub(crate) fn to_transfer(&self) -> std::io::Result<Vec<u8>> {
         let transfer = Transfer {
             version: 3,
             rule_groups: self
@@ -177,8 +175,14 @@ impl Policy {
                 })
                 .collect(),
         };
+        Ok(serde_json::to_vec(&transfer)?)
+    }
+
+    pub(crate) fn open_transfer(
+        &self,
+    ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
         let mut file = tempfile::tempfile()?;
-        serde_json::to_writer(&mut file, &transfer)?;
+        file.write_all(&self.to_transfer()?)?;
         file.flush()?;
         file.rewind()?;
         moonutil::policy_transport::PolicyTransfer::from_file(file)
