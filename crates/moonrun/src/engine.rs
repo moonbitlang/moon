@@ -185,7 +185,7 @@ impl RunOptions {
         self
     }
 
-    pub(crate) fn with_parent_policy(mut self, policy: crate::policy::PolicyInheritance) -> Self {
+    pub(crate) fn with_parent_policy(mut self, policy: crate::policy::Policy) -> Self {
         self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Resolved(policy));
         self
     }

@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(windows)]
 use crate::async_sys::internal::fd_util::stub::RawFd;
-use crate::policy::{PolicyInheritance, ProcessPolicy};
+use crate::policy::{Policy, ProcessPolicy};
 use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
@@ -49,7 +49,7 @@ pub(crate) use job::SpawnOptions;
 #[derive(Clone)]
 pub(crate) struct HostProcess {
     policy: Option<ProcessPolicy>,
-    policy_inheritance: Option<PolicyInheritance>,
+    policy_inheritance: Option<Policy>,
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
@@ -71,8 +71,7 @@ struct ChildAuthorityStateInner {
 
 impl HostProcess {
     pub(crate) fn new(
-        policy: Option<ProcessPolicy>,
-        policy_inheritance: Option<PolicyInheritance>,
+        policy: Option<Policy>,
         working_directory: Arc<WorkingDirectory>,
         stdio: Arc<Stdio>,
         context: Option<crate::process_tree::ProcessContext>,
@@ -85,8 +84,8 @@ impl HostProcess {
             .is_some()
             .then(|| Arc::new(ChildAuthorityState::default()));
         Self {
-            policy,
-            policy_inheritance,
+            policy: policy.as_ref().map(Policy::process),
+            policy_inheritance: policy,
             working_directory,
             stdio,
             child_authority,

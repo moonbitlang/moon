@@ -4344,27 +4344,26 @@ mod tests {
         host.handles.borrow().resource_count_excluding_reserved()
     }
 
-    fn test_host(policy: Policy, environment: Env) -> AsyncHost {
+    fn test_host(policy: Option<Policy>, environment: Env) -> AsyncHost {
         test_host_with_working_directory(policy, environment, WorkingDirectory::Ambient)
     }
 
     fn test_host_with_working_directory(
-        mut policy: Policy,
+        policy: Option<Policy>,
         environment: Env,
         working_directory: WorkingDirectory,
     ) -> AsyncHost {
         let environment = Arc::new(environment);
         let working_directory = Arc::new(working_directory);
         let filesystem = Arc::new(HostFs::new(
-            policy.take_filesystem_policy(),
+            policy.as_ref().map(Policy::filesystem),
             Arc::clone(&environment),
             Arc::clone(&working_directory),
         ));
-        let network = HostNetwork::new(policy.take_network_policy());
+        let network = HostNetwork::new(policy.as_ref().map(Policy::network));
         let stdio = Arc::new(Stdio::Ambient);
         let process = HostProcess::new(
-            policy.take_process_policy(),
-            policy.take_policy_inheritance(),
+            policy,
             working_directory,
             Arc::clone(&stdio),
             None,
@@ -4390,7 +4389,7 @@ mod tests {
     }
 
     fn default_host() -> AsyncHost {
-        test_host(Policy::allow_all(), Env::ambient())
+        test_host(None, Env::ambient())
     }
 
     #[cfg(unix)]
@@ -4493,7 +4492,7 @@ mod tests {
 
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {
         let (policy, env) = policy::load_file(path).unwrap();
-        test_host(policy, env.realize().unwrap())
+        test_host(Some(policy), env.realize().unwrap())
     }
 
     #[cfg(unix)]
@@ -4725,7 +4724,7 @@ mod tests {
             &environment,
         )
         .unwrap();
-        let host = test_host(policy, environment);
+        let host = test_host(Some(policy), environment);
         let mut spawn: Job = ProcessJob::spawn_unix(
             program.into(),
             vec![program.into(), "allowed".into()],
@@ -4773,7 +4772,7 @@ mod tests {
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let host = test_host_with_working_directory(
-            Policy::allow_all(),
+            None,
             Env::owned([("PATH".into(), "bin".into())]).unwrap(),
             WorkingDirectory::Fixed(root.clone()),
         );
@@ -4845,7 +4844,7 @@ mod tests {
         let environment =
             Env::owned([("PATH".into(), std::env::temp_dir().into_os_string())]).unwrap();
         let (policy, _) = policy::load_json(b"{}", &environment).unwrap();
-        let host = test_host(policy, environment);
+        let host = test_host(Some(policy), environment);
         #[cfg(unix)]
         let mut spawn: Job = ProcessJob::spawn_unix(
             "moonx".into(),
@@ -4913,7 +4912,7 @@ mod tests {
             .unwrap();
         }
         let host = test_host_with_working_directory(
-            Policy::allow_all(),
+            None,
             Env::owned([]).unwrap(),
             WorkingDirectory::Fixed(root.clone()),
         );
@@ -7009,9 +7008,9 @@ mod tests {
                 let policy_file = root.join("policy.toml");
                 std::fs::write(&policy_file, text).unwrap();
                 let (policy, environment) = policy::load_file(&policy_file).unwrap();
-                (policy, environment.realize().unwrap())
+                (Some(policy), environment.realize().unwrap())
             } else {
-                (Policy::allow_all(), Env::ambient())
+                (None, Env::ambient())
             };
             let host = test_host_with_working_directory(
                 policy,

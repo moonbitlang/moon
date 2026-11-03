@@ -24,7 +24,7 @@ use super::*;
 use crate::async_host::AsyncHostError;
 use crate::runtime::{Env, RuntimeConfig};
 
-fn resolved(document: &[u8]) -> PolicyInheritance {
+fn resolved(document: &[u8]) -> Policy {
     source::resolve(serde_json::from_slice(document).unwrap(), Path::new("."))
         .unwrap()
         .0
@@ -35,7 +35,7 @@ fn load(
     path: Option<&Path>,
     source_dir: Option<&Path>,
     source: &Env,
-) -> anyhow::Result<(Policy, Env)> {
+) -> anyhow::Result<(Option<Policy>, Env)> {
     RuntimeConfig {
         inherited_policy: inherited.map(|bytes| InheritedPolicyInput::Transfer(bytes.to_vec())),
         policy_file: path.map(Path::to_owned),
@@ -62,14 +62,8 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
     }"#,
     )
     .unwrap();
-    let (mut parent, _) = load(None, Some(&parent_file), None, &source).unwrap();
-    let parent = parent
-        .take_policy_inheritance()
-        .unwrap()
-        .open_transfer()
-        .unwrap()
-        .read()
-        .unwrap();
+    let (parent, _) = load(None, Some(&parent_file), None, &source).unwrap();
+    let parent = parent.unwrap().open_transfer().unwrap().read().unwrap();
     let source = Env::owned([
         ("VISIBLE".into(), "changed-by-parent".into()),
         ("HIDDEN".into(), "delegated-but-filtered".into()),
@@ -84,7 +78,7 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
     }"#,
     )
     .unwrap();
-    let (mut child, environment) = load(Some(&parent), Some(&child_file), None, &source).unwrap();
+    let (child, environment) = load(Some(&parent), Some(&child_file), None, &source).unwrap();
     assert_eq!(
         environment.get(OsStr::new("VISIBLE")),
         Some("changed-by-parent".into())
@@ -94,13 +88,7 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
         environment.get(OsStr::new("CHILD")),
         Some("must-not-be-serialized".into())
     );
-    let mut transfer = child
-        .take_policy_inheritance()
-        .unwrap()
-        .open_transfer()
-        .unwrap()
-        .read()
-        .unwrap();
+    let mut transfer = child.unwrap().open_transfer().unwrap().read().unwrap();
     assert!(!String::from_utf8_lossy(&transfer).contains("must-not"));
     let outside = std::fs::canonicalize(shared).unwrap().join("outside");
     for _ in 0..3 {
@@ -111,9 +99,8 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
             r#"{"fs":{"read":["*"],"write":["*"]},"env":{"from_host":["*"]}}"#,
         )
         .unwrap();
-        let (mut derived, _) =
-            load(Some(&transfer), Some(&child_file), None, &environment).unwrap();
-        let fs = derived.take_filesystem_policy().unwrap();
+        let (derived, _) = load(Some(&transfer), Some(&child_file), None, &environment).unwrap();
+        let fs = derived.as_ref().unwrap().filesystem();
         fs.authorize(
             Some(&child_root.join("file")),
             FsIntents::read(),
@@ -132,23 +119,11 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
             ),
             Err(AsyncHostError::PermissionDenied)
         );
-        transfer = derived
-            .take_policy_inheritance()
-            .unwrap()
-            .open_transfer()
-            .unwrap()
-            .read()
-            .unwrap();
+        transfer = derived.unwrap().open_transfer().unwrap().read().unwrap();
         // Ordinary inheritance adds no new restriction and preserves all rules.
-        let (mut inherited, _) = load(Some(&transfer), None, None, &environment).unwrap();
+        let (inherited, _) = load(Some(&transfer), None, None, &environment).unwrap();
         assert_eq!(
-            inherited
-                .take_policy_inheritance()
-                .unwrap()
-                .open_transfer()
-                .unwrap()
-                .read()
-                .unwrap(),
+            inherited.unwrap().open_transfer().unwrap().read().unwrap(),
             transfer
         );
     }
@@ -163,19 +138,20 @@ fn no_child_policy_preserves_grants_but_empty_child_policy_denies_domains() {
             .unwrap()
             .read()
             .unwrap();
-    let (mut policy, _) = load(Some(&parent), None, None, &source).unwrap();
+    let (policy, _) = load(Some(&parent), None, None, &source).unwrap();
     policy
-        .take_filesystem_policy()
+        .as_ref()
         .unwrap()
+        .filesystem()
         .authorize(Some(Path::new("file")), FsIntents::read(), "file")
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     let child = root.path().join("child.json");
     for contents in ["{}", r#"{"fs":{},"net":{},"process":{}}"#] {
         std::fs::write(&child, contents).unwrap();
-        let (mut policy, _) = load(Some(&parent), Some(&child), None, &source).unwrap();
+        let (policy, _) = load(Some(&parent), Some(&child), None, &source).unwrap();
         assert_eq!(
-            policy.take_filesystem_policy().unwrap().authorize(
+            policy.as_ref().unwrap().filesystem().authorize(
                 Some(Path::new("file")),
                 FsIntents::read(),
                 "file"
@@ -184,12 +160,13 @@ fn no_child_policy_preserves_grants_but_empty_child_policy_denies_domains() {
         );
         assert_eq!(
             policy
-                .take_network_policy()
+                .as_ref()
                 .unwrap()
+                .network()
                 .check_dns(OsStr::new("example.com")),
             Err(AsyncHostError::PermissionDenied)
         );
-        let process = policy.take_process_policy().unwrap();
+        let process = policy.as_ref().unwrap().process();
         #[cfg(unix)]
         assert_eq!(
             process.allows_unix(OsStr::new("tool"), &["tool".into()]),
@@ -201,11 +178,50 @@ fn no_child_policy_preserves_grants_but_empty_child_policy_denies_domains() {
             Err(AsyncHostError::PermissionDenied)
         );
     }
-    let (mut policy, environment) = load(None, None, None, &source).unwrap();
-    assert!(policy.take_filesystem_policy().is_none());
-    assert!(policy.take_network_policy().is_none());
-    assert!(policy.take_process_policy().is_none());
+    let (policy, environment) = load(None, None, None, &source).unwrap();
+    assert!(policy.is_none());
     assert_eq!(environment.entries(), source.entries());
+}
+
+#[test]
+fn a_child_policy_is_complete_with_or_without_an_inherited_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let child = directory.path().join("child.json");
+    std::fs::write(&child, r#"{"net":{"dns":["*"]}}"#).unwrap();
+    let parent = resolved(
+        br#"{"fs":{"read":["*"],"write":["*"]},"net":{"dns":["*"]},"process":{"spawn":true}}"#,
+    )
+    .open_transfer()
+    .unwrap()
+    .read()
+    .unwrap();
+    let source = Env::owned([]).unwrap();
+    for inherited in [None, Some(parent.as_slice())] {
+        let (policy, _) = load(inherited, Some(&child), None, &source).unwrap();
+        let policy = policy.unwrap();
+        policy.network().check_dns("example.com".as_ref()).unwrap();
+        // Omitted domains deny, even when an inherited policy permits them.
+        for intent in [FsIntents::read(), FsIntents::write()] {
+            assert_eq!(
+                policy
+                    .filesystem()
+                    .authorize(Some(Path::new("file")), intent, "file"),
+                Err(AsyncHostError::PermissionDenied)
+            );
+        }
+        #[cfg(unix)]
+        assert_eq!(
+            policy
+                .process()
+                .allows_unix("tool".as_ref(), &["tool".into()]),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            policy.process().allows_windows("tool.exe".as_ref()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
 }
 
 #[test]
@@ -232,11 +248,11 @@ fn inherited_ceiling_does_not_hide_invalid_child_policy() {
 fn malformed_compositions_fail_closed() {
     let source = Env::owned([]).unwrap();
     for contents in [
-        r#"{"version":2,"restrictions":[]}"#,
+        r#"{"version":2,"rule_groups":[]}"#,
         r#"{"fs":{"read":["relative-root"]}}"#,
-        r#"{"version":2,"restrictions":[{}]}"#,
-        r#"{"version":1,"restrictions":[{"env":{}}]}"#,
-        r#"{"version":1,"restrictions":[{}],"unexpected":true}"#,
+        r#"{"version":2,"rule_groups":[{}]}"#,
+        r#"{"version":1,"rule_groups":[{"env":{}}]}"#,
+        r#"{"version":1,"rule_groups":[{}],"unexpected":true}"#,
     ] {
         assert!(
             load(Some(contents.as_bytes()), None, None, &source).is_err(),
@@ -265,11 +281,11 @@ fn typed_and_external_composition_have_the_same_decisions() {
             policy_file: Some(child_file.clone()),
             ..Default::default()
         };
-        let (mut policy, environment) = config
+        let (policy, environment) = config
             .realize_policy(Env::owned([("VALUE".into(), "child".into())]).unwrap())
             .unwrap();
         assert_eq!(environment.get("VALUE".as_ref()), Some("child".into()));
-        let fs = policy.take_filesystem_policy().unwrap();
+        let fs = policy.as_ref().unwrap().filesystem();
         fs.authorize(Some(Path::new("file")), FsIntents::read(), "file")
             .unwrap();
         assert_eq!(

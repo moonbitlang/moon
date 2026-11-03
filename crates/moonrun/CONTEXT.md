@@ -75,6 +75,14 @@ delegated resources, including their combinations. Moonrun Policy contributes
 to this authority alongside WASI grants and permitted helper or native execution.
 _Avoid_: Moonrun Policy, Runtime Configuration, virtual process identity
 
+**Policy Rule**:
+An individual authorization condition, such as a program and argument prefix.
+`FsRules`, `NetRules`, and `ProcessRules` hold one policy source's compiled rules.
+An effective `Policy` combines complete rule groups; each group must permit the
+operation. Domain policies perform their own checks. User `PolicyConfig` is a
+construction input, separate from these immutable rules and Runtime State.
+_Avoid_: Runtime Configuration, resource grant, restriction layer
+
 **Host Domain**:
 The unique semantic owner for one family of host behavior. A Host Domain
 interprets a request using its Runtime State and Handles, derives the complete

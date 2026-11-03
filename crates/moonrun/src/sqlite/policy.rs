@@ -126,7 +126,7 @@ mod tests {
     }
 
     fn ensure_valid_ambient_database(
-        policy: &crate::policy::Policy,
+        policy: &Option<Policy>,
         filename: &CStr,
         flags: i32,
         vfs: u64,
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn database_policy_accepts_memory_and_files_with_the_default_vfs() {
-        let policy = Policy::allow_all();
+        let policy = None;
         assert_eq!(
             ensure_valid_ambient_database(
                 &policy,
@@ -217,6 +217,7 @@ mod tests {
         )
         .unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let policy = Some(policy);
         let allowed_database = c_path(&allowed.join("database.sqlite"));
         let denied_database = c_path(&denied.join("database.sqlite"));
 
@@ -252,6 +253,7 @@ mod tests {
         )
         .unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let policy = Some(policy);
         let database = c_path(&database);
 
         assert_eq!(

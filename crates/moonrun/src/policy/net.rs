@@ -28,23 +28,21 @@ use super::{config::NetConfig, sandbox_denied, transfer};
 
 #[derive(Clone, Debug)]
 pub(crate) struct NetPolicy {
-    restrictions: Vec<Arc<NetRestriction>>,
+    rule_groups: Vec<Arc<NetRules>>,
 }
 
-/// A grant is scoped to one immutable restriction in this Runtime. DNS results
-/// are not inherited, and cannot satisfy another restriction's checks.
+/// A grant is scoped to one immutable group in this Runtime. DNS results
+/// are not inherited, and cannot satisfy another group's checks.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedConnectRule {
-    restriction: usize,
+    group: usize,
     rule: SocketRule,
 }
 
 impl NetPolicy {
-    pub(super) fn from_restrictions(
-        restrictions: impl IntoIterator<Item = Arc<NetRestriction>>,
-    ) -> Self {
+    pub(super) fn from_rule_groups(rule_groups: impl IntoIterator<Item = Arc<NetRules>>) -> Self {
         Self {
-            restrictions: restrictions.into_iter().collect(),
+            rule_groups: rule_groups.into_iter().collect(),
         }
     }
 
@@ -57,22 +55,19 @@ impl NetPolicy {
     pub(super) fn from_configs(
         configs: impl IntoIterator<Item = NetConfig>,
     ) -> anyhow::Result<Self> {
-        let restrictions = configs
+        let rule_groups = configs
             .into_iter()
-            .map(|config| NetRestriction::from_config(config).map(Arc::new))
+            .map(|config| NetRules::from_config(config).map(Arc::new))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(Self::from_restrictions(restrictions))
+        Ok(Self::from_rule_groups(rule_groups))
     }
 
     pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
         let target = quote_os_str(host);
         let host = normalize_dns_name(&host.to_string_lossy());
-        if self.restrictions.iter().all(|restriction| {
-            restriction.dns.iter().any(|pattern| pattern.matches(&host))
-                || restriction
-                    .connect
-                    .iter()
-                    .any(|rule| rule.allows_lookup(&host))
+        if self.rule_groups.iter().all(|group| {
+            group.dns.iter().any(|pattern| pattern.matches(&host))
+                || group.connect.iter().any(|rule| rule.allows_lookup(&host))
         }) {
             Ok(())
         } else {
@@ -87,11 +82,11 @@ impl NetPolicy {
     ) -> AsyncHostResult<Vec<ResolvedConnectRule>> {
         let host = normalize_dns_name(&host.to_string_lossy());
         let rules = self
-            .restrictions
+            .rule_groups
             .iter()
             .enumerate()
-            .flat_map(|(index, restriction)| {
-                restriction
+            .flat_map(|(index, group)| {
+                group
                     .connect
                     .iter()
                     .filter(|rule| rule.allows_resolved_name(&host))
@@ -105,7 +100,7 @@ impl NetPolicy {
         for addr in addrs {
             let addr = parse_socket_addr(addr)?;
             grants.extend(rules.iter().map(|(index, rule)| ResolvedConnectRule {
-                restriction: *index,
+                group: *index,
                 rule: SocketRule {
                     host: SocketHostRule::Ip(addr.ip),
                     port: rule.port,
@@ -122,22 +117,17 @@ impl NetPolicy {
         resolved_connect: &[ResolvedConnectRule],
     ) -> AsyncHostResult<()> {
         let addr = parse_socket_addr(addr)?;
-        if self
-            .restrictions
-            .iter()
-            .enumerate()
-            .all(|(index, restriction)| {
-                let rules = match operation {
-                    NetOperation::Connect => &restriction.connect,
-                    NetOperation::Bind => &restriction.bind,
-                };
-                rules.iter().any(|rule| rule.matches(addr))
-                    || (operation == NetOperation::Connect
-                        && resolved_connect
-                            .iter()
-                            .any(|grant| grant.restriction == index && grant.rule.matches(addr)))
-            })
-        {
+        if self.rule_groups.iter().enumerate().all(|(index, group)| {
+            let rules = match operation {
+                NetOperation::Connect => &group.connect,
+                NetOperation::Bind => &group.bind,
+            };
+            rules.iter().any(|rule| rule.matches(addr))
+                || (operation == NetOperation::Connect
+                    && resolved_connect
+                        .iter()
+                        .any(|grant| grant.group == index && grant.rule.matches(addr)))
+        }) {
             Ok(())
         } else {
             sandbox_denied(
@@ -148,7 +138,7 @@ impl NetPolicy {
     }
 }
 #[derive(Clone, Debug)]
-pub(super) struct NetRestriction {
+pub(super) struct NetRules {
     dns: Vec<DnsPattern>,
     connect: Vec<SocketRule>,
     bind: Vec<SocketRule>,
@@ -192,7 +182,7 @@ struct SocketAddr {
     port: u16,
 }
 
-impl NetRestriction {
+impl NetRules {
     pub(super) fn to_transfer(&self) -> transfer::Network {
         transfer::Network {
             dns: self.dns.iter().map(DnsPattern::to_transfer).collect(),
@@ -221,7 +211,7 @@ impl NetRestriction {
         };
         anyhow::ensure!(
             !policy.bind.iter().any(SocketRule::requires_dns),
-            "bind restrictions cannot use DNS names"
+            "bind rules cannot use DNS names"
         );
         Ok(policy)
     }
@@ -276,7 +266,7 @@ impl DnsPattern {
             transfer::DnsPattern::Exact(name) => {
                 anyhow::ensure!(
                     name != "*" && !name.starts_with("*."),
-                    "invalid exact DNS restriction"
+                    "invalid exact DNS rule"
                 );
                 Self::Exact(name)
             }
@@ -516,7 +506,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn composed_dns_grants_cannot_satisfy_another_restriction() {
+    fn composed_dns_grants_cannot_satisfy_another_group() {
         let address = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
         for reverse in [false, true] {
             let mut configs = vec![
@@ -613,16 +603,15 @@ mod tests {
             ("[[name]:443", "[name"),
             ("API.Example.COM.:443", "api.example.com"),
         ] {
-            let parent = NetRestriction::from_config(NetConfig {
+            let parent = NetRules::from_config(NetConfig {
                 connect: vec![rule.into()],
                 ..Default::default()
             })
             .unwrap();
             let encoded = serde_json::to_vec(&parent.to_transfer()).unwrap();
-            let child =
-                NetRestriction::from_transfer(serde_json::from_slice(&encoded).unwrap()).unwrap();
-            for restriction in [parent, child] {
-                let policy = NetPolicy::from_restrictions([Arc::new(restriction)]);
+            let child = NetRules::from_transfer(serde_json::from_slice(&encoded).unwrap()).unwrap();
+            for group in [parent, child] {
+                let policy = NetPolicy::from_rule_groups([Arc::new(group)]);
                 assert_eq!(
                     policy.check_socket(NetOperation::Connect, &address, &[]),
                     Err(AsyncHostError::PermissionDenied),

@@ -29,15 +29,15 @@ use super::{config::ProcessConfig, sandbox_denied, transfer};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ProcessPolicy {
-    restrictions: Vec<Arc<ProcessRestriction>>,
+    rule_groups: Vec<Arc<ProcessRules>>,
 }
 
 impl ProcessPolicy {
-    pub(super) fn from_restrictions(
-        restrictions: impl IntoIterator<Item = Arc<ProcessRestriction>>,
+    pub(super) fn from_rule_groups(
+        rule_groups: impl IntoIterator<Item = Arc<ProcessRules>>,
     ) -> Self {
         Self {
-            restrictions: restrictions.into_iter().collect(),
+            rule_groups: rule_groups.into_iter().collect(),
         }
     }
 
@@ -50,30 +50,30 @@ impl ProcessPolicy {
     pub(super) fn from_configs(
         configs: impl IntoIterator<Item = ProcessConfig>,
     ) -> anyhow::Result<Self> {
-        let restrictions = configs
+        let rule_groups = configs
             .into_iter()
-            .map(|config| ProcessRestriction::from_config(config).map(Arc::new))
+            .map(|config| ProcessRules::from_config(config).map(Arc::new))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(Self::from_restrictions(restrictions))
+        Ok(Self::from_rule_groups(rule_groups))
     }
 
     #[cfg(unix)]
     pub(crate) fn allows_unix(&self, program: &OsStr, argv: &[OsString]) -> AsyncHostResult<()> {
-        self.restrictions
+        self.rule_groups
             .iter()
-            .try_for_each(|restriction| restriction.allows_unix(program, argv))
+            .try_for_each(|group| group.allows_unix(program, argv))
     }
 
     #[cfg(windows)]
     pub(crate) fn allows_windows(&self, command_line: &OsStr) -> AsyncHostResult<()> {
-        self.restrictions
+        self.rule_groups
             .iter()
-            .try_for_each(|restriction| restriction.allows_windows(command_line))
+            .try_for_each(|group| group.allows_windows(command_line))
     }
 }
 
 #[derive(Clone, Debug)]
-pub(super) enum ProcessRestriction {
+pub(super) enum ProcessRules {
     AllowAll,
     Scoped(Vec<ProcessRule>),
 }
@@ -86,7 +86,7 @@ pub(crate) struct ProcessRule {
     windows_command_line_prefix: Vec<u16>,
 }
 
-impl ProcessRestriction {
+impl ProcessRules {
     pub(super) fn to_transfer(&self) -> transfer::Process {
         match self {
             Self::AllowAll => transfer::Process::AllowAll,

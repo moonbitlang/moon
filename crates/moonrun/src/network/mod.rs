@@ -303,8 +303,8 @@ mod tests {
 
     use crate::policy::{self, Policy};
 
-    fn network(mut policy: Policy) -> HostNetwork {
-        HostNetwork::new(policy.take_network_policy())
+    fn network(policy: Option<Policy>) -> HostNetwork {
+        HostNetwork::new(policy.as_ref().map(Policy::network))
     }
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
 
-        let network = network(Policy::allow_all());
+        let network = network(None);
         let tcp = network.make_tcp_socket(4).unwrap();
         let udp = network.make_udp_socket(4, false).unwrap();
         let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
@@ -340,7 +340,7 @@ mod tests {
         #[cfg(windows)]
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
 
-        let network = network(Policy::allow_all());
+        let network = network(None);
         let first = network.make_tcp_socket(4).unwrap();
         let second = network.make_tcp_socket(4).unwrap();
         let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
@@ -364,7 +364,7 @@ mod tests {
         let policy_file = dir.path().join("deny-all.toml");
         std::fs::write(&policy_file, "").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let network = network(policy);
+        let network = network(Some(policy));
         let socket = network.make_tcp_socket(4).unwrap();
 
         assert_eq!(
@@ -383,7 +383,7 @@ mod tests {
         let policy_file = dir.path().join("deny-all.toml");
         std::fs::write(&policy_file, "").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let network = network(policy);
+        let network = network(Some(policy));
         let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
         sys::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
 
@@ -406,8 +406,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy_file = dir.path().join("network.toml");
         std::fs::write(&policy_file, "[net]\nconnect = [\"api.example.com:443\"]\n").unwrap();
-        let (mut policy, _) = policy::load_file(&policy_file).unwrap();
-        let policy = policy.take_network_policy().unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let policy = policy.network();
         let first = HostNetwork::new(Some(policy.clone()));
         let second = HostNetwork::new(Some(policy));
         let mut resolved_addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];

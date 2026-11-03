@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Versioned transport of resolved restrictions between OS processes.
+//! Versioned transport of resolved policy rules between OS processes.
 //!
 //! This format is independent of user policy syntax. Decode validates semantic
 //! values without filesystem observation, rule-string parsing, or Env setup.
@@ -27,22 +27,19 @@ use std::ffi::OsString;
 use std::io::{Seek, Write};
 use std::net::IpAddr;
 
-use super::{
-    PolicyInheritance, fs::FsRestriction, net::NetRestriction,
-    policy_inheritance::ResolvedRestrictions, process::ProcessRestriction,
-};
+use super::{Policy, Rules, fs::FsRules, net::NetRules, process::ProcessRules};
 use std::sync::Arc;
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Transfer {
     version: u32,
-    restrictions: Vec<Restrictions>,
+    rule_groups: Vec<RuleGroup>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Restrictions {
+struct RuleGroup {
     fs: Filesystem,
     net: Network,
     process: Process,
@@ -141,30 +138,27 @@ pub(super) struct Command {
     pub args_prefix: Vec<String>,
 }
 
-impl PolicyInheritance {
+impl Policy {
     pub(crate) fn from_transfer(contents: &[u8]) -> anyhow::Result<Self> {
         let transfer: Transfer =
-            serde_json::from_slice(contents).context("failed to decode inherited restrictions")?;
+            serde_json::from_slice(contents).context("failed to decode inherited policy")?;
+        anyhow::ensure!(transfer.version == 2, "unsupported policy transfer version");
         anyhow::ensure!(
-            transfer.version == 2,
-            "unsupported restriction transfer version"
+            !transfer.rule_groups.is_empty(),
+            "inherited policy must contain a rule group"
         );
-        anyhow::ensure!(
-            !transfer.restrictions.is_empty(),
-            "inherited restrictions must not be empty"
-        );
-        let restrictions = transfer
-            .restrictions
+        let rule_groups = transfer
+            .rule_groups
             .into_iter()
             .map(|rules| {
-                Ok(ResolvedRestrictions {
-                    fs: Arc::new(FsRestriction::from_transfer(rules.fs)?),
-                    net: Arc::new(NetRestriction::from_transfer(rules.net)?),
-                    process: Arc::new(ProcessRestriction::from_transfer(rules.process)?),
+                Ok(Rules {
+                    fs: Arc::new(FsRules::from_transfer(rules.fs)?),
+                    net: Arc::new(NetRules::from_transfer(rules.net)?),
+                    process: Arc::new(ProcessRules::from_transfer(rules.process)?),
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(Self(restrictions.into()))
+        Ok(Self(rule_groups.into()))
     }
 
     pub(crate) fn open_transfer(
@@ -172,10 +166,10 @@ impl PolicyInheritance {
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
         let transfer = Transfer {
             version: 2,
-            restrictions: self
+            rule_groups: self
                 .0
                 .iter()
-                .map(|rules| Restrictions {
+                .map(|rules| RuleGroup {
                     fs: rules.fs.to_transfer(),
                     net: rules.net.to_transfer(),
                     process: rules.process.to_transfer(),
@@ -195,7 +189,7 @@ mod tests {
     use super::*;
     use crate::policy::config::PolicyConfig;
 
-    fn compile(config: PolicyConfig) -> PolicyInheritance {
+    fn compile(config: PolicyConfig) -> Policy {
         crate::policy::source::resolve(config, std::path::Path::new("."))
             .unwrap()
             .0
@@ -208,7 +202,7 @@ mod tests {
             br#"{"env":{"set":{"INJECTED":"value"}}}"#,
             br#"{"process":{"spawn":true}}"#,
         ] {
-            assert!(PolicyInheritance::from_transfer(document).is_err());
+            assert!(Policy::from_transfer(document).is_err());
         }
     }
 
@@ -236,13 +230,11 @@ mod tests {
         }"#;
         let rules = compile(serde_json::from_slice(input).unwrap());
         let encoded = rules.open_transfer().unwrap().read().unwrap();
-        let decoded = PolicyInheritance::from_transfer(&encoded).unwrap();
+        let decoded = Policy::from_transfer(&encoded).unwrap();
         assert_eq!(decoded.open_transfer().unwrap().read().unwrap(), encoded);
         for rules in [rules, decoded] {
             rules
-                .policy()
-                .take_filesystem_policy()
-                .unwrap()
+                .filesystem()
                 .authorize(
                     Some(std::path::Path::new("file")),
                     crate::policy::FsIntents::read(),
@@ -251,9 +243,7 @@ mod tests {
                 .unwrap();
             assert!(
                 rules
-                    .policy()
-                    .take_filesystem_policy()
-                    .unwrap()
+                    .filesystem()
                     .authorize(
                         Some(std::path::Path::new("file")),
                         crate::policy::FsIntents::write(),
@@ -263,9 +253,7 @@ mod tests {
             );
             #[cfg(unix)]
             rules
-                .policy()
-                .take_process_policy()
-                .unwrap()
+                .process()
                 .allows_unix(
                     "a program".as_ref(),
                     &[
@@ -290,27 +278,21 @@ mod tests {
             .unwrap(),
         );
         let contents = rules.open_transfer().unwrap().read().unwrap();
-        let decoded = PolicyInheritance::from_transfer(&contents).unwrap();
+        let decoded = Policy::from_transfer(&contents).unwrap();
         for rules in [rules, decoded] {
             rules
-                .policy()
-                .take_process_policy()
-                .unwrap()
+                .process()
                 .allows_windows(r#"tool.exe "a b" extra"#.as_ref())
                 .unwrap();
             assert!(
                 rules
-                    .policy()
-                    .take_process_policy()
-                    .unwrap()
+                    .process()
                     .allows_windows("tool.exe a b".as_ref())
                     .is_err()
             );
             assert!(
                 rules
-                    .policy()
-                    .take_process_policy()
-                    .unwrap()
+                    .process()
                     .allows_windows(r#"other.exe "a b""#.as_ref())
                     .is_err()
             );
@@ -322,7 +304,7 @@ mod tests {
         for root in ["relative", "../escape"] {
             let input = Transfer {
                 version: 2,
-                restrictions: vec![Restrictions {
+                rule_groups: vec![RuleGroup {
                     fs: Filesystem {
                         read: vec![Root::Path(root.into())],
                         write: vec![],
@@ -335,9 +317,7 @@ mod tests {
                     process: Process::Scoped(vec![]),
                 }],
             };
-            assert!(
-                PolicyInheritance::from_transfer(&serde_json::to_vec(&input).unwrap()).is_err()
-            );
+            assert!(Policy::from_transfer(&serde_json::to_vec(&input).unwrap()).is_err());
         }
     }
 
@@ -349,31 +329,31 @@ mod tests {
         for (pointer, value) in [
             ("/version", serde_json::json!(99)),
             (
-                "/restrictions/0/process",
+                "/rule_groups/0/process",
                 serde_json::json!({"kind":"scoped","value":[{"program":"","args_prefix":[]}]}),
             ),
             (
-                "/restrictions/0/net/dns",
+                "/rule_groups/0/net/dns",
                 serde_json::json!([{"kind":"exact","value":"Example.COM."}]),
             ),
             (
-                "/restrictions/0/net/bind",
+                "/rule_groups/0/net/bind",
                 serde_json::json!([{"host":{"kind":"name","value":{"kind":"exact","value":"example.com"}},"port":{"kind":"any"}}]),
             ),
         ] {
             let mut invalid = original.clone();
             *invalid.pointer_mut(pointer).unwrap() = value;
             assert!(
-                PolicyInheritance::from_transfer(&serde_json::to_vec(&invalid).unwrap()).is_err(),
+                Policy::from_transfer(&serde_json::to_vec(&invalid).unwrap()).is_err(),
                 "{pointer}"
             );
         }
         for pointer in [
             "",
-            "/restrictions/0",
-            "/restrictions/0/fs",
-            "/restrictions/0/net",
-            "/restrictions/0/process",
+            "/rule_groups/0",
+            "/rule_groups/0/fs",
+            "/rule_groups/0/net",
+            "/rule_groups/0/process",
         ] {
             let mut invalid = original.clone();
             invalid
@@ -383,7 +363,7 @@ mod tests {
                 .unwrap()
                 .insert("env".into(), serde_json::json!({"from_host":["*"]}));
             assert!(
-                PolicyInheritance::from_transfer(&serde_json::to_vec(&invalid).unwrap()).is_err(),
+                Policy::from_transfer(&serde_json::to_vec(&invalid).unwrap()).is_err(),
                 "{pointer}"
             );
         }
@@ -396,28 +376,24 @@ mod tests {
         let root = std::path::PathBuf::from(OsString::from_vec(
             b"/not-required-to-exist/allowed-\xff".to_vec(),
         ));
-        let rules = PolicyInheritance::new(
-            FsRestriction::from_canonical_config(crate::policy::config::FsConfig {
+        let rules = Policy::new(
+            FsRules::from_canonical_config(crate::policy::config::FsConfig {
                 read: vec![root.clone()],
                 write: vec![],
             }),
-            NetRestriction::from_config(Default::default()).unwrap(),
-            ProcessRestriction::from_config(Default::default()).unwrap(),
+            NetRules::from_config(Default::default()).unwrap(),
+            ProcessRules::from_config(Default::default()).unwrap(),
         );
         let contents = rules.open_transfer().unwrap().read().unwrap();
-        let decoded = PolicyInheritance::from_transfer(&contents).unwrap();
+        let decoded = Policy::from_transfer(&contents).unwrap();
         decoded
-            .policy()
-            .take_filesystem_policy()
-            .unwrap()
+            .filesystem()
             .authorize(Some(&root), crate::policy::FsIntents::read(), "allowed")
             .unwrap();
         let other = std::path::PathBuf::from("/not-required-to-exist/allowed-�");
         assert!(
             decoded
-                .policy()
-                .take_filesystem_policy()
-                .unwrap()
+                .filesystem()
                 .authorize(Some(&other), crate::policy::FsIntents::read(), "other")
                 .is_err()
         );
@@ -431,12 +407,10 @@ mod tests {
         drop(inheritance);
 
         let contents = transfer.read().unwrap();
-        let decoded = PolicyInheritance::from_transfer(&contents).unwrap();
+        let decoded = Policy::from_transfer(&contents).unwrap();
         assert!(
             decoded
-                .policy()
-                .take_filesystem_policy()
-                .unwrap()
+                .filesystem()
                 .authorize(
                     Some(std::path::Path::new("file")),
                     crate::policy::FsIntents::read(),

@@ -16,20 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Construction-time authorization input for moonrun-owned wasm boundaries.
+//! Compiled authorization rules for moonrun-owned Wasm operations.
 //!
 //! No policy file preserves existing moonrun behavior. Supplying a policy file
 //! switches the supported host surfaces to deny-by-default mode. Runtime
-//! construction consumes the resulting domain policies instead of retaining a
-//! global policy object in the Host domains. Environment provisioning is also
-//! consumed during construction and does not become a runtime policy check.
+//! construction supplies each Host Domain with its policy and retains the
+//! effective Policy for child inheritance. Environment provisioning is consumed
+//! separately during construction and does not become a runtime policy check.
 
 #[cfg(test)]
 mod composition_tests;
 mod config;
 mod fs;
 mod net;
-mod policy_inheritance;
 mod process;
 mod source;
 mod transfer;
@@ -40,20 +39,35 @@ pub(crate) use source::read_file;
 use self::config::PolicyConfig;
 pub(crate) use self::fs::{FsIntents, FsPolicy};
 pub(crate) use self::net::{NetOperation, NetPolicy, ResolvedConnectRule};
-pub(crate) use self::policy_inheritance::{InheritedPolicyInput, PolicyInheritance};
 pub(crate) use self::process::ProcessPolicy;
+use self::{fs::FsRules, net::NetRules, process::ProcessRules};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(test)]
 use crate::runtime::EnvProvisioning;
 #[cfg(test)]
 use std::path::Path;
+use std::sync::Arc;
 
+/// Effective authorization: every rule group must allow the operation.
+/// Source loading and transfer decoding validate groups before construction.
+/// An absent `Option<Policy>` is unrestricted; a policy document always adds a
+/// complete group, with omitted domains denied.
 #[derive(Clone, Debug)]
-pub(crate) struct Policy {
-    fs: Option<FsPolicy>,
-    net: Option<NetPolicy>,
-    process: Option<ProcessPolicy>,
-    policy_inheritance: Option<PolicyInheritance>,
+pub(crate) struct Policy(Arc<[Rules]>);
+
+/// In-process children share the effective policy; external children decode it.
+#[derive(Debug)]
+pub(crate) enum InheritedPolicyInput {
+    Resolved(Policy),
+    Transfer(Vec<u8>),
+}
+
+/// One policy source's compiled rules, with filesystem roots already resolved.
+#[derive(Clone, Debug)]
+struct Rules {
+    fs: Arc<FsRules>,
+    net: Arc<NetRules>,
+    process: Arc<ProcessRules>,
 }
 
 fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
@@ -66,29 +80,29 @@ fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
 }
 
 impl Policy {
-    pub(crate) fn allow_all() -> Self {
-        Self {
-            fs: None,
-            net: None,
-            process: None,
-            policy_inheritance: None,
-        }
+    fn new(fs: FsRules, net: NetRules, process: ProcessRules) -> Self {
+        Self(Arc::from([Rules {
+            fs: Arc::new(fs),
+            net: Arc::new(net),
+            process: Arc::new(process),
+        }]))
     }
 
-    pub(crate) fn take_filesystem_policy(&mut self) -> Option<FsPolicy> {
-        self.fs.take()
+    /// Intersect complete policies without I/O, parsing, or Env provisioning.
+    pub(crate) fn intersect(self, additional: Self) -> Self {
+        Self(self.0.iter().chain(additional.0.iter()).cloned().collect())
     }
 
-    pub(crate) fn take_network_policy(&mut self) -> Option<NetPolicy> {
-        self.net.take()
+    pub(crate) fn filesystem(&self) -> FsPolicy {
+        FsPolicy::from_rule_groups(self.0.iter().map(|rules| Arc::clone(&rules.fs)))
     }
 
-    pub(crate) fn take_process_policy(&mut self) -> Option<ProcessPolicy> {
-        self.process.take()
+    pub(crate) fn network(&self) -> NetPolicy {
+        NetPolicy::from_rule_groups(self.0.iter().map(|rules| Arc::clone(&rules.net)))
     }
 
-    pub(crate) fn take_policy_inheritance(&mut self) -> Option<PolicyInheritance> {
-        self.policy_inheritance.take()
+    pub(crate) fn process(&self) -> ProcessPolicy {
+        ProcessPolicy::from_rule_groups(self.0.iter().map(|rules| Arc::clone(&rules.process)))
     }
 }
 
@@ -104,9 +118,9 @@ pub(crate) fn load_file_with_source_dir(
     source_dir: Option<&Path>,
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let (restrictions, env) = read_file(path, source_dir)?;
+    let (policy, env) = read_file(path, source_dir)?;
     Ok((
-        restrictions.policy(),
+        policy,
         EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
     ))
 }
@@ -125,9 +139,9 @@ fn realize_config(
     directory: &Path,
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let (restrictions, env) = source::resolve(config, directory)?;
+    let (policy, env) = source::resolve(config, directory)?;
     Ok((
-        restrictions.policy(),
+        policy,
         EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
     ))
 }
@@ -145,42 +159,50 @@ mod tests {
     use crate::async_host::AsyncHostError;
 
     fn check_ambient_open(
-        mut policy: Policy,
+        policy: Option<Policy>,
         path: &OsStr,
         access: i32,
         create_mode: i32,
         append: bool,
     ) -> AsyncHostResult<()> {
-        policy.take_filesystem_policy().map_or(Ok(()), |policy| {
-            policy.authorize(
-                Some(Path::new(path)),
-                FsIntents::for_open(access, create_mode, append),
-                &format!("{:?}", path),
-            )
-        })
+        policy
+            .as_ref()
+            .map(Policy::filesystem)
+            .map_or(Ok(()), |policy| {
+                policy.authorize(
+                    Some(Path::new(path)),
+                    FsIntents::for_open(access, create_mode, append),
+                    &format!("{:?}", path),
+                )
+            })
     }
 
-    fn check_network_connect(mut policy: Policy, addr: &[u8]) -> AsyncHostResult<()> {
-        policy.take_network_policy().map_or(Ok(()), |policy| {
-            policy.check_socket(NetOperation::Connect, addr, &[])
-        })
+    fn check_network_connect(policy: Option<Policy>, addr: &[u8]) -> AsyncHostResult<()> {
+        policy
+            .as_ref()
+            .map(Policy::network)
+            .map_or(Ok(()), |policy| {
+                policy.check_socket(NetOperation::Connect, addr, &[])
+            })
     }
 
     #[cfg(unix)]
     fn check_process_spawn(
-        mut policy: Policy,
+        policy: Option<Policy>,
         program: &OsStr,
         argv: &[OsString],
     ) -> AsyncHostResult<()> {
         policy
-            .take_process_policy()
+            .as_ref()
+            .map(Policy::process)
             .map_or(Ok(()), |policy| policy.allows_unix(program, argv))
     }
 
     #[cfg(windows)]
-    fn check_process_spawn(mut policy: Policy, command_line: &OsStr) -> AsyncHostResult<()> {
+    fn check_process_spawn(policy: Option<Policy>, command_line: &OsStr) -> AsyncHostResult<()> {
         policy
-            .take_process_policy()
+            .as_ref()
+            .map(Policy::process)
             .map_or(Ok(()), |policy| policy.allows_windows(command_line))
     }
 
@@ -211,7 +233,7 @@ fn main {}
         .unwrap();
         let allowed = std::fs::canonicalize(allowed).unwrap();
 
-        check_ambient_open(policy, allowed.as_os_str(), 0, 0, false).unwrap();
+        check_ambient_open(Some(policy), allowed.as_os_str(), 0, 0, false).unwrap();
     }
 
     #[test]
@@ -225,7 +247,7 @@ fn main {}
         let canonical_write = std::fs::canonicalize(&write).unwrap();
         let secret = "value-that-must-not-be-serialized";
 
-        let (mut policy, _) = realize_config(
+        let (policy, _) = realize_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
                     read: vec![PathBuf::from("read")],
@@ -250,19 +272,11 @@ fn main {}
             &crate::runtime::Env::ambient(),
         )
         .unwrap();
-        let contents = policy
-            .take_policy_inheritance()
-            .unwrap()
-            .open_transfer()
-            .unwrap()
-            .read()
-            .unwrap();
+        let contents = policy.open_transfer().unwrap().read().unwrap();
 
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
-        let mut inherited = PolicyInheritance::from_transfer(&contents)
-            .unwrap()
-            .policy();
-        let fs = inherited.take_filesystem_policy().unwrap();
+        let inherited = Policy::from_transfer(&contents).unwrap();
+        let fs = inherited.filesystem();
         fs.authorize(Some(&canonical_read), FsIntents::read(), "read")
             .unwrap();
         fs.authorize(Some(&canonical_write), FsIntents::write(), "write")
@@ -272,12 +286,11 @@ fn main {}
                 .is_err()
         );
         inherited
-            .take_network_policy()
-            .unwrap()
+            .network()
             .check_dns("example.com".as_ref())
             .unwrap();
         #[cfg(unix)]
-        check_process_spawn(inherited, "program".as_ref(), &["program".into()]).unwrap();
+        check_process_spawn(Some(inherited), "program".as_ref(), &["program".into()]).unwrap();
     }
 
     #[test]
@@ -285,24 +298,16 @@ fn main {}
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("policy.json");
         std::fs::write(&source, r#"{"process":{"spawn":false}}"#).unwrap();
-        let (mut parent, _) = load_file(&source).unwrap();
-        let contents = parent
-            .take_policy_inheritance()
-            .unwrap()
-            .open_transfer()
-            .unwrap()
-            .read()
-            .unwrap();
+        let (parent, _) = load_file(&source).unwrap();
+        let contents = parent.open_transfer().unwrap().read().unwrap();
 
         std::fs::write(&source, r#"{"process":{"spawn":true}}"#).unwrap();
-        let inherited = PolicyInheritance::from_transfer(&contents)
-            .unwrap()
-            .policy();
+        let inherited = Policy::from_transfer(&contents).unwrap();
 
         #[cfg(unix)]
         assert_eq!(
             check_process_spawn(
-                inherited,
+                Some(inherited),
                 OsStr::new("program"),
                 &[OsString::from("program")]
             ),
@@ -310,14 +315,14 @@ fn main {}
         );
         #[cfg(windows)]
         assert_eq!(
-            check_process_spawn(inherited, OsStr::new("program.exe")),
+            check_process_spawn(Some(inherited), OsStr::new("program.exe")),
             Err(AsyncHostError::PermissionDenied)
         );
     }
 
     #[test]
     fn no_policy_leaves_fs_unrestricted() {
-        let policy = Policy::allow_all();
+        let policy: Option<Policy> = None;
 
         check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4, false).unwrap();
     }
@@ -337,8 +342,14 @@ fn main {}
         )
         .unwrap();
 
-        let error = check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4, false)
-            .unwrap_err();
+        let error = check_ambient_open(
+            Some(policy),
+            OsStr::new("missing-parent/new.txt"),
+            1,
+            4,
+            false,
+        )
+        .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -358,13 +369,13 @@ fn main {}
         .unwrap();
         let denied = tmp.path().join("new.txt");
 
-        let error = check_ambient_open(policy, denied.as_os_str(), 1, 4, false).unwrap_err();
+        let error = check_ambient_open(Some(policy), denied.as_os_str(), 1, 4, false).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
     #[test]
     fn no_policy_leaves_net_unrestricted() {
-        let policy = Policy::allow_all();
+        let policy: Option<Policy> = None;
 
         check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap();
     }
@@ -390,7 +401,7 @@ fn main {}
         .unwrap();
 
         let error =
-            check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
+            check_network_connect(Some(policy), &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -410,7 +421,7 @@ fn main {}
         .unwrap();
 
         let error =
-            check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
+            check_network_connect(Some(policy), &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -436,7 +447,7 @@ fn main {}
 
     #[test]
     fn no_policy_leaves_process_spawning_unrestricted() {
-        let policy = Policy::allow_all();
+        let policy: Option<Policy> = None;
         #[cfg(unix)]
         check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")]).unwrap();
         #[cfg(windows)]
@@ -457,11 +468,15 @@ fn main {}
             {
                 #[cfg(unix)]
                 {
-                    check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")])
+                    check_process_spawn(
+                        Some(policy),
+                        OsStr::new("program"),
+                        &[OsString::from("program")],
+                    )
                 }
                 #[cfg(windows)]
                 {
-                    check_process_spawn(policy, OsStr::new("program.exe"))
+                    check_process_spawn(Some(policy), OsStr::new("program.exe"))
                 }
             },
             Err(AsyncHostError::PermissionDenied)
@@ -485,9 +500,14 @@ fn main {}
         .unwrap();
 
         #[cfg(unix)]
-        check_process_spawn(policy, OsStr::new("program"), &[OsString::from("program")]).unwrap();
+        check_process_spawn(
+            Some(policy),
+            OsStr::new("program"),
+            &[OsString::from("program")],
+        )
+        .unwrap();
         #[cfg(windows)]
-        check_process_spawn(policy, OsStr::new("program.exe")).unwrap();
+        check_process_spawn(Some(policy), OsStr::new("program.exe")).unwrap();
     }
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {
@@ -506,29 +526,19 @@ fn main {}
         std::fs::create_dir(&outside).unwrap();
         let file = directory.path().join("policy.json");
         std::fs::write(&file, r#"{"fs":{"read":["allowed"]}}"#).unwrap();
-        let (mut parent, _) = load_file(&file).unwrap();
-        let contents = parent
-            .take_policy_inheritance()
-            .unwrap()
-            .open_transfer()
-            .unwrap()
-            .read()
-            .unwrap();
+        let (parent, _) = load_file(&file).unwrap();
+        let contents = parent.open_transfer().unwrap().read().unwrap();
         std::fs::rename(&allowed, directory.path().join("moved")).unwrap();
         std::os::unix::fs::symlink(&outside, &allowed).unwrap();
-        let mut child = PolicyInheritance::from_transfer(&contents)
-            .unwrap()
-            .policy();
+        let child = Policy::from_transfer(&contents).unwrap();
         let target = std::fs::canonicalize(&outside).unwrap().join("secret");
         assert_eq!(
-            child.take_filesystem_policy().unwrap().authorize(
-                Some(&target),
-                FsIntents::read(),
-                "secret"
-            ),
+            child
+                .filesystem()
+                .authorize(Some(&target), FsIntents::read(), "secret"),
             Err(AsyncHostError::PermissionDenied)
         );
         std::fs::remove_file(&allowed).unwrap();
-        PolicyInheritance::from_transfer(&contents).unwrap();
+        Policy::from_transfer(&contents).unwrap();
     }
 }

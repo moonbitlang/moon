@@ -157,11 +157,11 @@ pub(crate) struct RuntimeConfig {
 impl RuntimeConfig {
     /// Resolve selected sources and provision Env; restriction composition only
     /// joins compiled rules and never observes host state.
-    pub(crate) fn realize_policy(&self, source: Env) -> anyhow::Result<(Policy, Env)> {
-        let mut restrictions = match &self.inherited_policy {
+    pub(crate) fn realize_policy(&self, source: Env) -> anyhow::Result<(Option<Policy>, Env)> {
+        let mut policy = match &self.inherited_policy {
             Some(policy::InheritedPolicyInput::Resolved(inherited)) => Some(inherited.clone()),
             Some(policy::InheritedPolicyInput::Transfer(contents)) => {
-                Some(policy::PolicyInheritance::from_transfer(contents)?)
+                Some(policy::Policy::from_transfer(contents)?)
             }
             None => None,
         };
@@ -169,15 +169,14 @@ impl RuntimeConfig {
             Some(path) => {
                 let (child, provisioning) =
                     policy::read_file(path, self.policy_source_dir.as_deref())?;
-                restrictions = Some(match restrictions {
-                    Some(parent) => parent.restrict(child),
+                policy = Some(match policy {
+                    Some(parent) => parent.intersect(child),
                     None => child,
                 });
                 provisioning.provision(&source)?
             }
             None => source,
         };
-        let policy = restrictions.map_or_else(Policy::allow_all, |rules| rules.policy());
         Ok((policy, environment))
     }
 
@@ -226,14 +225,12 @@ impl Runtime {
             }
             (None, _) => Env::ambient(),
         };
-        let (mut policy, environment) = config.realize_policy(source_environment)
+        let (policy, environment) = config.realize_policy(source_environment)
             .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?;
         let environment = Arc::new(environment);
 
-        let filesystem_policy = policy.take_filesystem_policy();
-        let network_policy = policy.take_network_policy();
-        let process_policy = policy.take_process_policy();
-        let policy_inheritance = policy.take_policy_inheritance();
+        let filesystem_policy = policy.as_ref().map(Policy::filesystem);
+        let network_policy = policy.as_ref().map(Policy::network);
         let working_directory = Arc::new(match config.working_directory {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(path) => {
@@ -252,8 +249,7 @@ impl Runtime {
         ));
         let network = HostNetwork::new(network_policy);
         let process = HostProcess::new(
-            process_policy,
-            policy_inheritance,
+            policy,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
             config.process_context,

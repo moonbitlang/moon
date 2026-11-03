@@ -76,7 +76,7 @@ and [execution ownership](design/runtime-architecture.md#library-contract-and-ex
 
 Contracts: [authority design](design/authority-closure.md). Acceptance cases:
 [filesystem checks](design/authority-closure.md#filesystem-acceptance-criteria),
-[restriction composition](design/authority-closure.md#restriction-composition),
+[policy composition](design/authority-closure.md#policy-composition),
 and [resource delegation](design/authority-closure.md#resource-delegation).
 
 ## Embedding and compatibility work

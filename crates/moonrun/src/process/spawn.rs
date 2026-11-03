@@ -62,7 +62,7 @@ pub(super) struct NativeSpawn {
     // HostProcess is released between preparation and native execution.
     pub(super) _stdio_owner: Arc<Stdio>,
     pub(super) executable: Executable,
-    pub(super) policy_inheritance: Option<crate::policy::PolicyInheritance>,
+    pub(super) policy_inheritance: Option<crate::policy::Policy>,
 }
 
 pub(super) enum PreparedSpawn {

@@ -32,7 +32,7 @@ const DENIED_READ: &str = r#"(module
 fn read_only_parent() -> Vec<u8> {
     let mut transfer: serde_json::Value =
         serde_json::from_slice(include_bytes!("fixtures/deny_restrictions.json")).unwrap();
-    *transfer.pointer_mut("/restrictions/0/fs/read").unwrap() = serde_json::json!([{"kind":"any"}]);
+    *transfer.pointer_mut("/rule_groups/0/fs/read").unwrap() = serde_json::json!([{"kind":"any"}]);
     serde_json::to_vec(&transfer).unwrap()
 }
 

@@ -24,27 +24,25 @@ use crate::async_host::AsyncHostResult;
 
 use super::{config::FsConfig, sandbox_denied, transfer};
 
-/// Restricts async filesystem operations to native host roots.
+/// Checks filesystem operations against every source's rules.
 ///
 /// This is not a virtual filesystem. `HostFs` resolves runtime paths before
 /// asking these immutable rules whether the resulting target is allowed.
 #[derive(Clone, Debug)]
 pub(crate) struct FsPolicy {
-    restrictions: Vec<Arc<FsRestriction>>,
+    rule_groups: Vec<Arc<FsRules>>,
 }
 
 impl Default for FsPolicy {
     fn default() -> Self {
-        Self::from_restrictions([Arc::new(FsRestriction::default())])
+        Self::from_rule_groups([Arc::new(FsRules::default())])
     }
 }
 
 impl FsPolicy {
-    pub(super) fn from_restrictions(
-        restrictions: impl IntoIterator<Item = Arc<FsRestriction>>,
-    ) -> Self {
+    pub(super) fn from_rule_groups(rule_groups: impl IntoIterator<Item = Arc<FsRules>>) -> Self {
         Self {
-            restrictions: restrictions.into_iter().collect(),
+            rule_groups: rule_groups.into_iter().collect(),
         }
     }
 
@@ -54,14 +52,14 @@ impl FsPolicy {
         intents: FsIntents,
         target: &str,
     ) -> AsyncHostResult<()> {
-        self.restrictions
+        self.rule_groups
             .iter()
-            .try_for_each(|restriction| restriction.authorize(path, intents, target))
+            .try_for_each(|group| group.authorize(path, intents, target))
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct FsRestriction {
+pub(super) struct FsRules {
     read_roots: Vec<FsRoot>,
     write_roots: Vec<FsRoot>,
 }
@@ -78,7 +76,7 @@ pub(crate) struct FsIntents {
     write: bool,
 }
 
-impl FsRestriction {
+impl FsRules {
     pub(super) fn to_transfer(&self) -> transfer::Filesystem {
         let roots = |roots: &[FsRoot]| {
             roots
@@ -244,7 +242,7 @@ mod tests {
     use crate::async_host::AsyncHostError;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
-        let (restrictions, _) = crate::policy::source::resolve(
+        let (policy, _) = crate::policy::source::resolve(
             super::super::config::PolicyConfig {
                 fs: Some(FsConfig { read, write }),
                 ..Default::default()
@@ -252,7 +250,7 @@ mod tests {
             config_dir,
         )
         .unwrap();
-        restrictions.policy().take_filesystem_policy().unwrap()
+        policy.filesystem()
     }
 
     fn authorize(policy: &FsPolicy, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {
