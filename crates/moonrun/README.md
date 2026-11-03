@@ -476,12 +476,40 @@ file during migration or debugging.
 The filesystem policy restricts native host paths. It does not create a virtual
 guest filesystem, mount table, or portable `/` namespace. Relative filesystem
 roots are resolved relative to the policy file. Guest relative paths are
-resolved using the Runtime Working Directory; its only current mode observes the
-process current directory at policy-check time. Paths use the host platform's
+resolved using the Runtime Working Directory. Paths use the host platform's
 path syntax; Windows policies may use normal Windows paths such as `C:\work` or
 `C:/work`; JSON strings must escape backslashes as `C:\\work`. The filesystem
 wildcard `"*"` allows every host path on every platform. List a root in both
 `read` and `write` to allow read-write filesystem access.
+
+An explicit glob object matches selected paths without granting an entire
+directory subtree. Ordinary strings remain literal file or directory roots;
+their names may contain glob metacharacters.
+
+```toml
+[fs]
+read = ["assets", { glob = "logs/**/*.txt" }]
+write = [{ glob = "logs/*.txt" }]
+```
+
+JSON uses the same object form: `{ "glob": "logs/**/*.txt" }`. Relative globs
+are anchored at the policy source directory. Absolute globs use the host's root
+or volume; leading `../` selects a parent of the source directory. Parent
+traversal inside the pattern, such as `logs/**/../*`, is rejected.
+
+Matching is case-sensitive over the whole resolved target path: `*` and `?` do
+not cross directory separators; `**` matches recursively. Character classes
+(`[ab]`) and alternatives (`{a,b}`) use `globset` syntax. Backslash is a separator
+on Windows and a literal character on Unix; use `[*]` to match a literal star.
+`dir/**` grants descendants, not `dir` itself. A glob does not enumerate files
+and can match files created after policy loading. Literal components inside
+the pattern are not separately canonicalized: a symlink under `logs` does not
+grant its target unless that resolved target also matches. Link inspection,
+unlink, and rename match the link entry. Directory operations
+require their own matching rule.
+
+Rules in one list are alternatives. Inherited policy groups remain independent:
+every group must allow the operation, including both read and write when needed.
 
 The `env` section provisions the guest environment. Use `from_host` to copy
 selected host variables if present, `required_from_host` to require selected

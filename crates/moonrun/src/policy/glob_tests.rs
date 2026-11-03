@@ -137,6 +137,26 @@ read = [{ glob = "*.txt" }]
 }
 
 #[test]
+fn a_bare_policy_filename_anchors_globs_in_the_current_directory() {
+    // Path::parent for "policy.toml" is the empty path, not None.
+    let rules = policy(
+        Path::new("policy.toml").parent().unwrap(),
+        "[fs]\nread = [{ glob = \"logs/*.txt\" }]\n",
+    );
+    let base = std::fs::canonicalize(".").unwrap();
+    assert!(allows(
+        &rules,
+        &base.join("logs/new.txt"),
+        FsIntents::read()
+    ));
+    assert!(!allows(
+        &rules,
+        &base.join("logs/deep/new.txt"),
+        FsIntents::read()
+    ));
+}
+
+#[test]
 fn glob_inheritance_keeps_frozen_anchors_and_complete_group_intersection() {
     let directory = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(directory.path()).unwrap();
@@ -206,4 +226,122 @@ fn invalid_globs_and_malformed_rule_objects_fail_policy_loading() {
             .is_err()
         );
     }
+}
+
+#[test]
+fn transferred_globs_validate_the_anchor_and_pattern() {
+    let directory = tempfile::tempdir().unwrap();
+    let rules = policy(directory.path(), "[fs]\nread = [{ glob = \"**/*.txt\" }]\n");
+    let bytes = rules.open_transfer().unwrap().read().unwrap();
+    let original: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    for (field, value) in [
+        ("pattern", serde_json::json!("[")),
+        ("pattern", serde_json::json!("../**")),
+        (
+            "base",
+            serde_json::to_value(std::ffi::OsString::from("relative")).unwrap(),
+        ),
+        ("unknown", serde_json::json!(true)),
+    ] {
+        let mut document = original.clone();
+        document["rule_groups"][0]["fs"]["read"][0]["value"][field] = value;
+        assert!(
+            Policy::from_transfer(&serde_json::to_vec(&document).unwrap()).is_err(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn native_names_are_not_lossily_substituted_before_matching() {
+    let directory = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(directory.path()).unwrap();
+    #[cfg(unix)]
+    let name = {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec(b"bad-\xff.txt".to_vec())
+    };
+    #[cfg(windows)]
+    let name = {
+        use std::os::windows::ffi::OsStringExt;
+        std::ffi::OsString::from_wide(&[98, 97, 100, 45, 0xd800, 46, 116, 120, 116])
+    };
+    let rules = policy(
+        &base,
+        "[fs]\nread = [{ glob = \"bad-�.txt\" }]\nwrite = [{ glob = \"*.txt\" }]\n",
+    );
+    assert!(!allows(&rules, &base.join(&name), FsIntents::read()));
+    assert!(allows(&rules, &base.join(&name), FsIntents::write()));
+}
+
+#[test]
+fn glob_backslashes_follow_native_separator_rules() {
+    let directory = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(directory.path()).unwrap();
+    let rules = policy(&base, "[fs]\nread = [{ glob = 'logs\\*.txt' }]\n");
+    assert!(allows(
+        &rules,
+        &base.join(r"logs\new.txt"),
+        FsIntents::read()
+    ));
+    assert_eq!(
+        allows(&rules, &base.join("logs/new.txt"), FsIntents::read()),
+        cfg!(windows)
+    );
+    assert!(!allows(
+        &rules,
+        &base.join("logs/deep/new.txt"),
+        FsIntents::read()
+    ));
+    #[cfg(windows)]
+    for pattern in [r"C:logs\*.txt", r"\logs\*.txt"] {
+        let config =
+            serde_json::from_value(serde_json::json!({"fs":{"read":[{"glob":pattern}]}})).unwrap();
+        assert!(source::resolve(config, &base).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn host_filesystem_matches_resolved_targets_without_expanding_symlink_grants() {
+    use crate::filesystem::{FsError, HostFs};
+    use crate::runtime::{Env, WorkingDirectory};
+    let directory = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(directory.path()).unwrap();
+    std::fs::create_dir(base.join("logs")).unwrap();
+    std::fs::create_dir(base.join("other")).unwrap();
+    std::fs::write(base.join("other/secret.txt"), b"secret").unwrap();
+    std::os::unix::fs::symlink("../other/secret.txt", base.join("logs/link.txt")).unwrap();
+    let rules = policy(
+        &base,
+        "[fs]\nread = [{ glob = \"logs/**/*.txt\" }]\nwrite = [{ glob = \"logs/**/*.txt\" }]\n",
+    );
+    let host = HostFs::new(
+        Some(rules.filesystem()),
+        Arc::new(Env::ambient()),
+        Arc::new(WorkingDirectory::Fixed(base.clone())),
+    );
+    host.write_file(Path::new("logs/new.txt"), b"allowed")
+        .unwrap();
+    assert_eq!(
+        host.read_file(Path::new("logs/new.txt")).unwrap(),
+        b"allowed"
+    );
+    assert!(matches!(
+        host.write_file(Path::new("logs/new.bin"), b"denied"),
+        Err(FsError::Denied)
+    ));
+    assert!(matches!(
+        host.read_file(Path::new("logs/link.txt")),
+        Err(FsError::Denied)
+    ));
+    assert!(matches!(
+        host.write_file(Path::new("logs/link.txt"), b"denied"),
+        Err(FsError::Denied)
+    ));
+    assert_eq!(
+        std::fs::read(base.join("other/secret.txt")).unwrap(),
+        b"secret"
+    );
+    assert!(!base.join("logs/new.bin").exists());
 }

@@ -247,9 +247,9 @@ fn inherited_ceiling_does_not_hide_invalid_child_policy() {
 fn malformed_compositions_fail_closed() {
     let source = Env::owned([]).unwrap();
     for contents in [
-        r#"{"version":2,"rule_groups":[]}"#,
+        r#"{"version":3,"rule_groups":[]}"#,
         r#"{"fs":{"read":["relative-root"]}}"#,
-        r#"{"version":2,"rule_groups":[{}]}"#,
+        r#"{"version":3,"rule_groups":[{}]}"#,
         r#"{"version":1,"rule_groups":[{"env":{}}]}"#,
         r#"{"version":1,"rule_groups":[{}],"unexpected":true}"#,
     ] {

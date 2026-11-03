@@ -16,13 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
 
-use super::{config::FsConfig, sandbox_denied, transfer};
+use super::{sandbox_denied, transfer};
+use anyhow::Context;
+use globset::{GlobBuilder, GlobMatcher};
 
 /// Checks filesystem operations against every source's rules.
 ///
@@ -60,14 +61,15 @@ impl FsPolicy {
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct FsRules {
-    read_roots: Vec<FsRoot>,
-    write_roots: Vec<FsRoot>,
+    pub(super) read_rules: Vec<FsRule>,
+    pub(super) write_rules: Vec<FsRule>,
 }
 
 #[derive(Clone, Debug)]
-enum FsRoot {
+pub(super) enum FsRule {
     Any,
     Path(PathBuf),
+    Glob { base: PathBuf, matcher: GlobMatcher },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,57 +80,44 @@ pub(crate) struct FsIntents {
 
 impl FsRules {
     pub(super) fn to_transfer(&self) -> transfer::Filesystem {
-        let roots = |roots: &[FsRoot]| {
-            roots
+        let rules = |rules: &[FsRule]| {
+            rules
                 .iter()
-                .map(|root| match root {
-                    FsRoot::Any => transfer::Root::Any,
-                    FsRoot::Path(path) => transfer::Root::Path(path.as_os_str().to_owned()),
+                .map(|rule| match rule {
+                    FsRule::Any => transfer::FsRule::Any,
+                    FsRule::Path(path) => transfer::FsRule::Path(path.as_os_str().to_owned()),
+                    FsRule::Glob { base, matcher } => transfer::FsRule::Glob {
+                        base: base.as_os_str().to_owned(),
+                        pattern: matcher.glob().glob().to_owned(),
+                    },
                 })
                 .collect()
         };
         transfer::Filesystem {
-            read: roots(&self.read_roots),
-            write: roots(&self.write_roots),
+            read: rules(&self.read_rules),
+            write: rules(&self.write_rules),
         }
     }
 
     pub(super) fn from_transfer(value: transfer::Filesystem) -> anyhow::Result<Self> {
-        let roots = |roots: Vec<transfer::Root>| {
-            roots
+        let rules = |rules: Vec<transfer::FsRule>| {
+            rules
                 .into_iter()
-                .map(|root| match root {
-                    transfer::Root::Any => Ok(FsRoot::Any),
-                    transfer::Root::Path(path) => {
+                .map(|rule| match rule {
+                    transfer::FsRule::Any => Ok(FsRule::Any),
+                    transfer::FsRule::Path(path) => {
                         let path = PathBuf::from(path);
-                        anyhow::ensure!(
-                            path.is_absolute(),
-                            "inherited filesystem roots must be absolute"
-                        );
-                        anyhow::ensure!(
-                            !path.as_os_str().as_encoded_bytes().contains(&0)
-                                && !path
-                                    .components()
-                                    .any(|part| matches!(part, std::path::Component::ParentDir)),
-                            "invalid inherited filesystem root"
-                        );
-                        Ok(FsRoot::Path(path))
+                        validate_base(&path)?;
+                        Ok(FsRule::Path(path))
                     }
+                    transfer::FsRule::Glob { base, pattern } => FsRule::glob(base.into(), &pattern),
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
         };
         Ok(Self {
-            read_roots: roots(value.read)?,
-            write_roots: roots(value.write)?,
+            read_rules: rules(value.read)?,
+            write_rules: rules(value.write)?,
         })
-    }
-
-    /// Construct runtime enforcement from roots canonicalized by `policy`.
-    pub(super) fn from_canonical_config(config: FsConfig) -> Self {
-        Self {
-            read_roots: roots_from_config(config.read),
-            write_roots: roots_from_config(config.write),
-        }
     }
 
     pub(crate) fn authorize(
@@ -150,19 +139,48 @@ impl FsRules {
     }
 
     fn allows_read(&self, path: &Path) -> bool {
-        self.read_roots.iter().any(|root| root.allows(path))
+        self.read_rules.iter().any(|rule| rule.allows(path))
     }
 
     fn allows_write(&self, path: &Path) -> bool {
-        self.write_roots.iter().any(|root| root.allows(path))
+        self.write_rules.iter().any(|rule| rule.allows(path))
     }
 }
 
-impl FsRoot {
+impl FsRule {
+    /// Compile a source-resolved pattern without observing the filesystem.
+    pub(super) fn glob(base: PathBuf, pattern: &str) -> anyhow::Result<Self> {
+        validate_base(&base)?;
+        anyhow::ensure!(
+            !pattern.is_empty()
+                && !pattern.contains('\0')
+                && Path::new(pattern)
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_))),
+            "filesystem glob must be a nonempty relative pattern without parent traversal"
+        );
+        let matcher = GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .backslash_escape(false)
+            .case_insensitive(false)
+            .build()
+            .with_context(|| format!("invalid filesystem glob {pattern:?}"))?
+            .compile_matcher();
+        Ok(Self::Glob { base, matcher })
+    }
+
     fn allows(&self, path: &Path) -> bool {
         match self {
             Self::Any => true,
             Self::Path(root) => path == root || path.starts_with(root),
+            Self::Glob { base, matcher } => path.strip_prefix(base).is_ok_and(|path| {
+                // Candidate::new performs lossy conversion on Windows.
+                // OsStr's encoded bytes preserve names while satisfying the
+                // matcher's ASCII-compatible encoding requirement.
+                matcher.is_match_candidate(&globset::Candidate::from_bytes(
+                    path.as_os_str().as_encoded_bytes(),
+                ))
+            }),
         }
     }
 }
@@ -223,28 +241,31 @@ impl FsIntents {
     }
 }
 
-fn roots_from_config(roots: Vec<PathBuf>) -> Vec<FsRoot> {
-    roots
-        .into_iter()
-        .map(|root| {
-            if root.as_os_str() == OsStr::new("*") {
-                FsRoot::Any
-            } else {
-                FsRoot::Path(root)
-            }
-        })
-        .collect()
+fn validate_base(path: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(path.is_absolute(), "filesystem rule base must be absolute");
+    anyhow::ensure!(
+        !path.as_os_str().as_encoded_bytes().contains(&0)
+            && !path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir)),
+        "invalid filesystem rule base"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::config::{FsConfig, FsRuleConfig};
     use super::*;
     use crate::async_host::AsyncHostError;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
         let selected = crate::policy::source::resolve(
             super::super::config::PolicyConfig {
-                fs: Some(FsConfig { read, write }),
+                fs: Some(FsConfig {
+                    read: read.into_iter().map(FsRuleConfig::Path).collect(),
+                    write: write.into_iter().map(FsRuleConfig::Path).collect(),
+                }),
                 ..Default::default()
             },
             config_dir,
@@ -288,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn read_roots_do_not_permit_write_operations() {
+    fn read_rules_do_not_permit_write_operations() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();
@@ -301,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn write_roots_do_not_permit_read_operations() {
+    fn write_rules_do_not_permit_read_operations() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();

@@ -20,9 +20,15 @@
 
 use anyhow::Context;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-use super::{Policy, config::PolicyConfig, fs::FsRules, net::NetRules, process::ProcessRules};
+use super::{
+    Policy,
+    config::{FsRuleConfig, PolicyConfig},
+    fs::{FsRule, FsRules},
+    net::NetRules,
+    process::ProcessRules,
+};
 use crate::runtime::EnvConfig;
 
 /// One selected file's construction inputs. Only `policy` is inherited;
@@ -48,15 +54,24 @@ pub(crate) fn read_file(path: &Path, source_dir: Option<&Path>) -> anyhow::Resul
 }
 
 pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<LoadedPolicy> {
-    let mut config = canonicalize(config, directory)?;
-    let environment = config.env.take().unwrap_or_default();
+    // A bare policy filename has an empty parent path; it denotes cwd.
+    let directory = if directory.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        directory
+    };
+    let environment = config.env.unwrap_or_default();
+    let fs = config.fs.unwrap_or_default();
     let virtualize = config
         .process
         .as_ref()
         .is_some_and(|process| process.virtualize);
     Ok(LoadedPolicy {
         policy: Policy::new(
-            FsRules::from_canonical_config(config.fs.unwrap_or_default()),
+            FsRules {
+                read_rules: resolve_fs_rules(fs.read, directory)?,
+                write_rules: resolve_fs_rules(fs.write, directory)?,
+            },
             NetRules::from_config(config.net.unwrap_or_default())?,
             ProcessRules::from_config(config.process.unwrap_or_default())?,
         ),
@@ -65,37 +80,55 @@ pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<
     })
 }
 
-/// Resolve source-relative policy values into a transport-independent form.
-///
-/// Environment provisioning and runtime rule validation deliberately remain
-/// part of configuration realization; only filesystem roots depend on the
-/// policy source directory.
-fn canonicalize(mut config: PolicyConfig, config_dir: &Path) -> anyhow::Result<PolicyConfig> {
-    if let Some(fs) = config.fs.as_mut() {
-        fs.read = canonicalize_roots(std::mem::take(&mut fs.read), config_dir)?;
-        fs.write = canonicalize_roots(std::mem::take(&mut fs.write), config_dir)?;
-    }
-    Ok(config)
-}
-
-fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    roots
+/// Capture filesystem inputs only while loading a selected policy. Inheritance
+/// carries these resolved bases; it must not repeat this filesystem observation.
+fn resolve_fs_rules(rules: Vec<FsRuleConfig>, directory: &Path) -> anyhow::Result<Vec<FsRule>> {
+    rules
         .into_iter()
-        .map(|root| {
-            if root.as_os_str() == OsStr::new("*") {
-                return Ok(root);
+        .map(|rule| match rule {
+            FsRuleConfig::Path(root) => {
+                if root.as_os_str() == OsStr::new("*") {
+                    return Ok(FsRule::Any);
+                }
+                let path = directory.join(root);
+                let root = std::fs::canonicalize(&path).with_context(|| {
+                    format!(
+                        "failed to resolve sandbox filesystem root {}",
+                        path.display()
+                    )
+                })?;
+                Ok(FsRule::Path(root))
             }
-            let path = if root.is_absolute() {
-                root
-            } else {
-                config_dir.join(root)
-            };
-            std::fs::canonicalize(&path).with_context(|| {
-                format!(
-                    "failed to resolve sandbox filesystem root {}",
-                    path.display()
-                )
-            })
+            FsRuleConfig::Glob { glob } => {
+                let path = Path::new(&glob);
+                // Only the leading root / ./ / ../ sequence determines the base.
+                // Literal names inside the glob are matched against resolved target
+                // names, not canonicalized as extra grants through symlinks.
+                let anchor: PathBuf = path
+                    .components()
+                    .take_while(|part| !matches!(part, Component::Normal(_)))
+                    .collect();
+                anyhow::ensure!(
+                    anchor.is_absolute()
+                        || (!anchor.has_root()
+                            && !anchor
+                                .components()
+                                .any(|part| matches!(part, Component::Prefix(_)))),
+                    "filesystem glob cannot use a drive-relative or root-relative base"
+                );
+                let base = std::fs::canonicalize(directory.join(&anchor)).with_context(|| {
+                    format!("failed to resolve filesystem glob base for {glob:?}")
+                })?;
+                let pattern = path.strip_prefix(anchor)?;
+                // Glob separators are explicit. Backslash is a native separator on
+                // Windows and a literal filename character on Unix, never an escape.
+                let pattern = pattern
+                    .components()
+                    .map(|part| part.as_os_str().to_str().unwrap())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                FsRule::glob(base, &pattern)
+            }
         })
         .collect()
 }
@@ -103,7 +136,6 @@ fn canonicalize_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::config;
 
     #[test]
     fn selected_configuration_is_frozen_before_admission() {
@@ -204,118 +236,57 @@ required_from_host = ["VALUE"]
         }
     }
 
-    fn config_with_fs_roots(read: Vec<PathBuf>, write: Vec<PathBuf>) -> PolicyConfig {
-        PolicyConfig {
-            fs: Some(config::FsConfig { read, write }),
-            ..Default::default()
-        }
-    }
-
     #[test]
-    fn canonicalize_resolves_filesystem_roots_and_preserves_wildcards() {
+    fn resolves_literal_roots_and_preserves_wildcards() {
         let tmp = tempfile::tempdir().unwrap();
-        let read = tmp.path().join("read");
-        let write = tmp.path().join("write");
-        std::fs::create_dir(&read).unwrap();
-        std::fs::create_dir(&write).unwrap();
-        let canonical_read = std::fs::canonicalize(&read).unwrap();
-        let canonical_write = std::fs::canonicalize(&write).unwrap();
-
-        let config = canonicalize(
-            PolicyConfig {
-                fs: Some(config::FsConfig {
-                    read: vec![PathBuf::from("read"), PathBuf::from("*")],
-                    write: vec![write.clone()],
-                }),
-                net: Some(config::NetConfig {
-                    dns: vec!["example.com".to_owned()],
-                    ..Default::default()
-                }),
-                env: Some(config::EnvConfig {
-                    from_host: vec!["PATH".to_owned()],
-                    ..Default::default()
-                }),
-                process: Some(config::ProcessConfig {
-                    spawn: true,
-                    ..Default::default()
-                }),
-            },
+        let root = tmp.path().join("data");
+        std::fs::create_dir(&root).unwrap();
+        let rules = resolve_fs_rules(
+            vec![
+                FsRuleConfig::Path("data".into()),
+                FsRuleConfig::Path(root.clone()),
+                FsRuleConfig::Path("*".into()),
+            ],
             tmp.path(),
         )
         .unwrap();
-
-        let fs = config.fs.unwrap();
-        assert_eq!(fs.read, [canonical_read, PathBuf::from("*")]);
-        assert_eq!(fs.write, [canonical_write]);
-        assert_eq!(config.net.unwrap().dns, ["example.com"]);
-        assert_eq!(config.env.unwrap().from_host, ["PATH"]);
-        assert!(config.process.unwrap().spawn);
-    }
-
-    #[test]
-    fn canonicalize_is_idempotent() {
-        let tmp = tempfile::tempdir().unwrap();
-        let target = tmp.path().join("target");
-        std::fs::create_dir(&target).unwrap();
-        let canonical_target = std::fs::canonicalize(&target).unwrap();
-
-        let first = canonicalize(
-            config_with_fs_roots(vec![PathBuf::from("target")], Vec::new()),
-            tmp.path(),
-        )
-        .unwrap();
-        let second = canonicalize(first, Path::new("unrelated-source-directory")).unwrap();
-
-        assert_eq!(second.fs.unwrap().read, [canonical_target]);
+        let canonical = std::fs::canonicalize(root).unwrap();
+        assert!(matches!(&rules[0], FsRule::Path(path) if path == &canonical));
+        assert!(matches!(&rules[1], FsRule::Path(path) if path == &canonical));
+        assert!(matches!(rules[2], FsRule::Any));
     }
 
     #[cfg(unix)]
     #[test]
-    fn canonicalize_resolves_symlinks() {
+    fn resolves_literal_symlink_roots() {
         let tmp = tempfile::tempdir().unwrap();
         let target = tmp.path().join("target");
         let alias = tmp.path().join("alias");
         std::fs::create_dir(&target).unwrap();
         std::os::unix::fs::symlink(&target, &alias).unwrap();
-        let canonical_target = std::fs::canonicalize(&target).unwrap();
-
-        let config =
-            canonicalize(config_with_fs_roots(vec![alias], Vec::new()), tmp.path()).unwrap();
-
-        assert_eq!(config.fs.unwrap().read, [canonical_target]);
+        let canonical = std::fs::canonicalize(target).unwrap();
+        let rules = resolve_fs_rules(vec![FsRuleConfig::Path(alias)], tmp.path()).unwrap();
+        assert!(matches!(&rules[0], FsRule::Path(path) if path == &canonical));
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
-    fn canonicalize_preserves_non_utf8_paths() {
+    fn preserves_native_literal_path_bytes() {
         use std::os::unix::ffi::OsStringExt;
-
         let tmp = tempfile::tempdir().unwrap();
         let name = std::ffi::OsString::from_vec(b"allowed-\xff".to_vec());
         let root = tmp.path().join(&name);
         std::fs::create_dir(&root).unwrap();
-
-        let config = canonicalize(
-            config_with_fs_roots(vec![PathBuf::from(name)], Vec::new()),
-            tmp.path(),
-        )
-        .unwrap();
-
-        assert_eq!(config.fs.unwrap().read, [root]);
+        let rules = resolve_fs_rules(vec![FsRuleConfig::Path(name.into())], tmp.path()).unwrap();
+        assert!(matches!(&rules[0], FsRule::Path(path) if path == &root));
     }
 
     #[test]
-    fn canonicalize_reports_the_resolved_missing_root() {
+    fn reports_the_resolved_missing_literal_root() {
         let tmp = tempfile::tempdir().unwrap();
         let missing = tmp.path().join("missing");
-        let error = match canonicalize(
-            config_with_fs_roots(vec![PathBuf::from("missing")], Vec::new()),
-            tmp.path(),
-        ) {
-            Ok(_) => panic!("expected a missing root to fail canonicalization"),
-            Err(error) => error,
-        };
-
+        let error =
+            resolve_fs_rules(vec![FsRuleConfig::Path("missing".into())], tmp.path()).unwrap_err();
         assert!(error.to_string().contains(&missing.display().to_string()));
     }
 }

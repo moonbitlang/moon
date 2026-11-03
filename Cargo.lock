@@ -2208,6 +2208,7 @@ dependencies = [
  "clap",
  "dunce",
  "escargot",
+ "globset",
  "libc",
  "libsqlite3-sys",
  "moon-test-util",

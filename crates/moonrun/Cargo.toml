@@ -33,6 +33,7 @@ wee8 = ["dep:wee8", "dep:wasmparser"]
 [dependencies]
 anyhow.workspace = true
 dunce.workspace = true
+globset.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

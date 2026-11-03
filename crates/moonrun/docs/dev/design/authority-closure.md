@@ -112,10 +112,10 @@ Construction separates four responsibilities:
 
 | Owner | Input and output |
 | --- | --- |
-| `policy/source.rs` | Read `PolicyConfig`, resolve source-relative filesystem roots, and separate authorization rules from Env provisioning |
+| `policy/source.rs` | Read `PolicyConfig`, resolve filesystem roots and glob bases, and separate authorization rules from Env provisioning |
 | `Policy` | Share compiled rule groups, intersect complete policies, and supply domain policies without file I/O or parsing |
 | Runtime Env provisioning | Construct Env from the selected source environment and provisioning rules |
-| `policy/transfer.rs` | Encode the policy in an internal, versioned format; validate received rules without resolving roots or parsing user rule strings |
+| `policy/transfer.rs` | Encode the policy in an internal, versioned format; validate received rules and rebuild deterministic matchers without filesystem lookup |
 
 `Rule` names an individual authorization rule, such as a `ProcessRule` matching
 a program and argument prefix. `FsRules`, `NetRules`, and `ProcessRules` hold
@@ -140,7 +140,9 @@ records distinguish wildcard, IP, and DNS-name rules explicitly, preserve native
 path bytes or units, and contain no Env provisioning. Domain adapters validate
 received semantic values without reclassifying them from strings. Deterministic
 caches such as Windows command-line prefixes may be rebuilt from the transferred
-command and arguments; they do not require source files or ambient inputs.
+command and arguments. Filesystem globs carry a resolved base and a relative
+pattern; decoding compiles the matcher without re-resolving the base. These
+caches do not require source files or ambient inputs.
 Unknown versions, fields, and invalid rules fail decoding. The experimental
 internal protocol evolves independently of the user configuration schema;
 processes exchanging restrictions must support the same transfer version.
@@ -186,11 +188,11 @@ the child's policy instead of an
 embedded declaration; neither can replace the inherited ceiling. Invalid or
 missing selected child policies fail execution instead of being ignored.
 
-Transfer version 2 carries a nonempty `rule_groups` sequence,
-including when only one group is present. Version 1 is rejected; the user policy
-format is unchanged. Decoding preserves group boundaries so conjunction and DNS
-provenance survive repeated inheritance. Unknown versions and empty collections
-fail closed.
+Transfer version 3 carries a nonempty `rule_groups` sequence,
+including when only one group is present. Older versions are rejected. Ordinary
+string rules retain their user-facing semantics. Decoding preserves group
+boundaries so conjunction and DNS provenance survive repeated inheritance.
+Unknown versions and empty collections fail closed.
 
 Environment provisioning is consumed during construction. Child provisioning
 reads the delegated source Env, and inherited transfers contain no captured

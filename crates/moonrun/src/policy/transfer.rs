@@ -19,7 +19,7 @@
 //! Versioned transport of resolved policy rules between OS processes.
 //!
 //! This format is independent of user policy syntax. Decode validates semantic
-//! values without filesystem observation, rule-string parsing, or Env setup.
+//! values and recompiles glob matchers without filesystem observation or Env setup.
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -48,8 +48,8 @@ struct RuleGroup {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Filesystem {
-    pub read: Vec<Root>,
-    pub write: Vec<Root>,
+    pub read: Vec<FsRule>,
+    pub write: Vec<FsRule>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -59,11 +59,12 @@ pub(super) struct Filesystem {
     rename_all = "snake_case",
     deny_unknown_fields
 )]
-pub(super) enum Root {
+pub(super) enum FsRule {
     Any,
     // Serde's OsString representation preserves Unix bytes / Windows units and
     // rejects the other platform's encoding. Paths need not be Unicode.
     Path(OsString),
+    Glob { base: OsString, pattern: String },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -142,7 +143,7 @@ impl Policy {
     pub(crate) fn from_transfer(contents: &[u8]) -> anyhow::Result<Self> {
         let transfer: Transfer =
             serde_json::from_slice(contents).context("failed to decode inherited policy")?;
-        anyhow::ensure!(transfer.version == 2, "unsupported policy transfer version");
+        anyhow::ensure!(transfer.version == 3, "unsupported policy transfer version");
         anyhow::ensure!(
             !transfer.rule_groups.is_empty(),
             "inherited policy must contain a rule group"
@@ -165,7 +166,7 @@ impl Policy {
         &self,
     ) -> std::io::Result<moonutil::policy_transport::PolicyTransfer> {
         let transfer = Transfer {
-            version: 2,
+            version: 3,
             rule_groups: self
                 .0
                 .iter()
@@ -303,10 +304,10 @@ mod tests {
     fn transferred_roots_must_be_resolved() {
         for root in ["relative", "../escape"] {
             let input = Transfer {
-                version: 2,
+                version: 3,
                 rule_groups: vec![RuleGroup {
                     fs: Filesystem {
-                        read: vec![Root::Path(root.into())],
+                        read: vec![FsRule::Path(root.into())],
                         write: vec![],
                     },
                     net: Network {
@@ -377,10 +378,10 @@ mod tests {
             b"/not-required-to-exist/allowed-\xff".to_vec(),
         ));
         let rules = Policy::new(
-            FsRules::from_canonical_config(crate::policy::config::FsConfig {
-                read: vec![root.clone()],
-                write: vec![],
-            }),
+            FsRules {
+                read_rules: vec![super::super::fs::FsRule::Path(root.clone())],
+                write_rules: vec![],
+            },
             NetRules::from_config(Default::default()).unwrap(),
             ProcessRules::from_config(Default::default()).unwrap(),
         );

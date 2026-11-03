@@ -260,8 +260,8 @@ fn main {}
         let (policy, _) = realize_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
-                    read: vec![PathBuf::from("read")],
-                    write: vec![PathBuf::from("write")],
+                    read: vec![config::FsRuleConfig::Path(PathBuf::from("read"))],
+                    write: vec![config::FsRuleConfig::Path(PathBuf::from("write"))],
                 }),
                 net: Some(config::NetConfig {
                     dns: vec!["example.com".to_owned()],
@@ -399,8 +399,8 @@ fn main {}
         let (policy, _) = realize_config(
             PolicyConfig {
                 fs: Some(config::FsConfig {
-                    read: vec![PathBuf::from("allowed")],
-                    write: vec![PathBuf::from("allowed")],
+                    read: vec![config::FsRuleConfig::Path(PathBuf::from("allowed"))],
+                    write: vec![config::FsRuleConfig::Path(PathBuf::from("allowed"))],
                 }),
                 net: None,
                 env: None,
