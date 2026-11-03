@@ -127,29 +127,90 @@ fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("input");
     let output = directory.path().join("output");
+    let error = directory.path().join("error");
     let policy = directory.path().join("policy.json");
-    std::fs::write(&input, b"grant").unwrap();
+    std::fs::write(&input, b"abc").unwrap();
     std::fs::write(&policy, "{}").unwrap();
     let module = engine.compile("stdio-grant.wasm", wat::parse_str(r#"(module
+        (import "__moonbit_io_unstable" "read_char" (func $char_read (result i32)))
+        (import "__moonbit_io_unstable" "write_char" (func $char_write (param i32 i32)))
+        (import "moonbitlang/async" "stdio/get_stdio_handle" (func $stdio (param i32) (result i64)))
+        (import "moonbitlang/async" "thread_pool/make_read_job" (func $async_read (param i64 i32 i64) (result i64)))
+        (import "moonbitlang/async" "thread_pool/get_read_result" (func $read_result (param i64 i32 i32 i32)))
+        (import "moonbitlang/async" "thread_pool/make_write_job" (func $async_write (param i64 i32 i32 i32 i64) (result i64)))
+        (import "moonbitlang/async" "thread_pool/run_job" (func $run (param i64)))
+        (import "moonbitlang/async" "thread_pool/job_get_err" (func $err (param i64) (result i32)))
+        (import "moonbitlang/async" "thread_pool/job_get_ret" (func $ret (param i64) (result i32)))
+        (import "moonbitlang/async" "thread_pool/free_job" (func $free (param i64)))
+        (import "moonbitlang/async" "fd_util/close_fd" (func $close (param i64) (result i32)))
         (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
         (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+        (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
         (memory (export "memory") 1)
-        (func (export "_start")
+        (data (i32.const 64) "input")
+        (func (export "_start") (local $job i64)
+            ;; Each ABI consumes the next byte from the same granted file.
+            call $char_read i32.const 97 i32.ne if unreachable end
+            i32.const 1 i32.const 97 call $char_write
             i32.const 0 i32.const 32 i32.store
-            i32.const 4 i32.const 5 i32.store
+            i32.const 4 i32.const 1 i32.store
             i32.const 0 i32.const 0 i32.const 1 i32.const 8 call $read if unreachable end
-            i32.const 8 i32.load i32.const 5 i32.ne if unreachable end
+            i32.const 8 i32.load i32.const 1 i32.ne if unreachable end
+            i32.const 32 i32.load8_u i32.const 98 i32.ne if unreachable end
             i32.const 1 i32.const 0 i32.const 1 i32.const 8 call $write if unreachable end
-            i32.const 8 i32.load i32.const 5 i32.ne if unreachable end))"#).unwrap()).unwrap();
+            i32.const 8 i32.load i32.const 1 i32.ne if unreachable end
+            i32.const 0 call $stdio i32.const 1 i64.const -1 call $async_read local.set $job
+            local.get $job call $run
+            local.get $job call $err if unreachable end
+            local.get $job call $ret i32.const 1 i32.ne if unreachable end
+            local.get $job i32.const 32 i32.const 0 i32.const 1 call $read_result
+            i32.const 32 i32.load8_u i32.const 99 i32.ne if unreachable end
+            local.get $job call $free
+            i32.const 1 call $stdio i32.const 32 i32.const 0 i32.const 1 i64.const -1
+            call $async_write local.set $job
+            local.get $job call $run
+            local.get $job call $err if unreachable end
+            local.get $job call $ret i32.const 1 i32.ne if unreachable end
+            local.get $job call $free
+
+            ;; A handle grant does not authorize reopening its path.
+            i32.const 3 i32.const 0 i32.const 64 i32.const 5 i32.const 0
+            i64.const 2 i64.const 0 i32.const 0 i32.const 16 call $open
+            i32.const 2 i32.ne if unreachable end
+
+            ;; Async exposes the OS access mode, even without WASI rights checks.
+            i32.const 0 call $stdio i32.const 32 i32.const 0 i32.const 1 i64.const -1
+            call $async_write local.set $job
+            local.get $job call $run
+            local.get $job call $err i32.eqz if unreachable end
+            local.get $job call $free
+            i32.const 1 call $stdio i32.const 1 i64.const -1 call $async_read local.set $job
+            local.get $job call $run
+            local.get $job call $err i32.eqz if unreachable end
+            local.get $job call $free
+
+            ;; Reserved stdio cannot be closed through the async Handle table.
+            i32.const 1 call $stdio call $close i32.eqz if unreachable end
+            i32.const 1 i32.const 100 call $char_write
+            i32.const 2 i32.const 101 call $char_write))"#).unwrap()).unwrap();
+    let mut parent: serde_json::Value =
+        serde_json::from_slice(include_bytes!("fixtures/deny_restrictions.json")).unwrap();
+    for access in ["read", "write"] {
+        parent["rule_groups"][0]["fs"][access] = serde_json::json!([{"kind":"any"}]);
+    }
+    // The parent can open these files; the child's complete policy denies paths.
     let options = RunOptions::default()
+        .with_inherited_policy(serde_json::to_vec(&parent).unwrap())
         .with_policy_file(policy)
         .unwrap()
         .with_working_directory(WorkingDirectory::Fixed(directory.path().to_owned()))
         .with_stdio(
-            std::fs::File::open(input).unwrap(),
+            std::fs::File::open(&input).unwrap(),
             std::fs::File::create(&output).unwrap(),
-            tempfile::tempfile().unwrap(),
+            std::fs::File::create(&error).unwrap(),
         );
     assert_eq!(engine.run(&module, options).unwrap(), RunOutcome::Completed);
-    assert_eq!(std::fs::read(output).unwrap(), b"grant");
+    assert_eq!(std::fs::read(input).unwrap(), b"abc");
+    assert_eq!(std::fs::read(output).unwrap(), b"abcd");
+    assert_eq!(std::fs::read(error).unwrap(), b"e");
 }
