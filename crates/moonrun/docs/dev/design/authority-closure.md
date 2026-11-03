@@ -81,9 +81,11 @@ primitives without worker cancellation.
 
 Directory suffixes such as `link/` and `link/.` cause traversal, including for
 operations that otherwise act on the final link entry. Entry authorization and
-preopen containment must check that traversal. Dangling links with directory
-suffixes are rejected conservatively; ordinary missing directories can be
-created when authorized.
+preopen containment must check that traversal. Restricted path resolution only
+uses an existing ancestor for missing entries; it rejects unresolved existing
+links, including dangling targets and loops. Ordinary missing files and
+directories can be created when authorized. Removing or renaming a link checks
+the entry rather than its target.
 
 Pathname checks do not establish stable identity against concurrent path
 replacement. Filesystem authority coverage therefore does not imply protection

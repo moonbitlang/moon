@@ -370,9 +370,26 @@ fn resolve_from_directory(base: Option<&Path>, path: &Path) -> Result<PathBuf, F
 
 fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, FsError> {
     for ancestor in path.ancestors() {
-        if let Ok(prefix) = std::fs::canonicalize(ancestor) {
-            let suffix = path.strip_prefix(ancestor).map_err(|_| FsError::Denied)?;
-            return Ok(normalize_path(prefix.join(suffix)));
+        match std::fs::canonicalize(ancestor) {
+            Ok(prefix) => {
+                let suffix = path.strip_prefix(ancestor).map_err(|_| FsError::Denied)?;
+                // Lexically cancelling a missing component with `..` could
+                // hide later links that recursive creation will traverse.
+                if suffix.components().any(|part| part == Component::ParentDir) {
+                    return Err(FsError::Denied);
+                }
+                return Ok(normalize_path(prefix.join(suffix)));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Err(FsError::Denied),
+        }
+        // Only missing entries may use prefix fallback. An unresolved existing
+        // link can redirect creation outside the authorized prefix. Strip a
+        // directory suffix so lstat inspects the entry rather than following it.
+        let entry: PathBuf = ancestor.components().collect();
+        match std::fs::symlink_metadata(entry) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            _ => return Err(FsError::Denied),
         }
     }
     Err(FsError::Denied)
@@ -625,7 +642,21 @@ mod tests {
             host.create_directory_all(&link.join("child")),
             Err(FsError::Denied)
         ));
+        for path in ["link/", "link/.", "new/../link/child"] {
+            assert!(matches!(
+                host.create_directory_all(&allowed.join(path)),
+                Err(FsError::Denied)
+            ));
+        }
         assert!(!denied.join("missing").exists());
+        assert!(!allowed.join("new").exists());
+
+        std::os::unix::fs::symlink("loop", allowed.join("loop")).unwrap();
+        assert!(matches!(
+            host.authorize_write(allowed.join("loop").as_os_str()),
+            Err(FsError::Denied)
+        ));
+        host.unlink_file(&allowed.join("loop")).unwrap();
 
         host.create_directory_all(&allowed.join("new/child"))
             .unwrap();
