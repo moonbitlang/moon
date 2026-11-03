@@ -24,6 +24,27 @@ fn exit(code : Int) = "moonbitlang/async" "runtime/exit"
 
 async fn main {
   let args = @env.args()
+  if args[1] == "windows-parent" {
+    let (code, output) = @process.collect_stdout("cmd.exe", ["/d", "/c", "invoke.cmd"], cwd="child", extra_env={"IPC_VALUE": "caller"})
+    assert_eq(code, 23)
+    assert_eq(output.text().trim(char_set="\r\n"), "guest=\{pid()}\ncaller state and ceiling preserved")
+    println("caller state and ceiling preserved")
+    return
+  }
+  if args[1] == "windows-nested" || args[1] == "windows-narrow" {
+    let narrow = args[1] == "windows-narrow"
+    let (code, output) = @process.collect_stdout("cmd.exe", ["/d", "/c", if narrow { "leaf.cmd" } else { "narrow.cmd" }], cwd=if narrow { "." } else { "child" })
+    assert_eq(code, 0)
+    println(output.text().trim(char_set="\r\n"))
+    return
+  }
+  if args[1] == "windows-local" {
+    let (code, output) = @process.collect_stdout("cmd.exe", ["/d", "/c", "probe.cmd"], cwd="child")
+    assert_eq(code, 0)
+    assert_true(output.text().trim(char_set="\r\n") != "guest=\{pid()}")
+    println("local execution preserved")
+    return
+  }
   if args[1] == "echo" {
     assert_eq(@stdio.stdin.read_exactly(6), b"hello\n")
     println("terminal roundtrip")
