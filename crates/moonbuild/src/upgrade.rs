@@ -196,7 +196,10 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
                 h.display().to_string().bold()
             ))
             .default(true)
-            .interact()?;
+            .interact()
+            // dialoguer 0.12 no longer exposes the underlying I/O error as a source.
+            .map_err(std::io::Error::from)
+            .context("Failed to read upgrade confirmation")?;
         if confirm {
             do_upgrade(&cmd, &root)?;
         }

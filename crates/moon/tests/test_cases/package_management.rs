@@ -649,6 +649,34 @@ fn test_upgrade() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_upgrade_confirmation_requires_a_terminal() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new().unwrap();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", moon_home.path())
+        .env("RUST_BACKTRACE", "0")
+        .env("RUST_LIB_BACKTRACE", "0")
+        .args([
+            "upgrade",
+            "--force",
+            "--base-url",
+            "https://example.invalid",
+        ])
+        .stdin("y\n")
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to read upgrade confirmation
+
+Caused by:
+    not a terminal
+
+"#]]);
+    assert!(!moon_home.path().join("bin").exists());
+}
+
+#[test]
 fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new()?;
