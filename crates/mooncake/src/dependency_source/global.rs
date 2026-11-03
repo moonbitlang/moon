@@ -105,7 +105,7 @@ impl<'a> ImmutableDependencySource<'a> {
                 registry.acquire_source_to(module, checksum, staging.path(), user_log)?;
                 validate_source(staging.path(), module)?;
                 std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
-                let staging = staging.into_path();
+                let staging = staging.keep();
                 if let Err(error) = std::fs::rename(&staging, directory) {
                     let _ = std::fs::remove_dir_all(&staging);
                     return Err(error).with_context(|| {

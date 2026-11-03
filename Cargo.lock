@@ -1028,9 +1028,9 @@ dependencies = [
 
 [[package]]
 name = "fastrand"
-version = "2.1.0"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
+checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "filetime"
@@ -2089,7 +2089,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "walkdir",
- "which 6.0.2",
+ "which 8.0.6",
  "windows-sys 0.61.2",
  "zip",
 ]
@@ -2105,7 +2105,7 @@ dependencies = [
  "regex",
  "snapbox",
  "tempfile",
- "which 6.0.2",
+ "which 8.0.6",
 ]
 
 [[package]]
@@ -2276,7 +2276,7 @@ dependencies = [
  "thiserror 1.0.63",
  "url",
  "vergen",
- "which 6.0.2",
+ "which 8.0.6",
  "windows-sys 0.61.2",
 ]
 
@@ -3433,14 +3433,15 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tempfile"
-version = "3.10.1"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
- "cfg-if",
  "fastrand",
- "rustix 0.38.34",
- "windows-sys 0.52.0",
+ "getrandom 0.4.3",
+ "once_cell",
+ "rustix 1.1.6",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4317,6 +4318,15 @@ dependencies = [
  "home",
  "rustix 0.38.34",
  "winsafe",
+]
+
+[[package]]
+name = "which"
+version = "8.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
