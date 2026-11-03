@@ -135,6 +135,9 @@ Options:
       --experimental-policy <PATH>
           Experimental moonrun policy file
 
+      --daemon
+          Share one execution host with descendants for this run (no persistent daemon)
+
   -v, --verbose
           Show progress and execution details
 

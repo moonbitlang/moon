@@ -24,6 +24,45 @@ fn exit(code : Int) = "moonbitlang/async" "runtime/exit"
 
 async fn main {
   let args = @env.args()
+  if args[1] == "check-native-spawn" {
+    let launched = try {
+      let (code, _) = @process.collect_stdout(args[2], [args[3], "probe"])
+      assert_eq(code, 0)
+      true
+    } catch {
+      @os_error.OSError(code, ..) if code == @os_error.errno_ENOTSUP => false
+      error => raise error
+    }
+    assert_eq(launched, args[4] == "native")
+    println("execution mode preserved")
+    return
+  }
+  if args[1] == "moonx-probe" {
+    let (code, output) = @process.collect_stdout(
+      args[2], ["--daemon", args[3], "probe"],
+    )
+    assert_eq(code, 0)
+    assert_eq(output.text().trim(char_set="\r\n"), "guest=\{pid()}")
+    println("moonx reused the session")
+    return
+  }
+  if args[1] == "windows-host-wait" {
+    @async.with_cancellation_handler(
+      () => ignore(@process.run("cmd.exe", ["/d", "/c", "host-wait.cmd"], cwd="child")),
+      handler=() => { while true { () } },
+    )
+    return
+  }
+  if args[1] == "windows-controls" {
+    let helper = @env.get_env_var("IPC_HELPER").unwrap()
+    let (code, _output) = @process.collect_stdout(helper, ["--exact", "native_client_control_helper"], extra_env={"MOONRUN_WINDOWS_CLIENT_HELPER": "1"})
+    assert_eq(code, 0)
+    let (code, output) = @process.collect_stdout("cmd.exe", ["/d", "/c", "probe.cmd"], cwd="child")
+    assert_eq(code, 0)
+    assert_eq(output.text().trim(char_set="\r\n"), "guest=\{pid()}")
+    println("client controls preserved")
+    return
+  }
   if args[1] == "windows-parent" {
     let (code, output) = @process.collect_stdout("cmd.exe", ["/d", "/c", "invoke.cmd"], cwd="child", extra_env={"IPC_VALUE": "caller"})
     assert_eq(code, 23)
@@ -56,12 +95,16 @@ async fn main {
     return
   }
   if args[1] == "host-wait" {
-    @signal.set_global_cancellation_signals([])
-    ignore(@process.run(
-      "/bin/sh",
-      ["-c", "printf '%s' \"$MOONRUN_IPC_ENDPOINT\" > endpoint; exec \"$1\" \"$2\" spin > ready", "ipc-shell", args[2], args[3]],
-      cwd="child",
-    ))
+    // A CLI session signal must stop even a root that accepts cancellation but
+    // never finishes its guest cleanup. Host-owned teardown still has to run.
+    @async.with_cancellation_handler(
+      () => ignore(@process.run(
+        "/bin/sh",
+        ["-c", "printf '%s' \"$MOONRUN_IPC_ENDPOINT\" > endpoint; exec \"$1\" \"$2\" spin > ready", "ipc-shell", args[2], args[3]],
+        cwd="child",
+      )),
+      handler=() => { while true { () } },
+    )
     return
   }
   if args[1] == "probe" {
@@ -147,4 +190,5 @@ async fn main {
   )
   println(output.text().trim(char_set="\r\n"))
   assert_eq(code, 23)
+  assert_true(output.text().contains("guest=\{pid()}\n"))
 }

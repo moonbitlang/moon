@@ -311,6 +311,9 @@ fn test_moonrun_help_describes_policy_shape() {
     assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
     assert!(stdout.contains("JSON, TOML, or .mbtx policy file"));
     assert!(stdout.contains("process.virtualize defaults to false"));
+    assert!(stdout.contains("--daemon"));
+    assert!(stdout.contains("--virtual-process"));
+    assert!(!stdout.contains("--ipc-session"));
     assert!(stdout.contains("deny-by-default mode"));
     assert!(stdout.contains(r#""from_host": ["*"]"#));
     assert!(stdout.contains(r#""read": ["*"]"#));

@@ -510,6 +510,13 @@ source. Inherited restriction transfer carries neither execution configuration
 nor Env provisioning. Internal children receive their parent's execution choice
 explicitly through Host Process; parentage alone does not supply it.
 
+The CLI offers `--virtual-process` and `--daemon` as explicit enabling overrides
+for `process.virtualize` and `process.ipc`. Absent flags retain the selected
+configuration. Neither flag changes authorization. IPC and virtualization remain
+mutually exclusive, including settings loaded from policy or inherited discovery.
+The binary consumes the library's shared `MoonrunCli` grammar; parsing does not
+initialize the Engine, load policy, or install process-global handlers.
+
 A policy discovered through Moon's Wasm handoff is loaded before Wasm starts.
 A managed execution reuses its existing identity; an inline execution admits
 under the namespace shutdown lock only if virtualization becomes enabled.

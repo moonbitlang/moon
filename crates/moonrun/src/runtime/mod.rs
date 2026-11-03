@@ -126,8 +126,7 @@ impl HostKeys {
 /// State, wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
     // Stop IPC admission and finish delegated Runs before releasing host state.
-    #[cfg(unix)]
-    _ipc_session: Option<crate::ipc::session::Session>,
+    _ipc_server: Option<crate::ipc::server::IpcServer>,
     environment: Arc<Env>,
     executable: Executable,
     working_directory: Arc<WorkingDirectory>,
@@ -144,7 +143,6 @@ pub(crate) struct Runtime {
 /// and provisions Env while composing the already resolved policy rules.
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
-    #[cfg(unix)]
     pub(crate) ipc_engine: Option<crate::Engine>,
     pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
@@ -250,12 +248,16 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
-        #[cfg(unix)]
-        let ipc_session = config
+        let ipc_server = config
             .ipc_engine
             .take()
             .map(|engine| {
-                crate::ipc::session::Session::start(engine, policy.clone(), child_signal_mask)
+                crate::ipc::server::IpcServer::start(
+                    engine,
+                    policy.clone(),
+                    #[cfg(unix)]
+                    child_signal_mask,
+                )
             })
             .transpose()?;
         let process = HostProcess::new(
@@ -265,12 +267,8 @@ impl Runtime {
             config.process_context,
             Arc::clone(&environment),
         );
-        #[cfg(unix)]
-        let process = process.with_ipc_endpoint(
-            ipc_session
-                .as_ref()
-                .map(|session| session.endpoint().to_owned()),
-        );
+        let process =
+            process.with_ipc_endpoint(ipc_server.as_ref().map(|server| server.endpoint()));
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,
@@ -284,8 +282,7 @@ impl Runtime {
         );
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
-            #[cfg(unix)]
-            _ipc_session: ipc_session,
+            _ipc_server: ipc_server,
             environment,
             executable,
             working_directory,

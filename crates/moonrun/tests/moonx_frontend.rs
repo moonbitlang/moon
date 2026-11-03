@@ -55,6 +55,7 @@ fn frontend_exits_without_preparation() {
     let engine = Engine::default();
     for (args, code, fragment) in [
         (vec!["--help"], 0, "Run a standalone .mbtx file"),
+        (vec!["--daemon", "--help"], 0, "Run a standalone .mbtx file"),
         (vec!["--version"], 0, "moonx "),
         (vec![], 2, "Usage:"),
         (vec!["--target", "native"], 2, "invalid value"),
@@ -94,7 +95,7 @@ fn frontend_exits_without_preparation() {
 
     // These flags belong to the guest. A real execution request must still try
     // preparation, which cannot succeed without either storage or a helper.
-    for flag in ["--help", "--version"] {
+    for flag in ["--help", "--version", "--daemon"] {
         let error = engine
             .run_moon(
                 &moonx,
@@ -103,6 +104,22 @@ fn frontend_exits_without_preparation() {
             )
             .unwrap_err();
         assert!(error.to_string().contains("artifact handoff"), "{error:#}");
+    }
+
+    // Reject an unsupported combination before spawning a build helper.
+    #[cfg(feature = "v8")]
+    {
+        let error = engine
+            .run_moon(
+                &moonx,
+                &["--daemon".into(), "script.mbtx".into()],
+                RunOptions::default().with_virtualize(true),
+            )
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("IPC virtual process sessions"),
+            "{error:#}"
+        );
     }
 }
 
@@ -174,5 +191,80 @@ fn frontend_write_failures_preserve_cli_exit_status() {
             RunOutcome::Exited(code),
         );
         assert_eq!(std::fs::read(&output).unwrap(), b"unchanged");
+    }
+}
+
+#[cfg(all(unix, feature = "v8"))]
+#[test]
+fn daemon_preparation_preserves_engine_shutdown() {
+    use moonrun::RunTermination;
+    use std::io::BufRead;
+    use std::os::unix::{fs::PermissionsExt, net::UnixStream};
+    // Isolate fixture creation from other tests that fork with open write fds.
+    const CHILD: &str = "MOONRUN_DAEMON_PREPARATION_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "daemon_preparation_preserves_engine_shutdown"])
+            .env(CHILD, "1")
+            .timeout(std::time::Duration::from_secs(20))
+            .assert()
+            .success();
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let helper = directory.path().join("moonx");
+    std::fs::write(
+        &helper,
+        "#!/bin/sh\nprintf 'ready\\n'\nread release\nexit 19\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    for frontend_flag in [false, true] {
+        let engine = Engine::default();
+        let (mut controller, child) = UnixStream::pair().unwrap();
+        controller
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let child_in: std::os::fd::OwnedFd = child.try_clone().unwrap().into();
+        let child_out: std::os::fd::OwnedFd = child.into();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let args = if frontend_flag {
+                    vec!["--daemon".into(), "script.mbtx".into()]
+                } else {
+                    vec!["script.mbtx".into()]
+                };
+                let options = RunOptions::default().with_stdio(
+                    File::from(child_in),
+                    File::from(child_out),
+                    tempfile::tempfile().unwrap(),
+                );
+                engine.run_moon(
+                    &helper,
+                    &args,
+                    if frontend_flag {
+                        options
+                    } else {
+                        options.with_ipc(true)
+                    },
+                )
+            });
+            let mut ready = String::new();
+            let read = std::io::BufReader::new(&controller).read_line(&mut ready);
+            let admitted = engine.snapshot().len();
+            engine.request_shutdown(RunTermination::Exit(42));
+            // Always release the helper before asserting, including on failure.
+            controller.write_all(b"release\n").unwrap();
+            let result = worker.join().unwrap();
+            read.unwrap();
+            assert_eq!(ready, "ready\n");
+            assert_eq!(
+                result.unwrap(),
+                RunOutcome::Exited(42),
+                "frontend flag: {frontend_flag}"
+            );
+            assert_eq!(admitted, 1);
+        });
+        assert!(engine.snapshot().is_empty());
     }
 }

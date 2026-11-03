@@ -23,6 +23,7 @@ The supported options are:
 
 ```text
 --experimental-policy <PATH>
+--daemon
 -v, --verbose
 -h, --help
 -V, --version
@@ -35,6 +36,16 @@ the input.
 
 The child process inherits the caller's working directory, environment,
 standard streams, and signal behavior. `moonx` returns the child's exit code.
+
+`--daemon` enables a session IPC execution host for this invocation, for both
+standalone scripts and registry packages. Native descendants that invoke moonrun
+reuse that host; if a session is already inherited, the invocation joins it.
+The session ends with its owning Run: no persistent or detached daemon starts.
+The flag overrides `process.ipc = false` as an execution setting, without changing
+selected or inherited permissions. It requires V8 and `process.virtualize = false`.
+The same selection applies to `Engine::run_moon` artifact handoff. Options after
+the input remain program arguments, so `moonx script.mbtx --daemon` does not
+enable a session. See [IPC sessions](../../../crates/moonrun/docs/dev/design/ipc-execution.md).
 
 The selected policy's `process.virtualize = true` enables Moonrun's experimental
 virtual supervision for the resolved Wasm and recursive moonx children. Guest

@@ -48,7 +48,6 @@ pub(crate) use job::SpawnOptions;
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
 pub(crate) struct HostProcess {
-    #[cfg(unix)]
     ipc_endpoint: Option<std::path::PathBuf>,
     policy: Option<ProcessPolicy>,
     policy_inheritance: Option<Policy>,
@@ -86,7 +85,6 @@ impl HostProcess {
             .is_some()
             .then(|| Arc::new(ChildAuthorityState::default()));
         Self {
-            #[cfg(unix)]
             ipc_endpoint: None,
             policy: policy.as_ref().map(Policy::process),
             policy_inheritance: policy,
@@ -98,7 +96,6 @@ impl HostProcess {
         }
     }
 
-    #[cfg(unix)]
     pub(crate) fn with_ipc_endpoint(mut self, endpoint: Option<std::path::PathBuf>) -> Self {
         self.ipc_endpoint = endpoint;
         self

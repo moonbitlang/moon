@@ -19,88 +19,15 @@
 mod cli;
 
 use clap::Parser;
-use cli::{ProcessSignals, Session};
+use cli::{CliSession, HostSignalPolicy, ProcessSignals};
+use moonrun::cli_support::MoonrunCli;
 use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome, signal_channel};
-use std::path::PathBuf;
-
-#[derive(Debug, clap::Parser)]
-#[command(version = get_moonrun_version())]
-struct Commandline {
-    /// The path of the file to run
-    path: PathBuf,
-
-    /// Additional arguments
-    #[clap(allow_hyphen_values = true)]
-    args: Vec<String>,
-
-    /// Don't print stack trace
-    #[clap(long)]
-    no_stack_trace: bool,
-
-    #[clap(long)]
-    test_args: Option<String>,
-
-    #[clap(long)]
-    stack_size: Option<usize>,
-
-    /// Experimental: sandbox wasm runtime host access using a JSON, TOML, or .mbtx policy file.
-    #[clap(
-        long,
-        value_name = "PATH",
-        long_help = r#"Experimental: Sandbox wasm runtime host access using a JSON, TOML, or .mbtx policy file.
-
-Supplying --policy enables deny-by-default mode: omitted or empty fs, net, and env objects deny that surface, and process spawning is disabled unless explicitly allowed.
-
-Common allow-all policy:
-  {
-    "env": { "from_host": ["*"] },
-    "fs": {
-      "read": ["*"],
-      "write": ["*"]
-    },
-    "net": {
-      "dns": ["*"],
-      "connect": ["*:*"],
-      "bind": ["*:*"]
-    },
-    "process": { "spawn": true }
-  }
-
-Filesystem roots are host paths. Relative roots are resolved relative to the policy file. "*" allows every host path on every platform.
-
-Environment values default to empty in sandbox policy mode. Use env.from_host for optional host variables, env.required_from_host for required host variables and secrets, and env.set for non-secret literals. env.set overrides copied host values.
-
-Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so net.connect containing "api.deepseek.com:443" does not require a separate dns entry. Bind rules must use IP addresses or *.
-
-Process spawning is disabled by default. process.allow entries match the exact requested program and, when args_prefix is present, a prefix of complete argument tokens. Omitting args_prefix allows any arguments for that program. Multiple entries are alternatives. process.spawn and process.allow cannot be used together.
-
-process.virtualize defaults to false. Set it to true for Engine-managed identities, owned environment/cwd and internal moonx execution (V8 only). The same spawn/allow rules authorize every guest spawn in both modes. For a moonx-only virtual tree use process.virtualize=true with process.allow=[{"program":"moonx"}].
-
-process.ipc=true enables a Unix/V8 execution session for native descendants. A descendant moonrun connects to this Engine before initializing its own runtime. Each Run keeps its own cwd/env/stdio and inherits its parent's permission ceiling. IPC currently requires process.virtualize=false. With no inherited session and ipc disabled, execution stays local.
-
-Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes. Scoped rules authorize the logical request, not the executable eventually selected through PATH or other OS lookup."#
-    )]
-    policy: Option<PathBuf>,
-
-    /// Override the directory used to resolve relative policy paths.
-    #[clap(long, value_name = "PATH", hide = true, requires = "policy")]
-    policy_source_dir: Option<PathBuf>,
-}
-
-fn get_moonrun_version() -> String {
-    format!(
-        "{} ({} {})",
-        env!("CARGO_PKG_VERSION"),
-        env!("VERGEN_GIT_SHA"),
-        std::env!("VERGEN_BUILD_DATE")
-    )
-}
 
 fn main() -> anyhow::Result<()> {
     let inherited_policy = moonutil::policy_transport::PolicyTransfer::take_from_env()?
         .map(moonutil::policy_transport::PolicyTransfer::read)
         .transpose()?;
-    let matches = Commandline::parse();
+    let matches = MoonrunCli::parse();
     let engine_config = match matches.stack_size {
         Some(stack_size) => EngineConfig::default().with_stack_size(stack_size),
         None => EngineConfig::default(),
@@ -121,7 +48,12 @@ fn main() -> anyhow::Result<()> {
         options =
             options.with_policy_file_source_dir(policy, matches.policy_source_dir.as_deref())?;
     }
-    #[cfg(unix)]
+    if matches.daemon {
+        options = options.with_ipc(true);
+    }
+    if matches.virtual_process {
+        options = options.with_virtualize(true);
+    }
     if let Some(endpoint) = std::env::var_os(moonrun::ipc::ENDPOINT_ENV) {
         // Decide placement before constructing an Engine or initializing V8.
         let run =
@@ -139,15 +71,15 @@ fn main() -> anyhow::Result<()> {
     }
 
     let (signal_sender, signal_receiver) = signal_channel();
-    let session = options
-        .virtualize()
-        .then(|| Session::new(signal_sender.clone()));
+    let session = if options.ipc() {
+        Some(CliSession::new(HostSignalPolicy::ShutdownEngine))
+    } else {
+        options
+            .virtualize()
+            .then(|| CliSession::new(HostSignalPolicy::RootThenShutdown(signal_sender.clone())))
+    };
     let _process_signals = if let Some(session) = &session {
         ProcessSignals::install_session(session.clone())?
-    } else if options.ipc() {
-        let (terminator, receiver) = moonrun::termination_channel();
-        options = options.with_termination_receiver(receiver);
-        ProcessSignals::install_controlled(signal_sender, terminator)?
     } else {
         ProcessSignals::install(signal_sender)?
     };

@@ -187,7 +187,7 @@ fn cancellation_and_disconnect_are_scoped_to_one_execution() {
         let (client, server) = UnixStream::pair().unwrap();
         let engine = engine.clone();
         hosts.push(std::thread::spawn(move || {
-            serve(&engine, server, RunOptions::default())
+            serve(&engine, server, RunOptions::default().with_ipc(true))
         }));
         let (writer, mut ready) = UnixStream::pair().unwrap();
         ready
@@ -209,6 +209,7 @@ fn cancellation_and_disconnect_are_scoped_to_one_execution() {
         assert_eq!(byte, *b"R");
         runs.push(run);
     }
+    assert_eq!(engine.snapshot().len(), 2);
     let second = runs.pop().unwrap();
     let first = runs.pop().unwrap();
     let surviving_control = first.control();
@@ -216,6 +217,7 @@ fn cancellation_and_disconnect_are_scoped_to_one_execution() {
     let first_host = hosts.remove(0).join().unwrap();
     let _ = first_host; // successful socket writes do not prove the peer observed them
     assert!(!hosts[0].is_finished(), "disconnect stopped the other Run");
+    assert_eq!(engine.snapshot().len(), 1);
     assert!(
         surviving_control
             .terminate(RunTermination::Exit(9))

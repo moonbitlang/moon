@@ -50,7 +50,8 @@ impl StdioStream {
 pub(crate) enum Stdio {
     #[default]
     Ambient,
-    Owned([Mutex<File>; 3]),
+    // None retains that ambient stream; Some binds an owned file or pipe.
+    Bound([Option<Mutex<File>>; 3]),
 }
 
 /// Stateful UTF-16 code-unit output used by MoonBit's legacy character ABI.
@@ -86,27 +87,27 @@ impl Utf16Writer {
 }
 
 impl Stdio {
-    #[cfg(unix)]
     pub(crate) fn into_files(self) -> io::Result<[File; 3]> {
-        use std::os::fd::AsFd;
-        match self {
-            Self::Owned(files) => {
-                let [stdin, stdout, stderr] = files.map(|file| {
-                    file.into_inner()
-                        .map_err(|_| io::Error::other("stdio lock poisoned"))
-                });
-                Ok([stdin?, stdout?, stderr?])
-            }
-            Self::Ambient => Ok([
-                File::from(io::stdin().as_fd().try_clone_to_owned()?),
-                File::from(io::stdout().as_fd().try_clone_to_owned()?),
-                File::from(io::stderr().as_fd().try_clone_to_owned()?),
-            ]),
-        }
+        let files = match self {
+            Self::Ambient => [None, None, None],
+            Self::Bound(files) => files,
+        };
+        let mut files = files.into_iter();
+        let [stdin, stdout, stderr] = StdioStream::ALL.map(|stream| match files.next().unwrap() {
+            Some(file) => file
+                .into_inner()
+                .map_err(|_| io::Error::other("stdio lock poisoned")),
+            None => clone_ambient(stream),
+        });
+        Ok([stdin?, stdout?, stderr?])
     }
 
     pub(crate) fn owned(stdin: File, stdout: File, stderr: File) -> Self {
-        Self::Owned([Mutex::new(stdin), Mutex::new(stdout), Mutex::new(stderr)])
+        Self::bound([Some(stdin), Some(stdout), Some(stderr)])
+    }
+
+    pub(crate) fn bound(files: [Option<File>; 3]) -> Self {
+        Self::Bound(files.map(|file| file.map(Mutex::new)))
     }
 
     pub(crate) fn with_stdin<T, E>(
@@ -114,8 +115,8 @@ impl Stdio {
         f: impl FnOnce(&mut dyn Read) -> Result<T, E>,
     ) -> Result<T, E> {
         match self {
-            Self::Ambient => f(&mut io::stdin().lock()),
-            Self::Owned(files) => f(&mut *files[0].lock().unwrap()),
+            Self::Bound([Some(file), _, _]) => f(&mut *file.lock().unwrap()),
+            _ => f(&mut io::stdin().lock()),
         }
     }
 
@@ -124,8 +125,8 @@ impl Stdio {
         f: impl FnOnce(&mut dyn Write) -> Result<T, E>,
     ) -> Result<T, E> {
         match self {
-            Self::Ambient => f(&mut io::stdout().lock()),
-            Self::Owned(files) => f(&mut *files[1].lock().unwrap()),
+            Self::Bound([_, Some(file), _]) => f(&mut *file.lock().unwrap()),
+            _ => f(&mut io::stdout().lock()),
         }
     }
 
@@ -134,8 +135,8 @@ impl Stdio {
         f: impl FnOnce(&mut dyn Write) -> Result<T, E>,
     ) -> Result<T, E> {
         match self {
-            Self::Ambient => f(&mut io::stderr().lock()),
-            Self::Owned(files) => f(&mut *files[2].lock().unwrap()),
+            Self::Bound([_, _, Some(file)]) => f(&mut *file.lock().unwrap()),
+            _ => f(&mut io::stderr().lock()),
         }
     }
 
@@ -174,9 +175,8 @@ impl Stdio {
     /// Observe one ambient raw handle without taking ownership of it.
     pub(crate) fn raw(&self, stream: StdioStream) -> io::Result<RawStdio> {
         match self {
-            Self::Ambient => ambient_raw(stream),
-            Self::Owned(files) => {
-                let file = files[stream as usize].lock().unwrap();
+            Self::Bound(files) if files[stream as usize].is_some() => {
+                let file = files[stream as usize].as_ref().unwrap().lock().unwrap();
                 #[cfg(unix)]
                 {
                     use std::os::fd::AsRawFd;
@@ -188,11 +188,35 @@ impl Stdio {
                     Ok(file.as_raw_handle())
                 }
             }
+            _ => ambient_raw(stream),
         }
     }
 
     pub(crate) fn raw_handles(&self) -> [Option<RawStdio>; 3] {
         StdioStream::ALL.map(|stream| self.raw(stream).ok())
+    }
+}
+
+fn clone_ambient(stream: StdioStream) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        let fd = match stream {
+            StdioStream::Stdin => io::stdin().as_fd().try_clone_to_owned()?,
+            StdioStream::Stdout => io::stdout().as_fd().try_clone_to_owned()?,
+            StdioStream::Stderr => io::stderr().as_fd().try_clone_to_owned()?,
+        };
+        Ok(File::from(fd))
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsHandle;
+        let handle = match stream {
+            StdioStream::Stdin => io::stdin().as_handle().try_clone_to_owned()?,
+            StdioStream::Stdout => io::stdout().as_handle().try_clone_to_owned()?,
+            StdioStream::Stderr => io::stderr().as_handle().try_clone_to_owned()?,
+        };
+        Ok(File::from(handle))
     }
 }
 

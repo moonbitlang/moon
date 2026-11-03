@@ -16,18 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! A Run-owned listener. Its private endpoint binds an immutable authority
+//! A Run-owned IPC server. Its private endpoint binds an immutable authority
 //! ceiling; native descendants need only inherit the endpoint name. Closing
 //! the owner closes admission, disconnects delegates, and joins their teardown.
 
+use super::{
+    Connection,
+    transport::{Listener, Wake},
+};
 use std::collections::HashMap;
 use std::net::Shutdown;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
-
-use rustix::event::{PollFd, PollFlags, poll};
 
 use crate::policy::Policy;
 use crate::{Engine, RunOptions};
@@ -35,25 +36,23 @@ use crate::{Engine, RunOptions};
 #[derive(Default)]
 struct Connections {
     closed: bool,
-    streams: HashMap<usize, UnixStream>,
+    streams: HashMap<usize, Connection>,
 }
 
-pub(crate) struct Session {
-    directory: tempfile::TempDir,
-    wake: UnixStream,
+pub(crate) struct IpcServer {
+    endpoint: std::path::PathBuf,
+    wake: Wake,
     connections: Arc<Mutex<Connections>>,
     listener: Option<JoinHandle<()>>,
 }
 
-impl Session {
+impl IpcServer {
     pub(crate) fn start(
         engine: Engine,
         policy: Option<Policy>,
-        child_signal_mask: libc::sigset_t,
+        #[cfg(unix)] child_signal_mask: libc::sigset_t,
     ) -> anyhow::Result<Self> {
-        let directory = tempfile::Builder::new().prefix("moonrun-").tempdir()?;
-        let listener = UnixListener::bind(directory.path().join("ipc"))?;
-        let (wake, interrupted) = UnixStream::pair()?;
+        let (mut listener, wake, endpoint) = Listener::bind()?;
         let connections = Arc::new(Mutex::new(Connections::default()));
         let state = Arc::clone(&connections);
         let (stack, thread_stack) = engine.execution_stack()?;
@@ -63,16 +62,7 @@ impl Session {
                 std::thread::scope(|scope| {
                     let mut workers: Vec<std::thread::ScopedJoinHandle<'_, ()>> = Vec::new();
                     for id in 0..usize::MAX {
-                        let mut events = [
-                            PollFd::new(&listener, PollFlags::IN),
-                            PollFd::new(&interrupted, PollFlags::IN),
-                        ];
-                        if rustix::io::retry_on_intr(|| poll(&mut events, None)).is_err()
-                            || !events[1].revents().is_empty()
-                        {
-                            break;
-                        }
-                        let connection = listener.accept().map(|(stream, _)| stream);
+                        let connection = listener.accept();
                         let mut current = state.lock().unwrap();
                         if current.closed {
                             break;
@@ -106,8 +96,11 @@ impl Session {
                                     options = options.with_parent_policy(policy);
                                 }
                                 options.native_stack_budget = Some(stack);
-                                options.runtime.preserved_child_signal_mask =
-                                    Some(child_signal_mask);
+                                #[cfg(unix)]
+                                {
+                                    options.runtime.preserved_child_signal_mask =
+                                        Some(child_signal_mask);
+                                }
                                 // Bound idle handshakes. serve clears the inactivity
                                 // timeout before waiting for ordinary controls.
                                 let _ = connection.set_read_timeout(Some(Duration::from_secs(30)));
@@ -142,7 +135,7 @@ impl Session {
                 });
             })?;
         Ok(Self {
-            directory,
+            endpoint,
             wake,
             connections,
             listener: Some(worker),
@@ -150,11 +143,11 @@ impl Session {
     }
 
     pub(crate) fn endpoint(&self) -> std::path::PathBuf {
-        self.directory.path().join("ipc")
+        self.endpoint.clone()
     }
 }
 
-impl Drop for Session {
+impl Drop for IpcServer {
     fn drop(&mut self) {
         let mut state = self.connections.lock().unwrap();
         state.closed = true;
@@ -163,14 +156,14 @@ impl Drop for Session {
         }
         drop(state);
         // A private wake handle works even when the public backlog is full.
-        let _ = self.wake.shutdown(Shutdown::Both);
+        self.wake.close();
         if let Some(listener) = self.listener.take() {
             let _ = listener.join();
         }
     }
 }
 
-#[cfg(all(test, feature = "v8"))]
+#[cfg(all(test, unix, feature = "v8"))]
 mod tests {
     use super::*;
 
@@ -181,7 +174,7 @@ mod tests {
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "ipc::session::tests::teardown_disconnects_clients_that_do_not_read_errors",
+                    "ipc::server::tests::teardown_disconnects_clients_that_do_not_read_errors",
                 ])
                 .env(CHILD, "1")
                 .timeout(Duration::from_secs(10))
@@ -194,14 +187,14 @@ mod tests {
         let program = directory.path().join("empty.wasm");
         std::fs::write(&program, b"\0asm\x01\0\0\0").unwrap();
         for execution_started in [false, true] {
-            let session = Session::start(
+            let server = IpcServer::start(
                 Engine::default(),
                 None,
                 crate::runtime::current_signal_mask().unwrap(),
             )
             .unwrap();
-            let endpoint = session.endpoint();
-            let mut connection = UnixStream::connect(&endpoint).unwrap();
+            let endpoint = server.endpoint();
+            let mut connection = Connection::connect(&endpoint).unwrap();
             rustix::net::sockopt::set_socket_recv_buffer_size(&connection, 4096).unwrap();
             let stdio = [
                 tempfile::tempfile().unwrap(),
@@ -238,7 +231,7 @@ mod tests {
             // Stop reading after the header. Teardown must not wait for the
             // rest to fit in the client's buffer, including on Darwin after
             // the control reader has already shut down reads.
-            drop(session);
+            drop(server);
             assert!(!endpoint.exists());
             assert!(!endpoint.parent().unwrap().exists());
         }

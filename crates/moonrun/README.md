@@ -35,9 +35,32 @@ as V8. WASIp1 descriptor rights and preopen containment remain required in
 addition to Moonrun filesystem policy; all engine adapters invoke the same
 shared WASIp1 host operations.
 
+## Experimental IPC sessions
+
+`moonrun --daemon program.wasm` or `moonx --daemon script.mbtx` (or a registry package) shares one execution host
+with native descendants that invoke moonrun. The session ends with the owning
+Run; this does not start a persistent daemon. Existing and inherited permission
+rules still apply. Place `--daemon` before the input. To select a policy, add
+`--policy policy.toml` for moonrun or `--experimental-policy policy.toml` for moonx.
+
+The same behavior is available through `process.ipc = true` in a moonrun policy
+or `RunOptions::with_ipc(true)` when embedding. It currently requires V8 and
+`process.virtualize = false`. See [IPC sessions](docs/dev/design/ipc-execution.md)
+for discovery, signals, teardown and platform limitations.
+
 ## Experimental virtual process tree
 
-Select execution behavior in a Moonrun policy file. For a moonx-only virtual
+`moonrun --virtual-process program.wasm` enables virtual identities and internal
+moonx execution. It selects the same behavior as `process.virtualize = true` or
+`RunOptions::with_virtualize(true)`; it does not add moonrun interception or native
+child support. The `--daemon` and `--virtual-process` flags enable their respective
+settings explicitly, overriding a false value in the selected policy. Omitted
+flags leave policy choices intact. Neither flag changes permissions. IPC and
+virtualization cannot currently be combined, including through configuration or
+inherited IPC discovery. Use `--` before program arguments that resemble runner
+options, for example `moonrun --daemon app.wasm -- --daemon`.
+
+Alternatively, select execution behavior in a Moonrun policy file. For a moonx-only virtual
 tree, use:
 
 ```toml

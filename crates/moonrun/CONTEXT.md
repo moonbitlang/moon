@@ -121,8 +121,9 @@ The standard-stream behavior selected once by Runtime Configuration and owned
 by one Runtime. The V8 I/O imports, WASI descriptors, reserved Async Host
 Resources, and Host Process defaults all consume this same Runtime State.
 `Ambient` preserves the historical observation points for process standard
-streams without owning their OS handles. `Owned` binds caller-supplied files to
-one Run. Moonrun Policy neither selects nor authorizes Runtime Stdio.
+streams without owning their OS handles. `Bound` selects each stream independently:
+an owned file/pipe or the corresponding ambient stream. Fully owned bindings
+remain available to callers. Moonrun Policy neither selects nor authorizes Runtime Stdio.
 _Avoid_: process-global fallback, stdio policy, Host Stdio forwarding service
 
 **WASI Capability Surface**:
@@ -299,13 +300,14 @@ It is installed once before Engine initialization and lives until process
 exit. On Unix, the CLI blocks its managed signals before creating other
 threads, a dedicated `sigwait` thread consumes them, and child processes use
 the signal mask preserved before broker installation. On Windows, one
-console-control handler performs the same forwarding role. The adapter forwards each captured signal to the CLI Run's Signal Sender. In
-ordinary mode an unaccepted signal uses the process's existing platform
-behavior. The virtual CLI instead requests Engine namespace shutdown and waits
-for adopted descendants before presenting the first unhandled signal. Signals
-during that cleanup cannot bypass it; after session finalization they return
-to the process fallback. The library Engine never
-installs this adapter.
+console-control handler performs the same forwarding role. Ordinary CLI execution
+forwards captured signals to the Run's Signal Sender; an unaccepted signal uses
+the process's existing platform behavior. The virtual CLI instead requests Engine
+namespace shutdown and waits for adopted descendants before presenting the first
+unhandled signal. An IPC host CLI requests whole-session shutdown immediately;
+an IPC client forwards signals only to its delegated Run. Signals during session
+cleanup cannot bypass it; after finalization they return to the process fallback.
+The library Engine never installs this adapter.
 _Avoid_: Runtime signal handler, Engine signal handler, global Run target
 
 **Loaded Module**:
@@ -320,9 +322,9 @@ and owns a namespace of admitted process identities and their lifecycle. Clones
 share that namespace and backend; a newly constructed Engine has an independent
 namespace. Execution placement and guest process behavior are separate choices.
 An Engine does not own a Runtime's virtual environment. `request_shutdown`
-closes managed and virtualized admission and requests termination of all admitted
-members, including adopted descendants; it does not wait or affect Native
-caller-thread Runs outside its process table.
+closes managed, virtualized and IPC-enabled admission and requests termination of
+all admitted members, including adopted descendants; it does not wait or affect Native
+caller-thread Runs without IPC outside its process table.
 _Avoid_: Runtime, Instance, Run, execution thread, thread pool
 
 **Instance**:

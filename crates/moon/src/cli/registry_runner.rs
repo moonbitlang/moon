@@ -26,16 +26,12 @@ pub(crate) fn prepare_artifact(
     experimental_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
     policy_relay: Option<moonutil::policy_transport::PolicyRelay>,
+    ipc: bool,
     args: &[String],
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
-    let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::MoonRun,
-        artifact,
-        None,
-        experimental_policy,
-        policy_source_dir,
-    );
+    let mut run_cmd =
+        crate::run::moonrun_command(artifact, None, experimental_policy, policy_source_dir, ipc);
     run_cmd.args(args);
 
     if user_log.is_enabled(log::Level::Info) {
@@ -64,6 +60,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             &[],
             &UserLog::new(log::LevelFilter::Warn),
         )

@@ -60,11 +60,13 @@ pub(crate) fn prepare_moon(
         command.env_clear().envs(environment.iter().cloned());
     }
     command.env_remove(moonutil::constants::MOONRUN_INHERITED_POLICY);
-    if let RuntimeStdio::Owned(files) = &config.stdio {
-        command
-            .stdin(Stdio::from(files[0].lock().unwrap().try_clone()?))
-            .stdout(Stdio::from(files[1].lock().unwrap().try_clone()?))
-            .stderr(Stdio::from(files[2].lock().unwrap().try_clone()?));
+    if let RuntimeStdio::Bound(files) = &config.stdio {
+        let [stdin, stdout, stderr] = files.each_ref().map(|file| {
+            file.as_ref()
+                .map(|file| file.lock().unwrap().try_clone().map(Stdio::from))
+                .unwrap_or_else(|| Ok(Stdio::inherit()))
+        });
+        command.stdin(stdin?).stdout(stdout?).stderr(stderr?);
     }
     #[cfg(windows)]
     if no_console_window {

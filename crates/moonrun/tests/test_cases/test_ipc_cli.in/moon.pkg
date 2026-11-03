@@ -3,6 +3,7 @@ import {
   "moonbitlang/async/signal",
   "moonbitlang/async/stdio",
   "moonbitlang/async/process",
+  "moonbitlang/async/os_error",
   "moonbitlang/async/fs",
   "moonbitlang/core/env",
 }

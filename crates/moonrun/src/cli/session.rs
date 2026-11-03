@@ -16,15 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! The virtual CLI's signal and exit policy, not a second execution host.
+//! CLI-owned Engine shutdown and exit policy.
 
 use std::sync::{Arc, Mutex};
 
 use moonrun::{Engine, RunOutcome, RunTermination, SignalSender};
 
 #[derive(Clone)]
-pub(crate) struct Session {
-    root_signals: SignalSender,
+pub(crate) struct CliSession {
+    signal_policy: HostSignalPolicy,
     state: Arc<Mutex<State>>,
 }
 
@@ -35,10 +35,19 @@ struct State {
     finished: bool,
 }
 
-impl Session {
-    pub(crate) fn new(root_signals: SignalSender) -> Self {
+/// How this CLI owns host signals. IPC-enabled library Runs do not select it.
+#[derive(Clone)]
+pub(crate) enum HostSignalPolicy {
+    /// Offer the root a cooperative signal; shut down if it does not accept it.
+    RootThenShutdown(SignalSender),
+    /// Request shutdown of all admitted Runs without invoking guest handlers.
+    ShutdownEngine,
+}
+
+impl CliSession {
+    pub(crate) fn new(signal_policy: HostSignalPolicy) -> Self {
         Self {
-            root_signals,
+            signal_policy,
             state: Default::default(),
         }
     }
@@ -56,13 +65,25 @@ impl Session {
     }
 
     pub(crate) fn send(&self, signal: i32) -> bool {
+        #[cfg(windows)]
+        if matches!(self.signal_policy, HostSignalPolicy::ShutdownEngine)
+            && ![0, 1].contains(&signal)
+        {
+            // CLOSE/LOGOFF/SHUTDOWN cannot drain asynchronously after returning.
+            return false;
+        }
         let mut state = self.state.lock().unwrap();
         if state.finished {
             return false;
         }
         // Once shutdown starts, repeated signals cannot skip cleanup by
         // falling back to host termination, or replace the first exit reason.
-        if state.shutdown.is_some() || self.root_signals.send(signal) == Ok(true) {
+        if state.shutdown.is_some() {
+            return true;
+        }
+        if let HostSignalPolicy::RootThenShutdown(sender) = &self.signal_policy
+            && sender.send(signal) == Ok(true)
+        {
             return true;
         }
         let outcome = RunTermination::KilledBySignal(signal);
@@ -95,9 +116,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn engine_shutdown_policy_closes_admission_before_engine_attachment() {
+        let session = CliSession::new(HostSignalPolicy::ShutdownEngine);
+        assert!(session.send(0));
+        assert!(session.send(1));
+        let engine = Engine::default();
+        session.attach_engine(&engine);
+        assert!(!engine.request_shutdown(RunTermination::Exit(42)));
+        assert_eq!(
+            session.finish::<()>(Err(())),
+            Ok(RunOutcome::KilledBySignal(0))
+        );
+        assert!(!session.send(1));
+    }
+
+    #[test]
     fn early_and_repeated_signals_keep_the_first_outcome() {
         let (sender, _receiver) = moonrun::signal_channel();
-        let session = Session::new(sender);
+        let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
         assert!(session.send(2));
         assert!(session.send(15));
 
@@ -117,7 +153,7 @@ mod tests {
     #[test]
     fn a_signal_after_root_exit_still_shuts_down_the_session() {
         let (sender, receiver) = moonrun::signal_channel();
-        let session = Session::new(sender);
+        let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
         let engine = Engine::default();
         session.attach_engine(&engine);
         drop(receiver);
@@ -137,7 +173,7 @@ mod tests {
             Err("root failed"),
         ] {
             let (sender, _receiver) = moonrun::signal_channel();
-            let session = Session::new(sender);
+            let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
             let engine = Engine::default();
             session.attach_engine(&engine);
             assert_eq!(session.finish(outcome), outcome);
@@ -148,7 +184,7 @@ mod tests {
     #[test]
     fn attachment_and_signal_delivery_cannot_lose_shutdown() {
         let (sender, _receiver) = moonrun::signal_channel();
-        let session = Session::new(sender);
+        let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
         let engine = Engine::default();
         let gate = Arc::new(std::sync::Barrier::new(2));
         std::thread::scope(|threads| {
@@ -172,7 +208,7 @@ mod tests {
     fn finished_sessions_return_signals_without_touching_the_old_engine() {
         for cancel_before_finish in [false, true] {
             let (sender, _receiver) = moonrun::signal_channel();
-            let session = Session::new(sender);
+            let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
             let engine = Engine::default();
             session.attach_engine(&engine);
             if cancel_before_finish {
@@ -199,7 +235,7 @@ mod tests {
     #[test]
     fn a_signal_racing_finish_is_presented_or_returned_to_the_os_adapter() {
         let (sender, _receiver) = moonrun::signal_channel();
-        let session = Session::new(sender);
+        let session = CliSession::new(HostSignalPolicy::RootThenShutdown(sender));
         let gate = std::sync::Barrier::new(2);
         let (outcome, accepted) = std::thread::scope(|threads| {
             let signal = threads.spawn(|| {

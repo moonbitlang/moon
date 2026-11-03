@@ -22,6 +22,9 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+#[path = "common/moonx_ipc.rs"]
+mod moonx_ipc;
+
 #[test]
 fn cli_reuses_the_host_through_a_native_shell() {
     let directory = tempfile::tempdir().unwrap();
@@ -124,7 +127,12 @@ spawn = true
             .success()
             .stdout_eq(expected);
     }
-    assert_host_shutdown(&project, &policy, &wasm);
+    for signal in [libc::SIGINT, libc::SIGTERM] {
+        for whole_group in [false, true] {
+            let _ = fs::remove_file(project.join("child/ready"));
+            assert_host_shutdown(&project, &policy, &wasm, signal, whole_group);
+        }
+    }
     assert_terminal_roundtrip(&project, &policy, &wasm);
     fs::write(
         &policy,
@@ -145,6 +153,7 @@ spawn = true
         .assert()
         .success()
         .stdout_eq("local execution preserved\n");
+    moonx_ipc::assert_execution_options(&project, &wasm, &policy);
 }
 
 #[test]
@@ -187,7 +196,13 @@ impl Drop for ChildGroup {
     }
 }
 
-fn assert_host_shutdown(project: &Path, policy: &Path, wasm: &Path) {
+fn assert_host_shutdown(
+    project: &Path,
+    policy: &Path,
+    wasm: &Path,
+    signal: i32,
+    whole_group: bool,
+) {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let mut child = ChildGroup(
         std::process::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
@@ -217,9 +232,10 @@ fn assert_host_shutdown(project: &Path, policy: &Path, wasm: &Path) {
         std::thread::sleep(Duration::from_millis(10));
     }
     let endpoint = fs::read_to_string(project.join("child/endpoint")).unwrap();
+    let target = child.0.id() as i32 * if whole_group { -1 } else { 1 };
     unsafe {
-        assert_eq!(libc::kill(child.0.id() as i32, libc::SIGTERM), 0);
-        libc::kill(child.0.id() as i32, libc::SIGTERM);
+        assert_eq!(libc::kill(target, signal), 0);
+        libc::kill(target, signal);
     }
     let status = loop {
         if let Some(status) = child.0.try_wait().unwrap() {
@@ -231,7 +247,7 @@ fn assert_host_shutdown(project: &Path, policy: &Path, wasm: &Path) {
         );
         std::thread::sleep(Duration::from_millis(10));
     };
-    assert_eq!(status.signal(), Some(libc::SIGTERM));
+    assert_eq!(status.signal(), Some(signal));
     assert!(
         !Path::new(&endpoint).exists(),
         "IPC endpoint survived host teardown"
@@ -284,6 +300,9 @@ fn assert_terminal_roundtrip(project: &Path, policy: &Path, wasm: &Path) {
         });
     }
     let mut child = ChildGroup(command.spawn().unwrap());
+    // Command retains its configured stdio after spawn. Release our slave ends
+    // so Linux can report PTY closure once the host and its delegates exit.
+    drop(command);
     master.write_all(b"hello\n").unwrap();
     unsafe {
         let flags = libc::fcntl(master.as_raw_fd(), libc::F_GETFL);

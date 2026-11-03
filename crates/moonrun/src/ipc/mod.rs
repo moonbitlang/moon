@@ -24,19 +24,25 @@
 //! a connection delegates the ability to select a Wasm program to run with the
 //! host-supplied restrictions. See `docs/dev/design/ipc-execution.md`.
 
-pub(crate) mod session;
-#[cfg(test)]
+pub(crate) mod server;
+#[cfg(all(test, unix))]
 mod tests;
+#[cfg(unix)]
+#[path = "unix.rs"]
+mod transport;
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod transport;
 mod wire;
+pub use transport::Connection;
 
 /// Inherited routing metadata for native descendants of an IPC-enabled Run.
 pub const ENDPOINT_ENV: &str = "MOONRUN_IPC_ENDPOINT";
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{self, IsTerminal};
+use std::io;
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -48,8 +54,8 @@ use crate::{Engine, RunOptions, RunOutcome, RunTermination, termination_channel}
 
 /// Explicit caller state for one execution. No field defaults to daemon state.
 ///
-/// Program and working directory must be absolute. Unix paths and environment
-/// values retain their original bytes. Stdio is transferred separately as OS
+/// Program and working directory must be absolute. Paths and environment values
+/// retain their OS representation (Unix bytes or Windows UTF-16). Stdio is transferred separately as OS
 /// resources, not paths to reopen. `inherited_policy` is an optional additional
 /// restriction transfer, not proof of authority or a user policy document.
 #[derive(Serialize, Deserialize)]
@@ -84,8 +90,8 @@ impl Invocation {
 /// confirms completion; losing the connection leaves the outcome unknown.
 /// There is no automatic retry or local fallback after submission.
 pub struct ClientRun {
-    stream: UnixStream,
-    control: RunControl,
+    stream: Connection,
+    control: ClientRunControl,
 }
 
 impl ClientRun {
@@ -109,11 +115,20 @@ impl ClientRun {
             .runtime
             .default_environment
             .take()
-            .unwrap_or_else(|| {
-                std::env::vars_os()
-                    .filter(|(key, _)| key != ENDPOINT_ENV)
-                    .collect()
-            });
+            .unwrap_or_else(|| std::env::vars_os().collect());
+        let source: Vec<_> = source
+            .into_iter()
+            .filter(|(key, _)| {
+                #[cfg(unix)]
+                {
+                    key != ENDPOINT_ENV
+                }
+                #[cfg(windows)]
+                {
+                    !key.to_string_lossy().eq_ignore_ascii_case(ENDPOINT_ENV)
+                }
+            })
+            .collect();
         let (policy, environment) = options
             .runtime
             .realize_policy(crate::runtime::Env::owned(source)?)?;
@@ -128,21 +143,22 @@ impl ClientRun {
             stack_size: config.stack_size,
         };
         let stdio = options.runtime.stdio.into_files()?;
-        let stream = UnixStream::connect(endpoint)
+        let stream = Connection::connect(endpoint)
             .context("failed to connect to inherited moonrun IPC session")?;
         Self::submit(stream, invocation, stdio).map_err(Into::into)
     }
 
-    /// Submit exactly one invocation on a fresh, connected Unix stream.
+    /// Submit exactly one invocation on a fresh, connected local transport.
     /// Files and pipes retain their identity and flags. Terminal streams require
-    /// both client and execution host to belong to their foreground group.
+    /// both processes in the Unix foreground group or a shared Windows console.
     pub fn submit(
-        stream: UnixStream,
+        stream: Connection,
         invocation: Invocation,
         stdio: [File; 3],
     ) -> io::Result<Self> {
+        #[cfg(unix)]
         stream.set_nonblocking(false)?;
-        let control = RunControl {
+        let control = ClientRunControl {
             stream: Arc::new(Mutex::new(stream.try_clone()?)),
         };
         let run = Self { stream, control };
@@ -159,11 +175,11 @@ impl ClientRun {
     }
 
     /// Make a control sender for use while another thread waits for completion.
-    pub fn control(&self) -> RunControl {
+    pub fn control(&self) -> ClientRunControl {
         self.control.clone()
     }
 
-    /// Consume the final outcome, published only after Engine teardown.
+    /// Consume the final outcome, published only after the delegated Run finishes teardown.
     /// Transport errors and remote execution errors are distinct from guest exit.
     pub fn wait(self) -> anyhow::Result<RunOutcome> {
         match wire::read::<wire::Reply>(&self.stream).context("IPC execution outcome is unknown")? {
@@ -181,17 +197,18 @@ impl Drop for ClientRun {
     }
 }
 
-/// Control for only the execution associated with this connection.
+/// Client-side sender for the execution associated with this connection.
+/// Sending a control message does not acknowledge acceptance by the host.
 #[derive(Clone)]
-pub struct RunControl {
-    stream: Arc<Mutex<UnixStream>>,
+pub struct ClientRunControl {
+    stream: Arc<Mutex<Connection>>,
 }
 
-impl RunControl {
-    /// Forward a CLI signal. The host delivers it cooperatively when the guest
+impl ClientRunControl {
+    /// Forward a Unix CLI signal or Windows CTRL_C/CTRL_BREAK event. The host delivers it cooperatively when the guest
     /// registered interest; otherwise it requests this Run's forced termination.
     pub fn signal(&self, signal: i32) -> io::Result<()> {
-        if ![libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+        if !supported_signal(signal) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "unsupported IPC signal",
@@ -235,16 +252,17 @@ impl RunControl {
 ///
 /// Ok means the final reply was sent, including when it reports an execution
 /// error. An I/O error means delivery failed; a caller must not retry execution.
-pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> anyhow::Result<()> {
+pub fn serve(engine: &Engine, stream: Connection, mut options: RunOptions) -> anyhow::Result<()> {
     // Keeping this guard inside the scoped-thread closure also wakes its reader
     // if execution unwinds, before scope tries to join that reader.
-    struct StopReader<'a>(&'a UnixStream);
+    struct StopReader<'a>(&'a Connection);
     impl Drop for StopReader<'_> {
         fn drop(&mut self) {
             let _ = self.0.shutdown(Shutdown::Read);
         }
     }
 
+    #[cfg(unix)]
     stream.set_nonblocking(false)?;
     let (terminator, receiver) = termination_channel();
     let result = (|| -> anyhow::Result<RunOutcome> {
@@ -268,7 +286,7 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
         );
         let invocation = request.invocation;
         invocation.validate()?;
-        check_terminals(&stdio)?;
+        check_terminals(stdio.iter().flatten())?;
         if let Some(stack) = invocation.stack_size {
             anyhow::ensure!(
                 stack.checked_mul(1024) == Some(engine.guest_stack_budget()?),
@@ -289,12 +307,11 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
             };
             options = options.with_parent_policy(inherited);
         }
-        let [stdin, stdout, stderr] = stdio;
+        options.runtime.stdio = crate::runtime::Stdio::bound(stdio);
         options = options
             .with_args(invocation.args)
             .with_environment(invocation.environment)
             .with_working_directory(crate::WorkingDirectory::Fixed(invocation.working_directory))
-            .with_stdio(stdin, stdout, stderr)
             .with_termination_receiver(receiver);
         let (signal_sender, signals) = crate::signal_channel();
         std::thread::scope(|scope| {
@@ -305,7 +322,7 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
                     loop {
                         let termination = match wire::read::<wire::Control>(reader) {
                             Ok(wire::Control::Signal(signal)) => {
-                                if ![libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+                                if !supported_signal(signal) {
                                     terminator.terminate(RunTermination::Exit(1));
                                     break;
                                 }
@@ -348,9 +365,11 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
 // The MVP serves descendants in the host's foreground terminal group. It does
 // not move a terminal's foreground group to a shared execution host. Pipes and
 // files remain usable regardless of process-group placement.
-fn check_terminals(stdio: &[File; 3]) -> io::Result<()> {
+#[cfg(unix)]
+fn check_terminals<'a>(stdio: impl IntoIterator<Item = &'a File>) -> io::Result<()> {
+    use std::io::IsTerminal;
     use std::os::fd::AsRawFd;
-    for file in stdio.iter().filter(|file| file.is_terminal()) {
+    for file in stdio.into_iter().filter(|file| file.is_terminal()) {
         // SAFETY: the borrowed descriptor remains open during these queries.
         if unsafe { libc::tcgetpgrp(file.as_raw_fd()) != libc::getpgrp() } {
             return Err(io::Error::new(
@@ -360,4 +379,21 @@ fn check_terminals(stdio: &[File; 3]) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn check_terminals<'a>(_stdio: impl IntoIterator<Item = &'a File>) -> io::Result<()> {
+    Ok(())
+}
+
+fn supported_signal(signal: i32) -> bool {
+    #[cfg(unix)]
+    {
+        [libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal)
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Console::*;
+        [CTRL_C_EVENT, CTRL_BREAK_EVENT].contains(&(signal as u32))
+    }
 }

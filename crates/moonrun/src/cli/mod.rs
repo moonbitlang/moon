@@ -20,4 +20,4 @@ mod process_signals;
 mod session;
 
 pub(super) use process_signals::ProcessSignals;
-pub(super) use session::Session;
+pub(super) use session::{CliSession, HostSignalPolicy};

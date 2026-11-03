@@ -2,7 +2,7 @@
 
 ## Developer workflows
 
-- [IPC execution](design/ipc-execution.md): Unix CLI session discovery, native descendant delegation,
+- [IPC execution](design/ipc-execution.md): CLI session discovery, native descendant delegation,
   caller-state transfer, authority and per-Run teardown.
 
 - [Runtime architecture](design/runtime-architecture.md): read before changing
@@ -234,7 +234,15 @@ admission. Engine uses `process.virtualize` (or an explicit Rust override) to
 select execution behavior; Runtime intersects the selected rules with inherited
 restrictions and provisions Env from the supplied source. Execution configuration
 and Env provisioning are absent from inherited restriction transport.
-The CLI resolves the policy before installing its Session signal target.
+The CLI resolves the policy before installing its `CliSession` signal target.
+The canonical `cli_support::MoonrunCli` grammar lives in the library; it only
+interprets arguments and returns frontend errors/help. The binary still owns
+policy loading, inherited IPC discovery and OS signal installation. Explicit
+`--virtual-process` or `--daemon` enables the corresponding RunOptions setting
+after configuration loading without replacing inherited or selected authority.
+The flags are mutually exclusive; effective combinations from configuration and
+IPC discovery are also rejected. Sharing grammar does not enable moonrun guest
+interception, which remains separate work.
 A policy delivered by Moon can select virtualization before Wasm begins:
 managed execution binds its existing PID; inline execution admits at that point.
 An inline preparation whose policy is not yet known is not an Engine member.
@@ -262,10 +270,10 @@ transport. Guest wait Jobs are cancellable and consume a result only when the
 guest reads it. Dropping an unread Job preserves that result. Exiting parents
 leave children with the Engine. Dropping Engine does not stop or join them; the
 embedding caller owns shutdown. `Engine::request_shutdown(outcome)` closes
-managed and virtualized admission under the same lock as spawning, then requests
-termination of every admitted member, including adopted descendants. Clones
+managed, virtualized and IPC-enabled admission under the same lock as spawning,
+then requests termination of every admitted member, including adopted descendants. Clones
 share this irreversible state; independent Engines do not. It does not join,
-reap results, or affect Native caller-thread Runs outside the process table.
+reap results, or affect Native caller-thread Runs without IPC outside the process table.
 Existing per-process termination requests keep their first outcome.
 
 With `process.virtualize = true`, the CLI normally waits for adopted descendants
@@ -275,7 +283,9 @@ before root admission and after root exit. The CLI retains the first unhandled
 signal, drains adopted roots, and only then presents signal termination;
 repeated signals during teardown cannot force an early host exit. Session
 finalization retires this target so later signals use the process fallback.
-Ordinary CLI execution keeps its existing signal behavior. Windows console
+An IPC host CLI uses the same session teardown but immediately requests whole-Engine
+shutdown, independent of individual guest signal handlers. IPC clients retain
+per-Run signal control. Ordinary CLI execution keeps its existing signal behavior. Windows console
 close/logoff/shutdown deadlines and synchronous host calls can still limit or
 block cleanup; this interface does not promise bounded termination.
 

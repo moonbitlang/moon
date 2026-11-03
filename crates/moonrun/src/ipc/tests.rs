@@ -20,6 +20,7 @@ use super::*;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::net::UnixStream;
 
 #[test]
 fn wire_preserves_non_utf8_caller_state() {
@@ -58,6 +59,7 @@ fn transferred_descriptors_are_cloexec_and_keep_shared_file_state() {
     wire::send_stdio(&sender, &files).unwrap();
     let mut received = wire::receive_stdio(&receiver).unwrap();
     for (original, received) in files.iter().zip(&mut received) {
+        let received = received.as_mut().unwrap();
         assert!(
             rustix::io::fcntl_getfd(received.as_fd())
                 .unwrap()

@@ -31,7 +31,7 @@ pub(crate) use runtest::{
 };
 pub(crate) use runtime::{
     ExecutionMode, command_for, command_for_with_moonrun_policy,
-    command_for_with_moonrun_policy_source_dir,
+    command_for_with_moonrun_policy_source_dir, moonrun_command,
 };
 
 use std::sync::OnceLock;

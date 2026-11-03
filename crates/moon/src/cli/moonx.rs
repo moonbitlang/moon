@@ -29,6 +29,7 @@ use super::registry_runner;
 pub(crate) struct MoonxInvocation {
     pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
     pub(crate) experimental_policy: Option<PathBuf>,
+    daemon: bool,
     pub(crate) verbose: bool,
     input: String,
     args: Vec<String>,
@@ -48,6 +49,7 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
     Ok(MoonxInvocation {
         handoff: None,
         experimental_policy: cli.experimental_policy,
+        daemon: cli.daemon,
         verbose: cli.verbose,
         input,
         args,
@@ -61,6 +63,7 @@ pub(crate) fn prepare(
     let MoonxInvocation {
         handoff,
         experimental_policy,
+        daemon,
         verbose,
         input,
         args,
@@ -90,6 +93,8 @@ pub(crate) fn prepare(
     );
 
     if let Some(handoff) = handoff {
+        // The supervisor parses the same frontend and owns execution settings,
+        // including --daemon. This helper only prepares and delivers the Wasm.
         handoff.publish(
             &wasm_path,
             moonutil::run_handoff::ExecutionKind::Wasm,
@@ -105,6 +110,7 @@ pub(crate) fn prepare(
         policy,
         policy_source_dir,
         policy_relay,
+        daemon,
         &args,
         user_log,
     )

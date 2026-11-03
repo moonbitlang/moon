@@ -91,25 +91,13 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
     policy_source_dir: Option<&Path>,
 ) -> Command {
     match mode {
-        ExecutionMode::MoonRun => {
-            let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
-            if let Some(t) = test {
-                cmd.arg("--test-args");
-                cmd.arg(serde_json::to_string(t).unwrap());
-            }
-            if let Some(policy) = moonrun_policy {
-                cmd.arg("--policy");
-                cmd.arg(dunce::simplified(policy));
-            }
-            if let Some(source_dir) = policy_source_dir {
-                debug_assert!(moonrun_policy.is_some());
-                cmd.arg("--policy-source-dir");
-                cmd.arg(source_dir);
-            }
-            cmd.arg(dunce::simplified(mbt_executable));
-            cmd.arg("--");
-            cmd
-        }
+        ExecutionMode::MoonRun => moonrun_command(
+            mbt_executable,
+            test,
+            moonrun_policy,
+            policy_source_dir,
+            false,
+        ),
         ExecutionMode::Node => {
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
@@ -127,4 +115,35 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
             cmd
         }
     }
+}
+
+/// Construct the Wasm runner command, keeping runner options before the opaque
+/// program arguments. IPC changes execution placement, not the selected policy.
+pub(crate) fn moonrun_command(
+    mbt_executable: &Path,
+    test: Option<&TestArgs>,
+    moonrun_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
+    ipc: bool,
+) -> Command {
+    let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
+    if let Some(t) = test {
+        cmd.arg("--test-args");
+        cmd.arg(serde_json::to_string(t).unwrap());
+    }
+    if let Some(policy) = moonrun_policy {
+        cmd.arg("--policy");
+        cmd.arg(dunce::simplified(policy));
+    }
+    if let Some(source_dir) = policy_source_dir {
+        debug_assert!(moonrun_policy.is_some());
+        cmd.arg("--policy-source-dir");
+        cmd.arg(source_dir);
+    }
+    if ipc {
+        cmd.arg("--daemon");
+    }
+    cmd.arg(dunce::simplified(mbt_executable));
+    cmd.arg("--");
+    cmd
 }
