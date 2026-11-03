@@ -52,7 +52,7 @@ are separate resource grants.
 | --- | --- |
 | `filesystem/host.rs` | HostFs state, path interpretation, authorization, synchronous effects, and domain `FsError` results |
 | `filesystem/job/` | Filesystem Job payloads, execution, and result ownership |
-| `std::fs` and `filesystem/os.rs` | OS mechanisms; the custom module accepts host paths and `RenameOptions`, returns `io::Result`, and has no Runtime, policy, or ABI dependency |
+| `std::fs` and `filesystem/os.rs` | OS mechanisms; the custom modules accept host paths, handles, and typed operation options, return `io::Result`, and have no Runtime, policy, or ABI dependency |
 | `unstable_api/filesystem.rs` | Legacy error strings, status codes, and per-run getter state |
 | WASI and async adapters | Their own rights, ABI values, and error representation |
 

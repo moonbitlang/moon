@@ -19,6 +19,10 @@
 [default.extend-words]
 Fo = "Fo"
 
+[default.extend-identifiers]
+# Preserve the Windows SDK's spelling of this constant.
+ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
+
 [files]
 extend-exclude = [
     "crates/moonutil/resources/error_codes/"
