@@ -30,7 +30,7 @@ use crate::runtime::null_handle;
 /// File-backed connections use SQLite's default VFS. The main database is
 /// authorized for reading together with its parent directory because SQLite
 /// may read journal, WAL, and shared-memory files beside it. Writable
-/// connections also require write access to that directory. This is an
+/// connections also require write access to both the database and its parent. This is an
 /// admission check, not VFS mediation: SQLite still interprets the filename
 /// again when `sqlite3_open_v2` runs.
 pub(super) fn ensure_valid_database(
@@ -63,6 +63,11 @@ pub(super) fn ensure_valid_database(
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
 
     if flags & (ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE) != 0 {
+        // A writable parent does not grant writes through a symlink whose
+        // target lies outside the write rules.
+        filesystem
+            .authorize_write(database.as_os_str())
+            .map_err(|_| ffi::SQLITE_CANTOPEN)?;
         filesystem
             .authorize_write(parent.as_os_str())
             .map_err(|_| ffi::SQLITE_CANTOPEN)?;
@@ -292,7 +297,6 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         std::fs::create_dir(&target).unwrap();
         let database = target.join("database.sqlite");
-        std::fs::write(&database, []).unwrap();
         let link = allowed.join("database.sqlite");
         std::os::unix::fs::symlink(&database, &link).unwrap();
 
@@ -332,6 +336,9 @@ mod tests {
                     ffi::SQLITE_CANTOPEN,
                 ),
             ] {
+                // Each control must exercise its own read or write, rather
+                // than succeeding because an earlier case created the table.
+                std::fs::write(&database, []).unwrap();
                 let host = SqliteHost::new(
                     ambient_filesystem(policy),
                     Rc::new(RefCell::new(HostKeys::default())),
@@ -352,9 +359,9 @@ mod tests {
                     // The ambient control must really write through the link;
                     // a successful open alone can be a read-only fallback.
                     let sql = if flags == ffi::SQLITE_OPEN_READONLY {
-                        "SELECT name FROM sqlite_schema"
+                        "SELECT count(*) FROM sqlite_schema"
                     } else {
-                        "CREATE TABLE IF NOT EXISTS data (value INTEGER)"
+                        "CREATE TABLE data (value INTEGER)"
                     };
                     let prepared = host.prepare16_v2(handle, &utf16le(sql)).unwrap();
                     assert_eq!(prepared.code, ffi::SQLITE_OK);

@@ -217,6 +217,11 @@ explicit rebinding; a shared handle number is insufficient.
 
 ## Other host effects
 
+SQLite's synchronous and Job opens share admission checks: reading requires
+access to the database and its parent directory; writable opens require write
+access to both. A directory grant does not authorize a database symlink target
+outside that grant. These checks precede SQLite's open and are not VFS mediation.
+
 Each exposed host effect needs an explicit contract: an enforced rule,
 trusted host work, or unrestricted exposure. Filesystem policy alone does not
 mediate SQLite auxiliary files, TLS trust discovery, clocks, randomness, or
