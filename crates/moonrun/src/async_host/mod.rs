@@ -4329,6 +4329,8 @@ fn raw_fd_to_guest(fd: RawFd) -> AsyncHostResult<HostHandle> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    mod windows_network;
     use std::ffi::OsString;
 
     use super::*;
