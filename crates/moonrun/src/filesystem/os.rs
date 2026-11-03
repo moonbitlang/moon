@@ -18,6 +18,43 @@
 
 //! Operating-system filesystem mechanisms, independent of runtime policy and ABIs.
 
+pub(super) mod openat;
+
+#[cfg(unix)]
+pub(super) type RawFile = std::os::fd::RawFd;
+#[cfg(windows)]
+pub(super) type RawFile = std::os::windows::io::RawHandle;
+
+#[cfg(test)]
+pub(super) fn raw_file(file: &std::fs::File) -> RawFile {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        file.as_raw_fd()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        file.as_raw_handle()
+    }
+}
+
+/// Runs one blocking OS call. Callers may bracket it with cancellation, but the
+/// filesystem mechanism does not depend on a worker or a guest ABI.
+pub(super) trait BlockingIo {
+    fn run<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T>;
+}
+
+#[cfg(test)]
+pub(super) struct DirectIo;
+
+#[cfg(test)]
+impl BlockingIo for DirectIo {
+    fn run<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        operation()
+    }
+}
+
 use std::{io, path::Path};
 
 /// Cross-device copying is a permitted Windows fallback, never a guarantee.

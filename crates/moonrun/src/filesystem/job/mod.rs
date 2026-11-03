@@ -34,6 +34,19 @@ use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
 
+struct CancellableIo;
+
+impl super::os::BlockingIo for CancellableIo {
+    fn run<T>(&self, operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+        // Keep the worker's region scoped to each syscall, including a named-pipe
+        // retry, rather than exposing its thread-local cancellation guard.
+        crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region(|| {
+            Ok(operation())
+        })
+        .map_err(|error| std::io::Error::from_raw_os_error(error.errno()))?
+    }
+}
+
 pub(crate) const STAT_OPEN_IDENTITY: u32 = stat::STAT_OPEN_IDENTITY;
 
 #[derive(Debug)]
@@ -931,6 +944,14 @@ impl OpenJobResult {
     pub(crate) fn file_id(&self) -> AsyncHostResult<u64> {
         self.stat.scalar(STAT_FILE_ID).ok_or(AsyncHostError::Inval)
     }
+}
+
+fn last_native_error() -> AsyncHostError {
+    AsyncHostError::Native(
+        std::io::Error::last_os_error()
+            .raw_os_error()
+            .expect("OS error code"),
+    )
 }
 
 fn check_file_metadata_policy(filesystem: &HostFs, file: Option<&Resource>) -> AsyncHostResult<()> {

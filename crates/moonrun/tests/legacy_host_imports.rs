@@ -19,6 +19,126 @@
 use moonrun::{Engine, RunOptions, RunOutcome};
 
 #[test]
+fn legacy_async_filesystem_jobs_preserve_guest_abi_and_behavior() {
+    let engine = Engine::default();
+    // Freeze both pre-openat guest interfaces independently of the current
+    // async wrapper. Rebuilding current MoonBit sources cannot check this ABI.
+    for (name, extra_params, stat_args, result_imports, check_kind) in [
+        (
+            "make_open_job",
+            "",
+            "",
+            r#"(import "moonbitlang/async" "thread_pool/open_job_get_kind" (func $kind (param i64) (result i32)))
+                (import "moonbitlang/async" "thread_pool/open_job_get_dev_id" (func $device (param i64) (result i64)))
+                (import "moonbitlang/async" "thread_pool/open_job_get_file_id" (func $identity (param i64) (result i64)))"#,
+            r#"(if (i32.ne (call $kind (local.get $job)) (local.get $kind)) (then unreachable))
+                (drop (call $device (local.get $job)))
+                (drop (call $identity (local.get $job)))"#,
+        ),
+        (
+            "make_open_stat_job",
+            "i32 i32",
+            "(i32.const 13) (i32.const 32)",
+            r#"(import "moonbitlang/async" "thread_pool/get_stat_result" (func $stat (param i64 i32 i32)))"#,
+            r#"(call $stat (local.get $job) (i32.const 64) (i32.const 32))
+                (if (i32.ne (i32.load (i32.const 64)) (i32.const 32)) (then unreachable))
+                (if (i32.ne (i32.load (i32.const 68)) (i32.const 13)) (then unreachable))
+                (if (i32.ne (i32.load (i32.const 72)) (local.get $kind)) (then unreachable))"#,
+        ),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("dir")).unwrap();
+        std::fs::write(root.path().join("dir/entry"), []).unwrap();
+        std::fs::create_dir(root.path().join("empty")).unwrap();
+        // The old remove import uses remove(3) on Unix, but DeleteFileW on
+        // Windows. It must not silently acquire removeat's directory semantics.
+        let remove_directory_error_check = if cfg!(windows) { "i32.eqz" } else { "" };
+        let wasm = wat::parse_str(format!(
+            r#"(module
+                (import "moonbitlang/async" "thread_pool/{name}"
+                    (func $open (param i32 i32 i32 i32 i32 i32 i32 {extra_params}) (result i64)))
+                {result_imports}
+                (import "moonbitlang/async" "thread_pool/open_job_get_fd" (func $fd (param i64) (result i64)))
+                (import "moonbitlang/async" "thread_pool/make_read_job" (func $read (param i64 i32 i64) (result i64)))
+                (import "moonbitlang/async" "thread_pool/get_read_result" (func $read_result (param i64 i32 i32 i32)))
+                (import "moonbitlang/async" "thread_pool/make_write_job" (func $write (param i64 i32 i32 i32 i64) (result i64)))
+                (import "moonbitlang/async" "thread_pool/make_readdir_job" (func $readdir (param i64 i64 i32 i32) (result i64)))
+                (import "moonbitlang/async" "thread_pool/make_remove_job" (func $remove (param i32 i32) (result i64)))
+                (import "moonbitlang/async" "thread_pool/run_job" (func $run (param i64)))
+                (import "moonbitlang/async" "thread_pool/job_get_err" (func $error (param i64) (result i32)))
+                (import "moonbitlang/async" "thread_pool/job_get_ret" (func $ret (param i64) (result i32)))
+                (import "moonbitlang/async" "thread_pool/free_job" (func $free (param i64)))
+                (import "moonbitlang/async" "fd_util/close_fd" (func $close (param i64) (result i32)))
+                (import "moonbitlang/async" "c_buffer/new" (func $buffer (param i32) (result i64)))
+                (import "moonbitlang/async" "c_buffer/free" (func $free_buffer (param i64)))
+                (memory (export "memory") 1)
+                (data (i32.const 0) "f\00i\00l\00e\00")
+                (data (i32.const 16) "d\00i\00r\00")
+                (data (i32.const 32) "e\00m\00p\00t\00y\00")
+                (data (i32.const 48) "old wasm")
+                (func $checked (param $job i64) (result i64)
+                    (call $run (local.get $job))
+                    (if (call $error (local.get $job)) (then unreachable))
+                    (local.get $job))
+                (func $opened (param $path i32) (param $len i32) (param $access i32)
+                    (param $create i32) (param $kind i32) (result i64) (local $job i64) (local $file i64)
+                    (local.set $job (call $checked (call $open (local.get $path) (local.get $len)
+                        (local.get $access) (local.get $create) (i32.const 0) (i32.const 0) (i32.const 384) {stat_args})))
+                    {check_kind}
+                    (local.set $file (call $fd (local.get $job)))
+                    (call $free (local.get $job))
+                    (local.get $file))
+                (func $list (param $access i32) (local $file i64) (local $buf i64) (local $job i64)
+                    (local.set $file (call $opened (i32.const 16) (i32.const 3) (local.get $access) (i32.const 0) (i32.const 2)))
+                    (local.set $buf (call $buffer (i32.const 4096)))
+                    (local.set $job (call $checked (call $readdir (local.get $file) (local.get $buf) (i32.const 4096) (i32.const 1))))
+                    (if (i32.le_s (call $ret (local.get $job)) (i32.const 0)) (then unreachable))
+                    (call $free (local.get $job))
+                    (call $free_buffer (local.get $buf))
+                    (if (call $close (local.get $file)) (then unreachable)))
+                (func (export "_start") (local $file i64) (local $job i64)
+                    (local.set $file (call $opened (i32.const 0) (i32.const 4) (i32.const 2) (i32.const 3) (i32.const 1)))
+                    (local.set $job (call $checked (call $write (local.get $file) (i32.const 48) (i32.const 0) (i32.const 8) (i64.const -1))))
+                    (if (i32.ne (call $ret (local.get $job)) (i32.const 8)) (then unreachable))
+                    (call $free (local.get $job))
+                    (if (call $close (local.get $file)) (then unreachable))
+                    (local.set $file (call $opened (i32.const 0) (i32.const 4) (i32.const 0) (i32.const 0) (i32.const 1)))
+                    (local.set $job (call $checked (call $read (local.get $file) (i32.const 8) (i64.const -1))))
+                    (if (i32.ne (call $ret (local.get $job)) (i32.const 8)) (then unreachable))
+                    (call $read_result (local.get $job) (i32.const 128) (i32.const 0) (i32.const 8))
+                    (if (i64.ne (i64.load (i32.const 128)) (i64.load (i32.const 48))) (then unreachable))
+                    (call $free (local.get $job))
+                    (if (call $close (local.get $file)) (then unreachable))
+                    ;; Older opendir used ReadOnly; watchers open with ListDirectory.
+                    (call $list (i32.const 0))
+                    (call $list (i32.const 3))
+                    (call $free (call $checked (call $remove (i32.const 0) (i32.const 4))))
+                    (local.set $job (call $remove (i32.const 32) (i32.const 5)))
+                    (call $run (local.get $job))
+                    (call $error (local.get $job)) {remove_directory_error_check} if unreachable end
+                    (call $free (local.get $job))))"#,
+        ))
+        .unwrap();
+        let module = engine.compile(format!("legacy-{name}.wasm"), wasm).unwrap();
+        assert_eq!(
+            engine
+                .run(
+                    &module,
+                    RunOptions::default().with_working_directory(moonrun::WorkingDirectory::Fixed(
+                        root.path().to_owned(),
+                    )),
+                )
+                .unwrap(),
+            RunOutcome::Completed,
+            "{name}"
+        );
+        assert!(!root.path().join("file").exists(), "{name}");
+        assert_eq!(root.path().join("empty").is_dir(), cfg!(windows), "{name}");
+        assert!(root.path().join("dir/entry").is_file(), "{name}");
+    }
+}
+
+#[test]
 fn byte_builders_snapshot_and_readers_have_independent_positions() {
     let engine = Engine::default();
     let module = engine.compile("bytes.wasm", wat::parse_str(r#"(module

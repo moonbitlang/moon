@@ -25,6 +25,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
+use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
@@ -322,7 +323,7 @@ ported_fns! {
     }
 }
 
-#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
 fn open_raw_native_file(
     filename: OsString,
     access: i32,
@@ -331,45 +332,51 @@ fn open_raw_native_file(
     sync: i32,
     mode: i32,
 ) -> AsyncHostResult<RawFile> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStringExt;
-
-    let access_flag = match access {
-        0 | 3 => libc::O_RDONLY,
-        1 => libc::O_WRONLY,
-        2 => libc::O_RDWR,
+    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync};
+    let is_async = access == 3;
+    let access = match access {
+        0 => Access::Read,
+        1 => Access::Write,
+        2 => Access::ReadWrite,
+        3 => Access::ListDirectory,
         _ => return Err(AsyncHostError::Inval),
     };
-    let create_flag = match create_mode {
-        0 => 0,
-        1 => libc::O_TRUNC,
-        2 => libc::O_CREAT,
-        3 => libc::O_CREAT | libc::O_TRUNC,
-        4 => libc::O_CREAT | libc::O_EXCL,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let sync_flag = match sync {
-        0 => 0,
-        1 => libc::O_DSYNC,
-        2 => libc::O_SYNC,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let append_flag = if append { libc::O_APPEND } else { 0 };
-    let filename = CString::new(filename.into_vec()).map_err(|_| AsyncHostError::Inval)?;
-    let fd = with_cancellable_region(|| {
-        Ok(unsafe {
-            libc::open(
-                filename.as_ptr(),
-                access_flag | sync_flag | create_flag | append_flag | libc::O_CLOEXEC,
-                mode as libc::c_uint,
-            )
-        })
-    })?;
-    if fd < 0 {
-        return Err(last_native_error());
+    let file = openat::open(
+        None,
+        &filename,
+        &OpenOptions {
+            access,
+            follow_symlink: true,
+            is_async,
+            create: match create_mode {
+                0 => CreateMode::Open,
+                1 => CreateMode::Truncate,
+                2 => CreateMode::Create,
+                3 => CreateMode::CreateOrTruncate,
+                4 => CreateMode::Exclusive,
+                _ => return Err(AsyncHostError::Inval),
+            },
+            append,
+            sync: match sync {
+                0 => Sync::None,
+                1 => Sync::Data,
+                2 => Sync::All,
+                _ => return Err(AsyncHostError::Inval),
+            },
+            permission: mode as u32,
+        },
+        &super::CancellableIo,
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::fd::IntoRawFd;
+        Ok(file.into_raw_fd())
     }
-
-    Ok(fd)
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::IntoRawHandle;
+        Ok(file.into_raw_handle())
+    }
 }
 
 #[cfg(unix)]
@@ -384,96 +391,6 @@ fn file_kind_from_stat(stat: &libc::stat) -> i32 {
         libc::S_IFCHR => 7,
         _ => 0,
     }
-}
-
-#[cfg(windows)]
-fn open_raw_native_file(
-    filename: OsString,
-    access: i32,
-    create_mode: i32,
-    append: bool,
-    sync: i32,
-    _mode: i32,
-) -> AsyncHostResult<RawFile> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{
-        ERROR_PIPE_BUSY, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
-    };
-    use windows_sys::Win32::Storage::FileSystem::{
-        CREATE_ALWAYS, CREATE_NEW, CreateFileW, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_FLAG_WRITE_THROUGH,
-        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
-    };
-    use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
-
-    let sync_flag = match sync {
-        0 => 0,
-        1 | 2 => FILE_FLAG_WRITE_THROUGH,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let mut access_flag = match access {
-        0 => GENERIC_READ,
-        1 => GENERIC_WRITE | FILE_READ_ATTRIBUTES,
-        2 => GENERIC_READ | GENERIC_WRITE,
-        3 => FILE_LIST_DIRECTORY,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let create_mode = match create_mode {
-        0 => OPEN_EXISTING,
-        1 => TRUNCATE_EXISTING,
-        2 => OPEN_ALWAYS,
-        3 => CREATE_ALWAYS,
-        4 => CREATE_NEW,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    // Append changes writing behavior without granting write access to read-only
-    // handles. Keep metadata access for the stat result returned by open Jobs.
-    if append && matches!(access, 1 | 2) {
-        access_flag = (access_flag & !GENERIC_WRITE) | FILE_APPEND_DATA;
-    }
-    let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | sync_flag;
-    if access == 3 {
-        flags |= FILE_FLAG_OVERLAPPED;
-    }
-
-    let filename = filename
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let handle: HANDLE = loop {
-        let handle = with_cancellable_region(|| {
-            Ok(unsafe {
-                CreateFileW(
-                    filename.as_ptr(),
-                    access_flag,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    std::ptr::null(),
-                    create_mode,
-                    flags,
-                    std::ptr::null_mut(),
-                )
-            })
-        })?;
-        if handle != INVALID_HANDLE_VALUE {
-            break handle;
-        }
-        let error = std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno());
-        if error != ERROR_PIPE_BUSY as i32 {
-            return Err(AsyncHostError::Native(error));
-        }
-        let ready = with_cancellable_region(|| {
-            Ok(unsafe { WaitNamedPipeW(filename.as_ptr(), NMPWAIT_WAIT_FOREVER) })
-        })?;
-        if ready == 0 {
-            return Err(last_native_error());
-        }
-    };
-
-    Ok(handle)
 }
 
 #[cfg(windows)]
@@ -1070,85 +987,22 @@ fn file_kind_by_path(
     path: OsString,
     follow_symlink: bool,
 ) -> AsyncHostResult<i32> {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
-    };
-
-    let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS;
-    if !follow_symlink {
-        flags |= FILE_FLAG_OPEN_REPARSE_POINT;
-    }
-    let parent = parent.map(raw_file_handle).transpose()?;
-    let path = resolve_windows_path_for_parent(parent, path)?;
-    let path = path_to_wide(path);
-    let handle: HANDLE = unsafe {
-        CreateFileW(
-            path.as_ptr(),
-            FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            flags,
-            std::ptr::null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(last_native_error());
-    }
-    let kind = kind_of_raw_file(handle);
-    unsafe {
-        CloseHandle(handle);
-    }
-    kind
-}
-
-#[cfg(windows)]
-pub(super) fn resolve_windows_path_for_parent(
-    parent: Option<RawFile>,
-    path: OsString,
-) -> AsyncHostResult<OsString> {
-    let Some(parent) = parent else {
-        return Ok(path);
-    };
-    if std::path::Path::new(&path).is_absolute() {
-        return Ok(path);
-    }
-
-    let mut parent_path = std::path::PathBuf::from(final_path_from_handle(parent)?);
-    parent_path.push(path);
-    Ok(parent_path.into_os_string())
-}
-
-#[cfg(windows)]
-fn final_path_from_handle(handle: RawFile) -> AsyncHostResult<OsString> {
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
-    };
-
-    let mut buffer = vec![0u16; 260];
-    loop {
-        let len = unsafe {
-            GetFinalPathNameByHandleW(
-                handle,
-                buffer.as_mut_ptr(),
-                u32::try_from(buffer.len()).map_err(|_| AsyncHostError::Fault)?,
-                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
-            )
-        };
-        if len == 0 {
-            return Err(last_native_error());
-        }
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        if len < buffer.len() {
-            buffer.truncate(len);
-            return Ok(OsString::from_wide(&buffer));
-        }
-        buffer.resize(len + 1, 0);
-    }
+    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync};
+    let file = openat::open(
+        parent.map(raw_file_handle).transpose()?,
+        &path,
+        &OpenOptions {
+            access: Access::Attributes,
+            follow_symlink,
+            is_async: false,
+            create: CreateMode::Open,
+            append: false,
+            sync: Sync::None,
+            permission: 0,
+        },
+        &super::CancellableIo,
+    )?;
+    kind_of_raw_file(file.as_raw_handle())
 }
 
 #[cfg(windows)]
@@ -1762,14 +1616,6 @@ fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
     }
     buffer.extend_from_slice(&0u16.to_ne_bytes());
     buffer.into_boxed_slice()
-}
-
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
 }
 
 #[cfg(windows)]
