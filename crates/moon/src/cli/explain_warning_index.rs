@@ -491,6 +491,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         description: "Regex match over the compile limits, which runs on the runtime engine.",
         id: 97,
     },
+    WarningEntry {
+        mnemonic: "cancellable_defer",
+        description: "Fragile cancellable async code inside `defer`/`errdefer`",
+        id: 98,
+    },
 ];
 
 pub(crate) fn get_warning_entry(id: u16) -> Option<&'static WarningEntry> {
