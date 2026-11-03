@@ -41,6 +41,8 @@ mod engine;
 mod filesystem;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod guest_memory;
+#[cfg(unix)]
+pub mod ipc;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
 mod native_stack;

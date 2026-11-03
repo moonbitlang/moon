@@ -2,6 +2,9 @@
 
 ## Developer workflows
 
+- [IPC execution](design/ipc-execution.md): experimental Unix execution adapter,
+  caller-state transfer, per-Run cancellation, authority and daemon follow-ups.
+
 - [Runtime architecture](design/runtime-architecture.md): read before changing
   embedding interfaces, host imports, virtualized state, or authorization. It
   defines ownership, the three host-operation layers, authority mapping, and
