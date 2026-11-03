@@ -173,7 +173,6 @@ mod tests {
         path: &OsStr,
         access: i32,
         create_mode: i32,
-        append: bool,
     ) -> AsyncHostResult<()> {
         policy
             .as_ref()
@@ -181,7 +180,7 @@ mod tests {
             .map_or(Ok(()), |policy| {
                 policy.authorize(
                     Some(Path::new(path)),
-                    FsIntents::for_open(access, create_mode, append),
+                    FsIntents::for_open(access, create_mode),
                     &format!("{:?}", path),
                 )
             })
@@ -243,7 +242,7 @@ fn main {}
         .unwrap();
         let allowed = std::fs::canonicalize(allowed).unwrap();
 
-        check_ambient_open(Some(policy), allowed.as_os_str(), 0, 0, false).unwrap();
+        check_ambient_open(Some(policy), allowed.as_os_str(), 0, 0).unwrap();
     }
 
     #[test]
@@ -335,7 +334,7 @@ fn main {}
     fn no_policy_leaves_fs_unrestricted() {
         let policy: Option<Policy> = None;
 
-        check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4, false).unwrap();
+        check_ambient_open(policy, OsStr::new("missing-parent/new.txt"), 1, 4).unwrap();
     }
 
     #[test]
@@ -353,14 +352,8 @@ fn main {}
         )
         .unwrap();
 
-        let error = check_ambient_open(
-            Some(policy),
-            OsStr::new("missing-parent/new.txt"),
-            1,
-            4,
-            false,
-        )
-        .unwrap_err();
+        let error = check_ambient_open(Some(policy), OsStr::new("missing-parent/new.txt"), 1, 4)
+            .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -380,7 +373,7 @@ fn main {}
         .unwrap();
         let denied = tmp.path().join("new.txt");
 
-        let error = check_ambient_open(Some(policy), denied.as_os_str(), 1, 4, false).unwrap_err();
+        let error = check_ambient_open(Some(policy), denied.as_os_str(), 1, 4).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 

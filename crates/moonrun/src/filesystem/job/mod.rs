@@ -489,11 +489,10 @@ impl Job {
                 filename,
                 access,
                 create_mode,
-                append,
                 request,
                 ..
             } => {
-                filesystem.authorize_open(filename, *access, *create_mode, *append)?;
+                filesystem.authorize_open(filename, *access, *create_mode)?;
                 if request.mask() & !STAT_OPEN_IDENTITY != 0 {
                     filesystem.authorize_metadata(filename)?;
                 }

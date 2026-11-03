@@ -402,8 +402,8 @@ fn open_raw_native_file(
     use windows_sys::Win32::Storage::FileSystem::{
         CREATE_ALWAYS, CREATE_NEW, CreateFileW, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_FLAG_WRITE_THROUGH,
-        FILE_LIST_DIRECTORY, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS,
-        OPEN_EXISTING, TRUNCATE_EXISTING,
+        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_ALWAYS, OPEN_EXISTING, TRUNCATE_EXISTING,
     };
     use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
 
@@ -414,7 +414,7 @@ fn open_raw_native_file(
     };
     let mut access_flag = match access {
         0 => GENERIC_READ,
-        1 => GENERIC_WRITE,
+        1 => GENERIC_WRITE | FILE_READ_ATTRIBUTES,
         2 => GENERIC_READ | GENERIC_WRITE,
         3 => FILE_LIST_DIRECTORY,
         _ => return Err(AsyncHostError::Inval),
@@ -427,8 +427,10 @@ fn open_raw_native_file(
         4 => CREATE_NEW,
         _ => return Err(AsyncHostError::Inval),
     };
-    if append {
-        access_flag = (access_flag ^ GENERIC_WRITE) | FILE_APPEND_DATA;
+    // Append changes writing behavior without granting write access to read-only
+    // handles. Keep metadata access for the stat result returned by open Jobs.
+    if append && matches!(access, 1 | 2) {
+        access_flag = (access_flag & !GENERIC_WRITE) | FILE_APPEND_DATA;
     }
     let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | sync_flag;
     if access == 3 {
