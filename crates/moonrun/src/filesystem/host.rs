@@ -210,9 +210,8 @@ impl HostFs {
         path: &OsStr,
         access: i32,
         create_mode: i32,
-        append: bool,
     ) -> Result<(), FsError> {
-        self.authorize_path(path, FsIntents::for_open(access, create_mode, append))
+        self.authorize_path(path, FsIntents::for_open(access, create_mode))
     }
 
     pub(super) fn authorize_metadata(&self, path: &OsStr) -> Result<(), FsError> {

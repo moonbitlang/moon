@@ -211,14 +211,16 @@ impl FsIntents {
         }
     }
 
-    pub(crate) fn for_open(access: i32, create_mode: i32, append: bool) -> Self {
+    pub(crate) fn for_open(access: i32, create_mode: i32) -> Self {
         let mut intents = match access {
             0 | 3 => Self::read(),
             1 => Self::write(),
             2 => Self::read_write(),
             _ => Self::read_write(),
         };
-        if create_mode != 0 || append {
+        // Async append changes write positioning, not access. Creation and
+        // truncation can still modify the filesystem for a read-only open.
+        if create_mode != 0 {
             intents.write = true;
         }
         intents
@@ -287,12 +289,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        authorize(
-            &policy,
-            &allowed.join("new.txt"),
-            FsIntents::for_open(1, 0, false),
-        )
-        .unwrap();
+        authorize(&policy, &allowed.join("new.txt"), FsIntents::for_open(1, 0)).unwrap();
     }
 
     #[test]
@@ -339,12 +336,8 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
 
-        let error = authorize(
-            &policy,
-            &allowed.join("new.txt"),
-            FsIntents::for_open(0, 1, false),
-        )
-        .unwrap_err();
+        let error =
+            authorize(&policy, &allowed.join("new.txt"), FsIntents::for_open(0, 1)).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 

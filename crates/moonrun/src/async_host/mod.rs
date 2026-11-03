@@ -6620,7 +6620,7 @@ mod tests {
         let host = host_with_policy(&policy_file);
 
         host.filesystem()
-            .authorize_open(link.as_os_str(), 0, 0, false)
+            .authorize_open(link.as_os_str(), 0, 0)
             .unwrap();
         let job = host
             .insert_job(FilesystemJob::open_legacy(
