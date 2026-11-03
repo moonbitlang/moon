@@ -18,7 +18,9 @@
 
 //! Operating-system filesystem mechanisms, independent of runtime policy and ABIs.
 
+pub(super) mod directory;
 pub(super) mod openat;
+pub(super) mod unlinkat;
 
 #[cfg(unix)]
 pub(super) type RawFile = std::os::fd::RawFd;

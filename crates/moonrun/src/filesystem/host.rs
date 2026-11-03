@@ -48,6 +48,17 @@ pub(crate) struct FileOpenOptions {
     pub(crate) truncate: bool,
 }
 
+fn directory_path_for_authorization(handle: super::os::RawFile) -> Result<PathBuf, FsError> {
+    // An unlinked directory cannot receive a fresh pathname-based grant.
+    super::os::directory::path(handle).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            FsError::Denied
+        } else {
+            FsError::Io(error)
+        }
+    })
+}
+
 /// Engine-neutral filesystem operations that enforce the runtime policy
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
@@ -218,10 +229,23 @@ impl HostFs {
         self.authorize_read(path)
     }
 
-    pub(super) fn authorize_metadata_at(
+    pub(super) fn directory_path_for_policy(
+        &self,
+        handle: super::os::RawFile,
+    ) -> Result<Option<PathBuf>, FsError> {
+        // Native relative operations need no recoverable pathname. Require it
+        // only when a policy needs to authorize a fresh effect at that location.
+        self.policy
+            .as_ref()
+            .map(|_| directory_path_for_authorization(handle))
+            .transpose()
+    }
+
+    pub(super) fn authorize_path_at(
         &self,
         base: Option<&Path>,
         path: &OsStr,
+        intents: FsIntents,
     ) -> Result<(), FsError> {
         let Some(policy) = &self.policy else {
             return Ok(());
@@ -231,7 +255,7 @@ impl HostFs {
             .and_then(|path| canonicalize_existing_prefix(&path))
             .ok();
         policy
-            .authorize(resolved.as_deref(), FsIntents::read(), &target)
+            .authorize(resolved.as_deref(), intents, &target)
             .map_err(|_| FsError::Denied)
     }
 
@@ -261,10 +285,11 @@ impl HostFs {
         self.authorize_path(path, FsIntents::write())
     }
 
-    pub(super) fn authorize_entry_metadata_at(
+    pub(super) fn authorize_entry_at(
         &self,
         base: Option<&Path>,
         path: &OsStr,
+        intents: FsIntents,
     ) -> Result<(), FsError> {
         let Some(policy) = &self.policy else {
             return Ok(());
@@ -274,7 +299,7 @@ impl HostFs {
             .and_then(|path| canonicalize_entry_path(&path))
             .ok();
         policy
-            .authorize(resolved.as_deref(), FsIntents::read(), &target)
+            .authorize(resolved.as_deref(), intents, &target)
             .map_err(|_| FsError::Denied)
     }
 
@@ -552,10 +577,10 @@ mod tests {
         let (policy, _) = policy::load_file(&policy_file).unwrap();
         let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
-        host.authorize_metadata_at(Some(&allowed), OsStr::new("input.txt"))
+        host.authorize_path_at(Some(&allowed), OsStr::new("input.txt"), FsIntents::read())
             .unwrap();
         assert!(matches!(
-            host.authorize_metadata_at(None, OsStr::new("input.txt")),
+            host.authorize_path_at(None, OsStr::new("input.txt"), FsIntents::read()),
             Err(FsError::Denied)
         ));
     }

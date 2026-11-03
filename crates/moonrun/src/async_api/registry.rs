@@ -1046,6 +1046,19 @@ declare_async_imports! {
         stat_result_len: u32,
     ) -> u64 => "thread_pool/make_open_stat_job";
 
+    ported thread_pool::make_openat_job(
+        parent: u64,
+        path_ptr: u32,
+        path_len: u32,
+        access: i32,
+        create_mode: i32,
+        append: i32,
+        sync: i32,
+        mode: i32,
+        stat_request: i32,
+        stat_result_len: u32,
+    ) -> u64 => "thread_pool/make_openat_job";
+
     ported thread_pool::make_fstatx_job(
         fd: u64,
         stat_request: i32,
@@ -1112,6 +1125,8 @@ declare_async_imports! {
     ported thread_pool::make_flock_job(fd: u64, exclusive: i32) -> u64 => "thread_pool/make_flock_job";
 
     ported thread_pool::make_remove_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_remove_job";
+
+    ported thread_pool::make_removeat_job(parent: u64, path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_removeat_job";
 
     ported thread_pool::make_rename_job(
         old_path_ptr: u32,

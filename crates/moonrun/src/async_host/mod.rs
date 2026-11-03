@@ -6913,6 +6913,7 @@ mod tests {
         let identity_job = host
             .insert_job(
                 FilesystemJob::open(
+                    None,
                     file.as_os_str().to_os_string(),
                     1,
                     0,
@@ -6928,6 +6929,7 @@ mod tests {
         let metadata_job = host
             .insert_job(
                 FilesystemJob::open(
+                    None,
                     file.as_os_str().to_os_string(),
                     1,
                     0,

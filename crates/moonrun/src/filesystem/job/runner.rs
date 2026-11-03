@@ -42,19 +42,20 @@ use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
 type RawFile = fd_util::stub::RawFd;
 
 #[cfg(unix)]
-fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
+pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
     Ok(file.as_file()?.as_raw_fd())
 }
 
 #[cfg(windows)]
-fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
+pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
     Ok(file.as_file()?.as_raw_handle())
 }
 
 ported_fns! {
-    #[ported(source = "src/internal/event_loop/fs.c", original = "open_job_worker")]
+    #[ported(source = "src/internal/event_loop/fs.c", original = "openat_job_worker")]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_open_job(
+        parent: Option<&Resource>,
         result: &mut Option<OpenJobResult>,
         filename: OsString,
         access: i32,
@@ -64,11 +65,16 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
-        let filename_for_provenance = filename.clone();
-        let file = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
+        let filename_for_provenance = match parent {
+            Some(parent) => super::super::os::directory::path(raw_file_handle(parent)?)
+                .ok()
+                .map(|base| base.join(&filename)),
+            None => Some(std::path::PathBuf::from(&filename)),
+        };
+        let file = open_raw_native_file(parent.map(raw_file_handle).transpose()?, filename, access, create_mode, append, sync, mode)?;
         let resource = Resource::new_with_canonical_path(
             file,
-            std::fs::canonicalize(filename_for_provenance).ok(),
+            filename_for_provenance.and_then(|path| std::fs::canonicalize(path).ok()),
         );
         let mut stat = None;
         run_fstatx_job(&resource, request, &mut stat)?;
@@ -220,6 +226,16 @@ ported_fns! {
         Ok(0)
     }
 
+    #[ported(source = "src/internal/event_loop/fs.c", original = "removeat_job_worker")]
+    pub(super) fn run_removeat_job(parent: Option<&Resource>, path: OsString) -> AsyncHostResult<i64> {
+        super::super::os::unlinkat::remove_at(
+            parent.map(raw_file_handle).transpose()?,
+            &path,
+            &super::CancellableIo,
+        )?;
+        Ok(0)
+    }
+
     #[ported(
         source = "src/internal/event_loop/fs.c",
         original = "rename_job_worker"
@@ -325,6 +341,7 @@ ported_fns! {
 
 #[allow(clippy::too_many_arguments)]
 fn open_raw_native_file(
+    parent: Option<RawFile>,
     filename: OsString,
     access: i32,
     create_mode: i32,
@@ -342,7 +359,7 @@ fn open_raw_native_file(
         _ => return Err(AsyncHostError::Inval),
     };
     let file = openat::open(
-        None,
+        parent,
         &filename,
         &OpenOptions {
             access,

@@ -42,12 +42,14 @@ Authorization covers metadata, directory enumeration, link inspection,
 creation/truncation, deletion, and both rename endpoints as well as opening.
 Open options determine both the immediate effects and the acquired file grant.
 I/O on that file uses its grant and descriptor rights without reopening or
-reauthorizing the original pathname. Directory descriptors retain paths, so
-operations derived from them require path authorization. Explicit stdio bindings
-are separate resource grants. Pure file-kind queries use the acquired resource
-grant, consistently across the scalar imports and `fstatx`. Other metadata
-requests still require filesystem read authorization, including requests that
-combine file kind with other fields.
+reauthorizing the original pathname. Async Jobs retain their parent directory
+resources and authorize derived operations against the handle's current location;
+an unlinked directory cannot reuse a grant for a replacement at its old pathname.
+WASI directory descriptors still retain paths and authorize derived operations.
+Explicit stdio bindings are separate resource grants. Pure file-kind queries use
+the acquired resource grant, consistently across the scalar imports and `fstatx`.
+Other metadata requests still require filesystem read authorization, including
+requests that combine file kind with other fields.
 
 Filesystem glob exclusions override matching grants within the same read or write
 list, independent of rule order. A matching positive rule is still required.
@@ -96,9 +98,11 @@ links, including dangling targets and loops. Ordinary missing files and
 directories can be created when authorized. Removing or renaming a link checks
 the entry rather than its target.
 
-Pathname checks do not establish stable identity against concurrent path
-replacement. Filesystem authority coverage therefore does not imply protection
-against pathname and symlink races.
+Async relative opening and removal use the acquired directory handle, so
+renaming or replacing its old path does not redirect the operation. Policy
+authorization still uses pathname checks, which do not establish stable identity
+against concurrent path replacement. Filesystem authority coverage therefore
+does not imply protection against pathname and symlink races.
 
 ### Filesystem acceptance criteria
 
