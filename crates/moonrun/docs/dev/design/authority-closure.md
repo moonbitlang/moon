@@ -214,6 +214,15 @@ and attenuation on transfer. Copying a Handle number is not delegation.
 Acquired files, sockets, stdio, and directories must retain their granted object
 identity without reopening their names or silently widening rights.
 
+Stdio redirection delegates the opened object and its OS access mode. A spawn
+Job retains acquired Resources after the parent closes its Handles; native
+spawn duplicates the descriptors, and virtual spawn gives the child owned
+files. Releasing a failed or discarded Job releases its references. Child path
+rules restrict new opens, not I/O on these grants. Naming a stream stdin or stdout
+does not attenuate an OS handle: async I/O retains its native access mode,
+while WASI additionally applies its descriptor rights. Runtime-owned standard
+streams cannot be closed through guest Handle APIs.
+
 Acceptance cases must reject foreign or stale Handles, preserve in-flight
 resource ownership through guest close, and show that transfer cannot increase
 rights beyond the delegated grant. General cross-Runtime delegation requires

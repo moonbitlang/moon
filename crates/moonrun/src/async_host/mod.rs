@@ -4610,6 +4610,103 @@ mod tests {
         host.free_job(job).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn spawn_keeps_redirected_files_after_parent_handles_close() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input");
+        let output = directory.path().join("output");
+        let policy_file = directory.path().join("policy.json");
+        std::fs::write(&input, b"delegated input").unwrap();
+
+        for allowed in [false, true] {
+            std::fs::write(&output, b"").unwrap();
+            std::fs::write(
+                &policy_file,
+                serde_json::to_vec(&serde_json::json!({
+                    "fs": {"read": ["*"], "write": ["*"]},
+                    "process": {"spawn": allowed},
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let host = host_with_policy(&policy_file);
+            let files = [(&input, 0), (&output, 1)].map(|(path, access)| {
+                let open = host
+                    .insert_job(FilesystemJob::open_legacy(
+                        path.as_os_str().to_owned(),
+                        access,
+                        0,
+                        false,
+                        0,
+                        0,
+                    ))
+                    .unwrap();
+                host.run_job(open).unwrap();
+                assert_eq!(host.with_job(open, |job| job.err()), Ok(0));
+                let file = host.open_job_get_fd(open).unwrap();
+                host.free_job(open).unwrap();
+                file
+            });
+            let [stdin, stdout] = files.map(|file| host.acquire_resource(file).unwrap());
+            let owners = [Arc::downgrade(&stdin), Arc::downgrade(&stdout)];
+            let spawn = host
+                .insert_job(ProcessJob::spawn_unix(
+                    "/bin/cat".into(),
+                    vec!["/bin/cat".into()],
+                    Vec::new(),
+                    Some(stdin),
+                    Some(stdout),
+                    None,
+                    None,
+                    SpawnOptions {
+                        child_signal_mask: unsafe { std::mem::zeroed() },
+                    },
+                ))
+                .unwrap();
+
+            // The request owns acquired Resources before preparation or spawn.
+            // Closing guest Handles must neither revoke those grants nor leave
+            // the numeric Handles usable for another operation.
+            for file in files {
+                host.close_fd(file).unwrap();
+                assert_eq!(
+                    host.acquire_resource(file).unwrap_err(),
+                    AsyncHostError::Badf
+                );
+            }
+            assert!(owners.iter().all(|owner| owner.upgrade().is_some()));
+            host.run_job(spawn).unwrap();
+            if allowed {
+                assert_eq!(host.with_job(spawn, |job| job.err()), Ok(0));
+                let pid = host.with_job(spawn, |job| job.ret()).unwrap() as i32;
+                let wait = host
+                    .make_wait_for_process_job(host.invalid_fd(), pid)
+                    .unwrap();
+                host.run_job(wait).unwrap();
+                assert_eq!(host.with_job(wait, |job| job.err()), Ok(0));
+                assert_eq!(host.with_job(wait, |job| job.ret()), Ok(0));
+                host.free_job(wait).unwrap();
+            } else {
+                assert_eq!(
+                    host.with_job(spawn, |job| job.err()),
+                    Ok(AsyncHostError::PermissionDenied.errno())
+                );
+            }
+            host.free_job(spawn).unwrap();
+            assert!(owners.iter().all(|owner| owner.upgrade().is_none()));
+            assert_eq!(resource_count(&host), 0);
+            assert_eq!(
+                std::fs::read(&output).unwrap(),
+                if allowed {
+                    b"delegated input".as_slice()
+                } else {
+                    b""
+                }
+            );
+        }
+    }
+
     #[test]
     fn failed_spawn_worker_reports_error_and_frees_without_a_result_handle() {
         let directory = tempfile::tempdir().unwrap();
