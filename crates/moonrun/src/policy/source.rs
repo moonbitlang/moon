@@ -37,12 +37,14 @@ pub(crate) struct LoadedPolicy {
     pub(crate) policy: Policy,
     pub(crate) environment: EnvConfig,
     pub(crate) virtualize: bool,
+    pub(crate) ipc: bool,
 }
 
 impl std::fmt::Debug for LoadedPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LoadedPolicy")
             .field("virtualize", &self.virtualize)
+            .field("ipc", &self.ipc)
             .finish_non_exhaustive()
     }
 }
@@ -66,6 +68,7 @@ pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<
         .process
         .as_ref()
         .is_some_and(|process| process.virtualize);
+    let ipc = config.process.as_ref().is_some_and(|process| process.ipc);
     Ok(LoadedPolicy {
         policy: Policy::new(
             FsRules {
@@ -77,6 +80,7 @@ pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<
         ),
         environment,
         virtualize,
+        ipc,
     })
 }
 

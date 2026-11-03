@@ -76,6 +76,8 @@ Process spawning is disabled by default. process.allow entries match the exact r
 
 process.virtualize defaults to false. Set it to true for Engine-managed identities, owned environment/cwd and internal moonx execution (V8 only). The same spawn/allow rules authorize every guest spawn in both modes. For a moonx-only virtual tree use process.virtualize=true with process.allow=[{"program":"moonx"}].
 
+process.ipc=true enables a Unix/V8 execution session for native descendants. A descendant moonrun connects to this Engine before initializing its own runtime. Each Run keeps its own cwd/env/stdio and inherits its parent's permission ceiling. IPC currently requires process.virtualize=false. With no inherited session and ipc disabled, execution stays local.
+
 Setting process.spawn to true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes. Scoped rules authorize the logical request, not the executable eventually selected through PATH or other OS lookup."#
     )]
     policy: Option<PathBuf>,
@@ -120,6 +122,18 @@ fn main() -> anyhow::Result<()> {
             options.with_policy_file_source_dir(policy, matches.policy_source_dir.as_deref())?;
     }
     #[cfg(unix)]
+    if let Some(endpoint) = std::env::var_os(moonrun::ipc::ENDPOINT_ENV) {
+        // Decide placement before constructing an Engine or initializing V8.
+        let run =
+            moonrun::ipc::ClientRun::connect(endpoint, &matches.path, options, engine_config)?;
+        let _signals = ProcessSignals::install_remote(run.control())?;
+        return present_outcome(run.wait()?);
+    }
+    anyhow::ensure!(
+        !(options.ipc() && options.virtualize()),
+        "IPC virtual process sessions are not supported yet"
+    );
+    #[cfg(unix)]
     {
         options = options.preserve_current_signal_mask_for_children()?;
     }
@@ -128,9 +142,14 @@ fn main() -> anyhow::Result<()> {
     let session = options
         .virtualize()
         .then(|| Session::new(signal_sender.clone()));
-    let _process_signals = match &session {
-        Some(session) => ProcessSignals::install_session(session.clone())?,
-        None => ProcessSignals::install(signal_sender)?,
+    let _process_signals = if let Some(session) = &session {
+        ProcessSignals::install_session(session.clone())?
+    } else if options.ipc() {
+        let (terminator, receiver) = moonrun::termination_channel();
+        options = options.with_termination_receiver(receiver);
+        ProcessSignals::install_controlled(signal_sender, terminator)?
+    } else {
+        ProcessSignals::install(signal_sender)?
     };
     let engine = Engine::new(engine_config);
     let outcome = if let Some(session) = session {
@@ -161,7 +180,11 @@ fn main() -> anyhow::Result<()> {
         engine.run_file_with_signal_receiver(matches.path, options, signal_receiver)
     };
 
-    match outcome? {
+    present_outcome(outcome?)
+}
+
+fn present_outcome(outcome: RunOutcome) -> anyhow::Result<()> {
+    match outcome {
         RunOutcome::Completed => Ok(()),
         RunOutcome::Exited(code) => std::process::exit(code),
         RunOutcome::KilledBySignal(signal) => {

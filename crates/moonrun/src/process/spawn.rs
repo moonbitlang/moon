@@ -83,6 +83,21 @@ impl HostProcess {
         #[cfg(windows)]
         self.check_spawn_windows(&request.command_line)?;
 
+        #[cfg(unix)]
+        if let Some(endpoint) = &self.ipc_endpoint {
+            // This is host-owned session routing, not a guest Env default.
+            // Bind it even for an explicit child environment; ordinary native
+            // descendants can pass it on without knowing anything about IPC.
+            use std::os::unix::ffi::OsStrExt;
+            let prefix = format!("{}=", crate::ipc::ENDPOINT_ENV);
+            request
+                .env
+                .retain(|entry| !entry.as_bytes().starts_with(prefix.as_bytes()));
+            let mut entry = OsString::from(prefix);
+            entry.push(endpoint);
+            request.env.push(entry);
+        }
+
         if let WorkingDirectory::Fixed(root) = self.working_directory.as_ref() {
             request.cwd = Some(match request.cwd {
                 Some(cwd) if cwd.is_empty() => cwd,

@@ -30,6 +30,9 @@ fn wire_preserves_non_utf8_caller_state() {
         working_directory: path,
         environment: vec![("K".into(), OsString::from_vec(vec![255]))],
         inherited_policy: None,
+        no_stack_trace: false,
+        test_args: None,
+        stack_size: None,
     };
     let bytes = wire::encode(&invocation).unwrap();
     let decoded: Invocation = serde_json::from_slice(&bytes).unwrap();
@@ -114,6 +117,9 @@ fn bad_version_is_rejected_before_loading_the_program() {
         working_directory: dir.path().to_owned(),
         environment: vec![],
         inherited_policy: None,
+        no_stack_trace: false,
+        test_args: None,
+        stack_size: None,
     };
     let (client, server) = UnixStream::pair().unwrap();
     let host = std::thread::spawn(move || serve(&engine, server, RunOptions::default()));

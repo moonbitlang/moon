@@ -19,13 +19,18 @@
 //! Experimental execution over an already-authorized local connection.
 //!
 //! The embedding host owns connection admission, scheduling and Engine lifetime.
-//! This is not a listening daemon or an authentication protocol. Giving a peer
+//! RunOptions::with_ipc enables Run-owned discovery for native descendants.
+//! The low-level adapter is not an authentication protocol. Giving a peer
 //! a connection delegates the ability to select a Wasm program to run with the
 //! host-supplied restrictions. See `docs/dev/design/ipc-execution.md`.
 
+pub(crate) mod session;
 #[cfg(test)]
 mod tests;
 mod wire;
+
+/// Inherited routing metadata for native descendants of an IPC-enabled Run.
+pub const ENDPOINT_ENV: &str = "MOONRUN_IPC_ENDPOINT";
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -57,6 +62,9 @@ pub struct Invocation {
     pub working_directory: PathBuf,
     pub environment: Vec<(OsString, OsString)>,
     pub inherited_policy: Option<Vec<u8>>,
+    pub no_stack_trace: bool,
+    pub test_args: Option<String>,
+    pub stack_size: Option<usize>,
 }
 
 impl Invocation {
@@ -81,9 +89,53 @@ pub struct ClientRun {
 }
 
 impl ClientRun {
+    /// Connect a normal CLI invocation, capturing its state before any Engine
+    /// is initialized. A stale endpoint is an error, never a local retry.
+    pub fn connect(
+        endpoint: impl AsRef<std::path::Path>,
+        program: impl AsRef<std::path::Path>,
+        mut options: RunOptions,
+        config: crate::EngineConfig,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !options.virtualize(),
+            "IPC virtual process sessions are not supported yet"
+        );
+        anyhow::ensure!(
+            options.termination_receiver.is_none(),
+            "IPC client owns its termination control"
+        );
+        let source = options
+            .runtime
+            .default_environment
+            .take()
+            .unwrap_or_else(|| {
+                std::env::vars_os()
+                    .filter(|(key, _)| key != ENDPOINT_ENV)
+                    .collect()
+            });
+        let (policy, environment) = options
+            .runtime
+            .realize_policy(crate::runtime::Env::owned(source)?)?;
+        let invocation = Invocation {
+            program: dunce::canonicalize(program)?,
+            args: options.args,
+            working_directory: options.runtime.working_directory.current_dir()?,
+            environment: environment.entries(),
+            inherited_policy: policy.as_ref().map(Policy::to_transfer).transpose()?,
+            no_stack_trace: options.no_stack_trace,
+            test_args: options.test_args,
+            stack_size: config.stack_size,
+        };
+        let stdio = options.runtime.stdio.into_files()?;
+        let stream = UnixStream::connect(endpoint)
+            .context("failed to connect to inherited moonrun IPC session")?;
+        Self::submit(stream, invocation, stdio).map_err(Into::into)
+    }
+
     /// Submit exactly one invocation on a fresh, connected Unix stream.
-    /// Files and pipes are supported; terminal bindings are rejected until
-    /// foreground process-group and signal ownership have an explicit contract.
+    /// Files and pipes retain their identity and flags. Terminal streams require
+    /// both client and execution host to belong to their foreground group.
     pub fn submit(
         stream: UnixStream,
         invocation: Invocation,
@@ -95,12 +147,7 @@ impl ClientRun {
         };
         let run = Self { stream, control };
         invocation.validate()?;
-        if stdio.iter().any(File::is_terminal) {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "IPC terminal stdio is not supported",
-            ));
-        }
+        check_terminals(&stdio)?;
         // Serialize and bound the request before delegating any descriptors.
         let request = wire::encode(&wire::Request {
             version: wire::VERSION,
@@ -141,10 +188,22 @@ pub struct RunControl {
 }
 
 impl RunControl {
+    /// Forward a CLI signal. The host delivers it cooperatively when the guest
+    /// registered interest; otherwise it requests this Run's forced termination.
+    pub fn signal(&self, signal: i32) -> io::Result<()> {
+        if ![libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported IPC signal",
+            ));
+        }
+        wire::write(&self.stream.lock().unwrap(), &wire::Control::Signal(signal))
+    }
+
     /// Send a forced termination request. Success means the message was sent,
     /// not that termination was accepted or cleanup finished. The first accepted
     /// request wins; completion can race with delivery. Use `ClientRun::wait` to
-    /// observe the outcome. This does not deliver cooperative guest signals.
+    /// observe the outcome. Use `signal` for cooperative CLI signal delivery.
     pub fn terminate(&self, termination: RunTermination) -> io::Result<()> {
         let control = match termination {
             RunTermination::Exit(code) => wire::Control::Exit(code),
@@ -209,10 +268,16 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
         );
         let invocation = request.invocation;
         invocation.validate()?;
-        anyhow::ensure!(
-            !stdio.iter().any(File::is_terminal),
-            "IPC terminal stdio is not supported"
-        );
+        check_terminals(&stdio)?;
+        if let Some(stack) = invocation.stack_size {
+            anyhow::ensure!(
+                stack.checked_mul(1024) == Some(engine.guest_stack_budget()?),
+                "IPC stack size differs from the execution host"
+            );
+        }
+        options.no_stack_trace = invocation.no_stack_trace;
+        options.test_args = invocation.test_args;
+        stream.set_read_timeout(None)?;
         if let Some(additional) = invocation.inherited_policy {
             let additional = Policy::from_transfer(&additional)?;
             let inherited = match options.runtime.inherited_policy.take() {
@@ -231,6 +296,7 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
             .with_working_directory(crate::WorkingDirectory::Fixed(invocation.working_directory))
             .with_stdio(stdin, stdout, stderr)
             .with_termination_receiver(receiver);
+        let (signal_sender, signals) = crate::signal_channel();
         std::thread::scope(|scope| {
             let reader = &stream;
             let control = std::thread::Builder::new()
@@ -238,6 +304,16 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
                 .spawn_scoped(scope, move || {
                     loop {
                         let termination = match wire::read::<wire::Control>(reader) {
+                            Ok(wire::Control::Signal(signal)) => {
+                                if ![libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+                                    terminator.terminate(RunTermination::Exit(1));
+                                    break;
+                                }
+                                if signal_sender.send(signal) != Ok(true) {
+                                    terminator.terminate(RunTermination::KilledBySignal(signal));
+                                }
+                                continue;
+                            }
                             Ok(wire::Control::Exit(code)) => RunTermination::Exit(code),
                             Ok(wire::Control::KilledBySignal(signal)) => {
                                 RunTermination::KilledBySignal(signal)
@@ -251,7 +327,8 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
                     }
                 })?;
             let stop_reader = StopReader(&stream);
-            let outcome = engine.run_file(invocation.program, options);
+            let outcome =
+                engine.run_file_with_signal_receiver(invocation.program, options, signals);
             // Stop only the reader here; keep the write half for the final reply.
             drop(stop_reader);
             let joined = control.join();
@@ -265,5 +342,22 @@ pub fn serve(engine: &Engine, stream: UnixStream, mut options: RunOptions) -> an
         Ok(RunOutcome::KilledBySignal(signal)) => wire::Reply::KilledBySignal(signal),
         Err(error) => wire::Reply::Failed(format!("{error:#}")),
     };
-    wire::write(&stream, &reply).context("failed to send IPC execution outcome")
+    wire::write_reply(&stream, &reply).context("failed to send IPC execution outcome")
+}
+
+// The MVP serves descendants in the host's foreground terminal group. It does
+// not move a terminal's foreground group to a shared execution host. Pipes and
+// files remain usable regardless of process-group placement.
+fn check_terminals(stdio: &[File; 3]) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    for file in stdio.iter().filter(|file| file.is_terminal()) {
+        // SAFETY: the borrowed descriptor remains open during these queries.
+        if unsafe { libc::tcgetpgrp(file.as_raw_fd()) != libc::getpgrp() } {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "IPC terminal use requires the execution host and client in the foreground group",
+            ));
+        }
+    }
+    Ok(())
 }

@@ -2,8 +2,8 @@
 
 ## Developer workflows
 
-- [IPC execution](design/ipc-execution.md): experimental Unix execution adapter,
-  caller-state transfer, per-Run cancellation, authority and daemon follow-ups.
+- [IPC execution](design/ipc-execution.md): Unix CLI session discovery, native descendant delegation,
+  caller-state transfer, authority and per-Run teardown.
 
 - [Runtime architecture](design/runtime-architecture.md): read before changing
   embedding interfaces, host imports, virtualized state, or authorization. It

@@ -64,6 +64,8 @@ pub(super) struct ProcessConfig {
     #[serde(default)]
     pub(super) virtualize: bool,
     #[serde(default)]
+    pub(super) ipc: bool,
+    #[serde(default)]
     pub(super) spawn: bool,
     #[serde(default)]
     pub(super) allow: Vec<ProcessRuleConfig>,

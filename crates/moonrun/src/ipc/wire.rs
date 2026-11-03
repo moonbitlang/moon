@@ -30,7 +30,7 @@ use rustix::net::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-pub(super) const VERSION: u32 = 1;
+pub(super) const VERSION: u32 = 2;
 const MAX_FRAME: usize = 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -42,6 +42,7 @@ pub(super) struct Request {
 
 #[derive(Serialize, Deserialize)]
 pub(super) enum Control {
+    Signal(i32),
     Exit(i32),
     KilledBySignal(i32),
 }
@@ -72,6 +73,50 @@ pub(super) fn write(stream: &UnixStream, value: &impl Serialize) -> io::Result<(
 pub(super) fn write_frame(mut stream: &UnixStream, bytes: &[u8]) -> io::Result<()> {
     stream.write_all(&(bytes.len() as u32).to_be_bytes())?;
     stream.write_all(bytes)
+}
+
+/// Final replies have a total send deadline, including partial writes. On
+/// Darwin, shutdown(Both) after a prior shutdown(Read) may report ENOTCONN
+/// without interrupting a writer. A non-reading client must never retain an
+/// execution thread indefinitely after the Run has finished.
+pub(super) fn write_reply(mut stream: &UnixStream, reply: &Reply) -> io::Result<()> {
+    let bytes = encode(reply)?;
+    let mut frame = Vec::with_capacity(4 + bytes.len());
+    frame.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&bytes);
+    // The reader has already joined; this only changes the private control
+    // socket, never the transferred stdio or another execution's resources.
+    stream.set_nonblocking(true)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut remaining = frame.as_slice();
+    while !remaining.is_empty() {
+        let duration = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|duration| !duration.is_zero())
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::TimedOut, "IPC reply deadline exceeded")
+            })?;
+        match stream.write(remaining) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "IPC reply connection closed",
+                ));
+            }
+            Ok(size) => remaining = &remaining[size..],
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                use rustix::event::{PollFd, PollFlags, Timespec, poll};
+                let timeout = Timespec::try_from(duration).map_err(io::Error::other)?;
+                match poll(&mut [PollFd::new(&stream, PollFlags::OUT)], Some(&timeout)) {
+                    Ok(_) | Err(rustix::io::Errno::INTR) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn read<T: DeserializeOwned>(mut stream: &UnixStream) -> io::Result<T> {
@@ -120,7 +165,7 @@ pub(super) fn receive_stdio(stream: &UnixStream) -> io::Result<[File; 3]> {
     // three. Linux limits SCM_RIGHTS to 253 fds; XNU's UIPC_MAX_CMSG_FD is 512
     // (bsd/kern/uipc_usrreq.c). A one-byte recv consumes one rights-bearing send.
     // In particular, never truncate on Darwin: it can install undisclosed fds,
-    // and rustix's ancillary decoder assumes complete control headers.
+    // even though rustix now bounds-checks truncated control headers.
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(512))];
     let mut ancillary = RecvAncillaryBuffer::new(&mut space);
     #[cfg(target_os = "linux")]

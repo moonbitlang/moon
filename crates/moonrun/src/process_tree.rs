@@ -295,13 +295,28 @@ impl ExecutionScope<'_> {
 }
 
 impl Engine {
-    fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
+    pub(crate) fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
         self.config
             .stack_size
             .unwrap_or(1024)
             .checked_mul(1024)
             .filter(|bytes| *bytes != 0)
             .ok_or(ProcessError::InvalidStackSize)
+    }
+
+    /// Resolve the guest budget and native allocation once for any execution
+    /// thread, including IPC workers. Preserve the caller's native headroom.
+    pub(crate) fn execution_stack(&self) -> Result<(usize, usize), ProcessError> {
+        let guest_stack_budget = self.guest_stack_budget()?;
+        let required_stack = guest_stack_budget
+            .checked_add(2 * 1024 * 1024)
+            .ok_or(ProcessError::InvalidStackSize)?;
+        let (low, high) = crate::native_stack::bounds()?;
+        let native_stack_size = high
+            .checked_sub(low)
+            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
+        let thread_stack_size = required_stack.max(native_stack_size);
+        Ok((guest_stack_budget, thread_stack_size))
     }
 
     /// Start a Run on a new thread, with an optional live parent in this Engine.
@@ -489,15 +504,7 @@ impl Engine {
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
         }
-        let guest_stack_budget = self.guest_stack_budget()?;
-        let required_stack = guest_stack_budget
-            .checked_add(2 * 1024 * 1024)
-            .ok_or(ProcessError::InvalidStackSize)?;
-        let (low, high) = crate::native_stack::bounds()?;
-        let native_stack_size = high
-            .checked_sub(low)
-            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
-        let thread_stack_size = required_stack.max(native_stack_size);
+        let (guest_stack_budget, thread_stack_size) = self.execution_stack()?;
         options.native_stack_budget = Some(guest_stack_budget);
         if options.virtualize()
             && (options.runtime.default_environment.is_none()

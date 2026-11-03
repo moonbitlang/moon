@@ -33,6 +33,9 @@ fn invocation(program: &Path, cwd: &Path) -> Invocation {
         working_directory: cwd.to_owned(),
         environment: Vec::new(),
         inherited_policy: None,
+        no_stack_trace: false,
+        test_args: None,
+        stack_size: None,
     }
 }
 

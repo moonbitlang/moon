@@ -86,6 +86,25 @@ impl Utf16Writer {
 }
 
 impl Stdio {
+    #[cfg(unix)]
+    pub(crate) fn into_files(self) -> io::Result<[File; 3]> {
+        use std::os::fd::AsFd;
+        match self {
+            Self::Owned(files) => {
+                let [stdin, stdout, stderr] = files.map(|file| {
+                    file.into_inner()
+                        .map_err(|_| io::Error::other("stdio lock poisoned"))
+                });
+                Ok([stdin?, stdout?, stderr?])
+            }
+            Self::Ambient => Ok([
+                File::from(io::stdin().as_fd().try_clone_to_owned()?),
+                File::from(io::stdout().as_fd().try_clone_to_owned()?),
+                File::from(io::stderr().as_fd().try_clone_to_owned()?),
+            ]),
+        }
+    }
+
     pub(crate) fn owned(stdin: File, stdout: File, stderr: File) -> Self {
         Self::Owned([Mutex::new(stdin), Mutex::new(stdout), Mutex::new(stderr)])
     }

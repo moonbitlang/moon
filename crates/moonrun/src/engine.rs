@@ -62,6 +62,7 @@ pub struct RunOptions {
     pub(crate) test_args: Option<String>,
     pub(crate) runtime: RuntimeConfig,
     pub(crate) virtualize: Option<bool>,
+    pub(crate) ipc: Option<bool>,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
@@ -95,6 +96,19 @@ impl RunOptions {
         })
     }
 
+    /// Offer this Run's native descendants an IPC entry into the same Engine.
+    /// Each entry retains the Run's effective policy ceiling. Unix/V8 only;
+    /// guest PID routing remains native. Disabled unless selected explicitly.
+    pub fn with_ipc(mut self, enabled: bool) -> Self {
+        self.ipc = Some(enabled);
+        self
+    }
+
+    pub fn ipc(&self) -> bool {
+        self.ipc
+            .unwrap_or_else(|| self.runtime.selected_policy.as_ref().is_some_and(|p| p.ipc))
+    }
+
     /// Supply an owned environment. An empty iterator means an empty environment.
     /// Policy environment provisioning, when present, takes precedence.
     /// Guest changes affect only this execution's environment.
@@ -116,7 +130,7 @@ impl RunOptions {
     // Only host-facing entries may fill absent root inputs from ambient state.
     // Guest derivation supplies complete inputs before process admission.
     pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
-        if self.virtualize() {
+        if self.virtualize() || self.ipc() {
             self.runtime.capture_host_state()?;
         }
         Ok(())
@@ -491,6 +505,22 @@ impl Engine {
         termination: &TerminationRequest,
     ) -> anyhow::Result<RunOutcome> {
         debug_assert!(options.termination_receiver.is_none());
+        #[cfg(unix)]
+        let mut options = options;
+        if options.ipc() {
+            anyhow::ensure!(
+                cfg!(unix) && SUPPORTS_RUN_TERMINATION,
+                "IPC sessions require Unix and V8"
+            );
+            anyhow::ensure!(
+                !options.virtualize(),
+                "IPC virtual process sessions are not supported yet"
+            );
+            #[cfg(unix)]
+            {
+                options.runtime.ipc_engine = Some(self.clone());
+            }
+        }
         let outcome = (|| {
             if let Some(outcome) = termination.get() {
                 return Ok(BackendRunOutcome::Terminated(outcome));

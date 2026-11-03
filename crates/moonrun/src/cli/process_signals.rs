@@ -23,6 +23,9 @@ use super::session::Session;
 enum SignalTarget {
     Run(SignalSender),
     Session(Session),
+    Controlled(moonrun::SignalSender, moonrun::RunTerminator),
+    #[cfg(unix)]
+    Remote(moonrun::ipc::RunControl),
 }
 
 impl SignalTarget {
@@ -30,6 +33,16 @@ impl SignalTarget {
         match self {
             Self::Run(sender) => sender.send(signal) == Ok(true),
             Self::Session(session) => session.send(signal),
+            Self::Controlled(sender, terminator) => {
+                if sender.send(signal) != Ok(true) {
+                    let _ = terminator.terminate(moonrun::RunTermination::KilledBySignal(signal));
+                }
+                // Keep repeated signals from bypassing IPC teardown. main
+                // presents the latched outcome after all delegates have joined.
+                true
+            }
+            #[cfg(unix)]
+            Self::Remote(remote) => remote.signal(signal).is_ok(),
         }
     }
 }
@@ -37,6 +50,18 @@ impl SignalTarget {
 impl ProcessSignals {
     pub(crate) fn install(sender: SignalSender) -> std::io::Result<Self> {
         Self::install_target(SignalTarget::Run(sender))
+    }
+
+    pub(crate) fn install_controlled(
+        sender: SignalSender,
+        terminator: moonrun::RunTerminator,
+    ) -> std::io::Result<Self> {
+        Self::install_target(SignalTarget::Controlled(sender, terminator))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn install_remote(control: moonrun::ipc::RunControl) -> std::io::Result<Self> {
+        Self::install_target(SignalTarget::Remote(control))
     }
 
     pub(crate) fn install_session(session: Session) -> std::io::Result<Self> {
