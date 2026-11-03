@@ -32,7 +32,7 @@ use std::thread::{self, JoinHandle};
 
 use thiserror::Error;
 
-use crate::engine::{GuestProcessMode, SUPPORTS_RUN_TERMINATION};
+use crate::engine::SUPPORTS_RUN_TERMINATION;
 use crate::run_termination::{RunTerminationReceiver, TerminationRequest};
 use crate::{Engine, Module, RunOptions, RunOutcome, RunTermination, RunTerminator};
 use crate::{WorkingDirectory, termination_channel};
@@ -229,6 +229,71 @@ impl std::fmt::Debug for ProcessTable {
     }
 }
 
+/// Borrow the execution owner's control and exit guard. A policy delivered by
+/// preparation can bind virtual state before Runtime starts: spawned executions
+/// reuse their admitted PID, while an inline invocation admits only when needed.
+/// The owner closes the receiver before dropping the guard, including on unwind.
+pub(crate) struct ExecutionScope<'a> {
+    receiver: &'a RunTerminationReceiver,
+    exit: &'a mut Option<ProcessExitGuard>,
+}
+
+impl ExecutionScope<'_> {
+    pub(crate) fn termination(&self) -> &TerminationRequest {
+        &self.receiver.request
+    }
+
+    pub(crate) fn bind_virtual(
+        &mut self,
+        engine: &Engine,
+        options: &mut RunOptions,
+        signals: &crate::SignalReceiver,
+    ) -> Result<(), ProcessError> {
+        if !options.virtualize() {
+            return Ok(());
+        }
+        if !SUPPORTS_RUN_TERMINATION {
+            return Err(ProcessError::UnsupportedBackend);
+        }
+        options.prepare_root()?;
+        options.native_stack_budget = Some(engine.guest_stack_budget()?);
+        let pid = if let Some(exit) = &self.exit {
+            exit.pid
+        } else {
+            let mut table = engine.processes.0.lock().unwrap();
+            if table.shutting_down {
+                return Err(ProcessError::ShuttingDown);
+            }
+            let pid = VirtualPid::allocate(&NEXT_PID)?;
+            table.entries.insert(
+                pid,
+                Entry {
+                    info: ProcessInfo {
+                        pid,
+                        parent: None,
+                        state: ProcessState::Running,
+                    },
+                    terminator: self.receiver.sender(),
+                    signals: signals.sender(),
+                    completion: Arc::new(ProcessCompletion::default()),
+                    waiting: true,
+                },
+            );
+            *self.exit = Some(ProcessExitGuard {
+                table: Arc::clone(&engine.processes.0),
+                pid,
+                reap_on_drop: true,
+            });
+            pid
+        };
+        options.runtime.process_context = Some(ProcessContext {
+            pid,
+            engine: engine.clone(),
+        });
+        Ok(())
+    }
+}
+
 impl Engine {
     fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
         self.config
@@ -241,7 +306,7 @@ impl Engine {
 
     /// Start a Run on a new thread, with an optional live parent in this Engine.
     ///
-    /// `GuestProcessMode::Virtual` captures the host environment and cwd unless
+    /// `virtualize = true` captures the host environment and cwd unless
     /// explicitly provisioned. Native mode preserves ambient host state. Stdio
     /// follows `options`. Failures after admission are returned by `wait`.
     pub fn spawn(
@@ -269,8 +334,8 @@ impl Engine {
             parent,
             options,
             signals,
-            move |engine, options, signals, termination| {
-                engine.run_in_scope(&module, options, signals, termination)
+            move |engine, options, signals, scope| {
+                engine.run_in_scope(&module, options, signals, scope.termination())
             },
         )
         .map(|spawned| spawned.pid)
@@ -293,7 +358,7 @@ impl Engine {
             parent,
             options,
             signals,
-            move |engine, options, signals, termination| {
+            move |engine, options, signals, scope| {
                 engine.execute_artifact_in_scope(
                     kind,
                     &executable,
@@ -305,7 +370,7 @@ impl Engine {
                     },
                     options,
                     signals,
-                    termination,
+                    scope.termination(),
                 )
             },
         )
@@ -338,13 +403,13 @@ impl Engine {
             parent,
             options,
             crate::signal_channel().1,
-            move |engine, options, signals, termination| {
+            move |engine, options, signals, scope| {
                 engine.execute_moon_in_scope(
                     &executable,
                     &args,
                     options,
                     signals,
-                    termination,
+                    scope,
                     #[cfg(windows)]
                     false,
                 )
@@ -363,10 +428,10 @@ impl Engine {
             &Engine,
             RunOptions,
             crate::SignalReceiver,
-            &TerminationRequest,
+            &mut ExecutionScope<'_>,
         ) -> anyhow::Result<RunOutcome>,
     ) -> anyhow::Result<RunOutcome> {
-        let virtual_process = options.guest_process_mode == GuestProcessMode::Virtual;
+        let virtual_process = options.virtualize();
         if !SUPPORTS_RUN_TERMINATION {
             if virtual_process {
                 return Err(ProcessError::UnsupportedBackend.into());
@@ -379,55 +444,21 @@ impl Engine {
         // The receiver is declared after the exit guard so panic unwinding
         // closes control before removing the PID and adopting its children.
         let mut exit = None;
-        let receiver = options.termination_receiver.take().unwrap_or_else(|| {
-            if virtual_process {
-                termination_channel().1
-            } else {
-                RunTerminationReceiver {
-                    request: Default::default(),
-                }
-            }
-        });
+        let receiver = options
+            .termination_receiver
+            .take()
+            .unwrap_or_else(|| termination_channel().1);
         let result = (|| {
             if let Some(outcome) = receiver.request.get() {
                 drop((execute, options, signals));
                 return Ok(outcome.into());
             }
-            options.prepare_root()?;
-            if virtual_process {
-                options.native_stack_budget = Some(self.guest_stack_budget()?);
-                let mut table = self.processes.0.lock().unwrap();
-                if table.shutting_down {
-                    return Err(ProcessError::ShuttingDown.into());
-                }
-                let pid = VirtualPid::allocate(&NEXT_PID)?;
-                options.runtime.process_context = Some(ProcessContext {
-                    pid,
-                    engine: self.clone(),
-                });
-                table.entries.insert(
-                    pid,
-                    Entry {
-                        info: ProcessInfo {
-                            pid,
-                            parent: None,
-                            state: ProcessState::Running,
-                        },
-                        terminator: receiver.sender(),
-                        signals: signals.sender(),
-                        completion: Arc::new(ProcessCompletion::default()),
-                        waiting: true,
-                    },
-                );
-                exit = Some(ProcessExitGuard {
-                    table: Arc::clone(&self.processes.0),
-                    pid,
-                    reap_on_drop: true,
-                });
-            } else {
-                options.runtime.process_context = None;
-            }
-            execute(self, options, signals, &receiver.request)
+            let mut scope = ExecutionScope {
+                receiver: &receiver,
+                exit: &mut exit,
+            };
+            scope.bind_virtual(self, &mut options, &signals)?;
+            execute(self, options, signals, &mut scope)
         })();
         let result = match receiver.close() {
             Some(outcome) => Ok(outcome.into()),
@@ -447,7 +478,7 @@ impl Engine {
             &Engine,
             RunOptions,
             crate::SignalReceiver,
-            &TerminationRequest,
+            &mut ExecutionScope<'_>,
         ) -> anyhow::Result<RunOutcome>
         + Send
         + 'static,
@@ -468,7 +499,7 @@ impl Engine {
             .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
         let thread_stack_size = required_stack.max(native_stack_size);
         options.native_stack_budget = Some(guest_stack_budget);
-        if options.guest_process_mode == GuestProcessMode::Virtual
+        if options.virtualize()
             && (options.runtime.default_environment.is_none()
                 || !matches!(
                     options.runtime.working_directory,
@@ -491,11 +522,10 @@ impl Engine {
             }
         }
         let pid = VirtualPid::allocate(&NEXT_PID)?;
-        options.runtime.process_context = (options.guest_process_mode == GuestProcessMode::Virtual)
-            .then(|| ProcessContext {
-                pid,
-                engine: self.clone(),
-            });
+        options.runtime.process_context = options.virtualize().then(|| ProcessContext {
+            pid,
+            engine: self.clone(),
+        });
         let (terminator, receiver) = termination_channel();
         let signals = signal_receiver.sender();
         let engine = self.clone();
@@ -508,11 +538,11 @@ impl Engine {
             .name(format!("moonrun-{pid}"))
             .stack_size(thread_stack_size)
             .spawn(move || {
-                let _exit = ProcessExitGuard {
+                let mut exit = Some(ProcessExitGuard {
                     table: shared_table,
                     pid,
                     reap_on_drop: false,
-                };
+                });
                 // Close control before publishing exit, including on unwind.
                 let receiver = receiver;
                 let result = match receiver.request.get() {
@@ -520,7 +550,15 @@ impl Engine {
                         drop((execute, options, signal_receiver));
                         Ok(outcome.into())
                     }
-                    None => execute(&engine, options, signal_receiver, &receiver.request),
+                    None => execute(
+                        &engine,
+                        options,
+                        signal_receiver,
+                        &mut ExecutionScope {
+                            receiver: &receiver,
+                            exit: &mut exit,
+                        },
+                    ),
                 };
                 // Admission owns cancellation through preparation too, including
                 // artifact loading errors before the Wasm engine is entered.
@@ -693,6 +731,79 @@ mod tests {
 
     #[cfg(feature = "v8")]
     #[test]
+    fn delivered_policy_binds_the_existing_scope_before_execution() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy_path = directory.path().join("policy.json");
+        std::fs::write(&policy_path, r#"{"process":{"virtualize":true}}"#).unwrap();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_inline(
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |engine, options, signals, scope| {
+                    assert!(engine.snapshot().is_empty());
+                    let mut options = options.with_policy_file(&policy_path)?;
+                    scope.bind_virtual(engine, &mut options, &signals)?;
+                    let pid = options.runtime.process_context.as_ref().unwrap().pid;
+                    assert_eq!(engine.snapshot()[0].pid, pid);
+                    assert!(options.runtime.default_environment.is_some());
+                    engine.request_shutdown(RunTermination::Exit(77));
+                    Ok(RunOutcome::Completed)
+                },
+            )
+            .unwrap();
+        assert_eq!(outcome, RunOutcome::Exited(77));
+        assert!(engine.snapshot().is_empty());
+
+        let engine = Engine::default();
+        let spawned = engine
+            .spawn_execution(
+                None,
+                RunOptions::default(),
+                crate::signal_channel().1,
+                move |engine, options, signals, scope| {
+                    let pid = engine.snapshot()[0].pid;
+                    let mut options = options.with_policy_file(&policy_path)?;
+                    scope.bind_virtual(engine, &mut options, &signals)?;
+                    assert_eq!(options.runtime.process_context.unwrap().pid, pid);
+                    assert_eq!(engine.snapshot().len(), 1);
+                    Ok(RunOutcome::Completed)
+                },
+            )
+            .unwrap();
+        assert_eq!(engine.wait(spawned.pid).unwrap(), RunOutcome::Completed);
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn shutdown_prevents_late_inline_virtual_admission() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy_path = directory.path().join("policy.json");
+        std::fs::write(&policy_path, r#"{"process":{"virtualize":true}}"#).unwrap();
+        let engine = Engine::default();
+        let error = engine
+            .run_inline(
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |engine, options, signals, scope| {
+                    assert!(engine.snapshot().is_empty());
+                    engine.request_shutdown(RunTermination::Exit(77));
+                    let mut options = options.with_policy_file(&policy_path)?;
+                    scope.bind_virtual(engine, &mut options, &signals)?;
+                    panic!("closed namespace admitted a delivered virtual root")
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ProcessError>(),
+            Some(ProcessError::ShuttingDown)
+        ));
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
     fn shutdown_closes_managed_and_virtual_admission_only_in_its_engine() {
         let engine = Engine::default();
         assert!(engine.request_shutdown(RunTermination::Exit(17)));
@@ -708,7 +819,7 @@ mod tests {
         ));
         let error = engine
             .run_inline(
-                RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                RunOptions::default().with_virtualize(true),
                 crate::signal_channel().1,
                 |_, _, _, _| panic!("closed namespace admitted a virtual inline execution"),
             )
@@ -753,7 +864,7 @@ mod tests {
             let mut child = None;
             let outcome = engine
                 .run_inline(
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                    RunOptions::default().with_virtualize(true),
                     crate::signal_channel().1,
                     |engine, options, _, _| {
                         let parent = options.runtime.process_context.as_ref().unwrap().pid;
@@ -763,8 +874,8 @@ mod tests {
                                     Some(parent),
                                     RunOptions::default(),
                                     crate::signal_channel().1,
-                                    move |_, _, _, termination| {
-                                        ready.send(termination.clone()).unwrap();
+                                    move |_, _, _, scope| {
+                                        ready.send(scope.termination().clone()).unwrap();
                                         pending.recv_timeout(Duration::from_secs(5)).unwrap();
                                         Ok(RunOutcome::Completed)
                                     },
@@ -899,10 +1010,10 @@ mod tests {
         let (terminator, receiver) = termination_channel();
         let result = engine.run_inline(
             RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_virtualize(true)
                 .with_termination_receiver(receiver),
             crate::signal_channel().1,
-            |engine, options, signals, termination| {
+            |engine, options, signals, scope| {
                 assert_eq!(thread::current().id(), caller);
                 let pid = options.runtime.process_context.as_ref().unwrap().pid;
                 assert!(options.runtime.default_environment.is_some());
@@ -914,7 +1025,7 @@ mod tests {
                 assert!(matches!(engine.clone().wait(pid), Err(ProcessError::AlreadyWaiting(id)) if id == pid));
                 // A newly created Engine owns a different namespace.
                 assert!(matches!(Engine::default().wait(pid), Err(ProcessError::NotFound(id)) if id == pid));
-                engine.run_in_scope(&module, options, signals, termination)?;
+                engine.run_in_scope(&module, options, signals, scope.termination())?;
                 // Engine control and the supplied receiver are one channel,
                 // including after the Run has released its Runtime.
                 assert!(terminator.terminate(RunTermination::Exit(17)));
@@ -950,7 +1061,7 @@ mod tests {
         let result = catch_unwind(AssertUnwindSafe(|| {
             engine.run_inline(
                 RunOptions::default()
-                    .with_guest_process_mode(GuestProcessMode::Virtual)
+                    .with_virtualize(true)
                     .with_termination_receiver(receiver),
                 crate::signal_channel().1,
                 |engine, options, _, _| {
@@ -1002,7 +1113,7 @@ mod tests {
             assert!(matches!(
                 engine.spawn_execution(
                     None,
-                    options.with_guest_process_mode(GuestProcessMode::Virtual),
+                    options.with_virtualize(true),
                     crate::signal_channel().1,
                     |_, _, _, _| panic!("incomplete virtual state admitted"),
                 ),
@@ -1092,12 +1203,7 @@ mod tests {
         let inline_engine = engine.clone();
         let result = thread::Builder::new()
             .stack_size(512 * 1024)
-            .spawn(move || {
-                inline_engine.run(
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
-            })
+            .spawn(move || inline_engine.run(&module, RunOptions::default().with_virtualize(true)))
             .unwrap()
             .join()
             .unwrap();
@@ -1287,8 +1393,9 @@ mod tests {
                     None,
                     options,
                     crate::signal_channel().1,
-                    move |engine, options, signals, termination| {
-                        let result = engine.run_in_scope(&module, options, signals, termination);
+                    move |engine, options, signals, scope| {
+                        let result =
+                            engine.run_in_scope(&module, options, signals, scope.termination());
                         assert_eq!(result.is_err(), run_error);
                         returned.send(()).unwrap();
                         // Execution can retain delivery files after its Run returns.

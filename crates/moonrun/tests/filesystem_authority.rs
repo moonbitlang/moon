@@ -84,7 +84,7 @@ fn filesystem_policy_applies_to_legacy_async_and_wasi_imports() {
         if let Some(policy) = policy {
             let path = directory.path().join("policy.toml");
             std::fs::write(&path, policy).unwrap();
-            options = options.with_policy_file(path);
+            options = options.with_policy_file(path).unwrap();
         }
         assert_eq!(
             engine.run(&module, options).unwrap(),
@@ -130,6 +130,7 @@ fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
             i32.const 8 i32.load i32.const 5 i32.ne if unreachable end))"#).unwrap()).unwrap();
     let options = RunOptions::default()
         .with_policy_file(policy)
+        .unwrap()
         .with_working_directory(WorkingDirectory::Fixed(directory.path().to_owned()))
         .with_stdio(
             std::fs::File::open(input).unwrap(),

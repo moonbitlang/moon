@@ -86,7 +86,7 @@ fn context(root: &Path, policy: &str) -> WasiContext {
     fs::write(&policy_file, policy).unwrap();
     let runtime = Runtime::new(
         RuntimeConfig {
-            policy_file: Some(policy_file),
+            selected_policy: Some(crate::policy::read_file(&policy_file, None).unwrap()),
             working_directory: WorkingDirectory::Fixed(root.to_owned()),
             ..Default::default()
         },

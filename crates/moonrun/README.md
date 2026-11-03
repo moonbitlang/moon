@@ -37,23 +37,51 @@ shared WASIp1 host operations.
 
 ## Experimental virtual process tree
 
-Use `moonx --virtual-process-tree script.mbtx` (or a registry package),
-`moon run --virtual-process-tree <input>`, or
-`moonrun --virtual-process-tree program.wasm`. Guest spawn supports only `moonx`,
-with either a local `.mbtx` file or a registry package. The root and its recursive
-moonx children run in one host process, with separate virtual PIDs,
-Run state, cwd and environments. Existing async process APIs provide spawning,
-waiting and signals. The CLI waits for descendants and returns the root's status.
-This mode currently requires V8; ordinary invocation keeps native spawning.
+Select execution behavior in a Moonrun policy file. For a moonx-only virtual
+tree, use:
 
-Moon helpers still build or download artifacts with host access, then hand Wasm
-back to the Engine. Child Runs inherit the parent's policy and requested
-environment/stdio. Guest `moon` invocations and other native commands report
-unsupported at spawn; they do not fall back to native execution. Moonx help,
-version and argument errors complete through the shared frontend with bound
-stdout/stderr and the CLI exit status, without launching a preparation helper.
-Cancellation during a build waits for the helper to exit; blocking host I/O can
-also delay teardown.
+```toml
+[process]
+virtualize = true
+allow = [{ program = "moonx" }]
+
+[env]
+from_host = ["*"]
+```
+
+Pass this file through `moonx --experimental-policy policy.toml script.mbtx`
+(or a registry package), `moon run --target wasm --wasm-policy policy.toml <input>`,
+or `moonrun --policy policy.toml program.wasm`. A `.mbtx` permission block can
+supply the same `process` fields. Files retain their existing deny-by-default
+semantics for omitted filesystem, network, environment and process rules.
+
+Virtualization gives the root and internal moonx descendants separate virtual
+PIDs, Env and cwd in one Engine. Guest spawn currently supports only moonx;
+other commands remain unsupported even when authorized. Existing async APIs provide spawning, waiting,
+and signals. The CLI waits for descendants and returns the root's status.
+Virtualization currently requires V8; it defaults to `false`.
+
+Authorization uses the existing `process.spawn` / `process.allow` rules in both
+execution modes, including internal moonx. Use `spawn = true` to allow all
+commands, or `allow` entries with program names and optional `args_prefix` to
+permit selected invocations. The two forms cannot be combined. An omitted or
+empty rule set in a policy denies spawning. With no policy, the existing
+unrestricted behavior is preserved. There is no separate native allowance.
+
+Lists authorize logical requests rather than resolved executable identities.
+Inherited and selected child policies both restrict operations; children cannot
+replace the inherited ceiling with broader rules. Internal descendants stay in
+the parent's virtual namespace. `moon run --wasm-policy` applies only to Wasm
+execution; native and Node roots retain their existing behavior outside Moonrun.
+
+Moon helpers build or download artifacts with host access, then hand Wasm
+back to Engine. Guest process rules do not gate these host-owned helpers.
+Moonx help/version and argument errors finish through the embedded frontend
+without a preparation helper.
+
+Ordinary native children, internal moonrun execution, helper-tree cancellation,
+and blocking host-I/O cancellation remain follow-up work.
+Preparation cancellation still waits for the helper to exit.
 
 ## Experimental wee8 backend
 
@@ -234,14 +262,15 @@ the stable program name used for guest arguments and diagnostics:
 let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
-Guest process behavior is independent of thread placement.
-`GuestProcessMode::Native` is the default and preserves native child operations
-and Ambient defaults. `GuestProcessMode::Virtual` gives guest code virtual PIDs
-and child control, with owned root Env and fixed cwd. Either mode can be chosen
-for `run` or `spawn`; neither mode grants additional host permissions.
+Guest process virtualization is independent of thread placement and process
+permission. `with_virtualize(false)` preserves native child operations and
+Ambient defaults. `with_virtualize(true)` uses virtual identities and owned
+root Env/cwd. This explicit embedding choice overrides the selected policy's
+`process.virtualize`. `with_policy_file` reads and parses a file once and returns
+`Result`; its process rules authorize commands in either mode.
 
 ```rust
-use moonrun::{Engine, GuestProcessMode, RunOptions};
+use moonrun::{Engine, RunOptions};
 
 let engine = Engine::default();
 let module = engine.load_file("agent.wasm")?;
@@ -249,7 +278,7 @@ let pid = engine.spawn(
     None,
     &module,
     RunOptions::default()
-        .with_guest_process_mode(GuestProcessMode::Virtual)
+        .with_virtualize(true)
         .with_environment([("APP_MODE", "worker")]),
 )?;
 let outcome = engine.clone().wait(pid)?;
@@ -257,9 +286,9 @@ let outcome = engine.clone().wait(pid)?;
 
 The optional parent passed to `spawn` records a relationship; it does not
 inherit that parent's state or policy. Guest-initiated children instead derive
-their inputs through their own Runtime's Host Process. Virtual host entries
+their inputs through their own Runtime's Host Process. Virtualized host entries
 capture missing Env and cwd values once; explicit values, including an empty
-environment, remain authoritative. Native mode retains Ambient defaults on
+environment, remain authoritative. With virtualization off, Runs retain Ambient defaults on
 managed threads too, so embedding callers must coordinate any process-global
 environment access or supply owned environments.
 
@@ -269,7 +298,7 @@ Virtual run returns its own result and removes its identity; it does not wait
 for surviving children. Exiting parents leave children with the Engine.
 Dropping Engine does not terminate or join work: callers own shutdown and must
 wait for remaining executions when required. The CLI performs this descendant
-waiting for `--virtual-process-tree`.
+waiting when `process.virtualize = true`.
 
 To prepare a program with Moon or moonx, `run_moon(executable, args, options)`
 prepares and executes on the calling thread; `spawn_moon(parent, executable,
@@ -287,7 +316,7 @@ remain unsupported by this flow.
 
 The shipping configuration remains V8-backed; the Wasmtime feature provides
 the same library surface at compile time. Engine construction and ordinary
-caller-thread Runs work on every supported backend. Virtual mode, managed
+caller-thread Runs work on every supported backend. virtualized execution, managed
 spawning, and external forced termination currently require V8; unsupported
 operations return an error rather than changing modes. Defaults preserve
 process stdio, environment, and working-directory behavior in Native mode.

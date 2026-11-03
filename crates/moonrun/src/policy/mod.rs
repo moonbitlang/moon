@@ -33,7 +33,7 @@ mod process;
 mod source;
 mod transfer;
 
-pub(crate) use source::read_file;
+pub(crate) use source::{LoadedPolicy, read_file};
 
 #[cfg(test)]
 use self::config::PolicyConfig;
@@ -118,7 +118,11 @@ pub(crate) fn load_file_with_source_dir(
     source_dir: Option<&Path>,
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let (policy, env) = read_file(path, source_dir)?;
+    let LoadedPolicy {
+        policy,
+        environment: env,
+        ..
+    } = read_file(path, source_dir)?;
     Ok((
         policy,
         EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
@@ -139,7 +143,11 @@ fn realize_config(
     directory: &Path,
     source: &crate::runtime::Env,
 ) -> anyhow::Result<(Policy, EnvProvisioning)> {
-    let (policy, env) = source::resolve(config, directory)?;
+    let LoadedPolicy {
+        policy,
+        environment: env,
+        ..
+    } = source::resolve(config, directory)?;
     Ok((
         policy,
         EnvProvisioning::new(env.from_host, env.required_from_host, env.set, source)?,
@@ -266,6 +274,7 @@ fn main {}
                 process: Some(config::ProcessConfig {
                     spawn: true,
                     allow: Vec::new(),
+                    ..Default::default()
                 }),
             },
             tmp.path(),
@@ -491,6 +500,7 @@ fn main {}
                 process: Some(config::ProcessConfig {
                     spawn: true,
                     allow: Vec::new(),
+                    ..Default::default()
                 }),
                 ..PolicyConfig::default()
             },

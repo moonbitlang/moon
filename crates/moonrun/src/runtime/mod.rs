@@ -27,7 +27,6 @@ mod working_directory;
 
 use std::cell::RefCell;
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -139,11 +138,10 @@ pub(crate) struct Runtime {
 
 /// Construction input shared by artifact preparation and its eventual Runtime.
 /// Moving these inputs transfers ownership; only Runtime realizes the state
-/// and loads the policy sources into domain authorization rules.
+/// and provisions Env while composing the already resolved policy rules.
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
-    pub(crate) policy_file: Option<PathBuf>,
-    pub(crate) policy_source_dir: Option<PathBuf>,
+    pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
@@ -155,7 +153,7 @@ pub(crate) struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Resolve selected sources and provision Env; restriction composition only
+    /// Compose resolved restrictions and provision Env; composition only
     /// joins compiled rules and never observes host state.
     pub(crate) fn realize_policy(&self, source: Env) -> anyhow::Result<(Option<Policy>, Env)> {
         let mut policy = match &self.inherited_policy {
@@ -165,15 +163,14 @@ impl RuntimeConfig {
             }
             None => None,
         };
-        let environment = match &self.policy_file {
-            Some(path) => {
-                let (child, provisioning) =
-                    policy::read_file(path, self.policy_source_dir.as_deref())?;
+        let environment = match &self.selected_policy {
+            Some(selected) => {
+                let child = selected.policy.clone();
                 policy = Some(match policy {
                     Some(parent) => parent.intersect(child),
                     None => child,
                 });
-                provisioning.provision(&source)?
+                selected.environment.clone().provision(&source)?
             }
             None => source,
         };
@@ -182,7 +179,7 @@ impl RuntimeConfig {
 
     /// Capture missing host state before creating a virtual root.
     /// Guest children already carry state derived by their Host Process and
-    /// must not use this host fallback. Policy is realized by Runtime later.
+    /// must not use this host fallback. Policy Env provisioning is applied by Runtime later.
     pub(crate) fn capture_host_state(&mut self) -> std::io::Result<()> {
         self.default_environment
             .get_or_insert_with(|| std::env::vars_os().collect());
@@ -338,6 +335,7 @@ impl Drop for Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn resolved_inheritance_uses_child_state_without_replaying_parent_provisioning() {
@@ -348,7 +346,7 @@ mod tests {
             r#"{"env":{"set":{"VALUE":"parent"}},"process":{"spawn":true}}"#,
         )
         .unwrap();
-        let (inherited, _) = policy::read_file(&file, None).unwrap();
+        let inherited = policy::read_file(&file, None).unwrap().policy;
         std::fs::remove_file(file).unwrap();
         let config = crate::RunOptions::default()
             .with_environment([("VALUE", "child")])
@@ -386,11 +384,9 @@ mod tests {
     #[test]
     fn host_capture_preserves_explicit_empty_environment_and_fixed_directory() {
         let directory = PathBuf::from("unresolved-directory");
-        let policy = PathBuf::from("unloaded-policy.json");
         let mut config = RuntimeConfig {
             default_environment: Some(Vec::new()),
             working_directory: WorkingDirectory::Fixed(directory.clone()),
-            policy_file: Some(policy.clone()),
             ..Default::default()
         };
 
@@ -398,7 +394,6 @@ mod tests {
 
         assert_eq!(config.default_environment, Some(Vec::new()));
         assert_eq!(config.working_directory, WorkingDirectory::Fixed(directory));
-        assert_eq!(config.policy_file, Some(policy));
     }
 
     #[test]

@@ -320,7 +320,7 @@ and owns a namespace of admitted process identities and their lifecycle. Clones
 share that namespace and backend; a newly constructed Engine has an independent
 namespace. Execution placement and guest process behavior are separate choices.
 An Engine does not own a Runtime's virtual environment. `request_shutdown`
-closes managed and Virtual admission and requests termination of all admitted
+closes managed and virtualized admission and requests termination of all admitted
 members, including adopted descendants; it does not wait or affect Native
 caller-thread Runs outside its process table.
 _Avoid_: Runtime, Instance, Run, execution thread, thread pool
@@ -337,11 +337,11 @@ chosen by the caller. It returns only after run-local guest execution state is
 torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
-**Guest Process Mode**:
-The selection of native operating-system process behavior or virtual process
-identities and child control for a Run. It is independent of the host's choice
-to execute on the calling thread or a managed thread, and does not grant host
-permissions.
+**Process Virtualization**:
+The `virtualize` choice to expose Engine process identities and child control,
+with owned root Env/cwd and internal moonx execution. Otherwise guest process
+operations use native identities and preserve Ambient defaults. This choice is
+independent of execution placement and native-launch authorization.
 _Avoid_: Execution placement, Engine Backend, sandbox mode
 
 **Supervisor**:

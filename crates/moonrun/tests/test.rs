@@ -309,8 +309,8 @@ fn test_moonrun_help_describes_policy_shape() {
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
     assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
-    assert!(stdout.contains("JSON policy file"));
-    assert!(!stdout.contains("TOML"));
+    assert!(stdout.contains("JSON, TOML, or .mbtx policy file"));
+    assert!(stdout.contains("process.virtualize defaults to false"));
     assert!(stdout.contains("deny-by-default mode"));
     assert!(stdout.contains(r#""from_host": ["*"]"#));
     assert!(stdout.contains(r#""read": ["*"]"#));

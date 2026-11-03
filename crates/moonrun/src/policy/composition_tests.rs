@@ -27,7 +27,7 @@ use crate::runtime::{Env, RuntimeConfig};
 fn resolved(document: &[u8]) -> Policy {
     source::resolve(serde_json::from_slice(document).unwrap(), Path::new("."))
         .unwrap()
-        .0
+        .policy
 }
 
 fn load(
@@ -38,8 +38,7 @@ fn load(
 ) -> anyhow::Result<(Option<Policy>, Env)> {
     RuntimeConfig {
         inherited_policy: inherited.map(|bytes| InheritedPolicyInput::Transfer(bytes.to_vec())),
-        policy_file: path.map(Path::to_owned),
-        policy_source_dir: source_dir.map(Path::to_owned),
+        selected_policy: path.map(|path| read_file(path, source_dir)).transpose()?,
         ..Default::default()
     }
     .realize_policy(Env::owned(source.entries())?)
@@ -278,7 +277,7 @@ fn typed_and_external_composition_have_the_same_decisions() {
     ] {
         let config = RuntimeConfig {
             inherited_policy: Some(inherited),
-            policy_file: Some(child_file.clone()),
+            selected_policy: Some(read_file(&child_file, None).unwrap()),
             ..Default::default()
         };
         let (policy, environment) = config

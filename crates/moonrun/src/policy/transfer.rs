@@ -192,7 +192,7 @@ mod tests {
     fn compile(config: PolicyConfig) -> Policy {
         crate::policy::source::resolve(config, std::path::Path::new("."))
             .unwrap()
-            .0
+            .policy
     }
 
     #[test]

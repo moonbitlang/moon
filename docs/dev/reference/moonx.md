@@ -23,7 +23,6 @@ The supported options are:
 
 ```text
 --experimental-policy <PATH>
---virtual-process-tree
 -v, --verbose
 -h, --help
 -V, --version
@@ -37,11 +36,14 @@ the input.
 The child process inherits the caller's working directory, environment,
 standard streams, and signal behavior. `moonx` returns the child's exit code.
 
-`--virtual-process-tree` starts moonrun's experimental virtual supervision for
-the resolved Wasm and its recursive moonx children. Guest spawn in that mode
-accepts only moonx, including local `.mbtx` files and registry coordinates;
-`moon` and other native commands are unsupported. Acquisition and building
-stay in Moon; the switch precedes the input. See [moonrun](../../../crates/moonrun/README.md#experimental-virtual-process-tree).
+The selected policy's `process.virtualize = true` enables Moonrun's experimental
+virtual supervision for the resolved Wasm and recursive moonx children. Guest
+spawn currently accepts only moonx; other commands remain unsupported.
+Virtualization defaults to false. The existing `process.spawn` / `process.allow`
+rules authorize guest launches in either mode, including internal moonx. For a
+moonx-only tree, use `virtualize = true` and `allow = [{ program = "moonx" }]`.
+Acquisition and building stay in Moon. See
+[moonrun](../../../crates/moonrun/README.md#experimental-virtual-process-tree).
 
 By default, `moonx` emits no informational output of its own. With `--verbose`,
 registry or script dependency acquisition, build progress, and execution

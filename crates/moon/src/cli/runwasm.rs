@@ -95,7 +95,6 @@ pub(crate) fn run_runwasm(
         cmd.experimental_policy.as_deref(),
         None,
         None,
-        false,
         &cmd.args,
         output.user_log(),
     )
@@ -126,7 +125,6 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
         build_flags,
         args: cmd.args,
         moonrun_policy: cmd.experimental_policy,
-        virtual_process_tree: false,
         auto_sync_flags: AutoSyncFlags { frozen: false },
         build_only: false,
         profile: false,

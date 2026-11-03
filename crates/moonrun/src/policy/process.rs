@@ -282,6 +282,7 @@ mod tests {
                 program: program.to_owned(),
                 args_prefix: args_prefix.iter().map(|arg| (*arg).to_owned()).collect(),
             }],
+            ..Default::default()
         })
         .unwrap()
     }
@@ -292,6 +293,7 @@ mod tests {
             ProcessConfig {
                 spawn: true,
                 allow: vec![],
+                ..Default::default()
             },
             ProcessConfig {
                 spawn: false,
@@ -299,6 +301,7 @@ mod tests {
                     program: "tool".into(),
                     args_prefix: vec!["build".into()],
                 }],
+                ..Default::default()
             },
             ProcessConfig {
                 spawn: false,
@@ -306,6 +309,7 @@ mod tests {
                     program: "tool".into(),
                     args_prefix: vec!["build".into(), "--safe".into()],
                 }],
+                ..Default::default()
             },
         ])
         .unwrap();
@@ -413,6 +417,7 @@ mod tests {
                 program: "git".to_owned(),
                 args_prefix: vec!["status".to_owned()],
             }],
+            ..Default::default()
         })
         .unwrap_err();
         assert!(error.to_string().contains("cannot be used together"));
@@ -490,6 +495,7 @@ mod tests {
                     program: program.to_owned(),
                     args_prefix: args_prefix.into_iter().map(str::to_owned).collect(),
                 }],
+                ..Default::default()
             })
             .unwrap_err();
             assert!(format!("{error:#}").contains(message));

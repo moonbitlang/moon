@@ -77,11 +77,15 @@ exits; the supervisor requires successful helper exit before consuming it.
 Arguments and the effective cwd travel in that manifest. Dry-run, build-only,
 and profiling are rejected in this mode.
 
-The public `moon run --virtual-process-tree` switch instead launches moonrun
-with virtual supervision enabled. It defaults to Wasm. Root and handed-off
-artifacts use the same supervisor dispatch; its native/Node branch is not yet
-implemented. A handoff still returns to the existing tree when this switch is
-present.
+For Wasm execution, `moon run --wasm-policy <path>` forwards the selected policy
+to moonrun. Its `process.virtualize` field selects virtual supervision; the
+existing `process.spawn` / `process.allow` rules authorize all guest spawns in
+both modes. Moon does not parse execution settings or forward separate mode
+flags. As before, `--wasm-policy` only applies to Wasm execution; native/Node
+roots execute outside Moonrun.
+A handoff returns to the existing Engine. Unsupported native/JS delivery is
+scheduled for removal in the Wasm-only handoff cleanup; native and Node commands
+use ordinary OS execution.
 
 ## Why Unix `exec` was rejected
 
