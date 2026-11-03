@@ -35,9 +35,16 @@ pub(super) struct PolicyConfig {
 #[serde(deny_unknown_fields)]
 pub(super) struct FsConfig {
     #[serde(default)]
-    pub(super) read: Vec<PathBuf>,
+    pub(super) read: Vec<FsRuleConfig>,
     #[serde(default)]
-    pub(super) write: Vec<PathBuf>,
+    pub(super) write: Vec<FsRuleConfig>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub(super) enum FsRuleConfig {
+    Path(PathBuf),
+    Glob { glob: String },
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -186,7 +193,7 @@ spawn = true
 import { "moonbitlang/core/env" }
 permission(
   env: { "set": { "APP_ENV": "embedded" } },
-  fs: { "read": ["."], "write": ["scratch"] },
+  fs: { "read": [".", { "glob": "logs/**/*.txt" }], "write": ["scratch"] },
   net: { "connect": ["example.com:443"] },
   process: { "virtualize": true, "allow": [{ "program": "git", "args_prefix": ["status"] }] },
 )
@@ -204,8 +211,16 @@ fn main {}
             Some("embedded")
         );
         let fs = config.fs.unwrap();
-        assert_eq!(fs.read, [PathBuf::from(".")]);
-        assert_eq!(fs.write, [PathBuf::from("scratch")]);
+        assert_eq!(
+            fs.read,
+            [
+                FsRuleConfig::Path(PathBuf::from(".")),
+                FsRuleConfig::Glob {
+                    glob: "logs/**/*.txt".into()
+                }
+            ]
+        );
+        assert_eq!(fs.write, [FsRuleConfig::Path(PathBuf::from("scratch"))]);
         assert_eq!(config.net.unwrap().connect, ["example.com:443"]);
         let process = config.process.unwrap();
         assert!(process.virtualize);
