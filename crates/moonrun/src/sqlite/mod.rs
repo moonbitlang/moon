@@ -122,9 +122,9 @@ pub(super) mod tests {
     use crate::policy::Policy;
     use crate::runtime::{Env, WorkingDirectory};
 
-    pub(super) fn ambient_filesystem(mut policy: Policy) -> Arc<HostFs> {
+    pub(super) fn ambient_filesystem(policy: Option<Policy>) -> Arc<HostFs> {
         Arc::new(HostFs::new(
-            policy.take_filesystem_policy(),
+            policy.as_ref().map(Policy::filesystem),
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
         ))
@@ -141,7 +141,7 @@ pub(super) mod tests {
 
     pub(super) fn host() -> SqliteHost {
         SqliteHost::new(
-            ambient_filesystem(Policy::allow_all()),
+            ambient_filesystem(None),
             Rc::new(RefCell::new(HostKeys::default())),
         )
     }

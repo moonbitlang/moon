@@ -49,7 +49,13 @@ async test "policy inheritance stops at the direct moonrun" {
   assert_eq(output.text().trim(char_set="\n\r "), "guest")
 
   let (code, _) = @process.collect_stdout("moonx", [
-    "--experimental-policy", "deny-all.toml", "moonbitlang/parser/cmd/moonfmt@0.3.3",
+    "moonbitlang/parser/cmd/moonfmt@0.3.3",
   ])
   assert_eq(code, 0)
+
+  // The child policy removes the environment entry required by this fixture.
+  let (code, _) = @process.collect_stdout("moonx", [
+    "--experimental-policy", "deny-all.toml", "moonbitlang/parser/cmd/moonfmt@0.3.3",
+  ])
+  assert_true(code != 0)
 }

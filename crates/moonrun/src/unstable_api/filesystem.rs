@@ -353,9 +353,9 @@ mod tests {
     #[cfg(unix)]
     use std::{ffi::OsStr, path::PathBuf};
 
-    fn host_fs(mut policy: Policy, environment: Arc<Env>) -> HostFs {
+    fn host_fs(policy: Option<Policy>, environment: Arc<Env>) -> HostFs {
         HostFs::new(
-            policy.take_filesystem_policy(),
+            policy.as_ref().map(Policy::filesystem),
             environment,
             Arc::new(WorkingDirectory::Ambient),
         )
@@ -417,7 +417,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("input.bin");
         std::fs::write(&path, [1, 2, 3]).unwrap();
-        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let host = host_fs(None, Arc::new(Env::ambient()));
         let mut first = FsOperationResults::default();
         let second = FsOperationResults::default();
 
@@ -435,7 +435,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
         let mut results = FsOperationResults::default();
 
         assert_eq!(
@@ -451,7 +451,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
         let mut results = FsOperationResults::default();
         let converted = Cell::new(false);
 
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn failed_payload_conversion_neither_creates_nor_truncates_files() {
         let directory = tempfile::tempdir().unwrap();
-        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let host = host_fs(None, Arc::new(Env::ambient()));
         let unstable = UnstableFs(&host);
         for existing in [false, true] {
             let path = directory
@@ -513,7 +513,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("missing");
         let path_text = path.to_str().unwrap();
-        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let host = host_fs(None, Arc::new(Env::ambient()));
         let unstable = UnstableFs(&host);
         assert_eq!(
             unstable

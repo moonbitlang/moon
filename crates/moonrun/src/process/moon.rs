@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use super::SpawnOptions;
 use super::lookup::LookupPlan;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::policy::PolicyInheritance;
+use crate::policy::Policy;
 use crate::process_tree::ProcessContext;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
@@ -59,7 +59,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy: Option<PolicyInheritance>,
+        policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let env = env
@@ -111,7 +111,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy: Option<PolicyInheritance>,
+        policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
         let program = args.remove(0);
@@ -147,7 +147,7 @@ impl Spawn {
         env: Vec<(OsString, OsString)>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
-        policy: Option<PolicyInheritance>,
+        policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
         if program.as_encoded_bytes().contains(&0)
             || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))

@@ -100,6 +100,17 @@ fn recursive_moon_processes() {
         )),
     )
     .unwrap();
+    // The child may launch its moonx grandchild but no arbitrary program.
+    fs::write(
+        project.join("child-policy.toml"),
+        r#"
+[env]
+from_host = ["*"]
+[[process.allow]]
+program = "moonx"
+"#,
+    )
+    .unwrap();
     let policy = root.join("parent-policy.json");
     fs::write(
         &policy,

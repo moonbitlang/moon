@@ -76,7 +76,7 @@ async fn main {
   } else {
     let (code, output) = @process.collect_stdout(
       "moonx",
-      ["--virtual-process-tree", "--experimental-policy", "missing-policy.toml", program, "--", "child"],
+      ["--virtual-process-tree", "--experimental-policy", "child-policy.toml", program, "--", "child"],
       extra_env={ "VIRTUAL_CHAIN": "child" },
     )
     assert_eq(code, 0)

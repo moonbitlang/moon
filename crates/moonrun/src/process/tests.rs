@@ -34,7 +34,6 @@ use crate::runtime::{Env, Stdio, WorkingDirectory};
 fn host_process(cwd: WorkingDirectory, env: Env) -> HostProcess {
     HostProcess::new(
         None,
-        None,
         Arc::new(cwd),
         Arc::new(Stdio::Ambient),
         None,

@@ -22,13 +22,13 @@ use anyhow::Context;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use super::{FsPolicy, NetPolicy, PolicyInheritance, ProcessPolicy, config::PolicyConfig};
+use super::{Policy, config::PolicyConfig, fs::FsRules, net::NetRules, process::ProcessRules};
 use crate::runtime::EnvConfig;
 
 pub(crate) fn read_file(
     path: &Path,
     source_dir: Option<&Path>,
-) -> anyhow::Result<(PolicyInheritance, EnvConfig)> {
+) -> anyhow::Result<(Policy, EnvConfig)> {
     let config = PolicyConfig::from_file(path)?;
     let directory = source_dir.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
     resolve(config, directory)
@@ -37,14 +37,14 @@ pub(crate) fn read_file(
 pub(super) fn resolve(
     config: PolicyConfig,
     directory: &Path,
-) -> anyhow::Result<(PolicyInheritance, EnvConfig)> {
+) -> anyhow::Result<(Policy, EnvConfig)> {
     let mut config = canonicalize(config, directory)?;
     let environment = config.env.take().unwrap_or_default();
     Ok((
-        PolicyInheritance::new(
-            FsPolicy::from_canonical_config(config.fs.unwrap_or_default()),
-            NetPolicy::from_config(config.net.unwrap_or_default())?,
-            ProcessPolicy::from_config(config.process.unwrap_or_default())?,
+        Policy::new(
+            FsRules::from_canonical_config(config.fs.unwrap_or_default()),
+            NetRules::from_config(config.net.unwrap_or_default())?,
+            ProcessRules::from_config(config.process.unwrap_or_default())?,
         ),
         environment,
     ))

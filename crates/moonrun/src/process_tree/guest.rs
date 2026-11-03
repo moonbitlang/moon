@@ -782,7 +782,6 @@ mod tests {
         let tree = test_engine(Default::default());
         let process = crate::process::HostProcess::new(
             None,
-            None,
             Arc::new(crate::runtime::WorkingDirectory::Fixed(
                 cwd.path().to_owned(),
             )),

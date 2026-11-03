@@ -1,8 +1,20 @@
 {
-  "version": 1,
-  "restrictions": {
-    "fs": { "read": [], "write": [] },
-    "net": { "dns": [], "connect": [], "bind": [] },
-    "process": { "kind": "scoped", "value": [] }
-  }
+  "version": 2,
+  "rule_groups": [
+    {
+      "fs": {
+        "read": [],
+        "write": []
+      },
+      "net": {
+        "dns": [],
+        "connect": [],
+        "bind": []
+      },
+      "process": {
+        "kind": "scoped",
+        "value": []
+      }
+    }
+  ]
 }

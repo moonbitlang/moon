@@ -359,7 +359,6 @@ mod tests {
     fn host(working_directory: WorkingDirectory, stdio: Stdio) -> HostProcess {
         HostProcess::new(
             None,
-            None,
             Arc::new(working_directory),
             Arc::new(stdio),
             None,
@@ -537,7 +536,6 @@ mod tests {
         let environment = Arc::new(Env::owned([("PATH".into(), "first".into())]).unwrap());
         let process = HostProcess::new(
             None,
-            None,
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
             Arc::new(Stdio::Ambient),
             None,
@@ -559,11 +557,10 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let environment =
             Env::owned([("PATH".into(), directory.path().as_os_str().to_owned())]).unwrap();
-        let (mut policy, _) =
+        let (policy, _) =
             crate::policy::load_json(br#"{"process":{"spawn":true}}"#, &environment).unwrap();
         let process = HostProcess::new(
-            policy.take_process_policy(),
-            policy.take_policy_inheritance(),
+            Some(policy),
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
             Arc::new(Stdio::Ambient),
             None,

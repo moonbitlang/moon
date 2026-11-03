@@ -35,7 +35,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
-use crate::policy::PolicyInheritance;
+use crate::policy::Policy;
 #[cfg(any(windows, target_os = "linux"))]
 use crate::resource::Resource;
 use crate::resource::ResourceRef;
@@ -77,7 +77,7 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy_inheritance: Option<PolicyInheritance>,
+        policy_inheritance: Option<Policy>,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_unix(
@@ -105,7 +105,7 @@ ported_fns! {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy_inheritance: Option<PolicyInheritance>,
+        policy_inheritance: Option<Policy>,
         result: &mut Option<ResourcePublication>,
     ) -> AsyncHostResult<i64> {
         spawn_process_windows(
@@ -150,7 +150,7 @@ fn spawn_process_unix(
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
     options: SpawnOptions,
-    policy_inheritance: Option<PolicyInheritance>,
+    policy_inheritance: Option<Policy>,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
@@ -574,7 +574,7 @@ fn spawn_process_windows(
     stdio: [Option<ResourceRef>; 3],
     cwd: Option<OsString>,
     options: SpawnOptions,
-    policy_inheritance: Option<PolicyInheritance>,
+    policy_inheritance: Option<Policy>,
     result: &mut Option<ResourcePublication>,
 ) -> AsyncHostResult<i64> {
     use std::os::windows::ffi::OsStrExt;
@@ -1303,7 +1303,6 @@ mod tests {
         ] {
             let process = super::super::HostProcess::new(
                 None,
-                None,
                 std::sync::Arc::new(working_directory),
                 std::sync::Arc::new(crate::runtime::Stdio::Ambient),
                 None,
@@ -1568,7 +1567,6 @@ mod windows_tests {
             assert_ne!(unsafe { SetStdHandle(stream, missing) }, 0);
         }
         let process = super::super::HostProcess::new(
-            None,
             None,
             Arc::new(crate::WorkingDirectory::Ambient),
             Arc::new(crate::runtime::Stdio::Ambient),

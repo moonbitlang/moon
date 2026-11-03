@@ -41,7 +41,7 @@ standard streams, and signal behavior. `moonx` returns the child's exit code.
 the resolved Wasm and its recursive moonx children. Guest spawn in that mode
 accepts only moonx, including local `.mbtx` files and registry coordinates;
 `moon` and other native commands are unsupported. Acquisition and building
-stay in Moon; the switch precedes the input. See [moonrun](../../../../crates/moonrun/README.md#experimental-virtual-process-tree).
+stay in Moon; the switch precedes the input. See [moonrun](../../../crates/moonrun/README.md#experimental-virtual-process-tree).
 
 By default, `moonx` emits no informational output of its own. With `--verbose`,
 registry or script dependency acquisition, build progress, and execution
@@ -66,15 +66,18 @@ Policy publication and handle setup run as part of the direct `moonx` spawn
 job. If either fails, the job reports the corresponding OS error and no child
 process is created or registered.
 
-The inherited policy takes precedence over an explicit
-`--experimental-policy`; the child may not replace or widen it. This applies to
-both registry packages and standalone `.mbtx` files.
+An inherited policy and the selected child policy both constrain filesystem,
+network, and process operations. An explicit `--experimental-policy` adds
+restrictions; the child may not replace or widen the inherited policy. This
+applies to registry packages and standalone `.mbtx` files. Missing or invalid
+selected policies fail execution.
 
 For host-supervised execution, the private prefix
 `--moonrun-artifact-handoff <directory>` selects artifact delivery instead of
 launching moonrun. Registry acquisition and standalone builds keep their normal
 caches. The helper copies the Wasm and optional source map/policy, then returns
-arguments and cwd in a manifest. The supervisor's policy takes precedence.
+arguments and cwd in a manifest. An explicit supervisor policy file selects the
+child policy; inherited restrictions also apply.
 See [artifact delivery](../design/moon-run-process-lifecycle.md#supervised-artifact-delivery).
 
 Moon and Moonrun share the moonx grammar in `moonutil::cli_support`. Moonrun
@@ -154,13 +157,13 @@ The `.mbtx` path itself is passed to Moonrun as the policy source, so relative
 filesystem roots are resolved from the script's directory. For `moon run -`
 and `moon run -e`, Moon writes the source to a temporary `.mbtx` but retains the
 invocation directory as the logical policy source directory. An explicit
-`--experimental-policy` takes precedence over embedded policy. An inherited
-policy remains host-owned and takes precedence over both. Front matter syntax is
+`--experimental-policy` selects the child policy instead of embedded policy.
+Inherited restrictions apply in addition to the selected child policy. Front matter syntax is
 validated during dependency resolution. Permission fields are decoded only when
 the declaration is the effective policy for Wasm execution; overridden,
 non-Wasm, and build-only paths do not validate the permission schema. Legacy
-YAML is also parsed only when selected, so an explicit or inherited policy can
-override malformed legacy YAML.
+YAML is parsed only when selected, so an explicit policy can override malformed
+legacy YAML. Inheritance does not skip validation of the selected child policy.
 
 Moonx consumes an inherited policy handle before resolving `.mbtx`
 dependencies and relays it only to the final `moonrun` process. Registry and

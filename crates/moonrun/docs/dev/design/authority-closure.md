@@ -110,10 +110,21 @@ Construction separates four responsibilities:
 
 | Owner | Input and output |
 | --- | --- |
-| `policy/source.rs` | Read a policy document, resolve source-relative filesystem roots, and separate restrictions from Env provisioning |
-| `PolicyInheritance` | Retain validated, immutable domain rules with resolved roots; supply domain policies without file I/O or parsing |
+| `policy/source.rs` | Read `PolicyConfig`, resolve source-relative filesystem roots, and separate authorization rules from Env provisioning |
+| `Policy` | Share compiled rule groups, intersect complete policies, and supply domain policies without file I/O or parsing |
 | Runtime Env provisioning | Construct Env from the selected source environment and provisioning rules |
-| `policy/transfer.rs` | Encode typed restrictions in an internal, versioned format; validate received rules without resolving roots or parsing user rule strings |
+| `policy/transfer.rs` | Encode the policy in an internal, versioned format; validate received rules without resolving roots or parsing user rule strings |
+
+`Rule` names an individual authorization rule, such as a `ProcessRule` matching
+a program and argument prefix. `FsRules`, `NetRules`, and `ProcessRules` hold
+one policy source's compiled rules. `Policy` retains those groups and supplies
+`FsPolicy`, `NetPolicy`, and `ProcessPolicy`, which require every group to permit
+the operation. Runtime passes these domain policies directly to their owners;
+Host Process also retains the shared `Policy` for child inheritance.
+
+`None` means no policy. A supplied document always creates a complete rule group,
+including deny rules for omitted domains. There is no partially consumed policy
+container or conversion back to user configuration during inheritance.
 
 Virtual children receive typed restrictions. Their environment, cwd, and stdio
 are separate construction inputs derived by Host Process. Policy inheritance
@@ -142,20 +153,55 @@ Construction tests cover typed child state, transfer round trips, root replaceme
 and source-file independence. Source selection and additional restriction
 composition have a separate contract below.
 
-## Restriction composition
+## Policy composition
 
-A child request must satisfy delegated parent restrictions and any additional
-child restriction. An absent additional restriction adds nothing; an explicitly
-empty allowlist denies that domain. Unioning path roots, DNS patterns, or process
-argument lists does not implement intersection. Trusted host grants are a
-separate operation from guest child derivation.
+A child request must satisfy both the inherited policy and the selected child
+policy. Unioning path roots, DNS patterns, or process argument lists does not
+implement intersection. Trusted host grants are separate from guest derivation.
 
-Acceptance cases must cover repeated child derivation and serialization, empty
-and absent restrictions, and child attempts to widen parent grants. These are
-requirements for composition, not guarantees supplied by policy precedence:
-Runtime construction selects inherited policy ahead of a policy file, and
-Engine selects delivered policy only when neither configured nor inherited
-policy exists. That selection does not apply additional child restrictions.
+`Policy::intersect` joins compiled rule groups without file I/O, parsing, or Env
+provisioning. Domain policies retain shared references to each group and require
+every group to allow the operation. Alternatives within a group remain
+alternatives; groups are never flattened into one allowlist.
+
+| Input | Composition |
+| --- | --- |
+| Filesystem read/write rules | Every group must allow the same interpreted path and complete operation intent |
+| DNS, connect, and bind rules | Every group must allow the corresponding network operation; DNS-derived grants only satisfy their originating group |
+| Program and argument-prefix rules | Every group must allow the spawn request; admission does not confine the spawned native program |
+| Env provisioning and cwd | Construction inputs, not authorization rules to intersect |
+| Files, sockets, stdio, and directory handles | Resource grants with separate delegation contracts |
+
+DNS-derived grants remain local to one Runtime and are not inherited with the
+policy. Composition does not combine live resources or replay Env provisioning.
+
+No child policy adds no rules. A supplied policy file is a complete policy:
+omitted domains and empty allowlists deny that domain. Thus `{}` denies all
+controlled domains, and a file containing only `net` denies filesystem and
+process operations. This meaning is identical with and without an inherited
+policy; partial additions are not supported. An explicit policy file selects
+the child's policy instead of an
+embedded declaration; neither can replace the inherited ceiling. Invalid or
+missing selected child policies fail execution instead of being ignored.
+
+Transfer version 2 carries a nonempty `rule_groups` sequence,
+including when only one group is present. Version 1 is rejected; the user policy
+format is unchanged. Decoding preserves group boundaries so conjunction and DNS
+provenance survive repeated inheritance. Unknown versions and empty collections
+fail closed.
+
+Environment provisioning is consumed during construction. Child provisioning
+reads the delegated source Env, and inherited transfers contain no captured
+values or provisioning to replay. The resulting Env travels through the normal
+child-environment mechanism.
+
+Acceptance cases cover repeated derivation and transfer, absent and empty child
+policies, overlapping path roots, command prefixes, DNS-derived grants, and
+attempts to widen inherited restrictions. Unit tests in `policy/composition_tests.rs`
+and the domain tests cover these rules; `tests/policy_composition.rs`,
+`tests/moon_handoff.rs`, and the Moon/moonx tests cover construction and process
+transport. Composition of domain policies does not implement resource
+attenuation or native confinement.
 
 ## Resource delegation
 

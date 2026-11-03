@@ -442,9 +442,9 @@ mod tests {
     use super::*;
     use crate::policy::{self, Policy};
 
-    fn host_fs(mut policy: Policy, environment: Arc<Env>) -> HostFs {
+    fn host_fs(policy: Option<Policy>, environment: Arc<Env>) -> HostFs {
         HostFs::new(
-            policy.take_filesystem_policy(),
+            policy.as_ref().map(Policy::filesystem),
             environment,
             Arc::new(WorkingDirectory::Ambient),
         )
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn ambient_temp_dir_uses_native_path() {
-        let host = host_fs(Policy::allow_all(), Arc::new(Env::ambient()));
+        let host = host_fs(None, Arc::new(Env::ambient()));
 
         assert_eq!(host.temp_dir().unwrap(), stub::get_tmp_path().unwrap());
     }
@@ -463,7 +463,7 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
 
         let environment = Arc::new(Env::owned([("TMPDIR".into(), "/runtime/tmp".into())]).unwrap());
-        let host = host_fs(Policy::allow_all(), environment);
+        let host = host_fs(None, environment);
 
         assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/runtime/tmp/");
     }
@@ -474,7 +474,7 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
 
         let environment = Arc::new(Env::owned([("TMPDIR".into(), "/first".into())]).unwrap());
-        let host = host_fs(Policy::allow_all(), Arc::clone(&environment));
+        let host = host_fs(None, Arc::clone(&environment));
 
         assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/first/");
         environment.set("TMPDIR".into(), "/second".into()).unwrap();
@@ -492,7 +492,7 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
 
         let environment = Arc::new(Env::owned(Vec::<(OsString, OsString)>::new()).unwrap());
-        let host = host_fs(Policy::allow_all(), environment);
+        let host = host_fs(None, environment);
 
         assert_eq!(host.temp_dir().unwrap().as_bytes(), b"/tmp/");
     }
@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn owned_temp_dir_requires_configured_windows_environment() {
         let environment = Arc::new(Env::owned(Vec::<(OsString, OsString)>::new()).unwrap());
-        let host = host_fs(Policy::allow_all(), Arc::clone(&environment));
+        let host = host_fs(None, Arc::clone(&environment));
 
         assert!(matches!(host.temp_dir(), Err(FsError::Denied)));
         environment.set("TEMP".into(), "C:/Temp".into()).unwrap();
@@ -520,7 +520,7 @@ mod tests {
             ])
             .unwrap(),
         );
-        let host = host_fs(Policy::allow_all(), environment);
+        let host = host_fs(None, environment);
 
         assert_eq!(host.temp_dir().unwrap().to_string_lossy(), "C:/Fallback\\");
     }
@@ -534,7 +534,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
         host.authorize_metadata_at(Some(&allowed), OsStr::new("input.txt"))
             .unwrap();
@@ -576,7 +576,7 @@ mod tests {
         )
         .unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
         std::fs::remove_file(&resource_path).unwrap();
         std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
@@ -599,7 +599,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
         let link = allowed.join("link/");
         assert!(matches!(host.create_directory(&link), Err(FsError::Denied)));
         let source = allowed.join("source");
@@ -629,7 +629,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
         assert!(matches!(
             host.authorize_remove(denied_link.as_os_str()),
@@ -652,7 +652,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(policy, Arc::new(Env::ambient()));
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
         host.authorize_remove(allowed_link.as_os_str()).unwrap();
         assert!(matches!(

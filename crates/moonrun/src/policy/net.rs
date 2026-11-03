@@ -18,6 +18,7 @@
 
 use std::ffi::OsStr;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 
 use anyhow::Context;
 
@@ -27,6 +28,117 @@ use super::{config::NetConfig, sandbox_denied, transfer};
 
 #[derive(Clone, Debug)]
 pub(crate) struct NetPolicy {
+    rule_groups: Vec<Arc<NetRules>>,
+}
+
+/// A grant is scoped to one immutable group in this Runtime. DNS results
+/// are not inherited, and cannot satisfy another group's checks.
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedConnectRule {
+    group: usize,
+    rule: SocketRule,
+}
+
+impl NetPolicy {
+    pub(super) fn from_rule_groups(rule_groups: impl IntoIterator<Item = Arc<NetRules>>) -> Self {
+        Self {
+            rule_groups: rule_groups.into_iter().collect(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_config(config: NetConfig) -> anyhow::Result<Self> {
+        Self::from_configs([config])
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_configs(
+        configs: impl IntoIterator<Item = NetConfig>,
+    ) -> anyhow::Result<Self> {
+        let rule_groups = configs
+            .into_iter()
+            .map(|config| NetRules::from_config(config).map(Arc::new))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self::from_rule_groups(rule_groups))
+    }
+
+    pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
+        let target = quote_os_str(host);
+        let host = normalize_dns_name(&host.to_string_lossy());
+        if self.rule_groups.iter().all(|group| {
+            group.dns.iter().any(|pattern| pattern.matches(&host))
+                || group.connect.iter().any(|rule| rule.allows_lookup(&host))
+        }) {
+            Ok(())
+        } else {
+            sandbox_denied("DNS lookup", Some(&target))
+        }
+    }
+
+    pub(crate) fn resolved_connect_rules(
+        &self,
+        host: &OsStr,
+        addrs: &[Box<[u8]>],
+    ) -> AsyncHostResult<Vec<ResolvedConnectRule>> {
+        let host = normalize_dns_name(&host.to_string_lossy());
+        let rules = self
+            .rule_groups
+            .iter()
+            .enumerate()
+            .flat_map(|(index, group)| {
+                group
+                    .connect
+                    .iter()
+                    .filter(|rule| rule.allows_resolved_name(&host))
+                    .map(move |rule| (index, rule))
+            })
+            .collect::<Vec<_>>();
+        if rules.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut grants = Vec::new();
+        for addr in addrs {
+            let addr = parse_socket_addr(addr)?;
+            grants.extend(rules.iter().map(|(index, rule)| ResolvedConnectRule {
+                group: *index,
+                rule: SocketRule {
+                    host: SocketHostRule::Ip(addr.ip),
+                    port: rule.port,
+                },
+            }));
+        }
+        Ok(grants)
+    }
+
+    pub(crate) fn check_socket(
+        &self,
+        operation: NetOperation,
+        addr: &[u8],
+        resolved_connect: &[ResolvedConnectRule],
+    ) -> AsyncHostResult<()> {
+        let addr = parse_socket_addr(addr)?;
+        if self.rule_groups.iter().enumerate().all(|(index, group)| {
+            let rules = match operation {
+                NetOperation::Connect => &group.connect,
+                NetOperation::Bind => &group.bind,
+            };
+            rules.iter().any(|rule| rule.matches(addr))
+                || (operation == NetOperation::Connect
+                    && resolved_connect
+                        .iter()
+                        .any(|grant| grant.group == index && grant.rule.matches(addr)))
+        }) {
+            Ok(())
+        } else {
+            sandbox_denied(
+                operation.sandbox_action(),
+                Some(&quote_str(&addr.describe())),
+            )
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub(super) struct NetRules {
     dns: Vec<DnsPattern>,
     connect: Vec<SocketRule>,
     bind: Vec<SocketRule>,
@@ -70,7 +182,7 @@ struct SocketAddr {
     port: u16,
 }
 
-impl NetPolicy {
+impl NetRules {
     pub(super) fn to_transfer(&self) -> transfer::Network {
         transfer::Network {
             dns: self.dns.iter().map(DnsPattern::to_transfer).collect(),
@@ -99,7 +211,7 @@ impl NetPolicy {
         };
         anyhow::ensure!(
             !policy.bind.iter().any(SocketRule::requires_dns),
-            "bind restrictions cannot use DNS names"
+            "bind rules cannot use DNS names"
         );
         Ok(policy)
     }
@@ -128,74 +240,6 @@ impl NetPolicy {
 
         Ok(Self { dns, connect, bind })
     }
-
-    pub(crate) fn check_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
-        let target = quote_os_str(host);
-        let host = host.to_string_lossy();
-        let host = normalize_dns_name(&host);
-        if self.dns.iter().any(|pattern| pattern.matches(&host))
-            || self.connect.iter().any(|rule| rule.allows_lookup(&host))
-        {
-            Ok(())
-        } else {
-            sandbox_denied("DNS lookup", Some(&target))
-        }
-    }
-
-    pub(crate) fn resolved_connect_rules(
-        &self,
-        host: &OsStr,
-        addrs: &[Box<[u8]>],
-    ) -> AsyncHostResult<Vec<SocketRule>> {
-        let host = host.to_string_lossy();
-        let host = normalize_dns_name(&host);
-        let rules = self
-            .connect
-            .iter()
-            .filter(|rule| rule.allows_resolved_name(&host))
-            .collect::<Vec<_>>();
-        if rules.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        addrs
-            .iter()
-            .map(|addr| parse_socket_addr(addr))
-            .collect::<AsyncHostResult<Vec<_>>>()
-            .map(|addrs| {
-                addrs
-                    .into_iter()
-                    .flat_map(|addr| {
-                        rules.iter().map(move |rule| SocketRule {
-                            host: SocketHostRule::Ip(addr.ip),
-                            port: rule.port,
-                        })
-                    })
-                    .collect()
-            })
-    }
-
-    pub(crate) fn check_socket(
-        &self,
-        operation: NetOperation,
-        addr: &[u8],
-        resolved_connect: &[SocketRule],
-    ) -> AsyncHostResult<()> {
-        let addr = parse_socket_addr(addr)?;
-        let target = quote_str(&addr.describe());
-        let rules = match operation {
-            NetOperation::Connect => &self.connect,
-            NetOperation::Bind => &self.bind,
-        };
-        if rules.iter().any(|rule| rule.matches(addr))
-            || (operation == NetOperation::Connect
-                && resolved_connect.iter().any(|rule| rule.matches(addr)))
-        {
-            Ok(())
-        } else {
-            sandbox_denied(operation.sandbox_action(), Some(&target))
-        }
-    }
 }
 
 impl NetOperation {
@@ -222,7 +266,7 @@ impl DnsPattern {
             transfer::DnsPattern::Exact(name) => {
                 anyhow::ensure!(
                     name != "*" && !name.starts_with("*."),
-                    "invalid exact DNS restriction"
+                    "invalid exact DNS rule"
                 );
                 Self::Exact(name)
             }
@@ -462,6 +506,94 @@ mod tests {
     use super::*;
 
     #[test]
+    fn composed_dns_grants_cannot_satisfy_another_group() {
+        let address = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        for reverse in [false, true] {
+            let mut configs = vec![
+                NetConfig {
+                    dns: vec!["*".into()],
+                    connect: vec!["*.example.com:443".into()],
+                    bind: vec!["127.0.0.1:*".into()],
+                },
+                NetConfig {
+                    dns: vec!["api.example.com".into()],
+                    connect: vec!["127.0.0.1:443".into()],
+                    bind: vec!["*:443".into()],
+                },
+            ];
+            if reverse {
+                configs.reverse();
+            }
+            let policy = NetPolicy::from_configs(configs).unwrap();
+            policy.check_dns(OsStr::new("api.example.com")).unwrap();
+            assert_eq!(
+                policy.check_dns(OsStr::new("other.example.com")),
+                Err(AsyncHostError::PermissionDenied)
+            );
+            let grants = policy
+                .resolved_connect_rules(
+                    OsStr::new("api.example.com"),
+                    std::slice::from_ref(&address),
+                )
+                .unwrap();
+            policy
+                .check_socket(NetOperation::Connect, &address, &grants)
+                .unwrap();
+            policy
+                .check_socket(NetOperation::Bind, &address, &[])
+                .unwrap();
+            let wrong_port = ipv4_addr(Ipv4Addr::LOCALHOST, 80);
+            assert_eq!(
+                policy.check_socket(NetOperation::Bind, &wrong_port, &[]),
+                Err(AsyncHostError::PermissionDenied)
+            );
+            assert_eq!(
+                policy.check_socket(NetOperation::Connect, &wrong_port, &grants),
+                Err(AsyncHostError::PermissionDenied)
+            );
+            let other_address = ipv4_addr(Ipv4Addr::new(127, 0, 0, 2), 443);
+            let grants = policy
+                .resolved_connect_rules(
+                    OsStr::new("api.example.com"),
+                    std::slice::from_ref(&other_address),
+                )
+                .unwrap();
+            assert_eq!(
+                policy.check_socket(NetOperation::Connect, &other_address, &grants),
+                Err(AsyncHostError::PermissionDenied)
+            );
+        }
+        let policy = NetPolicy::from_configs([
+            NetConfig {
+                dns: vec!["*".into()],
+                connect: vec!["a.example.com:443".into()],
+                ..Default::default()
+            },
+            NetConfig {
+                dns: vec!["*".into()],
+                connect: vec!["b.example.com:443".into()],
+                ..Default::default()
+            },
+        ])
+        .unwrap();
+        let mut grants = policy
+            .resolved_connect_rules(OsStr::new("a.example.com"), std::slice::from_ref(&address))
+            .unwrap();
+        assert_eq!(
+            policy.check_socket(NetOperation::Connect, &address, &grants),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        grants.extend(
+            policy
+                .resolved_connect_rules(OsStr::new("b.example.com"), std::slice::from_ref(&address))
+                .unwrap(),
+        );
+        policy
+            .check_socket(NetOperation::Connect, &address, &grants)
+            .unwrap();
+    }
+
+    #[test]
     fn transfer_preserves_dns_provenance_for_ip_and_wildcard_spelling() {
         let address = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
         for (rule, lookup) in [
@@ -471,15 +603,15 @@ mod tests {
             ("[[name]:443", "[name"),
             ("API.Example.COM.:443", "api.example.com"),
         ] {
-            let parent = NetPolicy::from_config(NetConfig {
+            let parent = NetRules::from_config(NetConfig {
                 connect: vec![rule.into()],
                 ..Default::default()
             })
             .unwrap();
             let encoded = serde_json::to_vec(&parent.to_transfer()).unwrap();
-            let child =
-                NetPolicy::from_transfer(serde_json::from_slice(&encoded).unwrap()).unwrap();
-            for policy in [parent, child] {
+            let child = NetRules::from_transfer(serde_json::from_slice(&encoded).unwrap()).unwrap();
+            for group in [parent, child] {
+                let policy = NetPolicy::from_rule_groups([Arc::new(group)]);
                 assert_eq!(
                     policy.check_socket(NetOperation::Connect, &address, &[]),
                     Err(AsyncHostError::PermissionDenied),
