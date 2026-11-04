@@ -32,15 +32,21 @@ pub(in crate::filesystem) enum Access {
     ReadWrite,
     ListDirectory,
     /// Acquire a directory for relative operations without enumeration access.
-    Directory,
+    TraverseDirectory,
     #[cfg_attr(unix, allow(dead_code))] // Used for Windows metadata handles.
     Attributes,
     #[cfg_attr(unix, allow(dead_code))]
     Delete,
+}
+
+/// An object-type requirement enforced by the native open, separate from the
+/// access granted to the resulting handle.
+pub(in crate::filesystem) enum TypeConstraint {
+    Any,
+    Directory,
+    // Unix file-only deletion uses unlinkat directly, without opening a handle.
     #[cfg(windows)]
-    DeleteFile,
-    #[cfg(windows)]
-    DeleteDirectory,
+    NonDirectory,
 }
 
 pub(in crate::filesystem) enum CreateMode {
@@ -59,6 +65,7 @@ pub(in crate::filesystem) enum Sync {
 
 pub(in crate::filesystem) struct OpenOptions {
     pub access: Access,
+    pub type_constraint: TypeConstraint,
     pub follow_symlink: bool,
     pub is_async: bool,
     pub create: CreateMode,
@@ -84,9 +91,9 @@ pub(in crate::filesystem) fn open(
             libc::O_RDONLY
         }
         #[cfg(target_os = "linux")]
-        Access::Directory => libc::O_PATH,
+        Access::TraverseDirectory => libc::O_PATH,
         #[cfg(target_os = "macos")]
-        Access::Directory => libc::O_EVTONLY,
+        Access::TraverseDirectory => libc::O_EVTONLY,
         Access::Write => libc::O_WRONLY,
         Access::ReadWrite => libc::O_RDWR,
     };
@@ -107,7 +114,7 @@ pub(in crate::filesystem) fn open(
         flags |= libc::O_APPEND;
     }
     // Reject non-directories before openat can wait for a FIFO writer.
-    if matches!(options.access, Access::ListDirectory | Access::Directory) {
+    if matches!(options.type_constraint, TypeConstraint::Directory) {
         flags |= libc::O_DIRECTORY;
     }
     if !options.follow_symlink {
@@ -260,9 +267,9 @@ mod windows {
             Access::Write => GENERIC_WRITE | FILE_READ_ATTRIBUTES,
             Access::ReadWrite => GENERIC_READ | GENERIC_WRITE,
             Access::ListDirectory => FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-            Access::Directory => FILE_READ_ATTRIBUTES | FILE_TRAVERSE,
+            Access::TraverseDirectory => FILE_READ_ATTRIBUTES | FILE_TRAVERSE,
             Access::Attributes => FILE_READ_ATTRIBUTES,
-            Access::Delete | Access::DeleteFile | Access::DeleteDirectory => DELETE,
+            Access::Delete => DELETE,
         };
         let create = match options.create {
             CreateMode::Open => FILE_OPEN,
@@ -287,12 +294,10 @@ mod windows {
         if !options.follow_symlink {
             flags |= FILE_OPEN_REPARSE_POINT;
         }
-        match options.access {
-            Access::ListDirectory | Access::Directory | Access::DeleteDirectory => {
-                flags |= FILE_DIRECTORY_FILE;
-            }
-            Access::DeleteFile => flags |= FILE_NON_DIRECTORY_FILE,
-            _ => {}
+        match options.type_constraint {
+            TypeConstraint::Any => {}
+            TypeConstraint::Directory => flags |= FILE_DIRECTORY_FILE,
+            TypeConstraint::NonDirectory => flags |= FILE_NON_DIRECTORY_FILE,
         }
 
         let _ = options.permission; // Unix permission bits have no Windows equivalent.
@@ -385,6 +390,7 @@ mod tests {
 
     const READ: OpenOptions = OpenOptions {
         access: Access::Read,
+        type_constraint: TypeConstraint::Any,
         follow_symlink: true,
         is_async: false,
         create: CreateMode::Open,
@@ -405,6 +411,7 @@ mod tests {
         let parent = open(None, root.path().as_os_str(), &READ).unwrap();
         let options = OpenOptions {
             access: Access::ListDirectory,
+            type_constraint: TypeConstraint::Directory,
             is_async: true,
             ..READ
         };
@@ -452,6 +459,7 @@ mod tests {
         let parent = open(None, root.path().as_os_str(), &READ).unwrap();
         let options = OpenOptions {
             access: Access::ListDirectory,
+            type_constraint: TypeConstraint::Directory,
             is_async: true,
             ..READ
         };

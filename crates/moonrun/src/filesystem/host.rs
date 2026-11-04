@@ -60,14 +60,15 @@ impl Directory {
     pub(crate) fn preopen(path: &Path) -> io::Result<Self> {
         use super::os::{
             DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync},
+            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
         };
         Ok(Self {
             file: openat::open(
                 None,
                 path.as_os_str(),
                 &OpenOptions {
-                    access: Access::Directory,
+                    access: Access::TraverseDirectory,
+                    type_constraint: TypeConstraint::Directory,
                     follow_symlink: true,
                     is_async: false,
                     create: CreateMode::Open,
@@ -250,7 +251,7 @@ impl HostFs {
     ) -> Result<fs::File, FsError> {
         use super::os::{
             DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync},
+            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
         };
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
@@ -285,6 +286,7 @@ impl HostFs {
                 } else {
                     Access::Read
                 },
+                type_constraint: TypeConstraint::Any,
                 follow_symlink: true,
                 is_async: false,
                 create: if options.create_new {
@@ -312,7 +314,7 @@ impl HostFs {
     ) -> Result<Directory, FsError> {
         use super::os::{
             DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync},
+            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
         };
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
@@ -326,7 +328,8 @@ impl HostFs {
                 Some(super::os::raw_file(&directory.file)),
                 path.as_os_str(),
                 &OpenOptions {
-                    access: Access::Directory,
+                    access: Access::TraverseDirectory,
+                    type_constraint: TypeConstraint::Directory,
                     follow_symlink: true,
                     is_async: false,
                     create: CreateMode::Open,

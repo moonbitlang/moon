@@ -349,13 +349,13 @@ fn open_raw_native_file(
     sync: i32,
     mode: i32,
 ) -> AsyncHostResult<RawFile> {
-    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync};
+    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
     let is_async = access == 3;
-    let access = match access {
-        0 => Access::Read,
-        1 => Access::Write,
-        2 => Access::ReadWrite,
-        3 => Access::ListDirectory,
+    let (access, type_constraint) = match access {
+        0 => (Access::Read, TypeConstraint::Any),
+        1 => (Access::Write, TypeConstraint::Any),
+        2 => (Access::ReadWrite, TypeConstraint::Any),
+        3 => (Access::ListDirectory, TypeConstraint::Directory),
         _ => return Err(AsyncHostError::Inval),
     };
     let file = openat::open(
@@ -363,6 +363,7 @@ fn open_raw_native_file(
         &filename,
         &OpenOptions {
             access,
+            type_constraint,
             follow_symlink: true,
             is_async,
             create: match create_mode {
@@ -1004,12 +1005,13 @@ fn file_kind_by_path(
     path: OsString,
     follow_symlink: bool,
 ) -> AsyncHostResult<i32> {
-    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync};
+    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
     let file = openat::open(
         parent.map(raw_file_handle).transpose()?,
         &path,
         &OpenOptions {
             access: Access::Attributes,
+            type_constraint: TypeConstraint::Any,
             follow_symlink,
             is_async: false,
             create: CreateMode::Open,

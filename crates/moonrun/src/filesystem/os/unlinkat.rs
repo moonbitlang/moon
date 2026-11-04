@@ -111,7 +111,7 @@ fn remove_windows(
     kind: RemovalKind,
     blocking: &impl BlockingIo,
 ) -> io::Result<()> {
-    use super::openat::{self, Access, CreateMode, OpenOptions, Sync};
+    use super::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{
         ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED,
@@ -127,10 +127,11 @@ fn remove_windows(
         &OpenOptions {
             // Enforce entry kind in the same native open that acquires the
             // deletion handle, without requiring metadata-read permission.
-            access: match kind {
-                RemovalKind::Any => Access::Delete,
-                RemovalKind::File => Access::DeleteFile,
-                RemovalKind::Directory => Access::DeleteDirectory,
+            access: Access::Delete,
+            type_constraint: match kind {
+                RemovalKind::Any => TypeConstraint::Any,
+                RemovalKind::File => TypeConstraint::NonDirectory,
+                RemovalKind::Directory => TypeConstraint::Directory,
             },
             follow_symlink: false,
             is_async: false,
@@ -196,7 +197,7 @@ mod tests {
 
     #[test]
     fn relative_removal_keeps_the_opened_directory_after_rename() {
-        use super::super::openat::{self, Access, CreateMode, OpenOptions, Sync};
+        use super::super::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
         use super::super::{DirectIo, raw_file};
 
         let root = tempfile::tempdir().unwrap();
@@ -209,6 +210,7 @@ mod tests {
             original.as_os_str(),
             &OpenOptions {
                 access: Access::ListDirectory,
+                type_constraint: TypeConstraint::Directory,
                 follow_symlink: true,
                 is_async: false,
                 create: CreateMode::Open,

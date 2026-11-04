@@ -311,12 +311,15 @@ pub(super) fn run_statx_job(
     let values = platform::query_path(parent, path, follow_symlink, request)?;
     #[cfg(windows)]
     let values = {
-        use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync};
+        use super::super::os::openat::{
+            self, Access, CreateMode, OpenOptions, Sync, TypeConstraint,
+        };
         let file = openat::open(
             parent,
             &path,
             &OpenOptions {
                 access: Access::Attributes,
+                type_constraint: TypeConstraint::Any,
                 follow_symlink,
                 is_async: false,
                 create: CreateMode::Open,
