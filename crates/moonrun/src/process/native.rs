@@ -19,6 +19,9 @@
 //! Native process workers: materialize authority transfer, retain Resource
 //! owners, bracket cancellation, and publish results through the async contract.
 
+mod child;
+pub(crate) use child::{NativeChild, NativeControl};
+
 use super::os::Executable;
 use super::{SpawnOptions, os};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
@@ -26,12 +29,10 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use crate::async_sys::ported_fns;
 use crate::policy::Policy;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(windows)]
 use crate::resource::Resource;
-use crate::resource::{ResourcePublication, ResourceRef};
+use crate::resource::ResourceRef;
 use std::ffi::{OsStr, OsString};
-#[cfg(target_os = "linux")]
-use std::os::fd::IntoRawFd;
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 #[cfg(windows)]
@@ -49,8 +50,7 @@ ported_fns! {
         cwd: Option<OsString>,
         options: SpawnOptions,
         policy_inheritance: Option<Policy>,
-        result: &mut Option<ResourcePublication>,
-    ) -> AsyncHostResult<i64> {
+    ) -> AsyncHostResult<os::Spawned> {
         // Transfer creation belongs to worker execution: its temporary-storage
         // errors must be reported before creating an OS child.
         let transfer = policy_inheritance
@@ -86,15 +86,7 @@ ported_fns! {
             child_signal_mask: options.child_signal_mask,
             inherited: transfer_fd.zip(inherited.as_ref().map(AsFd::as_fd)),
         })?;
-        #[cfg(target_os = "linux")]
-        if let Some(handle) = child.handle {
-            *result = Some(ResourcePublication::Unpublished(Resource::new(
-                handle.into_raw_fd(),
-            )));
-        }
-        #[cfg(not(target_os = "linux"))]
-        let _ = result;
-        Ok(i64::from(child.pid))
+        Ok(child)
     }
 
     #[ported(runtime = "thread_pool.c", original = "spawn_job_worker")]
@@ -108,8 +100,7 @@ ported_fns! {
         cwd: Option<OsString>,
         options: SpawnOptions,
         policy_inheritance: Option<Policy>,
-        result: &mut Option<ResourcePublication>,
-    ) -> AsyncHostResult<i64> {
+    ) -> AsyncHostResult<os::Spawned> {
         let transfer = policy_inheritance
             .map(|policy| policy.open_transfer())
             .transpose()
@@ -138,10 +129,7 @@ ported_fns! {
             options,
             inherited.as_ref().map(AsRawHandle::as_raw_handle),
         )?;
-        *result = Some(ResourcePublication::Unpublished(Resource::new(
-            child.handle.into_raw_handle(),
-        )));
-        Ok(i64::from(child.pid))
+        Ok(child)
     }
 
     #[ported(runtime = "thread_pool.c", original = "wait_for_process_job_worker")]
@@ -175,12 +163,12 @@ ported_fns! {
             let cancel = cancel.ok_or(AsyncHostError::Badf)?;
             let cancel = cancel.as_handle()?.as_raw_handle();
             if let Some(handle) = &handle {
-                return os::wait_handle(handle.as_handle()?.as_raw_handle(), cancel)
+                return os::wait_handle_with_cancel(handle.as_handle()?.as_raw_handle(), cancel)
                     .map(exit_code)
                     .map_err(Into::into);
             }
             let handle = os::open_process_for_wait(pid as u32)?;
-            os::wait_handle(handle.as_raw_handle(), cancel)
+            os::wait_handle_with_cancel(handle.as_raw_handle(), cancel)
                 .map(exit_code)
                 .map_err(Into::into)
         }
@@ -281,8 +269,8 @@ mod tests {
             Some(cwd.as_os_str().to_owned()),
             SpawnOptions { child_signal_mask },
             None,
-            &mut None,
         )
+        .map(|child| i64::from(child.pid))
     }
 
     #[test]
@@ -423,6 +411,7 @@ mod tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
+    use crate::resource::ResourcePublication;
 
     #[test]
     fn ambient_spawn_preserves_native_string_handling() {
@@ -482,7 +471,6 @@ mod windows_tests {
                 }
                 Ok(exit)
             };
-            let mut result = None;
             let actual = run_spawn_job_windows(
                 Executable::Ambient,
                 command_line,
@@ -494,13 +482,9 @@ mod windows_tests {
                     is_orphan: true,
                 },
                 None,
-                &mut result,
             )
-            .map(|_| {
-                let Some(ResourcePublication::Unpublished(process)) = result else {
-                    panic!("successful spawn publishes a process handle");
-                };
-                let handle = process.as_file().unwrap().as_raw_handle();
+            .map(|child| {
+                let handle = child.handle.as_raw_handle();
                 assert_eq!(
                     unsafe { WaitForSingleObject(handle, 10_000) },
                     WAIT_OBJECT_0

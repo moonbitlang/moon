@@ -79,7 +79,8 @@ impl RunOptions {
     /// Use Engine-managed process identities and internal child execution.
     /// Also captures owned root environment/cwd; IPC and explicit Runtime
     /// configuration can select owned state without virtual process identities.
-    /// Requires V8 and supports only internal moonx children.
+    /// Requires V8. Moonx children execute internally; other authorized
+    /// commands run as supervised native children with their OS PIDs.
     /// The existing process policy authorizes those invocations; virtualization
     /// does not grant additional permissions or sandbox preparation helpers.
     pub fn with_virtualize(mut self, virtualize: bool) -> Self {

@@ -272,7 +272,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+    if let Some(result) = context.host.open_managed_process_handle(pid) {
         return result;
     }
     let handle = context
@@ -293,7 +293,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+    if let Some(result) = context.host.open_managed_process_handle(pid) {
         return result;
     }
     let handle = context.host.with_owned_child_pid(pid, || {
@@ -318,7 +318,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+    if let Some(result) = context.host.open_managed_process_handle(pid) {
         return result;
     }
     let handle = context

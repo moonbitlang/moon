@@ -76,7 +76,7 @@ Network connect controls outbound sockets; bind controls local bind/listen addre
 
 Process spawning is disabled by default. process.allow entries match the exact requested program and, when args_prefix is present, a prefix of complete argument tokens. Omitting args_prefix allows any arguments for that program. Multiple entries are alternatives. process.spawn and process.allow cannot be used together.
 
-process.virtualize defaults to false. Set it to true for Engine-managed identities, owned environment/cwd and internal moonx execution (V8 only). The same spawn/allow rules authorize every guest spawn in both modes. For a moonx-only virtual tree use process.virtualize=true with process.allow=[{"program":"moonx"}].
+process.virtualize defaults to false. Set it to true for Engine-managed identities, owned environment/cwd and internal moonx execution (V8 only). Other authorized commands run as supervised native children with their OS PIDs. The same spawn/allow rules authorize every guest spawn in both modes. For a moonx-only virtual tree use process.virtualize=true with process.allow=[{"program":"moonx"}].
 
 process.ipc=true enables a V8 execution session for native descendants. A descendant moonrun connects to this Engine before initializing its own runtime. Each Run keeps its own cwd/env/stdio and inherits its parent's permission ceiling. IPC currently requires process.virtualize=false. With no inherited session and ipc disabled, execution stays local.
 
