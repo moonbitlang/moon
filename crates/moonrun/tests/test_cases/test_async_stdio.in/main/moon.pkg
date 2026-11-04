@@ -1,1 +1,10 @@
+import {
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/stdio",
+}
+
 pkgtype(kind: "executable")
+
+options(
+  "allow-experimental-packages": true,
+)

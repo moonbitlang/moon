@@ -539,9 +539,9 @@ fn moonrun_observes_each_process_working_directory() {
         .assert()
         .success();
 
-    let wasm = dir.path().join(
-        "_build/wasm/debug/test/moon/working_directory_instances/main/main.blackbox_test.wasm",
-    );
+    let wasm = dir
+        .path()
+        .join("_build/wasm/debug/test/main/main.blackbox_test.wasm");
     for marker in ["first", "second"] {
         let instance = dir.path().join(marker);
         std::fs::create_dir(&instance).unwrap();
@@ -1331,7 +1331,7 @@ fn test_sqlite_binding_order() {
 }
 
 #[test]
-fn test_moon_run_with_async_stdio_imports() {
+fn test_moon_run_with_core_async_stdio() {
     let dir = TestDir::new("test_async_stdio.in");
 
     moon_cmd()
@@ -1342,14 +1342,45 @@ fn test_moon_run_with_async_stdio_imports() {
 
     let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
 
-    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
-        .arg(&wasm_file)
-        .stdin("stdio input\n")
-        .assert()
-        .success()
-        .stdout_eq("stdout-ok\n")
-        .stderr_eq("stderr-ok\n");
+    let policy = dir.join("deny-all.json");
+    std::fs::write(&policy, "{}").unwrap();
+    // Compile the toolchain's public stdio implementation so changes to its
+    // initialization imports are exercised without updating the async submodule.
+    for policy_args in [vec![], vec!["--policy".as_ref(), policy.as_os_str()]] {
+        snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+            .args(policy_args)
+            .arg(&wasm_file)
+            .stdin("stdio input\n")
+            .timeout(Duration::from_secs(30))
+            .assert()
+            .success()
+            .stdout_eq("stdout-ok\n")
+            .stderr_eq("stderr-ok\n");
+    }
+
+    // Explicit file bindings must also initialize under a policy that denies
+    // their paths. Pipe-only coverage misses this distinct stdio classification.
+    let input = dir.join("stdin");
+    let output = dir.join("stdout");
+    let error = dir.join("stderr");
+    std::fs::write(&input, "stdio input\n").unwrap();
+    let options = moonrun::RunOptions::default()
+        .with_policy_file(&policy)
+        .unwrap()
+        .with_stdio(
+            std::fs::File::open(input).unwrap(),
+            std::fs::File::create(&output).unwrap(),
+            std::fs::File::create(&error).unwrap(),
+        );
+    assert_eq!(
+        moonrun::Engine::default()
+            .run_file(&wasm_file, options)
+            .unwrap(),
+        moonrun::RunOutcome::Completed,
+    );
+    assert_eq!(std::fs::read_to_string(output).unwrap(), "stdout-ok\n");
+    assert_eq!(std::fs::read_to_string(error).unwrap(), "stderr-ok\n");
 }
 
 #[test]

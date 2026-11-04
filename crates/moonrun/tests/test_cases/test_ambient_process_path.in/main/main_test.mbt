@@ -23,6 +23,10 @@ async test "ambient PATH mutation reaches native executable lookup" {
     None => fail("MOONRUN_TEST_PATH is missing")
   }
   @env.set_env_var("PATH", path)
-  let (code, _) = @process.collect_stdout("moonrun-path-command", ["--version"])
-  assert_eq(code, 0)
+  let result = @process.run(
+    "moonrun-path-command",
+    ["--version"],
+    stdout=@process.read_from_process(),
+  )
+  assert_eq(result.exit_code, 0)
 }
