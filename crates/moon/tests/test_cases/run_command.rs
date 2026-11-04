@@ -226,3 +226,39 @@ fn test_js() {
         "#]],
     );
 }
+
+#[test]
+fn test_large_test_selection() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"repro/manyfiles\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(dir.join("lib.mbt"), "pub fn one() -> Int { 1 }\n").unwrap();
+    for i in 1..=200 {
+        std::fs::write(
+            dir.join(format!(
+                "a_fairly_long_descriptive_test_file_name_number_{i:03}_test.mbt"
+            )),
+            format!("test \"case {i:03}\" {{ assert_eq(@manyfiles.one(), 1) }}\n"),
+        )
+        .unwrap();
+    }
+
+    for backend in [
+        "js",
+        "wasm",
+        "wasm-gc",
+        "native",
+        #[cfg(not(windows))]
+        "llvm",
+    ] {
+        moon_cmd(&dir)
+            .args(["test", "--target", backend])
+            .assert()
+            .success()
+            .stdout_eq("Total tests: 200, passed: 200, failed: 0.\n");
+    }
+}
