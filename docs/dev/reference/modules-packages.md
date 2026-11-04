@@ -217,7 +217,9 @@ Module resolution selects concrete module sources and versions and records their
 dependency edges in `ModuleDependencyGraph`. `ModuleResolutionConfig` supplies
 registry and standard-library policy to the `ModuleResolver`; its working
 registry access, manifest caches, and diagnostics belong to
-`ModuleResolutionContext`. Failures are reported as `ModuleResolutionError`.
+`ModuleResolutionContext`. Registry injection is generic over `R: Registry`;
+the configuration and context borrow the concrete implementation through `&R`.
+Failures are reported as `ModuleResolutionError`.
 Registry read failures preserve their causes and are distinguished from missing
 modules or versions. Final graph construction reuses the metadata loaded during
 traversal rather than querying the registry again.

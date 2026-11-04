@@ -35,6 +35,7 @@ use moonutil::{
 use semver::Version;
 
 use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
+use crate::registry::Registry;
 
 type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 
@@ -43,10 +44,10 @@ type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 /// See https://research.swtch.com/vgo-mvs for more information.
 pub(crate) struct MvsSolver;
 
-impl ModuleResolver for MvsSolver {
+impl<R: Registry> ModuleResolver<R> for MvsSolver {
     fn resolve(
         &mut self,
-        context: &mut ModuleResolutionContext,
+        context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
         user_log: &UserLog,
     ) -> bool {
@@ -69,8 +70,8 @@ fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
     (lhs.major < 2 && rhs.major < 2) || lhs.major == rhs.major
 }
 
-fn resolve_registry_module(
-    context: &mut ModuleResolutionContext,
+fn resolve_registry_module<R: Registry>(
+    context: &mut ModuleResolutionContext<'_, R>,
     dependency: &ModuleName,
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
@@ -182,8 +183,8 @@ fn workspace_version_override_warning(
     skip_all,
     fields(root_count = module_graph.input_module_ids().len())
 )]
-fn mvs_resolve(
-    context: &mut ModuleResolutionContext,
+fn mvs_resolve<R: Registry>(
+    context: &mut ModuleResolutionContext<'_, R>,
     module_graph: &mut ModuleDependencyGraph,
     user_log: &UserLog,
 ) -> bool {
@@ -393,10 +394,10 @@ fn mvs_resolve(
     true
 }
 
-fn resolve_module_dependency(
+fn resolve_module_dependency<R: Registry>(
     req: &SourceDependencyInfo,
     dependant: &ModuleSource,
-    context: &mut ModuleResolutionContext,
+    context: &mut ModuleResolutionContext<'_, R>,
     workspace_roots: &WorkspaceRoots,
     module_name: &ModuleName,
     user_log: &UserLog,
@@ -508,7 +509,7 @@ mod test {
     use crate::resolver::ModuleResolutionErrors;
     use crate::resolver::context::ModuleResolutionContext;
 
-    fn create_mock_registry() -> Box<dyn Registry> {
+    fn create_mock_registry() -> MockRegistry {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("dep/one", "0.1.1", [])
@@ -527,12 +528,12 @@ mod test {
                 "0.2.0",
                 [("dep/one", "0.2.0"), ("dep/two", "0.2.0")],
             );
-        Box::new(registry)
+        registry
     }
 
-    fn resolve_silently(
+    fn resolve_silently<R: Registry>(
         resolver: &mut MvsSolver,
-        context: &mut ModuleResolutionContext,
+        context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
     ) -> bool {
         resolver.resolve(
@@ -556,7 +557,7 @@ mod test {
             [("dep/two", "0.1.0")],
         ));
         let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
-        let mut context = ModuleResolutionContext::new(registry.as_ref());
+        let mut context = ModuleResolutionContext::new(&registry);
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
@@ -1312,7 +1313,7 @@ mod test {
         );
     }
 
-    fn resolve(registry: &dyn Registry, root: Arc<MoonMod>) -> Vec<ModuleSource> {
+    fn resolve(registry: &impl Registry, root: Arc<MoonMod>) -> Vec<ModuleSource> {
         let mut resolver = MvsSolver;
         let mut context = ModuleResolutionContext::new(registry);
         let roots = create_mock_root(root);
@@ -1326,7 +1327,11 @@ mod test {
         }
     }
 
-    fn check_resolve_result(reg: &dyn Registry, root: Arc<MoonMod>, expected: expect_test::Expect) {
+    fn check_resolve_result(
+        reg: &impl Registry,
+        root: Arc<MoonMod>,
+        expected: expect_test::Expect,
+    ) {
         expected.assert_debug_eq(&resolve(reg, root));
     }
 
