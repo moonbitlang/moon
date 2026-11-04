@@ -41,7 +41,8 @@ gaps found while preserving this parity are tracked in
 [`moonbitlang/async#442`](https://github.com/moonbitlang/async/issues/442)
 instead of becoming undocumented wasm-only behavior.
 
-Metadata access remains subject to the runtime filesystem policy. Handle
+Pure file-kind queries on acquired Resources use the same grant as the scalar
+kind imports, allowing core to classify stdio during initialization. Other handle
 queries require metadata-read authority for the acquired Resource, and path
 queries use the parent Resource as their policy base. Open jobs continue to use
 the open policy for the identity mask (kind, device id, and file id); requesting

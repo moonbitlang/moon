@@ -141,10 +141,14 @@ fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
     let policy = directory.path().join("policy.json");
     std::fs::write(&input, b"abc").unwrap();
     std::fs::write(&policy, "{}").unwrap();
-    let module = engine.compile("stdio-grant.wasm", wat::parse_str(r#"(module
+    let module = engine.compile("stdio-grant.wasm", wat::parse_str(format!(r#"(module
         (import "__moonbit_io_unstable" "read_char" (func $char_read (result i32)))
         (import "__moonbit_io_unstable" "write_char" (func $char_write (param i32 i32)))
         (import "moonbitlang/async" "stdio/get_stdio_handle" (func $stdio (param i32) (result i64)))
+        (import "moonbitlang/async" "stdio/kind_of_fd" (func $kind (param i64) (result i32)))
+        (import "moonbitlang/async" "thread_pool/make_fstatx_job" (func $fstatx (param i64 i32 i32) (result i64)))
+        (import "moonbitlang/async" "thread_pool/get_stat_result" (func $stat_result (param i64 i32 i32)))
+        (import "moonbitlang/async" "fd_util/pipe" (func $pipe (param i32 i32 i32 i32) (result i32)))
         (import "moonbitlang/async" "thread_pool/make_read_job" (func $async_read (param i64 i32 i64) (result i64)))
         (import "moonbitlang/async" "thread_pool/get_read_result" (func $read_result (param i64 i32 i32 i32)))
         (import "moonbitlang/async" "thread_pool/make_write_job" (func $async_write (param i64 i32 i32 i32 i64) (result i64)))
@@ -157,8 +161,47 @@ fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
         (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
         (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
         (memory (export "memory") 1)
+        (global $FILE_KIND i32 (i32.const 0x0001))
+        (global $FILE_SIZE i32 (i32.const 0x0002))
+        (global $REGULAR_FILE i64 (i64.const 1))
+        (global $PIPE i64 (i64.const 5))
+        (global $ACCESS_DENIED i32 (i32.const {denied}))
         (data (i32.const 64) "input")
+        (func $check_kind (param $fd i64) (param $expected i64) (local $job i64)
+            ;; The scalar and generic APIs must classify the same acquired resource.
+            local.get $fd call $kind i64.extend_i32_s local.get $expected i64.ne if unreachable end
+            local.get $fd global.get $FILE_KIND i32.const 16 call $fstatx local.set $job
+            local.get $job call $run
+            local.get $job call $err if unreachable end
+            local.get $job i32.const 128 i32.const 16 call $stat_result
+            i32.const 128 i32.load i32.const 16 i32.ne if unreachable end
+            i32.const 132 i32.load global.get $FILE_KIND i32.ne if unreachable end
+            i32.const 136 i64.load local.get $expected i64.ne if unreachable end
+            local.get $job call $free)
+        (func $check_metadata_denied (param $fd i64) (param $mask i32) (local $job i64)
+            local.get $fd local.get $mask i32.const 24 call $fstatx local.set $job
+            local.get $job call $run
+            local.get $job call $err global.get $ACCESS_DENIED i32.ne if unreachable end
+            local.get $job call $free)
+        (func $check_stdio (param $id i32) (local $fd i64)
+            local.get $id call $stdio local.set $fd
+            local.get $fd global.get $REGULAR_FILE call $check_kind
+            local.get $fd global.get $FILE_SIZE call $check_metadata_denied
+            local.get $fd global.get $FILE_KIND global.get $FILE_SIZE i32.or call $check_metadata_denied)
         (func (export "_start") (local $job i64)
+            ;; Core initializes all three streams through a synchronous fstatx job.
+            i32.const 0 call $check_stdio
+            i32.const 1 call $check_stdio
+            i32.const 2 call $check_stdio
+
+            ;; Acquired anonymous resources have the same classification grant.
+            i32.const 256 i32.const 2 i32.const 0 i32.const 0 call $pipe if unreachable end
+            i32.const 256 i64.load global.get $PIPE call $check_kind
+            i32.const 264 i64.load global.get $PIPE call $check_kind
+            i32.const 256 i64.load global.get $FILE_SIZE call $check_metadata_denied
+            i32.const 256 i64.load call $close if unreachable end
+            i32.const 264 i64.load call $close if unreachable end
+
             ;; Each ABI consumes the next byte from the same granted file.
             call $char_read i32.const 97 i32.ne if unreachable end
             i32.const 1 i32.const 97 call $char_write
@@ -202,7 +245,7 @@ fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
             ;; Reserved stdio cannot be closed through the async Handle table.
             i32.const 1 call $stdio call $close i32.eqz if unreachable end
             i32.const 1 i32.const 100 call $char_write
-            i32.const 2 i32.const 101 call $char_write))"#).unwrap()).unwrap();
+            i32.const 2 i32.const 101 call $char_write))"#, denied = access_errno())).unwrap()).unwrap();
     let mut parent: serde_json::Value =
         serde_json::from_slice(include_bytes!("fixtures/deny_restrictions.json")).unwrap();
     for access in ["read", "write"] {

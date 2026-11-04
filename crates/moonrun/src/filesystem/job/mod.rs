@@ -511,6 +511,15 @@ impl Job {
                 }
                 Ok(())
             }
+            Kind::Fstatx {
+                file: Some(_),
+                request,
+                ..
+            } if request.mask() == STAT_FILE_KIND => {
+                // Like the scalar kind imports, classification uses the acquired
+                // resource grant. Core also needs this when initializing stdio.
+                Ok(())
+            }
             Kind::Fstatx { file, .. } => check_file_metadata_policy(filesystem, file.as_deref()),
             Kind::Statx {
                 parent,
