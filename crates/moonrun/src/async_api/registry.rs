@@ -1034,7 +1034,7 @@ declare_async_imports! {
         mode: i32,
     ) -> u64 => "thread_pool/make_open_job";
 
-    ported thread_pool::make_open_stat_job(
+    compat thread_pool::make_open_stat_job(
         path_ptr: u32,
         path_len: u32,
         access: i32,
@@ -1045,6 +1045,19 @@ declare_async_imports! {
         stat_request: i32,
         stat_result_len: u32,
     ) -> u64 => "thread_pool/make_open_stat_job";
+
+    ported thread_pool::make_openat_job(
+        parent: u64,
+        path_ptr: u32,
+        path_len: u32,
+        access: i32,
+        create_mode: i32,
+        append: i32,
+        sync: i32,
+        mode: i32,
+        stat_request: i32,
+        stat_result_len: u32,
+    ) -> u64 => "thread_pool/make_openat_job";
 
     ported thread_pool::make_fstatx_job(
         fd: u64,
@@ -1111,7 +1124,9 @@ declare_async_imports! {
 
     ported thread_pool::make_flock_job(fd: u64, exclusive: i32) -> u64 => "thread_pool/make_flock_job";
 
-    ported thread_pool::make_remove_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_remove_job";
+    compat thread_pool::make_remove_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_remove_job";
+
+    ported thread_pool::make_removeat_job(parent: u64, path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_removeat_job";
 
     ported thread_pool::make_rename_job(
         old_path_ptr: u32,
@@ -1546,11 +1561,12 @@ mod tests {
     }
 
     #[test]
-    fn generic_stat_imports_coexist_with_native_compatibility_adapters() {
-        let generic_imports: &[(&str, &[WasmType])] = &[
+    fn filesystem_job_imports_coexist_with_legacy_abis() {
+        let current_imports: &[(&str, &[WasmType])] = &[
             (
-                "thread_pool/make_open_stat_job",
+                "thread_pool/make_openat_job",
                 &[
+                    WasmType::I64,
                     WasmType::I32,
                     WasmType::I32,
                     WasmType::I32,
@@ -1577,29 +1593,40 @@ mod tests {
                     WasmType::I32,
                 ],
             ),
+            (
+                "thread_pool/make_removeat_job",
+                &[WasmType::I64, WasmType::I32, WasmType::I32],
+            ),
         ];
-        for &(wasm_symbol, parameter_types) in generic_imports {
+        for &(wasm_symbol, parameter_types) in current_imports {
             let import = ASYNC_IMPORTS
                 .iter()
                 .find(|import| import.wasm_symbol == wasm_symbol)
-                .expect("generic stat import must be registered");
+                .expect("current filesystem job import must be registered");
             assert_eq!(
                 import.kind,
                 AsyncImportKind::Ported,
-                "generic stat import {wasm_symbol} must track the current upstream operation"
+                "filesystem job import {wasm_symbol} must track the current upstream operation"
             );
             assert_eq!(
                 import.params, parameter_types,
-                "generic stat maker {wasm_symbol} must have an exact pointer-free Wasm ABI"
+                "filesystem job maker {wasm_symbol} must have an exact pointer-free Wasm ABI"
             );
             assert_eq!(import.result, Some(WasmType::I64));
         }
-        let legacy_open = ASYNC_IMPORTS
-            .iter()
-            .find(|import| import.wasm_symbol == "thread_pool/make_open_job")
-            .expect("legacy open import must remain registered");
-        assert_eq!(legacy_open.params, &[WasmType::I32; 7]);
-        assert_eq!(legacy_open.result, Some(WasmType::I64));
+        for (wasm_symbol, parameter_count) in [
+            ("thread_pool/make_open_job", 7),
+            ("thread_pool/make_open_stat_job", 9),
+            ("thread_pool/make_remove_job", 2),
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == wasm_symbol)
+                .expect("legacy filesystem job import must remain registered");
+            assert_eq!(import.kind, AsyncImportKind::Compat);
+            assert_eq!(import.params, vec![WasmType::I32; parameter_count]);
+            assert_eq!(import.result, Some(WasmType::I64));
+        }
 
         let copy_result = ASYNC_IMPORTS
             .iter()

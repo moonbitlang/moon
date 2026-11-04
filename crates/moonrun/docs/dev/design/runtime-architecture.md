@@ -266,7 +266,8 @@ removing shared host behavior.
 
 `std::fs` supplies ordinary OS operations directly. `filesystem::os` supplements
 it with mechanisms that need custom platform handling: rename with explicit
-replacement and cross-device options and handle-relative opening. Opening
+replacement and cross-device options, handle-relative opening and removal,
+and directory-handle path lookup. Opening
 accepts typed host options and an execution bracket; Filesystem Jobs supply
 worker cancellation. The raw layer returns `io::Result` and does not import
 Async errors or worker state. Other custom async mechanisms reside in

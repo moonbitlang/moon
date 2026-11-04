@@ -33,6 +33,8 @@ pub(in crate::filesystem) enum Access {
     ListDirectory,
     #[cfg_attr(unix, allow(dead_code))] // Used for Windows metadata handles.
     Attributes,
+    #[cfg_attr(unix, allow(dead_code))]
+    Delete,
 }
 
 pub(in crate::filesystem) enum CreateMode {
@@ -72,7 +74,9 @@ pub(in crate::filesystem) fn open(
     let path = std::ffi::CString::new(path.as_bytes())
         .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
     let access = match options.access {
-        Access::Read | Access::ListDirectory | Access::Attributes => libc::O_RDONLY,
+        Access::Read | Access::ListDirectory | Access::Attributes | Access::Delete => {
+            libc::O_RDONLY
+        }
         Access::Write => libc::O_WRONLY,
         Access::ReadWrite => libc::O_RDWR,
     };
@@ -162,7 +166,7 @@ mod windows {
         RtlNtStatusToDosError, UNICODE_STRING,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
+        DELETE, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
         FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
@@ -247,6 +251,7 @@ mod windows {
             Access::ReadWrite => GENERIC_READ | GENERIC_WRITE,
             Access::ListDirectory => FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
             Access::Attributes => FILE_READ_ATTRIBUTES,
+            Access::Delete => DELETE,
         };
         let create = match options.create {
             CreateMode::Open => FILE_OPEN,

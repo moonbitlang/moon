@@ -183,9 +183,12 @@ pub(super) fn make_open_job_legacy(
 // Unlike the native ABI, the wasm maker does not receive the eventual output
 // buffer. The worker produces a Rust-owned PackedStat and the wasm completion
 // callback copies it into current Guest Memory through get_stat_result.
-#[ported(
-    source = "src/internal/event_loop/fs.c",
-    original = "moonbitlang_async_make_open_job"
+#[compat(
+    source = "src/internal/event_loop/thread_pool.wasm.mbt",
+    original = "thread_pool/make_open_stat_job",
+    upstream_pr = 716,
+    replacement = "thread_pool/make_openat_job",
+    api_only = true
 )]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_open_stat_job(
@@ -202,6 +205,41 @@ pub(super) fn make_open_stat_job(
 ) -> AsyncHostResult<u64> {
     let filename = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(filesystem_job_or_failed(FilesystemJob::open(
+        None,
+        filename,
+        access,
+        create_mode,
+        append != 0,
+        sync,
+        mode,
+        stat_request as u32,
+        stat_result_len,
+    )))
+}
+
+#[ported(source = "src/internal/event_loop/fs.c")]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_openat_job(
+    context: &mut ImportContext<'_>,
+    parent: u64,
+    path_ptr: u32,
+    path_len: u32,
+    access: i32,
+    create_mode: i32,
+    append: i32,
+    sync: i32,
+    mode: i32,
+    stat_request: i32,
+    stat_result_len: u32,
+) -> AsyncHostResult<u64> {
+    let parent = if parent == context.host.invalid_fd() {
+        None
+    } else {
+        Some(context.host.acquire_resource_of_class(parent, ResourceClass::File)?)
+    };
+    let filename = read_guest_os_string(context, path_ptr, path_len)?;
+    context.host.insert_job(filesystem_job_or_failed(FilesystemJob::open(
+        parent,
         filename,
         access,
         create_mode,
@@ -537,7 +575,13 @@ pub(super) fn make_flock_job(
         .insert_job(FilesystemJob::flock(file, exclusive != 0))
 }
 
-#[ported(source = "src/internal/event_loop/fs.c")]
+#[compat(
+    source = "src/internal/event_loop/thread_pool.wasm.mbt",
+    original = "thread_pool/make_remove_job",
+    upstream_pr = 716,
+    replacement = "thread_pool/make_removeat_job",
+    api_only = true
+)]
 pub(super) fn make_remove_job(
     context: &mut ImportContext<'_>,
     path_ptr: u32,
@@ -545,6 +589,22 @@ pub(super) fn make_remove_job(
 ) -> AsyncHostResult<u64> {
     let path = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(FilesystemJob::remove(path))
+}
+
+#[ported(source = "src/internal/event_loop/fs.c")]
+pub(super) fn make_removeat_job(
+    context: &mut ImportContext<'_>,
+    parent: u64,
+    path_ptr: u32,
+    path_len: u32,
+) -> AsyncHostResult<u64> {
+    let parent = if parent == context.host.invalid_fd() {
+        None
+    } else {
+        Some(context.host.acquire_resource_of_class(parent, ResourceClass::File)?)
+    };
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
+    context.host.insert_job(FilesystemJob::remove_at(parent, path))
 }
 
 #[ported(source = "src/internal/event_loop/fs.c")]

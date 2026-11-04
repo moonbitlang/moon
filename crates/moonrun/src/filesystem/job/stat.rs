@@ -64,15 +64,20 @@ pub(crate) struct StatRequest {
 
 impl StatRequest {
     pub(super) const fn open_identity() -> Self {
+        // Each identity property occupies one 64-bit word after the header.
         Self {
             mask: STAT_OPEN_IDENTITY,
-            encoded_len: 32,
+            encoded_len: STAT_HEADER_LEN
+                + STAT_OPEN_IDENTITY.count_ones() as usize * std::mem::size_of::<u64>(),
         }
     }
 
     pub(super) fn new(mask: u32, capacity: u32) -> AsyncHostResult<Self> {
         let header_len = u32::try_from(STAT_HEADER_LEN).map_err(|_| AsyncHostError::Fault)?;
-        if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0 || capacity < header_len {
+        if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0
+            || capacity < header_len
+            || capacity > i32::MAX as u32
+        {
             return Err(AsyncHostError::Inval);
         }
         let property_words = (0..8)
@@ -1016,6 +1021,7 @@ mod tests {
     fn request_rejects_unknown_properties_and_short_buffers() {
         assert_eq!(StatRequest::new(0x0100, 8), Err(AsyncHostError::Inval));
         assert_eq!(StatRequest::new(0, 7), Err(AsyncHostError::Inval));
+        assert_eq!(StatRequest::new(0, u32::MAX), Err(AsyncHostError::Inval));
         assert_eq!(
             StatRequest::new(STAT_CREATE_TIME, 23),
             Err(AsyncHostError::Inval)
@@ -1120,23 +1126,36 @@ mod tests {
     }
 
     #[test]
-    fn invalid_open_stat_request_is_rejected_before_opening_the_path() {
+    fn invalid_open_stat_request_is_rejected_before_open() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("must-not-be-created");
-        let error = crate::filesystem::Job::open(
+        let result = crate::filesystem::Job::open(
+            None,
             path.clone().into_os_string(),
             1,
             3,
             false,
             0,
             0o600,
-            0x0100,
-            8,
-        )
-        .unwrap_err();
-
-        assert_eq!(error, AsyncHostError::Inval);
+            STAT_SUPPORTED_PROPERTY_MASK + 1,
+            STAT_HEADER_LEN as u32,
+        );
+        assert_eq!(result.unwrap_err(), AsyncHostError::Inval);
         assert!(!path.exists());
+
+        // Invalid arguments take precedence over a missing parent directory.
+        let result = crate::filesystem::Job::open(
+            None,
+            temp.path().join("missing/file").into_os_string(),
+            1,
+            3,
+            false,
+            0,
+            0o600,
+            STAT_SUPPORTED_PROPERTY_MASK + 1,
+            STAT_HEADER_LEN as u32,
+        );
+        assert_eq!(result.unwrap_err(), AsyncHostError::Inval);
     }
 
     #[cfg(unix)]

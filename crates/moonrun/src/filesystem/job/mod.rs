@@ -30,6 +30,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
 use crate::filesystem::HostFs;
 use crate::guest_memory::GuestMemory;
+use crate::policy::FsIntents;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
@@ -90,6 +91,7 @@ pub(crate) struct Job {
 #[derive(Debug)]
 enum Kind {
     Open {
+        parent: Option<ResourceRef>,
         filename: OsString,
         access: i32,
         create_mode: i32,
@@ -168,6 +170,10 @@ enum Kind {
     Remove {
         path: OsString,
     },
+    RemoveAt {
+        parent: Option<ResourceRef>,
+        path: OsString,
+    },
     Rename {
         old_path: OsString,
         new_path: OsString,
@@ -209,7 +215,11 @@ impl Job {
             *p = filesystem.resolve_path(p);
         };
         match &mut self.kind {
-            Kind::Open { filename, .. } => resolve(filename),
+            Kind::Open {
+                parent: None,
+                filename,
+                ..
+            } => resolve(filename),
             Kind::Statx {
                 parent: None, path, ..
             }
@@ -219,6 +229,7 @@ impl Job {
             | Kind::FileTimeByPath { path, .. }
             | Kind::Access { path, .. }
             | Kind::Chmod { path, .. }
+            | Kind::RemoveAt { parent: None, path }
             | Kind::Remove { path, .. }
             | Kind::Symlink { path, .. }
             | Kind::Mkdir { path, .. }
@@ -236,11 +247,12 @@ impl Job {
         };
     }
 
-    // Generic-stat validation belongs to the Filesystem Job so every adapter
-    // constructs the same valid payload. The outer adapter converts rejection
-    // into the native failed-Job representation.
+    // Unlike native, validate the stat layout before opening can create or
+    // truncate a file. Adapters preserve the Job-error protocol by turning
+    // rejection into an already-failed Job.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn open(
+        parent: Option<ResourceRef>,
         filename: OsString,
         access: i32,
         create_mode: i32,
@@ -252,7 +264,8 @@ impl Job {
     ) -> AsyncHostResult<Self> {
         Ok(Self {
             kind: Kind::Open {
-                filename,
+                parent,
+                filename: truncate_at_nul(filename),
                 access,
                 create_mode,
                 append,
@@ -274,7 +287,8 @@ impl Job {
     ) -> Self {
         Self {
             kind: Kind::Open {
-                filename,
+                parent: None,
+                filename: truncate_at_nul(filename),
                 access,
                 create_mode,
                 append,
@@ -436,6 +450,15 @@ impl Job {
         }
     }
 
+    pub(crate) fn remove_at(parent: Option<ResourceRef>, path: OsString) -> Self {
+        Self {
+            kind: Kind::RemoveAt {
+                parent,
+                path: truncate_at_nul(path),
+            },
+        }
+    }
+
     pub(crate) fn rename(old_path: OsString, new_path: OsString, replace: bool) -> Self {
         Self {
             kind: Kind::Rename {
@@ -499,15 +522,33 @@ impl Job {
     pub(crate) fn check_policy(&self, filesystem: &HostFs) -> AsyncHostResult<()> {
         match &self.kind {
             Kind::Open {
+                parent,
                 filename,
                 access,
                 create_mode,
                 request,
                 ..
             } => {
-                filesystem.authorize_open(filename, *access, *create_mode)?;
-                if request.mask() & !STAT_OPEN_IDENTITY != 0 {
-                    filesystem.authorize_metadata(filename)?;
+                if let Some(parent) = parent {
+                    let base =
+                        filesystem.directory_path_for_policy(runner::raw_file_handle(parent)?)?;
+                    filesystem.authorize_path_at(
+                        base.as_deref(),
+                        filename,
+                        FsIntents::for_open(*access, *create_mode),
+                    )?;
+                    if request.mask() & !STAT_OPEN_IDENTITY != 0 {
+                        filesystem.authorize_path_at(
+                            base.as_deref(),
+                            filename,
+                            FsIntents::read(),
+                        )?;
+                    }
+                } else {
+                    filesystem.authorize_open(filename, *access, *create_mode)?;
+                    if request.mask() & !STAT_OPEN_IDENTITY != 0 {
+                        filesystem.authorize_metadata(filename)?;
+                    }
                 }
                 Ok(())
             }
@@ -553,6 +594,16 @@ impl Job {
                 check_file_lock_policy(filesystem, file.as_deref(), *exclusive)
             }
             Kind::Remove { path } => filesystem.authorize_remove(path).map_err(Into::into),
+            Kind::RemoveAt { parent, path } => match parent {
+                None => filesystem.authorize_remove(path).map_err(Into::into),
+                Some(parent) => {
+                    let base =
+                        filesystem.directory_path_for_policy(runner::raw_file_handle(parent)?)?;
+                    filesystem
+                        .authorize_entry_at(base.as_deref(), path, FsIntents::write())
+                        .map_err(Into::into)
+                }
+            },
             Kind::Rename {
                 old_path, new_path, ..
             } => filesystem
@@ -573,6 +624,7 @@ impl Job {
     pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
         match &mut self.kind {
             Kind::Open {
+                parent,
                 filename,
                 access,
                 create_mode,
@@ -581,16 +633,20 @@ impl Job {
                 mode,
                 request,
                 result,
-            } => runner::run_open_job(
-                result,
-                std::mem::take(filename),
-                *access,
-                *create_mode,
-                *append,
-                *sync,
-                *mode,
-                *request,
-            ),
+            } => {
+                let parent = parent.take();
+                runner::run_open_job(
+                    parent.as_deref(),
+                    result,
+                    std::mem::take(filename),
+                    *access,
+                    *create_mode,
+                    *append,
+                    *sync,
+                    *mode,
+                    *request,
+                )
+            }
             Kind::Fstatx {
                 file,
                 request,
@@ -676,6 +732,10 @@ impl Job {
                 None => Err(AsyncHostError::Badf),
             },
             Kind::Remove { path } => runner::run_remove_job(std::mem::take(path)),
+            Kind::RemoveAt { parent, path } => {
+                let parent = parent.take();
+                runner::run_removeat_job(parent.as_deref(), std::mem::take(path))
+            }
             Kind::Rename {
                 old_path,
                 new_path,
@@ -955,6 +1015,26 @@ impl OpenJobResult {
     }
 }
 
+// Native open/remove paths end at the first NUL. Interpret that prefix before
+// cwd resolution and authorization so policy checks cover the actual OS path.
+fn truncate_at_nul(path: OsString) -> OsString {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let mut bytes = path.into_vec();
+        if let Some(end) = bytes.iter().position(|byte| *byte == 0) {
+            bytes.truncate(end);
+        }
+        OsString::from_vec(bytes)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let units: Vec<u16> = path.encode_wide().take_while(|unit| *unit != 0).collect();
+        OsString::from_wide(&units)
+    }
+}
+
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(
         std::io::Error::last_os_error()
@@ -981,12 +1061,15 @@ fn check_path_metadata_policy(
         (None, false) => filesystem
             .authorize_entry_metadata(path)
             .map_err(Into::into),
-        (Some(parent), true) => filesystem
-            .authorize_metadata_at(parent.canonical_path(), path)
-            .map_err(Into::into),
-        (Some(parent), false) => filesystem
-            .authorize_entry_metadata_at(parent.canonical_path(), path)
-            .map_err(Into::into),
+        (Some(parent), follow_symlink) => {
+            let base = filesystem.directory_path_for_policy(runner::raw_file_handle(parent)?)?;
+            if follow_symlink {
+                filesystem.authorize_path_at(base.as_deref(), path, FsIntents::read())
+            } else {
+                filesystem.authorize_entry_at(base.as_deref(), path, FsIntents::read())
+            }
+            .map_err(Into::into)
+        }
     }
 }
 
@@ -1085,6 +1168,69 @@ mod tests {
     }
 
     #[test]
+    fn relative_job_authority_tracks_the_directory_after_rename() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::sync::Arc;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let moved = root.path().join("moved");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::write(original.join("file"), b"keep").unwrap();
+        let environment = Arc::new(Env::ambient());
+        let config = serde_json::json!({"fs": {"read": [&original], "write": [&original]}});
+        let (policy, _) =
+            crate::policy::load_json(&serde_json::to_vec(&config).unwrap(), &environment).unwrap();
+        let filesystem = HostFs::new(
+            Some(policy.filesystem()),
+            environment,
+            Arc::new(WorkingDirectory::Fixed(root.path().to_owned())),
+        );
+        let mut open = Job::open_legacy(original.clone().into_os_string(), 3, 0, false, 0, 0);
+        open.run().unwrap();
+        let Kind::Open {
+            result: Some(result),
+            ..
+        } = open.kind
+        else {
+            panic!("open result")
+        };
+        let ResourcePublication::Unpublished(parent) = result.resource else {
+            panic!("unpublished resource")
+        };
+        let parent = Arc::new(parent);
+        let jobs = [
+            Job::open(
+                Some(Arc::clone(&parent)),
+                "file".into(),
+                0,
+                0,
+                false,
+                0,
+                0,
+                0,
+                8,
+            )
+            .unwrap(),
+            Job::remove_at(Some(Arc::clone(&parent)), "file".into()),
+            Job::file_kind_by_path(Some(parent), "file".into(), true),
+        ];
+        for job in &jobs {
+            job.check_policy(&filesystem).unwrap();
+        }
+        std::fs::rename(&original, &moved).unwrap();
+        std::fs::create_dir(&original).unwrap();
+        std::fs::write(original.join("file"), b"replacement").unwrap();
+        for job in &jobs {
+            assert_eq!(
+                job.check_policy(&filesystem),
+                Err(AsyncHostError::PermissionDenied)
+            );
+        }
+        assert_eq!(std::fs::read(moved.join("file")).unwrap(), b"keep");
+    }
+
+    #[test]
     fn empty_rmdir_job_does_not_delete_the_execution_directory() {
         use crate::runtime::{Env, WorkingDirectory};
         use std::sync::Arc;
@@ -1147,6 +1293,7 @@ mod tests {
 
         match &job.kind {
             Kind::Open {
+                parent: None,
                 filename,
                 access,
                 create_mode,
@@ -1162,7 +1309,7 @@ mod tests {
                 assert!(*append);
                 assert_eq!(*sync, 1);
                 assert_eq!(*mode, 0o644);
-                assert_eq!(request.mask(), STAT_OPEN_IDENTITY);
+                assert_eq!(*request, StatRequest::open_identity());
             }
             other => panic!("unexpected payload: {other:?}"),
         }

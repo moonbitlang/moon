@@ -23,10 +23,19 @@ fn append_preserves_access_mode_when_guest_calls_write_directly() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("file");
     let engine = Engine::default();
-    for (constructor, extra_params, stat_args) in [
-        ("make_open_job", "", ""),
+    for (constructor, parent_param, parent_arg, extra_params, stat_args) in [
+        ("make_open_job", "", "", "", ""),
         (
             "make_open_stat_job",
+            "",
+            "",
+            "i32 i32",
+            "(i32.const 0) (i32.const 8)",
+        ),
+        (
+            "make_openat_job",
+            "i64",
+            "(call $invalid)",
             "i32 i32",
             "(i32.const 0) (i32.const 8)",
         ),
@@ -38,17 +47,18 @@ fn append_preserves_access_mode_when_guest_calls_write_directly() {
             let wasm = wat::parse_str(format!(
                 r#"(module
                     (import "moonbitlang/async" "thread_pool/{constructor}"
-                        (func $open (param i32 i32 i32 i32 i32 i32 i32 {extra_params}) (result i64)))
+                        (func $open (param {parent_param} i32 i32 i32 i32 i32 i32 i32 {extra_params}) (result i64)))
                     (import "moonbitlang/async" "thread_pool/open_job_get_fd" (func $fd (param i64) (result i64)))
                     (import "moonbitlang/async" "thread_pool/make_write_job" (func $write (param i64 i32 i32 i32 i64) (result i64)))
                     (import "moonbitlang/async" "thread_pool/run_job" (func $run (param i64)))
                     (import "moonbitlang/async" "thread_pool/job_get_err" (func $error (param i64) (result i32)))
                     (import "moonbitlang/async" "thread_pool/free_job" (func $free (param i64)))
                     (import "moonbitlang/async" "fd_util/close_fd" (func $close (param i64) (result i32)))
+                    (import "moonbitlang/async" "fd_util/invalid_fd" (func $invalid (result i64)))
                     (memory (export "memory") 1)
                     (data (i32.const 0) "f\00i\00l\00e\00")
                     (func (export "_start") (local $job i64) (local $file i64)
-                        (local.set $job (call $open (i32.const 0) (i32.const 4)
+                        (local.set $job (call $open {parent_arg} (i32.const 0) (i32.const 4)
                             (i32.const {access}) (i32.const 0) (i32.const 1)
                             (i32.const 0) (i32.const 0) {stat_args}))
                         (call $run (local.get $job))
