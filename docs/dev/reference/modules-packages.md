@@ -241,6 +241,11 @@ network completion order does not affect selected versions or module IDs.
 Traversal diagnostics are sorted; a failed registry version shared by multiple
 dependants is reported once with the lexicographically smallest dependant name.
 
+This concurrency is limited to metadata reads during module resolution. Source
+acquisition runs synchronously after resolution. The caller shares one registry
+between these stages to reuse cached metadata; source acquisition receives the
+registry and resolved graph, independently of the resolution configuration.
+
 Modules are versioned using [SemVer][] (Semantic Versioning),
 with the (common) extension of breaking change happens on the first non-zero version component.
 

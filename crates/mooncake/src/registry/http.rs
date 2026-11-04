@@ -123,8 +123,23 @@ impl HttpMetadata {
             let client = authentication::async_client(&self.api, self.credentials.as_deref())?;
             self.async_client.get_or_init(|| client);
         }
-        let request = self.async_client.get().unwrap().get(url);
-        let metadata = ModuleMetadata::fetch_async(request, name, Some(version)).await?;
+        let response = self
+            .async_client
+            .get()
+            .unwrap()
+            .get(url)
+            .send()
+            .await
+            .map_err(Self::transport_error)
+            .with_context(|| format!("failed to fetch registry metadata for {name}"))?
+            .error_for_status()
+            .map_err(|error| Self::status_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        let metadata = ModuleMetadata::from_response_body(&bytes, name, Some(version))?;
         self.check_access(name, &metadata)?;
         Ok(self.cache.store_release(name, metadata)?.into())
     }
@@ -231,8 +246,19 @@ impl HttpMetadata {
         name: &ModuleName,
         version: Option<&Version>,
     ) -> anyhow::Result<ModuleMetadata> {
-        let request = self.http_client()?.get(self.release_url(name, version)?);
-        let metadata = ModuleMetadata::fetch(request, name, version)?;
+        let response = self
+            .http_client()?
+            .get(self.release_url(name, version)?)
+            .send()
+            .map_err(Self::transport_error)
+            .with_context(|| format!("failed to fetch registry metadata for {name}"))?
+            .error_for_status()
+            .map_err(|error| Self::status_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        let metadata = ModuleMetadata::from_response_body(&bytes, name, version)?;
         self.check_access(name, &metadata)?;
         self.cache.store_release(name, metadata)
     }
@@ -269,46 +295,6 @@ impl HttpMetadata {
         let client = authentication::client(&self.api, self.credentials.as_deref())?;
         Ok(self.client.get_or_init(|| client))
     }
-}
-
-impl ModuleMetadata {
-    fn fetch(
-        request: reqwest::blocking::RequestBuilder,
-        name: &ModuleName,
-        version: Option<&Version>,
-    ) -> anyhow::Result<Self> {
-        let response = request
-            .send()
-            .map_err(Self::transport_error)
-            .with_context(|| format!("failed to fetch registry metadata for {name}"))?
-            .error_for_status()
-            .map_err(|error| Self::status_error(name, error))?;
-        let bytes = response
-            .bytes()
-            .map_err(|error| RegistryUnavailable(error.into()))
-            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
-        Self::from_response_body(&bytes, name, version)
-    }
-
-    async fn fetch_async(
-        request: reqwest::RequestBuilder,
-        name: &ModuleName,
-        version: Option<&Version>,
-    ) -> anyhow::Result<Self> {
-        let response = request
-            .send()
-            .await
-            .map_err(Self::transport_error)
-            .with_context(|| format!("failed to fetch registry metadata for {name}"))?
-            .error_for_status()
-            .map_err(|error| Self::status_error(name, error))?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| RegistryUnavailable(error.into()))
-            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
-        Self::from_response_body(&bytes, name, version)
-    }
 
     fn transport_error(error: reqwest::Error) -> anyhow::Error {
         if error.is_connect() || error.is_timeout() || error.is_request() {
@@ -339,7 +325,9 @@ impl ModuleMetadata {
         };
         error.context(format!("registry metadata request failed for {name}"))
     }
+}
 
+impl ModuleMetadata {
     fn from_response_body(
         bytes: &[u8],
         name: &ModuleName,

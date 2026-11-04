@@ -106,13 +106,13 @@ pub(crate) fn install_impl(
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
 
-    let registry = if dont_sync {
+    let registry = Rc::new(if dont_sync {
         registry::default_registry(user_log).for_frozen_dependencies()
     } else {
         registry::default_registry(user_log)
-    };
+    });
     let module_resolution_config = ModuleResolutionConfig {
-        registry: Rc::new(registry),
+        registry: Rc::clone(&registry),
         inject_std: !includes_core,
         warn_deprecated: true,
     };
@@ -129,12 +129,8 @@ pub(crate) fn install_impl(
         &res,
         output_options.child_output,
     )?;
-    let dependency_paths = dependency_source.ensure(
-        module_resolution_config.registry.as_ref(),
-        &res,
-        dont_sync,
-        &dependency_user_log,
-    )?;
+    let dependency_paths =
+        dependency_source.ensure(registry.as_ref(), &res, dont_sync, &dependency_user_log)?;
 
     Ok((res, dependency_paths))
 }

@@ -65,13 +65,13 @@ pub fn update(
         let source = ModuleSource::from_local_module(&module, path)?;
         roots.insert(ResolvedModule::new(source, module));
     }
+    let registry = Rc::new(registry);
     let config = ModuleResolutionConfig {
-        registry: Rc::new(registry),
+        registry: Rc::clone(&registry),
         inject_std: false,
         warn_deprecated: false,
     };
     let graph = resolve_modules(&config, roots, user_log)?;
-    let registry = &config.registry;
     let mut selected = graph
         .all_modules_and_id()
         .map(|(_, module)| module)
