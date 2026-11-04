@@ -1235,7 +1235,7 @@ mod tests {
         assert_ne!(parent, INVALID_HANDLE_VALUE);
         let request = StatRequest::new(STAT_FILE_KIND | STAT_FILE_SIZE, 24).unwrap();
 
-        let parent = Resource::new_with_canonical_path(parent, None);
+        let parent = Resource::new(parent);
         let mut result = None;
         run_statx_job(
             Some(&parent),

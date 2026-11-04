@@ -47,10 +47,24 @@ resources and authorize derived operations against the handle's current location
 an unlinked directory cannot reuse a grant for a replacement at its old pathname.
 WASI directory descriptors also own directory handles and authorize derived
 operations against their current locations.
-Explicit stdio bindings are separate resource grants. Pure file-kind queries use
-the acquired resource grant, consistently across the scalar imports and `fstatx`.
-Other metadata requests still require filesystem read authorization, including
-requests that combine file kind with other fields.
+Inherited and explicitly bound stdio are host-provided resource grants. Operations
+on those handles, including metadata and locking, do not require pathname policy
+authorization. Handle validity, native access modes and operation-specific handle
+restrictions still apply; the grant does not authorize reopening a path or access
+to children of a directory bound as stdio. Redirection through an authorized
+guest spawn also grants the child stdio authority, independently of the source
+resource's pathname policy. Attenuation of delegated stdio remains future work.
+Other resources retain the rules below.
+
+Acquired-file checks go through `HostFs::authorize_file` with an opaque
+`FileGrant` and a `FileOperation`. The grant distinguishes stdio from path-backed
+and untracked resources. For path-backed resources it encapsulates the saved
+canonical path and its re-resolution; callers do not inspect path availability
+or select read/write policy themselves.
+Kind queries and shared locks remain independent of path policy. Metadata and
+macOS watching require read policy; exclusive locks require write policy.
+Windows watching retains its existing handle-only admission. Directory-derived
+authority is unchanged.
 
 Filesystem glob exclusions override matching grants within the same read or write
 list, independent of rule order. A matching positive rule is still required.

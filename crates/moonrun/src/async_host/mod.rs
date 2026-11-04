@@ -53,6 +53,7 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+use crate::filesystem::FileOperation;
 use crate::filesystem::HostFs;
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
@@ -2521,7 +2522,8 @@ impl AsyncHost {
 
         let kqueue = self.acquire_resource(kqueue_handle)?;
         let file = self.acquire_resource(file_handle)?;
-        Self::check_file_metadata_policy(&self.filesystem, Some(file.as_ref()))?;
+        self.filesystem
+            .authorize_file(file.file_grant(), FileOperation::Watch)?;
         crate::async_sys::fs::watch_kqueue::add_file(
             kqueue.as_fd()?.as_raw_fd(),
             file.as_fd()?.as_raw_fd(),
@@ -2729,11 +2731,17 @@ impl AsyncHost {
     }
 
     pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_resource(handle, crate::filesystem::stdio_kind)
+        self.with_resource(handle, |file| {
+            self.filesystem
+                .authorize_file(file.file_grant(), FileOperation::Kind)?;
+            crate::filesystem::stdio_kind(file)
+        })
     }
 
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
+            self.filesystem
+                .authorize_file(file.file_grant(), FileOperation::Kind)?;
             #[cfg(unix)]
             {
                 crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
@@ -3210,6 +3218,8 @@ impl AsyncHost {
             return Err(AsyncHostError::Inval);
         }
         let file = result.kind.resource_ref(&handles, fd_handle)?;
+        self.filesystem
+            .authorize_file(file.file_grant(), FileOperation::Watch)?;
         let len = u32::try_from(result.read_dir_changes_len).map_err(|_| AsyncHostError::Fault)?;
         let buffer = result
             .read_dir_changes_buffer
@@ -3569,7 +3579,8 @@ impl AsyncHost {
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            Self::check_file_lock_policy(&self.filesystem, Some(file), exclusive)?;
+            self.filesystem
+                .authorize_file(file.file_grant(), FileOperation::Lock { exclusive })?;
             crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
         })
     }
@@ -3610,28 +3621,6 @@ impl AsyncHost {
             process.finish_job(process_job, job.ret(), job.err())?;
         }
         Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    fn check_file_metadata_policy(
-        filesystem: &HostFs,
-        file: Option<&Resource>,
-    ) -> AsyncHostResult<()> {
-        let file = file.ok_or(AsyncHostError::Badf)?;
-        filesystem
-            .authorize_resource_metadata(file.canonical_path())
-            .map_err(Into::into)
-    }
-
-    fn check_file_lock_policy(
-        filesystem: &HostFs,
-        file: Option<&Resource>,
-        exclusive: bool,
-    ) -> AsyncHostResult<()> {
-        let file = file.ok_or(AsyncHostError::Badf)?;
-        filesystem
-            .authorize_resource_lock(file.canonical_path(), exclusive)
-            .map_err(Into::into)
     }
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {

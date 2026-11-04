@@ -38,6 +38,7 @@ use super::stat::{
 };
 use super::stat::{StatRequest, run_fstatx_job};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
+use crate::filesystem::FileGrant;
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -72,9 +73,9 @@ ported_fns! {
             None => Some(std::path::PathBuf::from(&filename)),
         };
         let file = open_raw_native_file(parent.map(raw_file_handle).transpose()?, filename, access, create_mode, append, sync, mode)?;
-        let resource = Resource::new_with_canonical_path(
+        let resource = Resource::new_with_file_grant(
             file,
-            filename_for_provenance.and_then(|path| std::fs::canonicalize(path).ok()),
+            FileGrant::from_opened_path(filename_for_provenance),
         );
         let mut stat = None;
         run_fstatx_job(&resource, request, &mut stat)?;
