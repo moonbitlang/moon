@@ -22,8 +22,8 @@ use std::path::Path;
 use anyhow::Context;
 
 use super::{
-    CC, CCConfig, ENV_CC, LinkerConfig, MsvcEnvironment, OutputType, Toolchain, ToolchainSource,
-    is_path_like_tool, resolve_native_toolchain_executables,
+    CC, CCConfig, CCKind, ENV_CC, LinkerConfig, MsvcEnvironment, OutputType, Toolchain,
+    ToolchainSource, is_path_like_tool, resolve_native_toolchain_executables,
 };
 
 pub const WINDOWS_MSVC_DEFAULT_LIBS: &[&str] = &[
@@ -179,18 +179,13 @@ pub(super) fn resolve_msvc_toolchain_override(
     }
 }
 
-pub(super) fn default_librarian(cc_path: &Path) -> String {
+pub(super) fn default_librarian(cc_path: &Path, cc_kind: CCKind) -> String {
     let lib = CC::resolve_tool_path(cc_path, "lib.exe");
     if Path::new(&lib).is_file() {
         return lib;
     }
 
-    let compiler_name = cc_path
-        .file_name()
-        .and_then(std::ffi::OsStr::to_str)
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if CC::strip_exe_suffix(&compiler_name).ends_with("clang-cl") {
+    if matches!(cc_kind, CCKind::ClangCl) {
         let llvm_lib = CC::resolve_tool_path(cc_path, "llvm-lib.exe");
         if Path::new(&llvm_lib).is_file() {
             return llvm_lib;
@@ -233,6 +228,12 @@ pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_fla
     buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
     // Large generated C files can exceed the default COFF section limit.
     buf.push("/bigobj".to_string());
+
+    if matches!(cc.cc_kind, CCKind::ClangCl) {
+        // Generated C relies on wrapping signed arithmetic. Older clang-cl
+        // versions otherwise optimize as if signed overflow cannot occur.
+        buf.push("/clang:-fwrapv".to_string());
+    }
 
     if !has_user_flags {
         buf.push("/utf-8".to_string());
