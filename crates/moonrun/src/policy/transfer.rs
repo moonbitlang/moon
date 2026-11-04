@@ -65,6 +65,9 @@ pub(super) enum FsRule {
     // rejects the other platform's encoding. Paths need not be Unicode.
     Path(OsString),
     Glob { base: OsString, pattern: String },
+    // Keep the effect separate from pattern syntax; older readers reject this
+    // variant instead of silently dropping an inherited exclusion.
+    ExcludeGlob { base: OsString, pattern: String },
 }
 
 #[derive(Deserialize, Serialize)]

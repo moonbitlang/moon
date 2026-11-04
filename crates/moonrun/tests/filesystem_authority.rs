@@ -28,6 +28,16 @@ fn filesystem_policy_applies_to_legacy_async_and_wasi_imports() {
         (Some(""), false, false),
         (Some("[fs]\nread = [\".\"]\n"), true, false),
         (Some("[fs]\nread = [\".\"]\nwrite = [\".\"]\n"), true, true),
+        (
+            Some("[fs]\nread = [\".\", { glob = \"!file\" }]\nwrite = [\".\"]\n"),
+            false,
+            true,
+        ),
+        (
+            Some("[fs]\nread = [\".\"]\nwrite = [\".\", { glob = \"!{file,async,wasi}\" }]\n"),
+            true,
+            false,
+        ),
         (Some("[fs]\nread = [{ glob = \"f*\" }]\n"), true, false),
         (
             Some("[fs]\nread = [{ glob = \"*.txt\" }]\nwrite = [{ glob = \"*.txt\" }]\n"),

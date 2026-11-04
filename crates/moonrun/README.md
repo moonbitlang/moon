@@ -532,8 +532,32 @@ grant its target unless that resolved target also matches. Link inspection,
 unlink, and rename match the link entry. Directory operations
 require their own matching rule.
 
-Rules in one list are alternatives. Inherited policy groups remain independent:
-every group must allow the operation, including both read and write when needed.
+Prefix a glob with `!` to exclude matching paths from that access list. For
+example, allow reads throughout `src` and writes except to `.mbt` files:
+
+```toml
+[fs]
+read = ["src"]
+write = ["src", { glob = "!src/**/*.mbt" }]
+```
+
+Each list requires a matching positive rule and no matching exclusion, regardless
+of rule order. Exclusions alone grant nothing. Read and write lists are independent.
+The `!` is removed before resolving the glob's anchor, so `!../src/**/*.mbt` and
+absolute exclusions are supported. To match a literal leading `!`, use a glob
+such as `./!notes.txt`; ordinary string paths remain literal. Character classes
+such as `[!ab]` retain their usual glob meaning.
+
+Globs match whole paths: `!a/b` excludes that entry, while `!a/b/**` excludes its
+descendants. Use both to exclude the entry and its subtree. These checks apply
+to the paths authorized by an operation; recursive directory removal and
+directory rename currently check directory endpoints, not every descendant.
+Excluding descendants therefore does not protect them from an allowed operation
+on an ancestor directory.
+
+Inherited policy groups remain independent: every group must allow the operation,
+including both read and write when needed. A child cannot override an inherited
+exclusion with a positive rule.
 
 The `env` section provisions the guest environment. Use `from_host` to copy
 selected host variables if present, `required_from_host` to require selected
