@@ -21,7 +21,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{VirtualPid, WaitClaim};
+use super::{ProcessControl, ProcessId, WaitClaim};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::{
     CancellationOutcome, JobCancellation, JobCancellationOverride,
@@ -43,7 +43,7 @@ pub(super) fn exit_status(result: &Result<RunOutcome, super::ProcessError>) -> i
 
 #[derive(Clone)]
 pub(crate) struct ProcessContext {
-    pub(super) pid: VirtualPid,
+    pub(super) pid: ProcessId,
     pub(super) engine: crate::Engine,
 }
 
@@ -58,6 +58,13 @@ impl std::fmt::Debug for ProcessContext {
 impl ProcessContext {
     pub(crate) fn pid(&self) -> i32 {
         self.pid.get()
+    }
+
+    pub(crate) fn spawn_native(
+        &self,
+        spawn: crate::process::NativeSpawn,
+    ) -> AsyncHostResult<super::SpawnedProcess> {
+        self.engine.spawn_native(self.pid, spawn)
     }
 
     pub(crate) fn spawn_moon(
@@ -106,7 +113,7 @@ impl ProcessContext {
         let mut entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
             .entries
-            .get(&VirtualPid(pid))
+            .get(&ProcessId(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if entry.info.parent != Some(self.pid) || entry.waiting {
             return Err(AsyncHostError::PermissionDenied);
@@ -119,7 +126,7 @@ impl ProcessContext {
         let accepted = accept(status)?;
         drop(result_guard);
         // The completion mutex must be released before removing its owner.
-        drop(entries.entries.remove(&VirtualPid(pid)));
+        drop(entries.entries.remove(&ProcessId(pid)));
         Ok(accepted)
     }
 
@@ -132,7 +139,7 @@ impl ProcessContext {
         let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
             .entries
-            .get(&VirtualPid(pid))
+            .get(&ProcessId(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if entry.info.parent != Some(self.pid) || entry.waiting {
             return Err(AsyncHostError::PermissionDenied);
@@ -165,7 +172,7 @@ impl ProcessContext {
         let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
             .entries
-            .get(&VirtualPid(pid))
+            .get(&ProcessId(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
             return Err(AsyncHostError::PermissionDenied);
@@ -174,7 +181,10 @@ impl ProcessContext {
         let outcome = RunTermination::KilledBySignal(libc::SIGKILL);
         #[cfg(windows)]
         let outcome = RunTermination::Exit(1);
-        entry.terminator.terminate(outcome);
+        entry
+            .control
+            .terminate(outcome)
+            .map_err(AsyncHostError::from)?;
         Ok(())
     }
 
@@ -183,12 +193,6 @@ impl ProcessContext {
         {
             if signal == libc::SIGKILL {
                 return self.kill(pid);
-            }
-            // Only the signals with guest cancellation/default termination
-            // semantics are implemented. In particular, stop/continue must
-            // never accidentally turn into termination.
-            if ![0, libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
-                return Err(AsyncHostError::Inval);
             }
         }
         // Match the native Windows adapter: graceful cancellation targets a
@@ -201,30 +205,41 @@ impl ProcessContext {
         let entries = self.engine.processes.0.lock().unwrap();
         let entry = entries
             .entries
-            .get(&VirtualPid(pid))
+            .get(&ProcessId(pid))
             .ok_or(AsyncHostError::PermissionDenied)?;
         if pid != self.pid.get() && entry.info.parent != Some(self.pid) {
             return Err(AsyncHostError::PermissionDenied);
         }
+        let (terminator, signals) = match &entry.control {
+            ProcessControl::Native(child) => return child.signal(signal).map_err(Into::into),
+            ProcessControl::Run {
+                terminator,
+                signals,
+            } => (terminator, signals),
+        };
         #[cfg(unix)]
-        if signal == 0 {
-            return Ok(());
+        {
+            // Wasm has cancellation/default termination, but no stop/continue.
+            if ![0, libc::SIGINT, libc::SIGTERM, libc::SIGHUP].contains(&signal) {
+                return Err(AsyncHostError::Inval);
+            }
+            if signal == 0 {
+                return Ok(());
+            }
         }
-        match entry.signals.send(signal) {
+        match signals.send(signal) {
             Ok(true) | Err(crate::SignalSendError::Disconnected) => return Ok(()),
             Ok(false) => {}
             Err(_) => return Err(AsyncHostError::Io),
         }
         // An unhandled cancellation signal takes its default action on this
         // Run only. Accepted signals leave the caller's grace period in charge.
-        entry
-            .terminator
-            .terminate(RunTermination::KilledBySignal(signal));
+        terminator.terminate(RunTermination::KilledBySignal(signal));
         Ok(())
     }
 
     pub(crate) fn wait(&self, pid: i32) -> AsyncHostResult<ProcessWait> {
-        let pid = VirtualPid(pid);
+        let pid = ProcessId(pid);
         let entries = self.engine.processes.0.lock().unwrap();
         if entries
             .entries
@@ -246,7 +261,7 @@ impl ProcessContext {
         })
     }
 
-    fn reap_unclaimed(&self, pid: VirtualPid, completion: &Arc<super::ProcessCompletion>) {
+    fn reap_unclaimed(&self, pid: ProcessId, completion: &Arc<super::ProcessCompletion>) {
         let mut entries = self.engine.processes.0.lock().unwrap();
         // Handle observations do not own an exclusive wait claim. Preserve
         // another waiter's result, and remove only the observed entry.
@@ -297,7 +312,7 @@ impl ProcessHandle {
         // Like a Windows process HANDLE, each wait is independent and pins
         // the completion even if another handle or supervisor reaps the PID.
         ProcessWait {
-            pid: VirtualPid(self.pid),
+            pid: ProcessId(self.pid),
             cancel: Arc::new(WaitCancellation {
                 context: self.owner.clone(),
                 completion: Arc::clone(&self.completion),
@@ -323,13 +338,13 @@ impl ProcessHandle {
             ))?;
         let accepted = accept(code)?;
         self.owner
-            .reap_unclaimed(VirtualPid(self.pid), &self.completion);
+            .reap_unclaimed(ProcessId(self.pid), &self.completion);
         Ok(accepted)
     }
 }
 
 pub(crate) struct ProcessWait {
-    pid: VirtualPid,
+    pid: ProcessId,
     cancel: Arc<WaitCancellation>,
     claim: Option<WaitClaim>,
     claim_on_run: bool,
@@ -437,7 +452,7 @@ mod tests {
     use std::sync::{Mutex, mpsc};
     use std::time::Duration;
 
-    fn test_table(entries: BTreeMap<VirtualPid, Entry>) -> super::super::Table {
+    fn test_table(entries: BTreeMap<ProcessId, Entry>) -> super::super::Table {
         Arc::new(Mutex::new(super::super::TableState {
             entries,
             shutting_down: false,
@@ -453,7 +468,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn signal_probe_and_unsupported_signals_do_not_terminate() {
-        let pid = VirtualPid(1);
+        let pid = ProcessId(1);
         let (terminator, receiver) = crate::termination_channel();
         let (signals, _signals) = crate::signal_channel();
         let context = ProcessContext {
@@ -466,8 +481,10 @@ mod tests {
                         parent: None,
                         state: ProcessState::Running,
                     },
-                    terminator,
-                    signals,
+                    control: ProcessControl::Run {
+                        terminator,
+                        signals,
+                    },
                     completion: Arc::new(ProcessCompletion::default()),
                     waiting: false,
                 },
@@ -500,8 +517,8 @@ mod tests {
             }
         }
         for race in [false, true] {
-            let parent = VirtualPid(1);
-            let child = VirtualPid(2);
+            let parent = ProcessId(1);
+            let child = ProcessId(2);
             let completion = Arc::new(ProcessCompletion::default());
             let context = ProcessContext {
                 pid: parent,
@@ -513,8 +530,10 @@ mod tests {
                             parent: Some(parent),
                             state: ProcessState::Running,
                         },
-                        terminator: crate::termination_channel().0,
-                        signals: crate::signal_channel().0,
+                        control: ProcessControl::Run {
+                            terminator: crate::termination_channel().0,
+                            signals: crate::signal_channel().0,
+                        },
                         completion: completion.clone(),
                         waiting: false,
                     },
@@ -608,20 +627,22 @@ mod tests {
         use crate::runtime::{Executable, Runtime};
 
         for finish in ["event", "ready", "closed"] {
-            let child = VirtualPid(2);
+            let child = ProcessId(2);
             let completion = Arc::new(ProcessCompletion::default());
             let context = ProcessContext {
-                pid: VirtualPid(1),
+                pid: ProcessId(1),
                 engine: test_engine(test_table(BTreeMap::from([(
                     child,
                     Entry {
                         info: ProcessInfo {
                             pid: child,
-                            parent: Some(VirtualPid(1)),
+                            parent: Some(ProcessId(1)),
                             state: ProcessState::Running,
                         },
-                        terminator: crate::termination_channel().0,
-                        signals: crate::signal_channel().0,
+                        control: ProcessControl::Run {
+                            terminator: crate::termination_channel().0,
+                            signals: crate::signal_channel().0,
+                        },
                         completion: completion.clone(),
                         waiting: false,
                     },
@@ -678,8 +699,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn process_handles_retain_completion_after_reaping() {
-        let parent = VirtualPid(1);
-        let child = VirtualPid(2);
+        let parent = ProcessId(1);
+        let child = ProcessId(2);
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
             pid: parent,
@@ -691,8 +712,10 @@ mod tests {
                         parent: Some(parent),
                         state: ProcessState::Running,
                     },
-                    terminator: crate::termination_channel().0,
-                    signals: crate::signal_channel().0,
+                    control: ProcessControl::Run {
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },
@@ -756,10 +779,10 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn spawn_handle_can_be_published_after_supervisor_reaps_pid() {
-        let child = VirtualPid(2);
+        let child = ProcessId(2);
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
-            pid: VirtualPid(1),
+            pid: ProcessId(1),
             engine: test_engine(Default::default()),
         };
         // Admission captured this before releasing the table lock. By the time
@@ -777,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_virtual_spawn_inputs_do_not_admit_a_process() {
+    fn invalid_moon_spawn_inputs_do_not_admit_a_process() {
         let cwd = tempfile::tempdir().unwrap();
         let tree = test_engine(Default::default());
         let process = crate::process::HostProcess::new(
@@ -787,21 +810,18 @@ mod tests {
             )),
             Arc::new(crate::runtime::Stdio::Ambient),
             Some(ProcessContext {
-                pid: VirtualPid(1),
+                pid: ProcessId(1),
                 engine: tree.clone(),
             }),
             Arc::new(crate::runtime::Env::owned([]).unwrap()),
         );
-        // Use an existing executable so malformed payloads are tested
-        // independently of executable-not-found errors. Validation must fail
-        // before any virtual child is admitted, even for a non-Moon image.
-        #[cfg(windows)]
-        let executable = std::env::current_exe().unwrap();
+        // Intercepted Moon requests validate their payload before lookup or admission.
+        let executable = cwd.path().join("moonx.exe");
         for (argument, environment) in [("bad\0arg", "A=B"), ("ok", "=invalid")] {
             #[cfg(unix)]
             let mut job = crate::process::Job::spawn_unix(
-                "moon".into(),
-                vec!["moon".into(), argument.into()],
+                executable.clone().into_os_string(),
+                vec![executable.clone().into_os_string(), argument.into()],
                 vec![environment.into()],
                 None,
                 None,
@@ -833,20 +853,22 @@ mod tests {
     fn handle_wait_consumption_requires_successful_completion() {
         // Exercise the non-exclusive wait used by Windows handles without
         // relying on guest code to follow async's normal call sequence.
-        let child = VirtualPid(2);
+        let child = ProcessId(2);
         let completion = Arc::new(ProcessCompletion::default());
         let owner = ProcessContext {
-            pid: VirtualPid(1),
+            pid: ProcessId(1),
             engine: test_engine(test_table(BTreeMap::from([(
                 child,
                 Entry {
                     info: ProcessInfo {
                         pid: child,
-                        parent: Some(VirtualPid(1)),
+                        parent: Some(ProcessId(1)),
                         state: ProcessState::Running,
                     },
-                    terminator: crate::termination_channel().0,
-                    signals: crate::signal_channel().0,
+                    control: ProcessControl::Run {
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: completion.clone(),
                     waiting: false,
                 },
@@ -939,8 +961,8 @@ mod tests {
             return;
         }
         for before_wait in [true, false] {
-            let parent = VirtualPid(1);
-            let child = VirtualPid(2);
+            let parent = ProcessId(1);
+            let child = ProcessId(2);
             let completion = Arc::new(ProcessCompletion::default());
             let table = test_table(BTreeMap::from([(
                 child,
@@ -950,8 +972,10 @@ mod tests {
                         parent: Some(parent),
                         state: ProcessState::Running,
                     },
-                    terminator: crate::termination_channel().0,
-                    signals: crate::signal_channel().0,
+                    control: ProcessControl::Run {
+                        terminator: crate::termination_channel().0,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: Arc::clone(&completion),
                     waiting: false,
                 },
@@ -969,7 +993,7 @@ mod tests {
                 WorkerJob::new(
                     WorkerCompletionId::from_abi(1),
                     slotmap::KeyData::from_ffi(1).into(),
-                    crate::process::Job::wait_for_virtual_process(wait).into(),
+                    crate::process::Job::wait_for_managed_process(wait).into(),
                 ),
                 move |job| {
                     entered.send(()).unwrap();

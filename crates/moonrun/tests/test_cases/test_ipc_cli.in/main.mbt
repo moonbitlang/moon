@@ -62,16 +62,42 @@ async fn main {
     return
   }
   if args[1] == "check-native-spawn" {
-    let launched = try {
-      let (code, _) = @process.collect_stdout(args[2], [args[3], "probe"])
-      assert_eq(code, 0)
-      true
-    } catch {
-      @os_error.OSError(code, ..) if code == @os_error.errno_ENOTSUP => false
-      error => raise error
+    let (code, output) = @process.collect_stdout(args[2], [args[3], "probe"])
+    assert_eq(code, 0)
+    assert_true(output.text().trim(char_set="\r\n") != "guest=\{pid()}")
+    let (read, output) = @process.read_from_process()
+    defer read.close()
+    let (input, write) = @process.write_to_process()
+    defer write.close()
+    let child = @process.spawn_orphan(
+      args[2], [args[3], "native-wait"], stdin=input, stdout=output,
+    )
+    let identity = "guest=\{child}\n"
+    assert_eq(read.read_exactly(identity.length()), @utf8.encode(identity))
+    @async.with_task_group() <| group => {
+      let waiting = group.spawn(() => @process.wait_pid(child))
+      @async.sleep(10)
+      waiting.cancel()
     }
-    assert_eq(launched, args[4] == "native")
-    println("execution mode preserved")
+    write.write("go")
+    assert_eq(@process.wait_pid(child), 23)
+    @async.with_task_group() <| group => {
+      let (read, output) = @process.read_from_process()
+      defer read.close()
+      let running = group.spawn(() => @process.run(
+        args[2], [args[3], "spin"], stdout=output,
+        cancel_handler=@process.hard_cancel(),
+      ))
+      assert_eq(read.read_exactly(6), b"ready\n")
+      running.cancel()
+    }
+    println("native spawn preserved")
+    return
+  }
+  if args[1] == "native-wait" {
+    println("guest=\{pid()}")
+    assert_eq(@stdio.stdin.read_exactly(2), b"go")
+    exit(23)
     return
   }
   if args[1] == "moonx-probe" {

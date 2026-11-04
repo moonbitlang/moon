@@ -46,13 +46,14 @@ enum Kind {
         // Consumed once by execution; the variant retains native provenance
         // until the result is published or its unclaimed child is revoked.
         spawn: Option<Box<NativeSpawn>>,
+        context: Option<crate::process_tree::ProcessContext>,
         result: Option<ResourcePublication>,
     },
     SpawnMoon {
         request: Box<super::moon::Spawn>,
         result: Option<ResourcePublication>,
     },
-    WaitForVirtualProcess(crate::process_tree::ProcessWait),
+    WaitForManagedProcess(crate::process_tree::ProcessWait),
     WaitForProcess {
         handle: Option<ResourceRef>,
         // Host-derived identity for policy checks; never supplied by the guest.
@@ -66,9 +67,9 @@ enum Kind {
 }
 
 impl Job {
-    pub(crate) fn wait_for_virtual_process(wait: crate::process_tree::ProcessWait) -> Self {
+    pub(crate) fn wait_for_managed_process(wait: crate::process_tree::ProcessWait) -> Self {
         Self {
-            kind: Kind::WaitForVirtualProcess(wait),
+            kind: Kind::WaitForManagedProcess(wait),
         }
     }
 
@@ -76,13 +77,13 @@ impl Job {
         &self,
     ) -> Option<crate::async_sys::internal::event_loop::thread_pool::JobCancellation> {
         match &self.kind {
-            Kind::WaitForVirtualProcess(wait) => Some(wait.cancellation()),
+            Kind::WaitForManagedProcess(wait) => Some(wait.cancellation()),
             _ => None,
         }
     }
 
     pub(crate) fn consume_wait_result(&mut self) {
-        if let Kind::WaitForVirtualProcess(wait) = &mut self.kind {
+        if let Kind::WaitForManagedProcess(wait) = &mut self.kind {
             wait.consume();
         }
     }
@@ -220,38 +221,46 @@ impl Job {
         match &mut self.kind {
             // No OS primitive can execute a guest request that skipped its owner.
             Kind::PendingSpawn(_) => Err(AsyncHostError::Inval),
-            Kind::NativeSpawn { spawn, result } => {
-                let NativeSpawn {
-                    request,
-                    _stdio_owner,
-                    executable,
-                    policy_inheritance,
-                } = *spawn.take().ok_or(AsyncHostError::Inval)?;
-                #[cfg(unix)]
-                return native::run_spawn_job_unix(
-                    executable,
-                    request.args,
-                    request.env,
-                    request.stdio,
-                    request.cwd,
-                    request.options,
-                    policy_inheritance,
-                    result,
-                );
+            Kind::NativeSpawn {
+                spawn,
+                context,
+                result,
+            } => {
+                let spawn = *spawn.take().ok_or(AsyncHostError::Inval)?;
+                if let Some(context) = context {
+                    let spawned = context.spawn_native(spawn)?;
+                    let pid = spawned.pid.get();
+                    #[cfg(windows)]
+                    {
+                        *result = Some(ResourcePublication::Unpublished(
+                            crate::resource::Resource::process(
+                                crate::process_tree::ProcessHandle::from_spawn(context, spawned),
+                            ),
+                        ));
+                    }
+                    return Ok(i64::from(pid));
+                }
+                let child = spawn.spawn()?;
+                #[cfg(target_os = "linux")]
+                if let Some(handle) = child.handle {
+                    use std::os::fd::IntoRawFd;
+                    *result = Some(ResourcePublication::Unpublished(
+                        crate::resource::Resource::new(handle.into_raw_fd()),
+                    ));
+                }
                 #[cfg(windows)]
-                return native::run_spawn_job_windows(
-                    executable,
-                    request.command_line,
-                    request.env,
-                    request.stdio,
-                    request.cwd,
-                    request.options,
-                    policy_inheritance,
-                    result,
-                );
+                {
+                    use std::os::windows::io::IntoRawHandle;
+                    *result = Some(ResourcePublication::Unpublished(
+                        crate::resource::Resource::new(child.handle.into_raw_handle()),
+                    ));
+                }
+                #[cfg(all(unix, not(target_os = "linux")))]
+                let _ = result;
+                Ok(i64::from(child.pid))
             }
             Kind::SpawnMoon { request, result } => request.run(result),
-            Kind::WaitForVirtualProcess(wait) => wait.run(),
+            Kind::WaitForManagedProcess(wait) => wait.run(),
             Kind::WaitForProcess {
                 handle,
                 tracked_pid: _,
@@ -280,6 +289,7 @@ impl Job {
                 self.kind = match process.prepare_spawn(*request)? {
                     PreparedSpawn::Native(spawn) => Kind::NativeSpawn {
                         spawn: Some(spawn),
+                        context: process.context.clone(),
                         result: None,
                     },
                     PreparedSpawn::Moon(request) => Kind::SpawnMoon {
@@ -295,7 +305,7 @@ impl Job {
                 pid,
                 ..
             } => process.check_wait(handle.is_some(), *tracked_pid, *pid),
-            Kind::WaitForVirtualProcess(_) => Ok(()),
+            Kind::WaitForManagedProcess(_) => Ok(()),
             Kind::NativeSpawn { .. } | Kind::SpawnMoon { .. } => Err(AsyncHostError::Inval),
         }
     }
@@ -305,7 +315,9 @@ impl Job {
             return Ok(());
         }
         match &self.kind {
-            Kind::NativeSpawn { .. } if ret >= 0 => process.track_spawned_child(ret as i32),
+            Kind::NativeSpawn { context: None, .. } if ret >= 0 => {
+                process.track_spawned_child(ret as i32)
+            }
             Kind::WaitForProcess {
                 pid,
                 #[cfg(unix)]
@@ -327,7 +339,11 @@ impl Job {
         if err != 0 || ret < 0 {
             return;
         }
-        if let Kind::NativeSpawn { result, .. } = &self.kind
+        if let Kind::NativeSpawn {
+            context: None,
+            result,
+            ..
+        } = &self.kind
             && !matches!(result, Some(ResourcePublication::Published(_)))
         {
             process.revoke_child_if_unreferenced(ret as i32);
