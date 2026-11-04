@@ -290,6 +290,8 @@ fn all_ranges(
     indices_to_ranges(actual_indices)
 }
 
+/// Append files with selected tests, omitting empty metadata groups and files
+/// whose tests are all excluded by the filters.
 pub(crate) fn apply_filter(
     file_filt: Option<&FileFilter>,
     meta: &MooncGenTestInfo,
@@ -317,7 +319,9 @@ pub(crate) fn apply_filter(
                 for (filename, test_infos) in test_list {
                     let this_file_index =
                         all_ranges(test_infos, include_skipped, name_matcher.as_ref());
-                    files_and_index.push((filename.clone(), this_file_index));
+                    if !this_file_index.is_empty() {
+                        files_and_index.push((filename.clone(), this_file_index));
+                    }
                 }
             }
         }
@@ -348,8 +352,15 @@ pub(crate) fn apply_filter(
                                             (None, _) => true,
                                         };
                                         if name_matches {
-                                            // for single test, the `#skip` attribute is ignored
-                                            this_file_index.push(t.index..t.index + 1);
+                                            // Explicit index selection ignores `#skip`.
+                                            // Merge in traversal order to preserve execution order
+                                            // across test kinds, including repeated indices.
+                                            match this_file_index.last_mut() {
+                                                Some(range) if range.end == t.index => {
+                                                    range.end = t.index + 1;
+                                                }
+                                                _ => this_file_index.push(t.index..t.index + 1),
+                                            }
                                         }
                                     }
                                 }
@@ -357,7 +368,9 @@ pub(crate) fn apply_filter(
                         }
                     }
                 }
-                files_and_index.push((k.clone(), this_file_index));
+                if !this_file_index.is_empty() {
+                    files_and_index.push((k.clone(), this_file_index));
+                }
             }
         }
     }
@@ -473,8 +486,49 @@ mod test {
         let mut out = vec![];
         super::apply_filter(None, &meta, &mut out, false, false, None);
 
-        expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", [2..3]), ("my_file.mbt", []), ("param_file.mbt", [0..1])]"#]]
+        expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", [2..3]), ("param_file.mbt", [0..1])]"#]]
         .assert_eq(&format!("{:?}", out));
+    }
+
+    #[test]
+    fn test_many_files_selection_fits_windows_command_line() {
+        let mut meta = example_meta();
+        let template = meta.no_args_tests["file1.mbt"][0].clone();
+        let names: Vec<_> = (1..=200)
+            .map(|i| format!("a_fairly_long_descriptive_test_file_name_number_{i:03}_test.mbt"))
+            .collect();
+        meta.no_args_tests = names
+            .iter()
+            .map(|name| (name.clone(), vec![template.clone()]))
+            .collect();
+        // The compiler lists files in every test-kind section, even when empty.
+        let empty_files: indexmap::IndexMap<_, _> =
+            names.iter().map(|name| (name.clone(), vec![])).collect();
+        meta.with_args_tests = empty_files.clone();
+        meta.async_tests = empty_files.clone();
+        meta.async_tests_with_args = empty_files;
+
+        let mut file_and_index = vec![];
+        super::apply_filter(None, &meta, &mut file_and_index, false, false, None);
+        let args = moonbuild::entry::TestArgs {
+            package: "repro/manyfiles".into(),
+            file_and_index,
+        };
+        for mode in [
+            crate::run::ExecutionMode::MoonRun,
+            crate::run::ExecutionMode::Node,
+            crate::run::ExecutionMode::Native,
+        ] {
+            let command =
+                crate::run::command_for(mode, std::path::Path::new("manyfiles.test"), Some(&args));
+            let argv: Vec<_> = std::iter::once(command.get_program())
+                .chain(command.get_args())
+                .map(|arg| arg.to_string_lossy())
+                .collect();
+            let quoted = moonutil::shlex::join_windows(argv.iter().map(|arg| arg.as_ref()));
+            // Reserve one UTF-16 code unit for the terminating NUL.
+            assert!(quoted.encode_utf16().count() < 32767);
+        }
     }
 
     #[test]
@@ -520,7 +574,61 @@ mod test {
 
         let mut out = vec![];
         super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
-        expect![[r#"[("file1.mbt", [0..1, 1..2])]"#]].assert_eq(&format!("{:?}", out));
+        expect![[r#"[("file1.mbt", [0..2])]"#]].assert_eq(&format!("{:?}", out));
+    }
+
+    #[test]
+    fn test_file_filter_large_index_range() {
+        let mut meta = example_meta();
+        let template = meta.no_args_tests["file1.mbt"][0].clone();
+        meta.no_args_tests.insert(
+            "file1.mbt".into(),
+            (0..3000)
+                .map(|index| MbtTestInfo {
+                    index,
+                    ..template.clone()
+                })
+                .collect(),
+        );
+        meta.with_args_tests.clear();
+        let mut ff = super::FileFilter::default();
+        ff.add_one(
+            "file1.mbt",
+            Some(TestIndexRange {
+                start: 0,
+                end: 3000,
+            }),
+        );
+
+        let mut out = vec![];
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].1.len(), 1);
+        assert_eq!(out[0].1[0], 0..3000);
+    }
+
+    #[test]
+    fn test_file_filter_coalescing_preserves_order_and_repeated_indices() {
+        let mut meta = example_meta();
+        let template = meta.no_args_tests["file1.mbt"][0].clone();
+        meta.no_args_tests.insert(
+            "file1.mbt".into(),
+            [7, 8, 11, 7, 8, 9, 2, 3]
+                .into_iter()
+                .map(|index| MbtTestInfo {
+                    index,
+                    ..template.clone()
+                })
+                .collect(),
+        );
+        // The with-args section also selects index 2, after the no-args section.
+        let mut ff = super::FileFilter::default();
+        ff.add_one("file1.mbt", Some(TestIndexRange { start: 0, end: 12 }));
+
+        let mut out = vec![];
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
+        expect![[r#"[("file1.mbt", [7..9, 11..12, 7..10, 2..4, 2..3])]"#]]
+            .assert_eq(&format!("{:?}", out));
     }
 
     #[test]
@@ -565,7 +673,7 @@ mod test {
     fn test_file_filter_wildcard_file_with_no_tests() {
         let meta = example_meta();
         let mut ff = super::FileFilter::default();
-        // my_file.mbt exists only in with_args_tests with an empty list; should still appear with empty indices
+        // my_file.mbt exists in metadata but has no tests to select.
         ff.add_one("my_file.mbt", None);
 
         expect![[r#"FileFilter({"my_file.mbt": None})"#]].assert_eq(&format!("{:?}", ff));
@@ -573,7 +681,20 @@ mod test {
         let mut out = vec![];
         super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
 
-        expect![[r#"[("my_file.mbt", [])]"#]].assert_eq(&format!("{:?}", out));
+        expect!["[]"].assert_eq(&format!("{:?}", out));
+    }
+
+    #[test]
+    fn test_file_filter_excludes_unmatched_indices() {
+        let meta = example_meta();
+        let mut ff = super::FileFilter::default();
+        ff.add_one("file1.mbt", Some(TestIndexRange::from_single(99).unwrap()));
+        ff.add_one("param_file.mbt", None);
+
+        let mut out = vec![];
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
+
+        expect![[r#"[("param_file.mbt", [0..1])]"#]].assert_eq(&format!("{:?}", out));
     }
 
     #[test]
@@ -612,7 +733,9 @@ mod test {
 
         // Tests with names containing 'o': zero (0), one (1), four (4), two (2), doctest a (0), doctest b (1)
         // Note: file1 param (index 2) has name "file1 param" which doesn't match "*o*"
-        expect![[r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2]), ("file1.mbt", []), ("my_file.mbt", []), ("param_file.mbt", [])]"#]]
+        expect![[
+            r#"[("file1.mbt", [0..2, 4..5]), ("file2.mbt", [2..3]), ("doc_tests.mbt", [0..2])]"#
+        ]]
         .assert_eq(&format!("{:?}", out));
     }
 }

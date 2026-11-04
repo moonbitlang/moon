@@ -59,7 +59,10 @@ metadata directly and does not require executable artifacts.
    then turns each pair into a `TestInvocation`: it parses the metadata
    (`MooncGenTestInfo`) to know which files and indices exist, applies the CLI filter to
    build the `TestArgs` payload listing the ranges to execute, and drops binaries for
-   which nothing is selected.
+   which nothing is selected. The payload omits entries with no selected ranges,
+   including empty metadata groups and files excluded by name, index, or skip
+   filtering. Explicit index selections coalesce consecutive indices without
+   changing execution order. Build-only output uses the same selection.
 4. Benchmarks are then isolated. When `bench` is true, `isolate_invocations` splits
    every invocation into one invocation per selected case, so no benchmark shares a
    process with another. Cases that share a process share a runtime that the earlier

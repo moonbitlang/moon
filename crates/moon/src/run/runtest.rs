@@ -781,11 +781,7 @@ pub(crate) fn collect_test_invocations(
             debug!(target = ?test.target, "skipping test executable due to filter");
             continue;
         };
-        if args
-            .file_and_index
-            .iter()
-            .all(|(_, ranges)| ranges.is_empty())
-        {
+        if args.file_and_index.is_empty() {
             debug!(target = ?test.target, "skipping test executable with no selected cases");
             continue;
         }
