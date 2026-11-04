@@ -2587,7 +2587,7 @@ impl AsyncHost {
         self.process.process_handle_pid(handle)
     }
 
-    pub(crate) fn open_virtual_process_handle(
+    pub(crate) fn open_managed_process_handle(
         &self,
         pid: i32,
     ) -> Option<AsyncHostResult<HostHandle>> {

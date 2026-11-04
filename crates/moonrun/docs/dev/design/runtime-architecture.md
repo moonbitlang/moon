@@ -104,8 +104,8 @@ yet enforce thread ancestry or change caller-thread execution placement.
 They are host-selected entries and can prepare Wasm through `moon run` as well
 as moonx. Handoff accepts Wasm targets only; native and Node commands use
 ordinary OS process execution.
-Guest Virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
-or registry packages. Other commands return unsupported without native fallback.
+Guest Virtual spawn executes moonx internally for local `.mbtx` files or
+registry packages. Other authorized commands become supervised native children.
 Engine uses the shared moonx grammar before entering preparation. Help/version
 and parse errors complete through the embedded frontend and bound stdio; no
 helper or handoff directory is created. Responses use plain text and Clap's
@@ -182,10 +182,10 @@ These are embedding ownership gaps, not reasons to put CLI behavior in Engine.
 
 ## Artifact preparation and command selection
 
-Guest Virtual spawning admits only moonx, for local `.mbtx` scripts and registry
-packages. Ordinary commands, including `moon run -`, report unsupported in that
-mode. Native mode retains ordinary OS spawning. Host-selected Engine entries
-can prepare `moon run` as well as moonx without expanding guest spawn support.
+Guest Virtual spawning uses internal execution for moonx and supervised native
+execution for other authorized commands, including `moon run -` and moonrun.
+Native mode retains ordinary OS spawning. Host-selected Engine entries can
+prepare `moon run` as well as moonx.
 Public `moon build` remains build-only.
 
 Moon and Engine share the authoritative moonx grammar in
@@ -196,10 +196,22 @@ cannot replace the private handoff prefix. Guest spawn still resolves and
 authorizes the executable before admission. Classification does not grant
 additional authority.
 
-The mixed-execution follow-up will admit ordinary native children permitted by
-the existing process rules. These members need the same ownership of state,
-termination, completion, and reaping as Wasm Runs. Artifact handoff will be
-limited to Wasm; native and Node commands use ordinary OS execution.
+Native children retain their OS PIDs as `ProcessId` values in the same Engine
+table as Wasm executions. Admission and shutdown share one lock. Native spawn
+errors return before admission; a failed admission or monitor startup kills and
+reaps the created child. Allocated Wasm IDs and native IDs must not collide with
+live or unread table entries.
+
+The native owner observes OS exit, retires control, and reaps before publishing
+completion. Unix uses WNOWAIT and serializes final reaping with signals;
+Windows retains a process HANDLE. Guest waits and exit notifications consume
+cached completion, so late control cannot target a reused OS PID. Cancelled or
+unread waits preserve the result. Parent exit adopts native and Wasm children
+alike. Engine shutdown kills native members and reports their actual OS status,
+independently of the requested Wasm termination outcome. Native processes'
+own descendants are not automatically Engine members.
+
+Artifact handoff is Wasm-only; native and Node commands use OS execution.
 
 Noninteractive preparation should own its helper and compiler descendants as a
 cancellation scope, using a Unix process group or Windows Job. Cancelling that
@@ -209,10 +221,10 @@ Moon/n2 cooperative cancellation is a separate protocol, not a prerequisite for
 this scope. Waiting for running n2 tasks does not actively cancel them.
 
 Acceptance cases distinguish host-selected preparation from guest moonx
-spawning, reject unsupported guest commands, and cover frontend responses and
-opaque argument tails. Cancellation coverage must verify that helpers and their
-descendants are reaped without starting the artifact. Implementation order
-belongs in [execution work](../architecture-tracking.md#execution-work).
+spawning, preserve native PID identity and caller state, and cover frontend
+responses and opaque argument tails. Cancellation coverage must verify that
+helpers and their descendants are reaped without starting the artifact.
+Implementation order belongs in [execution work](../architecture-tracking.md#execution-work).
 
 ## Three layers for host operations
 
@@ -304,7 +316,10 @@ explicit inputs; it has no Runtime, Policy, environment reads, filesystem
 probes, or OS calls. [os/lookup.rs](../../../src/process/os/lookup.rs)
 provides the OS observations and probes needed by that interpretation.
 [native.rs](../../../src/process/native.rs) materializes policy transfers,
-retains Resource owners, brackets worker cancellation, and publishes results.
+retains Resource owners, and brackets worker cancellation.
+[NativeChild](../../../src/process/native/child.rs) owns a supervised native
+child's control and reaping; Engine converts its OS status into an execution
+outcome. Process Jobs publish resources and guest results.
 [os.rs](../../../src/process/os.rs) and [os/control.rs](../../../src/process/os/control.rs)
 own native spawn, wait, polling, signals, and reaping. They accept resolved
 execution inputs and caller-retained native handles, return owned process

@@ -40,7 +40,8 @@ pub(super) mod lookup;
 pub(crate) use control::{open_pidfd, try_wait_pidfd};
 #[cfg(windows)]
 pub(crate) use control::{
-    open_process_for_wait, process_id, send_console_event, terminate_process, try_wait_handle,
+    open_process_for_wait, process_id, send_console_event, terminate_handle, terminate_process,
+    try_wait_handle,
 };
 #[cfg(unix)]
 pub(crate) use control::{reap, send_signal, try_wait_pid};
@@ -761,6 +762,49 @@ pub(super) fn wait_pid(pid: i32, defer_reap: bool) -> io::Result<std::process::E
         }
         return Ok(std::process::ExitStatus::from_raw(status));
     }
+    #[cfg(target_os = "macos")]
+    {
+        // Darwin can report CLD_STOPPED for WEXITED | WNOWAIT when stop and
+        // continue race. Wait for NOTE_EXIT first; retrying waitid alone can
+        // busy-loop on the unconsumed stop while the child remains suspended.
+        let queue = unsafe { libc::kqueue() };
+        if queue < 0 {
+            return Err(last_native_error());
+        }
+        let queue = unsafe { OwnedFd::from_raw_fd(queue) };
+        if unsafe { libc::fcntl(queue.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            return Err(last_native_error());
+        }
+        let change = libc::kevent {
+            ident: pid as libc::uintptr_t,
+            filter: libc::EVFILT_PROC,
+            flags: libc::EV_ADD | libc::EV_ONESHOT,
+            fflags: libc::NOTE_EXIT,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+        let ret = unsafe {
+            libc::kevent(
+                queue.as_raw_fd(),
+                &change,
+                1,
+                &mut event,
+                1,
+                std::ptr::null(),
+            )
+        };
+        if ret < 0 {
+            let error = last_native_error();
+            // A child that exited before registration no longer accepts a
+            // process filter. Its unreaped status remains available below.
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error);
+            }
+        } else if event.flags & libc::EV_ERROR != 0 && event.data != libc::ESRCH as isize {
+            return Err(io::Error::from_raw_os_error(event.data as i32));
+        }
+    }
     let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
     // Leave reaping to the caller while it still needs a stable child identity.
     if unsafe {
@@ -804,7 +848,23 @@ pub(super) fn cancel_wait_for_process(cancel: RawFile) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-pub(super) fn wait_handle(
+pub(super) fn wait_handle(handle: RawFile) -> io::Result<std::process::ExitStatus> {
+    use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, INFINITE, WaitForSingleObject,
+    };
+    if unsafe { WaitForSingleObject(handle, INFINITE) } != WAIT_OBJECT_0 {
+        return Err(last_native_error());
+    }
+    let mut code = 0;
+    if unsafe { GetExitCodeProcess(handle, &mut code) } == 0 {
+        return Err(last_native_error());
+    }
+    Ok(std::process::ExitStatus::from_raw(code))
+}
+
+#[cfg(windows)]
+pub(super) fn wait_handle_with_cancel(
     handle: RawFile,
     cancel: RawFile,
 ) -> io::Result<std::process::ExitStatus> {

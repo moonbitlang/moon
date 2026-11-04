@@ -82,10 +82,11 @@ supply the same `process` fields. Files retain their existing deny-by-default
 semantics for omitted filesystem, network, environment and process rules.
 
 Virtualization gives the root and internal moonx descendants separate virtual
-PIDs, Env and cwd in one Engine. Guest spawn currently supports only moonx;
-other commands remain unsupported even when authorized. Existing async APIs provide spawning, waiting,
-and signals. The CLI waits for descendants and returns the root's status.
-Virtualization currently requires V8; it defaults to `false`.
+PIDs, Env and cwd in one Engine. Other authorized commands run as supervised
+native children with their real OS PIDs. Existing async APIs provide spawning,
+waiting, and signals for both kinds of child. The CLI waits for admitted
+descendants and returns the root's status. Virtualization requires V8 and
+defaults to `false`.
 
 Authorization uses the existing `process.spawn` / `process.allow` rules in both
 execution modes, including internal moonx. Use `spawn = true` to allow all
@@ -343,8 +344,8 @@ To prepare Wasm with Moon or moonx, `run_moon(executable, args, options)`
 prepares and executes on the calling thread; `spawn_moon(parent, executable,
 args, options)` provides the same flow on a managed thread. Pass program
 arguments in the Moon invocation's `args`, not `RunOptions::with_args`.
-These host-selected preparation entries also accept `moon run`; the moonx-only
-restriction applies to guest spawn, not to trusted embedding callers.
+These host-selected preparation entries also accept `moon run`. Guest spawn
+runs moonx internally and uses native execution for other authorized commands.
 Moonx help/version and argument errors use Moonrun's embedded frontend and
 plain-text output on the supplied streams, without requiring the selected
 helper executable or handoff storage. Guest spawn still performs executable

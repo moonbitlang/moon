@@ -21,7 +21,7 @@
 //! [`HostProcess`] is the Runtime-owned interface used by the async host. Policy,
 //! working-directory configuration, and child provenance stay above the
 //! native workers and [`os`] process mechanisms. Supervised Runs instead resolve
-//! guest process identities and waits within their virtual process tree.
+//! managed child identities and waits within their Engine process table.
 //! [`prepare_moon`] runs host-selected helpers and owns their artifact handoff.
 
 mod job;
@@ -45,8 +45,10 @@ use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::Job;
+pub(crate) use native::{NativeChild, NativeControl};
 pub(crate) use os::SpawnOptions;
 pub(crate) use prepare_artifact::{Preparation, prepare_moon};
+pub(crate) use spawn::NativeSpawn;
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
@@ -135,8 +137,8 @@ impl HostProcess {
         })
     }
 
-    // Native-handle paths must never reinterpret a virtual PID as an
-    // operating-system process identity.
+    // Supervised children use table-owned control and completion, including
+    // native children whose OS PID may have been reaped before the guest waits.
     fn require_ambient(&self) -> AsyncHostResult<()> {
         if self.context.is_none() {
             return Ok(());
@@ -166,9 +168,9 @@ impl HostProcess {
                 if !handle.matches(context, pid) {
                     return Err(AsyncHostError::PermissionDenied);
                 }
-                return Ok(Job::wait_for_virtual_process(handle.wait()));
+                return Ok(Job::wait_for_managed_process(handle.wait()));
             }
-            return Ok(Job::wait_for_virtual_process(context.wait(pid)?));
+            return Ok(Job::wait_for_managed_process(context.wait(pid)?));
         }
         // On Unix, enforced authorization must inspect this provenance before
         // reaping, so the worker defers the final reap to HostProcess.
