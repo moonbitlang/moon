@@ -70,9 +70,11 @@ struct Rules {
     fs: Arc<FsRules>,
     net: Arc<NetRules>,
     process: Arc<ProcessRules>,
+    /// Whether the guest may open the controlling terminal.
+    tty: bool,
 }
 
-fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
+pub(crate) fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
     if let Some(target) = target {
         eprintln!("Sandbox policy blocked {action}: {target}");
     } else {
@@ -82,11 +84,12 @@ fn sandbox_denied(action: &str, target: Option<&str>) -> AsyncHostResult<()> {
 }
 
 impl Policy {
-    fn new(fs: FsRules, net: NetRules, process: ProcessRules) -> Self {
+    fn new(fs: FsRules, net: NetRules, process: ProcessRules, tty: bool) -> Self {
         Self(Arc::from([Rules {
             fs: Arc::new(fs),
             net: Arc::new(net),
             process: Arc::new(process),
+            tty,
         }]))
     }
 
@@ -105,6 +108,11 @@ impl Policy {
 
     pub(crate) fn process(&self) -> ProcessPolicy {
         ProcessPolicy::from_rule_groups(self.0.iter().map(|rules| Arc::clone(&rules.process)))
+    }
+
+    /// Whether the guest may open the controlling terminal.
+    pub(crate) fn allows_tty(&self) -> bool {
+        self.0.iter().all(|rules| rules.tty)
     }
 }
 
@@ -277,6 +285,7 @@ fn main {}
                     allow: Vec::new(),
                     ..Default::default()
                 }),
+                tty: true,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -299,6 +308,7 @@ fn main {}
             .network()
             .check_dns("example.com".as_ref())
             .unwrap();
+        assert!(inherited.allows_tty());
         #[cfg(unix)]
         check_process_spawn(Some(inherited), "program".as_ref(), &["program".into()]).unwrap();
     }
@@ -346,6 +356,7 @@ fn main {}
                 net: Some(Default::default()),
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -366,6 +377,7 @@ fn main {}
                 net: None,
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -398,6 +410,7 @@ fn main {}
                 net: None,
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -418,6 +431,7 @@ fn main {}
                 net: Some(Default::default()),
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -438,6 +452,7 @@ fn main {}
                 net: None,
                 env: None,
                 process: None,
+                tty: false,
             },
             tmp.path(),
             &crate::runtime::Env::ambient(),
@@ -513,6 +528,16 @@ fn main {}
         .unwrap();
         #[cfg(windows)]
         check_process_spawn(Some(policy), OsStr::new("program.exe")).unwrap();
+    }
+
+    #[test]
+    fn tty_is_denied_unless_every_policy_allows_it() {
+        let source = crate::runtime::Env::owned([]).unwrap();
+        let (denied, _) = load_json(b"{}", &source).unwrap();
+        let (allowed, _) = load_json(br#"{"tty":true}"#, &source).unwrap();
+        assert!(!denied.allows_tty());
+        assert!(allowed.allows_tty());
+        assert!(!allowed.intersect(denied).allows_tty());
     }
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {

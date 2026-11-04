@@ -29,6 +29,7 @@ pub(crate) mod os_error;
 pub(crate) mod process;
 pub(crate) mod signal;
 pub(crate) mod socket;
+pub(crate) mod tty;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

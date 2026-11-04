@@ -43,6 +43,7 @@ struct RuleGroup {
     fs: Filesystem,
     net: Network,
     process: Process,
+    tty: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -146,7 +147,7 @@ impl Policy {
     pub(crate) fn from_transfer(contents: &[u8]) -> anyhow::Result<Self> {
         let transfer: Transfer =
             serde_json::from_slice(contents).context("failed to decode inherited policy")?;
-        anyhow::ensure!(transfer.version == 3, "unsupported policy transfer version");
+        anyhow::ensure!(transfer.version == 4, "unsupported policy transfer version");
         anyhow::ensure!(
             !transfer.rule_groups.is_empty(),
             "inherited policy must contain a rule group"
@@ -159,6 +160,7 @@ impl Policy {
                     fs: Arc::new(FsRules::from_transfer(rules.fs)?),
                     net: Arc::new(NetRules::from_transfer(rules.net)?),
                     process: Arc::new(ProcessRules::from_transfer(rules.process)?),
+                    tty: rules.tty,
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -167,7 +169,7 @@ impl Policy {
 
     pub(crate) fn to_transfer(&self) -> std::io::Result<Vec<u8>> {
         let transfer = Transfer {
-            version: 3,
+            version: 4,
             rule_groups: self
                 .0
                 .iter()
@@ -175,6 +177,7 @@ impl Policy {
                     fs: rules.fs.to_transfer(),
                     net: rules.net.to_transfer(),
                     process: rules.process.to_transfer(),
+                    tty: rules.tty,
                 })
                 .collect(),
         };
@@ -234,13 +237,15 @@ mod tests {
                 "connect":["api.example.com:443", "*.example.org:*", "127.0.0.1:80", "[::1]:443", "*:*"],
                 "bind":["[::]:*", "127.0.0.1:0"]
             },
-            "process":{"allow":[{"program":"a program", "args_prefix":["", "a b", "quote\"", "slash\\"]}]}
+            "process":{"allow":[{"program":"a program", "args_prefix":["", "a b", "quote\"", "slash\\"]}]},
+            "tty": true
         }"#;
         let rules = compile(serde_json::from_slice(input).unwrap());
         let encoded = rules.open_transfer().unwrap().read().unwrap();
         let decoded = Policy::from_transfer(&encoded).unwrap();
         assert_eq!(decoded.open_transfer().unwrap().read().unwrap(), encoded);
         for rules in [rules, decoded] {
+            assert!(rules.allows_tty());
             rules
                 .filesystem()
                 .authorize(
@@ -311,7 +316,7 @@ mod tests {
     fn transferred_roots_must_be_resolved() {
         for root in ["relative", "../escape"] {
             let input = Transfer {
-                version: 3,
+                version: 4,
                 rule_groups: vec![RuleGroup {
                     fs: Filesystem {
                         read: vec![FsRule::Path(root.into())],
@@ -323,6 +328,7 @@ mod tests {
                         bind: vec![],
                     },
                     process: Process::Scoped(vec![]),
+                    tty: false,
                 }],
             };
             assert!(Policy::from_transfer(&serde_json::to_vec(&input).unwrap()).is_err());
@@ -391,6 +397,7 @@ mod tests {
             },
             NetRules::from_config(Default::default()).unwrap(),
             ProcessRules::from_config(Default::default()).unwrap(),
+            false,
         );
         let contents = rules.open_transfer().unwrap().read().unwrap();
         let decoded = Policy::from_transfer(&contents).unwrap();
