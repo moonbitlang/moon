@@ -300,10 +300,14 @@ retains Resource owners, brackets worker cancellation, and publishes results.
 own native spawn, wait, polling, signals, and reaping. They accept resolved
 execution inputs and caller-retained native handles, return owned process
 handles and native `ExitStatus` values, and report `io::Error`. They do not
-interpret Policy, Resource publication, or Engine outcomes. Guest status and
-error encoding stays above this layer, including Windows graceful-signal
-compatibility. Native PID identity, child authority, and Engine admission remain
-separate responsibilities.
+interpret Policy, Resource publication, or Engine outcomes. OS interfaces use
+platform-specific inputs: Unix PID and Linux pidfd waits are distinct from
+Windows HANDLE waits; Windows console events take a process-group ID and event
+kind, and termination takes an explicit exit code. Host workers and async
+adaptation select these operations and preserve guest status, error encoding,
+and graceful-signal compatibility. Unix spawn and fork/exec share one native
+request and own their duplicated stdio descriptors. Native PID identity, child
+authority, and Engine admission remain separate responsibilities.
 
 For an operation that touches host state, the required flow is:
 

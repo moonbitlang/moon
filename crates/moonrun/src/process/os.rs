@@ -24,7 +24,7 @@ use std::ffi::OsString;
 use std::ffi::{CStr, CString};
 use std::io;
 #[cfg(unix)]
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 #[cfg(windows)]
@@ -36,20 +36,24 @@ mod control;
 #[cfg(target_os = "linux")]
 mod fork_exec;
 pub(super) mod lookup;
-#[cfg(any(windows, target_os = "linux"))]
-pub(crate) use control::open_pid_handle;
+#[cfg(target_os = "linux")]
+pub(crate) use control::{open_pidfd, try_wait_pidfd};
 #[cfg(windows)]
-pub(crate) use control::process_id;
+pub(crate) use control::{
+    open_process_for_wait, process_id, send_console_event, terminate_process, try_wait_handle,
+};
 #[cfg(unix)]
-pub(crate) use control::reap;
-pub(crate) use control::{kill, signal, try_wait};
+pub(crate) use control::{reap, send_signal, try_wait_pid};
 #[cfg(unix)]
 pub(super) type RawFile = std::os::fd::RawFd;
 #[cfg(windows)]
 pub(super) type RawFile = std::os::windows::io::RawHandle;
 
 pub(super) struct Spawned {
-    pub(super) pid: i32,
+    #[cfg(unix)]
+    pub(super) pid: libc::pid_t,
+    #[cfg(windows)]
+    pub(super) pid: u32,
     #[cfg(target_os = "linux")]
     pub(super) handle: Option<OwnedFd>,
     #[cfg(windows)]
@@ -80,23 +84,26 @@ pub(crate) struct SpawnOptions {
     pub(crate) is_orphan: bool,
 }
 
+/// Inputs shared by the Unix spawn and fork/exec implementations.
 #[cfg(unix)]
-#[allow(clippy::too_many_arguments)]
-/// `inherited` pairs a source fd with its reserved duplicate (at least 3).
-/// The caller retains both through spawn; the child inherits the duplicate
-/// without CLOEXEC, using either a spawn action or the fork/exec fallback.
-pub(super) fn spawn_unix(
-    executable: Executable,
-    args: Vec<OsString>,
-    env: Vec<OsString>,
-    stdio: [Option<RawFile>; 3],
-    cwd: Option<OsString>,
-    options: SpawnOptions,
-    inherited: Option<(RawFile, RawFile)>,
-) -> io::Result<Spawned> {
-    let inherited_source = inherited.map(|(source, _)| source);
+pub(super) struct Spawn<'a> {
+    pub(super) executable: Executable,
+    pub(super) args: Vec<OsString>,
+    pub(super) env: Vec<OsString>,
+    // Ambient stdio can name closed descriptors. Duplication validates them;
+    // the caller retains any live inputs until spawn returns.
+    pub(super) stdio: [Option<RawFile>; 3],
+    pub(super) cwd: Option<OsString>,
+    pub(super) child_signal_mask: libc::sigset_t,
+    // Source and reserved duplicate (at least 3) of the same open file.
+    // The child inherits the duplicate without CLOEXEC on either spawn path.
+    pub(super) inherited: Option<(BorrowedFd<'a>, BorrowedFd<'a>)>,
+}
+
+#[cfg(unix)]
+pub(super) fn spawn(request: Spawn<'_>) -> io::Result<Spawned> {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    let posix_spawn_addchdir = match cwd.as_ref() {
+    let posix_spawn_addchdir = match request.cwd.as_ref() {
         Some(_) => resolve_posix_spawn_addchdir(),
         None => None,
     };
@@ -104,28 +111,29 @@ pub(super) fn spawn_unix(
     // Linux posix_spawn creates a child even when exec fails. Search in one
     // forked child instead of creating a new process for every PATH candidate.
     #[cfg(target_os = "linux")]
-    let needs_fork_exec = matches!(&executable, Executable::Prepared(plan) if plan.is_search());
+    let needs_fork_exec =
+        matches!(&request.executable, Executable::Prepared(plan) if plan.is_search());
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    let needs_fork_exec = needs_fork_exec || (cwd.is_some() && posix_spawn_addchdir.is_none());
+    let needs_fork_exec =
+        needs_fork_exec || (request.cwd.is_some() && posix_spawn_addchdir.is_none());
     #[cfg(target_os = "linux")]
     if needs_fork_exec {
-        let pid = fork_exec::spawn(
-            executable,
-            args,
-            env,
-            stdio,
-            cwd,
-            options.child_signal_mask,
-            inherited.map(|(_, target)| target),
-        )
-        .map_err(io::Error::from_raw_os_error)?;
+        let pid = fork_exec::spawn(request).map_err(io::Error::from_raw_os_error)?;
         return Ok(Spawned {
             pid,
-            handle: open_pid_handle(pid).ok(),
+            handle: open_pidfd(pid).ok(),
         });
     }
 
-    let inherited_target = inherited.map(|(_, target)| target);
+    let Spawn {
+        executable,
+        args,
+        env,
+        stdio,
+        cwd,
+        child_signal_mask,
+        inherited,
+    } = request;
 
     let (paths, native_lookup, search) = match executable {
         Executable::Ambient(program) => {
@@ -175,7 +183,7 @@ pub(super) fn spawn_unix(
         check_spawn_errno(unsafe { libc::posix_spawnattr_setflags(&mut attr, flags) })?;
 
         check_spawn_errno(unsafe {
-            libc::posix_spawnattr_setsigmask(&mut attr, &options.child_signal_mask)
+            libc::posix_spawnattr_setsigmask(&mut attr, &child_signal_mask)
         })?;
 
         let mut all_signals = unsafe { std::mem::zeroed::<libc::sigset_t>() };
@@ -191,15 +199,19 @@ pub(super) fn spawn_unix(
                 check_spawn_errno(unsafe {
                     libc::posix_spawn_file_actions_adddup2(
                         &mut file_actions,
-                        *fd,
+                        fd.as_raw_fd(),
                         target as libc::c_int,
                     )
                 })?;
             }
         }
-        if let (Some(source), Some(target)) = (inherited_source, inherited_target) {
+        if let Some((source, target)) = inherited {
             check_spawn_errno(unsafe {
-                libc::posix_spawn_file_actions_adddup2(&mut file_actions, source, target)
+                libc::posix_spawn_file_actions_adddup2(
+                    &mut file_actions,
+                    source.as_raw_fd(),
+                    target.as_raw_fd(),
+                )
             })?;
         }
         if let Some(cwd) = cwd.as_ref() {
@@ -317,13 +329,13 @@ pub(super) fn spawn_unix(
             libc::posix_spawn_file_actions_destroy(&mut file_actions);
         }
     }
-    close_stdio_fds(&stdio_fds);
+    drop(stdio_fds);
 
     let pid = spawn_result.map_err(io::Error::from_raw_os_error)?;
     Ok(Spawned {
         pid,
         #[cfg(target_os = "linux")]
-        handle: open_pid_handle(pid).ok(),
+        handle: open_pidfd(pid).ok(),
     })
 }
 
@@ -344,30 +356,21 @@ fn unix_env(env: Vec<OsString>) -> io::Result<Vec<CString>> {
 }
 
 #[cfg(unix)]
-fn duplicate_stdio_fds(stdio: &[Option<RawFile>; 3]) -> io::Result<[Option<RawFile>; 3]> {
-    let mut fds = [None, None, None];
-    for (index, resource) in stdio.iter().enumerate() {
-        let Some(resource) = resource else {
-            continue;
-        };
-        let fd = unsafe { libc::fcntl(*resource, libc::F_DUPFD_CLOEXEC, 3) };
-        if fd < 0 {
-            let error = last_native_error();
-            close_stdio_fds(&fds);
-            return Err(error);
-        }
-        fds[index] = Some(fd);
-    }
-    Ok(fds)
-}
-
-#[cfg(unix)]
-fn close_stdio_fds(fds: &[Option<RawFile>; 3]) {
-    for fd in fds.iter().flatten() {
-        unsafe {
-            libc::close(*fd);
+fn duplicate_stdio_fds(stdio: &[Option<RawFile>; 3]) -> io::Result<[Option<OwnedFd>; 3]> {
+    let mut duplicates = std::array::from_fn(|_| None);
+    for (slot, source) in duplicates.iter_mut().zip(stdio) {
+        if let Some(source) = source {
+            // Keep sources above 0..=2 so ordered child dup2 actions cannot
+            // overwrite a later stream's source. CLOEXEC prevents extra copies
+            // from surviving exec; fork/exec transfers these owners to Command.
+            let fd = unsafe { libc::fcntl(*source, libc::F_DUPFD_CLOEXEC, 3) };
+            if fd < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            *slot = Some(unsafe { OwnedFd::from_raw_fd(fd) });
         }
     }
+    Ok(duplicates)
 }
 
 #[cfg(unix)]
@@ -464,7 +467,7 @@ fn add_chdir_file_action(
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 /// `inherited` is an inheritable handle retained by the caller through spawn.
-pub(super) fn spawn_windows(
+pub(super) fn spawn(
     executable: Executable,
     command_line: OsString,
     env_block: Vec<u16>,
@@ -657,7 +660,7 @@ pub(super) fn spawn_windows(
         CloseHandle(process_info.hThread);
     }
     Ok(Spawned {
-        pid: process_info.dwProcessId as i32,
+        pid: process_info.dwProcessId,
         handle: unsafe { OwnedHandle::from_raw_handle(process_info.hProcess) },
     })
 }
@@ -734,27 +737,8 @@ fn create_global_job_object() -> io::Result<Option<RawFile>> {
     Ok(Some(job))
 }
 
-#[cfg(unix)]
-pub(super) fn wait(
-    handle: Option<RawFile>,
-    pid: i32,
-    defer_reap: bool,
-) -> io::Result<std::process::ExitStatus> {
-    #[cfg(not(target_os = "linux"))]
-    let _ = handle;
-
-    #[cfg(target_os = "linux")]
-    if let Some(handle) = handle {
-        return wait_for_process_pidfd(handle, defer_reap);
-    }
-    wait_for_process_pid(pid, defer_reap)
-}
-
 #[cfg(target_os = "linux")]
-fn wait_for_process_pidfd(
-    pidfd: RawFile,
-    defer_reap: bool,
-) -> io::Result<std::process::ExitStatus> {
+pub(super) fn wait_pidfd(pidfd: RawFile, defer_reap: bool) -> io::Result<std::process::ExitStatus> {
     let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
     // WNOWAIT retains the child identity until the caller explicitly reaps it.
     let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
@@ -765,7 +749,7 @@ fn wait_for_process_pidfd(
 }
 
 #[cfg(unix)]
-fn wait_for_process_pid(pid: i32, defer_reap: bool) -> io::Result<std::process::ExitStatus> {
+pub(super) fn wait_pid(pid: i32, defer_reap: bool) -> io::Result<std::process::ExitStatus> {
     if !defer_reap {
         let mut status = 0;
         let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
@@ -820,21 +804,7 @@ pub(super) fn cancel_wait_for_process(cancel: RawFile) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-pub(super) fn wait(
-    handle: Option<RawFile>,
-    pid: i32,
-    cancel: RawFile,
-) -> io::Result<std::process::ExitStatus> {
-    if let Some(handle) = handle {
-        return wait_for_process_handle(handle, cancel);
-    }
-
-    let handle = open_pid_handle(pid)?;
-    wait_for_process_handle(handle.as_raw_handle(), cancel)
-}
-
-#[cfg(windows)]
-fn wait_for_process_handle(
+pub(super) fn wait_handle(
     handle: RawFile,
     cancel: RawFile,
 ) -> io::Result<std::process::ExitStatus> {
@@ -931,8 +901,8 @@ fn siginfo_status(info: &libc::siginfo_t) -> std::process::ExitStatus {
 }
 
 #[cfg(unix)]
-pub(super) fn duplicate_inherited_file(fd: RawFile) -> io::Result<OwnedFd> {
-    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+pub(super) fn duplicate_inherited_file(fd: BorrowedFd<'_>) -> io::Result<OwnedFd> {
+    let duplicate = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
     if duplicate < 0 {
         Err(io::Error::last_os_error())
     } else {
@@ -1014,37 +984,37 @@ mod tests {
             libc::posix_spawn_file_actions_destroy(&mut actions);
         }
         assert_eq!(error, 0);
-        let native = wait(None, pid, false).unwrap().code().unwrap();
+        let native = wait_pid(pid, false).unwrap().code().unwrap();
         assert!(matches!(native, 23 | 42));
         let mut child_signal_mask = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::sigemptyset(&mut child_signal_mask) }, 0);
-        let child = spawn_unix(
-            Executable::Ambient("program".into()),
-            vec!["program".into()],
-            vec!["PATH=/not-the-parent-path".into()],
-            [None; 3],
-            Some(directory.path().as_os_str().to_owned()),
-            SpawnOptions { child_signal_mask },
-            None,
-        )
+        let child = spawn(Spawn {
+            executable: Executable::Ambient("program".into()),
+            args: vec!["program".into()],
+            env: vec!["PATH=/not-the-parent-path".into()],
+            stdio: [None; 3],
+            cwd: Some(directory.path().as_os_str().to_owned()),
+            child_signal_mask,
+            inherited: None,
+        })
         .unwrap();
-        assert_eq!(wait(None, child.pid, false).unwrap().code(), Some(native));
+        assert_eq!(wait_pid(child.pid, false).unwrap().code(), Some(native));
         #[cfg(target_os = "linux")]
         {
             // Exercise the old-glibc cwd fallback even on a newer libc.
             let mut mask = unsafe { std::mem::zeroed() };
             assert_eq!(unsafe { libc::sigemptyset(&mut mask) }, 0);
-            let pid = fork_exec::spawn(
-                Executable::Ambient("program".into()),
-                vec!["program".into()],
-                vec!["PATH=/not-the-parent-path".into()],
-                [None, None, None],
-                Some(directory.path().as_os_str().to_owned()),
-                mask,
-                None,
-            )
+            let pid = fork_exec::spawn(Spawn {
+                executable: Executable::Ambient("program".into()),
+                args: vec!["program".into()],
+                env: vec!["PATH=/not-the-parent-path".into()],
+                stdio: [None, None, None],
+                cwd: Some(directory.path().as_os_str().to_owned()),
+                child_signal_mask: mask,
+                inherited: None,
+            })
             .unwrap();
-            assert_eq!(wait(None, pid, false).unwrap().code(), Some(native));
+            assert_eq!(wait_pid(pid, false).unwrap().code(), Some(native));
         }
     }
 

@@ -257,7 +257,7 @@ ported_fns! {
         pid: i32,
     ) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
         use std::os::fd::IntoRawFd;
-        Ok(crate::process::os::open_pid_handle(pid)?.into_raw_fd())
+        Ok(crate::process::os::open_pidfd(pid)?.into_raw_fd())
     }
 
     #[ported(
@@ -269,7 +269,7 @@ ported_fns! {
         pid: i32,
     ) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
         use std::os::windows::io::IntoRawHandle;
-        Ok(crate::process::os::open_pid_handle(pid)?.into_raw_handle())
+        Ok(crate::process::os::open_process_for_wait(pid as u32)?.into_raw_handle())
     }
 
     #[ported(
@@ -281,10 +281,21 @@ ported_fns! {
         pid: i32,
     ) -> AsyncHostResult<i32> {
         #[cfg(windows)]
-        if handle.is_none() {
-            return Err(AsyncHostError::Badf);
-        }
-        match crate::process::os::try_wait(handle, pid)? {
+        let status = {
+            let _ = pid;
+            crate::process::os::try_wait_handle(handle.ok_or(AsyncHostError::Badf)?)?
+        };
+        #[cfg(target_os = "linux")]
+        let status = match handle {
+            Some(pidfd) => crate::process::os::try_wait_pidfd(pidfd)?,
+            None => crate::process::os::try_wait_pid(pid)?,
+        };
+        #[cfg(all(unix, not(target_os = "linux")))]
+        let status = {
+            let _ = handle;
+            crate::process::os::try_wait_pid(pid)?
+        };
+        match status {
             Some(status) => Ok(crate::process::native::exit_code(status) as i32),
             None => {
                 #[cfg(unix)]
@@ -302,7 +313,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn terminate_process(pid: i32, signal: i32) -> AsyncHostResult<()> {
-        crate::process::os::signal(pid, signal).map_err(Into::into)
+        crate::process::os::send_signal(pid, signal).map_err(Into::into)
     }
 
     #[ported(
@@ -311,7 +322,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn kill_process(pid: i32) -> AsyncHostResult<()> {
-        crate::process::os::kill(pid).map_err(Into::into)
+        crate::process::os::send_signal(pid, libc::SIGKILL).map_err(Into::into)
     }
 
     #[ported(
@@ -321,7 +332,10 @@ ported_fns! {
     #[cfg(windows)]
     pub(crate) fn terminate_process(pid: i32, _signal: i32) -> AsyncHostResult<()> {
         // The native async ABI ignores failures from graceful cancellation.
-        let _ = crate::process::os::signal(pid, _signal);
+        let _ = crate::process::os::send_console_event(
+            pid as u32,
+            windows_sys::Win32::System::Console::CTRL_BREAK_EVENT,
+        );
         Ok(())
     }
 
@@ -331,7 +345,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn kill_process(pid: i32) -> AsyncHostResult<()> {
-        crate::process::os::kill(pid).map_err(Into::into)
+        crate::process::os::terminate_process(pid as u32, 1).map_err(Into::into)
     }
 }
 

@@ -30,10 +30,10 @@ use crate::policy::Policy;
 use crate::resource::Resource;
 use crate::resource::{ResourcePublication, ResourceRef};
 use std::ffi::{OsStr, OsString};
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::os::fd::IntoRawFd;
+#[cfg(unix)]
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, AsRawSocket, IntoRawHandle};
 
@@ -57,10 +57,12 @@ ported_fns! {
             .map(|policy| policy.open_transfer())
             .transpose()
             .map_err(policy_transfer_error)?;
-        let inherited = transfer
-            .as_ref()
-            .map(|file| os::duplicate_inherited_file(file.as_raw_fd()))
-            .transpose()?;
+        let transfer_fd = transfer.as_ref().map(|file| {
+            // SAFETY: PolicyTransfer owns this open fd and stays alive
+            // through spawn. Its public interface exposes only AsRawFd.
+            unsafe { BorrowedFd::borrow_raw(file.as_raw_fd()) }
+        });
+        let inherited = transfer_fd.map(os::duplicate_inherited_file).transpose()?;
         if let Some(file) = &inherited {
             crate::async_sys::process::overwrite_process_env_var(
                 &mut env,
@@ -75,18 +77,15 @@ ported_fns! {
                 .map(|resource| resource.as_file().map(|file| file.as_raw_fd()))
                 .transpose()?;
         }
-        let child = os::spawn_unix(
+        let child = os::spawn(os::Spawn {
             executable,
             args,
             env,
-            files,
+            stdio: files,
             cwd,
-            options,
-            transfer
-                .as_ref()
-                .zip(inherited.as_ref())
-                .map(|(source, target)| (source.as_raw_fd(), target.as_raw_fd())),
-        )?;
+            child_signal_mask: options.child_signal_mask,
+            inherited: transfer_fd.zip(inherited.as_ref().map(AsFd::as_fd)),
+        })?;
         #[cfg(target_os = "linux")]
         if let Some(handle) = child.handle {
             *result = Some(ResourcePublication::Unpublished(Resource::new(
@@ -130,7 +129,7 @@ ported_fns! {
         for (slot, resource) in handles.iter_mut().zip(&stdio) {
             *slot = resource.as_deref().map(spawn_stdio_handle).transpose()?;
         }
-        let child = os::spawn_windows(
+        let child = os::spawn(
             executable,
             command_line,
             env,
@@ -142,7 +141,7 @@ ported_fns! {
         *result = Some(ResourcePublication::Unpublished(Resource::new(
             child.handle.into_raw_handle(),
         )));
-        Ok(i64::from(child.pid as u32))
+        Ok(i64::from(child.pid))
     }
 
     #[ported(runtime = "thread_pool.c", original = "wait_for_process_job_worker")]
@@ -155,17 +154,18 @@ ported_fns! {
         #[cfg(unix)]
         {
             #[cfg(target_os = "linux")]
-            let raw = handle
-                .as_ref()
-                .map(|handle| handle.as_fd().map(|fd| fd.as_raw_fd()))
-                .transpose()?;
+            if let Some(handle) = &handle {
+                let pidfd = handle.as_fd()?.as_raw_fd();
+                return with_cancellable_region(|| {
+                    os::wait_pidfd(pidfd, defer_reap)
+                        .map(exit_code)
+                        .map_err(Into::into)
+                });
+            }
             #[cfg(not(target_os = "linux"))]
-            let raw = {
-                let _ = handle;
-                None
-            };
+            let _ = handle;
             with_cancellable_region(|| {
-                os::wait(raw, pid, defer_reap)
+                os::wait_pid(pid, defer_reap)
                     .map(exit_code)
                     .map_err(Into::into)
             })
@@ -174,11 +174,13 @@ ported_fns! {
         {
             let cancel = cancel.ok_or(AsyncHostError::Badf)?;
             let cancel = cancel.as_handle()?.as_raw_handle();
-            let raw = handle
-                .as_ref()
-                .map(|handle| handle.as_handle().map(|handle| handle.as_raw_handle()))
-                .transpose()?;
-            os::wait(raw, pid, cancel)
+            if let Some(handle) = &handle {
+                return os::wait_handle(handle.as_handle()?.as_raw_handle(), cancel)
+                    .map(exit_code)
+                    .map_err(Into::into);
+            }
+            let handle = os::open_process_for_wait(pid as u32)?;
+            os::wait_handle(handle.as_raw_handle(), cancel)
                 .map(exit_code)
                 .map_err(Into::into)
         }

@@ -248,7 +248,7 @@ impl HostProcess {
         if state.process_handle_pids.get(&handle) != Some(&pid) {
             return Err(AsyncHostError::PermissionDenied);
         }
-        if os::process_id(raw_handle)? != pid {
+        if os::process_id(raw_handle)? != pid as u32 {
             return Err(AsyncHostError::PermissionDenied);
         }
         let result = f()?;

@@ -5096,7 +5096,7 @@ mod tests {
                     .as_raw_handle()
             )
             .unwrap(),
-            pid
+            pid as u32
         );
         let wait_job = host
             .insert_job(
