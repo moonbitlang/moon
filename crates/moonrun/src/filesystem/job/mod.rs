@@ -28,7 +28,7 @@ use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
-use crate::filesystem::HostFs;
+use crate::filesystem::{FileOperation, HostFs};
 use crate::guest_memory::GuestMemory;
 use crate::policy::FsIntents;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
@@ -552,16 +552,15 @@ impl Job {
                 }
                 Ok(())
             }
-            Kind::Fstatx {
-                file: Some(_),
-                request,
-                ..
-            } if request.mask() == STAT_FILE_KIND => {
-                // Like the scalar kind imports, classification uses the acquired
-                // resource grant. Core also needs this when initializing stdio.
-                Ok(())
-            }
-            Kind::Fstatx { file, .. } => check_file_metadata_policy(filesystem, file.as_deref()),
+            Kind::Fstatx { file, request, .. } => check_file_policy(
+                filesystem,
+                file.as_deref(),
+                if request.mask() == STAT_FILE_KIND {
+                    FileOperation::Kind
+                } else {
+                    FileOperation::Metadata
+                },
+            ),
             Kind::Statx {
                 parent,
                 path,
@@ -574,7 +573,7 @@ impl Job {
                 follow_symlink,
             } => check_path_metadata_policy(filesystem, parent.as_deref(), path, *follow_symlink),
             Kind::FileSize { file, .. } | Kind::FileTime { file, .. } => {
-                check_file_metadata_policy(filesystem, file.as_deref())
+                check_file_policy(filesystem, file.as_deref(), FileOperation::Metadata)
             }
             Kind::FileTimeByPath {
                 path,
@@ -590,9 +589,13 @@ impl Job {
                 .authorize_access(path, *access)
                 .map_err(Into::into),
             Kind::Chmod { path, .. } => filesystem.authorize_write(path).map_err(Into::into),
-            Kind::Flock { file, exclusive } => {
-                check_file_lock_policy(filesystem, file.as_deref(), *exclusive)
-            }
+            Kind::Flock { file, exclusive } => check_file_policy(
+                filesystem,
+                file.as_deref(),
+                FileOperation::Lock {
+                    exclusive: *exclusive,
+                },
+            ),
             Kind::Remove { path } => filesystem.authorize_remove(path).map_err(Into::into),
             Kind::RemoveAt { parent, path } => match parent {
                 None => filesystem.authorize_remove(path).map_err(Into::into),
@@ -1043,10 +1046,14 @@ fn last_native_error() -> AsyncHostError {
     )
 }
 
-fn check_file_metadata_policy(filesystem: &HostFs, file: Option<&Resource>) -> AsyncHostResult<()> {
+fn check_file_policy(
+    filesystem: &HostFs,
+    file: Option<&Resource>,
+    operation: FileOperation,
+) -> AsyncHostResult<()> {
     let file = file.ok_or(AsyncHostError::Badf)?;
     filesystem
-        .authorize_resource_metadata(file.canonical_path())
+        .authorize_file(file.file_grant(), operation)
         .map_err(Into::into)
 }
 
@@ -1071,17 +1078,6 @@ fn check_path_metadata_policy(
             .map_err(Into::into)
         }
     }
-}
-
-fn check_file_lock_policy(
-    filesystem: &HostFs,
-    file: Option<&Resource>,
-    exclusive: bool,
-) -> AsyncHostResult<()> {
-    let file = file.ok_or(AsyncHostError::Badf)?;
-    filesystem
-        .authorize_resource_lock(file.canonical_path(), exclusive)
-        .map_err(Into::into)
 }
 
 #[cfg(test)]

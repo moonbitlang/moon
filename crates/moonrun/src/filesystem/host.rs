@@ -25,6 +25,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::{fs, io};
 
+use super::{FileGrant, FileOperation};
 use crate::async_sys::fs::stub;
 use crate::policy::{FsIntents, FsPolicy};
 use crate::runtime::{Env, WorkingDirectory};
@@ -445,22 +446,12 @@ impl HostFs {
             .map_err(|_| FsError::Denied)
     }
 
-    pub(crate) fn authorize_resource_metadata(&self, path: Option<&Path>) -> Result<(), FsError> {
-        let Some(policy) = &self.policy else {
-            return Ok(());
-        };
-        match path {
-            Some(path) => {
-                let target = quote_os_str(path.as_os_str());
-                let resolved = canonicalize_existing_prefix(path).ok();
-                policy
-                    .authorize(resolved.as_deref(), FsIntents::read(), &target)
-                    .map_err(|_| FsError::Denied)
-            }
-            None => policy
-                .authorize(None, FsIntents::read(), "\"<untracked resource>\"")
-                .map_err(|_| FsError::Denied),
-        }
+    pub(crate) fn authorize_file(
+        &self,
+        grant: &FileGrant,
+        operation: FileOperation,
+    ) -> Result<(), FsError> {
+        grant.authorize(self.policy.as_ref(), operation)
     }
 
     pub(crate) fn authorize_read(&self, path: &OsStr) -> Result<(), FsError> {
@@ -510,31 +501,6 @@ impl HostFs {
         self.authorize_entry(new_path, FsIntents::write())
     }
 
-    pub(crate) fn authorize_resource_lock(
-        &self,
-        path: Option<&Path>,
-        exclusive: bool,
-    ) -> Result<(), FsError> {
-        if !exclusive {
-            return Ok(());
-        }
-        let Some(policy) = &self.policy else {
-            return Ok(());
-        };
-        match path {
-            Some(path) => {
-                let target = quote_os_str(path.as_os_str());
-                let resolved = canonicalize_existing_prefix(path).ok();
-                policy
-                    .authorize(resolved.as_deref(), FsIntents::write(), &target)
-                    .map_err(|_| FsError::Denied)
-            }
-            None => policy
-                .authorize(None, FsIntents::write(), "\"<untracked resource>\"")
-                .map_err(|_| FsError::Denied),
-        }
-    }
-
     pub(super) fn authorize_write_entry(&self, path: &OsStr) -> Result<(), FsError> {
         self.authorize_entry(path, FsIntents::write())
     }
@@ -578,7 +544,7 @@ fn resolve_from_directory(base: Option<&Path>, path: &Path) -> Result<PathBuf, F
     }
 }
 
-fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, FsError> {
+pub(super) fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, FsError> {
     for ancestor in path.ancestors() {
         match std::fs::canonicalize(ancestor) {
             Ok(prefix) => {
@@ -795,7 +761,7 @@ mod tests {
         let denied_file = denied.join("target.txt");
         std::fs::write(&resource_path, "allowed").unwrap();
         std::fs::write(&denied_file, "denied").unwrap();
-        let saved_path = std::fs::canonicalize(&resource_path).unwrap();
+        let grant = FileGrant::from_opened_path(Some(resource_path.clone()));
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(
             &policy_file,
@@ -808,8 +774,8 @@ mod tests {
         std::fs::remove_file(&resource_path).unwrap();
         std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
 
-        let metadata = host.authorize_resource_metadata(Some(&saved_path));
-        let lock = host.authorize_resource_lock(Some(&saved_path), true);
+        let metadata = host.authorize_file(&grant, FileOperation::Metadata);
+        let lock = host.authorize_file(&grant, FileOperation::Lock { exclusive: true });
         assert!(matches!(metadata, Err(FsError::Denied)));
         assert!(matches!(lock, Err(FsError::Denied)));
     }

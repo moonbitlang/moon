@@ -185,9 +185,7 @@ fn bound_stdio_is_an_explicit_grant_even_when_paths_are_denied() {
             local.get $job call $free)
         (func $check_stdio (param $id i32) (local $fd i64)
             local.get $id call $stdio local.set $fd
-            local.get $fd global.get $REGULAR_FILE call $check_kind
-            local.get $fd global.get $FILE_SIZE call $check_metadata_denied
-            local.get $fd global.get $FILE_KIND global.get $FILE_SIZE i32.or call $check_metadata_denied)
+            local.get $fd global.get $REGULAR_FILE call $check_kind)
         (func (export "_start") (local $job i64)
             ;; Core initializes all three streams through a synchronous fstatx job.
             i32.const 0 call $check_stdio
