@@ -62,16 +62,10 @@ async fn main {
     return
   }
   if args[1] == "check-native-spawn" {
-    let launched = try {
-      let (code, _) = @process.collect_stdout(args[2], [args[3], "probe"])
-      assert_eq(code, 0)
-      true
-    } catch {
-      @os_error.OSError(code, ..) if code == @os_error.errno_ENOTSUP => false
-      error => raise error
-    }
-    assert_eq(launched, args[4] == "native")
-    println("execution mode preserved")
+    let (code, output) = @process.collect_stdout(args[2], [args[3], "probe"])
+    assert_eq(code, 0)
+    assert_true(output.text().trim(char_set="\r\n") != "guest=\{pid()}")
+    println("native spawn preserved")
     return
   }
   if args[1] == "moonx-probe" {
