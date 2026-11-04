@@ -363,7 +363,8 @@ fn test_selection_argument_formats() {
             serde_json::from_slice(&build.get_output().stdout).unwrap();
         let paths = artifacts["artifacts_path"].as_array().unwrap();
         assert_eq!(paths.len(), 1);
-        let executable = paths[0].as_str().unwrap();
+        // Match the runner's Windows path handling before launching the artifact.
+        let executable = dunce::simplified(std::path::Path::new(paths[0].as_str().unwrap()));
         let mut selections = vec![
             (compact.as_str(), expected.as_slice(), false),
             (single_ranges.as_str(), expected.as_slice(), false),
@@ -379,7 +380,8 @@ fn test_selection_argument_formats() {
         for (args, expected, from_build_only) in selections {
             let command = match backend {
                 "js" => snapbox::cmd::Command::new(moonutil::toolchain::BINARIES.node_or_default())
-                    .args([executable, args]),
+                    .arg(executable)
+                    .arg(args),
                 "wasm" | "wasm-gc" => snapbox::cmd::Command::new(moonrun_bin())
                     .arg(format!("--test-args={args}"))
                     .arg(executable),
