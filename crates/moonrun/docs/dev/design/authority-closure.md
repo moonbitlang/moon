@@ -44,7 +44,10 @@ Open options determine both the immediate effects and the acquired file grant.
 I/O on that file uses its grant and descriptor rights without reopening or
 reauthorizing the original pathname. Directory descriptors retain paths, so
 operations derived from them require path authorization. Explicit stdio bindings
-are separate resource grants.
+are separate resource grants. Pure file-kind queries use the acquired resource
+grant, consistently across the scalar imports and `fstatx`. Other metadata
+requests still require filesystem read authorization, including requests that
+combine file kind with other fields.
 
 Filesystem glob exclusions override matching grants within the same read or write
 list, independent of rule order. A matching positive rule is still required.

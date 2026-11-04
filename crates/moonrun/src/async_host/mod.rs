@@ -6808,7 +6808,8 @@ mod tests {
     }
 
     #[test]
-    fn fd_metadata_jobs_require_read_policy() {
+    fn fd_metadata_beyond_kind_requires_read_policy() {
+        const STAT_FILE_KIND: u32 = 0x0001;
         let tmp = tempfile::tempdir().unwrap();
         let writable = tmp.path().join("writable");
         std::fs::create_dir(&writable).unwrap();
@@ -6831,6 +6832,9 @@ mod tests {
         host.run_job(open_job).unwrap();
         let fd = host.open_job_get_fd(open_job).unwrap();
         let resource = host.acquire_resource(fd).unwrap();
+        let kind_job = host
+            .insert_job(FilesystemJob::fstatx(Arc::clone(&resource), STAT_FILE_KIND, 16).unwrap())
+            .unwrap();
         let size_job = host
             .insert_job(FilesystemJob::file_size(Arc::clone(&resource)))
             .unwrap();
@@ -6838,9 +6842,11 @@ mod tests {
             .insert_job(FilesystemJob::file_time(Arc::clone(&resource)))
             .unwrap();
 
+        host.run_job(kind_job).unwrap();
         host.run_job(size_job).unwrap();
         host.run_job(time_job).unwrap();
 
+        assert_eq!(host.with_job(kind_job, |job| job.err()).unwrap(), 0);
         assert_eq!(host.with_job(size_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
             host.with_job(size_job, |job| job.err()).unwrap(),
@@ -6853,6 +6859,7 @@ mod tests {
         );
         host.free_job(time_job).unwrap();
         host.free_job(size_job).unwrap();
+        host.free_job(kind_job).unwrap();
         host.close_fd(fd).unwrap();
         host.free_job(open_job).unwrap();
     }
