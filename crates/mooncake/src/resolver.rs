@@ -110,7 +110,7 @@ pub(crate) struct VersionConflict {
 pub(crate) struct ModuleResolutionErrors(pub(crate) Vec<ModuleResolutionError>);
 
 /// The module dependency resolver.
-pub(crate) trait ModuleResolver {
+pub(crate) trait ModuleResolver<R: Registry> {
     /// Select module sources and versions, extending `module_graph` from its
     /// existing root modules with their dependencies.
     ///
@@ -118,7 +118,7 @@ pub(crate) trait ModuleResolver {
     /// `false`. The errors should be emitted in `context`.
     fn resolve(
         &mut self,
-        context: &mut ModuleResolutionContext,
+        context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
         user_log: &UserLog,
     ) -> bool;
@@ -266,16 +266,16 @@ fn format_module_resolution_errors(errors: &[ModuleResolutionError]) -> String {
 }
 
 /// Registry and standard-library policy for selecting module dependencies.
-pub(crate) struct ModuleResolutionConfig<'a> {
-    pub(crate) registry: &'a dyn Registry,
+pub(crate) struct ModuleResolutionConfig<'a, R: Registry> {
+    pub(crate) registry: &'a R,
     pub(crate) inject_std: bool,
     /// Explicit refresh reports fresh status after resolution.
     pub(crate) warn_deprecated: bool,
 }
 
-pub(crate) fn resolve_modules_with_solver(
-    config: &ModuleResolutionConfig,
-    resolver: &mut dyn ModuleResolver,
+pub(crate) fn resolve_modules_with_solver<R: Registry>(
+    config: &ModuleResolutionConfig<'_, R>,
+    resolver: &mut dyn ModuleResolver<R>,
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
@@ -323,7 +323,7 @@ pub(crate) fn resolve_modules_with_solver(
 
 fn warn_deprecated_dependencies(
     module_graph: &ModuleDependencyGraph,
-    registry: &dyn Registry,
+    registry: &impl Registry,
     user_log: &UserLog,
 ) {
     if !user_log.is_enabled(log::Level::Warn) {
@@ -381,8 +381,8 @@ fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn resolve_modules(
-    config: &ModuleResolutionConfig,
+pub(crate) fn resolve_modules<R: Registry>(
+    config: &ModuleResolutionConfig<'_, R>,
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {

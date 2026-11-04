@@ -33,14 +33,14 @@ use crate::registry::{Registry, RegistryModuleNotFound};
 use super::ModuleResolutionError;
 
 /// Registry access, manifest caches, and diagnostics for module resolution.
-pub(crate) struct ModuleResolutionContext<'a> {
-    registry: &'a dyn Registry,
+pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
+    registry: &'a R,
     errors: Vec<super::ModuleResolutionError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
 }
 
-impl<'a> ModuleResolutionContext<'a> {
-    pub(crate) fn new(registry: &'a dyn Registry) -> Self {
+impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
+    pub(crate) fn new(registry: &'a R) -> Self {
         ModuleResolutionContext {
             registry,
             errors: Vec::new(),
