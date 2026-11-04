@@ -124,7 +124,9 @@ impl MooncGenTestInfo {
         // Writing to string cannot fail, so unwrap() is safe here.
         writeln!(result, "{{").unwrap();
         for (file, tests) in section.iter().filter(|(_, tests)| !tests.is_empty()) {
-            writeln!(result, "  \"{file}\": {{").unwrap();
+            // Rust's quoted debug strings also use valid MoonBit escapes.
+            // Metadata names are raw strings and may contain quotes or newlines.
+            writeln!(result, "  {file:?}: {{").unwrap();
             for test in tests {
                 // tests with #skip attribute are also included in the driver, they will
                 // eventually be skipped by using cli arguments to the driver executable
@@ -171,6 +173,28 @@ mod tests {
             {
               "tests.mbt": {
                 2: (__test_tests_2, ["works"]),
+              },
+            }
+        "#]]
+        .assert_eq(&MooncGenTestInfo::section_to_mbt(&section));
+    }
+
+    #[test]
+    fn section_to_mbt_escapes_file_names() {
+        let section = IndexMap::from([(
+            "quote\"'\\line\nbreak\ttab:测试.mbt".into(),
+            vec![MbtTestInfo {
+                index: 0,
+                func: "__test_0".into(),
+                name: None,
+                line_number: None,
+                attrs: vec![],
+            }],
+        )]);
+        expect![[r#"
+            {
+              "quote\"'\\line\nbreak\ttab:测试.mbt": {
+                0: (__test_0, [""]),
               },
             }
         "#]]

@@ -377,8 +377,13 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 
     let update = std::env::var_os("UPDATE_EXPECT").is_some();
     let toolchain_root = toolchain_root_for_tests();
-    let exit_code =
-        moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update, Some(&toolchain_root));
+    let exit_code = moon_test_util::cmdtest::run::t(
+        &test_path,
+        &moon_bin(),
+        &moonrun_bin(),
+        update,
+        Some(&toolchain_root),
+    );
 
     assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
 }

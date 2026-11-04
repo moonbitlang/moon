@@ -1,6 +1,6 @@
 use crate::{
     TestDir, assert_success, get_err_stderr, get_err_stderr_with_envs, get_stderr, get_stdout,
-    get_stdout_with_envs, scoped_packages_json_path,
+    get_stdout_with_envs, moon_cmd, scoped_packages_json_path,
     util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
@@ -293,8 +293,7 @@ fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
         "proof-enabled packages should pass proof warning suppressions, got:\n{dry_run}"
     );
 
-    let output = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
+    let output = moon_cmd(&dir)
         .args(["test", "lib", "--sort-input", "--no-parallelize"])
         .assert()
         .success()

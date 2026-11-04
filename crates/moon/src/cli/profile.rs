@@ -595,7 +595,7 @@ fn profile_test_invocations(
             ProfileRequest {
                 executable,
                 display_executable: Some(invocation.executable),
-                args: vec![invocation.args.to_cli_args_for_native()],
+                args: vec![invocation.args.to_cli_args()],
                 current_dir: Some(module_root),
                 output_dir,
                 run_mode: RunMode::Test,

@@ -220,15 +220,31 @@ legacy runtime; otherwise the generated driver uses
 
 ## Commands per backend (and how to specify test cases)
 
-`command_for` (in `runtime.rs`) hides the differences between target backends. The
-runner always records a `CommandGuard` that cleans up temporary drivers when necessary.
+`command_for` (in `runtime.rs`) hides the differences between target backends.
+All backends receive `TestArgs::to_cli_args()` selections in the form
+`filename:start-end,start-end/...`, for example `math.mbt:0-5,7-9/io.mbt:2-3`.
+Ranges are half-open, and their order and duplicates are preserved. Grouping
+ranges avoids repeating long filenames for sparse selections.
+
+Names are compiler metadata basenames, not paths, so `/` cannot occur in a name.
+The final `:` separates each name from its ranges; earlier colons, commas,
+quotes, backslashes, whitespace, Unicode spelling and case are preserved exactly.
+Backslashes are literal characters on Unix, not escape or path separators.
+Moon passes the selection as one process argument, without shell interpolation.
+Generated MoonBit string literals escape these names separately from the wire format.
+This is an internal protocol
+between Moon and its test runtimes, with no filesystem lookup or name normalization.
+Encoding and range parsing are linear in the payload size. JavaScript and native
+drivers additionally expand ranges into individual test entries, as before.
+The existing execution interfaces and generated test maps remain unchanged.
 
 ### Wasm and WasmGC
 
 - Runner: `moonrun` binary from the active toolchain.
-- Invocation: `moonrun --test-args <json> [--policy <path>] <artifact>.wasm --`.
-- The JSON payload is a serialized `TestArgs`, so the runtime knows which files and
-  indices to execute. Everything after `--` is forwarded to the MoonBit program.
+- Invocation: `moonrun --test-args=<selection> [--policy <path>] <artifact>.wasm --`.
+- Moonrun decodes the selection into filenames and index ranges before invoking
+  the existing test-driver exports.
+  Everything after `--` is forwarded to the MoonBit program.
 - The runtime initializes test modules before invoking test exports and the
   test-driver finalizer. It prefers `_initialize`, falling back to `_start` when
   `_initialize` is absent. The selected export is called once, including when no
@@ -242,22 +258,19 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
 
 ### JavaScript
 
-- For plain `moon run`, Node reads the emitted `.js`. For tests, the runner synthesizes
-  a temporary CommonJS driver next to the compiled `.cjs` file.
-- The driver imports the original artifact, sets `testParams` and `packageName`, and
-  then invokes the generated test harness.
-- Execution command: `node --enable-source-maps <temp_dir>/driver.cjs '<TestArgs JSON>'`.
-  The temporary directory also contains a throwaway `package.json` so Node does not try
-  to interpret surrounding workspace settings (`type: module`). The directory is deleted
-  once the command finishes.
+- Execution command: `node --enable-source-maps <artifact>.js '<selection>'`.
+- The generated driver accepts the compact selection format.
+  `moon test --build-only --target js` reports the same compact argument in
+  `test_filter_args`. The outer artifact listing remains JSON; its strings must
+  be decoded before passing the argument directly to the emitted artifact.
+- The build emits a `package.json` beside the artifact so Node does not inherit
+  surrounding workspace module settings.
 
 ### Native and LLVM
 
 - The compiled executable is run directly.
-- Test selection is encoded via `TestArgs::to_cli_args_for_native`, which produces a
-  `/`-separated list of `filename:start-end` segments. Each range follows half-open
-  semantics (`start` inclusive, `end` exclusive) just like the metadata indices.
-- Example argument: `math.mbt:0-5/io.mbt:2-3`.
+- The generated driver accepts the common compact selection format. The previous
+  `/`-separated `filename:start-end` format remains valid as its single-range case.
 
 ## Narrowing which tests run
 

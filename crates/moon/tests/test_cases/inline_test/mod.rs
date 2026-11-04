@@ -3,41 +3,25 @@ use crate::dry_run_utils::assert_lines_in_order;
 #[test]
 fn test_inline_test_001() {
     let dir = TestDir::new("inline_test/001");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["test"])
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["test"]).assert().success();
 }
 
 #[test]
 fn test_inline_test_002() {
     let dir = TestDir::new("inline_test/002");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["test"])
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["test"]).assert().success();
 }
 
 #[test]
 fn test_inline_test_003() {
     let dir = TestDir::new("inline_test/003");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["test"])
-        .assert()
-        .failure();
+    moon_cmd(&dir).args(["test"]).assert().failure();
 }
 
 #[test]
 fn test_inline_test_004() {
     let dir = TestDir::new("inline_test/004");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["test"])
-        .assert()
-        .failure();
+    moon_cmd(&dir).args(["test"]).assert().failure();
 }
 
 #[test]

@@ -450,15 +450,16 @@ fn test_moonrun_current_exe_absolutizes_relative_module_path() {
         snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
             .current_dir(&load_dir)
             .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
-            .env("MOONRUN_TEST_CURRENT_EXE", module_path.to_string_lossy().as_ref())
+            .env(
+                "MOONRUN_TEST_CURRENT_EXE",
+                module_path.to_string_lossy().as_ref(),
+            )
             .env(
                 "MOONRUN_TEST_CURRENT_EXE_DIR",
                 module_path.parent().unwrap().to_string_lossy().as_ref(),
             )
             .arg("--test-args")
-            .arg(
-                r#"{"package":"username/current_exe/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-            )
+            .arg("main_test.mbt:0-1")
             .arg(&relative_path)
             .assert()
             .success()
@@ -550,9 +551,7 @@ fn moonrun_observes_each_process_working_directory() {
         snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
             .current_dir(&instance)
             .arg("--test-args")
-            .arg(
-                r#"{"package":"moon/working_directory_instances/main","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-            )
+            .arg("main_test.mbt:0-1")
             .arg(&wasm)
             .assert()
             .success()
@@ -611,8 +610,10 @@ fn engine_backends_run_compiler_generated_tests() {
 
             snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
                 .args(["--no-stack-trace", "--test-args"])
-                .arg(r#"{"package":"moon/test_driver","file_and_index":[["driver_test.mbt",[{"start":0,"end":3}]]]}"#)
-                .arg(dir.join(&format!("_build/{target}/{profile}/test/test_driver.blackbox_test.wasm")))
+                .arg("driver_test.mbt:0-3")
+                .arg(dir.join(&format!(
+                    "_build/{target}/{profile}/test/test_driver.blackbox_test.wasm"
+                )))
                 .assert()
                 .success()
                 .stdout_eq(snapbox::str![[r#"
@@ -703,12 +704,8 @@ fn engine_backends_run_both_wasm_profiles_and_js_strings() {
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .arg("--test-args")
-        .arg(
-            r#"{"package":"moon/engine_backend/js_string","file_and_index":[["main_wbtest.mbt",[{"start":0,"end":1}]]]}"#,
-        )
-        .arg(dir.join(
-            "_build/wasm-gc/debug/test/js_string/js_string.whitebox_test.wasm",
-        ))
+        .arg("main_wbtest.mbt:0-1")
+        .arg(dir.join("_build/wasm-gc/debug/test/js_string/js_string.whitebox_test.wasm"))
         .assert()
         .success()
         .stdout_eq(concat!(

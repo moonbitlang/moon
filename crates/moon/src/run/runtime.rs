@@ -47,15 +47,11 @@ impl From<&BackendConfig> for ExecutionMode {
 /// arguments that are directly passed to the MoonBit program being executed.
 ///
 /// If the executable is a test executable, `test` should be passed with the
-/// args that are passed to the test executable. The function **may create
-/// temporary files** to support test execution.
+/// args that are passed to the test executable.
 ///
 /// `mbt_executable` is the final MoonBit executable to run, such as a `.wasm`
 /// file in WASM or WASM-GC backends, a `.js` file in JS backend, or a native
 /// executable in Native or LLVM backends.
-///
-/// ### Note
-///
 pub(crate) fn command_for(
     mode: ExecutionMode,
     mbt_executable: &Path,
@@ -93,14 +89,14 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
             cmd.arg("--enable-source-maps");
             cmd.arg(dunce::simplified(mbt_executable));
             if let Some(t) = test {
-                cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
+                cmd.arg(t.to_cli_args());
             }
             cmd
         }
         ExecutionMode::Native => {
             let mut cmd = Command::new(dunce::simplified(mbt_executable));
             if let Some(t) = test {
-                cmd.arg(t.to_cli_args_for_native());
+                cmd.arg(t.to_cli_args());
             }
             cmd
         }
@@ -118,8 +114,8 @@ pub(crate) fn moonrun_command(
 ) -> Command {
     let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
     if let Some(t) = test {
-        cmd.arg("--test-args");
-        cmd.arg(serde_json::to_string(t).unwrap());
+        // Keep filenames beginning with `-` inside the option's value.
+        cmd.arg(format!("--test-args={}", t.to_cli_args()));
     }
     if let Some(policy) = moonrun_policy {
         cmd.arg("--policy");

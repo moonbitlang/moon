@@ -262,3 +262,148 @@ fn test_large_test_selection() {
             .stdout_eq("Total tests: 200, passed: 200, failed: 0.\n");
     }
 }
+
+#[test]
+fn test_selection_argument_formats() {
+    let root = TestDir::new_empty();
+    let dir = root.join("project space ' 测试😀");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/selection\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    let files = [
+        "-Case,测试 e\u{301}😀%2F_test.mbt",
+        "{other}_test.mbt",
+        #[cfg(unix)]
+        "colon:name_test.mbt",
+        #[cfg(unix)]
+        "quote\"'\\back_test.mbt",
+        #[cfg(unix)]
+        "line\nbreak\ttab_test.mbt",
+    ];
+    for file in files {
+        std::fs::write(
+            dir.join(file),
+            "test \"selected first\" { assert_eq(1, 1) }\n\
+             test \"excluded\" { fail(\"must not execute\") }\n\
+             test \"selected last\" { assert_eq(2, 2) }\n",
+        )
+        .unwrap();
+    }
+    // Nonmonotonic and repeated indices must survive argument decoding unchanged.
+    let compact = files
+        .iter()
+        .map(|file| format!("{file}:2-3,0-1,2-3"))
+        .collect::<Vec<_>>()
+        .join("/");
+    let single_ranges = files
+        .iter()
+        .map(|file| format!("{file}:2-3/{file}:0-1/{file}:2-3"))
+        .collect::<Vec<_>>()
+        .join("/");
+    let expected: Vec<_> = files
+        .iter()
+        .flat_map(|file| {
+            [2, 0, 2].map(|index| {
+                serde_json::json!({
+                    "type": "result", "file": file, "index": index, "message": ""
+                })
+            })
+        })
+        .collect();
+    let mut sorted_files = files;
+    sorted_files.sort();
+    let build_only_expected: Vec<_> = sorted_files
+        .iter()
+        .flat_map(|file| {
+            [0, 2].map(|index| {
+                serde_json::json!({
+                    "type": "result", "file": file, "index": index, "message": ""
+                })
+            })
+        })
+        .collect();
+
+    for backend in [
+        "js",
+        "wasm",
+        "wasm-gc",
+        "native",
+        #[cfg(not(windows))]
+        "llvm",
+    ] {
+        // Exercise Moon's encoder too, including an argument starting with `-`.
+        moon_cmd(&dir)
+            .args([
+                "test",
+                "--target",
+                backend,
+                "--filter",
+                "selected*",
+                "--sort-input",
+            ])
+            .assert()
+            .success()
+            .stdout_eq(format!(
+                "Total tests: {0}, passed: {0}, failed: 0.\n",
+                files.len() * 2
+            ));
+        let build = moon_cmd(&dir)
+            .args([
+                "test",
+                "--target",
+                backend,
+                "--build-only",
+                "--filter",
+                "selected*",
+                "--sort-input",
+            ])
+            .assert()
+            .success();
+        let artifacts: serde_json::Value =
+            serde_json::from_slice(&build.get_output().stdout).unwrap();
+        let paths = artifacts["artifacts_path"].as_array().unwrap();
+        assert_eq!(paths.len(), 1);
+        // Match the runner's Windows path handling before launching the artifact.
+        let executable = dunce::simplified(std::path::Path::new(paths[0].as_str().unwrap()));
+        let mut selections = vec![
+            (compact.as_str(), expected.as_slice(), false),
+            (single_ranges.as_str(), expected.as_slice(), false),
+            ("", &[], false),
+        ];
+        if backend == "js" {
+            selections.push((
+                artifacts["test_filter_args"][0].as_str().unwrap(),
+                build_only_expected.as_slice(),
+                true,
+            ));
+        }
+        for (args, expected, from_build_only) in selections {
+            let command = match backend {
+                "js" => snapbox::cmd::Command::new(moonutil::toolchain::BINARIES.node_or_default())
+                    .arg(executable)
+                    .arg(args),
+                "wasm" | "wasm-gc" => snapbox::cmd::Command::new(moonrun_bin())
+                    .arg(format!("--test-args={args}"))
+                    .arg(executable),
+                _ => snapbox::cmd::Command::new(executable).arg(args),
+            };
+            let output = command.assert().success().stderr_eq("");
+            let mut events: Vec<serde_json::Value> =
+                std::str::from_utf8(&output.get_output().stdout)
+                    .unwrap()
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .filter(|event| event["type"] == "result")
+                    .collect();
+            if from_build_only {
+                // Compiler metadata controls file order; check the emitted selection.
+                events.sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+            }
+            assert_eq!(
+                events.as_slice(),
+                expected,
+                "backend={backend}, args={args}"
+            );
+        }
+    }
+}

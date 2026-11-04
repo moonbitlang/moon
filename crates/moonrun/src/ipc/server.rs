@@ -208,12 +208,17 @@ mod tests {
                 serde_json::to_value(super::super::wire::Request {
                     version: super::super::wire::VERSION,
                     invocation: crate::ipc::Invocation {
-                        program: program.clone(), working_directory: directory.path().to_owned(),
-                        args: Vec::new(), environment: Vec::new(), inherited_policy: None,
-                        no_stack_trace: false, stack_size: None,
-                        test_args: Some(serde_json::json!({"package":"test", "file_and_index":"x".repeat(800_000)}).to_string()),
+                        program: program.clone(),
+                        working_directory: directory.path().to_owned(),
+                        args: Vec::new(),
+                        environment: Vec::new(),
+                        inherited_policy: None,
+                        no_stack_trace: false,
+                        stack_size: None,
+                        test_args: Some(format!("test.mbt:{}", "x".repeat(800_000))),
                     },
-                }).unwrap()
+                })
+                .unwrap()
             } else {
                 // deny_unknown_fields includes this name in its error reply.
                 serde_json::json!({
