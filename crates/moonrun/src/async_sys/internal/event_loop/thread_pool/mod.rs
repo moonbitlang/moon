@@ -23,6 +23,8 @@ mod sleep;
 mod types;
 mod worker;
 
+#[cfg(windows)]
+pub(crate) use cancellation::make_cancel_event;
 pub(crate) use cancellation::with_cancellable_region;
 pub(crate) use jobs::make_failed_job;
 pub(crate) use jobs::make_sleep_job;

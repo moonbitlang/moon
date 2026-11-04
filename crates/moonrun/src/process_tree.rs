@@ -635,6 +635,21 @@ impl Engine {
         true
     }
 
+    /// Deliver a terminal resize to every member that listens for it, as
+    /// the kernel does for the terminal's foreground process group. Return
+    /// whether any member accepted it.
+    #[cfg(unix)]
+    pub fn deliver_resize(&self) -> bool {
+        let table = self.processes.0.lock().unwrap();
+        let mut accepted = false;
+        for entry in table.entries.values() {
+            // Members that do not listen for it decline it, and exited
+            // members awaiting reaping are disconnected.
+            accepted |= entry.signals.send(libc::SIGWINCH) == Ok(true);
+        }
+        accepted
+    }
+
     /// Join and reap exactly once, including Run failures and thread panics.
     /// No table lock is held while waiting for Run and thread teardown.
     pub fn wait(&self, pid: VirtualPid) -> Result<RunOutcome, ProcessError> {

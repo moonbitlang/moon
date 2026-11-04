@@ -293,6 +293,22 @@ pub(super) extern "C" fn cancellation_signal_handler(_: i32) {
     }
 }
 
+/// Create the auto-reset event that cancels one Job's wait, see
+/// `Job::cancellation_resource`. The worker sets it instead of calling
+/// `CancelSynchronousIo`, which does not interrupt `WaitForMultipleObjects`.
+/// Each Job owns its own, so a cancellation never leaks into the next one.
+#[cfg(windows)]
+pub(crate) fn make_cancel_event() -> AsyncHostResult<crate::resource::Resource> {
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::System::Threading::CreateEventW;
+
+    let cancel = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+    if cancel.is_null() {
+        return Err(AsyncHostError::Native(unsafe { GetLastError() } as i32));
+    }
+    Ok(crate::resource::Resource::new(cancel))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
