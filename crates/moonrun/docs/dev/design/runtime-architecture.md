@@ -530,8 +530,12 @@ explicitly through Host Process; parentage alone does not supply it.
 
 The CLI offers `--virtual-process` and `--daemon` as explicit enabling overrides
 for `process.virtualize` and `process.ipc`. Absent flags retain the selected
-configuration. Neither flag changes authorization. IPC and virtualization remain
-mutually exclusive, including settings loaded from policy or inherited discovery.
+configuration. Neither flag changes authorization. The implementation rejects
+combining IPC with virtual process identities, including settings loaded from
+policy or inherited discovery. This restriction does not apply to Runtime state isolation:
+IPC uses owned Env and Fixed cwd with native process identities. Its guest
+operations use the same Host Domains and executable lookup as other Runs with
+that state.
 The binary consumes the library's shared `MoonrunCli` grammar; parsing does not
 initialize the Engine, load policy, or install process-global handlers.
 

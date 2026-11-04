@@ -24,6 +24,43 @@ fn exit(code : Int) = "moonbitlang/async" "runtime/exit"
 
 async fn main {
   let args = @env.args()
+  if args[1] == "lookup-parent" {
+    let (code, output) = @process.collect_stdout(
+      "/bin/sh",
+      ["-c", "exec \"$1\" \"$2\" lookup-child \"$3\"", "ipc-shell", args[2], args[3], "\{pid()}"],
+      cwd="child",
+      extra_env={ "PATH": "first", "IPC_VALUE": "caller" },
+    )
+    assert_eq(code, 0)
+    assert_eq(output.text(), "caller lookup preserved\n")
+    assert_eq(@env.get_env_var("PATH"), Some("daemon"))
+    println("caller lookup and host isolation preserved")
+    return
+  }
+  if args[1] == "lookup-child" {
+    assert_eq(args[2], "\{pid()}")
+    assert_eq(@env.get_env_var("PATH"), Some("first"))
+    assert_eq(@fs.read_file("input").text(), "caller cwd")
+    for path in ["first", "second"] {
+      @env.set_env_var("PATH", path)
+      let (code, output) = @process.collect_stdout(
+        "ipc-lookup-probe", [], extra_env={ "PATH": "child-env" },
+      )
+      assert_eq(code, 0)
+      assert_eq(output.text(), "\{path}\n")
+    }
+    @env.unset_env_var("PATH")
+    let missing = try {
+      @process.run("ipc-lookup-probe", []) |> ignore
+      false
+    } catch {
+      @os_error.OSError(_) as error if error.is_ENOENT() => true
+      error => raise error
+    }
+    assert_true(missing)
+    println("caller lookup preserved")
+    return
+  }
   if args[1] == "check-native-spawn" {
     let launched = try {
       let (code, _) = @process.collect_stdout(args[2], [args[3], "probe"])

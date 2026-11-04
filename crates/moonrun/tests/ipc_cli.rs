@@ -50,6 +50,45 @@ fn cli_reuses_the_host_through_a_native_shell() {
     fs::create_dir(project.join("child")).unwrap();
     fs::write(project.join("child/input"), "caller cwd").unwrap();
     fs::write(project.join("secret"), "must remain inaccessible").unwrap();
+
+    // Distinct candidates catch lookup against the host cwd/PATH or the
+    // explicitly supplied child environment instead of the caller Runtime.
+    for (path, output) in [
+        ("daemon", "host PATH"),
+        ("first", "host cwd"),
+        ("second", "host cwd"),
+        ("child/daemon", "host PATH"),
+        ("child/first", "first"),
+        ("child/second", "second"),
+        ("child/child-env", "child PATH"),
+    ] {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = project.join(path);
+        fs::create_dir(&bin).unwrap();
+        let probe = bin.join("ipc-lookup-probe");
+        fs::write(
+            &probe,
+            format!(
+                "#!/bin/sh\n[ \"$PATH\" = child-env ] || exit 91\n[ \"$IPC_VALUE\" = caller ] || exit 92\n[ -f input ] || exit 93\nprintf '%s\\n' '{output}'\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(probe, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&project)
+        .env("PATH", "daemon")
+        .env_remove(moonrun::ipc::ENDPOINT_ENV)
+        .arg("--daemon")
+        .arg(&wasm)
+        .arg("lookup-parent")
+        .arg(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm)
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success()
+        .stdout_eq("caller lookup and host isolation preserved\n");
+
     let policy = project.join("policy.toml");
     fs::write(
         &policy,
