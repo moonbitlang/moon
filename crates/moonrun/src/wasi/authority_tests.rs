@@ -769,6 +769,48 @@ fn renamed_preopen_keeps_its_original_directory() {
 
 #[cfg(unix)]
 #[test]
+fn absolute_directory_dot_suffix_is_not_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let base = fs::canonicalize(root.path()).unwrap();
+    let directory = base.join("empty");
+    fs::create_dir(&directory).unwrap();
+    let context = tests::test_context(&base);
+    for suffix in ["/.", "/./"] {
+        let mut memory = format!("{}{suffix}", directory.display()).into_bytes();
+        let len = memory.len() as u32;
+        assert_eq!(
+            path_remove_directory_impl(&context, &mut memory, WASI_FD_PREOPEN_DIR, 0, len),
+            Err(WASI_ERRNO_INVAL),
+            "suffix={suffix}"
+        );
+        assert!(directory.is_dir());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn absolute_link_with_directory_suffix_is_not_unlinked() {
+    let root = tempfile::tempdir().unwrap();
+    let base = fs::canonicalize(root.path()).unwrap();
+    let target = base.join("target");
+    let link = base.join("link");
+    fs::create_dir(&target).unwrap();
+    std::os::unix::fs::symlink("target", &link).unwrap();
+    let context = tests::test_context(&base);
+    for suffix in ["/", "//", "/.", "/./"] {
+        let mut memory = format!("{}{suffix}", link.display()).into_bytes();
+        let len = memory.len() as u32;
+        assert!(
+            path_unlink_file_impl(&context, &mut memory, WASI_FD_PREOPEN_DIR, 0, len).is_err(),
+            "suffix={suffix}"
+        );
+        assert!(link.is_symlink());
+        assert!(target.is_dir());
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn absolute_paths_preserve_directory_traversal_and_final_link_entries() {
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();

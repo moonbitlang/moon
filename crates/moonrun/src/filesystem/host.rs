@@ -103,25 +103,20 @@ fn directory_path_for_authorization(handle: super::os::RawFile) -> Result<PathBu
 /// semantics before their OS operation gets to interpret the entry.
 fn relative_path(base: &Path, path: &Path) -> Result<PathBuf, FsError> {
     #[cfg(unix)]
-    {
-        let relative = if path.is_absolute() {
-            path.strip_prefix(base).ok()
+    if !path.is_absolute() {
+        return Ok(if path.as_os_str().is_empty() {
+            PathBuf::from(".")
         } else {
-            Some(path)
-        };
-        if let Some(relative) = relative {
-            return Ok(if relative.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                relative.to_owned()
-            });
-        }
+            path.to_owned()
+        });
     }
     #[cfg(windows)]
     let host_path = std::path::absolute(dunce::simplified(base).join(path))?;
     #[cfg(unix)]
     let host_path = path.to_owned();
-    let resolved = if dunce::simplified(&host_path) == dunce::simplified(base) {
+    let resolved = if cfg!(unix) && host_path.starts_with(base) {
+        host_path
+    } else if dunce::simplified(&host_path) == dunce::simplified(base) {
         base.to_owned()
     } else if let Some(name) = host_path.file_name() {
         let parent = host_path.parent().ok_or(FsError::Denied)?;
@@ -140,13 +135,15 @@ fn relative_path(base: &Path, path: &Path) -> Result<PathBuf, FsError> {
         if relative.as_os_str().is_empty() {
             relative.push(".");
         } else if entry_before_directory_suffix(path).is_some() {
-            // Path components discard this suffix, but the syscall must still
-            // distinguish a link entry from directory traversal through it.
-            relative.push(if path.as_os_str().as_encoded_bytes().ends_with(b"/.") {
-                "."
-            } else {
-                ""
-            });
+            // strip_prefix discards directory suffixes. Preserve traversal and
+            // a final dot (even in /./), which rmdir must not turn into deletion.
+            let trailing_dot = path
+                .as_os_str()
+                .as_encoded_bytes()
+                .rsplit(|byte| *byte == b'/')
+                .find(|component| !component.is_empty())
+                .is_some_and(|component| component == b".");
+            relative.push(if trailing_dot { "." } else { "" });
         }
         relative
     };
