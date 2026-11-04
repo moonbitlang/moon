@@ -23,9 +23,10 @@ pub(crate) mod imports;
 #[cfg(test)]
 mod authority_tests;
 
-use crate::filesystem::{FileOpenOptions, FsError, HostFs};
+use crate::filesystem::{Directory, FileOpenOptions, FsError, HostFs};
 use crate::run_termination::{RunTermination, TerminationRequest};
 use crate::runtime::{Env, Runtime, Stdio, StdioStream};
+use anyhow::Context;
 use rand::{RngCore, rngs::OsRng};
 use std::collections::BTreeMap;
 use std::fs;
@@ -143,7 +144,7 @@ impl DescriptorTable {
 
 enum DescriptorKind {
     File(Mutex<fs::File>),
-    Directory(PathBuf),
+    Directory(Arc<Directory>),
 }
 
 struct Descriptor {
@@ -186,8 +187,7 @@ pub(crate) struct WasiContext {
     stdio: Arc<Stdio>,
     filesystem: Arc<HostFs>,
     preopen_dir_name: Vec<u8>,
-    preopen_dir_host_path: PathBuf,
-    preopen_dir_real_path: PathBuf,
+    preopen_directory: Arc<Directory>,
     descriptors: Mutex<DescriptorTable>,
     termination_request: TerminationRequest,
 }
@@ -248,24 +248,25 @@ impl WasiContext {
         args: &[String],
         runtime: &Runtime,
         termination_request: TerminationRequest,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let preopen_dir_host_path = runtime
             .working_directory()
             .current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."));
-        let preopen_dir_real_path = fs::canonicalize(&preopen_dir_host_path)
-            .unwrap_or_else(|_| preopen_dir_host_path.clone());
-        Self {
+            .context("failed to resolve WASI preopen directory")?;
+        let preopen_directory = Arc::new(
+            Directory::preopen(&preopen_dir_host_path)
+                .context("failed to open WASI preopen directory")?,
+        );
+        Ok(Self {
             argv: build_argv(wasm_file_name, args),
             environment: Arc::clone(runtime.environment()),
             stdio: Arc::clone(runtime.stdio()),
             filesystem: Arc::clone(runtime.filesystem()),
             preopen_dir_name: preopen_name(),
-            preopen_dir_host_path,
-            preopen_dir_real_path,
+            preopen_directory,
             descriptors: Mutex::new(DescriptorTable::new()),
             termination_request,
-        }
+        })
     }
 }
 
@@ -410,25 +411,29 @@ fn preopen_matches(context: &WasiContext, fd: i32) -> bool {
     fd == WASI_FD_PREOPEN_DIR && !context.preopen_dir_name.is_empty()
 }
 
-fn dir_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
-    let path = if preopen_matches(context, fd) {
-        context.preopen_dir_host_path.clone()
+fn directory_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Directory>> {
+    let directory = if preopen_matches(context, fd) {
+        Arc::clone(&context.preopen_directory)
     } else {
         let descriptor = descriptor_for_fd(context, fd)?;
         match &descriptor.kind {
-            DescriptorKind::Directory(path) => path.clone(),
+            DescriptorKind::Directory(directory) => Arc::clone(directory),
             _ => return Err(WASI_ERRNO_BADF),
         }
     };
-
-    let real_path = fs::canonicalize(&path).map_err(|error| io_error_to_errno(&error))?;
-    ensure_within_root(&context.preopen_dir_real_path, &real_path)?;
-    Ok(path)
+    let path = directory.path().map_err(fs_error_to_errno)?;
+    let root = context
+        .preopen_directory
+        .path()
+        .map_err(fs_error_to_errno)?;
+    ensure_within_root(&root, &path)?;
+    Ok(directory)
 }
 
-fn dir_real_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
-    let path = dir_path_for_fd(context, fd)?;
-    fs::canonicalize(&path).map_err(|error| io_error_to_errno(&error))
+fn dir_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
+    directory_for_fd(context, fd)?
+        .path()
+        .map_err(fs_error_to_errno)
 }
 
 fn file_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Descriptor>> {
@@ -537,13 +542,17 @@ fn validate_guest_entry_path(path: &Path) -> WasiResult<()> {
 }
 
 struct ResolvedPath {
+    directory: Arc<Directory>,
     host_path: PathBuf,
     boundary_root: PathBuf,
 }
 
 fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<ResolvedPath> {
-    let base = dir_path_for_fd(context, dirfd)?;
-    let boundary_root = dir_real_path_for_fd(context, dirfd)?;
+    let directory = directory_for_fd(context, dirfd)?;
+    let base = directory.path().map_err(fs_error_to_errno)?;
+    let boundary_root = base.clone();
+    #[cfg(windows)]
+    let base = dunce::simplified(&base).to_path_buf();
     let host_path = if path.as_os_str().is_empty() {
         base
     } else if path.is_absolute() {
@@ -552,6 +561,7 @@ fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<Re
         base.join(path)
     };
     Ok(ResolvedPath {
+        directory,
         host_path,
         boundary_root,
     })
@@ -815,14 +825,11 @@ pub(crate) fn path_open_impl(
         if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
             return Err(WASI_ERRNO_INVAL);
         }
-        let metadata = context
+        let directory = context
             .filesystem
-            .metadata(&resolved.host_path)
+            .open_directory_at(&resolved.directory, &path)
             .map_err(fs_error_to_errno)?;
-        if !metadata.is_dir() {
-            return Err(WASI_ERRNO_NOTDIR);
-        }
-        DescriptorKind::Directory(resolved.host_path)
+        DescriptorKind::Directory(Arc::new(directory))
     } else {
         let wants_read = (rights_base & WASI_RIGHT_FD_READ) != 0;
         let wants_write = (rights_base & WASI_RIGHT_FD_WRITE) != 0;
@@ -840,7 +847,7 @@ pub(crate) fn path_open_impl(
         };
         let file = context
             .filesystem
-            .open_file(&resolved.host_path, options)
+            .open_file_at(&resolved.directory, &path, options)
             .map_err(fs_error_to_errno)?;
         DescriptorKind::File(Mutex::new(file))
     };
@@ -981,7 +988,7 @@ pub(crate) fn path_remove_directory_impl(
     )?;
     context
         .filesystem
-        .remove_empty_directory(&resolved.host_path)
+        .remove_directory_at(&resolved.directory, &path)
         .map_err(fs_error_to_errno)
 }
 
@@ -1004,7 +1011,7 @@ pub(crate) fn path_unlink_file_impl(
     )?;
     context
         .filesystem
-        .unlink_file(&resolved.host_path)
+        .unlink_file_at(&resolved.directory, &path)
         .map_err(fs_error_to_errno)
 }
 
@@ -1619,8 +1626,7 @@ mod tests {
                 Arc::new(crate::runtime::WorkingDirectory::Ambient),
             )),
             preopen_dir_name: preopen_name(),
-            preopen_dir_host_path: root.to_path_buf(),
-            preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
+            preopen_directory: Arc::new(Directory::preopen(root).expect("open preopen root")),
             descriptors: Mutex::new(DescriptorTable::new()),
             termination_request: TerminationRequest::default(),
         }
@@ -1724,7 +1730,7 @@ mod tests {
 
         let subdir_fd = with_descriptor_table(&context, |table| {
             table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
+                kind: DescriptorKind::Directory(Arc::new(Directory::preopen(&subdir).unwrap())),
                 rights_base: preopen_rights_base(),
                 rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
             }))
@@ -1758,7 +1764,7 @@ mod tests {
         let context = test_context(&root);
         let subdir_fd = with_descriptor_table(&context, |table| {
             table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
+                kind: DescriptorKind::Directory(Arc::new(Directory::preopen(&subdir).unwrap())),
                 rights_base: preopen_rights_base(),
                 rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
             }))
@@ -1792,7 +1798,7 @@ mod tests {
         let context = test_context(&root);
         let subdir_fd = with_descriptor_table(&context, |table| {
             table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
+                kind: DescriptorKind::Directory(Arc::new(Directory::preopen(&subdir).unwrap())),
                 rights_base: preopen_rights_base(),
                 rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
             }))
@@ -1824,7 +1830,7 @@ mod tests {
         let context = test_context(&root);
         let subdir_fd = with_descriptor_table(&context, |table| {
             table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
+                kind: DescriptorKind::Directory(Arc::new(Directory::preopen(&subdir).unwrap())),
                 rights_base: preopen_rights_base(),
                 rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
             }))
@@ -1864,7 +1870,7 @@ mod tests {
         let context = test_context(&root);
         let subdir_fd = with_descriptor_table(&context, |table| {
             table.insert(Arc::new(Descriptor {
-                kind: DescriptorKind::Directory(subdir),
+                kind: DescriptorKind::Directory(Arc::new(Directory::preopen(&subdir).unwrap())),
                 rights_base: preopen_rights_base(),
                 rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
             }))
@@ -1906,7 +1912,7 @@ mod tests {
 
         assert_eq!(
             enforce_path_boundary(
-                &context.preopen_dir_real_path,
+                &context.preopen_directory.path().unwrap(),
                 &sibling.join("file.txt"),
                 PathBoundaryMode::FollowFinal {
                     allow_missing_final: false,
@@ -1928,7 +1934,7 @@ mod tests {
 
         assert!(
             enforce_path_boundary(
-                &context.preopen_dir_real_path,
+                &context.preopen_directory.path().unwrap(),
                 &root.join("new.txt"),
                 PathBoundaryMode::FollowFinal {
                     allow_missing_final: true,
@@ -1938,7 +1944,7 @@ mod tests {
         );
         assert_eq!(
             enforce_path_boundary(
-                &context.preopen_dir_real_path,
+                &context.preopen_directory.path().unwrap(),
                 &sibling.join("new.txt"),
                 PathBoundaryMode::FollowFinal {
                     allow_missing_final: true,
@@ -1965,7 +1971,7 @@ mod tests {
 
         assert_eq!(
             enforce_path_boundary(
-                &context.preopen_dir_real_path,
+                &context.preopen_directory.path().unwrap(),
                 &root.join("link.txt"),
                 PathBoundaryMode::FollowFinal {
                     allow_missing_final: false,

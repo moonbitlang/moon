@@ -22,7 +22,7 @@ mod host;
 mod job;
 mod os;
 
-pub(crate) use host::{FileOpenOptions, FsError, HostFs, entry_before_directory_suffix};
+pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs, entry_before_directory_suffix};
 pub(crate) use job::{Job, stdio_kind};
 
 #[cfg(test)]

@@ -100,6 +100,32 @@ fn context(root: &Path, policy: &str) -> WasiContext {
         &runtime,
         TerminationRequest::default(),
     )
+    .unwrap()
+}
+
+#[test]
+fn unavailable_preopen_fails_context_setup_with_the_native_error() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(
+        RuntimeConfig {
+            working_directory: WorkingDirectory::Fixed(root.path().to_owned()),
+            ..Default::default()
+        },
+        Executable::unavailable(),
+        crate::signal_channel().1,
+    )
+    .unwrap();
+    // Runtime has validated the configured path, but it can disappear before
+    // the WASI adapter acquires its preopen. No invalid context may escape.
+    fs::remove_dir(root.path()).unwrap();
+    let error = WasiContext::new("preopen.wasm", &[], &runtime, TerminationRequest::default())
+        .err()
+        .expect("preopen acquisition must fail setup");
+    assert_eq!(error.to_string(), "failed to open WASI preopen directory");
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().unwrap().kind(),
+        ErrorKind::NotFound
+    );
 }
 
 fn open(
@@ -396,6 +422,156 @@ fn acquired_file_access_survives_a_host_rename() {
     );
 }
 
+#[test]
+fn directory_open_uses_the_acquired_handle_after_rename_and_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("original")).unwrap();
+    fs::write(root.path().join("original/file"), b"keep").unwrap();
+    let context = tests::test_context(root.path());
+    let directory = open(
+        &context,
+        WASI_FD_PREOPEN_DIR,
+        "original",
+        WASI_OFLAGS_DIRECTORY,
+        WASI_RIGHT_PATH_OPEN | WASI_RIGHT_FD_READDIR,
+        WASI_RIGHT_FD_READ,
+        0,
+    )
+    .unwrap();
+    fs::rename(root.path().join("original"), root.path().join("moved")).unwrap();
+    fs::create_dir(root.path().join("original")).unwrap();
+    fs::write(root.path().join("original/file"), b"fake").unwrap();
+    fs::write(root.path().join("original/replacement"), []).unwrap();
+    let file = open(&context, directory, "file", 0, WASI_RIGHT_FD_READ, 0, 0).unwrap();
+    let mut memory = [0; 1024];
+    memory[..4].copy_from_slice(&16u32.to_le_bytes());
+    memory[4..8].copy_from_slice(&4u32.to_le_bytes());
+    fd_read_impl(&context, &mut memory, file, 0, 1, 8).unwrap();
+    assert_eq!(&memory[16..20], b"keep");
+    fd_readdir_impl(&context, &mut memory, directory, 0, 1000, 0, 1000).unwrap();
+    let used = u32::from_le_bytes(memory[1000..1004].try_into().unwrap()) as usize;
+    assert!(
+        !memory[..used]
+            .windows(11)
+            .any(|name| name == b"replacement")
+    );
+}
+
+#[test]
+fn moving_a_directory_outside_the_preopen_does_not_extend_its_grant() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("directory")).unwrap();
+    fs::write(root.path().join("directory/file"), b"keep").unwrap();
+    let context = tests::test_context(root.path());
+    let directory = open(
+        &context,
+        WASI_FD_PREOPEN_DIR,
+        "directory",
+        WASI_OFLAGS_DIRECTORY,
+        WASI_RIGHT_PATH_OPEN,
+        WASI_RIGHT_FD_READ,
+        0,
+    )
+    .unwrap();
+    fs::rename(root.path().join("directory"), outside.path().join("moved")).unwrap();
+    fs::create_dir(root.path().join("directory")).unwrap();
+    fs::write(root.path().join("directory/file"), b"fake").unwrap();
+    assert_eq!(
+        open(&context, directory, "file", 0, WASI_RIGHT_FD_READ, 0, 0),
+        Err(WASI_ERRNO_NOTCAPABLE),
+    );
+}
+
+#[test]
+fn open_validation_preserves_files_before_any_native_effect() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("file"), b"keep").unwrap();
+    let context = tests::test_context(root.path());
+    for (oflags, rights, fdflags, error) in [
+        (WASI_OFLAGS_TRUNC, WASI_RIGHT_FD_READ, 0, WASI_ERRNO_INVAL),
+        (
+            WASI_OFLAGS_TRUNC,
+            WASI_RIGHT_FD_WRITE,
+            WASI_FDFLAG_APPEND,
+            WASI_ERRNO_INVAL,
+        ),
+        (
+            WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL,
+            WASI_RIGHT_FD_WRITE,
+            0,
+            WASI_ERRNO_EXIST,
+        ),
+        (
+            WASI_OFLAGS_DIRECTORY,
+            WASI_RIGHT_FD_READDIR,
+            0,
+            WASI_ERRNO_NOTDIR,
+        ),
+    ] {
+        assert_eq!(
+            open(
+                &context,
+                WASI_FD_PREOPEN_DIR,
+                "file",
+                oflags,
+                rights,
+                0,
+                fdflags
+            ),
+            Err(error)
+        );
+        assert_eq!(fs::read(root.path().join("file")).unwrap(), b"keep");
+    }
+    let fd = open(
+        &context,
+        WASI_FD_PREOPEN_DIR,
+        "file",
+        0,
+        WASI_RIGHT_FD_WRITE,
+        0,
+        WASI_FDFLAG_APPEND,
+    )
+    .unwrap();
+    let mut memory = [0; 32];
+    memory[..4].copy_from_slice(&16u32.to_le_bytes());
+    memory[4..8].copy_from_slice(&1u32.to_le_bytes());
+    memory[16] = b'!';
+    fd_write_impl(&context, &mut memory, fd, 0, 1, 8).unwrap();
+    assert_eq!(fs::read(root.path().join("file")).unwrap(), b"keep!");
+}
+
+#[cfg(windows)]
+#[test]
+fn relative_open_preserves_dos_normalization_for_new_names() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("directory")).unwrap();
+    let context = tests::test_context(root.path());
+    open(
+        &context,
+        WASI_FD_PREOPEN_DIR,
+        "directory/../created.",
+        WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL,
+        WASI_RIGHT_FD_WRITE,
+        0,
+        0,
+    )
+    .unwrap();
+    assert!(root.path().join("created").is_file());
+    assert_eq!(
+        open(
+            &context,
+            WASI_FD_PREOPEN_DIR,
+            "created",
+            WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL,
+            WASI_RIGHT_FD_WRITE,
+            0,
+            0
+        ),
+        Err(WASI_ERRNO_EXIST)
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn readlink_requires_authority_for_the_link_entry() {
@@ -536,4 +712,130 @@ fn missing_directory_suffix_distinguishes_new_entry_from_dangling_link() {
     let mut memory = *b"allowed/new/";
     path_create_directory_impl(&context, &mut memory, 3, 0, 12).unwrap();
     assert!(root.path().join("allowed/new").is_dir());
+}
+
+#[test]
+fn relative_removal_uses_current_authority_after_directory_rename() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("allowed/empty")).unwrap();
+    fs::write(root.path().join("allowed/file"), b"keep").unwrap();
+    let context = context(
+        root.path(),
+        "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
+    );
+    let directory = open(
+        &context,
+        WASI_FD_PREOPEN_DIR,
+        "allowed",
+        WASI_OFLAGS_DIRECTORY,
+        WASI_RIGHT_PATH_UNLINK_FILE | WASI_RIGHT_PATH_REMOVE_DIRECTORY,
+        0,
+        0,
+    )
+    .unwrap();
+    fs::rename(root.path().join("allowed"), root.path().join("denied")).unwrap();
+    fs::create_dir_all(root.path().join("allowed/empty")).unwrap();
+    fs::write(root.path().join("allowed/file"), b"fake").unwrap();
+    let mut memory = *b"fileempty";
+    assert_eq!(
+        path_unlink_file_impl(&context, &mut memory, directory, 0, 4),
+        Err(WASI_ERRNO_ACCESS)
+    );
+    assert_eq!(
+        path_remove_directory_impl(&context, &mut memory, directory, 4, 5),
+        Err(WASI_ERRNO_ACCESS)
+    );
+    for name in ["allowed", "denied"] {
+        assert!(root.path().join(name).join("file").is_file());
+        assert!(root.path().join(name).join("empty").is_dir());
+    }
+}
+
+#[test]
+fn renamed_preopen_keeps_its_original_directory() {
+    let outer = tempfile::tempdir().unwrap();
+    let original = outer.path().join("original");
+    fs::create_dir(&original).unwrap();
+    fs::write(original.join("file"), b"keep").unwrap();
+    let context = tests::test_context(&original);
+    fs::rename(&original, outer.path().join("moved")).unwrap();
+    fs::create_dir(&original).unwrap();
+    fs::write(original.join("file"), b"fake").unwrap();
+    let mut memory = *b"file";
+    path_unlink_file_impl(&context, &mut memory, WASI_FD_PREOPEN_DIR, 0, 4).unwrap();
+    assert_eq!(fs::read(original.join("file")).unwrap(), b"fake");
+    assert!(!outer.path().join("moved/file").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn absolute_directory_dot_suffix_is_not_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let base = fs::canonicalize(root.path()).unwrap();
+    let directory = base.join("empty");
+    fs::create_dir(&directory).unwrap();
+    let context = tests::test_context(&base);
+    for suffix in ["/.", "/./"] {
+        let mut memory = format!("{}{suffix}", directory.display()).into_bytes();
+        let len = memory.len() as u32;
+        assert_eq!(
+            path_remove_directory_impl(&context, &mut memory, WASI_FD_PREOPEN_DIR, 0, len),
+            Err(WASI_ERRNO_INVAL),
+            "suffix={suffix}"
+        );
+        assert!(directory.is_dir());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn absolute_link_with_directory_suffix_is_not_unlinked() {
+    let root = tempfile::tempdir().unwrap();
+    let base = fs::canonicalize(root.path()).unwrap();
+    let target = base.join("target");
+    let link = base.join("link");
+    fs::create_dir(&target).unwrap();
+    std::os::unix::fs::symlink("target", &link).unwrap();
+    let context = tests::test_context(&base);
+    for suffix in ["/", "//", "/.", "/./"] {
+        let mut memory = format!("{}{suffix}", link.display()).into_bytes();
+        let len = memory.len() as u32;
+        assert!(
+            path_unlink_file_impl(&context, &mut memory, WASI_FD_PREOPEN_DIR, 0, len).is_err(),
+            "suffix={suffix}"
+        );
+        assert!(link.is_symlink());
+        assert!(target.is_dir());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn absolute_paths_preserve_directory_traversal_and_final_link_entries() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("child")).unwrap();
+    fs::write(outside.path().join("target"), b"keep").unwrap();
+    std::os::unix::fs::symlink(outside.path().join("target"), root.path().join("link")).unwrap();
+    let context = tests::test_context(root.path());
+    let directory = open(
+        &context,
+        WASI_FD_PREOPEN_DIR,
+        root.path().join("child/..").to_str().unwrap(),
+        WASI_OFLAGS_DIRECTORY,
+        WASI_RIGHT_PATH_UNLINK_FILE,
+        0,
+        0,
+    )
+    .unwrap();
+    let mut memory = root
+        .path()
+        .join("link")
+        .as_os_str()
+        .as_encoded_bytes()
+        .to_vec();
+    let len = memory.len() as u32;
+    path_unlink_file_impl(&context, &mut memory, directory, 0, len).unwrap();
+    assert!(fs::symlink_metadata(root.path().join("link")).is_err());
+    assert_eq!(fs::read(outside.path().join("target")).unwrap(), b"keep");
 }

@@ -45,7 +45,8 @@ I/O on that file uses its grant and descriptor rights without reopening or
 reauthorizing the original pathname. Async Jobs retain their parent directory
 resources and authorize derived operations against the handle's current location;
 an unlinked directory cannot reuse a grant for a replacement at its old pathname.
-WASI directory descriptors still retain paths and authorize derived operations.
+WASI directory descriptors also own directory handles and authorize derived
+operations against their current locations.
 Explicit stdio bindings are separate resource grants. Pure file-kind queries use
 the acquired resource grant, consistently across the scalar imports and `fstatx`.
 Other metadata requests still require filesystem read authorization, including
@@ -86,9 +87,18 @@ on Windows when copying is rejected, preserving syscall availability and
 long-path handling. These options control mechanisms, not guest authority.
 A directory handle does not imply that every descendant lies on one filesystem.
 
-WASI `path_unlink_file` retains file-only removal rather than async remove's
-empty-directory behavior. Synchronous open and I/O use standard-library
-primitives without worker cancellation.
+WASI `path_unlink_file` and `path_remove_directory` use the shared `unlinkat`
+mechanism with separate file-only and directory-only operations. They do not
+use async remove's automatic empty-directory fallback. On Windows the native
+open enforces the requested entry kind before applying deletion disposition;
+WASI file deletion retains std's read-only attribute handling. WASI and Async
+opening share the `openat` mechanism. WASI keeps descriptor rights and preopen containment in its adapter;
+HostFs authorizes the full open intent before execution. WASI directory and
+preopen handles need traversal/metadata access, not enumeration access. Failure
+to acquire the preopen fails run setup on every engine, even for modules that do
+not import WASI; a constructed WASI context always owns a valid preopen. Async's
+directory-listing opens additionally request listing access and asynchronous
+Windows I/O. Synchronous opening does not enter worker cancellation.
 
 Directory suffixes such as `link/` and `link/.` cause traversal, including for
 operations that otherwise act on the final link entry. Entry authorization and
@@ -98,11 +108,12 @@ links, including dangling targets and loops. Ordinary missing files and
 directories can be created when authorized. Removing or renaming a link checks
 the entry rather than its target.
 
-Async relative opening and removal use the acquired directory handle, so
-renaming or replacing its old path does not redirect the operation. Policy
-authorization still uses pathname checks, which do not establish stable identity
-against concurrent path replacement. Filesystem authority coverage therefore
-does not imply protection against pathname and symlink races.
+Relative opening and removal use the acquired directory handle, so renaming or
+replacing its old path does not redirect those operations. Preopen containment and policy
+still use pathname checks, and other WASI operations (including enumeration)
+still use the directory's current path. These checks do not establish stable
+identity against concurrent path replacement. Filesystem authority coverage
+therefore does not imply protection against pathname and symlink races.
 
 ### Filesystem acceptance criteria
 

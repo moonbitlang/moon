@@ -151,7 +151,7 @@ pub(super) fn install<'s>(
             &v8_context,
             values,
             &mut retained_callback_state,
-        );
+        )?;
     }
 
     // All V8 callbacks are unreachable after the single-shot run returns, so

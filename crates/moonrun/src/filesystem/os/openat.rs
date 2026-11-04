@@ -31,10 +31,22 @@ pub(in crate::filesystem) enum Access {
     Write,
     ReadWrite,
     ListDirectory,
+    /// Acquire a directory for relative operations without enumeration access.
+    TraverseDirectory,
     #[cfg_attr(unix, allow(dead_code))] // Used for Windows metadata handles.
     Attributes,
     #[cfg_attr(unix, allow(dead_code))]
     Delete,
+}
+
+/// An object-type requirement enforced by the native open, separate from the
+/// access granted to the resulting handle.
+pub(in crate::filesystem) enum TypeConstraint {
+    Any,
+    Directory,
+    // Unix file-only deletion uses unlinkat directly, without opening a handle.
+    #[cfg(windows)]
+    NonDirectory,
 }
 
 pub(in crate::filesystem) enum CreateMode {
@@ -53,6 +65,7 @@ pub(in crate::filesystem) enum Sync {
 
 pub(in crate::filesystem) struct OpenOptions {
     pub access: Access,
+    pub type_constraint: TypeConstraint,
     pub follow_symlink: bool,
     pub is_async: bool,
     pub create: CreateMode,
@@ -77,6 +90,10 @@ pub(in crate::filesystem) fn open(
         Access::Read | Access::ListDirectory | Access::Attributes | Access::Delete => {
             libc::O_RDONLY
         }
+        #[cfg(target_os = "linux")]
+        Access::TraverseDirectory => libc::O_PATH,
+        #[cfg(target_os = "macos")]
+        Access::TraverseDirectory => libc::O_EVTONLY,
         Access::Write => libc::O_WRONLY,
         Access::ReadWrite => libc::O_RDWR,
     };
@@ -97,7 +114,7 @@ pub(in crate::filesystem) fn open(
         flags |= libc::O_APPEND;
     }
     // Reject non-directories before openat can wait for a FIFO writer.
-    if matches!(options.access, Access::ListDirectory) {
+    if matches!(options.type_constraint, TypeConstraint::Directory) {
         flags |= libc::O_DIRECTORY;
     }
     if !options.follow_symlink {
@@ -156,9 +173,9 @@ mod windows {
     use std::sync::OnceLock;
     use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
     use windows_sys::Wdk::Storage::FileSystem::{
-        FILE_CREATE, FILE_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_IF, FILE_OPEN_REPARSE_POINT,
-        FILE_OVERWRITE, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, FILE_WRITE_THROUGH,
-        NtCreateFile,
+        FILE_CREATE, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_IF,
+        FILE_OPEN_REPARSE_POINT, FILE_OVERWRITE, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT,
+        FILE_WRITE_THROUGH, NtCreateFile,
     };
     use windows_sys::Win32::Foundation::{
         ERROR_FILENAME_EXCED_RANGE, ERROR_PIPE_BUSY, ERROR_PROC_NOT_FOUND, GENERIC_READ,
@@ -167,7 +184,7 @@ mod windows {
     };
     use windows_sys::Win32::Storage::FileSystem::{
         DELETE, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
@@ -250,6 +267,7 @@ mod windows {
             Access::Write => GENERIC_WRITE | FILE_READ_ATTRIBUTES,
             Access::ReadWrite => GENERIC_READ | GENERIC_WRITE,
             Access::ListDirectory => FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+            Access::TraverseDirectory => FILE_READ_ATTRIBUTES | FILE_TRAVERSE,
             Access::Attributes => FILE_READ_ATTRIBUTES,
             Access::Delete => DELETE,
         };
@@ -276,8 +294,10 @@ mod windows {
         if !options.follow_symlink {
             flags |= FILE_OPEN_REPARSE_POINT;
         }
-        if matches!(options.access, Access::ListDirectory) {
-            flags |= FILE_DIRECTORY_FILE;
+        match options.type_constraint {
+            TypeConstraint::Any => {}
+            TypeConstraint::Directory => flags |= FILE_DIRECTORY_FILE,
+            TypeConstraint::NonDirectory => flags |= FILE_NON_DIRECTORY_FILE,
         }
 
         let _ = options.permission; // Unix permission bits have no Windows equivalent.
@@ -370,6 +390,7 @@ mod tests {
 
     const READ: OpenOptions = OpenOptions {
         access: Access::Read,
+        type_constraint: TypeConstraint::Any,
         follow_symlink: true,
         is_async: false,
         create: CreateMode::Open,
@@ -390,6 +411,7 @@ mod tests {
         let parent = open(None, root.path().as_os_str(), &READ).unwrap();
         let options = OpenOptions {
             access: Access::ListDirectory,
+            type_constraint: TypeConstraint::Directory,
             is_async: true,
             ..READ
         };
@@ -437,6 +459,7 @@ mod tests {
         let parent = open(None, root.path().as_os_str(), &READ).unwrap();
         let options = OpenOptions {
             access: Access::ListDirectory,
+            type_constraint: TypeConstraint::Directory,
             is_async: true,
             ..READ
         };
