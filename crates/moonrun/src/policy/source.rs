@@ -104,7 +104,13 @@ fn resolve_fs_rules(rules: Vec<FsRuleConfig>, directory: &Path) -> anyhow::Resul
                 Ok(FsRule::Path(root))
             }
             FsRuleConfig::Glob { glob } => {
-                let path = Path::new(&glob);
+                // Negation belongs to policy syntax, before host path parsing.
+                // Prefix a literal leading bang with ./ in a glob.
+                let (pattern, exclude) = match glob.strip_prefix('!') {
+                    Some(pattern) => (pattern, true),
+                    None => (glob.as_str(), false),
+                };
+                let path = Path::new(pattern);
                 // Only the leading root / ./ / ../ sequence determines the base.
                 // Literal names inside the glob are matched against resolved target
                 // names, not canonicalized as extra grants through symlinks.
@@ -131,7 +137,7 @@ fn resolve_fs_rules(rules: Vec<FsRuleConfig>, directory: &Path) -> anyhow::Resul
                     .map(|part| part.as_os_str().to_str().unwrap())
                     .collect::<Vec<_>>()
                     .join("/");
-                FsRule::glob(base, &pattern)
+                FsRule::glob(base, &pattern, exclude)
             }
         })
         .collect()

@@ -46,6 +46,12 @@ reauthorizing the original pathname. Directory descriptors retain paths, so
 operations derived from them require path authorization. Explicit stdio bindings
 are separate resource grants.
 
+Filesystem glob exclusions override matching grants within the same read or write
+list, independent of rule order. A matching positive rule is still required.
+Exclusions constrain each authorized path; recursive removal and directory rename
+currently authorize directory endpoints without visiting descendants. They do
+not yet guarantee protection of excluded descendants from ancestor operations.
+
 ### Implementation responsibilities
 
 | Module | Responsibility |
@@ -141,7 +147,9 @@ path bytes or units, and contain no Env provisioning. Domain adapters validate
 received semantic values without reclassifying them from strings. Deterministic
 caches such as Windows command-line prefixes may be rebuilt from the transferred
 command and arguments. Filesystem globs carry a resolved base and a relative
-pattern; decoding compiles the matcher without re-resolving the base. These
+pattern; exclusions use a distinct `exclude_glob` transfer variant, which older
+readers reject. Decoding compiles the matcher without re-resolving the base or
+interpreting a leading `!` again. These
 caches do not require source files or ambient inputs.
 Unknown versions, fields, and invalid rules fail decoding. The experimental
 internal protocol evolves independently of the user configuration schema;
@@ -165,8 +173,9 @@ implement intersection. Trusted host grants are separate from guest derivation.
 
 `Policy::intersect` joins compiled rule groups without file I/O, parsing, or Env
 provisioning. Domain policies retain shared references to each group and require
-every group to allow the operation. Alternatives within a group remain
-alternatives; groups are never flattened into one allowlist.
+every group to allow the operation. Positive alternatives within a group remain
+alternatives, with filesystem exclusions taking precedence; groups are never
+flattened into one allowlist.
 
 | Input | Composition |
 | --- | --- |

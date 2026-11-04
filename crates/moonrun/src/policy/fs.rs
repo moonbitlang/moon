@@ -69,7 +69,11 @@ pub(super) struct FsRules {
 pub(super) enum FsRule {
     Any,
     Path(PathBuf),
-    Glob { base: PathBuf, matcher: GlobMatcher },
+    Glob {
+        base: PathBuf,
+        matcher: GlobMatcher,
+        exclude: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,7 +90,19 @@ impl FsRules {
                 .map(|rule| match rule {
                     FsRule::Any => transfer::FsRule::Any,
                     FsRule::Path(path) => transfer::FsRule::Path(path.as_os_str().to_owned()),
-                    FsRule::Glob { base, matcher } => transfer::FsRule::Glob {
+                    FsRule::Glob {
+                        base,
+                        matcher,
+                        exclude: false,
+                    } => transfer::FsRule::Glob {
+                        base: base.as_os_str().to_owned(),
+                        pattern: matcher.glob().glob().to_owned(),
+                    },
+                    FsRule::Glob {
+                        base,
+                        matcher,
+                        exclude: true,
+                    } => transfer::FsRule::ExcludeGlob {
                         base: base.as_os_str().to_owned(),
                         pattern: matcher.glob().glob().to_owned(),
                     },
@@ -110,7 +126,12 @@ impl FsRules {
                         validate_base(&path)?;
                         Ok(FsRule::Path(path))
                     }
-                    transfer::FsRule::Glob { base, pattern } => FsRule::glob(base.into(), &pattern),
+                    transfer::FsRule::Glob { base, pattern } => {
+                        FsRule::glob(base.into(), &pattern, false)
+                    }
+                    transfer::FsRule::ExcludeGlob { base, pattern } => {
+                        FsRule::glob(base.into(), &pattern, true)
+                    }
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
         };
@@ -129,27 +150,34 @@ impl FsRules {
         let Some(path) = resolved_path else {
             return sandbox_denied(intents.sandbox_action(), Some(target));
         };
-        if intents.read && !self.allows_read(path) {
+        if intents.read && !Self::allows(&self.read_rules, path) {
             return sandbox_denied("file read", Some(target));
         }
-        if intents.write && !self.allows_write(path) {
+        if intents.write && !Self::allows(&self.write_rules, path) {
             return sandbox_denied("file write", Some(target));
         }
         Ok(())
     }
 
-    fn allows_read(&self, path: &Path) -> bool {
-        self.read_rules.iter().any(|rule| rule.allows(path))
-    }
-
-    fn allows_write(&self, path: &Path) -> bool {
-        self.write_rules.iter().any(|rule| rule.allows(path))
+    fn allows(rules: &[FsRule], path: &Path) -> bool {
+        let mut allowed = false;
+        for rule in rules {
+            if rule.matches(path) {
+                // Exclusions override every grant in this group, independent of
+                // order. A list containing only exclusions grants nothing.
+                if matches!(rule, FsRule::Glob { exclude: true, .. }) {
+                    return false;
+                }
+                allowed = true;
+            }
+        }
+        allowed
     }
 }
 
 impl FsRule {
     /// Compile a source-resolved pattern without observing the filesystem.
-    pub(super) fn glob(base: PathBuf, pattern: &str) -> anyhow::Result<Self> {
+    pub(super) fn glob(base: PathBuf, pattern: &str, exclude: bool) -> anyhow::Result<Self> {
         validate_base(&base)?;
         anyhow::ensure!(
             !pattern.is_empty()
@@ -166,14 +194,18 @@ impl FsRule {
             .build()
             .with_context(|| format!("invalid filesystem glob {pattern:?}"))?
             .compile_matcher();
-        Ok(Self::Glob { base, matcher })
+        Ok(Self::Glob {
+            base,
+            matcher,
+            exclude,
+        })
     }
 
-    fn allows(&self, path: &Path) -> bool {
+    fn matches(&self, path: &Path) -> bool {
         match self {
             Self::Any => true,
             Self::Path(root) => path == root || path.starts_with(root),
-            Self::Glob { base, matcher } => path.strip_prefix(base).is_ok_and(|path| {
+            Self::Glob { base, matcher, .. } => path.strip_prefix(base).is_ok_and(|path| {
                 // Candidate::new performs lossy conversion on Windows.
                 // OsStr's encoded bytes preserve names while satisfying the
                 // matcher's ASCII-compatible encoding requirement.
