@@ -1001,10 +1001,11 @@ fn test_member_dir_tree_package_json_output() {
 fn test_member_dir_can_disable_implicit_workspace_mode() {
     let dir = TestDir::new("workspace_basic.in");
 
+    // Keep the missing dependency local; this test covers workspace selection.
     let stderr = get_err_stderr_with_envs(
         &dir,
         ["-C", "app", "build", "--dry-run"],
-        [(MOON_WORK_ENV, "off")],
+        [(MOON_WORK_ENV, "off"), ("MOON_REGISTRY_API", "0")],
     );
     assert_registry_resolution_failure(&stderr);
 }
@@ -1177,7 +1178,12 @@ fn test_workspace_root_cannot_use_workspace_with_env_override() {
 fn test_same_root_module_can_disable_implicit_workspace_mode() {
     let dir = same_root_workspace_dir();
 
-    let stderr = get_err_stderr_with_envs(&dir, ["build", "--dry-run"], [(MOON_WORK_ENV, "off")]);
+    // Keep the missing dependency local; this test covers workspace selection.
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["build", "--dry-run"],
+        [(MOON_WORK_ENV, "off"), ("MOON_REGISTRY_API", "0")],
+    );
     assert_registry_resolution_failure(&stderr);
 }
 

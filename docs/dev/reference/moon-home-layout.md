@@ -71,11 +71,17 @@ $MOON_HOME/
   `registry/index/user/<username>/<module>.index`. Each JSONL release record
   requires a version and checksum. An omitted `deps` field means an empty
   dependency map; a present `deps` field must be an object.
-- `MOON_REGISTRY_API=1` opts all resolver metadata queries into the configured
-  HTTP API, even when a local Git entry exists. Otherwise the Git index remains
-  authoritative. Metadata queries use the configured API's saved login when
-  available, supporting public and owner-only private modules through the same
-  endpoint. This mode does not fall back to a different registry or backend.
+- With `MOON_REGISTRY_API` unset, metadata uses the Git index for any module it
+  contains, and HTTP for private modules absent from that index. A missing
+  version of an indexed module never falls back to HTTP. Index read errors are
+  preserved, and empty entries still belong to Git. HTTP responses and cached
+  records for public modules absent from Git are rejected with a suggestion to
+  update the index or select full HTTP mode.
+  `MOON_REGISTRY_API=1` selects HTTP for every module, even when a Git entry
+  exists. `MOON_REGISTRY_API=0` retains pure Git mode.
+  HTTP queries use the configured API's matching saved login. All modes use
+  the same registry configuration; there is no automatic mirror-to-origin or
+  cross-registry fallback.
 - On a cache miss, API resolution requests
   `GET /api/v0/registry/modules/<owner>/<module>?version=<exact>` for the declared
   version. Unversioned commands may omit the query to ask for
@@ -99,15 +105,19 @@ $MOON_HOME/
   Git indexes, source archives, downloaded executables and credentials
   remain untouched. Ordinary `moon clean` leaves this cache alone. As with the
   other global caches, explicit cleanup is not coordinated with active users.
-- In API mode, `moon update` resolves the selected module or entire workspace,
-  refreshes advisory status for each selected exact registry version, and queries
+- In mixed mode, `moon update` synchronizes Git and symbols once, then resolves
+  the selected module or entire workspace. Public dependency status and latest
+  versions come from that synchronized index; private dependencies are refreshed
+  through HTTP. Outside a project, only Git and symbols are synchronized.
+  In full HTTP mode, `moon update` requires a project, refreshes advisory status
+  for each selected exact registry version, and queries
   each module identity's current latest version. It reports available updates
   without changing manifests, downloading sources, or running hooks. Shared
   dependencies are refreshed once. Partial refresh failures preserve successful
   writes and return a nonzero status instead of reporting stale cached answers
   as current. A failure to resolve the graph stops the operation before refresh.
-  Git mode retains whole-index and symbols synchronization, including outside
-  a project.
+  Explicit Git mode retains only whole-index and symbols synchronization,
+  including outside a project.
 - Ordinary resolution keeps reusing cached exact records. Frozen module
   synchronization reads only cached metadata and verified sources; a missing
   exact release or source fails without HTTP or guessing another version.
@@ -194,9 +204,11 @@ including registry entries, archives, executable artifacts, and update state.
 versioned contents below the selected cache root. Behavioral owners remain
 separate:
 
-- `RegistryClient` selects a metadata backend once and owns authenticated API
-  commands and verified downloads. `Registry` exposes exact-version and latest
-  queries without requiring a complete version history. `registry::git::GitIndex`
+- `RegistryClient` selects available transports at construction and routes whole
+  modules to one backend. Exact metadata, latest, checksums and source downloads
+  share that routing rule. It also owns authenticated API commands and verified
+  downloads. `Registry` exposes exact-version and latest queries without requiring
+  a complete version history. `registry::git::GitIndex`
   owns Git synchronization, JSONL compatibility, and the parsed index cache;
   `registry::http::HttpMetadata` owns HTTP queries and response validation. Its
   internal `MetadataCache` owns disk layout, memory reuse, atomic writes and

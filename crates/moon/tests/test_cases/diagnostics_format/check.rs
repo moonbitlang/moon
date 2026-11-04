@@ -444,7 +444,14 @@ import {
     )
     .unwrap();
 
-    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().failure());
+    // Exercise Git's missing-module warning without querying a live registry API.
+    let report = parse_complete_json(
+        moon_cmd(&dir)
+            .env("MOON_REGISTRY_API", "0")
+            .args(["check", "--json"])
+            .assert()
+            .failure(),
+    );
 
     assert_eq!(report["status"], "failure");
     assert_eq!(report["diagnostics"], serde_json::json!([]));

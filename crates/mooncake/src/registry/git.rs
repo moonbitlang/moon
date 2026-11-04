@@ -104,6 +104,16 @@ impl GitIndex {
         }
     }
 
+    /// Only absence of the entire module permits another metadata transport.
+    /// Empty entries, missing versions and read errors must not become fallbacks.
+    pub(super) fn contains_module(&self, name: &ModuleName) -> anyhow::Result<bool> {
+        match self.all_versions_of(name) {
+            Ok(_) => Ok(true),
+            Err(error) if error.is::<super::RegistryModuleNotFound>() => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     fn all_versions_of(
         &self,
         name: &ModuleName,
