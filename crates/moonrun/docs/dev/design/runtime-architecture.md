@@ -282,7 +282,7 @@ Runtime-owned state. Workers schedule Jobs and deliver Completions; they do not
 become a second owner of domain interpretation or authorization.
 
 Raw Operations can remain private within a domain, such as
-[process/ambient.rs](../../../src/process/ambient.rs), or live in
+[process/os.rs](../../../src/process/os.rs), or live in
 [async_sys](../../../src/async_sys). Keep platform-specific operations close to
 their semantic owner. Reuse mature dependencies where appropriate, but account
 for their implicit cwd, environment, signal, and library-global behavior.
@@ -292,10 +292,22 @@ Within Host Process, [spawn.rs](../../../src/process/spawn.rs) owns request
 interpretation, authorization, and resource binding.
 [lookup.rs](../../../src/process/lookup.rs) computes executable candidates from
 explicit inputs; it has no Runtime, Policy, environment reads, filesystem
-probes, or OS calls. [ambient/lookup.rs](../../../src/process/ambient/lookup.rs)
-provides the OS observations and probes needed by that interpretation, while
-Ambient Process owns native execution. This separation is internal to the
-crate; a new crate or general process framework is not required.
+probes, or OS calls. [os/lookup.rs](../../../src/process/os/lookup.rs)
+provides the OS observations and probes needed by that interpretation.
+[native.rs](../../../src/process/native.rs) materializes policy transfers,
+retains Resource owners, brackets worker cancellation, and publishes results.
+[os.rs](../../../src/process/os.rs) and [os/control.rs](../../../src/process/os/control.rs)
+own native spawn, wait, polling, signals, and reaping. They accept resolved
+execution inputs and caller-retained native handles, return owned process
+handles and native `ExitStatus` values, and report `io::Error`. They do not
+interpret Policy, Resource publication, or Engine outcomes. OS interfaces use
+platform-specific inputs: Unix PID and Linux pidfd waits are distinct from
+Windows HANDLE waits; Windows console events take a process-group ID and event
+kind, and termination takes an explicit exit code. Host workers and async
+adaptation select these operations and preserve guest status, error encoding,
+and graceful-signal compatibility. Unix spawn and fork/exec share one native
+request and own their duplicated stdio descriptors. Native PID identity, child
+authority, and Engine admission remain separate responsibilities.
 
 For an operation that touches host state, the required flow is:
 
@@ -428,7 +440,7 @@ These rules follow the native implementations and interfaces:
 [musl spawn](https://git.musl-libc.org/cgit/musl/tree/src/process/posix_spawn.c),
 [Darwin spawnp](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c),
 and [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
-The raw Ambient Process primitives implement these mechanisms; Host Process
+The raw process primitives implement these mechanisms; Host Process
 chooses which Runtime inputs require interpretation.
 
 For interpreted lookup:
@@ -518,8 +530,12 @@ explicitly through Host Process; parentage alone does not supply it.
 
 The CLI offers `--virtual-process` and `--daemon` as explicit enabling overrides
 for `process.virtualize` and `process.ipc`. Absent flags retain the selected
-configuration. Neither flag changes authorization. IPC and virtualization remain
-mutually exclusive, including settings loaded from policy or inherited discovery.
+configuration. Neither flag changes authorization. The implementation rejects
+combining IPC with virtual process identities, including settings loaded from
+policy or inherited discovery. This restriction does not apply to Runtime state isolation:
+IPC uses owned Env and Fixed cwd with native process identities. Its guest
+operations use the same Host Domains and executable lookup as other Runs with
+that state.
 The binary consumes the library's shared `MoonrunCli` grammar; parsing does not
 initialize the Engine, load policy, or install process-global handlers.
 

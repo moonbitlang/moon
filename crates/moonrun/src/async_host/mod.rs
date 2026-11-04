@@ -5087,7 +5087,7 @@ mod tests {
         }
         #[cfg(windows)]
         assert_eq!(
-            crate::async_sys::process::process_id_from_handle(
+            crate::process::os::process_id(
                 process_resource
                     .as_ref()
                     .unwrap()
@@ -5096,7 +5096,7 @@ mod tests {
                     .as_raw_handle()
             )
             .unwrap(),
-            pid
+            pid as u32
         );
         let wait_job = host
             .insert_job(

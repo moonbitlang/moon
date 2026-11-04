@@ -95,8 +95,15 @@ before transmission. The host does not replay the parent's Env provisioning.
 Program, cwd, environment, arguments, test-driver arguments and diagnostic
 options are explicit. Stdio is bound per stream: files and pipes are transferred as owned descriptors,
 preserving their identity and status flags; ordinary shared Windows console
-streams use the corresponding host standard stream. IPC-enabled roots and delegated Runs have
-owned cwd/env, so guest mutations do not affect concurrently executing Runs.
+streams use the corresponding host standard stream. IPC-enabled roots and
+delegated Runs have owned cwd/env, independently of `process.virtualize`.
+Every guest operation that depends on them uses its Runtime's state, including
+relative filesystem access and subsequent native spawning. HostProcess searches
+the calling Runtime's PATH and resolves cwd according to the platform's spawn
+semantics; neither the host's PATH/cwd nor an explicitly supplied child Env
+replaces those lookup inputs. Guest Env mutations affect later spawn preparation
+in that Run without changing the host or other Runs. Prepared spawns retain
+their captured lookup inputs.
 Guest `getpid` reports the execution host; native children are OS children of
 that host, even though the IPC client's PID remains visible to its own parent.
 An explicitly requested stack size must match the host Engine configuration;

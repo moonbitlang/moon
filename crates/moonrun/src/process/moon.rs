@@ -176,9 +176,9 @@ impl Spawn {
             return Err(AsyncHostError::Inval);
         }
         #[cfg(unix)]
-        let executable = super::ambient::lookup::resolve_for_moon(&plan).map_err(io_error)?;
+        let executable = super::os::lookup::resolve_for_moon(&plan).map_err(io_error)?;
         #[cfg(windows)]
-        let executable = super::ambient::lookup::select_image(&plan).map_err(io_error)?;
+        let executable = super::os::lookup::select_image(&plan).map_err(io_error)?;
         let duplicate =
             |resource: Option<ResourceRef>, stream: StdioStream| -> AsyncHostResult<File> {
                 #[cfg(unix)]
