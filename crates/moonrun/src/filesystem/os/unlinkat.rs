@@ -30,15 +30,10 @@ pub(in crate::filesystem) fn remove_at(
 ) -> io::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::ffi::OsStrExt;
-        let _ = blocking;
-        let path = std::ffi::CString::new(path.as_bytes())
-            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-        let parent = parent.filter(|fd| *fd >= 0).unwrap_or(libc::AT_FDCWD);
-        if unsafe { libc::unlinkat(parent, path.as_ptr(), 0) } == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
+        let error = match unlink_file_at(parent, path, blocking) {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
         #[cfg(target_os = "macos")]
         let is_directory = error.raw_os_error() == Some(libc::EPERM);
         #[cfg(not(target_os = "macos"))]
@@ -46,81 +41,150 @@ pub(in crate::filesystem) fn remove_at(
         if !is_directory {
             return Err(error);
         }
-        if unsafe { libc::unlinkat(parent, path.as_ptr(), libc::AT_REMOVEDIR) } == 0 {
-            return Ok(());
-        }
-        let directory_error = io::Error::last_os_error();
+        let result = remove_directory_at(parent, path, blocking);
         // Darwin's EPERM can also mean an immutable file, not a directory.
-        // Preserve that original error when the directory retry says ENOTDIR.
         #[cfg(target_os = "macos")]
-        if directory_error.raw_os_error() == Some(libc::ENOTDIR) {
+        if result
+            .as_ref()
+            .is_err_and(|error| error.raw_os_error() == Some(libc::ENOTDIR))
+        {
             return Err(error);
         }
-        Err(directory_error)
+        result
     }
     #[cfg(windows)]
+    remove_windows(parent, path, RemovalKind::Any, blocking)
+}
+
+pub(in crate::filesystem) fn unlink_file_at(
+    parent: Option<RawFile>,
+    path: &OsStr,
+    blocking: &impl BlockingIo,
+) -> io::Result<()> {
+    #[cfg(unix)]
     {
-        use super::openat::{self, Access, CreateMode, OpenOptions, Sync};
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Foundation::{
-            ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED,
-        };
-        use windows_sys::Win32::Storage::FileSystem::{
-            FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
-            FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX, FileDispositionInfo,
-            FileDispositionInfoEx, SetFileInformationByHandle,
-        };
-        let file = openat::open(
-            parent,
-            path,
-            &OpenOptions {
-                access: Access::Delete,
-                follow_symlink: false,
-                is_async: false,
-                create: CreateMode::Open,
-                append: false,
-                sync: Sync::None,
-                permission: 0,
+        let _ = blocking;
+        unlink_unix(parent, path, 0)
+    }
+    #[cfg(windows)]
+    remove_windows(parent, path, RemovalKind::File, blocking)
+}
+
+pub(in crate::filesystem) fn remove_directory_at(
+    parent: Option<RawFile>,
+    path: &OsStr,
+    blocking: &impl BlockingIo,
+) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = blocking;
+        unlink_unix(parent, path, libc::AT_REMOVEDIR)
+    }
+    #[cfg(windows)]
+    remove_windows(parent, path, RemovalKind::Directory, blocking)
+}
+
+#[cfg(unix)]
+fn unlink_unix(parent: Option<RawFile>, path: &OsStr, flags: i32) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_bytes())
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let parent = parent.filter(|fd| *fd >= 0).unwrap_or(libc::AT_FDCWD);
+    if unsafe { libc::unlinkat(parent, path.as_ptr(), flags) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+enum RemovalKind {
+    Any,
+    File,
+    Directory,
+}
+
+#[cfg(windows)]
+fn remove_windows(
+    parent: Option<RawFile>,
+    path: &OsStr,
+    kind: RemovalKind,
+    blocking: &impl BlockingIo,
+) -> io::Result<()> {
+    use super::openat::{self, Access, CreateMode, OpenOptions, Sync};
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{
+        ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+        FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX,
+        FileDispositionInfo, FileDispositionInfoEx, SetFileInformationByHandle,
+    };
+    let file = openat::open(
+        parent,
+        path,
+        &OpenOptions {
+            // Enforce entry kind in the same native open that acquires the
+            // deletion handle, without requiring metadata-read permission.
+            access: match kind {
+                RemovalKind::Any => Access::Delete,
+                RemovalKind::File => Access::DeleteFile,
+                RemovalKind::Directory => Access::DeleteDirectory,
             },
-            blocking,
-        )?;
-        let info = FILE_DISPOSITION_INFO_EX {
-            Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
-        };
-        if unsafe {
-            SetFileInformationByHandle(
-                file.as_raw_handle(),
-                FileDispositionInfoEx,
-                std::ptr::from_ref(&info).cast(),
-                std::mem::size_of_val(&info) as u32,
-            )
-        } != 0
-        {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if !matches!(
-            error.raw_os_error().unwrap_or_default() as u32,
-            ERROR_INVALID_FUNCTION | ERROR_INVALID_PARAMETER | ERROR_NOT_SUPPORTED
-        ) {
-            return Err(error);
-        }
-        // Use native's older deletion mode when the OS or filesystem does not
-        // support extended disposition. Other errors must not trigger a retry.
-        let info = FILE_DISPOSITION_INFO { DeleteFile: true };
-        if unsafe {
-            SetFileInformationByHandle(
-                file.as_raw_handle(),
-                FileDispositionInfo,
-                std::ptr::from_ref(&info).cast(),
-                std::mem::size_of_val(&info) as u32,
-            )
-        } == 0
-        {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
+            follow_symlink: false,
+            is_async: false,
+            create: CreateMode::Open,
+            append: false,
+            sync: Sync::None,
+            permission: 0,
+        },
+        blocking,
+    )?;
+    let info = FILE_DISPOSITION_INFO_EX {
+        // std::fs::remove_file also permits deleting read-only files on
+        // Windows. Keep that WASI behavior without changing async remove.
+        Flags: FILE_DISPOSITION_FLAG_DELETE
+            | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS
+            | if matches!(kind, RemovalKind::File) {
+                FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE
+            } else {
+                0
+            },
+    };
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfoEx,
+            std::ptr::from_ref(&info).cast(),
+            std::mem::size_of_val(&info) as u32,
+        )
+    } != 0
+    {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if !matches!(
+        error.raw_os_error().unwrap_or_default() as u32,
+        ERROR_INVALID_FUNCTION | ERROR_INVALID_PARAMETER | ERROR_NOT_SUPPORTED
+    ) {
+        return Err(error);
+    }
+    // Use native's older deletion mode when the OS or filesystem does not
+    // support extended disposition. Other errors must not trigger a retry.
+    let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfo,
+            std::ptr::from_ref(&info).cast(),
+            std::mem::size_of_val(&info) as u32,
+        )
+    } == 0
+    {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -188,6 +252,74 @@ mod tests {
         .unwrap();
         assert!(root.path().join("target").is_dir());
         assert!(std::fs::symlink_metadata(root.path().join("link")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_only_removal_preserves_std_readonly_behavior() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("file");
+        let control = root.path().join("control");
+        for file in [&path, &control] {
+            std::fs::write(file, b"keep").unwrap();
+            let mut permissions = std::fs::metadata(file).unwrap().permissions();
+            permissions.set_readonly(true);
+            std::fs::set_permissions(file, permissions).unwrap();
+        }
+        let expected = std::fs::remove_file(&control);
+        let actual = unlink_file_at(None, path.as_os_str(), &super::super::DirectIo);
+        assert_eq!(actual.is_ok(), expected.is_ok(), "{actual:?}, {expected:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn typed_removal_preserves_std_symlink_behavior() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+        for directory_link in [false, true] {
+            for remove_directory in [false, true] {
+                let root = tempfile::tempdir().unwrap();
+                let target = root.path().join("target");
+                if directory_link {
+                    std::fs::create_dir(&target).unwrap();
+                } else {
+                    std::fs::write(&target, b"keep").unwrap();
+                }
+                let path = root.path().join("link");
+                let control = root.path().join("control");
+                for link in [&path, &control] {
+                    let result = if directory_link {
+                        symlink_dir(&target, link)
+                    } else {
+                        symlink_file(&target, link)
+                    };
+                    if result.as_ref().is_err_and(|error| {
+                        error.raw_os_error()
+                            == Some(windows_sys::Win32::Foundation::ERROR_PRIVILEGE_NOT_HELD as i32)
+                    }) {
+                        eprintln!("Windows symlink privilege unavailable");
+                        return;
+                    }
+                    result.unwrap();
+                }
+                let (actual, expected) = if remove_directory {
+                    (
+                        remove_directory_at(None, path.as_os_str(), &super::super::DirectIo),
+                        std::fs::remove_dir(&control),
+                    )
+                } else {
+                    (
+                        unlink_file_at(None, path.as_os_str(), &super::super::DirectIo),
+                        std::fs::remove_file(&control),
+                    )
+                };
+                assert_eq!(
+                    actual.is_ok(),
+                    expected.is_ok(),
+                    "directory_link={directory_link}, remove_directory={remove_directory}: {actual:?}, {expected:?}"
+                );
+                assert!(target.exists());
+            }
+        }
     }
 
     #[cfg(target_os = "macos")]

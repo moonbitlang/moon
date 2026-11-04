@@ -27,7 +27,6 @@ pub(super) type RawFile = std::os::fd::RawFd;
 #[cfg(windows)]
 pub(super) type RawFile = std::os::windows::io::RawHandle;
 
-#[cfg(test)]
 pub(super) fn raw_file(file: &std::fs::File) -> RawFile {
     #[cfg(unix)]
     {
@@ -47,10 +46,8 @@ pub(super) trait BlockingIo {
     fn run<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T>;
 }
 
-#[cfg(test)]
 pub(super) struct DirectIo;
 
-#[cfg(test)]
 impl BlockingIo for DirectIo {
     fn run<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
         operation()

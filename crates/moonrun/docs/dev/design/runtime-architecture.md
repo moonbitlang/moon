@@ -267,10 +267,10 @@ removing shared host behavior.
 `std::fs` supplies ordinary OS operations directly. `filesystem::os` supplements
 it with mechanisms that need custom platform handling: rename with explicit
 replacement and cross-device options, handle-relative opening and removal,
-and directory-handle path lookup. Opening
-accepts typed host options and an execution bracket; Filesystem Jobs supply
-worker cancellation. The raw layer returns `io::Result` and does not import
-Async errors or worker state. Other custom async mechanisms reside in
+and directory-handle path lookup. Opening accepts typed host options and an
+execution bracket; Filesystem Jobs supply worker cancellation, while synchronous
+HostFs calls execute directly. The raw layer returns `io::Result` and does not
+import Async errors or worker state. Other custom async mechanisms reside in
 Job runners and `async_sys`; move them as their responsibilities are separated,
 without adding forwarding wrappers around std.
 Likewise, remove `AsyncHost` only if extracting its responsibilities leaves it

@@ -133,8 +133,12 @@ impl Engine {
         termination_request: TerminationRequest,
     ) -> anyhow::Result<BackendRunOutcome> {
         let engine = self.inner()?;
-        let wasi =
-            crate::wasi::WasiContext::new(module_name, args, &runtime, termination_request.clone());
+        let wasi = crate::wasi::WasiContext::new(
+            module_name,
+            args,
+            &runtime,
+            termination_request.clone(),
+        )?;
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
         let mut store = Store::new(

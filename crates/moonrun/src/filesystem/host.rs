@@ -48,6 +48,43 @@ pub(crate) struct FileOpenOptions {
     pub(crate) truncate: bool,
 }
 
+/// An acquired directory, independent of guest descriptor numbering and rights.
+/// Its pathname is queried only for authorization and path-only operations.
+pub(crate) struct Directory {
+    file: fs::File,
+}
+
+impl Directory {
+    /// Runtime configuration acquires a preopen without granting guest access.
+    /// HostFs still authorizes each operation using its requested effects.
+    pub(crate) fn preopen(path: &Path) -> io::Result<Self> {
+        use super::os::{
+            DirectIo,
+            openat::{self, Access, CreateMode, OpenOptions, Sync},
+        };
+        Ok(Self {
+            file: openat::open(
+                None,
+                path.as_os_str(),
+                &OpenOptions {
+                    access: Access::Directory,
+                    follow_symlink: true,
+                    is_async: false,
+                    create: CreateMode::Open,
+                    append: false,
+                    sync: Sync::None,
+                    permission: 0,
+                },
+                &DirectIo,
+            )?,
+        })
+    }
+
+    pub(crate) fn path(&self) -> Result<PathBuf, FsError> {
+        directory_path_for_authorization(super::os::raw_file(&self.file))
+    }
+}
+
 fn directory_path_for_authorization(handle: super::os::RawFile) -> Result<PathBuf, FsError> {
     // An unlinked directory cannot receive a fresh pathname-based grant.
     super::os::directory::path(handle).map_err(|error| {
@@ -57,6 +94,62 @@ fn directory_path_for_authorization(handle: super::os::RawFile) -> Result<PathBu
             FsError::Io(error)
         }
     })
+}
+
+/// Keep Unix relative traversal intact. Absolute paths and Windows DOS paths
+/// need conversion to a name relative to the acquired handle. Resolve only the
+/// parent: following the final link here would change unlink and exclusive-open
+/// semantics before their OS operation gets to interpret the entry.
+fn relative_path(base: &Path, path: &Path) -> Result<PathBuf, FsError> {
+    #[cfg(unix)]
+    {
+        let relative = if path.is_absolute() {
+            path.strip_prefix(base).ok()
+        } else {
+            Some(path)
+        };
+        if let Some(relative) = relative {
+            return Ok(if relative.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                relative.to_owned()
+            });
+        }
+    }
+    #[cfg(windows)]
+    let host_path = std::path::absolute(dunce::simplified(base).join(path))?;
+    #[cfg(unix)]
+    let host_path = path.to_owned();
+    let resolved = if dunce::simplified(&host_path) == dunce::simplified(base) {
+        base.to_owned()
+    } else if let Some(name) = host_path.file_name() {
+        let parent = host_path.parent().ok_or(FsError::Denied)?;
+        fs::canonicalize(parent)?.join(name)
+    } else {
+        // A terminal `..` names a directory, not a removable entry.
+        fs::canonicalize(&host_path)?
+    };
+    let relative = resolved
+        .strip_prefix(base)
+        .map_err(|_| FsError::Denied)?
+        .to_path_buf();
+    #[cfg(unix)]
+    let relative = {
+        let mut relative = relative;
+        if relative.as_os_str().is_empty() {
+            relative.push(".");
+        } else if entry_before_directory_suffix(path).is_some() {
+            // Path components discard this suffix, but the syscall must still
+            // distinguish a link entry from directory traversal through it.
+            relative.push(if path.as_os_str().as_encoded_bytes().ends_with(b"/.") {
+                "."
+            } else {
+                ""
+            });
+        }
+        relative
+    };
+    Ok(relative)
 }
 
 /// Engine-neutral filesystem operations that enforce the runtime policy
@@ -149,12 +242,20 @@ impl HostFs {
         Ok(self.working_directory.current_dir()?)
     }
 
-    pub(crate) fn open_file(
+    pub(crate) fn open_file_at(
         &self,
+        directory: &Directory,
         path: &Path,
         options: FileOpenOptions,
     ) -> Result<fs::File, FsError> {
-        self.authorize_path(
+        use super::os::{
+            DirectIo,
+            openat::{self, Access, CreateMode, OpenOptions, Sync},
+        };
+        let base = directory.path()?;
+        let path = relative_path(&base, path)?;
+        self.authorize_path_at(
+            Some(&base),
             path.as_os_str(),
             FsIntents::new(
                 options.read,
@@ -165,14 +266,78 @@ impl HostFs {
                     || options.truncate,
             ),
         )?;
-        Ok(fs::OpenOptions::new()
-            .read(options.read)
-            .write(options.write)
-            .append(options.append)
-            .create(options.create)
-            .create_new(options.create_new)
-            .truncate(options.truncate)
-            .open(self.resolve_path(path.as_os_str()))?)
+        let write = options.write || options.append;
+        // Preserve std::OpenOptions validation before reaching a destructive
+        // native open. Native async jobs have their own scalar-option contract.
+        if (!write && (!options.read || options.create || options.create_new || options.truncate))
+            || (options.append && options.truncate && !options.create_new)
+        {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
+        }
+        Ok(openat::open(
+            Some(super::os::raw_file(&directory.file)),
+            path.as_os_str(),
+            &OpenOptions {
+                access: if options.read && write {
+                    Access::ReadWrite
+                } else if write {
+                    Access::Write
+                } else {
+                    Access::Read
+                },
+                follow_symlink: true,
+                is_async: false,
+                create: if options.create_new {
+                    CreateMode::Exclusive
+                } else {
+                    match (options.create, options.truncate) {
+                        (false, false) => CreateMode::Open,
+                        (false, true) => CreateMode::Truncate,
+                        (true, false) => CreateMode::Create,
+                        (true, true) => CreateMode::CreateOrTruncate,
+                    }
+                },
+                append: options.append,
+                sync: Sync::None,
+                permission: 0o666,
+            },
+            &DirectIo,
+        )?)
+    }
+
+    pub(crate) fn open_directory_at(
+        &self,
+        directory: &Directory,
+        path: &Path,
+    ) -> Result<Directory, FsError> {
+        use super::os::{
+            DirectIo,
+            openat::{self, Access, CreateMode, OpenOptions, Sync},
+        };
+        let base = directory.path()?;
+        let path = relative_path(&base, path)?;
+        self.authorize_path_at(Some(&base), path.as_os_str(), FsIntents::read())?;
+        // NtCreateFile does not perform DOS dot-component normalization. The
+        // normalized path is empty when opening the acquired directory itself.
+        let file = if path.as_os_str().is_empty() {
+            directory.file.try_clone()?
+        } else {
+            openat::open(
+                Some(super::os::raw_file(&directory.file)),
+                path.as_os_str(),
+                &OpenOptions {
+                    access: Access::Directory,
+                    follow_symlink: true,
+                    is_async: false,
+                    create: CreateMode::Open,
+                    append: false,
+                    sync: Sync::None,
+                    permission: 0,
+                },
+                &DirectIo,
+            )?
+        };
+        Ok(Directory { file })
     }
 
     pub(crate) fn metadata(&self, path: &Path) -> Result<fs::Metadata, FsError> {
@@ -207,9 +372,30 @@ impl HostFs {
         )?)
     }
 
-    pub(crate) fn remove_empty_directory(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize_remove(path.as_os_str())?;
-        Ok(fs::remove_dir(self.resolve_path(path.as_os_str()))?)
+    pub(crate) fn remove_directory_at(
+        &self,
+        directory: &Directory,
+        path: &Path,
+    ) -> Result<(), FsError> {
+        let base = directory.path()?;
+        let path = relative_path(&base, path)?;
+        self.authorize_entry_at(Some(&base), path.as_os_str(), FsIntents::write())?;
+        Ok(super::os::unlinkat::remove_directory_at(
+            Some(super::os::raw_file(&directory.file)),
+            path.as_os_str(),
+            &super::os::DirectIo,
+        )?)
+    }
+
+    pub(crate) fn unlink_file_at(&self, directory: &Directory, path: &Path) -> Result<(), FsError> {
+        let base = directory.path()?;
+        let path = relative_path(&base, path)?;
+        self.authorize_entry_at(Some(&base), path.as_os_str(), FsIntents::write())?;
+        Ok(super::os::unlinkat::unlink_file_at(
+            Some(super::os::raw_file(&directory.file)),
+            path.as_os_str(),
+            &super::os::DirectIo,
+        )?)
     }
 
     pub(crate) fn unlink_file(&self, path: &Path) -> Result<(), FsError> {
@@ -647,9 +833,11 @@ mod tests {
             host.write_file(&link, b"escape"),
             Err(FsError::Denied)
         ));
+        let directory = Directory::preopen(&allowed).unwrap();
         assert!(matches!(
-            host.open_file(
-                &link,
+            host.open_file_at(
+                &directory,
+                Path::new("link"),
                 FileOpenOptions {
                     read: false,
                     write: true,

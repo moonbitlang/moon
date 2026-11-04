@@ -136,7 +136,7 @@ impl Engine {
         self.initialization
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
-        let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
+        let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone())?;
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
         let store = api::Store::new(StoreData {
