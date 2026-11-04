@@ -46,7 +46,7 @@ pub fn resolve_packages(
     info!("Starting dependency resolution");
 
     let mut res = solve_only(modules, packages, enable_coverage, backend, user_log)?;
-    verify(&res, packages, user_log)?;
+    verify(&res, packages, modules.input_module_ids(), user_log)?;
     res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
 
     info!("Dependency resolution completed successfully");

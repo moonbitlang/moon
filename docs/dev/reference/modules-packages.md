@@ -378,10 +378,13 @@ for common folder layouts with root `.` and root `src`:
 
 A package can declare `experimental = true` in `moon.pkg` (or
 `"experimental": true` in `moon.pkg.json`). Omission or `false` leaves it stable.
-Package resolution warns for each direct dependency on an experimental package,
-using the active import graph for the requested backends. Ordinary and test
-imports are covered; implicit self-dependencies from tests are excluded. Warnings
-are deduplicated by importing/dependency package pair and across backends.
+Package resolution warns for each direct dependency on an experimental package
+when the importing package belongs to a project root module (including workspace
+members), using the active import graph for the requested backends. Imports
+inside dependency modules do not warn, whether those modules come from a registry
+or a local path. Ordinary and test imports are covered; implicit self-dependencies
+from tests are excluded. Warnings are deduplicated by importing/dependency package
+pair and across backends.
 Experimental status does not propagate to a package's dependents.
 
 The importing package can acknowledge dependencies through

@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet, hash_map::Entry};
 use indexmap::IndexSet;
 use log::debug;
 use moonutil::package::AllowExperimentalPackages;
+use moonutil::resolution::ModuleId;
 use moonutil::target::TargetBackend;
 use petgraph::visit::IntoNodeIdentifiers;
 
@@ -46,6 +47,7 @@ use super::model::MultipleError;
 pub(super) fn verify(
     dep: &PackageRelations,
     packages: &DiscoverResult,
+    root_modules: &[ModuleId],
     user_log: &UserLog,
 ) -> Result<(), PackageResolutionError> {
     debug!("Verifying package dependency graph integrity");
@@ -63,7 +65,7 @@ pub(super) fn verify(
     debug!("Done internal import verification");
     warn_main_package_dependencies(dep, packages, user_log);
     debug!("Done main package deprecation warnings");
-    warn_experimental_package_dependencies(dep, packages, user_log);
+    warn_experimental_package_dependencies(dep, packages, root_modules, user_log);
     debug!("Done experimental package warnings");
 
     debug!("Package dependency graph verification completed successfully");
@@ -278,6 +280,7 @@ fn verify_no_forbidden_internal_imports(
 fn warn_experimental_package_dependencies(
     dep: &PackageRelations,
     packages: &DiscoverResult,
+    root_modules: &[ModuleId],
     user_log: &UserLog,
 ) {
     // Source imports also create test-target edges. Warn once per package pair,
@@ -292,6 +295,10 @@ fn warn_experimental_package_dependencies(
             continue;
         }
         let importer = packages.get_package(from.package);
+        // Dependency-internal imports are for that module's author to acknowledge.
+        if !root_modules.contains(&importer.module) {
+            continue;
+        }
         let dependency_name = dependency.fqn.to_string();
         let allowed = match &importer.raw.allow_experimental_packages {
             Some(AllowExperimentalPackages::Bool(allowed)) => *allowed,
