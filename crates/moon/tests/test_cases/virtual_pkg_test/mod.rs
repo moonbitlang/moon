@@ -35,16 +35,14 @@ fn test_virtual_with_transitive_dep() {
     let dir = TestDir::new("virtual_pkg_test/virtual_with_transitive_dep");
 
     // Test that all tests pass, including those that use the transitive dependency
-    snapbox::cmd::Command::new(moon_bin())
+    moon_cmd(&dir)
         .args(["test", "--target", "wasm"])
-        .current_dir(&dir)
         .assert()
         .success();
 
     // Also test with wasm-gc target
-    snapbox::cmd::Command::new(moon_bin())
+    moon_cmd(&dir)
         .args(["test", "--target", "wasm-gc"])
-        .current_dir(&dir)
         .assert()
         .success();
 }
@@ -55,9 +53,8 @@ fn test_virtual_internal_test() {
     let dir = TestDir::new("virtual_pkg_test/virtual_with_transitive_dep");
 
     // Run tests on the middle package which has an internal test
-    snapbox::cmd::Command::new(moon_bin())
+    moon_cmd(&dir)
         .args(["test", "src/middle", "--target", "wasm"])
-        .current_dir(&dir)
         .assert()
         .success();
 }
@@ -68,9 +65,8 @@ fn test_virtual_blackbox_test() {
     let dir = TestDir::new("virtual_pkg_test/virtual_with_transitive_dep");
 
     // Run tests on main which should include blackbox tests
-    snapbox::cmd::Command::new(moon_bin())
+    moon_cmd(&dir)
         .args(["test", "src/main", "--target", "wasm"])
-        .current_dir(&dir)
         .assert()
         .success();
 }
@@ -80,27 +76,11 @@ fn test_virtual_blackbox_test() {
 fn test_virtual_commands() {
     let dir = TestDir::new("virtual_pkg_test/virtual_with_transitive_dep");
 
-    snapbox::cmd::Command::new(moon_bin())
-        .args(["build"])
-        .current_dir(&dir)
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["build"]).assert().success();
 
-    snapbox::cmd::Command::new(moon_bin())
-        .args(["check"])
-        .current_dir(&dir)
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["check"]).assert().success();
 
-    snapbox::cmd::Command::new(moon_bin())
-        .args(["info"])
-        .current_dir(&dir)
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["info"]).assert().success();
 
-    snapbox::cmd::Command::new(moon_bin())
-        .args(["test"])
-        .current_dir(&dir)
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["test"]).assert().success();
 }

@@ -111,10 +111,15 @@ fn run_process(
     program: &Path,
     args: &[&str],
     workdir: &Path,
+    moonrun_bin: &Path,
     toolchain_root: Option<&Path>,
 ) -> CommandOutput {
     let mut command = Command::new(program);
-    command.args(args).current_dir(workdir);
+    // Moon and moonrun must agree on their internal test-selection protocol.
+    command
+        .args(args)
+        .current_dir(workdir)
+        .env("MOONRUN_OVERRIDE", moonrun_bin);
     if let Some(toolchain_root) = toolchain_root {
         command.env("MOON_TOOLCHAIN_ROOT", toolchain_root);
     }
@@ -192,13 +197,14 @@ pub(crate) fn execute_command(
     args: &[&str],
     workdir: &Path,
     moon_bin: &Path,
+    moonrun_bin: &Path,
     toolchain_root: Option<&Path>,
 ) -> String {
     let output = match cmd {
-        "moon" => run_process(moon_bin, args, workdir, toolchain_root),
+        "moon" => run_process(moon_bin, args, workdir, moonrun_bin, toolchain_root),
         "xcat" => run_xcat(args, workdir),
         "xls" => run_xls(args, workdir),
-        _ => run_process(Path::new(cmd), args, workdir, toolchain_root),
+        _ => run_process(Path::new(cmd), args, workdir, moonrun_bin, toolchain_root),
     };
 
     let actual = if output.stderr.is_empty() {
