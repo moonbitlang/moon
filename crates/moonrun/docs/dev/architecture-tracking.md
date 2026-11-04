@@ -14,6 +14,8 @@ and [authority design](design/authority-closure.md), under
 - [x] Separate host creation from guest child derivation, with explicit state
   and authority inputs.
 - [x] Prepare Host Process requests before execution, with single-use inputs.
+- [x] Separate native process mechanisms from worker cancellation, policy
+  transfer, Resource publication, and guest status encoding.
 - [x] Separate pure executable lookup from OS observations and preserve native
   lookup where the platform can express Runtime state.
 

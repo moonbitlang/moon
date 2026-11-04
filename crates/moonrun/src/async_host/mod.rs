@@ -5087,7 +5087,7 @@ mod tests {
         }
         #[cfg(windows)]
         assert_eq!(
-            crate::async_sys::process::process_id_from_handle(
+            crate::process::os::process_id(
                 process_resource
                     .as_ref()
                     .unwrap()

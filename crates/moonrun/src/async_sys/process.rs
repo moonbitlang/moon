@@ -170,8 +170,7 @@ ported_fns! {
             .into_iter()
             .filter(|entry| {
                 let entry = entry.as_os_str().as_bytes();
-                let duplicate = if let Some(key_end) = entry.iter().position(|byte| *byte == b'=')
-                {
+                let duplicate = if let Some(key_end) = entry.iter().position(|byte| *byte == b'=') {
                     builder.extra[..extra_len].iter().any(|extra| {
                         extra
                             .as_os_str()
@@ -254,13 +253,11 @@ ported_fns! {
         original = "moonbitlang_async_open_pid_handle"
     )]
     #[cfg(target_os = "linux")]
-    pub(crate) fn open_pid_handle(pid: i32) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
-        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-        if fd < 0 {
-            Err(last_native_error())
-        } else {
-            Ok(fd as crate::async_sys::internal::fd_util::stub::RawFd)
-        }
+    pub(crate) fn open_pid_handle(
+        pid: i32,
+    ) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
+        use std::os::fd::IntoRawFd;
+        Ok(crate::process::os::open_pid_handle(pid)?.into_raw_fd())
     }
 
     #[ported(
@@ -268,22 +265,11 @@ ported_fns! {
         original = "moonbitlang_async_open_pid_handle"
     )]
     #[cfg(windows)]
-    pub(crate) fn open_pid_handle(pid: i32) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
-        use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
-        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-
-        let handle = unsafe {
-            OpenProcess(
-                SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
-                0,
-                pid as u32,
-            )
-        };
-        if handle.is_null() {
-            Err(last_native_error())
-        } else {
-            Ok(handle)
-        }
+    pub(crate) fn open_pid_handle(
+        pid: i32,
+    ) -> AsyncHostResult<crate::async_sys::internal::fd_util::stub::RawFd> {
+        use std::os::windows::io::IntoRawHandle;
+        Ok(crate::process::os::open_pid_handle(pid)?.into_raw_handle())
     }
 
     #[ported(
@@ -295,73 +281,18 @@ ported_fns! {
         pid: i32,
     ) -> AsyncHostResult<i32> {
         #[cfg(windows)]
-        {
-            use windows_sys::Win32::Foundation::{
-                ERROR_IO_PENDING, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
-            };
-            use windows_sys::Win32::System::Threading::{
-                GetExitCodeProcess, WaitForSingleObject,
-            };
-
-            let _ = pid;
-            let handle = handle.ok_or(AsyncHostError::Badf)?;
-
-            // Native async only calls this after its wait job completes, but a
-            // Wasm guest can call the import directly. Check the waitable handle
-            // because STILL_ACTIVE (259) can also be a real process exit code.
-            match unsafe { WaitForSingleObject(handle, 0) } {
-                WAIT_OBJECT_0 => {}
-                WAIT_TIMEOUT => {
-                    return Err(AsyncHostError::Native(ERROR_IO_PENDING as i32));
-                }
-                WAIT_FAILED => return Err(last_native_error()),
-                _ => return Err(AsyncHostError::Inval),
-            }
-
-            let mut code = 0;
-            if unsafe { GetExitCodeProcess(handle, &mut code) } == 0 {
-                return Err(last_native_error());
-            }
-            Ok(code as i32)
+        if handle.is_none() {
+            return Err(AsyncHostError::Badf);
         }
-
-        #[cfg(unix)]
-        {
-            #[cfg(not(target_os = "linux"))]
-            let _ = handle;
-
-            #[cfg(target_os = "linux")]
-            if let Some(handle) = handle {
-                let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-                if unsafe {
-                    libc::waitid(
-                        libc::P_PIDFD,
-                        handle as libc::id_t,
-                        &mut info,
-                        libc::WEXITED | libc::WNOHANG,
-                    )
-                } < 0
-                {
-                    return Err(last_native_error());
-                }
-                if unsafe { info.si_pid() } == 0 {
-                    return Err(AsyncHostError::Native(libc::EAGAIN));
-                }
-                return Ok(unix_siginfo_exit_code(
-                    info.si_code,
-                    unsafe { info.si_status() },
-                ));
+        match crate::process::os::try_wait(handle, pid)? {
+            Some(status) => Ok(crate::process::native::exit_code(status) as i32),
+            None => {
+                #[cfg(unix)]
+                let pending = libc::EAGAIN;
+                #[cfg(windows)]
+                let pending = windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32;
+                Err(AsyncHostError::Native(pending))
             }
-
-            let mut status = 0;
-            let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
-            if ret < 0 {
-                return Err(last_native_error());
-            }
-            if ret == 0 {
-                return Err(AsyncHostError::Native(libc::EAGAIN));
-            }
-            Ok(unix_wait_status_exit_code(status))
         }
     }
 
@@ -371,11 +302,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn terminate_process(pid: i32, signal: i32) -> AsyncHostResult<()> {
-        if unsafe { libc::kill(pid, signal) } < 0 {
-            Err(last_native_error())
-        } else {
-            Ok(())
-        }
+        crate::process::os::signal(pid, signal).map_err(Into::into)
     }
 
     #[ported(
@@ -384,11 +311,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn kill_process(pid: i32) -> AsyncHostResult<()> {
-        if unsafe { libc::kill(pid, libc::SIGKILL) } < 0 {
-            Err(last_native_error())
-        } else {
-            Ok(())
-        }
+        crate::process::os::kill(pid).map_err(Into::into)
     }
 
     #[ported(
@@ -397,15 +320,8 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn terminate_process(pid: i32, _signal: i32) -> AsyncHostResult<()> {
-        use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
-
-        let pid = pid as u32;
-        // Windows only lets Ctrl-Break reliably target a process group created
-        // with CREATE_NEW_PROCESS_GROUP. The upstream C binding returns void and
-        // ignores failures, so keep graceful cancellation non-fatal here.
-        unsafe {
-            GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
-        }
+        // The native async ABI ignores failures from graceful cancellation.
+        let _ = crate::process::os::signal(pid, _signal);
         Ok(())
     }
 
@@ -415,70 +331,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn kill_process(pid: i32) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-
-        let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid as u32) };
-        if handle.is_null() {
-            return Err(last_native_error());
-        }
-        let result = unsafe { TerminateProcess(handle, 1) };
-        let error = if result == 0 {
-            Some(last_native_error())
-        } else {
-            None
-        };
-        unsafe {
-            CloseHandle(handle);
-        }
-        if let Some(error) = error {
-            Err(error)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[cfg(unix)]
-pub(crate) fn unix_siginfo_exit_code(code: i32, status: i32) -> i32 {
-    if code == libc::CLD_EXITED {
-        status
-    } else {
-        -status
-    }
-}
-
-#[cfg(unix)]
-pub(crate) fn unix_wait_status_exit_code(status: i32) -> i32 {
-    if libc::WIFEXITED(status) {
-        libc::WEXITSTATUS(status)
-    } else {
-        -libc::WTERMSIG(status)
-    }
-}
-
-#[cfg(unix)]
-pub(crate) fn reap_process(pid: i32) -> AsyncHostResult<()> {
-    let mut status = 0;
-    let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
-    if ret < 0 {
-        Err(last_native_error())
-    } else if ret == pid {
-        Ok(())
-    } else {
-        Err(AsyncHostError::Native(libc::EAGAIN))
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn process_id_from_handle(
-    handle: crate::async_sys::internal::fd_util::stub::RawFd,
-) -> AsyncHostResult<i32> {
-    let pid = unsafe { windows_sys::Win32::System::Threading::GetProcessId(handle) };
-    if pid == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(pid as i32)
+        crate::process::os::kill(pid).map_err(Into::into)
     }
 }
 
@@ -487,20 +340,11 @@ pub(crate) fn pidfd_open_is_unsupported(error: AsyncHostError) -> bool {
     matches!(error, AsyncHostError::Native(errno) if errno == libc::ENOSYS || errno == libc::EPERM)
 }
 
-#[cfg(windows)]
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(unsafe { windows_sys::Win32::Foundation::GetLastError() as i32 })
-}
-
-#[cfg(unix)]
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(last_native_errno())
-}
-
 #[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::process::ExitStatusExt;
 
     use super::*;
 
@@ -545,28 +389,15 @@ mod tests {
 
     #[test]
     fn unix_wait_status_distinguishes_exit_from_signal() {
-        assert_eq!(unix_wait_status_exit_code(7 << 8), 7);
-        assert_eq!(unix_wait_status_exit_code(libc::SIGTERM), -libc::SIGTERM);
-    }
-
-    #[test]
-    fn unix_siginfo_distinguishes_exit_from_signal() {
-        assert_eq!(unix_siginfo_exit_code(libc::CLD_EXITED, 7), 7);
         assert_eq!(
-            unix_siginfo_exit_code(libc::CLD_KILLED, libc::SIGTERM),
-            -libc::SIGTERM
+            crate::process::native::exit_code(std::process::ExitStatus::from_raw(7 << 8)),
+            7
+        );
+        assert_eq!(
+            crate::process::native::exit_code(std::process::ExitStatus::from_raw(libc::SIGTERM)),
+            -i64::from(libc::SIGTERM)
         );
     }
-}
-
-#[cfg(target_os = "linux")]
-fn last_native_errno() -> i32 {
-    unsafe { *libc::__errno_location() }
-}
-
-#[cfg(target_os = "macos")]
-fn last_native_errno() -> i32 {
-    unsafe { *libc::__error() }
 }
 
 #[cfg(all(test, windows))]

@@ -32,17 +32,7 @@ use crate::runtime::Stdio;
 use crate::runtime::StdioStream;
 
 use super::spawn::{NativeSpawn, PreparedSpawn, SpawnRequest};
-use super::{HostProcess, ambient};
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SpawnOptions {
-    #[cfg(unix)]
-    pub(crate) child_signal_mask: libc::sigset_t,
-    #[cfg(windows)]
-    pub(crate) no_console_window: bool,
-    #[cfg(windows)]
-    pub(crate) is_orphan: bool,
-}
+use super::{HostProcess, SpawnOptions, native};
 
 #[derive(Debug)]
 pub(crate) struct Job {
@@ -157,7 +147,7 @@ impl Job {
                 #[cfg(unix)]
                 defer_reap,
                 #[cfg(windows)]
-                cancel: Some(Arc::new(ambient::make_wait_for_process_cancel()?)),
+                cancel: Some(Arc::new(native::make_wait_for_process_cancel()?)),
             },
         })
     }
@@ -238,7 +228,7 @@ impl Job {
                     policy_inheritance,
                 } = *spawn.take().ok_or(AsyncHostError::Inval)?;
                 #[cfg(unix)]
-                return ambient::run_spawn_job_unix(
+                return native::run_spawn_job_unix(
                     executable,
                     request.args,
                     request.env,
@@ -249,7 +239,7 @@ impl Job {
                     result,
                 );
                 #[cfg(windows)]
-                return ambient::run_spawn_job_windows(
+                return native::run_spawn_job_windows(
                     executable,
                     request.command_line,
                     request.env,
@@ -270,7 +260,7 @@ impl Job {
                 defer_reap,
                 #[cfg(windows)]
                 cancel,
-            } => ambient::run_wait_for_process_job(
+            } => native::run_wait_for_process_job(
                 handle.take(),
                 *pid,
                 #[cfg(unix)]
@@ -347,7 +337,7 @@ impl Job {
 
 #[cfg(test)]
 fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    ambient::PORTED_SYMBOLS.to_vec()
+    native::PORTED_SYMBOLS.to_vec()
 }
 
 #[cfg(test)]

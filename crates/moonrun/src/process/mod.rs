@@ -20,14 +20,14 @@
 //!
 //! [`HostProcess`] is the module interface used by the async host. Policy,
 //! working-directory configuration, and child provenance stay above the
-//! private [`ambient`] implementation, which owns native operating-system
-//! execution. Supervised Runs instead resolve guest process identities and
-//! waits within their virtual process tree.
+//! native workers and [`os`] process mechanisms. Supervised Runs instead resolve
+//! guest process identities and waits within their virtual process tree.
 
-mod ambient;
 mod job;
 mod lookup;
 mod moon;
+pub(crate) mod native;
+pub(crate) mod os;
 mod spawn;
 #[cfg(test)]
 mod tests;
@@ -43,7 +43,7 @@ use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::Job;
-pub(crate) use job::SpawnOptions;
+pub(crate) use os::SpawnOptions;
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
@@ -248,7 +248,7 @@ impl HostProcess {
         if state.process_handle_pids.get(&handle) != Some(&pid) {
             return Err(AsyncHostError::PermissionDenied);
         }
-        if crate::async_sys::process::process_id_from_handle(raw_handle)? != pid {
+        if os::process_id(raw_handle)? != pid {
             return Err(AsyncHostError::PermissionDenied);
         }
         let result = f()?;
@@ -380,14 +380,14 @@ impl HostProcess {
         let Some(state) = self.child_authority.as_deref() else {
             #[cfg(unix)]
             if defer_reap {
-                crate::async_sys::process::reap_process(pid)?;
+                os::reap(pid)?;
             }
             return Ok(());
         };
         let mut state = state.inner.lock().unwrap();
         #[cfg(unix)]
         if defer_reap {
-            crate::async_sys::process::reap_process(pid)?;
+            os::reap(pid)?;
         }
         state.owned_child_pids.remove(&pid);
         Ok(())
@@ -410,5 +410,5 @@ impl HostProcess {
 
 #[cfg(windows)]
 pub(crate) fn cancel_wait(cancel: &crate::resource::ResourceRef) -> AsyncHostResult<()> {
-    ambient::cancel_wait_for_process(cancel)
+    native::cancel_wait_for_process(cancel)
 }

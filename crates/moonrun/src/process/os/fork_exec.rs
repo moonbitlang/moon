@@ -20,25 +20,24 @@
 
 use std::ffi::{CString, OsString};
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 use super::Executable;
-use crate::resource::ResourceRef;
 
-// This fallback takes the same native spawn inputs as the Ambient Process job.
+// This fallback takes the same native spawn inputs as the native spawn operation.
 // Wrapping them would duplicate that representation only to satisfy Clippy.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn(
     executable: Executable,
     args: Vec<OsString>,
     env: Vec<OsString>,
-    stdio: [Option<ResourceRef>; 3],
+    stdio: [Option<std::os::fd::RawFd>; 3],
     cwd: Option<OsString>,
     child_signal_mask: libc::sigset_t,
-    inherited_policy_fd: Option<libc::c_int>,
+    inherited_fd: Option<libc::c_int>,
 ) -> Result<libc::pid_t, i32> {
     let mut stdio_fds = duplicate_stdio_fds(&stdio)?;
     let plan = match executable {
@@ -88,7 +87,7 @@ pub(super) fn spawn(
     // captured by value before fork, and constructs errors without allocation.
     unsafe {
         command.pre_exec(move || {
-            if let Some(fd) = inherited_policy_fd {
+            if let Some(fd) = inherited_fd {
                 let flags = libc::fcntl(fd, libc::F_GETFD);
                 if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
                     return Err(io::Error::from_raw_os_error(last_errno()));
@@ -130,7 +129,9 @@ pub(super) fn spawn(
     Ok(child.id() as libc::pid_t)
 }
 
-fn duplicate_stdio_fds(stdio: &[Option<ResourceRef>; 3]) -> Result<[Option<OwnedFd>; 3], i32> {
+fn duplicate_stdio_fds(
+    stdio: &[Option<std::os::fd::RawFd>; 3],
+) -> Result<[Option<OwnedFd>; 3], i32> {
     let mut duplicates = std::array::from_fn(|_| None);
     for (index, resource) in stdio.iter().enumerate() {
         let Some(resource) = resource else {
@@ -138,20 +139,11 @@ fn duplicate_stdio_fds(stdio: &[Option<ResourceRef>; 3]) -> Result<[Option<Owned
         };
 
         // Command takes ownership of its Stdio descriptors. Keep the
-        // Resource-owned descriptor untouched and give Command an independent
+        // caller-owned descriptor untouched and give Command an independent
         // CLOEXEC duplicate. Requiring a descriptor >= 3 also prevents the
         // child's ordered dup2(0), dup2(1), dup2(2) setup from overwriting a
         // later stream's source descriptor.
-        let fd = unsafe {
-            libc::fcntl(
-                resource
-                    .as_file()
-                    .map_err(|error| error.errno())?
-                    .as_raw_fd(),
-                libc::F_DUPFD_CLOEXEC,
-                3,
-            )
-        };
+        let fd = unsafe { libc::fcntl(*resource, libc::F_DUPFD_CLOEXEC, 3) };
         if fd < 0 {
             return Err(last_errno());
         }
@@ -296,13 +288,11 @@ fn last_errno() -> i32 {
 mod tests {
     use std::ffi::OsStr;
     use std::io::Read;
-    use std::os::fd::FromRawFd;
+    use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::fs::symlink;
-    use std::sync::Arc;
 
     use super::*;
-    use crate::resource::Resource;
 
     fn prepared(program: &OsStr, path: Option<&OsStr>, cwd: &std::path::Path) -> Executable {
         Executable::Prepared(super::super::super::lookup::unix(program, path, Some(cwd)).unwrap())
@@ -344,7 +334,7 @@ mod tests {
         let args = vec![
             program.as_os_str().to_owned(),
             "--exact".into(),
-            "process::ambient::fork_exec::tests::preserves_the_native_environment_array".into(),
+            "process::os::fork_exec::tests::preserves_the_native_environment_array".into(),
             "--nocapture".into(),
         ];
         let tmp = tempfile::tempdir().unwrap();
@@ -406,7 +396,7 @@ mod tests {
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "process::ambient::fork_exec::tests::returns_native_enoexec_without_starting_a_shell",
+                    "process::os::fork_exec::tests::returns_native_enoexec_without_starting_a_shell",
                 ])
                 .env("MOONRUN_ENOEXEC_TEST", "1")
                 .timeout(std::time::Duration::from_secs(15))
@@ -451,7 +441,7 @@ mod tests {
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "process::ambient::fork_exec::tests::ambient_spawn_does_not_require_a_name_for_the_current_directory",
+                    "process::os::fork_exec::tests::ambient_spawn_does_not_require_a_name_for_the_current_directory",
                 ])
                 .env("MOONRUN_UNLINKED_CWD_FALLBACK", "1")
                 .env("PATH", "../bin")
@@ -494,7 +484,7 @@ mod tests {
             snapbox::cmd::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "process::ambient::fork_exec::tests::retries_frozen_candidates_but_preserves_direct_exec_errors",
+                    "process::os::fork_exec::tests::retries_frozen_candidates_but_preserves_direct_exec_errors",
                 ])
                 .env("MOONRUN_FROZEN_EXEC_TEST", "1")
                 .timeout(std::time::Duration::from_secs(15))
@@ -547,7 +537,7 @@ mod tests {
             0
         );
         let mut reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
-        let stdout = Arc::new(Resource::new(pipe[1]));
+        let stdout = unsafe { OwnedFd::from_raw_fd(pipe[1]) };
 
         let pid = spawn(
             prepared(
@@ -561,13 +551,13 @@ mod tests {
                 OsString::from("printf '%s|%s' \"$(pwd)\" \"$PATH\""),
             ],
             vec![OsString::from("PATH=/child/path")],
-            [None, Some(stdout.clone()), None],
+            [None, Some(stdout.as_raw_fd()), None],
             Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
         )
         .unwrap();
-        assert!(unsafe { libc::fcntl(stdout.as_file().unwrap().as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFD) } >= 0);
         drop(stdout);
 
         let mut output = String::new();
@@ -630,13 +620,13 @@ mod tests {
             0
         );
         let _reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
-        let stdout = Arc::new(Resource::new(pipe[1]));
+        let stdout = unsafe { OwnedFd::from_raw_fd(pipe[1]) };
 
         let error = spawn(
             prepared(OsStr::new("/moonrun-does-not-exist"), None, tmp.path()),
             vec![OsString::from("/moonrun-does-not-exist")],
             Vec::new(),
-            [None, Some(stdout.clone()), None],
+            [None, Some(stdout.as_raw_fd()), None],
             Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
@@ -644,7 +634,7 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error, libc::ENOENT);
-        assert!(unsafe { libc::fcntl(stdout.as_file().unwrap().as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFD) } >= 0);
     }
 
     #[test]
@@ -656,7 +646,7 @@ mod tests {
             0
         );
         let mut reader = unsafe { std::fs::File::from_raw_fd(pipe[0]) };
-        let stdout = Arc::new(Resource::new(pipe[1]));
+        let stdout = unsafe { OwnedFd::from_raw_fd(pipe[1]) };
 
         let pid = spawn(
             prepared(OsStr::new("/bin/sh"), None, tmp.path()),
@@ -669,13 +659,13 @@ mod tests {
                 OsString::from("MOONRUN_TEST_ENV=old"),
                 OsString::from("MOONRUN_TEST_ENV=expected"),
             ],
-            [None, Some(stdout.clone()), Some(stdout.clone())],
+            [None, Some(stdout.as_raw_fd()), Some(stdout.as_raw_fd())],
             Some(tmp.path().as_os_str().to_owned()),
             empty_signal_mask(),
             None,
         )
         .unwrap();
-        assert!(unsafe { libc::fcntl(stdout.as_file().unwrap().as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_GETFD) } >= 0);
         drop(stdout);
 
         let mut output = String::new();

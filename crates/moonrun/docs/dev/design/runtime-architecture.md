@@ -282,7 +282,7 @@ Runtime-owned state. Workers schedule Jobs and deliver Completions; they do not
 become a second owner of domain interpretation or authorization.
 
 Raw Operations can remain private within a domain, such as
-[process/ambient.rs](../../../src/process/ambient.rs), or live in
+[process/os.rs](../../../src/process/os.rs), or live in
 [async_sys](../../../src/async_sys). Keep platform-specific operations close to
 their semantic owner. Reuse mature dependencies where appropriate, but account
 for their implicit cwd, environment, signal, and library-global behavior.
@@ -292,10 +292,18 @@ Within Host Process, [spawn.rs](../../../src/process/spawn.rs) owns request
 interpretation, authorization, and resource binding.
 [lookup.rs](../../../src/process/lookup.rs) computes executable candidates from
 explicit inputs; it has no Runtime, Policy, environment reads, filesystem
-probes, or OS calls. [ambient/lookup.rs](../../../src/process/ambient/lookup.rs)
-provides the OS observations and probes needed by that interpretation, while
-Ambient Process owns native execution. This separation is internal to the
-crate; a new crate or general process framework is not required.
+probes, or OS calls. [os/lookup.rs](../../../src/process/os/lookup.rs)
+provides the OS observations and probes needed by that interpretation.
+[native.rs](../../../src/process/native.rs) materializes policy transfers,
+retains Resource owners, brackets worker cancellation, and publishes results.
+[os.rs](../../../src/process/os.rs) and [os/control.rs](../../../src/process/os/control.rs)
+own native spawn, wait, polling, signals, and reaping. They accept resolved
+execution inputs and caller-retained native handles, return owned process
+handles and native `ExitStatus` values, and report `io::Error`. They do not
+interpret Policy, Resource publication, or Engine outcomes. Guest status and
+error encoding stays above this layer, including Windows graceful-signal
+compatibility. Native PID identity, child authority, and Engine admission remain
+separate responsibilities.
 
 For an operation that touches host state, the required flow is:
 
@@ -428,7 +436,7 @@ These rules follow the native implementations and interfaces:
 [musl spawn](https://git.musl-libc.org/cgit/musl/tree/src/process/posix_spawn.c),
 [Darwin spawnp](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c),
 and [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
-The raw Ambient Process primitives implement these mechanisms; Host Process
+The raw process primitives implement these mechanisms; Host Process
 chooses which Runtime inputs require interpretation.
 
 For interpreted lookup:

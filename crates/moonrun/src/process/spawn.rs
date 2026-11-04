@@ -20,15 +20,15 @@
 //!
 //! Ambient state stays with the native primitive when it can express the
 //! Runtime's state. Explicit lookup captures only the inputs its candidates
-//! need. OS queries and execution live below this module in `ambient`.
+//! need. OS queries and execution live below this module in `os`.
 
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(windows)]
-use super::ambient;
-use super::ambient::Executable;
+use super::os;
+use super::os::Executable;
 use super::{HostProcess, SpawnOptions, lookup};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{Resource, ResourceRef};
@@ -154,8 +154,8 @@ impl HostProcess {
             let (executable, invokes_moonx) = (
                 Executable::Ambient,
                 if self.policy_inheritance.is_some() {
-                    let arguments = ambient::lookup::parse_command_line(&request.command_line)
-                        .map_err(io_error)?;
+                    let arguments =
+                        os::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
                     moonutil::constants::is_moonx_executable(&arguments[0])
                 } else {
                     false
@@ -206,7 +206,7 @@ impl HostProcess {
             use std::os::windows::ffi::OsStrExt;
 
             let arguments =
-                ambient::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
+                os::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
             let program = &arguments[0];
             let searches_path = !program
                 .encode_wide()
@@ -219,8 +219,7 @@ impl HostProcess {
                 WorkingDirectory::Ambient => None,
             };
             let directories = if searches_path {
-                let (application, system) =
-                    ambient::lookup::windows_directories().map_err(io_error)?;
+                let (application, system) = os::lookup::windows_directories().map_err(io_error)?;
                 let mut directories: Vec<_> = application.into_iter().collect();
                 if self
                     .environment
@@ -291,7 +290,7 @@ impl HostProcess {
         );
         #[cfg(windows)]
         let (executable, invokes_moonx) = (
-            Executable::Prepared(ambient::lookup::select_image(&plan).map_err(io_error)?),
+            Executable::Prepared(os::lookup::select_image(&plan).map_err(io_error)?),
             moonutil::constants::is_moonx_executable(&arguments[0]),
         );
         Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
