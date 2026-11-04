@@ -273,16 +273,14 @@ fn engine_backends_test_driver_initialization_is_optional_and_runs_once() {
                     .unwrap(),
                 )
                 .unwrap();
-            let test_args = serde_json::json!({
-                "package": "moon/core",
-                "file_and_index": [["main_test.mbt", [{"start": 0, "end": test_count}]]],
-            });
+            let args = if test_count == 0 {
+                ""
+            } else {
+                "main_test.mbt:0-1,1-2"
+            };
             assert_eq!(
                 engine
-                    .run(
-                        &module,
-                        moonrun::RunOptions::default().with_test_args(test_args.to_string()),
-                    )
+                    .run(&module, moonrun::RunOptions::default().with_test_args(args))
                     .unwrap(),
                 moonrun::RunOutcome::Completed,
                 "initialize={initialize:?}, test_count={test_count}"
@@ -319,9 +317,7 @@ fn engine_backends_test_driver_initialization_failure_stops_execution() {
                     .unwrap(),
                 )
                 .unwrap();
-            let options = moonrun::RunOptions::default().with_test_args(
-                r#"{"package":"moon/core","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-            );
+            let options = moonrun::RunOptions::default().with_test_args("main_test.mbt:0-1");
             assert_eq!(
                 engine.run(&module, options).unwrap(),
                 moonrun::RunOutcome::Exited(exit_code),
@@ -391,9 +387,7 @@ fn engine_backends_support_test_driver_string_bridge() {
         engine
             .run(
                 &driver,
-                moonrun::RunOptions::default().with_test_args(
-                    r#"{"package":"moon/core","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-                ),
+                moonrun::RunOptions::default().with_test_args("main_test.mbt:0-1"),
             )
             .unwrap(),
         moonrun::RunOutcome::Completed
@@ -614,9 +608,7 @@ fn wasmtime_preserves_host_adapter_errors_from_exported_calls() {
                     ref.as_non_null
                     call $log)
                 (func (export "moonbit_test_driver_finish")))"#,
-            moonrun::RunOptions::default().with_test_args(
-                r#"{"package":"moon/core","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-            ),
+            moonrun::RunOptions::default().with_test_args("main_test.mbt:0-1"),
             Some("failed to execute a MoonBit test"),
         ),
         (
@@ -633,8 +625,7 @@ fn wasmtime_preserves_host_adapter_errors_from_exported_calls() {
                     call $begin_read_string
                     ref.as_non_null
                     call $log))"#,
-            moonrun::RunOptions::default()
-                .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
+            moonrun::RunOptions::default().with_test_args(""),
             Some("failed to finish the MoonBit test driver"),
         ),
     ];

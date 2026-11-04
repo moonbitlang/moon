@@ -64,8 +64,7 @@ fn engine_backend_classifies_uncaught_wasm_failures_as_guest_failures() {
                 (func (export "moonbit_test_driver_internal_execute")
                     (param externref i32))
                 (func (export "moonbit_test_driver_finish") unreachable))"#,
-            moonrun::RunOptions::default()
-                .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
+            moonrun::RunOptions::default().with_test_args(""),
         ),
     ];
 
@@ -94,9 +93,7 @@ fn engine_backend_keeps_handled_test_failures_inside_the_test_driver() {
         engine
             .run(
                 &module,
-                moonrun::RunOptions::default().with_test_args(
-                    r#"{"package":"moon/core","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-                ),
+                moonrun::RunOptions::default().with_test_args("main_test.mbt:0-1"),
             )
             .unwrap(),
         moonrun::RunOutcome::Completed
@@ -169,8 +166,7 @@ fn engine_backend_preserves_host_adapter_errors() {
                 (func (export "moonbit_test_driver_internal_execute")
                     (param externref i32))
                 (func (export "moonbit_test_driver_finish")))"#,
-            moonrun::RunOptions::default()
-                .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
+            moonrun::RunOptions::default().with_test_args(""),
             Some("failed to initialize the MoonBit test driver"),
         ),
         (
@@ -182,8 +178,7 @@ fn engine_backend_preserves_host_adapter_errors() {
                 (func (export "moonbit_test_driver_internal_execute")
                     (param externref i32))
                 (func (export "moonbit_test_driver_finish")))"#,
-            moonrun::RunOptions::default()
-                .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
+            moonrun::RunOptions::default().with_test_args(""),
             Some("failed to initialize the MoonBit test driver"),
         ),
         (
@@ -196,9 +191,7 @@ fn engine_backend_preserves_host_adapter_errors() {
                     i32.const 1
                     call $free)
                 (func (export "moonbit_test_driver_finish")))"#,
-            moonrun::RunOptions::default().with_test_args(
-                r#"{"package":"moon/core","file_and_index":[["main_test.mbt",[{"start":0,"end":1}]]]}"#,
-            ),
+            moonrun::RunOptions::default().with_test_args("main_test.mbt:0-1"),
             Some("failed to execute a MoonBit test"),
         ),
         (
@@ -211,8 +204,7 @@ fn engine_backend_preserves_host_adapter_errors() {
                 (func (export "moonbit_test_driver_finish")
                     i32.const 1
                     call $free))"#,
-            moonrun::RunOptions::default()
-                .with_test_args(r#"{"package":"moon/core","file_and_index":[]}"#),
+            moonrun::RunOptions::default().with_test_args(""),
             Some("failed to finish the MoonBit test driver"),
         ),
     ];

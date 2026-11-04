@@ -494,7 +494,8 @@ mod test {
     fn test_many_files_selection_fits_windows_command_line() {
         let mut meta = example_meta();
         let template = meta.no_args_tests["file1.mbt"][0].clone();
-        let names: Vec<_> = (1..=200)
+        // Twice the issue's 200-file reproduction, beyond the JSON payload limit.
+        let names: Vec<_> = (1..=400)
             .map(|i| format!("a_fairly_long_descriptive_test_file_name_number_{i:03}_test.mbt"))
             .collect();
         meta.no_args_tests = names

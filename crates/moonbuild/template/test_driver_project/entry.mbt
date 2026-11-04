@@ -32,21 +32,20 @@ extern "js" fn moonbit_test_driver_js_parse_args() -> FixedArray[
 ] =
   #|() => {
   #|  try {
-  #|    let testParams = []
-  #|    // check if there is command line argument
-  #|    if (process.argv.length > 2) {
-  #|      const testArgs = JSON.parse(process.argv[2])
-  #|      testParams = testArgs.file_and_index.flatMap(([file, ranges]) => {
-  #|        let arr = []
-  #|        for (let range of ranges) {
-  #|          for (let i = range.start; i < range.end; i++) {
-  #|            arr.push([file, i])
-  #|          }
+  #|    const input = process.argv[2] ?? ''
+  #|    return input === '' ? [] : input.split('/').flatMap(entry => {
+  #|      // Metadata contains basenames; a Unix filename may contain colons.
+  #|      const colon = entry.lastIndexOf(':')
+  #|      const file = entry.slice(0, colon)
+  #|      const tests = []
+  #|      for (const range of entry.slice(colon + 1).split(',')) {
+  #|        const [start, end] = range.split('-').map(Number)
+  #|        for (let i = start; i < end; i++) {
+  #|          tests.push([file, i])
   #|        }
-  #|        return arr
-  #|      })
-  #|      return testParams
-  #|    }
+  #|      }
+  #|      return tests
+  #|    })
   #|  } catch (error) {
   #|    console.error('failed to parse args: ', error.message)
   #|    process.exit(1)

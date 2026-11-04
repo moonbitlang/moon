@@ -69,10 +69,38 @@ pub struct RunOptions {
     pub(crate) termination_receiver: Option<RunTerminationReceiver>,
 }
 
-#[derive(serde::Deserialize)]
 pub(crate) struct TestArgs {
-    pub(crate) package: String,
     pub(crate) file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
+}
+
+impl std::str::FromStr for TestArgs {
+    type Err = anyhow::Error;
+
+    fn from_str(input: &str) -> anyhow::Result<Self> {
+        let file_and_index = if input.is_empty() {
+            Vec::new()
+        } else {
+            input
+                .split('/')
+                .map(|entry| {
+                    // Compiler metadata contains basenames, not directory paths.
+                    // Only the final colon separates the name from its ranges.
+                    let (file, ranges) = entry.rsplit_once(':').context("missing test ranges")?;
+                    let ranges = ranges
+                        .split(',')
+                        .map(|range| {
+                            let (start, end) = range
+                                .split_once('-')
+                                .with_context(|| format!("invalid test range {range:?}"))?;
+                            Ok(start.parse()?..end.parse()?)
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    Ok((file.to_owned(), ranges))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
+        Ok(Self { file_and_index })
+    }
 }
 
 impl RunOptions {
@@ -163,6 +191,7 @@ impl RunOptions {
         self
     }
 
+    /// Select tests with `filename:start-end,start-end/...` (half-open ranges).
     pub fn with_test_args(mut self, test_args: impl Into<String>) -> Self {
         self.test_args = Some(test_args.into());
         self
@@ -171,7 +200,7 @@ impl RunOptions {
     pub(crate) fn parsed_test_args(&self) -> anyhow::Result<Option<TestArgs>> {
         self.test_args
             .as_deref()
-            .map(serde_json_lenient::from_str)
+            .map(str::parse)
             .transpose()
             .context("invalid MoonBit test arguments")
     }
@@ -315,10 +344,7 @@ pub(crate) fn run_test_driver<D>(
         BackendCallOutcome::Completed => {}
         outcome => return complete_run_call(outcome, stdio),
     }
-    let TestArgs {
-        package: _package,
-        file_and_index,
-    } = test_args;
+    let TestArgs { file_and_index } = test_args;
     for (file, ranges) in file_and_index {
         for index in ranges.into_iter().flatten() {
             match execute(driver, &file, index)? {
@@ -695,6 +721,40 @@ impl Default for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn test_args_preserve_names_and_selection_order() {
+        let expected = vec![
+            (
+                "{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt".to_owned(),
+                vec![7..9, 0..2, 7..8],
+            ),
+            ("-other.mbt".to_owned(), vec![1..2]),
+            (
+                "{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt".to_owned(),
+                vec![3..3],
+            ),
+        ];
+        assert_eq!(
+            RunOptions::default()
+                .with_test_args("{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt:7-9,0-2,7-8/-other.mbt:1-2/{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt:3-3")
+                .parsed_test_args()
+                .unwrap()
+                .unwrap()
+                .file_and_index,
+            expected
+        );
+        assert!(
+            RunOptions::default()
+                .with_test_args("")
+                .parsed_test_args()
+                .unwrap()
+                .unwrap()
+                .file_and_index
+                .is_empty()
+        );
+    }
 
     #[test]
     fn run_options_default_to_ambient_working_directory() {

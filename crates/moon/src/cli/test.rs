@@ -1688,13 +1688,10 @@ fn print_test_artifacts(
         for invocation in
             crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
         {
-            // JS build-only output carries the serialized filter beside the executable.
+            // JS build-only output carries the same argument used by `moon test`.
             if matches!(build_meta.target_backend(), TargetBackend::Js) {
-                let filter_arg = serde_json::to_string(&invocation.args)
-                    .context("failed to serialize JS test filter args")?;
-
                 artifacts_path.push(invocation.executable);
-                test_filter_args.push(filter_arg);
+                test_filter_args.push(invocation.args.to_cli_args());
             } else {
                 artifacts_path.push(invocation.executable);
             }
