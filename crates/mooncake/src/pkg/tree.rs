@@ -18,6 +18,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -48,7 +49,7 @@ pub fn tree(
     let roots = roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest)?;
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
-        registry: &registry,
+        registry: Rc::new(registry),
         inject_std: false,
         warn_deprecated: true,
     };

@@ -19,6 +19,7 @@
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -208,7 +209,7 @@ fn resolve_workspace(
 
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
-        registry: &registry,
+        registry: Rc::new(registry),
         inject_std: !includes_core,
         warn_deprecated: true,
     };

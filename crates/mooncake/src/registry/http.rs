@@ -77,6 +77,7 @@ pub(super) struct HttpMetadata {
     credentials: Option<Arc<RegistryCredentials>>,
     cache: MetadataCache,
     client: OnceCell<reqwest::blocking::Client>,
+    async_client: OnceCell<reqwest::Client>,
 }
 
 impl HttpMetadata {
@@ -90,6 +91,7 @@ impl HttpMetadata {
             cache: MetadataCache::new(home, api.clone()),
             api,
             client: OnceCell::new(),
+            async_client: OnceCell::new(),
         }
     }
 
@@ -101,6 +103,30 @@ impl HttpMetadata {
     ) -> anyhow::Result<RegistryVersionInfo> {
         let metadata = self.exact_release(name, version, frozen)?;
         Ok(metadata.into())
+    }
+
+    pub(super) async fn version_info_async(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        frozen: bool,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        super::path::parse_module_path(&name.to_string())?;
+        if let Some(metadata) = self.cached_release(name, version)? {
+            return Ok(metadata.into());
+        }
+        if frozen {
+            bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
+        }
+        let url = self.release_url(name, Some(version))?;
+        if self.async_client.get().is_none() {
+            let client = authentication::async_client(&self.api, self.credentials.as_deref())?;
+            self.async_client.get_or_init(|| client);
+        }
+        let request = self.async_client.get().unwrap().get(url);
+        let metadata = ModuleMetadata::fetch_async(request, name, Some(version)).await?;
+        self.check_access(name, &metadata)?;
+        Ok(self.cache.store_release(name, metadata)?.into())
     }
 
     pub(super) fn cached_version_info(
@@ -200,13 +226,20 @@ impl HttpMetadata {
         Ok(self.exact_release(name, version, frozen)?.visibility == ModuleVisibility::Private)
     }
 
-    /// This endpoint returns latest when the version query parameter is absent.
-    /// Keep that wire representation here; callers use distinct exact/latest APIs.
     fn fetch_release(
         &self,
         name: &ModuleName,
         version: Option<&Version>,
     ) -> anyhow::Result<ModuleMetadata> {
+        let request = self.http_client()?.get(self.release_url(name, version)?);
+        let metadata = ModuleMetadata::fetch(request, name, version)?;
+        self.check_access(name, &metadata)?;
+        self.cache.store_release(name, metadata)
+    }
+
+    /// This endpoint returns latest when the version query parameter is absent.
+    /// Keep that wire representation here; callers use distinct exact/latest APIs.
+    fn release_url(&self, name: &ModuleName, version: Option<&Version>) -> anyhow::Result<String> {
         let module_path = name
             .segments()
             .map(encode_path_segment)
@@ -224,48 +257,7 @@ impl HttpMetadata {
             url.push('?');
             url.push_str(&query);
         }
-        let response = self
-            .http_client()?
-            .get(&url)
-            .send()
-            .map_err(|error| {
-                if error.is_connect() || error.is_timeout() || error.is_request() {
-                    anyhow::Error::new(RegistryUnavailable(error.into()))
-                } else {
-                    error.into()
-                }
-            })
-            .with_context(|| format!("failed to fetch registry metadata for {name}"))?;
-        if matches!(
-            response.status(),
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
-        ) {
-            // The endpoint deliberately does not distinguish absence from denial.
-            bail!("Module `{name}` not found or access denied");
-        }
-        let status = response.status();
-        let response = response
-            .error_for_status()
-            .map_err(|error| {
-                if status.is_server_error()
-                    || status == StatusCode::REQUEST_TIMEOUT
-                    || status == StatusCode::TOO_MANY_REQUESTS
-                {
-                    anyhow::Error::new(RegistryUnavailable(error.into()))
-                } else {
-                    error.into()
-                }
-            })
-            .with_context(|| format!("registry metadata request failed for {name}"))?;
-        let bytes = response
-            .bytes()
-            .map_err(|error| RegistryUnavailable(error.into()))
-            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
-        let metadata: ModuleMetadata = serde_json::from_slice(&bytes)
-            .with_context(|| format!("invalid registry metadata response for {name}"))?;
-        metadata.validate(name, version)?;
-        self.check_access(name, &metadata)?;
-        self.cache.store_release(name, metadata)
+        Ok(url)
     }
 
     fn http_client(&self) -> anyhow::Result<&reqwest::blocking::Client> {
@@ -280,6 +272,85 @@ impl HttpMetadata {
 }
 
 impl ModuleMetadata {
+    fn fetch(
+        request: reqwest::blocking::RequestBuilder,
+        name: &ModuleName,
+        version: Option<&Version>,
+    ) -> anyhow::Result<Self> {
+        let response = request
+            .send()
+            .map_err(Self::transport_error)
+            .with_context(|| format!("failed to fetch registry metadata for {name}"))?
+            .error_for_status()
+            .map_err(|error| Self::status_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        Self::from_response_body(&bytes, name, version)
+    }
+
+    async fn fetch_async(
+        request: reqwest::RequestBuilder,
+        name: &ModuleName,
+        version: Option<&Version>,
+    ) -> anyhow::Result<Self> {
+        let response = request
+            .send()
+            .await
+            .map_err(Self::transport_error)
+            .with_context(|| format!("failed to fetch registry metadata for {name}"))?
+            .error_for_status()
+            .map_err(|error| Self::status_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        Self::from_response_body(&bytes, name, version)
+    }
+
+    fn transport_error(error: reqwest::Error) -> anyhow::Error {
+        if error.is_connect() || error.is_timeout() || error.is_request() {
+            RegistryUnavailable(error.into()).into()
+        } else {
+            error.into()
+        }
+    }
+
+    fn status_error(name: &ModuleName, error: reqwest::Error) -> anyhow::Error {
+        let status = error
+            .status()
+            .expect("HTTP status error must have a status");
+        if matches!(
+            status,
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ) {
+            // The endpoint deliberately does not distinguish absence from denial.
+            return anyhow::anyhow!("Module `{name}` not found or access denied");
+        }
+        let error = if status.is_server_error()
+            || status == StatusCode::REQUEST_TIMEOUT
+            || status == StatusCode::TOO_MANY_REQUESTS
+        {
+            anyhow::Error::new(RegistryUnavailable(error.into()))
+        } else {
+            error.into()
+        };
+        error.context(format!("registry metadata request failed for {name}"))
+    }
+
+    fn from_response_body(
+        bytes: &[u8],
+        name: &ModuleName,
+        version: Option<&Version>,
+    ) -> anyhow::Result<Self> {
+        let metadata: ModuleMetadata = serde_json::from_slice(bytes)
+            .with_context(|| format!("invalid registry metadata response for {name}"))?;
+        metadata.validate(name, version)?;
+        Ok(metadata)
+    }
+
     fn validate(&self, name: &ModuleName, expected: Option<&Version>) -> anyhow::Result<()> {
         if self.module != name.to_string() {
             bail!("invalid registry metadata identity for {name}");

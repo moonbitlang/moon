@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use std::{path::Path, sync::Arc};
+use std::{path::Path, rc::Rc, sync::Arc};
 
 use moonutil::{
     constants::MOON_MOD,
@@ -61,7 +61,7 @@ pub fn remove(
 
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
-        registry: &registry,
+        registry: Rc::new(registry),
         inject_std: false, // no need to inject
         warn_deprecated: true,
     };

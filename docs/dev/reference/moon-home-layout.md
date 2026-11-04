@@ -202,6 +202,13 @@ separate:
   internal `MetadataCache` owns disk layout, memory reuse, atomic writes and
   immutable-content checks. Memory entries use module/version keys within one
   API namespace; filesystem hashes are only computed for disk access.
+  [Concurrent module resolution](modules-packages.md#module-dependency-resolution)
+  reuses one asynchronous HTTP client; synchronous reads retain their blocking
+  client. Both transports share the metadata cache, authentication, redirect,
+  error classification, and response validation policies.
+  Cache hits and frozen cache misses construct no HTTP client and start no
+  network request. Independent registry clients coordinate disk publication
+  through the existing filesystem locks.
   Cached latest reads and current latest queries are
   separate operations; there is no latest query deduplication or TTL. Only the
   Git backend enumerates all versions.

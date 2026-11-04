@@ -217,13 +217,29 @@ Module resolution selects concrete module sources and versions and records their
 dependency edges in `ModuleDependencyGraph`. `ModuleResolutionConfig` supplies
 registry and standard-library policy to the `ModuleResolver`; its working
 registry access, manifest caches, and diagnostics belong to
-`ModuleResolutionContext`. Registry injection is generic over `R: Registry`;
-the configuration and context borrow the concrete implementation through `&R`.
-Failures are reported as `ModuleResolutionError`.
+`ModuleResolutionContext`. Failures are reported as `ModuleResolutionError`.
+Registry injection is generic over `R: Registry`. The configuration and context
+retain an `Rc<R>`; each metadata task owns a clone and calls the registry's
+native async method from inside that task. Registry methods may borrow `self`
+and do not require `Send` futures. Task ownership and the `'static` requirement
+belong to the resolver. The context outlives the local tasks and Tokio runtime,
+including when a task fails, so the registry's last owner is released on the
+synchronous side.
 Registry read failures preserve their causes and are distinguished from missing
 modules or versions. Final graph construction reuses the metadata loaded during
 traversal rather than querying the registry again.
 Package imports are resolved separately after package discovery.
+
+Module resolution schedules up to 16 exact registry metadata reads at once,
+using Tokio local tasks on one thread and a `JoinSet` to collect completed reads.
+It expands each completed module immediately, without waiting for all reads at
+the same dependency depth. Requests are deduplicated by exact module source
+within one resolution, including failures and versions that MVS later discards.
+Local and workspace source selection happens before registry requests are queued.
+Final graph construction follows the roots and their declared dependencies, so
+network completion order does not affect selected versions or module IDs.
+Traversal diagnostics are sorted; a failed registry version shared by multiple
+dependants is reported once with the lexicographically smallest dependant name.
 
 Modules are versioned using [SemVer][] (Semantic Versioning),
 with the (common) extension of breaking change happens on the first non-zero version component.
