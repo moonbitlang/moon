@@ -89,13 +89,7 @@ fn main() -> anyhow::Result<()> {
         // Keep admission errors inside the session: a signal received during
         // Engine initialization may already have closed its process namespace.
         let outcome = engine
-            .spawn_executable_with_signal_receiver(
-                None,
-                &matches.path,
-                moonutil::run_handoff::ExecutionKind::Wasm,
-                options,
-                signal_receiver,
-            )
+            .spawn_file_with_signal_receiver(None, &matches.path, options, signal_receiver)
             .and_then(|root| engine.wait(root));
         // The CLI owns the entire tree. An exiting parent leaves children
         // with this supervisor; only claim adopted roots so live parents keep

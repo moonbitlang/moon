@@ -543,11 +543,12 @@ impl Engine {
         })
     }
 
-    /// Execute a host-selected Moon or moonx invocation on the calling thread.
+    /// Prepare and execute Wasm using a host-selected Moon or moonx helper.
     /// Program arguments belong in `args`. Moonx frontend responses (including
     /// help/version and parse errors) use the embedded grammar and bound stdio,
     /// without launching the selected executable. Execution requests prepare
-    /// artifacts through an external helper with host access, then run them here.
+    /// Wasm through an external helper with host access, then run it here.
+    /// Native/JS targets use ordinary OS process execution, not this handoff.
     pub fn run_moon(
         &self,
         executable: &Path,
@@ -649,50 +650,14 @@ impl Engine {
         scope.bind_supervision(self, &mut options, &signals)?;
         // The delivery directory outlives Runtime construction and execution. Its
         // cleanup finishes before the Engine finalizes the execution result.
-        self.execute_artifact_in_scope(
-            program.execution_kind,
-            &program.artifact,
-            &program.executable,
-            |_| {
-                program
-                    .source_map
-                    .as_deref()
-                    .and_then(crate::source_map::SourceMap::parse)
-            },
-            options,
-            signals,
-            scope.termination(),
-        )
-    }
-
-    // Root executables and Moon delivery results share dispatch. Keep artifact
-    // location and original identity explicit; they differ after a handoff.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn execute_artifact_in_scope(
-        &self,
-        kind: moonutil::run_handoff::ExecutionKind,
-        artifact: &Path,
-        origin: &Path,
-        source_map: impl FnOnce(&[u8]) -> Option<crate::source_map::SourceMap>,
-        options: RunOptions,
-        signals: crate::SignalReceiver,
-        termination: &TerminationRequest,
-    ) -> anyhow::Result<RunOutcome> {
-        match kind {
-            moonutil::run_handoff::ExecutionKind::Wasm => {
-                let bytes = std::fs::read(artifact)?;
-                let module = self.compile_file(origin, &bytes, || source_map(&bytes))?;
-                self.run_in_scope(&module, options, signals, termination)
-            }
-            moonutil::run_handoff::ExecutionKind::Native
-            | moonutil::run_handoff::ExecutionKind::Js => {
-                // FIXME: Remove these unsupported kinds with Wasm-only handoff.
-                // Native and Node commands belong to ordinary OS execution.
-                anyhow::bail!(
-                    "execution of delivered native or Node artifacts is not yet supported"
-                )
-            }
-        }
+        let bytes = std::fs::read(&program.artifact)?;
+        let module = self.compile_file(&program.executable, &bytes, || {
+            program
+                .source_map
+                .as_deref()
+                .and_then(crate::source_map::SourceMap::parse)
+        })?;
+        self.run_in_scope(&module, options, signals, scope.termination())
     }
 
     /// Load and synchronously execute one Wasm file.

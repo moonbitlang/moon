@@ -417,43 +417,56 @@ fn moon_commands_run_in_virtual_tree() {
     }
     assert!(!root.join("must-not-be-created").exists());
 
-    // Moon may prepare any target. The supervisor, not the CLI or delivery
-    // protocol, owns the still-unimplemented native/Node execution branch.
-    let js_directory = tempfile::tempdir().unwrap();
-    let js_handoff = RunHandoff::new(js_directory.path(), false).unwrap();
-    let js_args = [
-        "run",
-        "--target=js",
-        "-e",
-        "fn main { println(\"must not execute\") }",
-    ];
-    snapbox::cmd::Command::new(moon)
-        .arg(HANDOFF_ARG)
-        .arg(js_handoff.directory())
-        .args(js_args)
-        .assert()
-        .success()
-        .stdout_eq("");
-    let prepared_js = js_handoff.load().unwrap();
-    assert_eq!(
-        prepared_js.execution_kind,
-        moonutil::run_handoff::ExecutionKind::Js
-    );
-    assert!(prepared_js.artifact.is_file());
-    assert!(!prepared_js.executable.exists());
+    // Handoff is Wasm-only. Reject non-Wasm targets before reading input or
+    // building, rather than publishing a result the embedding Engine cannot use.
+    for target in ["js", "native", "llvm", "all"] {
+        let directory = tempfile::tempdir().unwrap();
+        let handoff = RunHandoff::new(directory.path(), false).unwrap();
+        snapbox::cmd::Command::new(moon)
+            .arg(HANDOFF_ARG)
+            .arg(handoff.directory())
+            .args(["run", "--target", target, "-e", "fn main {}"])
+            .assert()
+            .failure()
+            .stdout_eq("")
+            .stderr_eq("Error: Moonrun handoff only supports Wasm targets\n");
+        assert!(!handoff.directory().join("result.json").exists());
+        assert!(!handoff.directory().join("program.wasm").exists());
+    }
+    // Normal Moon native/JS execution stays on the ordinary OS process path.
+    for target in ["native", "js"] {
+        snapbox::cmd::Command::new(moon)
+            .args([
+                "run",
+                "--target",
+                target,
+                "-e",
+                "fn main { println(\"ordinary execution\") }",
+            ])
+            .timeout(Duration::from_secs(30))
+            .assert()
+            .success()
+            .stdout_eq("ordinary execution\n");
+    }
+    let stderr = tempfile::tempfile().unwrap();
     let child = tree
         .spawn_moon(
             None,
             moon,
-            &js_args.map(OsString::from),
-            RunOptions::default().with_virtualize(true),
+            &["run", "--target=js", "-e", "fn main {}"].map(OsString::from),
+            RunOptions::default().with_virtualize(true).with_stdio(
+                tempfile::tempfile().unwrap(),
+                tempfile::tempfile().unwrap(),
+                stderr.try_clone().unwrap(),
+            ),
         )
         .unwrap();
-    let error = anyhow::Error::from(tree.wait(child).unwrap_err());
-    assert!(
-        format!("{error:#}").contains("execution of delivered native or Node artifacts"),
-        "{error:#}"
+    assert!(matches!(tree.wait(child).unwrap(), RunOutcome::Exited(code) if code != 0));
+    assert_eq!(
+        contents(stderr),
+        "Error: Moonrun handoff only supports Wasm targets\n"
     );
+    assert!(tree.snapshot().is_empty());
     // The producer uses existing registry acquisition, including its pinned
     // artifact cache. This fixture must not need a live registry or a compiler.
     let cached =

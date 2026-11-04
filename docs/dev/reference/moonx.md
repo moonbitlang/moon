@@ -88,9 +88,9 @@ selected policies fail execution.
 For host-supervised execution, the private prefix
 `--moonrun-artifact-handoff <directory>` selects artifact delivery instead of
 launching moonrun. Registry acquisition and standalone builds keep their normal
-caches. The helper copies the Wasm and optional source map/policy, then returns
-arguments and cwd in a manifest. An explicit supervisor policy file selects the
-child policy; inherited restrictions also apply.
+caches. Handoff carries only Wasm: the helper copies the module and optional
+source map/policy, then returns arguments and cwd in a manifest. An explicit
+supervisor policy file selects the child policy; inherited restrictions also apply.
 See [artifact delivery](../design/moon-run-process-lifecycle.md#supervised-artifact-delivery).
 
 Moon and Moonrun share the moonx grammar in `moonutil::cli_support`. Moonrun

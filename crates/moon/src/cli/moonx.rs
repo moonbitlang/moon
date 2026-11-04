@@ -95,13 +95,7 @@ pub(crate) fn prepare(
     if let Some(handoff) = handoff {
         // The supervisor parses the same frontend and owns execution settings,
         // including --daemon. This helper only prepares and delivers the Wasm.
-        handoff.publish(
-            &wasm_path,
-            moonutil::run_handoff::ExecutionKind::Wasm,
-            &args,
-            policy,
-            policy_source_dir,
-        )?;
+        handoff.publish(&wasm_path, &args, policy, policy_source_dir)?;
         return Ok(super::process::ProcessAction::Exit(0));
     }
 

@@ -16,32 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! One-shot artifact delivery from a Moon helper to its owning moonrun.
+//! One-shot Wasm delivery from a Moon helper to its owning moonrun.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, ensure};
 use serde::{Deserialize, Serialize};
-
-/// How the supervisor executes the delivered program.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
-#[serde(rename_all = "kebab-case")]
-pub enum ExecutionKind {
-    Wasm,
-    Native,
-    Js,
-}
-
-impl ExecutionKind {
-    fn artifact_name(self) -> &'static str {
-        match self {
-            Self::Wasm => "program.wasm",
-            Self::Native => "program.exe",
-            Self::Js => "program.js",
-        }
-    }
-}
 
 pub const HANDOFF_ARG: &str = "--moonrun-artifact-handoff";
 
@@ -59,8 +40,8 @@ pub struct RunHandoff {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Manifest {
-    execution_kind: ExecutionKind,
     executable: PathBuf,
     args: Vec<String>,
     working_directory: PathBuf,
@@ -75,7 +56,6 @@ struct PolicySource {
 }
 
 pub struct PreparedProgram {
-    pub execution_kind: ExecutionKind,
     /// Owned copy, retained until the supervised process finishes.
     pub artifact: PathBuf,
     pub source_map: Option<String>,
@@ -109,25 +89,16 @@ impl RunHandoff {
     pub fn publish(
         &self,
         executable: &Path,
-        execution_kind: ExecutionKind,
         args: &[String],
         policy: Option<&Path>,
         policy_source_dir: Option<&Path>,
     ) -> anyhow::Result<()> {
         let executable = std::path::absolute(executable)?;
-        let source_map = if matches!(execution_kind, ExecutionKind::Wasm) {
-            let contents = fs::read(&executable)?;
-            ensure!(contents.starts_with(b"\0asm"), "invalid Wasm artifact");
-            crate::wasm_source_map::load(&executable, &contents)
-        } else {
-            None
-        };
+        let contents = fs::read(&executable)?;
+        ensure!(contents.starts_with(b"\0asm"), "invalid Wasm artifact");
+        let source_map = crate::wasm_source_map::load(&executable, &contents);
         // Copy before the producer releases build locks or temporary sources.
-        // fs::copy also retains permissions for future native execution.
-        fs::copy(
-            &executable,
-            self.directory.join(execution_kind.artifact_name()),
-        )?;
+        fs::copy(&executable, self.directory.join("program.wasm"))?;
         if let Some(source_map) = &source_map {
             fs::write(self.directory.join("program.map"), source_map)?;
         }
@@ -159,7 +130,6 @@ impl RunHandoff {
         serde_json_lenient::to_writer(
             File::create(self.directory.join("result.json"))?,
             &Manifest {
-                execution_kind,
                 executable,
                 args: args.to_vec(),
                 working_directory: std::env::current_dir()?,
@@ -176,8 +146,7 @@ impl RunHandoff {
                 .context("Moon helper did not return an executable artifact")?,
         )?;
         Ok(PreparedProgram {
-            execution_kind: manifest.execution_kind,
-            artifact: self.directory.join(manifest.execution_kind.artifact_name()),
+            artifact: self.directory.join("program.wasm"),
             source_map: manifest
                 .source_map
                 .then(|| fs::read_to_string(self.directory.join("program.map")))
@@ -204,23 +173,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_and_js_delivery_uses_the_same_owned_artifact_contract() {
-        for kind in [ExecutionKind::Native, ExecutionKind::Js] {
-            let source = tempfile::tempdir().unwrap();
-            let executable = source.path().join(kind.artifact_name());
-            fs::write(&executable, b"non-Wasm artifact").unwrap();
-            let directory = tempfile::tempdir().unwrap();
-            let handoff = RunHandoff::new(directory.path(), false).unwrap();
-            handoff
-                .publish(&executable, kind, &["argument".into()], None, None)
-                .unwrap();
-            source.close().unwrap();
-            let prepared = handoff.load().unwrap();
-            assert_eq!(prepared.execution_kind, kind);
-            assert_eq!(fs::read(prepared.artifact).unwrap(), b"non-Wasm artifact");
-            assert_eq!(prepared.args, ["argument"]);
-            assert!(prepared.source_map.is_none());
-        }
+    fn delivery_rejects_non_wasm_before_publishing() {
+        let source = tempfile::tempdir().unwrap();
+        let executable = source.path().join("program");
+        fs::write(&executable, b"non-Wasm artifact").unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let handoff = RunHandoff::new(directory.path(), false).unwrap();
+        assert!(handoff.publish(&executable, &[], None, None).is_err());
+        assert!(!directory.path().join("program.wasm").exists());
+        assert!(!directory.path().join("result.json").exists());
     }
 
     #[test]
@@ -234,7 +195,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let handoff = RunHandoff::new(directory.path(), false).unwrap();
         handoff
-            .publish(&wasm, ExecutionKind::Wasm, &["hello".into()], None, None)
+            .publish(&wasm, &["hello".into()], None, None)
             .unwrap();
         source.close().unwrap();
         let prepared = handoff.load().unwrap();
@@ -262,9 +223,7 @@ mod tests {
         fs::write(&wasm, b"\0asm\x01\0\0\0").unwrap();
         let directory = tempfile::tempdir().unwrap();
         let handoff = RunHandoff::new(directory.path(), false).unwrap();
-        handoff
-            .publish(&wasm, ExecutionKind::Wasm, &[], Some(&alias), None)
-            .unwrap();
+        handoff.publish(&wasm, &[], Some(&alias), None).unwrap();
         let (policy, base) = handoff.load().unwrap().policy.unwrap();
         assert_eq!(policy.extension().unwrap(), "conf");
         assert_eq!(fs::read_to_string(policy).unwrap(), "[fs]\nread = ['.']\n");

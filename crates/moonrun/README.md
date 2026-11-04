@@ -323,7 +323,7 @@ Dropping Engine does not terminate or join work: callers own shutdown and must
 wait for remaining executions when required. The CLI performs this descendant
 waiting when `process.virtualize = true`.
 
-To prepare a program with Moon or moonx, `run_moon(executable, args, options)`
+To prepare Wasm with Moon or moonx, `run_moon(executable, args, options)`
 prepares and executes on the calling thread; `spawn_moon(parent, executable,
 args, options)` provides the same flow on a managed thread. Pass program
 arguments in the Moon invocation's `args`, not `RunOptions::with_args`.
@@ -333,9 +333,10 @@ Moonx help/version and argument errors use Moonrun's embedded frontend and
 plain-text output on the supplied streams, without requiring the selected
 helper executable or handoff storage. Guest spawn still performs executable
 lookup and authorization before admission. Valid execution requests start an
-external preparation helper with host access. The helper only delivers the artifact; Engine executes Wasm and owns cleanup. Native/Node
-artifact execution and delegation of the whole invocation to another process
-remain unsupported by this flow.
+external preparation helper with host access. The helper delivers Wasm; Engine
+executes it and owns cleanup. Native/JS targets are rejected before building in
+this handoff mode. Ordinary native/Node commands use the OS process path,
+including `moon run --target native` and `moon run --target js`.
 
 The shipping configuration remains V8-backed; the Wasmtime feature provides
 the same library surface at compile time. Engine construction and ordinary

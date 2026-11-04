@@ -32,16 +32,6 @@ pub(crate) enum ExecutionMode {
     Native,
 }
 
-impl From<ExecutionMode> for moonutil::run_handoff::ExecutionKind {
-    fn from(mode: ExecutionMode) -> Self {
-        match mode {
-            ExecutionMode::MoonRun => Self::Wasm,
-            ExecutionMode::Native => Self::Native,
-            ExecutionMode::Node => Self::Js,
-        }
-    }
-}
-
 impl From<&BackendConfig> for ExecutionMode {
     fn from(backend: &BackendConfig) -> Self {
         match backend {

@@ -358,13 +358,12 @@ impl Engine {
         .map(|spawned| spawned.pid)
     }
 
-    /// Admit a prepared executable through the same dispatch as a Moon helper
-    /// result. Native process nodes are not yet implemented.
-    pub fn spawn_executable_with_signal_receiver(
+    /// Load a Wasm file within a managed execution scope, including cancellation
+    /// and cleanup, and receive signals through the supplied channel.
+    pub fn spawn_file_with_signal_receiver(
         &self,
         parent: Option<VirtualPid>,
         executable: &Path,
-        kind: moonutil::run_handoff::ExecutionKind,
         options: RunOptions,
         signals: crate::SignalReceiver,
     ) -> Result<VirtualPid, ProcessError> {
@@ -376,19 +375,14 @@ impl Engine {
             options,
             signals,
             move |engine, options, signals, scope| {
-                engine.execute_artifact_in_scope(
-                    kind,
-                    &executable,
-                    &executable,
-                    |bytes| {
-                        moonutil::wasm_source_map::load(&executable, bytes)
-                            .as_deref()
-                            .and_then(crate::source_map::SourceMap::parse)
-                    },
-                    options,
-                    signals,
-                    scope.termination(),
-                )
+                // Managed roots accept Wasm contents regardless of filename.
+                let bytes = std::fs::read(&executable)?;
+                let module = engine.compile_file(&executable, &bytes, || {
+                    moonutil::wasm_source_map::load(&executable, &bytes)
+                        .as_deref()
+                        .and_then(crate::source_map::SourceMap::parse)
+                })?;
+                engine.run_in_scope(&module, options, signals, scope.termination())
             },
         )
         .map(|spawned| spawned.pid)

@@ -92,8 +92,10 @@ not Engine or Runtime. A running Runtime may refer to its Engine through
 Process Context without forming an ownership cycle through the table. Neither
 admission nor lookup reconstructs Runtime state from a process entry.
 
-`run_moon` and `spawn_moon` share Moon preparation and artifact dispatch.
-They are host-selected entries and can prepare `moon run` as well as moonx.
+`run_moon` and `spawn_moon` share Wasm preparation and execution.
+They are host-selected entries and can prepare Wasm through `moon run` as well
+as moonx. Handoff accepts Wasm targets only; native and Node commands use
+ordinary OS process execution.
 Guest Virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
 or registry packages. Other commands return unsupported without native fallback.
 Engine uses the shared moonx grammar before entering preparation. Help/version
@@ -551,7 +553,7 @@ not a requirement for one global policy object on every call.
 | Stdio, passed files, sockets, and directory resources | Granting owner plus the receiving domain | Validate lifetime, kind, provenance, and allowed use; a Handle is not an unchecked OS descriptor |
 | WASIp1 filesystem and descriptors | WASI descriptor/preopen authority plus Host Filesystem | Filesystem effects use shared domain authorization and native operations; acquired-file I/O retains descriptor rights. Runtime Env/stdio remain shared; stdio is a separate resource grant |
 | Build helpers and compiler descendants | Host-selected preparation plus separately delegated execution authority | Helpers retain host access; guest Wasm policy does not sandbox preparation |
-| Native executables and Node | Host Process admission plus an explicit native execution contract | Prepared native/JS artifacts are not executed by Engine. Native guest process mode preserves existing OS spawn paths; spawn permission does not restrict arbitrary native syscalls |
+| Native executables and Node | Host Process admission plus an explicit native execution contract | Handoff is Wasm-only. Native guest process mode preserves existing OS spawn paths; spawn permission does not restrict arbitrary native syscalls |
 | Other imports touching host state | The relevant domain or Runtime dependency | Audit clocks, randomness, library initialization, and any direct raw imports; declare unrestricted exposure or enforce a rule rather than assuming filesystem policy covers them |
 
 An FFI name is an ABI entry point, not the unit of policy. Two FFIs with the

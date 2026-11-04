@@ -384,8 +384,20 @@ pub(crate) fn run_run(
     if cmd.handoff.is_some() && (cli.dry_run || cmd.build_only || cmd.profile) {
         bail!("Moonrun handoff cannot be combined with --dry-run, --build-only, or --profile");
     }
-    if cmd.handoff.is_some() && cmd.build_flags.target.is_empty() {
-        cmd.build_flags.target.push(SurfaceTarget::Wasm);
+    if cmd.handoff.is_some() {
+        if cmd.build_flags.target.is_empty() {
+            cmd.build_flags.target.push(SurfaceTarget::Wasm);
+        }
+        // Handoff keeps Wasm inside the embedding Engine. Native and JS use
+        // ordinary Moon process execution; reject before consuming stdin or building.
+        if cmd
+            .build_flags
+            .target
+            .iter()
+            .any(|target| !matches!(target, SurfaceTarget::Wasm | SurfaceTarget::WasmGC))
+        {
+            bail!("Moonrun handoff only supports Wasm targets");
+        }
     }
     if cmd.profile {
         return super::profile::run_profiled_run(cli, cmd, output);
@@ -922,7 +934,6 @@ fn run_executable(
     if let Some(handoff) = &cmd.handoff {
         handoff.publish(
             &executable.executable,
-            crate::run::ExecutionMode::from(&executable.backend).into(),
             &cmd.args,
             moonrun_policy,
             policy_source_dir,
