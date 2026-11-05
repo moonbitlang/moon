@@ -271,6 +271,9 @@ pub(crate) fn stdio_kind(file: &Resource) -> AsyncHostResult<i32> {
 }
 
 fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatValues> {
+    #[cfg(test)]
+    tests::HANDLE_QUERIES.with(|count| count.set(count.get() + 1));
+
     #[cfg(unix)]
     let raw = file.as_file()?.as_raw_fd();
     #[cfg(windows)]
@@ -1003,6 +1006,44 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use crate::resource::Resource;
+
+    thread_local! {
+        pub(super) static HANDLE_QUERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn open_only_queries_metadata_when_requested() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), b"moonrun stat").unwrap();
+
+        for (mask, capacity, queries) in [(0, 8, 0), (STAT_FILE_KIND | STAT_FILE_SIZE, 24, 1)] {
+            let before = HANDLE_QUERIES.get();
+            let mut job = crate::filesystem::Job::open(
+                None,
+                temp.path().as_os_str().to_owned(),
+                0,
+                0,
+                false,
+                0,
+                0o600,
+                mask,
+                capacity,
+            )
+            .unwrap();
+
+            assert_eq!(job.run(), Ok(0));
+            assert_eq!(HANDLE_QUERIES.get() - before, queries);
+            let packed = job.stat_result().unwrap();
+            assert_eq!(packed.as_bytes().len(), capacity as usize);
+            assert_eq!(&packed.as_bytes()[..4], &capacity.to_le_bytes());
+            assert_eq!(&packed.as_bytes()[4..8], &mask.to_le_bytes());
+            if mask != 0 {
+                assert_eq!(packed.scalar(STAT_FILE_KIND), Some(1));
+                assert_eq!(packed.scalar(STAT_FILE_SIZE), Some(12));
+            }
+            assert!(job.open_result().is_ok());
+        }
+    }
 
     #[test]
     fn request_layout_is_stable_for_every_supported_mask() {

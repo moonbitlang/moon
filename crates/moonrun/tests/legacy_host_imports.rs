@@ -45,6 +45,15 @@ fn legacy_async_filesystem_jobs_preserve_guest_abi_and_behavior() {
                 (if (i32.ne (i32.load (i32.const 68)) (i32.const 13)) (then unreachable))
                 (if (i32.ne (i32.load (i32.const 72)) (local.get $kind)) (then unreachable))"#,
         ),
+        (
+            "make_open_stat_job",
+            "i32 i32",
+            "(i32.const 0) (i32.const 8)",
+            r#"(import "moonbitlang/async" "thread_pool/get_stat_result" (func $stat (param i64 i32 i32)))"#,
+            r#"(call $stat (local.get $job) (i32.const 64) (i32.const 8))
+                (if (i32.ne (i32.load (i32.const 64)) (i32.const 8)) (then unreachable))
+                (if (i32.load (i32.const 68)) (then unreachable))"#,
+        ),
     ] {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join("dir")).unwrap();
