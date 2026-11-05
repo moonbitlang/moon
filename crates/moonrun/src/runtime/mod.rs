@@ -42,7 +42,7 @@ use crate::process::HostProcess;
 use crate::run_signal::SignalReceiver;
 use crate::sqlite::SqliteHost;
 
-pub(crate) use environment::Env;
+pub(crate) use environment::{Env, EnvError};
 pub(crate) use environment_provisioning::EnvConfig;
 #[cfg(test)]
 pub(crate) use environment_provisioning::EnvProvisioning;
