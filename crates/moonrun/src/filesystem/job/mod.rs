@@ -1200,6 +1200,53 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn removed_directory_cannot_borrow_replacement_path_authority() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::os::fd::IntoRawFd;
+        use std::sync::Arc;
+
+        let root = tempfile::tempdir().unwrap();
+        let allowed = root.path().join("allowed");
+        let held = root.path().join("denied/held");
+        std::fs::create_dir_all(allowed.join("anchor")).unwrap();
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(allowed.join("secret"), b"allowed").unwrap();
+        std::fs::write(root.path().join("denied/secret"), b"DENIED").unwrap();
+        let environment = Arc::new(Env::ambient());
+        let config = serde_json::json!({"fs": {"read": [&allowed, &held], "write": [&held]}});
+        let (policy, _) =
+            crate::policy::load_json(&serde_json::to_vec(&config).unwrap(), &environment).unwrap();
+        let filesystem = HostFs::new(
+            Some(policy.filesystem()),
+            environment,
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let parent = Arc::new(Resource::new(
+            std::fs::File::open(&held).unwrap().into_raw_fd(),
+        ));
+        let open = Job::open(Some(parent), "../secret".into(), 0, 0, false, 0, 0, 0, 8).unwrap();
+        assert_eq!(
+            open.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
+
+        filesystem.remove_directory_all(&held).unwrap();
+        let mut replace = Job::symlink(
+            allowed.join("anchor").into_os_string(),
+            held.into_os_string(),
+            false,
+        );
+        replace.check_policy(&filesystem).unwrap();
+        replace.run().unwrap();
+
+        assert_eq!(
+            open.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied),
+        );
+    }
+
     #[test]
     fn relative_job_authority_tracks_the_directory_after_rename() {
         use crate::runtime::{Env, WorkingDirectory};

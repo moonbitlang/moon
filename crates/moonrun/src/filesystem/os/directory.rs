@@ -41,14 +41,22 @@ pub(in crate::filesystem) fn path(handle: RawFile) -> io::Result<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
-        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
         let mut path = [0u8; libc::PATH_MAX as usize];
         if unsafe { libc::fcntl(handle, libc::F_GETPATH, path.as_mut_ptr()) } < 0 {
             return Err(io::Error::last_os_error());
         }
         let path = std::ffi::CStr::from_bytes_until_nul(&path)
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-        Ok(std::ffi::OsStr::from_bytes(path.to_bytes()).into())
+        let path = std::path::Path::new(std::ffi::OsStr::from_bytes(path.to_bytes()));
+        // F_GETPATH can retain a removed directory's name even when its link
+        // count is nonzero. Never let a replacement at that name supply the
+        // policy base for relative operations on the original handle.
+        let named = std::fs::metadata(path)?;
+        if named.dev() != stat.st_dev as u64 || named.ino() != stat.st_ino {
+            return Err(io::ErrorKind::NotFound.into());
+        }
+        Ok(path.to_owned())
     }
 }
 
