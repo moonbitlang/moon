@@ -94,7 +94,15 @@ mod unix {
     #[cfg(target_os = "macos")]
     pub(super) fn tty_path() -> AsyncHostResult<CString> {
         unsafe extern "C" {
-            fn devname(dev: libc::dev_t, kind: libc::mode_t) -> *mut libc::c_char;
+            // `devname` returns a static buffer, and Runs of one process may
+            // open their terminals concurrently. `libc` does not declare
+            // `devname_r`.
+            fn devname_r(
+                dev: libc::dev_t,
+                kind: libc::mode_t,
+                buf: *mut libc::c_char,
+                len: libc::c_int,
+            ) -> *mut libc::c_char;
         }
 
         let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
@@ -119,11 +127,24 @@ mod unix {
         if info.e_tdev == u32::MAX {
             return Err(AsyncHostError::Native(libc::ENXIO));
         }
-        let name = unsafe { devname(info.e_tdev as libc::dev_t, libc::S_IFCHR) };
+        // `devname_r` returns the `d_name` of an entry directly in `/dev`, and
+        // fails rather than truncating when `buf` is too short.
+        // `MAXNAMLEN` from `<sys/dirent.h>`; `libc` does not define it.
+        const MAXNAMLEN: usize = 255;
+        let mut buf = [0_u8; MAXNAMLEN + 1];
+        let name = unsafe {
+            devname_r(
+                info.e_tdev as libc::dev_t,
+                libc::S_IFCHR,
+                buf.as_mut_ptr().cast(),
+                buf.len() as libc::c_int,
+            )
+        };
         if name.is_null() {
             return Err(AsyncHostError::Native(libc::ENXIO));
         }
-        let name = unsafe { std::ffi::CStr::from_ptr(name) };
+        let name = std::ffi::CStr::from_bytes_until_nul(&buf)
+            .map_err(|_| AsyncHostError::Native(libc::ENXIO))?;
         let mut path = b"/dev/".to_vec();
         path.extend_from_slice(name.to_bytes());
         Ok(CString::new(path).unwrap())
@@ -176,13 +197,17 @@ mod unix {
 
     /// Return the current state as the bytes of `Termios`.
     pub(super) fn get_state(input: BorrowedFd<'_>) -> AsyncHostResult<Vec<u8>> {
-        let mut termios = unsafe { std::mem::zeroed::<Termios>() };
-        if get_termios(input, &mut termios) < 0 {
+        // macOS's `termios` has padding, which the guest receives too. A typed
+        // copy may leave padding uninitialized, so the storage stays untyped.
+        let mut termios = std::mem::MaybeUninit::<Termios>::zeroed();
+        // SAFETY: every field is an integer, so zero bytes are a valid value.
+        if get_termios(input, unsafe { termios.assume_init_mut() }) < 0 {
             return Err(last_error());
         }
-        let bytes = unsafe {
-            std::slice::from_raw_parts((&termios as *const Termios).cast::<u8>(), STATE_SIZE)
-        };
+        // SAFETY: the storage was zeroed and then written in place, so all
+        // `STATE_SIZE` bytes, padding included, are initialized.
+        let bytes =
+            unsafe { std::slice::from_raw_parts(termios.as_ptr().cast::<u8>(), STATE_SIZE) };
         Ok(bytes.to_vec())
     }
 
