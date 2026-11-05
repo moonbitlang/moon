@@ -35,7 +35,7 @@ use std::{
     io::BufRead,
     sync::Arc,
 };
-use sync::{RegistryIndexRecloneReason, RegistryIndexUpdate};
+use sync::RegistryIndexUpdate;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -193,18 +193,7 @@ fn log_sync_outcome(outcome: RegistryIndexUpdate, user_log: &UserLog) {
     match outcome {
         RegistryIndexUpdate::Cloned => user_log.status("Registry index cloned successfully"),
         RegistryIndexUpdate::Updated => user_log.status("Registry index updated successfully"),
-        RegistryIndexUpdate::Recloned(reason) => {
-            let reason = match reason {
-                RegistryIndexRecloneReason::UpdateFailed => "Failed to update registry index",
-                RegistryIndexRecloneReason::RemoteMismatch => {
-                    "Registry index remote does not match the configured URL"
-                }
-                RegistryIndexRecloneReason::NotGitRepository => {
-                    "Registry index is not a Git repository"
-                }
-                RegistryIndexRecloneReason::MissingOrigin => "Registry index has no origin remote",
-            };
-            user_log.status(format!("{reason}, re-cloning"));
+        RegistryIndexUpdate::Recloned => {
             user_log.status("Registry index re-cloned successfully");
         }
         RegistryIndexUpdate::ConcurrentUpdateReused => {
@@ -270,13 +259,10 @@ mod tests {
     fn registry_update_status_describes_reclone() {
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
 
-        log_sync_outcome(
-            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::NotGitRepository),
-            &user_log,
-        );
+        log_sync_outcome(RegistryIndexUpdate::Recloned, &user_log);
 
         let entries = capture.take();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 1);
         assert!(
             entries
                 .iter()
@@ -287,10 +273,7 @@ mod tests {
                 .into_iter()
                 .map(|entry| entry.message)
                 .collect::<Vec<_>>(),
-            [
-                "Registry index is not a Git repository, re-cloning",
-                "Registry index re-cloned successfully",
-            ]
+            ["Registry index re-cloned successfully"]
         );
     }
 

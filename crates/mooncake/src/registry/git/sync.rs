@@ -31,7 +31,7 @@ use moonutil::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::registry::{sha256_hex, stage_registry_cache_file, unique_sibling_dir};
+use crate::registry::{replace_registry_directory, sha256_hex, stage_registry_cache_file};
 
 /// Bookkeeping for successful Git synchronization, independent of index contents.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,18 +132,10 @@ impl std::fmt::Display for CommandOutput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum RegistryIndexRecloneReason {
-    UpdateFailed,
-    RemoteMismatch,
-    NotGitRepository,
-    MissingOrigin,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RegistryIndexUpdate {
     Cloned,
     Updated,
-    Recloned(RegistryIndexRecloneReason),
+    Recloned,
     ConcurrentUpdateReused,
 }
 
@@ -188,6 +180,8 @@ fn clone_registry_index(
 
     // Registry index servers must support smart Git transports and shallow
     // clones. Do not fall back to a full-history clone for dumb/static HTTP.
+    // Git for Windows cannot clone into the verbatim paths produced by
+    // canonicalize; simplify only the argument passed to the external tool.
     let child = moonutil::git::git_command(
         &[
             "clone",
@@ -196,7 +190,7 @@ fn clone_registry_index(
             "--single-branch",
             "--no-tags",
             &registry_config.index,
-            target_dir.to_str().unwrap(),
+            dunce::simplified(target_dir).to_str().unwrap(),
         ],
         Stdios::npp(),
     )
@@ -237,46 +231,21 @@ fn safe_reclone_registry_index(
         });
     };
 
-    // Clone into a fresh sibling directory first.
-    let tmp_dir = unique_sibling_dir(parent, ".registry-index.tmp").map_err(|e| UpdateError {
-        source: UpdateErrorKind::IO(e),
+    let parent = std::fs::canonicalize(parent).map_err(|error| UpdateError {
+        source: UpdateErrorKind::IO(error),
     })?;
-    let clone_res = clone_registry_index(registry_config, &tmp_dir).map_err(|e| UpdateError {
-        source: UpdateErrorKind::CloneRegistryIndexError(e),
-    });
-    if let Err(e) = clone_res {
-        // Best effort cleanup; ignore errors.
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return Err(e);
-    }
-
-    // Swap: move old -> backup, move tmp -> target, then delete backup.
-    let backup_dir =
-        unique_sibling_dir(parent, ".registry-index.old").map_err(|e| UpdateError {
-            source: UpdateErrorKind::IO(e),
+    let staged = tempfile::Builder::new()
+        .prefix(".registry-index-")
+        .tempdir_in(parent)
+        .map_err(|error| UpdateError {
+            source: UpdateErrorKind::IO(error),
         })?;
-    std::fs::rename(target_dir, &backup_dir).map_err(|e| UpdateError {
-        source: UpdateErrorKind::IO(e),
+    clone_registry_index(registry_config, staged.path()).map_err(|error| UpdateError {
+        source: UpdateErrorKind::CloneRegistryIndexError(error),
     })?;
-
-    if let Err(e) = std::fs::rename(&tmp_dir, target_dir) {
-        // Best effort rollback: restore original index.
-        let _ = std::fs::rename(&backup_dir, target_dir);
-        // Best effort cleanup.
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return Err(UpdateError {
-            source: UpdateErrorKind::IO(e),
-        });
-    }
-
-    if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
-        user_log.warn(format!(
-            "failed to remove old registry index at `{}`: {e}",
-            backup_dir.display()
-        ));
-    }
-
-    Ok(())
+    replace_registry_directory(staged, target_dir, user_log).map_err(|error| UpdateError {
+        source: UpdateErrorKind::DirectoryReplacement(error),
+    })
 }
 
 fn fetch_and_reset_registry_index(target_dir: &Path) -> Result<(), RegistryGitError> {
@@ -308,6 +277,9 @@ struct UpdateError {
 
 #[derive(Debug, thiserror::Error)]
 enum UpdateErrorKind {
+    #[error(transparent)]
+    DirectoryReplacement(#[from] anyhow::Error),
+
     #[error(transparent)]
     CloneRegistryIndexError(#[from] CloneRegistryIndexError),
 
@@ -428,21 +400,24 @@ fn update_registry_index(
         let state = inspect_registry_index(target_dir).map_err(|e| UpdateError {
             source: UpdateErrorKind::RegistryGitError(e),
         })?;
-        let reclone_reason = match state {
+        let reason = match state {
             RegistryIndexState::Ready { remote_url } if remote_url == registry_config.index => {
-                // TODO(#2460): Preserve the update error and limit recloning to
-                // failures that rebuilding the cache can repair.
-                if fetch_and_reset_registry_index(target_dir).is_ok() {
-                    return Ok(RegistryIndexUpdate::Updated);
-                }
-                RegistryIndexRecloneReason::UpdateFailed
+                // Command failures do not establish that the cache is invalid.
+                // Preserve the original error instead of masking it with a clone.
+                fetch_and_reset_registry_index(target_dir).map_err(|error| UpdateError {
+                    source: UpdateErrorKind::RegistryGitError(error),
+                })?;
+                return Ok(RegistryIndexUpdate::Updated);
             }
-            RegistryIndexState::Ready { .. } => RegistryIndexRecloneReason::RemoteMismatch,
-            RegistryIndexState::NotGitRepository => RegistryIndexRecloneReason::NotGitRepository,
-            RegistryIndexState::MissingOrigin => RegistryIndexRecloneReason::MissingOrigin,
+            RegistryIndexState::Ready { .. } => {
+                "Registry index remote does not match the configured URL"
+            }
+            RegistryIndexState::NotGitRepository => "Registry index is not a Git repository",
+            RegistryIndexState::MissingOrigin => "Registry index has no origin remote",
         };
+        user_log.status(format!("{reason}, re-cloning"));
         safe_reclone_registry_index(registry_config, target_dir, user_log)?;
-        Ok(RegistryIndexUpdate::Recloned(reclone_reason))
+        Ok(RegistryIndexUpdate::Recloned)
     } else {
         clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
             source: UpdateErrorKind::CloneRegistryIndexError(e),
@@ -783,6 +758,29 @@ mod tests {
     }
 
     #[test]
+    fn update_failure_preserves_the_git_error_without_recloning() {
+        let (_registry, config) = registry_with_history();
+        let checkout = tempfile::tempdir().unwrap();
+        let index = checkout.path().join("index");
+        clone_registry_index(&config, &index).unwrap();
+        // A persistent checkout lock prevents reset; a fresh clone would succeed
+        // and silently discard this checkout, masking the real update failure.
+        std::fs::write(index.join(".git/index.lock"), "held by another operation").unwrap();
+        std::fs::write(index.join("index-version"), "preserve local contents").unwrap();
+
+        let error = update_registry_index(&index, &config, &quiet_user_log()).unwrap_err();
+        assert!(matches!(error.source, UpdateErrorKind::RegistryGitError(_)));
+        let message = format!("{error:?}");
+        assert!(message.contains("reset --hard --quiet FETCH_HEAD"));
+        assert!(message.contains("index.lock"));
+        assert_eq!(
+            std::fs::read_to_string(index.join("index-version")).unwrap(),
+            "preserve local contents"
+        );
+        assert!(index.join(".git/index.lock").exists());
+    }
+
+    #[test]
     fn registry_index_update_preserves_checkout_when_fetch_fails() {
         let (registry, config) = registry_with_history();
         let checkout = tempfile::tempdir().unwrap();
@@ -983,6 +981,29 @@ mod tests {
     }
 
     #[test]
+    fn failed_reclone_preserves_the_old_directory_and_cleans_staging() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("index");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("cached-index"), "preserve me").unwrap();
+        let config = RegistryConfig {
+            index: root
+                .path()
+                .join("missing.git")
+                .to_string_lossy()
+                .into_owned(),
+            ..RegistryConfig::default()
+        };
+
+        assert!(update_registry_index(&target, &config, &quiet_user_log()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(target.join("cached-index")).unwrap(),
+            "preserve me"
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
     fn update_registry_index_reclones_non_git_directory() {
         let (_registry, config) = empty_registry();
         let registry_home = tempfile::tempdir().unwrap();
@@ -990,11 +1011,17 @@ mod tests {
         std::fs::create_dir(&index).unwrap();
         std::fs::write(index.join("stale"), "stale index").unwrap();
 
-        let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        let update = update_registry_index(&index, &config, &user_log).unwrap();
 
+        assert_eq!(update, RegistryIndexUpdate::Recloned);
         assert_eq!(
-            update,
-            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::NotGitRepository)
+            capture
+                .take()
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect::<Vec<_>>(),
+            ["Registry index is not a Git repository, re-cloning"]
         );
         assert!(!index.join("stale").exists());
         assert_eq!(
@@ -1015,10 +1042,7 @@ mod tests {
 
         let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
 
-        assert_eq!(
-            update,
-            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::MissingOrigin)
-        );
+        assert_eq!(update, RegistryIndexUpdate::Recloned);
         assert_eq!(
             inspect_registry_index(&index).unwrap(),
             RegistryIndexState::Ready {
@@ -1044,10 +1068,7 @@ mod tests {
 
         let update = update_registry_index(&index, &config, &quiet_user_log()).unwrap();
 
-        assert_eq!(
-            update,
-            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::MissingOrigin)
-        );
+        assert_eq!(update, RegistryIndexUpdate::Recloned);
         assert_eq!(
             inspect_registry_index(&index).unwrap(),
             RegistryIndexState::Ready {

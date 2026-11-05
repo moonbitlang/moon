@@ -68,6 +68,10 @@ $MOON_HOME/
   tracked checkout to the fetched commit, reusing cached Git objects without
   merging or rebasing. Existing full clones also get a shallow boundary at the
   fetched commit; previously stored objects are not immediately removed.
+  A changed origin or a checkout that is not a Git repository or has no origin
+  is rebuilt through a staged clone. Fetch/reset failures retain their original
+  Git errors and do not trigger a reclone; a failed fetch never resets the
+  checkout to an earlier `FETCH_HEAD`.
 - Module metadata is read from
   `registry/index/user/<username>/<module>.index`. Each JSONL release record
   requires a version and checksum. An omitted `deps` field means an empty
@@ -121,6 +125,10 @@ $MOON_HOME/
   stale: refreshing latest does not invalidate immutable release records.
 - `registry/symbols` is the symbols archive materialized by `moon update` in
   Git mode. Ordinary registry metadata refreshes do not download symbols.
+- Git reclones and symbols extraction use `tempfile` directories on the
+  destination filesystem. Directory publication retains the old contents until
+  the new directory is installed and restores them if publication fails. If
+  restoration also fails, the backup is retained and its location is reported.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
   `.zip.lock` serializes publication of one module version.
