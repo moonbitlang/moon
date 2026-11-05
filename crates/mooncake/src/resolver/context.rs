@@ -24,8 +24,9 @@ use std::{
 
 use moonutil::{
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    resolution::{ModuleName, ModuleSource},
+    resolution::ModuleName,
 };
+use semver::Version;
 
 use crate::registry::{Registry, RegistryModuleNotFound};
 
@@ -35,7 +36,7 @@ use super::ModuleResolutionError;
 pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
     registry: &'a R,
     errors: Vec<super::ModuleResolutionError>,
-    registry_modules: HashMap<ModuleSource, RegistryModule>,
+    registry_modules: HashMap<ModuleName, HashMap<Version, RegistryModule>>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
 }
 
@@ -68,19 +69,22 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
         !self.errors.is_empty()
     }
 
-    /// Load an exact registry source once per resolution, sharing its manifest
+    /// Load an exact registry version once per resolution, sharing its manifest
     /// across dependants. Failed reads retain the requesting dependency context.
     pub(crate) fn get_registry_module(
         &mut self,
-        source: &ModuleSource,
+        name: &ModuleName,
+        version: &Version,
         dependant: &ModuleName,
     ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
-        if let Some(module) = self.registry_modules.get(source) {
+        if let Some(module) = self
+            .registry_modules
+            .get(name)
+            .and_then(|versions| versions.get(version))
+        {
             return Ok(Arc::clone(&module.manifest));
         }
 
-        let name = source.name();
-        let version = source.version();
         let info = self.registry.version_info(name, version).map_err(|error| {
             if error.is::<RegistryModuleNotFound>() {
                 ModuleResolutionError::ModuleMissing {
@@ -107,20 +111,28 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
             deps: info.deps,
             ..Default::default()
         });
-        self.registry_modules.insert(
-            source.clone(),
-            RegistryModule {
-                manifest: Arc::clone(&manifest),
-                deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
-            },
-        );
+        self.registry_modules
+            .entry(name.clone())
+            .or_default()
+            .insert(
+                version.clone(),
+                RegistryModule {
+                    manifest: Arc::clone(&manifest),
+                    deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
+                },
+            );
         Ok(manifest)
     }
 
     /// Advisory status observed during traversal, without another registry read.
-    pub(crate) fn registry_deprecation_reason(&self, source: &ModuleSource) -> Option<&str> {
+    pub(crate) fn registry_deprecation_reason(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> Option<&str> {
         self.registry_modules
-            .get(source)?
+            .get(name)?
+            .get(version)?
             .deprecation_reason
             .as_deref()
     }

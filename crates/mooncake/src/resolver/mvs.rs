@@ -90,7 +90,7 @@ fn resolve_registry_module<R: Registry>(
     let source = ModuleSource::from_version(dependency.clone(), required.clone())
         .map_err(|err| ModuleResolutionError::Other(err.into()))?;
     let module = context
-        .get_registry_module(&source, dependant)
+        .get_registry_module(dependency, required, dependant)
         .inspect_err(|error| {
             if matches!(
                 error,

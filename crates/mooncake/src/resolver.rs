@@ -22,7 +22,8 @@ use std::sync::Arc;
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::resolution::{
-    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ResolvedRootModules,
+    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
+    ResolvedRootModules,
 };
 use moonutil::toolchain;
 use moonutil::user_log::UserLog;
@@ -334,7 +335,11 @@ fn warn_deprecated_dependencies<R: Registry>(
     let mut modules = module_graph.all_modules_and_id().collect::<Vec<_>>();
     modules.sort_unstable_by(|(_, a), (_, b)| a.name().cmp(b.name()));
     for (id, source) in modules {
-        let Some(reason) = context.registry_deprecation_reason(source) else {
+        if !matches!(source.source(), ModuleSourceKind::Registry) {
+            continue;
+        }
+        let Some(reason) = context.registry_deprecation_reason(source.name(), source.version())
+        else {
             continue;
         };
         // Registry-authored reasons may contain terminal control sequences.
