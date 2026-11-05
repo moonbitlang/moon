@@ -243,20 +243,12 @@ mod tests {
         for rules in [rules, decoded] {
             rules
                 .filesystem()
-                .authorize(
-                    Some(std::path::Path::new("file")),
-                    crate::policy::FsIntents::read(),
-                    "file",
-                )
+                .authorize(Some(std::path::Path::new("file")), true, false, "file")
                 .unwrap();
             assert!(
                 rules
                     .filesystem()
-                    .authorize(
-                        Some(std::path::Path::new("file")),
-                        crate::policy::FsIntents::write(),
-                        "file"
-                    )
+                    .authorize(Some(std::path::Path::new("file")), false, true, "file")
                     .is_err()
             );
             #[cfg(unix)]
@@ -396,13 +388,13 @@ mod tests {
         let decoded = Policy::from_transfer(&contents).unwrap();
         decoded
             .filesystem()
-            .authorize(Some(&root), crate::policy::FsIntents::read(), "allowed")
+            .authorize(Some(&root), true, false, "allowed")
             .unwrap();
         let other = std::path::PathBuf::from("/not-required-to-exist/allowed-�");
         assert!(
             decoded
                 .filesystem()
-                .authorize(Some(&other), crate::policy::FsIntents::read(), "other")
+                .authorize(Some(&other), true, false, "other")
                 .is_err()
         );
     }
@@ -419,11 +411,7 @@ mod tests {
         assert!(
             decoded
                 .filesystem()
-                .authorize(
-                    Some(std::path::Path::new("file")),
-                    crate::policy::FsIntents::read(),
-                    "file"
-                )
+                .authorize(Some(std::path::Path::new("file")), true, false, "file")
                 .is_err()
         );
     }

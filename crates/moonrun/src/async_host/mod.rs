@@ -53,8 +53,8 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
-use crate::filesystem::FileOperation;
 use crate::filesystem::HostFs;
+use crate::filesystem::{FsOperation, FsPath, FsTarget};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
@@ -2523,7 +2523,7 @@ impl AsyncHost {
         let kqueue = self.acquire_resource(kqueue_handle)?;
         let file = self.acquire_resource(file_handle)?;
         self.filesystem
-            .authorize_file(file.file_grant(), FileOperation::Watch)?;
+            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
         crate::async_sys::fs::watch_kqueue::add_file(
             kqueue.as_fd()?.as_raw_fd(),
             file.as_fd()?.as_raw_fd(),
@@ -2733,7 +2733,7 @@ impl AsyncHost {
     pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
             self.filesystem
-                .authorize_file(file.file_grant(), FileOperation::Kind)?;
+                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
             crate::filesystem::stdio_kind(file)
         })
     }
@@ -2741,7 +2741,7 @@ impl AsyncHost {
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
             self.filesystem
-                .authorize_file(file.file_grant(), FileOperation::Kind)?;
+                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
             #[cfg(unix)]
             {
                 crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
@@ -3219,7 +3219,7 @@ impl AsyncHost {
         }
         let file = result.kind.resource_ref(&handles, fd_handle)?;
         self.filesystem
-            .authorize_file(file.file_grant(), FileOperation::Watch)?;
+            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
         let len = u32::try_from(result.read_dir_changes_len).map_err(|_| AsyncHostError::Fault)?;
         let buffer = result
             .read_dir_changes_buffer
@@ -3579,8 +3579,10 @@ impl AsyncHost {
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            self.filesystem
-                .authorize_file(file.file_grant(), FileOperation::Lock { exclusive })?;
+            self.filesystem.authorize(FsOperation::Lock {
+                file: file.file_grant(),
+                exclusive,
+            })?;
             crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
         })
     }
@@ -3927,7 +3929,10 @@ impl AsyncHost {
             ("TLS private key", private_key_file.as_path()),
             ("TLS certificate", certificate_file.as_path()),
         ] {
-            if let Err(error) = self.filesystem.authorize_read(path.as_os_str()) {
+            if let Err(error) = self
+                .filesystem
+                .authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))
+            {
                 return self.with_tls_pending_mut(handle, |pending| {
                     pending.set_error(format!(
                         "failed to access {label} file: {:?}",
@@ -6609,7 +6614,12 @@ mod tests {
         let host = host_with_policy(&policy_file);
 
         host.filesystem()
-            .authorize_open(link.as_os_str(), 0, 0)
+            .authorize(FsOperation::OpenAsync {
+                path: FsPath::Cwd(link.as_os_str()),
+                access: 0,
+                create_mode: 0,
+                read_metadata: false,
+            })
             .unwrap();
         let job = host
             .insert_job(FilesystemJob::open_legacy(

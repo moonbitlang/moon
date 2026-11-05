@@ -22,7 +22,7 @@ use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
 
-use crate::filesystem::HostFs;
+use crate::filesystem::{FsOperation, FsPath, HostFs};
 use crate::runtime::null_handle;
 
 /// Ensure the requested database and VFS are available in the MVP.
@@ -52,24 +52,24 @@ pub(super) fn ensure_valid_database(
     }
     let database = Path::new(filename);
     filesystem
-        .authorize_read(database.as_os_str())
+        .authorize(FsOperation::Read(FsPath::Cwd(database.as_os_str())))
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     let parent = database
         .parent()
         .filter(|path| !path.as_os_str().is_empty());
     let parent = parent.unwrap_or_else(|| Path::new("."));
     filesystem
-        .authorize_read(parent.as_os_str())
+        .authorize(FsOperation::Read(FsPath::Cwd(parent.as_os_str())))
         .map_err(|_| ffi::SQLITE_CANTOPEN)?;
 
     if flags & (ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE) != 0 {
         // A writable parent does not grant writes through a symlink whose
         // target lies outside the write rules.
         filesystem
-            .authorize_write(database.as_os_str())
+            .authorize(FsOperation::Write(FsPath::Cwd(database.as_os_str())))
             .map_err(|_| ffi::SQLITE_CANTOPEN)?;
         filesystem
-            .authorize_write(parent.as_os_str())
+            .authorize(FsOperation::Write(FsPath::Cwd(parent.as_os_str())))
             .map_err(|_| ffi::SQLITE_CANTOPEN)?;
     }
     Ok(())

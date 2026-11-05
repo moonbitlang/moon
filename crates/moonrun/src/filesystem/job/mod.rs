@@ -28,9 +28,8 @@ use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
-use crate::filesystem::{FileOperation, HostFs};
+use crate::filesystem::{FsOperation, FsPath, FsTarget, HostFs};
 use crate::guest_memory::GuestMemory;
-use crate::policy::FsIntents;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
@@ -529,38 +528,25 @@ impl Job {
                 request,
                 ..
             } => {
-                if let Some(parent) = parent {
-                    let base =
-                        filesystem.directory_path_for_policy(runner::raw_file_handle(parent)?)?;
-                    filesystem.authorize_path_at(
-                        base.as_deref(),
-                        filename,
-                        FsIntents::for_open(*access, *create_mode),
-                    )?;
-                    if request.mask() & !STAT_OPEN_IDENTITY != 0 {
-                        filesystem.authorize_path_at(
-                            base.as_deref(),
-                            filename,
-                            FsIntents::read(),
-                        )?;
-                    }
-                } else {
-                    filesystem.authorize_open(filename, *access, *create_mode)?;
-                    if request.mask() & !STAT_OPEN_IDENTITY != 0 {
-                        filesystem.authorize_metadata(filename)?;
-                    }
-                }
+                filesystem.authorize(FsOperation::OpenAsync {
+                    path: job_path(parent.as_deref(), filename)?,
+                    access: *access,
+                    create_mode: *create_mode,
+                    read_metadata: request.mask() & !STAT_OPEN_IDENTITY != 0,
+                })?;
                 Ok(())
             }
-            Kind::Fstatx { file, request, .. } => check_file_policy(
-                filesystem,
-                file.as_deref(),
-                if request.mask() == STAT_FILE_KIND {
-                    FileOperation::Kind
-                } else {
-                    FileOperation::Metadata
-                },
-            ),
+            Kind::Fstatx { file, request, .. } => {
+                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
+                let target = FsTarget::File(file.file_grant());
+                filesystem
+                    .authorize(if request.mask() == STAT_FILE_KIND {
+                        FsOperation::Kind(target)
+                    } else {
+                        FsOperation::Metadata(target)
+                    })
+                    .map_err(Into::into)
+            }
             Kind::Statx {
                 parent,
                 path,
@@ -571,49 +557,76 @@ impl Job {
                 parent,
                 path,
                 follow_symlink,
-            } => check_path_metadata_policy(filesystem, parent.as_deref(), path, *follow_symlink),
+            } => {
+                let path = job_path(parent.as_deref(), path)?;
+                filesystem
+                    .authorize(if *follow_symlink {
+                        FsOperation::Metadata(FsTarget::Path(path))
+                    } else {
+                        FsOperation::InspectEntry(path)
+                    })
+                    .map_err(Into::into)
+            }
             Kind::FileSize { file, .. } | Kind::FileTime { file, .. } => {
-                check_file_policy(filesystem, file.as_deref(), FileOperation::Metadata)
+                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
+                filesystem
+                    .authorize(FsOperation::Metadata(FsTarget::File(file.file_grant())))
+                    .map_err(Into::into)
             }
             Kind::FileTimeByPath {
                 path,
                 follow_symlink,
                 ..
-            } => check_path_metadata_policy(filesystem, None, path, *follow_symlink),
-            Kind::Realpath { path, .. } => filesystem.authorize_metadata(path).map_err(Into::into),
-            #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => {
-                filesystem.authorize_metadata(path).map_err(Into::into)
-            }
-            Kind::Access { path, access } => filesystem
-                .authorize_access(path, *access)
+            } => filesystem
+                .authorize(if *follow_symlink {
+                    FsOperation::Metadata(FsTarget::Path(FsPath::Cwd(path)))
+                } else {
+                    FsOperation::InspectEntry(FsPath::Cwd(path))
+                })
                 .map_err(Into::into),
-            Kind::Chmod { path, .. } => filesystem.authorize_write(path).map_err(Into::into),
-            Kind::Flock { file, exclusive } => check_file_policy(
-                filesystem,
-                file.as_deref(),
-                FileOperation::Lock {
-                    exclusive: *exclusive,
-                },
-            ),
-            Kind::Remove { path } => filesystem.authorize_remove(path).map_err(Into::into),
-            Kind::RemoveAt { parent, path } => match parent {
-                None => filesystem.authorize_remove(path).map_err(Into::into),
-                Some(parent) => {
-                    let base =
-                        filesystem.directory_path_for_policy(runner::raw_file_handle(parent)?)?;
-                    filesystem
-                        .authorize_entry_at(base.as_deref(), path, FsIntents::write())
-                        .map_err(Into::into)
-                }
-            },
+            Kind::Realpath { path, .. } => filesystem
+                .authorize(FsOperation::Read(FsPath::Cwd(path)))
+                .map_err(Into::into),
+            #[cfg(target_os = "linux")]
+            Kind::InotifyAddWatch { path, .. } => filesystem
+                .authorize(FsOperation::Watch(FsTarget::Path(FsPath::Cwd(path))))
+                .map_err(Into::into),
+            Kind::Access { path, access } => filesystem
+                .authorize(FsOperation::AccessCheck {
+                    path: FsPath::Cwd(path),
+                    access: *access,
+                })
+                .map_err(Into::into),
+            Kind::Chmod { path, .. } => filesystem
+                .authorize(FsOperation::Write(FsPath::Cwd(path)))
+                .map_err(Into::into),
+            Kind::Flock { file, exclusive } => {
+                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
+                filesystem
+                    .authorize(FsOperation::Lock {
+                        file: file.file_grant(),
+                        exclusive: *exclusive,
+                    })
+                    .map_err(Into::into)
+            }
+            Kind::Remove { path } => filesystem
+                .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
+                .map_err(Into::into),
+            Kind::RemoveAt { parent, path } => filesystem
+                .authorize(FsOperation::ChangeEntry(job_path(parent.as_deref(), path)?))
+                .map_err(Into::into),
             Kind::Rename {
                 old_path, new_path, ..
             } => filesystem
-                .authorize_rename(old_path, new_path)
+                .authorize(FsOperation::Rename {
+                    source: FsPath::Cwd(old_path),
+                    destination: FsPath::Cwd(new_path),
+                })
                 .map_err(Into::into),
             Kind::Symlink { path, .. } | Kind::Mkdir { path, .. } | Kind::Rmdir { path } => {
-                filesystem.authorize_write_entry(path).map_err(Into::into)
+                filesystem
+                    .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
+                    .map_err(Into::into)
             }
             Kind::Read { .. }
             | Kind::Write { .. }
@@ -1046,37 +1059,13 @@ fn last_native_error() -> AsyncHostError {
     )
 }
 
-fn check_file_policy(
-    filesystem: &HostFs,
-    file: Option<&Resource>,
-    operation: FileOperation,
-) -> AsyncHostResult<()> {
-    let file = file.ok_or(AsyncHostError::Badf)?;
-    filesystem
-        .authorize_file(file.file_grant(), operation)
-        .map_err(Into::into)
-}
-
-fn check_path_metadata_policy(
-    filesystem: &HostFs,
-    parent: Option<&Resource>,
-    path: &OsStr,
-    follow_symlink: bool,
-) -> AsyncHostResult<()> {
-    match (parent, follow_symlink) {
-        (None, true) => filesystem.authorize_metadata(path).map_err(Into::into),
-        (None, false) => filesystem
-            .authorize_entry_metadata(path)
-            .map_err(Into::into),
-        (Some(parent), follow_symlink) => {
-            let base = filesystem.directory_path_for_policy(runner::raw_file_handle(parent)?)?;
-            if follow_symlink {
-                filesystem.authorize_path_at(base.as_deref(), path, FsIntents::read())
-            } else {
-                filesystem.authorize_entry_at(base.as_deref(), path, FsIntents::read())
-            }
-            .map_err(Into::into)
-        }
+fn job_path<'a>(parent: Option<&Resource>, path: &'a OsStr) -> AsyncHostResult<FsPath<'a>> {
+    match parent {
+        None => Ok(FsPath::Cwd(path)),
+        Some(parent) => Ok(FsPath::AtHandle {
+            directory: runner::raw_file_handle(parent)?,
+            path,
+        }),
     }
 }
 
@@ -1128,6 +1117,54 @@ mod tests {
         failed
             .copy_read_console_result(1, &mut guest, u32::MAX, u32::MAX, u32::MAX)
             .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdio_directory_grant_does_not_authorize_child_metadata() {
+        use crate::filesystem::FileGrant;
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::os::fd::IntoRawFd;
+        use std::sync::Arc;
+
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("child"), []).unwrap();
+        let parent = Resource::new_with_file_grant(
+            std::fs::File::open(directory.path()).unwrap().into_raw_fd(),
+            FileGrant::STDIO,
+        );
+        let filesystem = HostFs::new(
+            Some(crate::policy::FsPolicy::default()),
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let job = Job::file_kind_by_path(Some(Arc::new(parent)), "child".into(), true);
+
+        assert_eq!(
+            job.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn inotify_watch_requires_read_policy() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::sync::Arc;
+
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let filesystem = HostFs::new(
+            Some(crate::policy::FsPolicy::default()),
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let watcher = Resource::new(crate::async_sys::fs::watch_inotify::create().unwrap());
+        let job = Job::inotify_add_watch(Arc::new(watcher), file.path().into(), false);
+
+        assert_eq!(
+            job.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
     }
 
     #[test]

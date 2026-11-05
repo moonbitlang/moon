@@ -100,22 +100,14 @@ fn composition_survives_repeated_derivation_without_replaying_provisioning() {
         .unwrap();
         let (derived, _) = load(Some(&transfer), Some(&child_file), None, &environment).unwrap();
         let fs = derived.as_ref().unwrap().filesystem();
-        fs.authorize(
-            Some(&child_root.join("file")),
-            FsIntents::read(),
-            "child file",
-        )
-        .unwrap();
+        fs.authorize(Some(&child_root.join("file")), true, false, "child file")
+            .unwrap();
         assert_eq!(
-            fs.authorize(Some(&outside), FsIntents::read(), "outside"),
+            fs.authorize(Some(&outside), true, false, "outside"),
             Err(AsyncHostError::PermissionDenied)
         );
         assert_eq!(
-            fs.authorize(
-                Some(&child_root.join("file")),
-                FsIntents::write(),
-                "child file"
-            ),
+            fs.authorize(Some(&child_root.join("file")), false, true, "child file"),
             Err(AsyncHostError::PermissionDenied)
         );
         transfer = derived.unwrap().open_transfer().unwrap().read().unwrap();
@@ -142,7 +134,7 @@ fn no_child_policy_preserves_grants_but_empty_child_policy_denies_domains() {
         .as_ref()
         .unwrap()
         .filesystem()
-        .authorize(Some(Path::new("file")), FsIntents::read(), "file")
+        .authorize(Some(Path::new("file")), true, false, "file")
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     let child = root.path().join("child.json");
@@ -152,7 +144,8 @@ fn no_child_policy_preserves_grants_but_empty_child_policy_denies_domains() {
         assert_eq!(
             policy.as_ref().unwrap().filesystem().authorize(
                 Some(Path::new("file")),
-                FsIntents::read(),
+                true,
+                false,
                 "file"
             ),
             Err(AsyncHostError::PermissionDenied)
@@ -200,11 +193,11 @@ fn a_child_policy_is_complete_with_or_without_an_inherited_policy() {
         let policy = policy.unwrap();
         policy.network().check_dns("example.com".as_ref()).unwrap();
         // Omitted domains deny, even when an inherited policy permits them.
-        for intent in [FsIntents::read(), FsIntents::write()] {
+        for (read, write) in [(true, false), (false, true)] {
             assert_eq!(
                 policy
                     .filesystem()
-                    .authorize(Some(Path::new("file")), intent, "file"),
+                    .authorize(Some(Path::new("file")), read, write, "file"),
                 Err(AsyncHostError::PermissionDenied)
             );
         }
@@ -285,10 +278,10 @@ fn typed_and_external_composition_have_the_same_decisions() {
             .unwrap();
         assert_eq!(environment.get("VALUE".as_ref()), Some("child".into()));
         let fs = policy.as_ref().unwrap().filesystem();
-        fs.authorize(Some(Path::new("file")), FsIntents::read(), "file")
+        fs.authorize(Some(Path::new("file")), true, false, "file")
             .unwrap();
         assert_eq!(
-            fs.authorize(Some(Path::new("file")), FsIntents::write(), "file"),
+            fs.authorize(Some(Path::new("file")), false, true, "file"),
             Err(AsyncHostError::PermissionDenied)
         );
     }

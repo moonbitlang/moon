@@ -39,7 +39,7 @@ pub(crate) use source::{LoadedPolicy, read_file};
 
 #[cfg(test)]
 use self::config::PolicyConfig;
-pub(crate) use self::fs::{FsIntents, FsPolicy};
+pub(crate) use self::fs::FsPolicy;
 pub(crate) use self::net::{NetOperation, NetPolicy, ResolvedConnectRule};
 pub(crate) use self::process::ProcessPolicy;
 use self::{fs::FsRules, net::NetRules, process::ProcessRules};
@@ -174,16 +174,18 @@ mod tests {
         access: i32,
         create_mode: i32,
     ) -> AsyncHostResult<()> {
-        policy
-            .as_ref()
-            .map(Policy::filesystem)
-            .map_or(Ok(()), |policy| {
-                policy.authorize(
-                    Some(Path::new(path)),
-                    FsIntents::for_open(access, create_mode),
-                    &format!("{:?}", path),
-                )
-            })
+        crate::filesystem::HostFs::new(
+            policy.as_ref().map(Policy::filesystem),
+            Arc::new(crate::runtime::Env::ambient()),
+            Arc::new(crate::runtime::WorkingDirectory::Ambient),
+        )
+        .authorize(crate::filesystem::FsOperation::OpenAsync {
+            path: crate::filesystem::FsPath::Cwd(path),
+            access,
+            create_mode,
+            read_metadata: false,
+        })
+        .map_err(Into::into)
     }
 
     fn check_network_connect(policy: Option<Policy>, addr: &[u8]) -> AsyncHostResult<()> {
@@ -287,12 +289,12 @@ fn main {}
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
         let inherited = Policy::from_transfer(&contents).unwrap();
         let fs = inherited.filesystem();
-        fs.authorize(Some(&canonical_read), FsIntents::read(), "read")
+        fs.authorize(Some(&canonical_read), true, false, "read")
             .unwrap();
-        fs.authorize(Some(&canonical_write), FsIntents::write(), "write")
+        fs.authorize(Some(&canonical_write), false, true, "write")
             .unwrap();
         assert!(
-            fs.authorize(Some(&canonical_write), FsIntents::read(), "read")
+            fs.authorize(Some(&canonical_write), true, false, "read")
                 .is_err()
         );
         inherited
@@ -540,7 +542,7 @@ fn main {}
         assert_eq!(
             child
                 .filesystem()
-                .authorize(Some(&target), FsIntents::read(), "secret"),
+                .authorize(Some(&target), true, false, "secret"),
             Err(AsyncHostError::PermissionDenied)
         );
         std::fs::remove_file(&allowed).unwrap();
