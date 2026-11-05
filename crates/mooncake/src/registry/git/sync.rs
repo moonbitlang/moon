@@ -180,6 +180,8 @@ fn clone_registry_index(
 
     // Registry index servers must support smart Git transports and shallow
     // clones. Do not fall back to a full-history clone for dumb/static HTTP.
+    // Git for Windows cannot clone into the verbatim paths produced by
+    // canonicalize; simplify only the argument passed to the external tool.
     let child = moonutil::git::git_command(
         &[
             "clone",
@@ -188,7 +190,7 @@ fn clone_registry_index(
             "--single-branch",
             "--no-tags",
             &registry_config.index,
-            target_dir.to_str().unwrap(),
+            dunce::simplified(target_dir).to_str().unwrap(),
         ],
         Stdios::npp(),
     )
