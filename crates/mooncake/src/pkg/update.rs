@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use anyhow::{Context, bail};
 use moonutil::{
@@ -45,7 +45,7 @@ pub struct DependencyUpdate {
 #[tracing::instrument(skip_all)]
 pub fn update(
     project: &ProjectManifest,
-    registry: &RegistryClient,
+    registry: RegistryClient,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<DependencyUpdate>> {
     let module_dirs = match project {
@@ -65,8 +65,9 @@ pub fn update(
         let source = ModuleSource::from_local_module(&module, path)?;
         roots.insert(ResolvedModule::new(source, module));
     }
+    let registry = Rc::new(registry);
     let config = ModuleResolutionConfig {
-        registry,
+        registry: Rc::clone(&registry),
         inject_std: false,
         warn_deprecated: false,
     };

@@ -54,7 +54,7 @@ pub(crate) fn update_cli(
         .select(output.user_log())?
         .package_dirs()?;
     let updates =
-        mooncake::pkg::update::update(&project.project_manifest, &registry, output.user_log())?;
+        mooncake::pkg::update::update(&project.project_manifest, registry, output.user_log())?;
     let mut failures = Vec::new();
     output.write_result(|writer| -> anyhow::Result<()> {
         if updates.is_empty() {

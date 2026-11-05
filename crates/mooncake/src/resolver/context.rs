@@ -19,28 +19,25 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
 };
 
-use moonutil::{
-    manifest::{MoonMod, read_module_desc_file_in_dir},
-    resolution::ModuleName,
-};
-use semver::Version;
+use moonutil::manifest::{MoonMod, read_module_desc_file_in_dir};
 
-use crate::registry::{Registry, RegistryModuleNotFound};
+use crate::registry::Registry;
 
 use super::ModuleResolutionError;
 
 /// Registry access, manifest caches, and diagnostics for module resolution.
-pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
-    registry: &'a R,
+pub(crate) struct ModuleResolutionContext<R: Registry> {
+    pub(super) registry: Rc<R>,
     errors: Vec<super::ModuleResolutionError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
 }
 
-impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
-    pub(crate) fn new(registry: &'a R) -> Self {
+impl<R: Registry> ModuleResolutionContext<R> {
+    pub(crate) fn new(registry: Rc<R>) -> Self {
         ModuleResolutionContext {
             registry,
             errors: Vec::new(),
@@ -58,41 +55,6 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
 
     pub(crate) fn any_errors(&self) -> bool {
         !self.errors.is_empty()
-    }
-
-    /// Read one exact registry version, attaching dependency context to failures.
-    pub(crate) fn get_registry_module(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        dependant: &ModuleName,
-    ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
-        let info = self.registry.version_info(name, version).map_err(|error| {
-            if error.is::<RegistryModuleNotFound>() {
-                ModuleResolutionError::ModuleMissing {
-                    dependency: name.clone(),
-                    dependant: dependant.clone(),
-                }
-            } else {
-                ModuleResolutionError::RegistryReadFailed {
-                    dependency: name.clone(),
-                    dependant: dependant.clone(),
-                    required: version.clone(),
-                    source: error,
-                }
-            }
-        })?;
-        let info = info.ok_or_else(|| ModuleResolutionError::VersionMissing {
-            dependency: name.clone(),
-            dependant: dependant.clone(),
-            required: version.clone(),
-        })?;
-        Ok(Arc::new(MoonMod {
-            name: name.to_string(),
-            version: Some(version.clone()),
-            deps: info.deps,
-            ..Default::default()
-        }))
     }
 
     /// Resolve a local module from its **canonical** path.

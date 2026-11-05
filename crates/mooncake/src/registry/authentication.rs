@@ -30,34 +30,56 @@ pub(super) fn client(
     api: &str,
     credentials: Option<&RegistryCredentials>,
 ) -> anyhow::Result<reqwest::blocking::Client> {
-    let mut builder = reqwest::blocking::Client::builder()
-        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")));
+    let (headers, redirect) = headers_and_redirect_policy(api, credentials)?;
+    reqwest::blocking::Client::builder()
+        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+        .default_headers(headers)
+        .redirect(redirect)
+        .build()
+        .context("failed to create registry HTTP client")
+}
+
+pub(super) fn async_client(
+    api: &str,
+    credentials: Option<&RegistryCredentials>,
+) -> anyhow::Result<reqwest::Client> {
+    let (headers, redirect) = headers_and_redirect_policy(api, credentials)?;
+    reqwest::Client::builder()
+        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+        .default_headers(headers)
+        .redirect(redirect)
+        .build()
+        .context("failed to create registry HTTP client")
+}
+
+/// Both transports enforce the same credential scope, including redirects.
+fn headers_and_redirect_policy(
+    api: &str,
+    credentials: Option<&RegistryCredentials>,
+) -> anyhow::Result<(HeaderMap, Policy)> {
+    let mut headers = HeaderMap::new();
+    let mut redirect = Policy::default();
     if let Some(credentials) = credentials {
         let api = registry_api_url(api)?;
         if let Some(authorization) = registry_authorization(credentials, &api)? {
-            let mut headers = HeaderMap::new();
             headers.insert(AUTHORIZATION, authorization);
             let api_path = format!("{}/api/", api.path().trim_end_matches('/'));
-            builder = builder
-                .default_headers(headers)
-                .redirect(Policy::custom(move |attempt| {
-                    // Never forward credentials outside this registry's API,
-                    // including same-host CDN paths and HTTPS downgrades.
-                    if attempt.url().origin() != api.origin()
-                        || !attempt.url().path().starts_with(&api_path)
-                    {
-                        attempt.stop()
-                    } else if attempt.previous().len() >= 10 {
-                        attempt.error("too many registry API redirects")
-                    } else {
-                        attempt.follow()
-                    }
-                }));
+            redirect = Policy::custom(move |attempt| {
+                // Never forward credentials outside this registry's API,
+                // including same-host CDN paths and HTTPS downgrades.
+                if attempt.url().origin() != api.origin()
+                    || !attempt.url().path().starts_with(&api_path)
+                {
+                    attempt.stop()
+                } else if attempt.previous().len() >= 10 {
+                    attempt.error("too many registry API redirects")
+                } else {
+                    attempt.follow()
+                }
+            });
         }
     }
-    builder
-        .build()
-        .context("failed to create registry HTTP client")
+    Ok((headers, redirect))
 }
 
 pub(super) fn registry_authorization(

@@ -78,6 +78,20 @@ pub trait Registry {
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>>;
 
+    /// Read an exact version without blocking other metadata queries. Callers
+    /// bound concurrent reads and deduplicate module/version requests. Local
+    /// registries can use the synchronous default; remote backends yield while
+    /// waiting for I/O. Reads may borrow the registry and need not be `Send`;
+    /// callers own concurrent task scheduling and the registry's lifetime.
+    #[allow(async_fn_in_trait)]
+    async fn version_info_async(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        self.version_info(name, version)
+    }
+
     /// Read the locally known latest version without contacting the registry.
     /// `None` means there is no cached latest answer, not that the remote module
     /// does not exist. Preserve local read errors instead of treating them as misses.
@@ -167,6 +181,14 @@ where
         (**self).cached_latest_version(name)
     }
 
+    async fn version_info_async(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        (**self).version_info_async(name, version).await
+    }
+
     fn query_latest_version(
         &self,
         name: &ModuleName,
@@ -197,6 +219,14 @@ where
 
     fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
         (**self).cached_latest_version(name)
+    }
+
+    async fn version_info_async(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        (**self).version_info_async(name, version).await
     }
 
     fn query_latest_version(

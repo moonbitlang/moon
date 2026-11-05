@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -118,7 +119,7 @@ pub(crate) trait ModuleResolver<R: Registry> {
     /// `false`. The errors should be emitted in `context`.
     fn resolve(
         &mut self,
-        context: &mut ModuleResolutionContext<'_, R>,
+        context: &mut ModuleResolutionContext<R>,
         module_graph: &mut ModuleDependencyGraph,
         user_log: &UserLog,
     ) -> bool;
@@ -266,15 +267,15 @@ fn format_module_resolution_errors(errors: &[ModuleResolutionError]) -> String {
 }
 
 /// Registry and standard-library policy for selecting module dependencies.
-pub(crate) struct ModuleResolutionConfig<'a, R: Registry> {
-    pub(crate) registry: &'a R,
+pub(crate) struct ModuleResolutionConfig<R: Registry> {
+    pub(crate) registry: Rc<R>,
     pub(crate) inject_std: bool,
     /// Explicit refresh reports fresh status after resolution.
     pub(crate) warn_deprecated: bool,
 }
 
 pub(crate) fn resolve_modules_with_solver<R: Registry>(
-    config: &ModuleResolutionConfig<'_, R>,
+    config: &ModuleResolutionConfig<R>,
     resolver: &mut dyn ModuleResolver<R>,
     root: ResolvedRootModules,
     user_log: &UserLog,
@@ -297,7 +298,7 @@ pub(crate) fn resolve_modules_with_solver<R: Registry>(
         return Err(ModuleResolutionErrors(removed_bin_deps));
     }
 
-    let mut context = ModuleResolutionContext::new(config.registry);
+    let mut context = ModuleResolutionContext::new(Rc::clone(&config.registry));
     let mut module_graph = ModuleDependencyGraph::from_root_modules(root);
 
     if config.inject_std {
@@ -315,7 +316,7 @@ pub(crate) fn resolve_modules_with_solver<R: Registry>(
         }
         assert_no_duplicate_module_names(&module_graph)?;
         if config.warn_deprecated {
-            warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+            warn_deprecated_dependencies(&module_graph, config.registry.as_ref(), user_log);
         }
         Ok(module_graph)
     }
@@ -381,8 +382,8 @@ fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn resolve_modules<R: Registry>(
-    config: &ModuleResolutionConfig<'_, R>,
+pub(crate) fn resolve_modules<R: Registry + 'static>(
+    config: &ModuleResolutionConfig<R>,
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {

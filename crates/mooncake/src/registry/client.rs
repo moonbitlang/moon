@@ -610,6 +610,20 @@ impl super::Registry for RegistryClient {
         }
     }
 
+    async fn version_info_async(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        match &self.metadata {
+            MetadataBackend::Git(index) => index.version_info(name, version),
+            MetadataBackend::Http(http) => http
+                .version_info_async(name, version, self.frozen_dependencies)
+                .await
+                .map(Some),
+        }
+    }
+
     fn query_latest_version(
         &self,
         name: &ModuleName,
@@ -873,6 +887,7 @@ mod tests {
         collections::HashMap,
         io::{Cursor, Read, Write},
         net::TcpListener,
+        rc::Rc,
         sync::{
             Arc, Barrier,
             atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -1009,6 +1024,390 @@ mod tests {
                     .is_some()
             );
         }
+    }
+
+    #[test]
+    fn resolution_fetches_metadata_concurrently_and_expands_ready_dependencies() {
+        use crate::registry::mock::create_mock_module;
+        use crate::resolver::{ModuleResolutionConfig, resolve_modules};
+        use moonutil::resolution::ResolvedModule;
+        use std::io::{BufRead, BufReader};
+
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut slow = None;
+            let mut requests = Vec::new();
+            while requests.len() < 3 {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(connection) => connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "metadata traversal stalled"
+                        );
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(error) => panic!("metadata server: {error}"),
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&stream);
+                let mut request = String::new();
+                reader.read_line(&mut request).unwrap();
+                for line in reader.lines() {
+                    if line.unwrap().is_empty() {
+                        break;
+                    }
+                }
+                let name = request
+                    .strip_prefix("GET /api/v0/registry/modules/")
+                    .unwrap()
+                    .strip_suffix("?version=1.0.0 HTTP/1.1\r\n")
+                    .unwrap()
+                    .to_owned();
+                assert!(
+                    !requests.contains(&name),
+                    "duplicate metadata request: {name}"
+                );
+                requests.push(name.clone());
+                if name == "test/slow" {
+                    slow = Some(stream);
+                    continue;
+                }
+                let deps = match name.as_str() {
+                    "test/fast" => serde_json::json!({"test/leaf": "1.0.0"}),
+                    "test/leaf" => serde_json::json!({}),
+                    _ => panic!("unexpected metadata request: {name}"),
+                };
+                let body = serde_json::json!({
+                    "module": name, "version": "1.0.0", "visibility": "PUBLIC",
+                    "deps": deps, "checksum": "b".repeat(64),
+                })
+                .to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            // The slow sibling is released only after the fast sibling's child
+            // was requested. A serial traversal or a level barrier cannot pass.
+            let body = serde_json::json!({
+                "module": "test/slow", "version": "1.0.0", "visibility": "PUBLIC",
+                "deps": {"test/leaf": "1.0.0"}, "checksum": "b".repeat(64),
+            })
+            .to_string();
+            write!(
+                slow.unwrap(),
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            requests
+        });
+        let registry = Rc::new(http_test_registry(home.path(), &api));
+        let root = Arc::new(create_mock_module(
+            "test/root",
+            "1.0.0",
+            [("test/slow", "1.0.0"), ("test/fast", "1.0.0")],
+        ));
+        let source = ModuleSource::from_local_module(&root, home.path()).unwrap();
+        let (roots, _) = ResolvedModule::only_one_module(source, root);
+        let graph = resolve_modules(
+            &ModuleResolutionConfig {
+                registry: Rc::clone(&registry),
+                inject_std: false,
+                warn_deprecated: false,
+            },
+            roots.clone(),
+            &quiet_user_log(),
+        );
+        let requests = server.join().expect("metadata requests must overlap");
+        let graph = graph.unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(graph.all_modules().count(), 4);
+
+        // All metadata, including the checksum, remains reusable after the
+        // server is gone, both in this client and in a fresh frozen client.
+        for module in graph
+            .all_modules()
+            .filter(|module| module.name().to_string() != "test/root")
+        {
+            assert_eq!(
+                registry.source_archive_checksum(module).unwrap(),
+                "b".repeat(64)
+            );
+        }
+        let frozen = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        let cached = resolve_modules(
+            &ModuleResolutionConfig {
+                registry: Rc::new(frozen),
+                inject_std: false,
+                warn_deprecated: false,
+            },
+            roots,
+            &quiet_user_log(),
+        )
+        .unwrap();
+        assert_eq!(cached.all_modules().count(), graph.all_modules().count());
+    }
+
+    #[test]
+    fn asynchronous_metadata_reads_preserve_validation_and_access_policy() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let name: ModuleName = "alice/secret".into();
+        let version = Version::new(0, 1, 0);
+        for (status, body, unavailable) in [
+            (401, "{}".to_owned(), false),
+            (403, "{}".to_owned(), false),
+            (404, "{}".to_owned(), false),
+            (429, "{}".to_owned(), true),
+            (503, "{}".to_owned(), true),
+            (200, "{}".to_owned(), false),
+            (
+                200,
+                resolver_response("alice/secret", "PUBLIC", "0.2.0"),
+                false,
+            ),
+            (
+                200,
+                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                false,
+            ),
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let api = format!("http://{}", listener.local_addr().unwrap());
+            let server = api_test_server(listener, vec![(status, String::new(), body)]);
+            let registry = http_test_registry(home.path(), &api);
+            let error = runtime
+                .block_on(registry.version_info_async(&name, &version))
+                .unwrap_err();
+            assert_eq!(error.is::<super::super::RegistryUnavailable>(), unavailable);
+            assert!(
+                registry
+                    .cached_version_info(&name, &version)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(server.join().unwrap().len(), 1);
+            let frozen = registry.for_frozen_dependencies();
+            assert!(
+                runtime
+                    .block_on(frozen.version_info_async(&name, &version))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("frozen mode cannot fetch")
+            );
+        }
+
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "captured-token");
+        let server = api_test_server(
+            listener,
+            vec![(
+                200,
+                String::new(),
+                resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+            )],
+        );
+        let registry = http_test_registry(home.path(), &api);
+        save_test_login(home.path(), &api, "bob", "new-token");
+        assert!(
+            runtime
+                .block_on(registry.version_info_async(&name, &version))
+                .unwrap()
+                .is_some()
+        );
+        let requests = server.join().unwrap();
+        assert!(
+            requests[0]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer captured-token")
+        );
+        assert!(
+            runtime
+                .block_on(registry.version_info_async(&name, &version))
+                .unwrap()
+                .is_some()
+        );
+        let bob = http_test_registry(home.path(), &api).for_frozen_dependencies();
+        assert!(
+            runtime
+                .block_on(bob.version_info_async(&name, &version))
+                .unwrap_err()
+                .to_string()
+                .contains("not found or access denied")
+        );
+    }
+
+    #[test]
+    fn resolution_reuses_registry_across_runtimes_and_drops_it_synchronously() {
+        use crate::registry::mock::create_mock_module;
+        use crate::resolver::{ModuleResolutionConfig, resolve_modules};
+        use moonutil::resolution::ResolvedModule;
+        use std::io::{BufRead, BufReader};
+
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for version in ["0.0.0", "0.1.0", "0.2.0", "0.3.0", "0.4.0"] {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "missing metadata request"
+                            );
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("metadata server: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&stream);
+                let mut request = String::new();
+                reader.read_line(&mut request).unwrap();
+                assert_eq!(
+                    request,
+                    format!(
+                        "GET /api/v0/registry/modules/test/module?version={version} HTTP/1.1\r\n"
+                    )
+                );
+                for line in reader.lines() {
+                    if line.unwrap().is_empty() {
+                        break;
+                    }
+                }
+                let body = serde_json::json!({
+                    "module": "test/module", "version": version,
+                    "visibility": "PUBLIC", "deps": {},
+                    "checksum": "b".repeat(64),
+                })
+                .to_string();
+                // Keep async connections alive: dropping each resolution's
+                // runtime must close them, and the next runtime must reconnect.
+                let connection = if version == "0.0.0" {
+                    "close"
+                } else {
+                    "keep-alive"
+                };
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: {connection}\r\n\r\n{body}", body.len()).unwrap();
+                if version != "0.0.0" {
+                    assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+                }
+            }
+        });
+        let registry = Rc::new(http_test_registry(home.path(), &api));
+        // Initialize the blocking transport too. Its runtime must remain with
+        // the synchronous owner instead of being dropped by an async task.
+        registry
+            .version_info(&"test/module".into(), &Version::new(0, 0, 0))
+            .unwrap()
+            .unwrap();
+        let weak = Rc::downgrade(&registry);
+        let config = ModuleResolutionConfig {
+            registry,
+            inject_std: false,
+            warn_deprecated: false,
+        };
+        for version in ["0.1.0", "0.2.0", "0.3.0", "0.4.0"] {
+            let root = Arc::new(create_mock_module(
+                "test/root",
+                "1.0.0",
+                [("test/module", version)],
+            ));
+            let source = ModuleSource::from_local_module(&root, home.path()).unwrap();
+            let (roots, _) = ResolvedModule::only_one_module(source, root);
+            let graph = resolve_modules(&config, roots, &quiet_user_log()).unwrap();
+            assert_eq!(graph.all_modules().count(), 2);
+            assert_eq!(Rc::strong_count(&config.registry), 1);
+        }
+        drop(config);
+        assert!(weak.upgrade().is_none());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn cancelled_metadata_task_does_not_publish_a_late_response() {
+        use std::io::{BufRead, BufReader};
+
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let (started, received) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            for line in BufReader::new(&stream).lines() {
+                if line.unwrap().is_empty() {
+                    break;
+                }
+            }
+            started.send(()).unwrap();
+            released.recv_timeout(Duration::from_secs(5)).unwrap();
+            let body = resolver_response("test/module", "PUBLIC", "0.1.0");
+            // Cancellation may already have closed the connection.
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        });
+        let registry = Rc::new(http_test_registry(home.path(), &api));
+        let name = "test/module".into();
+        let version = Version::new(0, 1, 0);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        tokio::task::LocalSet::new().block_on(&runtime, async {
+            let mut tasks = tokio::task::JoinSet::new();
+            let registry = Rc::clone(&registry);
+            tasks.spawn_local(async move {
+                registry
+                    .version_info_async(&"test/module".into(), &Version::new(0, 1, 0))
+                    .await
+            });
+            tokio::time::timeout(Duration::from_secs(5), received)
+                .await
+                .unwrap()
+                .unwrap();
+            tasks.abort_all();
+            assert!(tasks.join_next().await.unwrap().unwrap_err().is_cancelled());
+        });
+        release.send(()).unwrap();
+        server.join().unwrap();
+        assert!(
+            registry
+                .cached_version_info(&name, &version)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -3336,7 +3735,7 @@ mod tests {
             roots.insert(ResolvedModule::new(source, module));
         }
         let config = ModuleResolutionConfig {
-            registry: &registry,
+            registry: Rc::new(registry),
             inject_std: false,
             warn_deprecated: true,
         };
