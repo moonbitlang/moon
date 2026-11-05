@@ -56,6 +56,7 @@ fn crosses_processes_with_caller_state_and_pipe_stdio() {
         // This process has a different cwd and environment. None of it may
         // become the Run's caller state. The listener belongs to the test client.
         let connection = UnixStream::connect(path).unwrap();
+        moonrun::initialize(Default::default()).unwrap();
         serve(&Engine::default(), connection, RunOptions::default()).unwrap();
         return;
     }
@@ -167,6 +168,8 @@ fn cancellation_and_disconnect_are_scoped_to_one_execution() {
             .success();
         return;
     }
+    // Both IPC hosts below must inherit V8's permissions from this thread.
+    moonrun::initialize(Default::default()).unwrap();
     let engine = Engine::default();
     let directory = tempfile::tempdir().unwrap();
     let program = write_wasm(
@@ -239,6 +242,7 @@ fn cancellation_and_disconnect_are_scoped_to_one_execution() {
 
 #[test]
 fn client_and_host_restrictions_intersect_and_bad_transfers_fail() {
+    moonrun::initialize(Default::default()).unwrap();
     let engine = Engine::default();
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(directory.path().join("file"), b"secret").unwrap();
