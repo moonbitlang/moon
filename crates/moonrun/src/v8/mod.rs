@@ -248,8 +248,6 @@ pub(crate) fn initialize(config: &EngineConfig) -> anyhow::Result<()> {
     static ACTIVE_CONFIG: OnceLock<EngineConfig> = OnceLock::new();
 
     let active = ACTIVE_CONFIG.get_or_init(|| {
-        v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-        v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
         if let Some(stack_size) = config.stack_size {
             v8::V8::set_flags_from_string(&format!("--stack-size={stack_size}"));
         }
@@ -267,7 +265,32 @@ pub(crate) fn initialize(config: &EngineConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+// Keep the marker below the caller's whole frame even in optimized builds.
+#[inline(never)]
+fn check_stack_budget(config: &EngineConfig) -> anyhow::Result<()> {
+    let Some(kib) = config.stack_size else {
+        return Ok(());
+    };
+    let bytes = kib
+        .checked_mul(1024)
+        .filter(|bytes| *bytes > 0)
+        .context("V8 stack size must be nonzero and fit in bytes")?;
+    // V8 13.7 measures --stack-size from the native thread's stack top,
+    // including host frames. If those frames already exhaust the budget,
+    // even throwing StackOverflow can fail its IsOnCentralStack check.
+    // Reject the exhausted budget before entering V8, without enlarging it.
+    let marker = 0u8;
+    let current = &marker as *const u8 as usize;
+    let (_, high) = crate::native_stack::bounds()?;
+    anyhow::ensure!(
+        high.checked_sub(current).is_some_and(|used| used < bytes),
+        "Maximum call stack size exceeded"
+    );
+    Ok(())
+}
+
 pub(crate) fn compile(config: &EngineConfig, bytes: &[u8]) -> anyhow::Result<CompiledModule> {
+    check_stack_budget(config)?;
     initialize(config)?;
 
     let isolate = &mut v8::Isolate::new(Default::default());
@@ -276,7 +299,7 @@ pub(crate) fn compile(config: &EngineConfig, bytes: &[u8]) -> anyhow::Result<Com
     let scope = &mut v8::ContextScope::new(scope, context);
     let scope = &mut v8::TryCatch::new(scope);
 
-    // rusty_v8 0.106 does not expose V8's compile-time-import options through
+    // rusty_v8 does not expose V8's compile-time-import options through
     // WasmModuleObject::compile. Invoke the JavaScript constructor through the
     // V8 interface so loading preserves moonrun's historical string behavior,
     // then retain only V8's shareable compiled module.
@@ -339,6 +362,7 @@ pub(crate) fn run(
     runtime: Runtime,
     termination: TerminationRequest,
 ) -> anyhow::Result<BackendRunOutcome> {
+    check_stack_budget(config)?;
     initialize(config)?;
 
     let isolate = &mut v8::Isolate::new(Default::default());

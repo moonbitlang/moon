@@ -48,6 +48,9 @@ pub struct EngineConfig {
 
 impl EngineConfig {
     /// Set the maximum guest stack size in KiB.
+    ///
+    /// V8 counts existing native caller frames against this budget. Compilation
+    /// and execution reject a budget already exhausted by those frames.
     pub fn with_stack_size(mut self, stack_size: usize) -> Self {
         self.stack_size = Some(stack_size);
         self

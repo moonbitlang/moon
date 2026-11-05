@@ -224,11 +224,11 @@ impl<'s> Reader<'s> {
             return Ok(-1);
         }
         let mut unit = [0];
-        string.write(
+        string.write_v2(
             scope,
+            self.position as u32,
             &mut unit,
-            self.position,
-            v8::WriteOptions::NO_NULL_TERMINATION,
+            v8::WriteFlags::empty(),
         );
         self.position += 1;
         self.handle.set_position(scope, self.position);

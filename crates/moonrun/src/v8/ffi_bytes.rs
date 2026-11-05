@@ -318,7 +318,7 @@ mod tests {
         let receiver = v8::undefined(scope).into();
         let zero = v8::Integer::new(scope, 0).into();
 
-        let store = v8::ArrayBuffer::new_backing_store_from_bytes(vec![0, 1, 2, 3, 4, 5, 6, 7])
+        let store = v8::ArrayBuffer::new_backing_store_from_bytes(vec![0_u8, 1, 2, 3, 4, 5, 6, 7])
             .make_shared();
         let buffer = v8::ArrayBuffer::with_backing_store(scope, &store);
         let source = v8::Uint8Array::new(scope, buffer, 1, 4).unwrap();
