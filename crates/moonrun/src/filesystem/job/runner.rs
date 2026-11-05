@@ -36,7 +36,7 @@ use super::stat::{
     FILE_KIND_CHAR_DEVICE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE, FILE_KIND_REGULAR,
     FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
 };
-use super::stat::{StatRequest, run_fstatx_job};
+use super::stat::{PackedStat, StatRequest, StatValues, run_fstatx_job};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
 use crate::filesystem::FileGrant;
 
@@ -77,11 +77,20 @@ ported_fns! {
             file,
             FileGrant::from_opened_path(filename_for_provenance),
         );
-        let mut stat = None;
-        run_fstatx_job(&resource, request, &mut stat)?;
+        // Unlike async Workers, synchronous calls do not mask ordinary signals.
+        // An unnecessary stat can therefore return EINTR after open succeeds.
+        // Callers cannot tell which syscall was interrupted and may retry open,
+        // repeating its side effects.
+        let stat = if request.mask() == 0 {
+            PackedStat::new(request, StatValues::default())
+        } else {
+            let mut stat = None;
+            run_fstatx_job(&resource, request, &mut stat)?;
+            stat.ok_or(AsyncHostError::Io)?
+        };
         *result = Some(OpenJobResult {
             resource: ResourcePublication::Unpublished(resource),
-            stat: stat.ok_or(AsyncHostError::Io)?,
+            stat,
         });
         Ok(0)
     }
