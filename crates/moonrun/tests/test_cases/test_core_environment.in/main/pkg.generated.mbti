@@ -1,0 +1,13 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moon/core_environment/main"
+
+// Values
+
+// Errors
+type HostError
+
+// Types and methods
+
+// Type aliases
+
+// Traits

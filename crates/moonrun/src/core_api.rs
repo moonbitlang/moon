@@ -18,39 +18,40 @@
 
 //! Runtime-facing `moonbitlang/core` imports for the linear wasm backend.
 
-use std::path::Path;
+mod environment;
+mod registry;
+
+pub(crate) use registry::register;
+
+use std::{ffi::OsStr, path::Path};
 
 use crate::async_host::AsyncHostResult;
 use crate::runtime::Runtime;
 
 pub(crate) const MOONBIT_CORE_MODULE: &str = "moonbitlang/core";
 
-pub(crate) fn register<R: crate::wasm_imports::ImportRegistry<Runtime>>(
-    registry: &mut R,
-) -> Result<(), R::Error> {
-    use crate::wasm_imports::Caller;
-    registry.func_wrap(
-        MOONBIT_CORE_MODULE,
-        "env/current_exe",
-        |caller: Caller<'_, '_, Runtime>| Ok(caller.with_data(current_exe)),
-    )?;
-    registry.func_wrap(
-        MOONBIT_CORE_MODULE,
-        "env/current_exe_dir",
-        |caller: Caller<'_, '_, Runtime>| Ok(caller.with_data(current_exe_dir)),
+pub(crate) fn current_exe(runtime: &Runtime) -> u64 {
+    buffer_to_handle(
+        runtime,
+        runtime
+            .executable()
+            .path()
+            .map(path_to_native_string_buffer),
     )
 }
 
-pub(crate) fn current_exe(runtime: &Runtime) -> u64 {
-    path_to_handle(runtime, runtime.executable().path())
-}
-
 pub(crate) fn current_exe_dir(runtime: &Runtime) -> u64 {
-    path_to_handle(runtime, runtime.executable().directory())
+    buffer_to_handle(
+        runtime,
+        runtime
+            .executable()
+            .directory()
+            .map(path_to_native_string_buffer),
+    )
 }
 
-fn path_to_handle(runtime: &Runtime, path: AsyncHostResult<&Path>) -> u64 {
-    match path.map(path_to_native_string_buffer) {
+fn buffer_to_handle(runtime: &Runtime, buffer: AsyncHostResult<Box<[u8]>>) -> u64 {
+    match buffer {
         Ok(buffer) => runtime.async_host().insert_c_buffer(buffer),
         Err(error) => {
             runtime.async_host().record_error(error);
@@ -59,26 +60,25 @@ fn path_to_handle(runtime: &Runtime, path: AsyncHostResult<&Path>) -> u64 {
     }
 }
 
-#[cfg(unix)]
 fn path_to_native_string_buffer(path: &Path) -> Box<[u8]> {
-    use std::os::unix::ffi::OsStrExt;
-
-    // Preserve native bytes; async's os_string decoder owns the Unicode policy.
-    let mut bytes = path.as_os_str().as_bytes().to_vec();
+    // Preserve the existing executable-path ABI's native NUL terminator.
+    let mut bytes = native_string_bytes(path.as_os_str());
+    bytes.push(0);
+    #[cfg(windows)]
     bytes.push(0);
     bytes.into_boxed_slice()
 }
 
-#[cfg(windows)]
-fn path_to_native_string_buffer(path: &Path) -> Box<[u8]> {
-    use std::os::windows::ffi::OsStrExt;
+#[cfg(unix)]
+fn native_string_bytes(value: &OsStr) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    value.as_bytes().to_vec()
+}
 
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
+#[cfg(windows)]
+fn native_string_bytes(value: &OsStr) -> Vec<u8> {
+    use std::os::windows::ffi::OsStrExt;
+    value.encode_wide().flat_map(u16::to_le_bytes).collect()
 }
 
 #[cfg(test)]

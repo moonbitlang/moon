@@ -249,7 +249,7 @@ of each host operation:
 | ABI family | Guest contract | Shared definitions |
 | --- | --- | --- |
 | WASI | WASIp1 calls, descriptor rights, and preopens | `wasi/imports.rs` |
-| Core | `moonbitlang/core` imports | `core_api.rs` |
+| Core | `moonbitlang/core` imports | `core_api/registry.rs` |
 | Async | `moonbitlang/async` imports | `async_api/` |
 | Unstable | Legacy `__moonbit_*_unstable` imports, retained until retirement | `unstable_api.rs` and `unstable_api/` |
 
@@ -265,9 +265,10 @@ flowchart LR
 
 HostFs owns filesystem interpretation and authorization; Filesystem Jobs carry
 async execution and results within that same domain.
-Core exposes executable-path queries rather than this filesystem
-surface; those use Runtime Executable state. New operations should select their
-semantic owner instead of passing through HostFs merely to match the diagram.
+Core executable-path queries use Runtime Executable state, cwd queries use
+HostFs, and environment operations use the shared Env. New operations should
+select their semantic owner instead of passing through HostFs merely to match
+the diagram.
 The Unstable API owns its legacy error/getter contract, not separate filesystem
 policy or mechanisms. Its retirement should remove that adaptation without
 removing shared host behavior.

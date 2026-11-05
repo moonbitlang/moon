@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/encoding/utf16",
+  "moonbitlang/core/env",
+}
+
+supported_targets = "wasm"
+
+pkgtype(kind: "executable")

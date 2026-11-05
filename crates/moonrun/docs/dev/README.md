@@ -21,6 +21,8 @@
 - [Current executable path semantics](current-exe-semantics.md): load-time path
   capture, mutation behavior, executable-directory lookup, and guest-visible
   errors for file-backed and in-memory modules.
+- [Core environment snapshot ABI](core-environment-abi.md): native-string cwd and
+  environment snapshots, native OS errors, buffer ownership and a compiled MoonBit example.
 - [SQLite jobs](sqlite-jobs.md): SQLite payloads in the shared async pool,
   result ownership, asynchronous discard, and upstream Wasm wrapper integration.
 - [Porting `moonbitlang/async` changes](async-upstream-porting.md): audit the
@@ -31,8 +33,8 @@
 ## Shared Wasm import registration
 
 `wasm_imports::ImportRegistry` defines synchronous imports once for V8,
-Wasmtime and wee8. WASIp1, async, SQLite, core executable paths, and the legacy
-filesystem/environment/value/stdio/random/time/process imports supply shared
+Wasmtime and wee8. WASIp1, async, SQLite, core environment/executable paths, and
+the legacy filesystem/environment/value/stdio/random/time/process imports supply shared
 registrations. Backend setup supplies per-run state, memory access, native value
 representation and callback retention.
 
@@ -116,7 +118,7 @@ before the host can access exported Guest Memory.
 The imports are grouped by their guest ABI:
 
 - `unstable_api.rs` registers the legacy `__moonbit_*_unstable` ABI once for all
-  adapters, separately from the `moonbitlang/core` imports in `core_api.rs`;
+  adapters, separately from the `moonbitlang/core` imports in `core_api/registry.rs`;
   `v8/values.rs` supplies V8's native string/array/builder/reader representation.
 - `wasm_imports/payload.rs` shares the typed Rust payload representation used by
   Wasmtime and wee8. String conversion belongs to each adapter: Wasmtime uses
