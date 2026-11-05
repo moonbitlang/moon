@@ -403,12 +403,10 @@ pub(super) fn make_read_console_input_job(
     len: u32,
 ) -> AsyncHostResult<u64> {
     len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
-    let job = (|| {
-        let input = context
-            .host
-            .acquire_resource_of_class(input, ResourceClass::File)?;
-        FilesystemJob::read_console_input(input, len)
-    })();
+    let job = context
+        .host
+        .acquire_resource_of_class(input, ResourceClass::File)
+        .and_then(|input| FilesystemJob::read_console_input(input, len));
     context.host.insert_job(filesystem_job_or_failed(job))
 }
 
