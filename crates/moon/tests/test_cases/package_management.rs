@@ -1028,6 +1028,30 @@ fn registry_commands_warn_before_using_cached_latest() {
 }
 
 #[test]
+fn git_update_keeps_index_when_symbols_fail() {
+    let fixture = RegistryQueryFixture::new();
+    fixture
+        .command(&["update"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Registry index is not a Git repository, re-cloning
+Registry index re-cloned successfully
+Warning: failed to update symbols: [..]
+
+"#]]);
+    let layout = moonutil::MoonHomeLayout::new(fixture.home.path().to_path_buf());
+    assert!(
+        std::fs::read_to_string(layout.registry_index_file(&"test/tool".into()))
+            .unwrap()
+            .contains("1.1.0")
+    );
+    assert!(layout.registry_update_state_path().exists());
+    assert!(!layout.registry_symbols_update_state_path().exists());
+}
+
+#[test]
 fn pinned_registry_commands_do_not_select_latest() {
     for args in [
         vec!["add", "test/tool@1.0.0"],

@@ -18,9 +18,10 @@
 
 //! Metadata from the locally synchronized Git index.
 
+mod sync;
+
 use super::RegistryVersionInfo;
-use crate::update::{RegistryIndexRecloneReason, RegistryIndexUpdate, UpdateOutcome};
-use anyhow::{Context, bail};
+use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
     MoonHomeLayout, dependency::SourceDependencyInfo, registry::RegistryConfig,
@@ -34,6 +35,7 @@ use std::{
     io::BufRead,
     sync::Arc,
 };
+use sync::{RegistryIndexRecloneReason, RegistryIndexUpdate};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -50,7 +52,7 @@ struct RegistryIndexEntry {
 
 pub(super) struct GitIndex {
     home: MoonHomeLayout,
-    cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
+    cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryIndexEntry>>>>,
 }
 
 impl GitIndex {
@@ -62,7 +64,7 @@ impl GitIndex {
     }
 
     pub(super) fn sync(&self, config: &RegistryConfig, user_log: &UserLog) -> anyhow::Result<()> {
-        let outcome = crate::update::sync(&self.home, config, user_log)?;
+        let outcome = sync::sync(&self.home, config, user_log)?;
         self.cache.borrow_mut().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
@@ -107,7 +109,7 @@ impl GitIndex {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryIndexEntry>>> {
         // check cache
         if let Some(v) = self.cache.borrow().get(name) {
             return Ok(Arc::clone(v));
@@ -135,14 +137,7 @@ impl GitIndex {
                     continue;
                 }
             };
-            res.insert(
-                Version::parse(&entry.version)?,
-                RegistryVersionInfo {
-                    deps: entry.deps,
-                    yanked: entry.yanked,
-                    yanked_reason: entry.yanked_reason,
-                },
-            );
+            res.insert(Version::parse(&entry.version)?, entry);
         }
 
         // put in cache
@@ -159,23 +154,16 @@ impl GitIndex {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<String> {
-        let p = self.home.registry_index_file(name);
-        let file = std::fs::File::open(&p)?;
-        let reader = std::io::BufReader::new(file);
-
-        let lines = reader.lines().collect::<std::io::Result<Vec<String>>>()?;
-        let version_str = version.to_string();
-        for line in lines.iter().rev() {
-            let entry = serde_json_lenient::from_str::<RegistryIndexEntry>(line)?;
-            if entry.version == version_str {
-                return Ok(entry.checksum);
-            }
-        }
-        bail!(
-            "No description found for version {} in index file {:?}",
-            version,
-            p,
-        );
+        self.all_versions_of(name)?
+            .get(version)
+            .map(|entry| entry.checksum.clone())
+            .with_context(|| {
+                format!(
+                    "No description found for version {} in index file {:?}",
+                    version,
+                    self.home.registry_index_file(name),
+                )
+            })
     }
 
     pub(super) fn version_info(
@@ -183,7 +171,14 @@ impl GitIndex {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-        Ok(self.all_versions_of(name)?.get(version).cloned())
+        Ok(self
+            .all_versions_of(name)?
+            .get(version)
+            .map(|entry| RegistryVersionInfo {
+                deps: entry.deps.clone(),
+                yanked: entry.yanked,
+                yanked_reason: entry.yanked_reason.clone(),
+            }))
     }
 
     fn latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
@@ -194,8 +189,8 @@ impl GitIndex {
     }
 }
 
-fn log_sync_outcome(outcome: UpdateOutcome, user_log: &UserLog) {
-    match outcome.registry_index {
+fn log_sync_outcome(outcome: RegistryIndexUpdate, user_log: &UserLog) {
+    match outcome {
         RegistryIndexUpdate::Cloned => user_log.status("Registry index cloned successfully"),
         RegistryIndexUpdate::Updated => user_log.status("Registry index updated successfully"),
         RegistryIndexUpdate::Recloned(reason) => {
@@ -214,11 +209,7 @@ fn log_sync_outcome(outcome: UpdateOutcome, user_log: &UserLog) {
         }
         RegistryIndexUpdate::ConcurrentUpdateReused => {
             user_log.status("Registry update already completed by another process");
-            return;
         }
-    }
-    if outcome.symbols_updated {
-        user_log.status("Symbols updated successfully");
     }
 }
 
@@ -229,16 +220,48 @@ mod tests {
     use moonutil::user_log::UserLogEntryLevel;
 
     #[test]
+    fn metadata_and_checksum_share_one_cached_release() {
+        for checksum_first in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let home = MoonHomeLayout::new(root.path().to_owned());
+            let name: ModuleName = "test/module".into();
+            let version = Version::new(1, 0, 0);
+            let path = home.registry_index_file(&name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                r#"{"version":"1.0.0","deps":{"test/dep":"0.1.0"},"checksum":"original","yanked":true,"yanked_reason":"superseded"}"#,
+            )
+            .unwrap();
+            let index = GitIndex::new(home);
+            if checksum_first {
+                assert_eq!(
+                    index.source_archive_checksum(&name, &version).unwrap(),
+                    "original"
+                );
+            } else {
+                assert!(index.version_info(&name, &version).unwrap().is_some());
+            }
+
+            // A client keeps one observation until it explicitly synchronizes
+            // the index, even if another process changes the checkout.
+            std::fs::remove_file(path).unwrap();
+            assert_eq!(
+                index.source_archive_checksum(&name, &version).unwrap(),
+                "original"
+            );
+            let info = index.version_info(&name, &version).unwrap().unwrap();
+            assert!(info.deps.contains_key("test/dep"));
+            assert!(info.yanked);
+            assert_eq!(info.yanked_reason.as_deref(), Some("superseded"));
+        }
+    }
+
+    #[test]
     fn registry_update_status_respects_quiet_user_log() {
         let (user_log, capture) = UserLog::captured(LevelFilter::Error);
 
-        log_sync_outcome(
-            UpdateOutcome {
-                registry_index: RegistryIndexUpdate::Cloned,
-                symbols_updated: true,
-            },
-            &user_log,
-        );
+        log_sync_outcome(RegistryIndexUpdate::Cloned, &user_log);
 
         assert!(capture.take().is_empty());
     }
@@ -248,17 +271,12 @@ mod tests {
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
 
         log_sync_outcome(
-            UpdateOutcome {
-                registry_index: RegistryIndexUpdate::Recloned(
-                    RegistryIndexRecloneReason::NotGitRepository,
-                ),
-                symbols_updated: true,
-            },
+            RegistryIndexUpdate::Recloned(RegistryIndexRecloneReason::NotGitRepository),
             &user_log,
         );
 
         let entries = capture.take();
-        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.len(), 2);
         assert!(
             entries
                 .iter()
@@ -272,7 +290,6 @@ mod tests {
             [
                 "Registry index is not a Git repository, re-cloning",
                 "Registry index re-cloned successfully",
-                "Symbols updated successfully",
             ]
         );
     }
@@ -281,13 +298,7 @@ mod tests {
     fn registry_update_status_describes_concurrent_reuse() {
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
 
-        log_sync_outcome(
-            UpdateOutcome {
-                registry_index: RegistryIndexUpdate::ConcurrentUpdateReused,
-                symbols_updated: true,
-            },
-            &user_log,
-        );
+        log_sync_outcome(RegistryIndexUpdate::ConcurrentUpdateReused, &user_log);
 
         assert_eq!(
             capture

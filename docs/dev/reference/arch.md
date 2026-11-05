@@ -427,8 +427,11 @@ Current registry configuration behavior today is:
   without network access; `None` means no cached answer, not remote absence.
   `query_latest_version` contacts the registry and retains the answer; it must
   not silently fall back to a stale version. The Git client implements the
-  latter by synchronizing its index before reading it. MVS and deprecation
-  checks read exact releases. `resolve_cached_unversioned_path` resolves import
+  latter by synchronizing its index before reading it. Metadata refreshes do
+  not update `symbols.zip`; Git-mode `moon update` explicitly synchronizes the
+  index and symbols separately. A symbols failure warns without failing the
+  index update. MVS and deprecation checks read exact releases.
+  `resolve_cached_unversioned_path` resolves import
   paths using cached latest answers only. The complete Git version map is an
   internal cache, not a public cache trait. Queries preserve registry read
   failures instead of reporting them as missing modules or cache misses.

@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+//! Synchronize the local Git index and coalesce overlapping synchronizations.
+
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -27,16 +29,76 @@ use moonutil::{
     registry::RegistryConfig,
     user_log::UserLog,
 };
-use reqwest::{
-    StatusCode,
-    header::{ETAG, HeaderValue, IF_NONE_MATCH},
-};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-use crate::{registry::download, zip_util::extract_zip_to_dir};
+use crate::registry::{sha256_hex, stage_registry_cache_file, unique_sibling_dir};
 
-const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";
+/// Bookkeeping for successful Git synchronization, independent of index contents.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct GitIndexSyncState {
+    index_url_hash: String,
+    generation: String,
+}
+
+impl GitIndexSyncState {
+    fn read(path: &Path) -> anyhow::Result<Option<Self>> {
+        match std::fs::read(path) {
+            Ok(data) => Ok(Some(serde_json::from_slice(&data)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn write(&self, path: &Path) -> anyhow::Result<()> {
+        let (mut staged, path) = stage_registry_cache_file(path)?;
+        serde_json::to_writer(staged.as_file_mut(), self)?;
+        staged.persist(path).map_err(|error| error.error)?;
+        Ok(())
+    }
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(super) fn sync(
+    home: &MoonHomeLayout,
+    config: &RegistryConfig,
+    user_log: &UserLog,
+) -> anyhow::Result<RegistryIndexUpdate> {
+    let state_path = home.registry_update_state_path();
+    let observed = GitIndexSyncState::read(&state_path);
+    let registry_dir = home.registry_dir();
+    std::fs::create_dir_all(&registry_dir)
+        .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
+    let _lock = lock_directory(&registry_dir, user_log)
+        .context("failed to lock registry update directory")?;
+    let current = GitIndexSyncState::read(&state_path);
+    let index_url_hash = sha256_hex(config.index.as_bytes());
+
+    // A changed generation after taking the lock means another caller completed
+    // this synchronization while we waited. Unreadable state disables reuse;
+    // an earlier completed synchronization is never a freshness window.
+    if let (Ok(observed), Ok(Some(current))) = (&observed, &current)
+        && observed.as_ref() != Some(current)
+        && current.index_url_hash == index_url_hash
+    {
+        return Ok(RegistryIndexUpdate::ConcurrentUpdateReused);
+    }
+
+    let outcome = update_registry_index(&home.registry_index_dir(), config, user_log)?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let state = GitIndexSyncState {
+        index_url_hash,
+        generation: format!("{}-{nanos}", std::process::id()),
+    };
+    if let Err(error) = state.write(&state_path) {
+        user_log.warn(format!(
+            "failed to record completed Git index update: {error:#}"
+        ));
+    }
+    Ok(outcome)
+}
 
 #[derive(Debug)]
 struct CommandOutput {
@@ -70,7 +132,7 @@ impl std::fmt::Display for CommandOutput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RegistryIndexRecloneReason {
+pub(super) enum RegistryIndexRecloneReason {
     UpdateFailed,
     RemoteMismatch,
     NotGitRepository,
@@ -78,21 +140,11 @@ pub(crate) enum RegistryIndexRecloneReason {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RegistryIndexUpdate {
+pub(super) enum RegistryIndexUpdate {
     Cloned,
     Updated,
     Recloned(RegistryIndexRecloneReason),
     ConcurrentUpdateReused,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct UpdateOutcome {
-    pub registry_index: RegistryIndexUpdate,
-    /// Whether the best-effort symbols update succeeded.
-    ///
-    /// A failure is reported through `UserLog` and does not make the registry
-    /// index update fail.
-    pub symbols_updated: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -166,30 +218,6 @@ fn clone_registry_index(
         });
     }
     Ok(())
-}
-
-/// Create a unique sibling directory name under `parent`.
-///
-/// NOTE: We intentionally avoid using `tempfile` here to keep dependencies minimal.
-fn unique_sibling_dir(parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
-    // SAFETY/ROBUSTNESS:
-    // - Use pid + timestamp to minimize collision risk.
-    // - Retry a few times if a collision happens (e.g. parallel processes).
-    let pid = std::process::id();
-    for _ in 0..10 {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let p = parent.join(format!("{prefix}.{pid}.{nanos}"));
-        if !p.exists() {
-            return Ok(p);
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "failed to create a unique temp directory name",
-    ))
 }
 
 /// Re-clone the registry index without risking data loss.
@@ -389,325 +417,6 @@ fn inspect_registry_index(target_dir: &Path) -> Result<RegistryIndexState, Regis
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SymbolsEtag {
-    url: String,
-    value: String,
-}
-
-#[derive(Debug)]
-enum SymbolsDownload {
-    Modified {
-        data: bytes::Bytes,
-        etag: Option<SymbolsEtag>,
-    },
-    NotModified {
-        etag: SymbolsEtag,
-    },
-}
-
-#[tracing::instrument(
-    level = "debug",
-    skip_all,
-    fields(has_previous_etag = previous_etag.is_some())
-)]
-fn download_symbols_zip(
-    symbols_url: &str,
-    previous_etag: Option<&SymbolsEtag>,
-) -> anyhow::Result<SymbolsDownload> {
-    let client = download::client_with_retry()?;
-    let conditional_etag = previous_etag.and_then(|etag| {
-        (etag.url == symbols_url)
-            .then(|| {
-                HeaderValue::from_bytes(etag.value.as_bytes())
-                    .ok()
-                    .map(|value| (etag, value))
-            })
-            .flatten()
-    });
-    if previous_etag.is_some() && conditional_etag.is_none() {
-        tracing::debug!("Ignoring invalid or mismatched symbols.zip ETag");
-    }
-
-    let mut request = client.get(symbols_url);
-    if let Some((_, value)) = &conditional_etag {
-        request = request.header(IF_NONE_MATCH, value.clone());
-    }
-    let response = request.send().context("failed to fetch symbols.zip")?;
-    let response_etag = response
-        .headers()
-        .get(ETAG)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| SymbolsEtag {
-            url: symbols_url.to_owned(),
-            value: value.to_owned(),
-        });
-    tracing::debug!(
-        status = %response.status(),
-        has_etag = response_etag.is_some(),
-        "Received symbols.zip response"
-    );
-    if response.status() == StatusCode::NOT_MODIFIED {
-        let etag = response_etag
-            .or_else(|| conditional_etag.map(|(etag, _)| etag.clone()))
-            .context("symbols.zip returned 304 without a usable ETag")?;
-        return Ok(SymbolsDownload::NotModified { etag });
-    }
-
-    let data = response
-        .error_for_status()
-        .context("symbols.zip download returned error status")?
-        .bytes()
-        .context("failed to read symbols.zip response body")?;
-    Ok(SymbolsDownload::Modified {
-        data,
-        etag: response_etag,
-    })
-}
-
-fn update_symbols_from_url(
-    registry_dir: &Path,
-    target_dir: &Path,
-    symbols_url: &str,
-    previous_etag: Option<&SymbolsEtag>,
-) -> anyhow::Result<Option<SymbolsEtag>> {
-    std::fs::create_dir_all(registry_dir)
-        .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
-
-    let previous_etag = target_dir.is_dir().then_some(previous_etag).flatten();
-    let download = download_symbols_zip(symbols_url, previous_etag)?;
-    let (data, etag) = match download {
-        SymbolsDownload::Modified { data, etag } => (data, etag),
-        SymbolsDownload::NotModified { etag } if target_dir.is_dir() => return Ok(Some(etag)),
-        SymbolsDownload::NotModified { .. } => match download_symbols_zip(symbols_url, None)? {
-            SymbolsDownload::Modified { data, etag } => (data, etag),
-            SymbolsDownload::NotModified { .. } => {
-                anyhow::bail!("symbols.zip returned 304 but local symbols are missing")
-            }
-        },
-    };
-
-    let tmp_dir = unique_sibling_dir(registry_dir, ".symbols.tmp")
-        .context("failed to create temp directory for symbols")?;
-    std::fs::create_dir_all(&tmp_dir)?;
-
-    if let Err(e) = extract_zip_to_dir(&tmp_dir, std::io::Cursor::new(data)) {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return Err(e);
-    }
-
-    if target_dir.exists() {
-        let backup_dir = unique_sibling_dir(registry_dir, ".symbols.old")
-            .context("failed to create backup dir")?;
-        std::fs::rename(target_dir, &backup_dir)
-            .context("failed to move existing symbols dir to backup")?;
-
-        if let Err(e) = std::fs::rename(&tmp_dir, target_dir) {
-            let _ = std::fs::rename(&backup_dir, target_dir);
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-            return Err(anyhow::Error::from(e).context("failed to replace symbols directory"));
-        }
-
-        std::fs::remove_dir_all(&backup_dir).with_context(|| {
-            format!(
-                "failed to remove old symbols directory at `{}`",
-                backup_dir.display()
-            )
-        })?;
-    } else {
-        std::fs::rename(&tmp_dir, target_dir)
-            .context("failed to move symbols directory into place")?;
-    }
-
-    Ok(etag)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct RegistryUpdateState {
-    registry_identity: String,
-    generation: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    symbols_etag: Option<SymbolsEtag>,
-}
-
-#[derive(Debug, Clone)]
-enum RegistryUpdateObservation {
-    Observed(Option<RegistryUpdateState>),
-    Unavailable,
-}
-
-fn observe_registry_update_state(path: &Path) -> RegistryUpdateObservation {
-    match std::fs::read(path) {
-        Ok(data) => match serde_json::from_slice(&data) {
-            Ok(state) => RegistryUpdateObservation::Observed(Some(state)),
-            Err(error) => {
-                tracing::debug!(
-                    path = %path.display(),
-                    error = %error,
-                    "Ignoring invalid registry update state"
-                );
-                RegistryUpdateObservation::Unavailable
-            }
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            RegistryUpdateObservation::Observed(None)
-        }
-        Err(error) => {
-            tracing::debug!(
-                path = %path.display(),
-                error = %error,
-                "Ignoring unreadable registry update state"
-            );
-            RegistryUpdateObservation::Unavailable
-        }
-    }
-}
-
-fn write_registry_update_state(
-    registry_dir: &Path,
-    state_path: &Path,
-    registry_identity: &str,
-    symbols_etag: Option<SymbolsEtag>,
-) -> anyhow::Result<()> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let state = RegistryUpdateState {
-        registry_identity: registry_identity.to_owned(),
-        generation: format!("{}-{nanos}", std::process::id()),
-        symbols_etag,
-    };
-    let mut staged = tempfile::NamedTempFile::new_in(registry_dir)?;
-    serde_json::to_writer(staged.as_file_mut(), &state)?;
-    staged.persist(state_path).map_err(|error| error.error)?;
-    Ok(())
-}
-
-#[tracing::instrument(level = "debug", skip_all)]
-fn run_registry_update_locked(
-    home: &MoonHomeLayout,
-    registry_identity: &str,
-    observed: RegistryUpdateObservation,
-    user_log: &UserLog,
-    perform_update: impl FnOnce(
-        Option<&SymbolsEtag>,
-    ) -> anyhow::Result<(UpdateOutcome, Option<SymbolsEtag>)>,
-) -> anyhow::Result<UpdateOutcome> {
-    let registry_dir = home.registry_dir();
-    let state_path = home.registry_update_state_path();
-    let _lock = {
-        let _span = tracing::debug_span!("acquire_registry_update_lock").entered();
-        lock_directory(&registry_dir, user_log)
-            .context("failed to lock registry update directory")?
-    };
-
-    // The observation was captured before waiting for the lock. A changed
-    // generation therefore represents work completed by a concurrent caller,
-    // not a freshness window for a later update.
-    let current = observe_registry_update_state(&state_path);
-    let reuse = match (&observed, &current) {
-        (
-            RegistryUpdateObservation::Observed(observed),
-            RegistryUpdateObservation::Observed(Some(current)),
-        ) => observed.as_ref() != Some(current) && current.registry_identity == registry_identity,
-        _ => false,
-    };
-    if reuse {
-        tracing::debug!("Reusing registry update completed by another process");
-        return Ok(UpdateOutcome {
-            registry_index: RegistryIndexUpdate::ConcurrentUpdateReused,
-            symbols_updated: true,
-        });
-    }
-
-    let previous_etag = match &current {
-        RegistryUpdateObservation::Observed(Some(state)) => state.symbols_etag.as_ref(),
-        _ => None,
-    };
-    tracing::debug!("Performing registry update");
-    let (outcome, symbols_etag) = perform_update(previous_etag)?;
-    if outcome.symbols_updated
-        && let Err(error) =
-            write_registry_update_state(&registry_dir, &state_path, registry_identity, symbols_etag)
-    {
-        user_log.warn(format!(
-            "failed to record completed registry update: {error:#}"
-        ));
-    }
-    tracing::debug!(
-        symbols_updated = outcome.symbols_updated,
-        "Registry update completed"
-    );
-    Ok(outcome)
-}
-
-pub(crate) fn sync(
-    home: &MoonHomeLayout,
-    registry_config: &RegistryConfig,
-    user_log: &UserLog,
-) -> anyhow::Result<UpdateOutcome> {
-    let registry_dir = home.registry_dir();
-    let target_dir = home.registry_index_dir();
-    let symbols_dir = home.registry_symbols_dir();
-    std::fs::create_dir_all(&registry_dir)
-        .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
-    let observed = observe_registry_update_state(&home.registry_update_state_path());
-    let symbols_url = symbols_url(registry_config);
-    let registry_identity = registry_identity(&registry_config.index, &symbols_url);
-
-    run_registry_update_locked(
-        home,
-        &registry_identity,
-        observed,
-        user_log,
-        |previous_etag| {
-            let registry_index = update_registry_index(&target_dir, registry_config, user_log)?;
-            let (symbols_updated, symbols_etag) = match update_symbols_from_url(
-                &registry_dir,
-                &symbols_dir,
-                &symbols_url,
-                previous_etag,
-            ) {
-                Ok(etag) => (true, etag),
-                Err(e) => {
-                    user_log.warn(format!("failed to update symbols: {e:#}"));
-                    (false, None)
-                }
-            };
-
-            Ok((
-                UpdateOutcome {
-                    registry_index,
-                    symbols_updated,
-                },
-                symbols_etag,
-            ))
-        },
-    )
-}
-
-fn symbols_url(registry_config: &RegistryConfig) -> String {
-    if let Some(symbols) = &registry_config.symbols {
-        symbols.clone()
-    } else if registry_config.legacy_asset_urls {
-        SYMBOLS_URL.to_owned()
-    } else {
-        format!(
-            "{}/symbols.zip",
-            registry_config.download.trim_end_matches('/')
-        )
-    }
-}
-
-fn registry_identity(index_url: &str, symbols_url: &str) -> String {
-    let mut identity = Sha256::new();
-    identity.update(index_url.as_bytes());
-    identity.update([0]);
-    identity.update(symbols_url.as_bytes());
-    format!("{:x}", identity.finalize())
-}
-
 fn update_registry_index(
     target_dir: &Path,
     registry_config: &RegistryConfig,
@@ -721,6 +430,8 @@ fn update_registry_index(
         })?;
         let reclone_reason = match state {
             RegistryIndexState::Ready { remote_url } if remote_url == registry_config.index => {
+                // TODO(#2460): Preserve the update error and limit recloning to
+                // failures that rebuilding the cache can repair.
                 if fetch_and_reset_registry_index(target_dir).is_ok() {
                     return Ok(RegistryIndexUpdate::Updated);
                 }
@@ -742,16 +453,6 @@ fn update_registry_index(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{Cursor, Read, Write},
-        net::TcpListener,
-        sync::{
-            Arc, Barrier,
-            atomic::{AtomicUsize, Ordering},
-        },
-        thread::JoinHandle,
-    };
-
     use super::*;
 
     fn run_git(args: &[&str]) {
@@ -864,221 +565,82 @@ mod tests {
         )
     }
 
-    fn successful_update() -> UpdateOutcome {
-        UpdateOutcome {
-            registry_index: RegistryIndexUpdate::Updated,
-            symbols_updated: true,
+    #[test]
+    fn synchronization_reuses_only_overlapping_updates_of_the_same_index() {
+        for same_index in [true, false] {
+            let (_first_remote, first_config) = registry_with_history();
+            let (_second_remote, mut second_config) = registry_with_history();
+            if same_index {
+                second_config.index.clone_from(&first_config.index);
+            }
+            let root = tempfile::tempdir().unwrap();
+            let home = test_moon_home(&root);
+            let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+            let lock = lock_directory(&home.registry_dir(), &quiet_user_log()).unwrap();
+            std::thread::scope(|scope| {
+                let first = scope.spawn(|| sync(&home, &first_config, &user_log));
+                let second = scope.spawn(|| sync(&home, &second_config, &user_log));
+
+                // Both callers must observe the old state before either can
+                // synchronize. The lock's contention log confirms they wait.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                let mut waiting = 0;
+                while waiting < 2 && std::time::Instant::now() < deadline {
+                    waiting += capture
+                        .take()
+                        .iter()
+                        .filter(|entry| entry.message.starts_with("Blocking waiting for file lock"))
+                        .count();
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                drop(lock);
+                let outcomes = [
+                    first.join().unwrap().unwrap(),
+                    second.join().unwrap().unwrap(),
+                ];
+                assert_eq!(waiting, 2);
+                assert_eq!(
+                    outcomes
+                        .iter()
+                        .filter(|outcome| **outcome == RegistryIndexUpdate::ConcurrentUpdateReused)
+                        .count(),
+                    usize::from(same_index)
+                );
+            });
         }
     }
 
     #[test]
-    fn registry_update_identity_covers_index_and_symbols() {
-        let identity = registry_identity("https://registry.invalid/index", "https://a/symbols");
-        assert_ne!(
-            identity,
-            registry_identity("https://other.invalid/index", "https://a/symbols")
-        );
-        assert_ne!(
-            identity,
-            registry_identity("https://registry.invalid/index", "https://b/symbols")
-        );
-    }
-
-    #[test]
-    fn symbols_url_uses_the_split_download_endpoint() {
-        let config = RegistryConfig {
-            api: "https://api.example".to_owned(),
-            index: "https://index.example".to_owned(),
-            download: "https://download.example/".to_owned(),
-            symbols: None,
-            legacy_asset_urls: false,
-        };
-
-        assert_eq!(symbols_url(&config), "https://download.example/symbols.zip");
-    }
-
-    #[test]
-    fn symbols_url_preserves_legacy_overrides() {
-        let config = RegistryConfig {
-            api: "https://registry.example".to_owned(),
-            index: "https://index.example".to_owned(),
-            download: "https://registry.example".to_owned(),
-            symbols: Some("https://mirror.example/symbols.zip".to_owned()),
-            legacy_asset_urls: true,
-        };
-
-        assert_eq!(symbols_url(&config), "https://mirror.example/symbols.zip");
-    }
-
-    struct TestHttpResponse {
-        status: &'static str,
-        headers: Vec<(&'static str, &'static str)>,
-        body: Vec<u8>,
-    }
-
-    fn serve_http(responses: Vec<TestHttpResponse>) -> (String, JoinHandle<Vec<String>>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            responses
-                .into_iter()
-                .map(|response| {
-                    let (mut stream, _) = listener.accept().unwrap();
-                    let mut request = Vec::new();
-                    let mut buffer = [0; 1024];
-                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        let read = stream.read(&mut buffer).unwrap();
-                        assert_ne!(read, 0, "request ended before its headers");
-                        request.extend_from_slice(&buffer[..read]);
-                    }
-
-                    write!(
-                        stream,
-                        "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n",
-                        response.status,
-                        response.body.len()
-                    )
-                    .unwrap();
-                    for (name, value) in response.headers {
-                        write!(stream, "{name}: {value}\r\n").unwrap();
-                    }
-                    stream.write_all(b"\r\n").unwrap();
-                    stream.write_all(&response.body).unwrap();
-                    String::from_utf8(request).unwrap()
-                })
-                .collect()
-        });
-        (format!("http://{address}/symbols.zip"), server)
-    }
-
-    fn symbols_zip(contents: &str) -> Vec<u8> {
-        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        archive
-            .start_file("symbol.txt", zip::write::FileOptions::default())
-            .unwrap();
-        archive.write_all(contents.as_bytes()).unwrap();
-        archive.finish().unwrap().into_inner()
-    }
-
-    #[test]
-    fn symbols_update_reuses_an_etag_on_not_modified() {
+    fn index_sync_preserves_symbols_state_and_retries_failed_updates() {
+        let (remote, config) = registry_with_history();
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
-        let (url, server) = serve_http(vec![
-            TestHttpResponse {
-                status: "200 OK",
-                headers: vec![("ETag", "\"symbols-v1\"")],
-                body: symbols_zip("downloaded"),
-            },
-            TestHttpResponse {
-                status: "304 Not Modified",
-                headers: Vec::new(),
-                body: Vec::new(),
-            },
-        ]);
+        std::fs::write(home.registry_symbols_update_state_path(), "symbols state").unwrap();
 
-        let etag = update_symbols_from_url(
-            &home.registry_dir(),
-            &home.registry_symbols_dir(),
-            &url,
-            None,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(etag.url, url);
-        assert_eq!(etag.value, "\"symbols-v1\"");
-        std::fs::write(home.registry_symbols_dir().join("symbol.txt"), "local").unwrap();
-
-        let reused = update_symbols_from_url(
-            &home.registry_dir(),
-            &home.registry_symbols_dir(),
-            &url,
-            Some(&etag),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(reused, etag);
         assert_eq!(
-            std::fs::read_to_string(home.registry_symbols_dir().join("symbol.txt")).unwrap(),
-            "local"
+            sync(&home, &config, &quiet_user_log()).unwrap(),
+            RegistryIndexUpdate::Cloned
         );
-        let requests = server.join().unwrap();
-        assert!(!requests[0].to_ascii_lowercase().contains("if-none-match"));
-        assert!(
-            requests[1]
-                .to_ascii_lowercase()
-                .contains("if-none-match: \"symbols-v1\"")
-        );
-    }
-
-    #[test]
-    fn symbols_update_ignores_an_etag_when_local_symbols_are_missing() {
-        let root = tempfile::tempdir().unwrap();
-        let home = test_moon_home(&root);
-        let (url, server) = serve_http(vec![TestHttpResponse {
-            status: "200 OK",
-            headers: vec![("ETag", "\"symbols-v2\"")],
-            body: symbols_zip("restored"),
-        }]);
-        let etag = SymbolsEtag {
-            url: url.clone(),
-            value: "\"symbols-v1\"".to_owned(),
-        };
-
-        let updated = update_symbols_from_url(
-            &home.registry_dir(),
-            &home.registry_symbols_dir(),
-            &url,
-            Some(&etag),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(updated.value, "\"symbols-v2\"");
+        // An earlier completed synchronization does not satisfy a later call.
         assert_eq!(
-            std::fs::read_to_string(home.registry_symbols_dir().join("symbol.txt")).unwrap(),
-            "restored"
+            sync(&home, &config, &quiet_user_log()).unwrap(),
+            RegistryIndexUpdate::Updated
         );
-        let requests = server.join().unwrap();
-        assert!(!requests[0].to_ascii_lowercase().contains("if-none-match"));
-    }
+        assert!(!home.registry_symbols_dir().exists());
+        assert_eq!(
+            std::fs::read_to_string(home.registry_symbols_update_state_path()).unwrap(),
+            "symbols state"
+        );
+        let completed = std::fs::read(home.registry_update_state_path()).unwrap();
 
-    #[test]
-    fn symbols_update_ignores_an_invalid_etag() {
-        let root = tempfile::tempdir().unwrap();
-        let home = test_moon_home(&root);
-        std::fs::create_dir(home.registry_symbols_dir()).unwrap();
-        let (url, server) = serve_http(vec![TestHttpResponse {
-            status: "200 OK",
-            headers: Vec::new(),
-            body: symbols_zip("updated"),
-        }]);
-        let etag = SymbolsEtag {
-            url: url.clone(),
-            value: "invalid\netag".to_owned(),
-        };
-
-        let updated = update_symbols_from_url(
-            &home.registry_dir(),
-            &home.registry_symbols_dir(),
-            &url,
-            Some(&etag),
-        )
-        .unwrap();
-
-        assert_eq!(updated, None);
-        let requests = server.join().unwrap();
-        assert!(!requests[0].to_ascii_lowercase().contains("if-none-match"));
-    }
-
-    #[test]
-    fn registry_update_state_without_an_etag_remains_readable() {
-        let state: RegistryUpdateState =
-            serde_json::from_str(r#"{"registry_identity":"registry-a","generation":"one"}"#)
-                .unwrap();
-
-        assert_eq!(state.symbols_etag, None);
+        std::fs::remove_dir_all(remote.path().join("index.git")).unwrap();
+        for _ in 0..2 {
+            assert!(sync(&home, &config, &quiet_user_log()).is_err());
+            assert_eq!(
+                std::fs::read(home.registry_update_state_path()).unwrap(),
+                completed
+            );
+        }
     }
 
     #[test]
@@ -1316,137 +878,6 @@ mod tests {
             .unwrap();
         assert!(output.stdout.len() > 65_536);
         assert!(index.join("package-with-a-long-enough-name-1999").exists());
-    }
-
-    #[test]
-    fn concurrent_registry_updates_are_coalesced() {
-        let root = tempfile::tempdir().unwrap();
-        let home = Arc::new(test_moon_home(&root));
-        let barrier = Arc::new(Barrier::new(2));
-        let performed = Arc::new(AtomicUsize::new(0));
-        let observed = observe_registry_update_state(&home.registry_update_state_path());
-        let mut threads = Vec::new();
-
-        for _ in 0..2 {
-            let home = Arc::clone(&home);
-            let barrier = Arc::clone(&barrier);
-            let performed = Arc::clone(&performed);
-            let observed = observed.clone();
-            threads.push(std::thread::spawn(move || {
-                barrier.wait();
-                run_registry_update_locked(&home, "registry-a", observed, &quiet_user_log(), |_| {
-                    performed.fetch_add(1, Ordering::SeqCst);
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                    Ok((successful_update(), None))
-                })
-                .unwrap()
-            }));
-        }
-
-        let outcomes = threads
-            .into_iter()
-            .map(|thread| thread.join().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(performed.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            outcomes
-                .iter()
-                .filter(|outcome| {
-                    outcome.registry_index == RegistryIndexUpdate::ConcurrentUpdateReused
-                })
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn completed_registry_update_is_not_a_ttl() {
-        let root = tempfile::tempdir().unwrap();
-        let home = test_moon_home(&root);
-        let performed = AtomicUsize::new(0);
-        let etag = SymbolsEtag {
-            url: "https://example.invalid/symbols.zip".to_owned(),
-            value: "\"symbols-v1\"".to_owned(),
-        };
-        let perform = |previous_etag: Option<&SymbolsEtag>| {
-            let attempt = performed.fetch_add(1, Ordering::SeqCst);
-            if attempt == 0 {
-                assert_eq!(previous_etag, None);
-            } else {
-                assert_eq!(previous_etag, Some(&etag));
-            }
-            Ok((successful_update(), Some(etag.clone())))
-        };
-
-        run_registry_update_locked(
-            &home,
-            "registry-a",
-            observe_registry_update_state(&home.registry_update_state_path()),
-            &quiet_user_log(),
-            perform,
-        )
-        .unwrap();
-        let observed = observe_registry_update_state(&home.registry_update_state_path());
-        run_registry_update_locked(&home, "registry-a", observed, &quiet_user_log(), perform)
-            .unwrap();
-
-        assert_eq!(performed.load(Ordering::SeqCst), 2);
-        let RegistryUpdateObservation::Observed(Some(state)) =
-            observe_registry_update_state(&home.registry_update_state_path())
-        else {
-            panic!("registry update state was not written");
-        };
-        assert_eq!(state.symbols_etag, Some(etag));
-    }
-
-    #[test]
-    fn concurrent_update_for_a_different_registry_is_not_reused() {
-        let root = tempfile::tempdir().unwrap();
-        let home = test_moon_home(&root);
-        let performed = AtomicUsize::new(0);
-        for registry_identity in ["registry-a", "registry-b"] {
-            run_registry_update_locked(
-                &home,
-                registry_identity,
-                RegistryUpdateObservation::Observed(None),
-                &quiet_user_log(),
-                |_| {
-                    performed.fetch_add(1, Ordering::SeqCst);
-                    Ok((successful_update(), None))
-                },
-            )
-            .unwrap();
-        }
-
-        assert_eq!(performed.load(Ordering::SeqCst), 2);
-    }
-
-    #[test]
-    fn update_with_failed_symbols_is_not_reused() {
-        let root = tempfile::tempdir().unwrap();
-        let home = test_moon_home(&root);
-        let performed = AtomicUsize::new(0);
-        for _ in 0..2 {
-            run_registry_update_locked(
-                &home,
-                "registry-a",
-                RegistryUpdateObservation::Observed(None),
-                &quiet_user_log(),
-                |_| {
-                    performed.fetch_add(1, Ordering::SeqCst);
-                    Ok((
-                        UpdateOutcome {
-                            registry_index: RegistryIndexUpdate::Updated,
-                            symbols_updated: false,
-                        },
-                        None,
-                    ))
-                },
-            )
-            .unwrap();
-        }
-
-        assert_eq!(performed.load(Ordering::SeqCst), 2);
     }
 
     #[test]

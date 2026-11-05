@@ -267,9 +267,9 @@ impl RegistryClient {
         self
     }
 
-    /// Synchronize the complete Git index and symbols archive.
+    /// Synchronize the complete Git index.
     /// HTTP metadata is refreshed per module through the query APIs instead.
-    pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
+    pub fn sync_index(&self, user_log: &UserLog) -> anyhow::Result<()> {
         if self.frozen_dependencies {
             bail!("frozen mode cannot synchronize registry metadata");
         }
@@ -279,6 +279,14 @@ impl RegistryClient {
                 bail!("HTTP registry metadata must be refreshed per module")
             }
         }
+    }
+
+    /// Synchronize the symbols archive independently of registry metadata.
+    pub fn sync_symbols(&self, user_log: &UserLog) -> anyhow::Result<()> {
+        if self.frozen_dependencies {
+            bail!("frozen mode cannot synchronize registry symbols");
+        }
+        super::symbols::sync(&self.home, &self.config, user_log)
     }
 
     /// Read an exact release without network access. `None` means no local record.
@@ -310,7 +318,8 @@ impl RegistryClient {
         }
         match &self.metadata {
             MetadataBackend::Git(index) => {
-                self.sync(user_log).map_err(super::RegistryUnavailable)?;
+                self.sync_index(user_log)
+                    .map_err(super::RegistryUnavailable)?;
                 index.version_info(name, version)
             }
             MetadataBackend::Http(http) => http.refresh_version_info(name, version).map(Some),
@@ -3129,13 +3138,28 @@ mod tests {
         for registry in &registries {
             assert_eq!(registry.cached_latest_version(&module).unwrap(), None);
             assert!(!registry.home.registry_index_file(&module).exists());
+            let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
             // Both a missing index and an index missing this module trigger a
             // current query for an unpinned executable coordinate.
             let package = registry
-                .resolve_executable_package("alice/tool", &quiet_user_log())
+                .resolve_executable_package("alice/tool", &user_log)
                 .unwrap();
             assert_eq!(package.module.name().to_string(), "alice/tool");
             assert_eq!(package.module.version().to_string(), "1.2.3");
+            assert!(
+                registry
+                    .refresh_version_info(&module, &Version::new(1, 2, 3), &user_log)
+                    .unwrap()
+                    .is_some()
+            );
+            // Neither latest nor exact metadata refresh should attempt the
+            // deliberately unavailable symbols endpoint.
+            assert!(
+                capture.take().iter().all(|entry| matches!(
+                    entry.level,
+                    moonutil::user_log::UserLogEntryLevel::Info
+                ))
+            );
         }
 
         std::fs::write(
@@ -3179,6 +3203,11 @@ mod tests {
             assert_eq!(
                 registry.cached_latest_version(&module).unwrap(),
                 Some(Version::new(1, 2, 4))
+            );
+            let source = ModuleSource::from_version(module.clone(), Version::new(1, 2, 4)).unwrap();
+            assert_eq!(
+                registry.source_archive_checksum(&source).unwrap(),
+                "b".repeat(64)
             );
             let error = registry
                 .query_latest_version(&"alice/missing".into(), &quiet_user_log())
