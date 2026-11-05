@@ -70,7 +70,9 @@ $MOON_HOME/
 - Module metadata is read from
   `registry/index/user/<username>/<module>.index`. Each JSONL release record
   requires a version and checksum. An omitted `deps` field means an empty
-  dependency map; a present `deps` field must be an object.
+  dependency map; a present `deps` field must be an object. The Git backend
+  caches complete release records so metadata and archive checksums use the
+  same observation until that client synchronizes the index again.
 - `MOON_REGISTRY_API=1` opts all resolver metadata queries into the configured
   HTTP API, even when a local Git entry exists. Otherwise the Git index remains
   authoritative. Metadata queries use the configured API's saved login when
