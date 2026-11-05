@@ -16,25 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Authorization of operations on an acquired file, independent of its caller.
+//! Opaque authority retained with an acquired file.
 
 use std::path::PathBuf;
-
-use crate::policy::{FsIntents, FsPolicy};
-
-use super::host::{FsError, canonicalize_existing_prefix};
-
-/// The operation being requested, not the policy rule a caller thinks it needs.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum FileOperation {
-    Kind,
-    Metadata,
-    Lock {
-        exclusive: bool,
-    },
-    #[cfg(any(windows, target_os = "macos"))]
-    Watch,
-}
 
 /// File authorization context retained with a Resource.
 ///
@@ -43,10 +27,10 @@ pub(crate) enum FileOperation {
 /// That path is neither stable object identity nor a snapshot of capabilities.
 /// Callers must not depend on its representation or inspect path availability.
 #[derive(Debug)]
-pub(crate) struct FileGrant(GrantSource);
+pub(crate) struct FileGrant(pub(super) GrantSource);
 
 #[derive(Debug)]
-enum GrantSource {
+pub(super) enum GrantSource {
     Stdio,
     Path(PathBuf),
     Untracked,
@@ -66,39 +50,5 @@ impl FileGrant {
     pub(crate) fn from_opened_path(path: Option<PathBuf>) -> Self {
         path.and_then(|path| std::fs::canonicalize(path).ok())
             .map_or(Self::UNTRACKED, |path| Self(GrantSource::Path(path)))
-    }
-
-    pub(super) fn authorize(
-        &self,
-        policy: Option<&FsPolicy>,
-        operation: FileOperation,
-    ) -> Result<(), FsError> {
-        let canonical_path = match &self.0 {
-            GrantSource::Stdio => return Ok(()),
-            GrantSource::Path(path) => Some(path),
-            GrantSource::Untracked => None,
-        };
-        let intents = match operation {
-            FileOperation::Kind | FileOperation::Lock { exclusive: false } => return Ok(()),
-            FileOperation::Metadata => FsIntents::read(),
-            FileOperation::Lock { exclusive: true } => FsIntents::write(),
-            #[cfg(target_os = "macos")]
-            FileOperation::Watch => FsIntents::read(),
-            // Preserve Windows' existing handle-only watcher admission. Changing
-            // that policy is separate from extracting this authorization seam.
-            #[cfg(windows)]
-            FileOperation::Watch => return Ok(()),
-        };
-        let Some(policy) = policy else { return Ok(()) };
-        let (resolved, target) = match canonical_path {
-            Some(path) => (
-                canonicalize_existing_prefix(path).ok(),
-                format!("{:?}", path.to_string_lossy()),
-            ),
-            None => (None, "\"<untracked resource>\"".to_owned()),
-        };
-        policy
-            .authorize(resolved.as_deref(), intents, &target)
-            .map_err(|_| FsError::Denied)
     }
 }

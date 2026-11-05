@@ -21,13 +21,15 @@
 //! Standard-library operations and `os` provide the filesystem mechanisms.
 
 use std::ffi::{OsStr, OsString};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{fs, io};
 
-use super::{FileGrant, FileOperation};
+#[cfg(unix)]
+use super::path::entry_before_directory_suffix;
+use super::{FsOperation, FsPath, FsTarget};
 use crate::async_sys::fs::stub;
-use crate::policy::{FsIntents, FsPolicy};
+use crate::policy::FsPolicy;
 use crate::runtime::{Env, WorkingDirectory};
 
 /// Preserve policy denial separately from OS errors for each caller's ABI.
@@ -83,19 +85,8 @@ impl Directory {
     }
 
     pub(crate) fn path(&self) -> Result<PathBuf, FsError> {
-        directory_path_for_authorization(super::os::raw_file(&self.file))
+        super::path::directory_path(super::os::raw_file(&self.file))
     }
-}
-
-fn directory_path_for_authorization(handle: super::os::RawFile) -> Result<PathBuf, FsError> {
-    // An unlinked directory cannot receive a fresh pathname-based grant.
-    super::os::directory::path(handle).map_err(|error| {
-        if error.kind() == io::ErrorKind::NotFound {
-            FsError::Denied
-        } else {
-            FsError::Io(error)
-        }
-    })
 }
 
 /// Keep Unix relative traversal intact. Absolute paths and Windows DOS paths
@@ -154,9 +145,9 @@ fn relative_path(base: &Path, path: &Path) -> Result<PathBuf, FsError> {
 /// Engine-neutral filesystem operations that enforce the runtime policy
 /// before accessing the operating system's filesystem.
 pub(crate) struct HostFs {
-    policy: Option<FsPolicy>,
+    pub(super) policy: Option<FsPolicy>,
     environment: Arc<Env>,
-    working_directory: Arc<WorkingDirectory>,
+    pub(super) working_directory: Arc<WorkingDirectory>,
 }
 
 impl HostFs {
@@ -197,17 +188,17 @@ impl HostFs {
     }
 
     pub(crate) fn read_file(&self, path: &Path) -> Result<Vec<u8>, FsError> {
-        self.authorize_read(path.as_os_str())?;
+        self.authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::read(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn read_text(&self, path: &Path) -> Result<String, FsError> {
-        self.authorize_read(path.as_os_str())?;
+        self.authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::read_to_string(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn write_file(&self, path: &Path, contents: &[u8]) -> Result<(), FsError> {
-        self.authorize_write(path.as_os_str())?;
+        self.authorize(FsOperation::WriteFile(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::write(self.resolve_path(path.as_os_str()), contents)?)
     }
 
@@ -221,23 +212,25 @@ impl HostFs {
     {
         // Authorize before decoding an untrusted payload. Decode before opening
         // the target so a conversion failure cannot create or truncate a file.
-        self.authorize_write(path.as_os_str())?;
+        self.authorize(FsOperation::WriteFile(FsPath::Cwd(path.as_os_str())))?;
         fs::write(self.resolve_path(path.as_os_str()), contents()?)
             .map_err(|error| FsError::Io(error).into())
     }
 
     pub(crate) fn create_directory_all(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize_write(path.as_os_str())?;
+        self.authorize(FsOperation::CreateDirectories(FsPath::Cwd(
+            path.as_os_str(),
+        )))?;
         Ok(fs::create_dir_all(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn remove_directory_all(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize_remove(path.as_os_str())?;
+        self.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::remove_dir_all(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn current_directory(&self) -> Result<PathBuf, FsError> {
-        self.authorize_read(OsStr::new("."))?;
+        self.authorize(FsOperation::Read(FsPath::Cwd(OsStr::new("."))))?;
         Ok(self.working_directory.current_dir()?)
     }
 
@@ -253,18 +246,13 @@ impl HostFs {
         };
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize_path_at(
-            Some(&base),
-            path.as_os_str(),
-            FsIntents::new(
-                options.read,
-                options.write
-                    || options.append
-                    || options.create
-                    || options.create_new
-                    || options.truncate,
-            ),
-        )?;
+        self.authorize(FsOperation::OpenWithOptions {
+            path: FsPath::At {
+                base: &base,
+                path: path.as_os_str(),
+            },
+            options: &options,
+        })?;
         let write = options.write || options.append;
         // Preserve std::OpenOptions validation before reaching a destructive
         // native open. Native async jobs have their own scalar-option contract.
@@ -316,7 +304,10 @@ impl HostFs {
         };
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize_path_at(Some(&base), path.as_os_str(), FsIntents::read())?;
+        self.authorize(FsOperation::Read(FsPath::At {
+            base: &base,
+            path: path.as_os_str(),
+        }))?;
         // NtCreateFile does not perform DOS dot-component normalization. The
         // normalized path is empty when opening the acquired directory itself.
         let file = if path.as_os_str().is_empty() {
@@ -342,27 +333,32 @@ impl HostFs {
     }
 
     pub(crate) fn metadata(&self, path: &Path) -> Result<fs::Metadata, FsError> {
-        self.authorize_read(path.as_os_str())?;
+        self.authorize(FsOperation::Metadata(FsTarget::Path(FsPath::Cwd(
+            path.as_os_str(),
+        ))))?;
         Ok(fs::metadata(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn read_link(&self, path: &Path) -> Result<PathBuf, FsError> {
-        self.authorize_entry_metadata(path.as_os_str())?;
+        self.authorize(FsOperation::InspectEntry(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::read_link(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn read_directory(&self, path: &Path) -> Result<fs::ReadDir, FsError> {
-        self.authorize_read(path.as_os_str())?;
+        self.authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::read_dir(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn create_directory(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize_write_entry(path.as_os_str())?;
+        self.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::create_dir(self.resolve_path(path.as_os_str()))?)
     }
 
     pub(crate) fn rename(&self, source: &Path, target: &Path) -> Result<(), FsError> {
-        self.authorize_rename(source.as_os_str(), target.as_os_str())?;
+        self.authorize(FsOperation::Rename {
+            source: FsPath::Cwd(source.as_os_str()),
+            destination: FsPath::Cwd(target.as_os_str()),
+        })?;
         Ok(super::os::rename(
             Path::new(&self.resolve_path(source.as_os_str())),
             Path::new(&self.resolve_path(target.as_os_str())),
@@ -380,7 +376,10 @@ impl HostFs {
     ) -> Result<(), FsError> {
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize_entry_at(Some(&base), path.as_os_str(), FsIntents::write())?;
+        self.authorize(FsOperation::ChangeEntry(FsPath::At {
+            base: &base,
+            path: path.as_os_str(),
+        }))?;
         Ok(super::os::unlinkat::remove_directory_at(
             Some(super::os::raw_file(&directory.file)),
             path.as_os_str(),
@@ -391,7 +390,10 @@ impl HostFs {
     pub(crate) fn unlink_file_at(&self, directory: &Directory, path: &Path) -> Result<(), FsError> {
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
-        self.authorize_entry_at(Some(&base), path.as_os_str(), FsIntents::write())?;
+        self.authorize(FsOperation::ChangeEntry(FsPath::At {
+            base: &base,
+            path: path.as_os_str(),
+        }))?;
         Ok(super::os::unlinkat::unlink_file_at(
             Some(super::os::raw_file(&directory.file)),
             path.as_os_str(),
@@ -400,234 +402,9 @@ impl HostFs {
     }
 
     pub(crate) fn unlink_file(&self, path: &Path) -> Result<(), FsError> {
-        self.authorize_remove(path.as_os_str())?;
+        self.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::remove_file(self.resolve_path(path.as_os_str()))?)
     }
-    pub(crate) fn authorize_open(
-        &self,
-        path: &OsStr,
-        access: i32,
-        create_mode: i32,
-    ) -> Result<(), FsError> {
-        self.authorize_path(path, FsIntents::for_open(access, create_mode))
-    }
-
-    pub(super) fn authorize_metadata(&self, path: &OsStr) -> Result<(), FsError> {
-        self.authorize_read(path)
-    }
-
-    pub(super) fn directory_path_for_policy(
-        &self,
-        handle: super::os::RawFile,
-    ) -> Result<Option<PathBuf>, FsError> {
-        // Native relative operations need no recoverable pathname. Require it
-        // only when a policy needs to authorize a fresh effect at that location.
-        self.policy
-            .as_ref()
-            .map(|_| directory_path_for_authorization(handle))
-            .transpose()
-    }
-
-    pub(super) fn authorize_path_at(
-        &self,
-        base: Option<&Path>,
-        path: &OsStr,
-        intents: FsIntents,
-    ) -> Result<(), FsError> {
-        let Some(policy) = &self.policy else {
-            return Ok(());
-        };
-        let target = authorization_target_at(base, path);
-        let resolved = resolve_from_directory(base, Path::new(path))
-            .and_then(|path| canonicalize_existing_prefix(&path))
-            .ok();
-        policy
-            .authorize(resolved.as_deref(), intents, &target)
-            .map_err(|_| FsError::Denied)
-    }
-
-    pub(crate) fn authorize_file(
-        &self,
-        grant: &FileGrant,
-        operation: FileOperation,
-    ) -> Result<(), FsError> {
-        grant.authorize(self.policy.as_ref(), operation)
-    }
-
-    pub(crate) fn authorize_read(&self, path: &OsStr) -> Result<(), FsError> {
-        self.authorize_path(path, FsIntents::read())
-    }
-
-    pub(crate) fn authorize_write(&self, path: &OsStr) -> Result<(), FsError> {
-        self.authorize_path(path, FsIntents::write())
-    }
-
-    pub(super) fn authorize_entry_at(
-        &self,
-        base: Option<&Path>,
-        path: &OsStr,
-        intents: FsIntents,
-    ) -> Result<(), FsError> {
-        let Some(policy) = &self.policy else {
-            return Ok(());
-        };
-        let target = authorization_target_at(base, path);
-        let resolved = resolve_from_directory(base, Path::new(path))
-            .and_then(|path| canonicalize_entry_path(&path))
-            .ok();
-        policy
-            .authorize(resolved.as_deref(), intents, &target)
-            .map_err(|_| FsError::Denied)
-    }
-
-    pub(super) fn authorize_entry_metadata(&self, path: &OsStr) -> Result<(), FsError> {
-        self.authorize_entry(path, FsIntents::read())
-    }
-
-    pub(super) fn authorize_access(&self, path: &OsStr, access: i32) -> Result<(), FsError> {
-        self.authorize_path(path, FsIntents::for_access_check(access))
-    }
-
-    pub(super) fn authorize_remove(&self, path: &OsStr) -> Result<(), FsError> {
-        self.authorize_entry(path, FsIntents::write())
-    }
-
-    pub(super) fn authorize_rename(
-        &self,
-        old_path: &OsStr,
-        new_path: &OsStr,
-    ) -> Result<(), FsError> {
-        self.authorize_entry(old_path, FsIntents::write())?;
-        self.authorize_entry(new_path, FsIntents::write())
-    }
-
-    pub(super) fn authorize_write_entry(&self, path: &OsStr) -> Result<(), FsError> {
-        self.authorize_entry(path, FsIntents::write())
-    }
-
-    fn authorize_path(&self, path: &OsStr, intents: FsIntents) -> Result<(), FsError> {
-        let Some(policy) = &self.policy else {
-            return Ok(());
-        };
-        let target = quote_os_str(path);
-        let resolved = self
-            .working_directory
-            .resolve_absolute(Path::new(path))
-            .ok()
-            .and_then(|path| canonicalize_existing_prefix(&path).ok());
-        policy
-            .authorize(resolved.as_deref(), intents, &target)
-            .map_err(|_| FsError::Denied)
-    }
-
-    fn authorize_entry(&self, path: &OsStr, intents: FsIntents) -> Result<(), FsError> {
-        let Some(policy) = &self.policy else {
-            return Ok(());
-        };
-        let target = quote_os_str(path);
-        let resolved = self
-            .working_directory
-            .resolve_absolute(Path::new(path))
-            .ok()
-            .and_then(|path| canonicalize_entry_path(&path).ok());
-        policy
-            .authorize(resolved.as_deref(), intents, &target)
-            .map_err(|_| FsError::Denied)
-    }
-}
-
-fn resolve_from_directory(base: Option<&Path>, path: &Path) -> Result<PathBuf, FsError> {
-    if path.is_absolute() {
-        Ok(path.to_path_buf())
-    } else {
-        base.map(|base| base.join(path)).ok_or(FsError::Denied)
-    }
-}
-
-pub(super) fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, FsError> {
-    for ancestor in path.ancestors() {
-        match std::fs::canonicalize(ancestor) {
-            Ok(prefix) => {
-                let suffix = path.strip_prefix(ancestor).map_err(|_| FsError::Denied)?;
-                // Lexically cancelling a missing component with `..` could
-                // hide later links that recursive creation will traverse.
-                if suffix.components().any(|part| part == Component::ParentDir) {
-                    return Err(FsError::Denied);
-                }
-                return Ok(normalize_path(prefix.join(suffix)));
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => return Err(FsError::Denied),
-        }
-        // Only missing entries may use prefix fallback. An unresolved existing
-        // link can redirect creation outside the authorized prefix. Strip a
-        // directory suffix so lstat inspects the entry rather than following it.
-        let entry: PathBuf = ancestor.components().collect();
-        match std::fs::symlink_metadata(entry) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            _ => return Err(FsError::Denied),
-        }
-    }
-    Err(FsError::Denied)
-}
-
-/// A Unix directory suffix makes the named component participate in directory
-/// traversal, even for an operation normally acting on the final link entry.
-/// Inspect the original bytes: Path::file_name deliberately ignores this suffix.
-/// The returned path is only for inspection; native operations retain `path`.
-pub(crate) fn entry_before_directory_suffix(path: &Path) -> Option<PathBuf> {
-    let bytes = path.as_os_str().as_encoded_bytes();
-    if cfg!(unix) && (bytes.ends_with(b"/") || bytes.ends_with(b"/.")) {
-        Some(path.parent()?.join(path.file_name()?))
-    } else {
-        None
-    }
-}
-
-fn canonicalize_entry_path(path: &Path) -> Result<PathBuf, FsError> {
-    if let Some(entry) = entry_before_directory_suffix(path) {
-        if let Ok(resolved) = std::fs::canonicalize(path) {
-            return Ok(resolved);
-        }
-        // A dangling link is not a missing directory entry. Prefix fallback
-        // would authorize the link's name while mkdir/rename may create its target.
-        if std::fs::symlink_metadata(entry).is_ok_and(|metadata| metadata.is_symlink()) {
-            return Err(FsError::Denied);
-        }
-        return canonicalize_existing_prefix(path);
-    }
-    let parent = path.parent().ok_or(FsError::Denied)?;
-    let file_name = path.file_name().ok_or(FsError::Denied)?;
-    Ok(normalize_path(
-        canonicalize_existing_prefix(parent)?.join(file_name),
-    ))
-}
-
-fn normalize_path(path: PathBuf) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                normalized.push(component.as_os_str());
-            }
-        }
-    }
-    normalized
-}
-
-fn quote_os_str(value: &OsStr) -> String {
-    format!("{:?}", value.to_string_lossy())
-}
-
-fn authorization_target_at(base: Option<&Path>, path: &OsStr) -> String {
-    base.map_or_else(
-        || quote_os_str(OsStr::new("<untracked resource>")),
-        |_| quote_os_str(path),
-    )
 }
 
 #[cfg(test)]
@@ -719,6 +496,78 @@ mod tests {
     }
 
     #[test]
+    fn create_mode_requires_write_even_for_read_access() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        std::fs::create_dir(&allowed).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
+
+        assert!(matches!(
+            host.authorize(FsOperation::OpenAsync {
+                path: FsPath::Cwd(allowed.join("new.txt").as_os_str()),
+                access: 0,
+                create_mode: 1,
+                read_metadata: false,
+            }),
+            Err(FsError::Denied)
+        ));
+    }
+
+    #[test]
+    fn directory_write_grant_allows_removing_its_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir(&root).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"root\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
+
+        host.remove_directory_all(&root).unwrap();
+
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn directory_write_grant_allows_moving_its_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let destination = tmp.path().join("moved");
+        std::fs::create_dir(&root).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            "[fs]\nwrite = [\"root\", { glob = \"moved\" }]\n",
+        )
+        .unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
+
+        host.rename(&root, &destination).unwrap();
+
+        assert!(!root.exists());
+        assert!(destination.is_dir());
+    }
+
+    #[test]
+    fn wildcard_write_grant_allows_creation_outside_policy_directory() {
+        let config = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let policy_file = config.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"*\"]\n").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
+        let target = outside.path().join("file");
+
+        host.write_file(&target, b"allowed").unwrap();
+
+        assert_eq!(std::fs::read(target).unwrap(), b"allowed");
+    }
+
+    #[test]
     fn relative_at_authorization_uses_the_open_directory_path() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
@@ -729,29 +578,50 @@ mod tests {
         let (policy, _) = policy::load_file(&policy_file).unwrap();
         let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
-        host.authorize_path_at(Some(&allowed), OsStr::new("input.txt"), FsIntents::read())
-            .unwrap();
-        assert!(matches!(
-            host.authorize_path_at(None, OsStr::new("input.txt"), FsIntents::read()),
-            Err(FsError::Denied)
-        ));
+        host.authorize(FsOperation::Read(FsPath::At {
+            base: &allowed,
+            path: OsStr::new("input.txt"),
+        }))
+        .unwrap();
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
-    fn relative_at_authorization_preserves_untracked_diagnostic_target() {
-        assert_eq!(
-            authorization_target_at(None, OsStr::new("input.txt")),
-            "\"<untracked resource>\""
-        );
-        assert_eq!(
-            authorization_target_at(Some(Path::new("base")), OsStr::new("input.txt")),
-            "\"input.txt\""
-        );
+    fn unrestricted_relative_lookup_needs_no_directory_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = fs::File::open(directory.path()).unwrap();
+        fs::remove_dir(directory.path()).unwrap();
+        let host = host_fs(None, Arc::new(Env::ambient()));
+
+        host.authorize(FsOperation::Metadata(FsTarget::Path(FsPath::AtHandle {
+            directory: super::super::os::raw_file(&file),
+            path: OsStr::new("."),
+        })))
+        .unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn restricted_absolute_lookup_still_checks_its_directory_handle() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = fs::File::open(directory.path()).unwrap();
+        fs::remove_dir(directory.path()).unwrap();
+        let environment = Arc::new(Env::ambient());
+        let (policy, _) = policy::load_json(br#"{"fs":{"read":["*"]}}"#, &environment).unwrap();
+        let host = host_fs(Some(policy), environment);
+
+        let result = host.authorize(FsOperation::Metadata(FsTarget::Path(FsPath::AtHandle {
+            directory: super::super::os::raw_file(&file),
+            path: OsStr::new("/"),
+        })));
+        assert!(result.is_err(), "{result:?}");
     }
 
     #[cfg(unix)]
     #[test]
     fn resource_authorization_rechecks_saved_path() {
+        use crate::filesystem::FileGrant;
+
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         let denied = tmp.path().join("denied");
@@ -774,8 +644,11 @@ mod tests {
         std::fs::remove_file(&resource_path).unwrap();
         std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
 
-        let metadata = host.authorize_file(&grant, FileOperation::Metadata);
-        let lock = host.authorize_file(&grant, FileOperation::Lock { exclusive: true });
+        let metadata = host.authorize(FsOperation::Metadata(FsTarget::File(&grant)));
+        let lock = host.authorize(FsOperation::Lock {
+            file: &grant,
+            exclusive: true,
+        });
         assert!(matches!(metadata, Err(FsError::Denied)));
         assert!(matches!(lock, Err(FsError::Denied)));
     }
@@ -831,7 +704,9 @@ mod tests {
 
         std::os::unix::fs::symlink("loop", allowed.join("loop")).unwrap();
         assert!(matches!(
-            host.authorize_write(allowed.join("loop").as_os_str()),
+            host.authorize(FsOperation::Write(FsPath::Cwd(
+                allowed.join("loop").as_os_str()
+            ))),
             Err(FsError::Denied)
         ));
         host.unlink_file(&allowed.join("loop")).unwrap();
@@ -911,7 +786,9 @@ mod tests {
         let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
         assert!(matches!(
-            host.authorize_remove(denied_link.as_os_str()),
+            host.authorize(FsOperation::ChangeEntry(FsPath::Cwd(
+                denied_link.as_os_str()
+            ))),
             Err(FsError::Denied)
         ));
     }
@@ -933,9 +810,12 @@ mod tests {
         let (policy, _) = policy::load_file(&policy_file).unwrap();
         let host = host_fs(Some(policy), Arc::new(Env::ambient()));
 
-        host.authorize_remove(allowed_link.as_os_str()).unwrap();
+        host.authorize(FsOperation::ChangeEntry(FsPath::Cwd(
+            allowed_link.as_os_str(),
+        )))
+        .unwrap();
         assert!(matches!(
-            host.authorize_write(allowed_link.as_os_str()),
+            host.authorize(FsOperation::Write(FsPath::Cwd(allowed_link.as_os_str()))),
             Err(FsError::Denied)
         ));
     }

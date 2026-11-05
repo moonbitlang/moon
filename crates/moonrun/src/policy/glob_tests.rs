@@ -24,10 +24,10 @@ fn policy(directory: &Path, document: &str) -> Policy {
         .policy
 }
 
-fn allows(policy: &Policy, path: &Path, intents: FsIntents) -> bool {
+fn allows(policy: &Policy, path: &Path, read: bool, write: bool) -> bool {
     policy
         .filesystem()
-        .authorize(Some(path), intents, "test path")
+        .authorize(Some(path), read, write, "test path")
         .is_ok()
 }
 
@@ -51,12 +51,9 @@ write = [{ glob = "logs/**/*.txt" }]
         ("elsewhere/top.txt", false, false),
     ] {
         let path = base.join(path);
-        assert_eq!(allows(&rules, &path, FsIntents::read()), read, "{path:?}");
-        assert_eq!(allows(&rules, &path, FsIntents::write()), write, "{path:?}");
-        assert_eq!(
-            allows(&rules, &path, FsIntents::new(true, true)),
-            read && write
-        );
+        assert_eq!(allows(&rules, &path, true, false), read, "{path:?}");
+        assert_eq!(allows(&rules, &path, false, true), write, "{path:?}");
+        assert_eq!(allows(&rules, &path, true, true), read && write);
     }
 }
 
@@ -78,19 +75,15 @@ fn excluded_globs_override_grants_regardless_of_order() {
             ("src/deep/lib.txt", true),
         ] {
             let path = base.join(path);
-            assert!(allows(&rules, &path, FsIntents::read()));
+            assert!(allows(&rules, &path, true, false));
             assert_eq!(
-                allows(&rules, &path, FsIntents::write()),
+                allows(&rules, &path, false, true),
                 writable,
                 "{write}: {path:?}"
             );
-            assert_eq!(allows(&rules, &path, FsIntents::new(true, true)), writable);
+            assert_eq!(allows(&rules, &path, true, true), writable);
         }
-        assert!(!allows(
-            &rules,
-            &base.join("other/main.txt"),
-            FsIntents::write()
-        ));
+        assert!(!allows(&rules, &base.join("other/main.txt"), false, true));
     }
 }
 
@@ -106,8 +99,8 @@ write = [{ glob = "!**/*.mbt" }]
 "#,
     );
     for path in ["src/main.mbt", "src/main.txt", "!src/main.mbt"] {
-        assert!(!allows(&rules, &base.join(path), FsIntents::read()));
-        assert!(!allows(&rules, &base.join(path), FsIntents::write()));
+        assert!(!allows(&rules, &base.join(path), true, false));
+        assert!(!allows(&rules, &base.join(path), false, true));
     }
 }
 
@@ -135,12 +128,12 @@ fn excluded_globs_resolve_anchors_after_the_negation_prefix() {
         ] {
             let path = base.join(path);
             assert_eq!(
-                allows(&rules, &path, FsIntents::read()),
+                allows(&rules, &path, true, false),
                 allowed,
                 "{glob}: {path:?}"
             );
             assert_eq!(
-                allows(&rules, &path, FsIntents::write()),
+                allows(&rules, &path, false, true),
                 allowed,
                 "{glob}: {path:?}"
             );
@@ -160,21 +153,13 @@ read = ["!src", { glob = "./!notes.txt" }]
 write = [{ glob = "[!a]*.txt" }, { glob = "!!blocked.txt" }]
 "#,
     );
-    assert!(allows(
-        &rules,
-        &base.join("!src/main.mbt"),
-        FsIntents::read()
-    ));
-    assert!(allows(&rules, &base.join("!notes.txt"), FsIntents::read()));
-    assert!(!allows(&rules, &base.join("notes.txt"), FsIntents::read()));
-    assert!(allows(&rules, &base.join("b.txt"), FsIntents::write()));
-    assert!(!allows(&rules, &base.join("a.txt"), FsIntents::write()));
-    assert!(allows(&rules, &base.join("!other.txt"), FsIntents::write()));
-    assert!(!allows(
-        &rules,
-        &base.join("!blocked.txt"),
-        FsIntents::write()
-    ));
+    assert!(allows(&rules, &base.join("!src/main.mbt"), true, false));
+    assert!(allows(&rules, &base.join("!notes.txt"), true, false));
+    assert!(!allows(&rules, &base.join("notes.txt"), true, false));
+    assert!(allows(&rules, &base.join("b.txt"), false, true));
+    assert!(!allows(&rules, &base.join("a.txt"), false, true));
+    assert!(allows(&rules, &base.join("!other.txt"), false, true));
+    assert!(!allows(&rules, &base.join("!blocked.txt"), false, true));
 }
 
 #[test]
@@ -207,16 +192,8 @@ write = ["*", { glob = "!private/**" }]
             ("private/main.txt", true, false),
         ] {
             let path = child_dir.join(path);
-            assert_eq!(
-                allows(&effective, &path, FsIntents::read()),
-                read,
-                "{path:?}"
-            );
-            assert_eq!(
-                allows(&effective, &path, FsIntents::write()),
-                write,
-                "{path:?}"
-            );
+            assert_eq!(allows(&effective, &path, true, false), read, "{path:?}");
+            assert_eq!(allows(&effective, &path, false, true), write, "{path:?}");
         }
         let bytes = effective.open_transfer().unwrap().read().unwrap();
         effective = Policy::from_transfer(&bytes).unwrap();
@@ -297,17 +274,9 @@ read = ["data[1]"]
 write = ["*"]
 "#,
     );
-    assert!(allows(
-        &rules,
-        &base.join("data[1]/new.bin"),
-        FsIntents::read()
-    ));
-    assert!(!allows(
-        &rules,
-        &base.join("data1/new.bin"),
-        FsIntents::read()
-    ));
-    assert!(allows(&rules, &base.join("anything"), FsIntents::write()));
+    assert!(allows(&rules, &base.join("data[1]/new.bin"), true, false));
+    assert!(!allows(&rules, &base.join("data1/new.bin"), true, false));
+    assert!(allows(&rules, &base.join("anything"), false, true));
 }
 
 #[test]
@@ -322,26 +291,19 @@ fn glob_anchors_support_source_parent_and_absolute_paths() {
 read = [{ glob = "../logs/**/*.txt" }]
 "#,
     );
-    assert!(allows(
-        &relative,
-        &base.join("logs/new.txt"),
-        FsIntents::read()
-    ));
+    assert!(allows(&relative, &base.join("logs/new.txt"), true, false));
     assert!(!allows(
         &relative,
         &source.join("logs/new.txt"),
-        FsIntents::read()
+        true,
+        false
     ));
 
     let absolute = serde_json::json!({"fs":{"read":[{"glob":base.join("logs/**/*.txt")} ]}});
     let absolute = source::resolve(serde_json::from_value(absolute).unwrap(), &source)
         .unwrap()
         .policy;
-    assert!(allows(
-        &absolute,
-        &base.join("logs/new.txt"),
-        FsIntents::read()
-    ));
+    assert!(allows(&absolute, &base.join("logs/new.txt"), true, false));
 
     let anchored = policy(
         &source,
@@ -349,15 +311,12 @@ read = [{ glob = "../logs/**/*.txt" }]
 read = [{ glob = "*.txt" }]
 "#,
     );
-    assert!(allows(
-        &anchored,
-        &source.join("new.txt"),
-        FsIntents::read()
-    ));
+    assert!(allows(&anchored, &source.join("new.txt"), true, false));
     assert!(!allows(
         &anchored,
         &base.join("config1/new.txt"),
-        FsIntents::read()
+        true,
+        false
     ));
 }
 
@@ -369,15 +328,12 @@ fn a_bare_policy_filename_anchors_globs_in_the_current_directory() {
         "[fs]\nread = [{ glob = \"logs/*.txt\" }]\n",
     );
     let base = std::fs::canonicalize(".").unwrap();
-    assert!(allows(
-        &rules,
-        &base.join("logs/new.txt"),
-        FsIntents::read()
-    ));
+    assert!(allows(&rules, &base.join("logs/new.txt"), true, false));
     assert!(!allows(
         &rules,
         &base.join("logs/deep/new.txt"),
-        FsIntents::read()
+        true,
+        false
     ));
 }
 
@@ -409,22 +365,26 @@ read = [{ glob = "public/**" }]
         assert!(allows(
             &effective,
             &child_dir.join("public/new.txt"),
-            FsIntents::read()
+            true,
+            false
         ));
         assert!(!allows(
             &effective,
             &child_dir.join("public/new.bin"),
-            FsIntents::read()
+            true,
+            false
         ));
         assert!(!allows(
             &effective,
             &child_dir.join("private/new.txt"),
-            FsIntents::read()
+            true,
+            false
         ));
         assert!(!allows(
             &effective,
             &child_dir.join("public/new.log"),
-            FsIntents::write()
+            false,
+            true
         ));
     }
 }
@@ -509,8 +469,8 @@ fn native_names_are_not_lossily_substituted_before_matching() {
         &base,
         "[fs]\nread = [{ glob = \"bad-�.txt\" }]\nwrite = [{ glob = \"*.txt\" }]\n",
     );
-    assert!(!allows(&rules, &base.join(&name), FsIntents::read()));
-    assert!(allows(&rules, &base.join(&name), FsIntents::write()));
+    assert!(!allows(&rules, &base.join(&name), true, false));
+    assert!(allows(&rules, &base.join(&name), false, true));
 }
 
 #[test]
@@ -518,19 +478,16 @@ fn glob_backslashes_follow_native_separator_rules() {
     let directory = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(directory.path()).unwrap();
     let rules = policy(&base, "[fs]\nread = [{ glob = 'logs\\*.txt' }]\n");
-    assert!(allows(
-        &rules,
-        &base.join(r"logs\new.txt"),
-        FsIntents::read()
-    ));
+    assert!(allows(&rules, &base.join(r"logs\new.txt"), true, false));
     assert_eq!(
-        allows(&rules, &base.join("logs/new.txt"), FsIntents::read()),
+        allows(&rules, &base.join("logs/new.txt"), true, false),
         cfg!(windows)
     );
     assert!(!allows(
         &rules,
         &base.join("logs/deep/new.txt"),
-        FsIntents::read()
+        true,
+        false
     ));
     #[cfg(windows)]
     for pattern in [r"C:logs\*.txt", r"\logs\*.txt"] {

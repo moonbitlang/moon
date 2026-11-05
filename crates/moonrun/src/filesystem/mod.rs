@@ -18,14 +18,16 @@
 
 //! Filesystem authority and execution, independent of the Wasm execution backend.
 
-mod grant;
+mod authorization;
 mod host;
 mod job;
 mod os;
+mod path;
 
-pub(crate) use grant::{FileGrant, FileOperation};
-pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs, entry_before_directory_suffix};
+pub(crate) use authorization::{FileGrant, FsOperation, FsPath, FsTarget};
+pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};
 pub(crate) use job::{Job, stdio_kind};
+pub(crate) use path::entry_before_directory_suffix;
 
 #[cfg(test)]
 pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};

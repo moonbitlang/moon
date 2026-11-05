@@ -50,12 +50,13 @@ impl FsPolicy {
     pub(crate) fn authorize(
         &self,
         path: Option<&Path>,
-        intents: FsIntents,
+        read: bool,
+        write: bool,
         target: &str,
     ) -> AsyncHostResult<()> {
         self.rule_groups
             .iter()
-            .try_for_each(|group| group.authorize(path, intents, target))
+            .try_for_each(|group| group.authorize(path, read, write, target))
     }
 }
 
@@ -74,12 +75,6 @@ pub(super) enum FsRule {
         matcher: GlobMatcher,
         exclude: bool,
     },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FsIntents {
-    read: bool,
-    write: bool,
 }
 
 impl FsRules {
@@ -144,16 +139,24 @@ impl FsRules {
     pub(crate) fn authorize(
         &self,
         resolved_path: Option<&Path>,
-        intents: FsIntents,
+        read: bool,
+        write: bool,
         target: &str,
     ) -> AsyncHostResult<()> {
         let Some(path) = resolved_path else {
-            return sandbox_denied(intents.sandbox_action(), Some(target));
+            return sandbox_denied(
+                match (read, write) {
+                    (true, false) => "file read",
+                    (false, true) => "file write",
+                    _ => "file access",
+                },
+                Some(target),
+            );
         };
-        if intents.read && !Self::allows(&self.read_rules, path) {
+        if read && !Self::allows(&self.read_rules, path) {
             return sandbox_denied("file read", Some(target));
         }
-        if intents.write && !Self::allows(&self.write_rules, path) {
+        if write && !Self::allows(&self.write_rules, path) {
             return sandbox_denied("file write", Some(target));
         }
         Ok(())
@@ -217,64 +220,6 @@ impl FsRule {
     }
 }
 
-impl FsIntents {
-    pub(crate) fn new(read: bool, write: bool) -> Self {
-        Self { read, write }
-    }
-
-    pub(crate) fn read() -> Self {
-        Self {
-            read: true,
-            write: false,
-        }
-    }
-
-    pub(crate) fn write() -> Self {
-        Self {
-            read: false,
-            write: true,
-        }
-    }
-
-    fn read_write() -> Self {
-        Self {
-            read: true,
-            write: true,
-        }
-    }
-
-    pub(crate) fn for_open(access: i32, create_mode: i32) -> Self {
-        let mut intents = match access {
-            0 | 3 => Self::read(),
-            1 => Self::write(),
-            2 => Self::read_write(),
-            _ => Self::read_write(),
-        };
-        // Async append changes write positioning, not access. Creation and
-        // truncation can still modify the filesystem for a read-only open.
-        if create_mode != 0 {
-            intents.write = true;
-        }
-        intents
-    }
-
-    pub(crate) fn for_access_check(access: i32) -> Self {
-        if access == 2 {
-            Self::write()
-        } else {
-            Self::read()
-        }
-    }
-
-    fn sandbox_action(self) -> &'static str {
-        match (self.read, self.write) {
-            (true, false) => "file read",
-            (false, true) => "file write",
-            _ => "file access",
-        }
-    }
-}
-
 fn validate_base(path: &Path) -> anyhow::Result<()> {
     anyhow::ensure!(path.is_absolute(), "filesystem rule base must be absolute");
     anyhow::ensure!(
@@ -308,10 +253,15 @@ mod tests {
         selected.policy.filesystem()
     }
 
-    fn authorize(policy: &FsPolicy, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {
+    fn authorize(policy: &FsPolicy, path: &Path, read: bool, write: bool) -> AsyncHostResult<()> {
         let parent = std::fs::canonicalize(path.parent().unwrap()).unwrap();
         let resolved = parent.join(path.file_name().unwrap());
-        policy.authorize(Some(&resolved), intents, &format!("{:?}", path.as_os_str()))
+        policy.authorize(
+            Some(&resolved),
+            read,
+            write,
+            &format!("{:?}", path.as_os_str()),
+        )
     }
 
     #[test]
@@ -321,7 +271,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        authorize(&policy, &allowed.join("new.txt"), FsIntents::for_open(1, 0)).unwrap();
+        authorize(&policy, &allowed.join("new.txt"), false, true).unwrap();
     }
 
     #[test]
@@ -333,7 +283,7 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![allowed], tmp.path());
 
-        let error = authorize(&policy, &denied.join("new.txt"), FsIntents::write()).unwrap_err();
+        let error = authorize(&policy, &denied.join("new.txt"), false, true).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -345,8 +295,8 @@ mod tests {
         let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
         let path = allowed.join("new.txt");
 
-        authorize(&policy, &path, FsIntents::read()).unwrap();
-        let error = authorize(&policy, &path, FsIntents::write()).unwrap_err();
+        authorize(&policy, &path, true, false).unwrap();
+        let error = authorize(&policy, &path, false, true).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -357,19 +307,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        let error = authorize(&policy, &allowed.join("new.txt"), FsIntents::read()).unwrap_err();
-        assert_eq!(error, AsyncHostError::PermissionDenied);
-    }
-
-    #[test]
-    fn create_mode_requires_write_even_for_read_access() {
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        std::fs::create_dir(&allowed).unwrap();
-        let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
-
-        let error =
-            authorize(&policy, &allowed.join("new.txt"), FsIntents::for_open(0, 1)).unwrap_err();
+        let error = authorize(&policy, &allowed.join("new.txt"), true, false).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -383,7 +321,7 @@ mod tests {
         );
 
         let error = policy
-            .authorize(None, FsIntents::read(), "\"<untracked resource>\"")
+            .authorize(None, true, false, "\"<untracked resource>\"")
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -395,6 +333,6 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("*")], tmp.path());
 
-        authorize(&policy, &denied.join("new.txt"), FsIntents::write()).unwrap();
+        authorize(&policy, &denied.join("new.txt"), false, true).unwrap();
     }
 }

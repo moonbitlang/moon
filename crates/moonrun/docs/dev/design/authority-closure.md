@@ -43,8 +43,9 @@ creation/truncation, deletion, and both rename endpoints as well as opening.
 Open options determine both the immediate effects and the acquired file grant.
 I/O on that file uses its grant and descriptor rights without reopening or
 reauthorizing the original pathname. Async Jobs retain their parent directory
-resources and authorize derived operations against the handle's current location;
-an unlinked directory cannot reuse a grant for a replacement at its old pathname.
+resources and authorize derived operations using the path recovered from that
+handle. Failed recovery never falls back to a saved opening path; missing-directory
+errors deny admission, while other lookup errors keep their native mapping.
 WASI directory descriptors also own directory handles and authorize derived
 operations against their current locations.
 Inherited and explicitly bound stdio are host-provided resource grants. Operations
@@ -56,15 +57,35 @@ guest spawn also grants the child stdio authority, independently of the source
 resource's pathname policy. Attenuation of delegated stdio remains future work.
 Other resources retain the rules below.
 
-Acquired-file checks go through `HostFs::authorize_file` with an opaque
-`FileGrant` and a `FileOperation`. The grant distinguishes stdio from path-backed
-and untracked resources. For path-backed resources it encapsulates the saved
-canonical path and its re-resolution; callers do not inspect path availability
-or select read/write policy themselves.
-Kind queries and shared locks remain independent of path policy. Metadata and
-macOS watching require read policy; exclusive locks require write policy.
-Windows watching retains its existing handle-only admission. Directory-derived
-authority is unchanged.
+All filesystem authorization requests go through `HostFs::authorize` with an
+`FsOperation`. Operations carry their targets: pathname lookup uses Runtime cwd
+or an acquired-directory base, while handle operations use an opaque `FileGrant`.
+Metadata and kind queries accept either target; entry changes require a pathname
+and locks require an acquired file. A directory's handle grant cannot authorize
+lookups beneath it. Directory-relative requests supply either an existing base
+path or a live directory handle; the authorizer queries handle paths only when a
+policy is present. There is no absent-base target state.
+
+The authorizer interprets operation options, selects object or entry resolution,
+and applies resource exemptions before matching resolved read/write requirements.
+`FileGrant` distinguishes stdio, path-backed and untracked resources. Path-backed
+resources retain their saved canonical path and re-resolution; callers do not
+inspect path availability. Kind queries on handles and shared locks remain
+independent of path policy. Metadata and macOS watching require read policy;
+exclusive locks require write policy. Watching is an explicit operation on every
+platform: Linux inotify supplies a path, macOS kqueue supplies a file grant, and
+Windows retains its existing handle-only admission. Directory-derived authority
+is unchanged.
+
+`OpenAsync` retains scalar access/create modes and a positioning-only append flag.
+`OpenWithOptions` retains the std::OpenOptions contract, where append implies
+write and invalid creation/truncation combinations are rejected. Neither moves
+validation ahead of policy. Async opening's optional extra metadata read is
+checked after its open admission, using the same acquired-directory base.
+
+Composite writes and recursive creation retain their existing target checks.
+This internal distinction does not change literal roots, `"*"`, glob rules,
+policy-group ordering, or rule transfer.
 
 Filesystem glob exclusions override matching grants within the same read or write
 list, independent of rule order. A matching positive rule is still required.
@@ -76,7 +97,10 @@ not yet guarantee protection of excluded descendants from ancestor operations.
 
 | Module | Responsibility |
 | --- | --- |
-| `filesystem/host.rs` | HostFs state, path interpretation, authorization, synchronous effects, and domain `FsError` results |
+| `filesystem/host.rs` | HostFs state, acquired-directory bases, synchronous effects, and domain `FsError` results |
+| `filesystem/authorization.rs` | Operation interpretation, authority selection, lazy directory-base lookup, and the common authorization entry point |
+| `filesystem/authorization/grant.rs` | Opaque acquired-file grant, private to the authorizer |
+| `filesystem/path.rs` | Object/entry resolution, including symlink and missing-prefix behavior |
 | `filesystem/job/` | Filesystem Job payloads, execution, and result ownership |
 | `std::fs` and `filesystem/os.rs` | OS mechanisms; the custom modules accept host paths, handles, and typed operation options, return `io::Result`, and have no Runtime, policy, or ABI dependency |
 | `unstable_api/filesystem.rs` | Legacy error strings, status codes, and per-run getter state |
