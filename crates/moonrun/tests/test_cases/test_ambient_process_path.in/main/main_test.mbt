@@ -26,7 +26,7 @@ async test "ambient PATH mutation reaches native executable lookup" {
   let result = @process.run(
     "moonrun-path-command",
     ["--version"],
-    stdout=@process.read_from_process(),
+    stdout=Discard,
   )
   assert_eq(result.exit_code, 0)
 }
