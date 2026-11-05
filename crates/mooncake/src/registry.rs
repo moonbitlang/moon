@@ -252,30 +252,47 @@ fn stage_registry_cache_file(
     Ok((staged, path))
 }
 
-/// Create a unique sibling directory name under `parent`.
-// TODO(#2460): Use tempfile-owned staging and backup directories while preserving
-// the old directory when publication or rollback fails.
-fn unique_sibling_dir(parent: &Path, prefix: &str) -> std::io::Result<std::path::PathBuf> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    // SAFETY/ROBUSTNESS:
-    // - Use pid + timestamp to minimize collision risk.
-    // - Retry a few times if a collision happens (e.g. parallel processes).
-    let pid = std::process::id();
-    for _ in 0..10 {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let p = parent.join(format!("{prefix}.{pid}.{nanos}"));
-        if !p.exists() {
-            return Ok(p);
-        }
+/// Publish a prepared directory on the same filesystem, retaining the old data
+/// until publication succeeds. The caller holds the registry update lock.
+fn replace_registry_directory(
+    staged: tempfile::TempDir,
+    target: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
+    if !target.try_exists()? {
+        std::fs::rename(staged.path(), target).context("failed to publish registry directory")?;
+        return Ok(());
     }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "failed to create a unique temp directory name",
-    ))
+
+    let parent = target
+        .parent()
+        .context("registry directory has no parent")?;
+    let parent = std::fs::canonicalize(parent)?;
+    let backup = tempfile::Builder::new()
+        .prefix(".registry-backup-")
+        .tempdir_in(parent)?;
+    let previous = backup.path().join("previous");
+    std::fs::rename(target, &previous).context("failed to back up registry directory")?;
+
+    if let Err(error) = std::fs::rename(staged.path(), target) {
+        if let Err(restore_error) = std::fs::rename(&previous, target) {
+            // This is now the only copy of the old data. Keep it beyond this
+            // call so TempDir's cleanup cannot destroy a failed rollback.
+            let preserved = backup.into_path().join("previous");
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to publish registry directory; rollback also failed: {restore_error}; previous data preserved at `{}`",
+                    preserved.display()
+                )
+            });
+        }
+        return Err(error).context("failed to publish registry directory; previous data restored");
+    }
+
+    if let Err(error) = backup.close() {
+        user_log.warn(format!("failed to remove old registry directory: {error}"));
+    }
+    Ok(())
 }
 
 pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {
@@ -285,9 +302,58 @@ pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
-    use super::Registry;
+    use super::{Registry, replace_registry_directory};
     use crate::registry::mock::MockRegistry;
     use moonutil::{constants::MOONBITLANG_CORE, resolution::DEFAULT_VERSION};
+
+    #[test]
+    fn directory_publication_cleans_staging_and_backup() {
+        for has_previous in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let target = root.path().join("target");
+            if has_previous {
+                std::fs::create_dir(&target).unwrap();
+                std::fs::write(target.join("old"), "old contents").unwrap();
+            }
+            let staged = tempfile::tempdir_in(root.path()).unwrap();
+            std::fs::write(staged.path().join("new"), "new contents").unwrap();
+            let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Off);
+
+            replace_registry_directory(staged, &target, &user_log).unwrap();
+
+            assert_eq!(
+                std::fs::read_to_string(target.join("new")).unwrap(),
+                "new contents"
+            );
+            assert!(!target.join("old").exists());
+            assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn failed_directory_publication_restores_previous_contents() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("old"), "old contents").unwrap();
+        let staged = tempfile::tempdir_in(root.path()).unwrap();
+        // Removing the prepared directory makes publication fail after the old
+        // directory has been moved to the backup.
+        std::fs::remove_dir(staged.path()).unwrap();
+        let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Off);
+
+        let error = replace_registry_directory(staged, &target, &user_log).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            std::fs::read_to_string(target.join("old")).unwrap(),
+            "old contents"
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn resolve_cached_unversioned_path_uses_latest_version() {

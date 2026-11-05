@@ -31,7 +31,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{download, stage_registry_cache_file, unique_sibling_dir};
+use super::{download, replace_registry_directory, stage_registry_cache_file};
 use crate::zip_util::extract_zip_to_dir;
 
 const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";
@@ -96,6 +96,7 @@ pub(super) fn sync(
         &home.registry_symbols_dir(),
         &url,
         previous_etag,
+        user_log,
     )?;
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -183,6 +184,7 @@ fn update_symbols_from_url(
     target_dir: &Path,
     symbols_url: &str,
     previous_etag: Option<&str>,
+    user_log: &UserLog,
 ) -> anyhow::Result<Option<String>> {
     std::fs::create_dir_all(registry_dir)
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
@@ -200,37 +202,13 @@ fn update_symbols_from_url(
         },
     };
 
-    let tmp_dir = unique_sibling_dir(registry_dir, ".symbols.tmp")
+    let parent = std::fs::canonicalize(registry_dir)?;
+    let staged = tempfile::Builder::new()
+        .prefix(".symbols-")
+        .tempdir_in(parent)
         .context("failed to create temp directory for symbols")?;
-    std::fs::create_dir_all(&tmp_dir)?;
-
-    if let Err(e) = extract_zip_to_dir(&tmp_dir, std::io::Cursor::new(data)) {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return Err(e);
-    }
-
-    if target_dir.exists() {
-        let backup_dir = unique_sibling_dir(registry_dir, ".symbols.old")
-            .context("failed to create backup dir")?;
-        std::fs::rename(target_dir, &backup_dir)
-            .context("failed to move existing symbols dir to backup")?;
-
-        if let Err(e) = std::fs::rename(&tmp_dir, target_dir) {
-            let _ = std::fs::rename(&backup_dir, target_dir);
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-            return Err(anyhow::Error::from(e).context("failed to replace symbols directory"));
-        }
-
-        std::fs::remove_dir_all(&backup_dir).with_context(|| {
-            format!(
-                "failed to remove old symbols directory at `{}`",
-                backup_dir.display()
-            )
-        })?;
-    } else {
-        std::fs::rename(&tmp_dir, target_dir)
-            .context("failed to move symbols directory into place")?;
-    }
+    extract_zip_to_dir(staged.path(), std::io::Cursor::new(data))?;
+    replace_registry_directory(staged, target_dir, user_log)?;
 
     Ok(etag)
 }
@@ -523,6 +501,7 @@ mod tests {
             &home.registry_symbols_dir(),
             &url,
             Some(&etag),
+            &quiet_user_log(),
         )
         .unwrap()
         .unwrap();
@@ -553,6 +532,7 @@ mod tests {
             &home.registry_symbols_dir(),
             &url,
             Some(&etag),
+            &quiet_user_log(),
         )
         .unwrap();
 
