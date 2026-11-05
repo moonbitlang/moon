@@ -26,6 +26,7 @@ mod http;
 #[cfg(test)]
 pub(crate) mod mock;
 pub mod path;
+mod symbols;
 
 use std::path::Path;
 
@@ -249,6 +250,32 @@ fn stage_registry_cache_file(
     let staged =
         tempfile::NamedTempFile::new_in(&parent).context("failed to stage registry cache file")?;
     Ok((staged, path))
+}
+
+/// Create a unique sibling directory name under `parent`.
+// TODO(#2460): Use tempfile-owned staging and backup directories while preserving
+// the old directory when publication or rollback fails.
+fn unique_sibling_dir(parent: &Path, prefix: &str) -> std::io::Result<std::path::PathBuf> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // SAFETY/ROBUSTNESS:
+    // - Use pid + timestamp to minimize collision risk.
+    // - Retry a few times if a collision happens (e.g. parallel processes).
+    let pid = std::process::id();
+    for _ in 0..10 {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let p = parent.join(format!("{prefix}.{pid}.{nanos}"));
+        if !p.exists() {
+            return Ok(p);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "failed to create a unique temp directory name",
+    ))
 }
 
 pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {

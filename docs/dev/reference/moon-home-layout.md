@@ -35,6 +35,7 @@ $MOON_HOME/
   registry/
     .moon-lock
     .registry-update-state.json
+    .symbols-update-state.json
     index/
       .git/
       user/<username>/<module>.index
@@ -118,7 +119,8 @@ $MOON_HOME/
   comparison and publication, so concurrent responses cannot overwrite conflicting
   immutable content. Cached deprecation state is advisory and can be
   stale: refreshing latest does not invalidate immutable release records.
-- `registry/symbols` is the symbols archive materialized by registry sync.
+- `registry/symbols` is the symbols archive materialized by `moon update` in
+  Git mode. Ordinary registry metadata refreshes do not download symbols.
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
   `.zip.lock` serializes publication of one module version.
@@ -126,8 +128,14 @@ $MOON_HOME/
   version, and package segments form directories below it; `.moon-lock`
   serializes publication within one package directory.
 - `registry/.moon-lock` serializes index and symbols updates.
-  `.registry-update-state.json` lets callers that waited for that lock reuse a
-  concurrent update. Lock files remain in place after unlocking so all
+  `.registry-update-state.json` and `.symbols-update-state.json` independently
+  record completed index and symbols updates, letting callers that waited for
+  that lock reuse a concurrent update of the same resource. Git state records
+  the index URL hash and a successful synchronization generation; symbols state
+  records its URL, successful synchronization generation, and optional HTTP ETag.
+  A generation identifies a completed synchronization, not a content version or
+  freshness window. A symbols failure does not invalidate a successful index
+  update. Lock files remain in place after unlocking so all
   processes continue to lock the same filesystem object.
 - `config.json` stores registry configuration. New configurations use independent
   `api`, `index`, and `download` URLs: dynamic registry operations use `api`,
@@ -199,7 +207,8 @@ separate:
 - `RegistryClient` selects a metadata backend once and owns authenticated API
   commands and verified downloads. `Registry` exposes exact-version and latest
   queries without requiring a complete version history. `registry::git::GitIndex`
-  owns Git synchronization, JSONL compatibility, and the parsed index cache;
+  owns JSONL compatibility and the parsed index cache. Its internal `git::sync`
+  module owns Git commands and synchronization state;
   `registry::http::HttpMetadata` owns HTTP queries and response validation. Its
   internal `MetadataCache` owns disk layout, memory reuse, atomic writes and
   immutable-content checks. Memory entries use module/version keys within one
@@ -207,6 +216,13 @@ separate:
   Cached latest reads and current latest queries are
   separate operations; there is no latest query deduplication or TTL. Only the
   Git backend enumerates all versions.
+- `registry::symbols` owns symbols URL selection, conditional downloads,
+  directory replacement, and its own synchronization state. Git and symbols
+  synchronization share filesystem primitives but have separate update flows
+  and concrete state types. `RegistryClient` supplies their configuration;
+  `moon update` invokes both operations in Git mode and treats symbols failures
+  as warnings. HTTP metadata queries keep their existing per-release cache and
+  do not participate in either synchronization record.
 - `moonutil::registry::RegistryCredentials` owns saved credential loading and
   persistence, legacy compatibility, and API destination matching. Login and
   API consumers share these operations; HTTP headers and redirect policy stay

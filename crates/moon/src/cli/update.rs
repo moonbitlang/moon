@@ -45,7 +45,12 @@ pub(crate) fn update_cli(
     }
     let registry = RegistryClient::configured(output.user_log());
     if !registry.uses_http_metadata() {
-        registry.sync(output.user_log())?;
+        registry.sync_index(output.user_log())?;
+        if let Err(error) = registry.sync_symbols(output.user_log()) {
+            output
+                .user_log()
+                .warn(format!("failed to update symbols: {error:#}"));
+        }
         return Ok(0);
     }
     let project = cli

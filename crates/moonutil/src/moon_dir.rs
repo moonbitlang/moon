@@ -139,9 +139,14 @@ impl MoonHomeLayout {
         self.registry_dir().join("symbols")
     }
 
-    /// State used to coalesce concurrent registry updates.
+    /// State used to coalesce concurrent Git index updates.
     pub fn registry_update_state_path(&self) -> PathBuf {
         self.registry_dir().join(".registry-update-state.json")
+    }
+
+    /// State used to coalesce concurrent symbols updates and retain their ETag.
+    pub fn registry_symbols_update_state_path(&self) -> PathBuf {
+        self.registry_dir().join(".symbols-update-state.json")
     }
 
     /// Moon-owned global caches selected by `MOON_DEP_CACHE` and
@@ -366,6 +371,10 @@ fn derives_paths_from_one_home_root() {
     assert_eq!(
         layout.registry_update_state_path(),
         Path::new("moon-home/registry/.registry-update-state.json")
+    );
+    assert_eq!(
+        layout.registry_symbols_update_state_path(),
+        Path::new("moon-home/registry/.symbols-update-state.json")
     );
     assert_eq!(layout.cache_dir(), Path::new("moon-home/cache"));
     assert_eq!(
