@@ -28,74 +28,95 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_MENU;
 
 #[test]
 fn windows_tty_lifecycle() {
-    use windows_sys::Win32::Foundation::{
-        HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_OBJECT_0,
-    };
-    use windows_sys::Win32::System::Threading::*;
+    // Console attachment is process-global. Keep it out of the test runner:
+    // rerun this test in a private hidden console.
+    const CHILD: &str = "MOONRUN_TEST_TTY_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{
+            HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_OBJECT_0,
+        };
+        use windows_sys::Win32::System::Threading::*;
 
-    // CREATE_NEW_CONSOLE plus SW_HIDE prevents default-terminal delegation and
-    // user input from interfering. std::process::Command cannot set wShowWindow.
-    let mut output = tempfile::tempfile().unwrap();
-    let output_handle = output.as_raw_handle();
-    assert_ne!(
-        unsafe { SetHandleInformation(output_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) },
-        0
-    );
-    let mut command: Vec<u16> = format!(
-        "\"{}\" --exact async_sys::tty::windows_tests::windows_tty_lifecycle_child --ignored --nocapture",
-        std::env::current_exe().unwrap().display()
-    )
-    .encode_utf16()
-    .chain([0])
-    .collect();
-    let startup = STARTUPINFOW {
-        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-        dwFlags: STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES,
-        wShowWindow: 0, // SW_HIDE
-        hStdInput: output_handle,
-        hStdOutput: output_handle,
-        hStdError: output_handle,
-        ..unsafe { std::mem::zeroed() }
-    };
-    let mut process = unsafe { std::mem::zeroed::<PROCESS_INFORMATION>() };
-    assert_ne!(
-        unsafe {
-            CreateProcessW(
-                std::ptr::null(),
-                command.as_mut_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                1,
-                CREATE_NEW_CONSOLE,
-                std::ptr::null(),
-                std::ptr::null(),
-                &startup,
-                &mut process,
-            )
-        },
-        0
-    );
-    let process_handle = unsafe { OwnedHandle::from_raw_handle(process.hProcess) };
-    let _thread = unsafe { OwnedHandle::from_raw_handle(process.hThread) };
-    let wait = unsafe { WaitForSingleObject(process_handle.as_raw_handle(), 30_000) };
-    if wait != WAIT_OBJECT_0 {
-        unsafe { TerminateProcess(process_handle.as_raw_handle(), 1) };
-        panic!("TTY subprocess did not finish within 30 seconds");
+        // CREATE_NEW_CONSOLE plus SW_HIDE prevents default-terminal delegation and
+        // user input from interfering. std::process::Command cannot set wShowWindow.
+        let mut output = tempfile::tempfile().unwrap();
+        let output_handle = output.as_raw_handle();
+        assert_ne!(
+            unsafe {
+                SetHandleInformation(output_handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT)
+            },
+            0
+        );
+        let mut command: Vec<u16> = format!(
+            "\"{}\" --exact async_sys::tty::windows_tests::windows_tty_lifecycle --nocapture",
+            std::env::current_exe().unwrap().display()
+        )
+        .encode_utf16()
+        .chain([0])
+        .collect();
+        // `CreateProcessW` takes no environment additions, and setting `CHILD`
+        // here would race with other tests, so pass a complete block. Windows
+        // expects it sorted by name, case-insensitively.
+        let mut environment: Vec<(OsString, OsString)> = std::env::vars_os()
+            .filter(|(name, _)| !name.eq_ignore_ascii_case(CHILD))
+            .chain([(CHILD.into(), "1".into())])
+            .collect();
+        environment.sort_by_cached_key(|(name, _)| name.to_string_lossy().to_uppercase());
+        let mut environment_block: Vec<u16> = Vec::new();
+        for (name, value) in &environment {
+            environment_block.extend(name.encode_wide());
+            environment_block.push(u16::from(b'='));
+            environment_block.extend(value.encode_wide());
+            environment_block.push(0);
+        }
+        environment_block.push(0);
+        let startup = STARTUPINFOW {
+            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+            dwFlags: STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES,
+            wShowWindow: 0, // SW_HIDE
+            hStdInput: output_handle,
+            hStdOutput: output_handle,
+            hStdError: output_handle,
+            ..unsafe { std::mem::zeroed() }
+        };
+        let mut process = unsafe { std::mem::zeroed::<PROCESS_INFORMATION>() };
+        assert_ne!(
+            unsafe {
+                CreateProcessW(
+                    std::ptr::null(),
+                    command.as_mut_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    1,
+                    CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+                    environment_block.as_ptr().cast(),
+                    std::ptr::null(),
+                    &startup,
+                    &mut process,
+                )
+            },
+            0
+        );
+        let process_handle = unsafe { OwnedHandle::from_raw_handle(process.hProcess) };
+        let _thread = unsafe { OwnedHandle::from_raw_handle(process.hThread) };
+        let wait = unsafe { WaitForSingleObject(process_handle.as_raw_handle(), 30_000) };
+        if wait != WAIT_OBJECT_0 {
+            unsafe { TerminateProcess(process_handle.as_raw_handle(), 1) };
+            panic!("TTY subprocess did not finish within 30 seconds");
+        }
+        let mut code = 0;
+        assert_ne!(
+            unsafe { GetExitCodeProcess(process_handle.as_raw_handle(), &mut code) },
+            0
+        );
+        output.rewind().unwrap();
+        let mut log = String::new();
+        output.read_to_string(&mut log).unwrap();
+        assert_eq!(code, 0, "{log}");
+        return;
     }
-    let mut code = 0;
-    assert_ne!(
-        unsafe { GetExitCodeProcess(process_handle.as_raw_handle(), &mut code) },
-        0
-    );
-    output.rewind().unwrap();
-    let mut log = String::new();
-    output.read_to_string(&mut log).unwrap();
-    assert_eq!(code, 0, "{log}");
-}
-
-#[test]
-#[ignore = "runs inside windows_tty_lifecycle's private hidden console"]
-fn windows_tty_lifecycle_child() {
     let tty = open().expect("open the Windows controlling terminal");
     let packed_size = size(&tty.output).unwrap();
     assert!(packed_size >> 32 > 0);
