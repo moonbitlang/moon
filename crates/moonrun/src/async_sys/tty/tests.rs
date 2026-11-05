@@ -21,97 +21,98 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
-const TTY_PATH_ENV: &str = "MOONRUN_TEST_TTY_PATH";
 const ROWS: u16 = 24;
 const COLS: u16 = 80;
 
-/// Run the child test in a new session whose controlling terminal is a fresh
-/// pty, with a line of input already queued.
 #[test]
 fn unix_tty_lifecycle() {
-    let mut master = -1;
-    let mut slave = -1;
-    let mut winsize = libc::winsize {
-        ws_row: ROWS,
-        ws_col: COLS,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    assert_eq!(
+    // The controlling terminal belongs to the session. Keep it out of the test
+    // runner: rerun this test in a new session whose controlling terminal is a
+    // fresh pty, with a line of input already queued. The value is the pty's
+    // path.
+    const CHILD: &str = "MOONRUN_TEST_TTY_CHILD";
+    let Ok(path) = std::env::var(CHILD) else {
+        let mut master = -1;
+        let mut slave = -1;
+        let mut winsize = libc::winsize {
+            ws_row: ROWS,
+            ws_col: COLS,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    // `winp` is `*mut` on Apple and `*const` on Linux; a raw
+                    // pointer coerces to both.
+                    &raw mut winsize,
+                )
+            },
+            0
+        );
+        let master = unsafe { OwnedFd::from_raw_fd(master) };
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        let path = unsafe { std::ffi::CStr::from_ptr(libc::ttyname(slave.as_raw_fd())) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let input = b"hi\n";
+        assert_eq!(
+            unsafe { libc::write(master.as_raw_fd(), input.as_ptr().cast(), input.len()) },
+            input.len() as isize
+        );
+
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "--exact",
+                "async_sys::tty::tests::unix_tty_lifecycle",
+                "--nocapture",
+            ])
+            .env(CHILD, &path);
+        let slave_fd = slave.as_raw_fd();
         unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                // `winp` is `*mut` on Apple and `*const` on Linux; a raw
-                // pointer coerces to both.
-                &raw mut winsize,
-            )
-        },
-        0
-    );
-    let master = unsafe { OwnedFd::from_raw_fd(master) };
-    let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-    let path = unsafe { std::ffi::CStr::from_ptr(libc::ttyname(slave.as_raw_fd())) }
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let input = b"hi\n";
-    assert_eq!(
-        unsafe { libc::write(master.as_raw_fd(), input.as_ptr().cast(), input.len()) },
-        input.len() as isize
-    );
-
-    let mut child = Command::new(std::env::current_exe().unwrap());
-    child
-        .args([
-            "--exact",
-            "async_sys::tty::tests::unix_tty_lifecycle_child",
-            "--ignored",
-            "--nocapture",
-        ])
-        .env(TTY_PATH_ENV, &path);
-    let slave_fd = slave.as_raw_fd();
-    unsafe {
-        child.pre_exec(move || {
-            if libc::setsid() < 0 || libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
+            child.pre_exec(move || {
+                if libc::setsid() < 0 || libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = child
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(slave);
+        // Drain the echo: a session leader's exit waits for terminal output to
+        // drain. Reading fails once the child's side closes.
+        let drain = std::thread::spawn(move || {
+            let mut buf = [0_u8; 256];
+            while unsafe { libc::read(master.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) } > 0
+            {
             }
-            Ok(())
         });
-    }
-    let child = child
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    drop(slave);
-    // Drain the echo: a session leader's exit waits for terminal output to
-    // drain. Reading fails once the child's side closes.
-    let drain = std::thread::spawn(move || {
-        let mut buf = [0_u8; 256];
-        while unsafe { libc::read(master.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) } > 0 {}
-    });
-    let output = child.wait_with_output().unwrap();
-    drain.join().unwrap();
-    assert!(
-        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
-        "TTY child failed with {:?}:\nstdout:\n{}\nstderr:\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-}
-
-#[test]
-#[ignore = "runs inside unix_tty_lifecycle's pty session"]
-fn unix_tty_lifecycle_child() {
+        let output = child.wait_with_output().unwrap();
+        drain.join().unwrap();
+        assert!(
+            output.status.success(),
+            "TTY child failed with {:?}:\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    };
+    // Linux opens `/dev/tty` itself, so only macOS resolves the device path.
     #[cfg(target_os = "macos")]
-    assert_eq!(
-        unix::tty_path().unwrap().to_str().unwrap(),
-        std::env::var(TTY_PATH_ENV).unwrap()
-    );
+    assert_eq!(unix::tty_path().unwrap().to_str().unwrap(), path);
+    #[cfg(not(target_os = "macos"))]
+    let _ = path;
     let tty = open().expect("open the controlling terminal");
     assert_eq!(
         size(&tty.terminal).unwrap(),
