@@ -24,9 +24,8 @@ use std::{
 
 use moonutil::{
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    resolution::ModuleName,
+    resolution::{ModuleName, ModuleSource},
 };
-use semver::Version;
 
 use crate::registry::{Registry, RegistryModuleNotFound};
 
@@ -36,7 +35,15 @@ use super::ModuleResolutionError;
 pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
     registry: &'a R,
     errors: Vec<super::ModuleResolutionError>,
+    registry_modules: HashMap<ModuleSource, RegistryModule>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
+}
+
+/// The manifest and advisory status come from the same registry observation.
+struct RegistryModule {
+    manifest: Arc<MoonMod>,
+    /// `Some("")` means deprecated without a reason; `None` means not deprecated.
+    deprecation_reason: Option<String>,
 }
 
 impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
@@ -44,6 +51,7 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
         ModuleResolutionContext {
             registry,
             errors: Vec::new(),
+            registry_modules: HashMap::new(),
             local_module_cache: HashMap::new(),
         }
     }
@@ -60,13 +68,19 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
         !self.errors.is_empty()
     }
 
-    /// Read one exact registry version, attaching dependency context to failures.
+    /// Load an exact registry source once per resolution, sharing its manifest
+    /// across dependants. Failed reads retain the requesting dependency context.
     pub(crate) fn get_registry_module(
-        &self,
-        name: &ModuleName,
-        version: &Version,
+        &mut self,
+        source: &ModuleSource,
         dependant: &ModuleName,
     ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
+        if let Some(module) = self.registry_modules.get(source) {
+            return Ok(Arc::clone(&module.manifest));
+        }
+
+        let name = source.name();
+        let version = source.version();
         let info = self.registry.version_info(name, version).map_err(|error| {
             if error.is::<RegistryModuleNotFound>() {
                 ModuleResolutionError::ModuleMissing {
@@ -87,12 +101,28 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
             dependant: dependant.clone(),
             required: version.clone(),
         })?;
-        Ok(Arc::new(MoonMod {
+        let manifest = Arc::new(MoonMod {
             name: name.to_string(),
             version: Some(version.clone()),
             deps: info.deps,
             ..Default::default()
-        }))
+        });
+        self.registry_modules.insert(
+            source.clone(),
+            RegistryModule {
+                manifest: Arc::clone(&manifest),
+                deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
+            },
+        );
+        Ok(manifest)
+    }
+
+    /// Advisory status observed during traversal, without another registry read.
+    pub(crate) fn registry_deprecation_reason(&self, source: &ModuleSource) -> Option<&str> {
+        self.registry_modules
+            .get(source)?
+            .deprecation_reason
+            .as_deref()
     }
 
     /// Resolve a local module from its **canonical** path.

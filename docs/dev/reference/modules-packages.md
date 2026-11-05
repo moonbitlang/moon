@@ -223,6 +223,9 @@ Failures are reported as `ModuleResolutionError`.
 Registry read failures preserve their causes and are distinguished from missing
 modules or versions. Final graph construction reuses the metadata loaded during
 traversal rather than querying the registry again.
+Within one resolution, the context retains each successfully read exact registry
+version's manifest and advisory status. Shared dependencies reuse the same manifest,
+and deprecation warnings use that observation without another registry call.
 Package imports are resolved separately after package discovery.
 
 Modules are versioned using [SemVer][] (Semantic Versioning),

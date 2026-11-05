@@ -22,8 +22,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::resolution::{
-    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
-    ResolvedRootModules,
+    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ResolvedRootModules,
 };
 use moonutil::toolchain;
 use moonutil::user_log::UserLog;
@@ -315,15 +314,15 @@ pub(crate) fn resolve_modules_with_solver<R: Registry>(
         }
         assert_no_duplicate_module_names(&module_graph)?;
         if config.warn_deprecated {
-            warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+            warn_deprecated_dependencies(&module_graph, &context, user_log);
         }
         Ok(module_graph)
     }
 }
 
-fn warn_deprecated_dependencies(
+fn warn_deprecated_dependencies<R: Registry>(
     module_graph: &ModuleDependencyGraph,
-    registry: &impl Registry,
+    context: &ModuleResolutionContext<'_, R>,
     user_log: &UserLog,
 ) {
     if !user_log.is_enabled(log::Level::Warn) {
@@ -335,20 +334,12 @@ fn warn_deprecated_dependencies(
     let mut modules = module_graph.all_modules_and_id().collect::<Vec<_>>();
     modules.sort_unstable_by(|(_, a), (_, b)| a.name().cmp(b.name()));
     for (id, source) in modules {
-        if !matches!(source.source(), ModuleSourceKind::Registry) {
-            continue;
-        }
-        // RegistryClient reuses the index metadata already read by resolution.
-        let Ok(Some(release)) = registry.version_info(source.name(), source.version()) else {
-            continue;
-        };
-        if !release.yanked {
+        let Some(reason) = context.registry_deprecation_reason(source) else {
             continue;
         };
         // Registry-authored reasons may contain terminal control sequences.
         // Strip those while preserving ordinary newlines and spacing.
-        let reason = anstream::adapter::strip_str(release.yanked_reason.as_deref().unwrap_or(""))
-            .to_string();
+        let reason = anstream::adapter::strip_str(reason).to_string();
         let mut warning = if reason.trim().is_empty() {
             format!("Dependency `{source}` is deprecated.")
         } else {
