@@ -315,15 +315,15 @@ pub(crate) fn resolve_modules_with_solver<R: Registry>(
         }
         assert_no_duplicate_module_names(&module_graph)?;
         if config.warn_deprecated {
-            warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+            warn_deprecated_dependencies(&module_graph, &context, user_log);
         }
         Ok(module_graph)
     }
 }
 
-fn warn_deprecated_dependencies(
+fn warn_deprecated_dependencies<R: Registry>(
     module_graph: &ModuleDependencyGraph,
-    registry: &impl Registry,
+    context: &ModuleResolutionContext<'_, R>,
     user_log: &UserLog,
 ) {
     if !user_log.is_enabled(log::Level::Warn) {
@@ -338,17 +338,13 @@ fn warn_deprecated_dependencies(
         if !matches!(source.source(), ModuleSourceKind::Registry) {
             continue;
         }
-        // RegistryClient reuses the index metadata already read by resolution.
-        let Ok(Some(release)) = registry.version_info(source.name(), source.version()) else {
-            continue;
-        };
-        if !release.yanked {
+        let Some(reason) = context.registry_deprecation_reason(source.name(), source.version())
+        else {
             continue;
         };
         // Registry-authored reasons may contain terminal control sequences.
         // Strip those while preserving ordinary newlines and spacing.
-        let reason = anstream::adapter::strip_str(release.yanked_reason.as_deref().unwrap_or(""))
-            .to_string();
+        let reason = anstream::adapter::strip_str(reason).to_string();
         let mut warning = if reason.trim().is_empty() {
             format!("Dependency `{source}` is deprecated.")
         } else {

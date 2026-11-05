@@ -496,7 +496,7 @@ fn resolve_module_dependency<R: Registry>(
 
 #[cfg(test)]
 mod test {
-    use std::cell::Cell;
+    use std::{cell::RefCell, collections::HashSet};
 
     use expect_test::expect;
     use moonutil::resolution::ModuleId;
@@ -506,8 +506,8 @@ mod test {
     use super::*;
     use crate::registry::mock::{MockRegistry, create_mock_module};
     use crate::registry::{Registry, RegistryVersionInfo};
-    use crate::resolver::ModuleResolutionErrors;
     use crate::resolver::context::ModuleResolutionContext;
+    use crate::resolver::{ModuleResolutionConfig, ModuleResolutionErrors, resolve_modules};
 
     fn create_mock_registry() -> MockRegistry {
         let mut registry = MockRegistry::new();
@@ -1016,18 +1016,32 @@ mod test {
     }
 
     #[test]
-    fn test_graph_construction_reuses_loaded_metadata() {
-        struct SingleReadRegistry(Cell<bool>);
+    fn test_resolution_reuses_registry_metadata() {
+        struct SingleReadRegistry<'a> {
+            inner: &'a MockRegistry,
+            reads: RefCell<HashSet<(ModuleName, Version)>>,
+        }
 
-        impl Registry for SingleReadRegistry {
+        impl Registry for SingleReadRegistry<'_> {
             fn version_info(
                 &self,
-                _name: &ModuleName,
+                name: &ModuleName,
                 version: &Version,
             ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-                anyhow::ensure!(!self.0.replace(true), "registry metadata was read again");
-                assert_eq!(version, &Version::new(1, 2, 3));
-                Ok(Some(RegistryVersionInfo::default()))
+                assert!(
+                    self.reads
+                        .borrow_mut()
+                        .insert((name.clone(), version.clone())),
+                    "registry metadata for {name}@{version} was read again"
+                );
+                Ok(self
+                    .inner
+                    .version_info(name, version)?
+                    .map(|info| RegistryVersionInfo {
+                        yanked: name.to_string() == "dep/shared",
+                        yanked_reason: Some("Use dep/replacement.".into()),
+                        ..info
+                    }))
             }
 
             fn cached_latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
@@ -1043,16 +1057,36 @@ mod test {
             }
         }
 
-        let registry = SingleReadRegistry(Cell::new(false));
-        let mut context = ModuleResolutionContext::new(&registry);
-        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
-        let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
-        assert!(resolve_silently(
-            &mut MvsSolver,
-            &mut context,
-            &mut module_graph
-        ));
-        assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@1.2.3");
+        let mut inner = MockRegistry::new();
+        inner
+            .add_module_full("dep/left", "1.0.0", [("dep/shared", "1.0.0")])
+            .add_module_full("dep/right", "1.0.0", [("dep/shared", "1.0.0")])
+            .add_module_full("dep/shared", "1.0.0", []);
+        let registry = SingleReadRegistry {
+            inner: &inner,
+            reads: RefCell::default(),
+        };
+        let config = ModuleResolutionConfig {
+            registry: &registry,
+            inject_std: false,
+            warn_deprecated: true,
+        };
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/left", "1.0.0"), ("dep/right", "1.0.0")],
+        );
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        let graph = resolve_modules(&config, create_mock_root(root), &user_log).unwrap();
+        assert_eq!(registry.reads.borrow().len(), 3);
+        assert_depends_on(&graph, "dep/left@1.0.0", "dep/shared@1.0.0");
+        assert_depends_on(&graph, "dep/right@1.0.0", "dep/shared@1.0.0");
+        let warnings = capture.take();
+        assert_eq!(warnings.len(), 1);
+        expect![[r#"
+            Dependency `dep/shared@1.0.0` is deprecated: Use dep/replacement.
+              required through root/module@0.1.0 -> dep/left@1.0.0 -> dep/shared@1.0.0"#]]
+        .assert_eq(&warnings[0].message);
     }
 
     #[test]
