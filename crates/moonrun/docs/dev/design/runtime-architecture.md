@@ -92,6 +92,14 @@ not Engine or Runtime. A running Runtime may refer to its Engine through
 Process Context without forming an ownership cycle through the table. Neither
 admission nor lookup reconstructs Runtime state from a process entry.
 
+`moonrun::initialize(config)` explicitly initializes the selected backend's
+process-wide state. For V8, the caller must initialize on the common ancestor
+of all compilation and execution threads before creating them, so they inherit
+the backend's memory protection permissions. Repeated calls do not repair
+existing threads. The CLI establishes this ordering; embedding callers own it.
+Lazy initialization remains available for compatibility, and Moonrun does not
+yet enforce thread ancestry or change caller-thread execution placement.
+
 `run_moon` and `spawn_moon` share Wasm preparation and execution.
 They are host-selected entries and can prepare Wasm through `moon run` as well
 as moonx. Handoff accepts Wasm targets only; native and Node commands use

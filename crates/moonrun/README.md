@@ -248,7 +248,10 @@ file with fresh per-run state and returns guest termination as data instead of
 terminating the embedding process:
 
 ```rust
-use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
+use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome, WorkingDirectory};
+
+// Call on the main thread before creating threads that will use Moonrun.
+moonrun::initialize(EngineConfig::default()).unwrap();
 
 let outcome = Engine::default()
     .run_file(
@@ -271,6 +274,16 @@ immutable Wasm Modules and execute them multiple times. `run` executes on the
 calling thread; `spawn` creates a managed thread and returns an identity whose
 result is consumed by `wait`. A new Engine has an independent process namespace;
 clones share its backend and process table.
+
+With V8, call `moonrun::initialize(config)` on the common ancestor of all
+execution threads before creating them. This includes threads that only compile
+modules. Linux memory protection keys are inherited at thread creation; an
+initialization call from a pre-existing thread pool does not repair its workers'
+permissions. Moonrun does not enforce thread ancestry. Repeated initialization
+with the same V8 configuration succeeds; conflicting configurations return an
+error. Use the same configuration when constructing Engines. Existing entry
+points retain lazy initialization, but multi-threaded embedding requires this
+explicit ordering. The CLI initializes before starting execution threads.
 
 ```rust
 let engine = Engine::default();

@@ -83,6 +83,9 @@ fn main() -> anyhow::Result<()> {
     } else {
         ProcessSignals::install(signal_sender)?
     };
+    // Initialize on the ancestor of every execution thread, after the signal
+    // broker has established the mask inherited by V8's background threads.
+    moonrun::initialize(engine_config)?;
     let engine = Engine::new(engine_config);
     let outcome = if let Some(session) = session {
         session.attach_engine(&engine);

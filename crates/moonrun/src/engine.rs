@@ -54,6 +54,39 @@ impl EngineConfig {
     }
 }
 
+/// Initialize the selected backend's process-wide state on the calling thread.
+///
+/// With V8, call this before creating any threads that will compile or execute
+/// Wasm, on their common ancestor thread (usually the application's main thread).
+/// Linux memory protection keys are inherited when threads are created. Calling
+/// this again from an existing thread does not repair that thread's permissions.
+/// Moonrun does not check this ancestry or move execution to another thread.
+///
+/// Repeated calls with the same V8 configuration succeed; a different
+/// configuration returns an error. Use the same configuration for every Engine.
+/// Existing compile/run entry points still initialize lazily when necessary,
+/// but multi-threaded embedders must arrange initialization explicitly.
+///
+/// wee8 initializes its global backend here; its stack size remains per Engine.
+/// Wasmtime has no process-wide initialization here and configures each Engine
+/// separately. Initialization lasts for the lifetime of the process.
+pub fn initialize(config: EngineConfig) -> anyhow::Result<()> {
+    #[cfg(feature = "v8")]
+    {
+        backend::initialize(&config)
+    }
+    #[cfg(all(feature = "wee8", not(feature = "v8")))]
+    {
+        let _ = config;
+        ::wee8::initialize().map_err(Into::into)
+    }
+    #[cfg(all(feature = "wasmtime", not(any(feature = "v8", feature = "wee8"))))]
+    {
+        let _ = config;
+        Ok(())
+    }
+}
+
 /// Configuration for one execution, independent of thread placement.
 #[derive(Debug, Default)]
 pub struct RunOptions {
@@ -419,6 +452,7 @@ impl fmt::Debug for Module {
 /// [`Engine::run`] executes on the calling thread; [`Engine::spawn`] creates a
 /// managed thread whose result is consumed by [`Engine::wait`]. Clones share
 /// the backend and process table; a new Engine creates a separate namespace.
+/// Call [`initialize`] before creating threads that will use V8-backed Engines.
 ///
 /// Environment, cwd and stdio default to ambient process state; callers can
 /// bind an owned environment, owned streams and a fixed cwd. Ambient guest
