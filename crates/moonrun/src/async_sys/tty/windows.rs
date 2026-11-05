@@ -38,7 +38,10 @@ fn last_error() -> AsyncHostError {
     io_error(std::io::Error::last_os_error())
 }
 
-fn open_console(name: *const u16) -> AsyncHostResult<OwnedHandle> {
+/// # Safety
+///
+/// `name` must point to a NUL-terminated UTF-16 string.
+unsafe fn open_console(name: *const u16) -> AsyncHostResult<OwnedHandle> {
     let handle = unsafe {
         CreateFileW(
             name,
@@ -57,8 +60,9 @@ fn open_console(name: *const u16) -> AsyncHostResult<OwnedHandle> {
 }
 
 pub(super) fn open() -> AsyncHostResult<TtyResources> {
-    let input = open_console(windows_sys::w!("CONIN$"))?;
-    let output = open_console(windows_sys::w!("CONOUT$"))?;
+    // SAFETY: `w!` produces NUL-terminated static UTF-16 strings.
+    let input = unsafe { open_console(windows_sys::w!("CONIN$")) }?;
+    let output = unsafe { open_console(windows_sys::w!("CONOUT$")) }?;
     Ok(TtyResources {
         input: Resource::new(input.into_raw_handle()),
         output: Resource::new(output.into_raw_handle()),
