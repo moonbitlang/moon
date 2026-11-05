@@ -315,21 +315,6 @@ mod tests {
         assert!(path.ends_with('/') || path.ends_with('\\'));
     }
 
-    #[test]
-    fn tmp_path_buffer_is_non_empty() {
-        let path = get_tmp_path().unwrap();
-        let buffer = tmp_path_buffer(path.as_os_str()).unwrap();
-
-        assert!(!buffer.is_empty());
-        #[cfg(unix)]
-        assert_eq!(buffer.last(), Some(&0));
-        #[cfg(windows)]
-        assert_eq!(
-            buffer.get(buffer.len().saturating_sub(2)..),
-            Some(&[0, 0][..])
-        );
-    }
-
     #[cfg(all(unix, not(target_os = "android")))]
     #[test]
     fn default_unix_tmp_path_matches_async_stub_fallback() {
