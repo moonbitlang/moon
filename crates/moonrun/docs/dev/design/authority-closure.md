@@ -46,6 +46,10 @@ reauthorizing the original pathname. Async Jobs retain their parent directory
 resources and authorize derived operations using the path recovered from that
 handle. Failed recovery never falls back to a saved opening path; missing-directory
 errors deny admission, while other lookup errors keep their native mapping.
+On macOS, the recovered pathname's device and inode must match the directory
+handle before that path is used. `F_GETPATH` can retain a removed directory's name
+even with a nonzero link count; a replacement at that name supplies no authority
+for the original handle.
 WASI directory descriptors also own directory handles and authorize derived
 operations against their current locations.
 Inherited and explicitly bound stdio are host-provided resource grants. Operations
