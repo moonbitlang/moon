@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "rule_groups": [
     {
       "fs": {
@@ -14,7 +14,8 @@
       "process": {
         "kind": "scoped",
         "value": []
-      }
+      },
+      "tty": false
     }
   ]
 }

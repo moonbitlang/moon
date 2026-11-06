@@ -231,6 +231,8 @@ impl Runtime {
 
         let filesystem_policy = policy.as_ref().map(Policy::filesystem);
         let network_policy = policy.as_ref().map(Policy::network);
+        // No policy leaves the terminal unrestricted, like other host surfaces.
+        let tty_allowed = policy.as_ref().is_none_or(Policy::allows_tty);
         let working_directory = Arc::new(match config.working_directory {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(path) => {
@@ -275,6 +277,7 @@ impl Runtime {
             Arc::clone(&filesystem),
             network,
             process,
+            tty_allowed,
             Rc::clone(&keys),
             signals,
             #[cfg(unix)]
