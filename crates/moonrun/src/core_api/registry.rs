@@ -18,7 +18,9 @@
 
 //! All `moonbitlang/core` import names and signatures, shared by every engine.
 
-use super::{MOONBIT_CORE_MODULE, buffer_to_handle, current_exe, current_exe_dir, environment};
+use super::{
+    MOONBIT_CORE_MODULE, buffer_to_handle, current_exe, current_exe_dir, environment, windows_time,
+};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::runtime::Runtime;
 use crate::wasm_imports::{Caller, ImportError, ImportRegistry};
@@ -82,12 +84,64 @@ pub(crate) fn register<R: ImportRegistry<Runtime>>(registry: &mut R) -> Result<(
                 environment::unset_env_var(runtime, memory, key_ptr, key_len)
             })
         },
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "time/windows/get_dynamic_time_zone_information",
+        |caller: Caller<'_, '_, Runtime>, out: u32| {
+            with_memory(caller, |rt, mem| windows_time::capture(rt, mem, out))
+        },
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "time/windows/get_time_zone_metadata",
+        |caller: Caller<'_, '_, Runtime>, handle: u64, out: u32, capacity: u32| {
+            with_memory(caller, |rt, mem| {
+                windows_time::metadata(rt, handle, mem, out, capacity)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "time/windows/get_current_time_zone_rule",
+        |caller: Caller<'_, '_, Runtime>, handle: u64, out: u32| {
+            with_memory(caller, |rt, mem| {
+                windows_time::current_rule(rt, handle, mem, out)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "time/windows/get_dynamic_time_zone_information_effective_years",
+        |caller: Caller<'_, '_, Runtime>, handle: u64, out: u32| {
+            with_memory(caller, |rt, mem| {
+                windows_time::effective_years(rt, handle, mem, out)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "time/windows/get_time_zone_information_for_year",
+        |caller: Caller<'_, '_, Runtime>, handle: u64, year: u32, out: u32| {
+            with_memory(caller, |rt, mem| {
+                windows_time::for_year(rt, handle, year, mem, out)
+            })
+        },
+    )?;
+    registry.func_wrap(
+        MOONBIT_CORE_MODULE,
+        "time/windows/free_time_zone",
+        |caller: Caller<'_, '_, Runtime>, handle: u64| -> Result<i32, ImportError> {
+            Ok(caller.with_data(|rt| {
+                windows_time::release(rt, handle).map_or_else(|e| e.errno(), |()| 0)
+            }))
+        },
     )
 }
 
 fn with_memory(
     caller: Caller<'_, '_, Runtime>,
-    operation: impl FnOnce(&Runtime, &[u8]) -> AsyncHostResult<()>,
+    operation: impl FnOnce(&Runtime, &mut [u8]) -> AsyncHostResult<()>,
 ) -> Result<i32, ImportError> {
     caller.with_memory(|caller| match caller.memory {
         Ok(memory) => Ok(match operation(caller.data, memory) {
