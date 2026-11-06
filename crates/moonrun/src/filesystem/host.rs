@@ -420,6 +420,61 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn builtin_timezone_grant_is_read_only_and_excludes_untrusted_aliases() {
+        let host = HostFs::new(
+            Some(Default::default()),
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let file = Path::new("/usr/share/zoneinfo/UTC");
+        if !file.is_file() {
+            return;
+        } // Minimal installations may omit tzdata.
+        assert!(host.read_file(file).unwrap().starts_with(b"TZif"));
+        if Path::new("/etc/localtime").is_file() {
+            assert!(
+                host.read_file(Path::new("/etc/localtime"))
+                    .unwrap()
+                    .starts_with(b"TZif")
+            );
+        }
+        let path = FsPath::Cwd(file.as_os_str());
+        for access in [0, 1] {
+            host.authorize(FsOperation::AccessCheck { path, access })
+                .unwrap();
+        }
+        for operation in [
+            FsOperation::AccessCheck { path, access: 2 },
+            FsOperation::AccessCheck { path, access: 3 },
+            FsOperation::Write(path),
+            FsOperation::ChangeEntry(path),
+            FsOperation::Watch(FsTarget::Path(path)),
+            FsOperation::OpenAsync {
+                path,
+                access: 0,
+                create_mode: 1,
+                read_metadata: false,
+            },
+        ] {
+            assert!(matches!(host.authorize(operation), Err(FsError::Denied)));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(file, &alias).unwrap();
+        for denied in [
+            alias.as_path(),
+            Path::new("/usr/share/zoneinfo/../zoneinfo/UTC"),
+            Path::new("/etc/passwd"),
+        ] {
+            assert!(
+                matches!(host.read_file(denied), Err(FsError::Denied)),
+                "{denied:?}"
+            );
+        }
+    }
+
     #[test]
     fn ambient_temp_dir_uses_native_path() {
         let host = host_fs(None, Arc::new(Env::ambient()));

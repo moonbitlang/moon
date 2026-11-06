@@ -20,6 +20,8 @@
 //! Callers supply operations and targets, never inferred policy requirements.
 
 mod grant;
+#[cfg(unix)]
+mod system_reads;
 
 pub(crate) use grant::FileGrant;
 use grant::GrantSource;
@@ -206,6 +208,13 @@ impl HostFs {
             },
         };
         let resolved = path.as_deref().and_then(|path| resolve(path).ok());
+        #[cfg(unix)]
+        if resolved
+            .as_deref()
+            .is_some_and(|resolved| system_reads::allows(&operation, resolved))
+        {
+            return Ok(());
+        }
         policy
             .authorize(resolved.as_deref(), read, write, &diagnostic)
             .map_err(|_| FsError::Denied)?;

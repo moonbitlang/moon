@@ -16,6 +16,8 @@
   tasks, and dependencies for execution, authority, and embedding work.
 - [Authority closure](design/authority-closure.md): cross-surface filesystem
   enforcement, restriction composition, resource grants, and acceptance criteria.
+- [Built-in system access](system-access.md) lists the Unix timezone files guests can
+  read under a restricted policy and describes certificate-provider activity.
 - [Host handles](host-handles.md): registration, validation, owning tables, and
   operation-specific ownership rules.
 - [Current executable path semantics](current-exe-semantics.md): load-time path
