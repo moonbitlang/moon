@@ -26,6 +26,12 @@ use vergen::EmitBuilder;
 pub fn main() -> Result<(), Box<dyn Error>> {
     EmitBuilder::builder().build_date().git_sha(true).emit()?;
 
+    if cfg!(feature = "v8") && std::env::var("TARGET")? == "x86_64-unknown-linux-gnu" {
+        let source = "src/v8/memfd_create.c";
+        println!("cargo:rerun-if-changed={source}");
+        cc::Build::new().file(source).compile("v8_glibc_compat");
+    }
+
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let datetime = DateTime::from_timestamp(time.as_secs() as i64, 0).unwrap();
     let date_str = datetime.format("%Y%m%d").to_string();

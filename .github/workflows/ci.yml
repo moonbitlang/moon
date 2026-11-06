@@ -133,8 +133,19 @@ jobs:
           rust-version: '1.95.0'
           zig-version: '0.15.2'
           cargo-zigbuild-version: '0.22.1'
-          # rusty_v8 137.3.0 requires memfd_create. Restore 2.23 when the archive supports it.
-          glibc-version: '2.27'
+          glibc-version: '2.23'
+
+      - name: Run release binaries on glibc 2.23
+        run: |
+          docker run --rm --network none \
+            -v "$PWD/target/x86_64-unknown-linux-gnu/release:/release:ro" \
+            ubuntu:16.04 sh -ec '
+              test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.23"
+              /release/moon --help > /dev/null
+              # The Wasm header alone is a valid empty module.
+              printf "\000asm\001\000\000\000" > /tmp/empty.wasm
+              /release/moonrun /tmp/empty.wasm
+            '
 
   nightly-test:
     needs: [typo-check, license-header-check]

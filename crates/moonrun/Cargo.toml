@@ -90,6 +90,7 @@ features = [
 ]
 
 [build-dependencies]
+cc = "1"
 vergen.workspace = true
 chrono.workspace = true
 
