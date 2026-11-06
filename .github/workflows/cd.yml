@@ -99,7 +99,7 @@ jobs:
           rust-version: ${{ env.RUST_VERSION }}
           zig-version: '0.15.2'
           cargo-zigbuild-version: '0.22.1'
-          glibc-version: ${{ inputs.glibc-version || '2.27' }}
+          glibc-version: ${{ inputs.glibc-version || '2.23' }}
 
       - name: Upload
         env:

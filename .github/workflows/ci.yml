@@ -133,8 +133,7 @@ jobs:
           rust-version: '1.95.0'
           zig-version: '0.15.2'
           cargo-zigbuild-version: '0.22.1'
-          # rusty_v8 137.3.0 requires memfd_create. Restore 2.23 when the archive supports it.
-          glibc-version: '2.27'
+          glibc-version: '2.23'
 
   nightly-test:
     needs: [typo-check, license-header-check]
