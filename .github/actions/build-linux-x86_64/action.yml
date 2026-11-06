@@ -1,0 +1,68 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Build Linux x86_64 release binaries
+description: Link the shipped binaries against the target glibc and verify their ELF requirements.
+inputs:
+  glibc-version:
+    description: Override the default release glibc version.
+    required: false
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@v1
+      with:
+        toolchain: 1.95.0
+        targets: x86_64-unknown-linux-gnu
+
+    - name: Remove unused Rust toolchains
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/prune-rust-toolchains.sh"
+
+    - uses: mlugg/setup-zig@v2
+      with:
+        version: 0.15.2
+
+    - name: Install cargo-zigbuild
+      shell: bash
+      run: cargo install --locked --version 0.22.1 cargo-zigbuild
+
+    - name: Cargo cache
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Build and verify the glibc floor
+      shell: bash
+      env:
+        # rusty_v8 137.3.0 imports memfd_create (glibc 2.27); restore 2.23 once that dependency is removed.
+        GLIBC_VERSION: ${{ inputs.glibc-version || '2.27' }}
+      run: |
+        target=x86_64-unknown-linux-gnu
+        cargo zigbuild --locked --release --target "$target.$GLIBC_VERSION" --bin moon --bin moonrun
+
+        for bin in moon moonrun; do
+          required=$(LC_ALL=C readelf --version-info --wide "target/$target/release/$bin" |
+            sed -n 's/.*Name: GLIBC_\([^ ]*\).*/\1/p' | LC_ALL=C sort -Vu | tail -n 1)
+          echo "$bin: highest glibc requirement '$required' (target $GLIBC_VERSION)"
+          if [[ ! $required =~ ^[0-9]+(\.[0-9]+)+$ ]] ||
+             ! printf '%s\n' "$required" "$GLIBC_VERSION" | LC_ALL=C sort -VC; then
+            echo "::error::$bin has an unexpected glibc requirement: '$required' (target $GLIBC_VERSION)"
+            exit 1
+          fi
+        done

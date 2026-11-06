@@ -121,6 +121,15 @@ jobs:
           mdbook build docs/manual
           mdbook build docs/manual-zh
 
+  linux-glibc:
+    name: Linux x86_64 release glibc check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - uses: ./.github/actions/build-linux-x86_64
+
   nightly-test:
     needs: [typo-check, license-header-check]
     strategy:
