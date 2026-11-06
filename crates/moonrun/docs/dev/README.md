@@ -23,6 +23,8 @@
 - [Current executable path semantics](current-exe-semantics.md): load-time path
   capture, mutation behavior, executable-directory lookup, and guest-visible
   errors for file-backed and in-memory modules.
+- [Windows timezone imports](windows-timezone-abi.md) describes the timezone
+  handle and the queries available to linear Wasm guests.
 - [Core environment snapshot ABI](core-environment-abi.md): native-string cwd and
   environment snapshots, native OS errors, buffer ownership and a compiled MoonBit example.
 - [SQLite jobs](sqlite-jobs.md): SQLite payloads in the shared async pool,
