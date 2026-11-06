@@ -16,7 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 pub fn copy_tree(src: &Path, dest: &Path, exclude_target: bool) -> anyhow::Result<()> {
     if src.is_dir() {
@@ -49,8 +54,10 @@ pub fn copy_tree(src: &Path, dest: &Path, exclude_target: bool) -> anyhow::Resul
 }
 
 pub struct TestDir {
-    // tempfile::TempDir has a drop implementation that will remove the directory
-    path: tempfile::TempDir,
+    // Taken on drop so cleanup can be timed, or explicitly disabled for inspection.
+    path: Option<tempfile::TempDir>,
+    trace: Option<Trace>,
+    retain: bool,
 }
 
 impl TestDir {
@@ -59,24 +66,185 @@ impl TestDir {
         sub: impl AsRef<Path>,
         exclude_target: bool,
     ) -> Self {
-        let dir = case_root.as_ref().join(sub);
-        let tmp_dir = tempfile::TempDir::new().expect("create temp dir for tests");
-        copy_tree(&dir, tmp_dir.path(), exclude_target).expect("copy test case to temp dir");
-        Self { path: tmp_dir }
+        Self::prepare(
+            Some(&case_root.as_ref().join(sub)),
+            exclude_target,
+            Options::from_env(),
+        )
     }
 
     pub fn new_empty() -> Self {
-        let tmp_dir = tempfile::TempDir::new().expect("create empty temp dir for tests");
-        Self { path: tmp_dir }
+        Self::prepare(None, false, Options::from_env())
+    }
+
+    fn prepare(source: Option<&Path>, exclude_target: bool, options: Options) -> Self {
+        let mut trace = options
+            .trace_dir
+            .as_deref()
+            .and_then(|root| Trace::open(root, source));
+        if let Some(trace) = &mut trace {
+            trace.record(serde_json::json!({"phase": "create", "state": "started"}));
+        }
+        let started = Instant::now();
+        let tmp_dir = match &options.keep_dir {
+            Some(root) => std::fs::create_dir_all(root).and_then(|()| {
+                let root = dunce::canonicalize(root)?;
+                tempfile::Builder::new()
+                    .prefix("moon-test-")
+                    .tempdir_in(root)
+            }),
+            None => tempfile::TempDir::new(),
+        };
+        let elapsed = started.elapsed();
+        if let Some(trace) = &mut trace {
+            trace.workspace = tmp_dir.as_ref().ok().map(|dir| dir.path().to_owned());
+            trace.record(serde_json::json!({
+                "phase": "create", "state": if tmp_dir.is_ok() { "ok" } else { "error" },
+                "elapsed_us": elapsed.as_micros(),
+                "error": tmp_dir.as_ref().err().map(ToString::to_string),
+            }));
+        }
+        // Construct the owner before copying so a setup panic also cleans up or
+        // retains the partial workspace according to the requested policy.
+        let mut dir = Self {
+            path: Some(tmp_dir.expect("create temp dir for tests")),
+            trace,
+            retain: options.keep_dir.is_some(),
+        };
+        let Some(source) = source else { return dir };
+        if let Some(trace) = &mut dir.trace {
+            trace.record(serde_json::json!({"phase": "copy", "state": "started"}));
+        }
+        let started = Instant::now();
+        let copied = copy_tree(source, dir.as_ref(), exclude_target);
+        let elapsed = started.elapsed();
+        if let Some(trace) = &mut dir.trace {
+            trace.record(serde_json::json!({
+                "phase": "copy", "state": if copied.is_ok() { "ok" } else { "error" },
+                "elapsed_us": elapsed.as_micros(),
+                "error": copied.as_ref().err().map(ToString::to_string),
+            }));
+        }
+        copied.expect("copy test case to temp dir");
+        dir
     }
 
     pub fn join(&self, sub: impl AsRef<Path>) -> PathBuf {
-        self.path.path().join(sub.as_ref())
+        self.as_ref().join(sub.as_ref())
     }
 }
 
 impl AsRef<Path> for TestDir {
     fn as_ref(&self) -> &Path {
-        self.path.path()
+        self.path.as_ref().expect("live test directory").path()
     }
 }
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let Some(dir) = self.path.take() else {
+            return;
+        };
+        if let Some(trace) = &mut self.trace {
+            trace.record(serde_json::json!({"phase": "cleanup", "state": "started"}));
+        }
+        let started = Instant::now();
+        let cleaned = if self.retain {
+            let _retained_path = dir.into_path();
+            Ok(())
+        } else {
+            dir.close()
+        };
+        let elapsed = started.elapsed();
+        if let Some(trace) = &mut self.trace {
+            trace.record(serde_json::json!({
+                "phase": "cleanup",
+                "state": if self.retain { "retained" } else if cleaned.is_ok() { "ok" } else { "error" },
+                "elapsed_us": elapsed.as_micros(),
+                "error": cleaned.as_ref().err().map(ToString::to_string),
+            }));
+        }
+        // Like TempDir's destructor, cleanup must not turn a test failure into a
+        // second panic. The trace exposes errors that Drop previously discarded.
+        if let Err(error) = cleaned {
+            tracing::warn!(%error, "failed to clean up test directory");
+        }
+    }
+}
+
+#[derive(Default)]
+struct Options {
+    trace_dir: Option<PathBuf>,
+    keep_dir: Option<PathBuf>,
+}
+
+impl Options {
+    fn from_env() -> Self {
+        Self {
+            trace_dir: std::env::var_os("MOON_TEST_TRACE_DIR")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
+            keep_dir: std::env::var_os("MOON_TEST_KEEP_DIR")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
+        }
+    }
+}
+
+struct Trace {
+    file: File,
+    test: String,
+    fixture: Option<PathBuf>,
+    workspace: Option<PathBuf>,
+}
+
+impl Trace {
+    fn open(root: &Path, fixture: Option<&Path>) -> Option<Self> {
+        let opened = (|| -> anyhow::Result<File> {
+            std::fs::create_dir_all(root)?;
+            let (file, _) = tempfile::Builder::new()
+                .prefix("test-dir-")
+                .suffix(".jsonl")
+                .tempfile_in(root)?
+                .keep()?;
+            Ok(file)
+        })();
+        match opened {
+            Ok(file) => Some(Self {
+                file,
+                test: std::thread::current()
+                    .name()
+                    .unwrap_or("<unnamed>")
+                    .to_owned(),
+                fixture: fixture.map(Path::to_owned),
+                workspace: None,
+            }),
+            Err(error) => {
+                tracing::warn!(%error, "failed to create TestDir trace");
+                None
+            }
+        }
+    }
+
+    fn record(&mut self, event: serde_json::Value) {
+        let record = serde_json::json!({
+            "pid": std::process::id(), "test": self.test,
+            "fixture": self.fixture.as_deref().map(Path::to_string_lossy),
+            "workspace": self.workspace.as_deref().map(Path::to_string_lossy), "event": event,
+        });
+        // One write per event, outside the measured phase. Avoid a shared log
+        // lock and retain completed events if a later phase hangs or aborts.
+        let written = serde_json::to_vec(&record)
+            .map_err(std::io::Error::other)
+            .and_then(|mut line| {
+                line.push(b'\n');
+                self.file.write_all(&line)
+            });
+        if let Err(error) = written {
+            tracing::warn!(%error, "failed to write TestDir trace");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -2109,8 +2109,10 @@ dependencies = [
  "home",
  "ignore",
  "regex",
+ "serde_json",
  "snapbox",
  "tempfile",
+ "tracing",
  "which",
 ]
 
