@@ -35,6 +35,9 @@ as V8. WASIp1 descriptor rights and preopen containment remain required in
 addition to Moonrun filesystem policy; all engine adapters invoke the same
 shared WASIp1 host operations.
 
+On Unix, guests can read the installed timezone data under a restricted policy.
+See [built-in system access](docs/dev/system-access.md) for the allowed files and operations.
+
 ## Experimental IPC sessions
 
 `moonrun --daemon program.wasm` or `moonx --daemon script.mbtx` (or a registry package) shares one execution host

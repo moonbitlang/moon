@@ -79,6 +79,68 @@ fn inherited_and_child_policies_both_restrict_filesystem_access() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn an_installed_timezone_file_is_readable_under_every_policy() {
+    let zone = std::path::Path::new("/usr/share/zoneinfo/UTC");
+    if !zone.is_file() {
+        return; // Some Unix installations omit tzdata.
+    }
+    let engine = Engine::default();
+    let source = r#"(module
+        (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+        (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
+        (import "wasi_snapshot_preview1" "fd_close" (func $close (param i32) (result i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 0) "UTC")
+        (func (export "_start")
+            i32.const 3 i32.const 1 i32.const 0 i32.const 3 i32.const 0
+            i64.const 2 i64.const 0 i32.const 0 i32.const 8 call $open if unreachable end
+            (i32.store (i32.const 16) (i32.const 32)) (i32.store (i32.const 20) (i32.const 4))
+            i32.const 8 i32.load i32.const 16 i32.const 1 i32.const 24 call $read if unreachable end
+            i32.const 24 i32.load i32.const 4 i32.ne if unreachable end
+            i32.const 32 i32.load i32.const 0x66695a54 i32.ne if unreachable end ;; TZif
+            i32.const 8 i32.load call $close if unreachable end))"#;
+    let module = engine
+        .compile("read-zone.wasm", wat::parse_str(source).unwrap())
+        .unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let child = dir.path().join("child.json");
+    std::fs::write(&child, "{}").unwrap();
+    let exclusion = dir.path().join("exclude.json");
+    std::fs::write(&exclusion, r#"{"fs":{"read":["*",{"glob":"!**"}]}}"#).unwrap();
+    let root = std::path::Path::new("/");
+    for (name, options) in [
+        ("unrestricted", RunOptions::default()),
+        (
+            "empty",
+            RunOptions::default().with_policy_file(&child).unwrap(),
+        ),
+        (
+            "explicit exclusion",
+            RunOptions::default()
+                .with_policy_file_source_dir(&exclusion, Some(root))
+                .unwrap(),
+        ),
+        (
+            "parent and child",
+            RunOptions::default()
+                .with_inherited_policy(include_bytes!("fixtures/deny_restrictions.json").to_vec())
+                .with_policy_file_source_dir(&exclusion, Some(root))
+                .unwrap(),
+        ),
+    ] {
+        let options = options
+            .with_working_directory(WorkingDirectory::Fixed(zone.parent().unwrap().to_owned()));
+        assert_eq!(
+            engine.run(&module, options).unwrap(),
+            RunOutcome::Completed,
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn cli_combines_transferred_policy_with_child_file() {
     use std::io::{Seek, Write};

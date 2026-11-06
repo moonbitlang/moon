@@ -20,6 +20,8 @@
 //! Callers supply operations and targets, never inferred policy requirements.
 
 mod grant;
+#[cfg(unix)]
+mod system_reads;
 
 pub(crate) use grant::FileGrant;
 use grant::GrantSource;
@@ -206,6 +208,22 @@ impl HostFs {
             },
         };
         let resolved = path.as_deref().and_then(|path| resolve(path).ok());
+        #[cfg(unix)]
+        {
+            // A directory handle or a fixed cwd anchors a relative name. With an
+            // ambient cwd, only an absolute name stays valid until a worker runs.
+            let requested = match (&*self.working_directory, target) {
+                (crate::runtime::WorkingDirectory::Ambient, FsTarget::Path(FsPath::Cwd(name))) => {
+                    Some(Path::new(name))
+                }
+                _ => path.as_deref(),
+            };
+            if let (Some(requested), Some(resolved)) = (requested, resolved.as_deref())
+                && system_reads::allows(&operation, requested, resolved)
+            {
+                return Ok(());
+            }
+        }
         policy
             .authorize(resolved.as_deref(), read, write, &diagnostic)
             .map_err(|_| FsError::Denied)?;

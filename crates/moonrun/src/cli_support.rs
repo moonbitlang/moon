@@ -69,6 +69,7 @@ Common allow-all policy:
   }
 
 Filesystem roots are host paths. Relative roots are resolved relative to the policy file. "*" allows every host path on every platform.
+On Unix, every policy permits reading the installed zoneinfo files and a trusted /etc/localtime. A link outside the installed timezone data requires an ordinary read grant.
 
 Environment values default to empty in sandbox policy mode. Use env.from_host for optional host variables, env.required_from_host for required host variables and secrets, and env.set for non-secret literals. env.set overrides copied host values.
 
