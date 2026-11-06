@@ -93,6 +93,8 @@ jobs:
       - name: E2E smoke test release binary (Unix)
         if: ${{ runner.os != 'Windows' }}
         shell: bash
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/dist/moonrun
         run: |
           set -euo pipefail
           moon_bin="${GITHUB_WORKSPACE}/dist/moon"
@@ -121,7 +123,10 @@ jobs:
       - name: E2E smoke test release binary (Windows)
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/dist/moonrun.exe
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           $moon = Join-Path $env:GITHUB_WORKSPACE "dist\moon.exe"
           $project = Join-Path $env:RUNNER_TEMP "moon_e2e"
           & $moon update
