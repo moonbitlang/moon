@@ -1,10 +1,10 @@
 use expect_test::{expect, expect_file};
 
-use crate::{TestDir, build_graph, get_stdout, moon_cmd, util::check};
+use crate::{Fixture, build_graph, get_stdout, moon_cmd, util::check};
 
 #[test]
 fn test_moon_test_patch() {
-    let dir = TestDir::new("moon_test/patch");
+    let dir = Fixture::copied("moon_test/patch");
 
     // Apply patch to normal build
     build_graph::assert(
@@ -207,7 +207,7 @@ fn test_moon_test_patch() {
 
 #[test]
 fn test_moon_test_patch_content_change_regenerates_driver() {
-    let dir = TestDir::new("moon_test/patch");
+    let dir = Fixture::copied("moon_test/patch");
 
     check(
         get_stdout(

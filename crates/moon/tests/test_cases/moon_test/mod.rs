@@ -29,27 +29,28 @@ use super::*;
 
 #[test]
 fn test_moon_test_succ() {
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::set_var("NO_COLOR", "1") };
-    let dir = TestDir::new("moon_test/succ");
-    check(
-        get_stdout(&dir, ["test", "-v", "--sort-input"]),
-        expect![[r#"
-            [moontest] test lib/hello_wbtest.mbt:1 (#0) ok
-            [moontest] test lib2/hello_wbtest.mbt:1 (#0) ok
-            [moontest] test lib2/nested/lib_wbtest.mbt:1 (#0) ok
-            [moontest] test lib2/nested/lib_wbtest.mbt:7 (#1) ok
-            [moontest] test lib3/hello_wbtest.mbt:1 (#0) ok
-            [moontest] test lib4/hello_wbtest.mbt:1 (#0) ok
-            Total tests: 6, passed: 6, failed: 0.
-        "#]],
-    );
+    let dir = Fixture::readonly("moon_test/succ");
+    moon_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args(["test", "-v", "--sort-input"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[moontest] test lib/hello_wbtest.mbt:1 (#0) ok
+[moontest] test lib2/hello_wbtest.mbt:1 (#0) ok
+[moontest] test lib2/nested/lib_wbtest.mbt:1 (#0) ok
+[moontest] test lib2/nested/lib_wbtest.mbt:7 (#1) ok
+[moontest] test lib3/hello_wbtest.mbt:1 (#0) ok
+[moontest] test lib4/hello_wbtest.mbt:1 (#0) ok
+Total tests: 6, passed: 6, failed: 0.
+
+"#]]);
 }
 
 #[test]
 #[cfg(not(windows))]
 fn test_moon_test_succ_llvm() {
-    let dir = TestDir::new("moon_test/succ");
+    let dir = Fixture::readonly("moon_test/succ");
     let output = moon_cmd(&dir)
         .env("MOON_OVERRIDE", moon_bin())
         .args([
@@ -75,7 +76,7 @@ fn test_moon_test_succ_llvm() {
 
 #[test]
 fn test_moon_test_hello_exec() {
-    let dir = TestDir::new("moon_test/hello_exec");
+    let dir = Fixture::copied("moon_test/hello_exec");
     check(
         get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
@@ -105,7 +106,7 @@ fn test_moon_test_hello_exec() {
 
 #[test]
 fn test_moon_test_hello_exec_fntest() {
-    let dir = TestDir::new("moon_test/hello_exec_fntest");
+    let dir = Fixture::copied("moon_test/hello_exec_fntest");
     check(
         get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
@@ -155,7 +156,7 @@ Total tests: 2, passed: 2, failed: 0.
 
 #[test]
 fn test_moon_test_hello_lib() {
-    let dir = TestDir::new("moon_test/hello_lib");
+    let dir = Fixture::readonly("moon_test/hello_lib");
     check(
         get_stdout(&dir, ["test", "-v"]),
         expect![[r#"
@@ -167,8 +168,7 @@ fn test_moon_test_hello_lib() {
 
 #[test]
 fn test_moon_test_runs_from_module_root() {
-    let dir = TestDir::new("moon_test/test_cwd");
-    let lib_dir = dir.join("lib");
+    let lib_dir = Fixture::readonly("moon_test/test_cwd/lib");
 
     check(
         get_stdout(
@@ -191,7 +191,7 @@ fn test_moon_test_runs_from_module_root() {
 
 #[test]
 fn test_moon_test_workspace_members_run_from_module_root() {
-    let dir = TestDir::new("moon_test/workspace_cwd");
+    let dir = Fixture::copied("moon_test/workspace_cwd");
     let spawn_dir = dir.join("spawn");
     std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
 
@@ -216,7 +216,7 @@ fn test_moon_test_workspace_members_run_from_module_root() {
 
 #[test]
 fn test_moon_test_resolves_wasm_policy_before_changing_to_module_roots() {
-    let dir = TestDir::new("moon_test/workspace_cwd");
+    let dir = Fixture::copied("moon_test/workspace_cwd");
     let spawn_dir = dir.join("spawn");
     std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
 
@@ -239,13 +239,13 @@ fn test_moon_test_resolves_wasm_policy_before_changing_to_module_roots() {
 
 #[test]
 fn test_zombie_child_process() {
-    let dir = TestDir::new("moon_test/zombie_child");
+    let dir = Fixture::copied("moon_test/zombie_child");
     assert_test_process_shutdown(&dir, &["--no-parallelize"], None);
 }
 
 #[test]
 fn test_parallel_children_shutdown_after_one_finishes() {
-    let dir = TestDir::new("moon_test/zombie_child");
+    let dir = Fixture::copied("moon_test/zombie_child");
     std::fs::create_dir(dir.join("aaa_fast")).unwrap();
     std::fs::write(dir.join("aaa_fast/moon.pkg"), "").unwrap();
     std::fs::write(
@@ -262,7 +262,7 @@ test { record_pid() }
 
 #[test]
 fn test_child_shutdown_after_snapshot_update() {
-    let dir = TestDir::new("moon_test/zombie_child");
+    let dir = Fixture::copied("moon_test/zombie_child");
     let source = dir.join("lib/hello_wbtest.mbt");
     let contents = std::fs::read_to_string(&source).unwrap();
     // The first pass fails before starting the long-lived child. Only the
@@ -278,7 +278,7 @@ fn test_child_shutdown_after_snapshot_update() {
     assert_test_process_shutdown(&dir, &["--update", "-j", "2"], None);
 }
 
-fn assert_test_process_shutdown(dir: &TestDir, args: &[&str], finished_child: Option<&Path>) {
+fn assert_test_process_shutdown(dir: &Fixture, args: &[&str], finished_child: Option<&Path>) {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
     };
@@ -382,7 +382,7 @@ fn assert_test_process_shutdown(dir: &TestDir, args: &[&str], finished_child: Op
 
 #[test]
 fn test_moon_test_no_entry_warning() {
-    let dir = TestDir::new("moon_test/no_entry_warning");
+    let dir = Fixture::readonly("moon_test/no_entry_warning");
 
     moon_cmd(&dir)
         .args(["test"])
@@ -397,7 +397,7 @@ Warning: no test entry found.
 #[test]
 #[ignore]
 fn test_generate_test_driver_incremental() {
-    let dir = TestDir::new("moon_test/hello_lib");
+    let dir = Fixture::copied("moon_test/hello_lib");
 
     get_stdout(&dir, ["test", "--package", "moonbitlang/hello/lib"]);
     let driver_file =
@@ -461,20 +461,19 @@ fn test_generate_test_driver_incremental() {
 
 #[test]
 fn test_async_test_inline() {
-    let dir = TestDir::new("moon_test");
+    let dir = Fixture::readonly("moon_test");
 
-    let out1 = get_stdout(&dir, ["-C", "async_test_inline", "test"]);
-    check(
-        &out1,
-        expect![[r#"
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    )
+    // A driver that overlooks `async test` in ordinary source can exit successfully with zero tests.
+    moon_cmd(&dir)
+        .args(["-C", "async_test_inline", "test"])
+        .assert()
+        .success()
+        .stdout_eq("Total tests: 1, passed: 1, failed: 0.\n");
 }
 
 #[test]
 fn test_async_test() {
-    let dir = TestDir::new("moon_test");
+    let dir = Fixture::readonly("moon_test");
     let out1 = get_stdout(
         &dir,
         [
@@ -515,7 +514,7 @@ fn test_async_test() {
 
 #[test]
 fn test_max_concurrent_tests() {
-    let dir = TestDir::new("moon_test");
+    let dir = Fixture::readonly("moon_test");
     let out1 = get_stdout(
         &dir,
         [
@@ -560,7 +559,7 @@ fn test_max_concurrent_tests() {
 
 #[test]
 fn test_doctest_without_bbtest_file() {
-    let dir = TestDir::new("moon_test/doctest_without_bbtest");
+    let dir = Fixture::readonly("moon_test/doctest_without_bbtest");
 
     let out1 = get_stdout(&dir, ["test"]);
     check(
