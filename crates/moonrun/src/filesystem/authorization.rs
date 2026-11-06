@@ -209,11 +209,20 @@ impl HostFs {
         };
         let resolved = path.as_deref().and_then(|path| resolve(path).ok());
         #[cfg(unix)]
-        if resolved
-            .as_deref()
-            .is_some_and(|resolved| system_reads::allows(&operation, resolved))
         {
-            return Ok(());
+            // A directory handle or a fixed cwd anchors a relative name. With an
+            // ambient cwd, only an absolute name stays valid until a worker runs.
+            let requested = match (&*self.working_directory, target) {
+                (crate::runtime::WorkingDirectory::Ambient, FsTarget::Path(FsPath::Cwd(name))) => {
+                    Some(Path::new(name))
+                }
+                _ => path.as_deref(),
+            };
+            if let (Some(requested), Some(resolved)) = (requested, resolved.as_deref())
+                && system_reads::allows(&operation, requested, resolved)
+            {
+                return Ok(());
+            }
         }
         policy
             .authorize(resolved.as_deref(), read, write, &diagnostic)

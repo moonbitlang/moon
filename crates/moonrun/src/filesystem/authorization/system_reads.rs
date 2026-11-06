@@ -18,45 +18,33 @@
 
 //! Built-in read grants for installed system data. Keep the inventory in
 //! docs/dev/system-access.md in sync with these paths.
-use super::{FsOperation, FsPath, FsTarget, GrantSource};
+use super::FsOperation;
 use std::path::{Component, Path, PathBuf};
 
 const LOCALTIME: &str = "/etc/localtime";
 const ZONEINFO: &str = "/usr/share/zoneinfo";
 
-pub(super) fn allows(operation: &FsOperation<'_>, resolved: &Path) -> bool {
-    let target = match *operation {
-        FsOperation::Read(path)
-        | FsOperation::AccessCheck { path, access: 0 | 1 } // F_OK or R_OK
+pub(super) fn allows(operation: &FsOperation<'_>, requested: &Path, resolved: &Path) -> bool {
+    let read_only = match *operation {
+        FsOperation::Read(_)
+        | FsOperation::AccessCheck { access: 0 | 1, .. } // F_OK or R_OK
         | FsOperation::OpenAsync {
-            path,
             access: 0,
             create_mode: 0,
             ..
-        } => FsTarget::Path(path),
-        FsOperation::OpenWithOptions { path, options }
-            if options.read
+        }
+        | FsOperation::Kind(_) | FsOperation::Metadata(_) => true,
+        FsOperation::OpenWithOptions { options, .. } => {
+            options.read
                 && !(options.write
                     || options.create
                     || options.create_new
                     || options.truncate
-                    || options.append) =>
-        {
-            FsTarget::Path(path)
+                    || options.append)
         }
-        FsOperation::Kind(target) | FsOperation::Metadata(target) => target,
-        _ => return false,
+        _ => false,
     };
-    // Do not follow an alias outside the trusted installation, or a relative
-    // path whose meaning could change between authorization and a worker open.
-    let requested = match target {
-        FsTarget::Path(
-            FsPath::Cwd(path) | FsPath::At { path, .. } | FsPath::AtHandle { path, .. },
-        ) => Path::new(path),
-        FsTarget::File(file) if let GrantSource::Path(path) = &file.0 => path,
-        _ => return false,
-    };
-    timezone_file(requested, resolved)
+    read_only && timezone_file(requested, resolved)
 }
 
 fn timezone_file(requested: &Path, resolved: &Path) -> bool {
@@ -160,6 +148,31 @@ mod tests {
         assert!(!listed_path(Path::new(
             "/usr/share/zoneinfo-backup/private"
         )));
+    }
+
+    #[test]
+    fn localtime_can_be_a_copy_or_a_link_into_the_installed_database() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let localtime = root.join("localtime");
+        let zoneinfo = root.join("zoneinfo");
+        let listed = |path: &Path| path == localtime || path.starts_with(&zoneinfo);
+        std::fs::write(&localtime, b"copy").unwrap();
+        assert!(stays_in_installation(&localtime, &localtime, listed));
+
+        std::fs::create_dir(&zoneinfo).unwrap();
+        let zone = zoneinfo.join("UTC");
+        std::fs::write(&zone, b"installed").unwrap();
+        std::fs::remove_file(&localtime).unwrap();
+        symlink(&zone, &localtime).unwrap();
+        assert!(stays_in_installation(&localtime, &zone, listed));
+
+        let external = root.join("external");
+        std::fs::write(&external, b"private").unwrap();
+        std::fs::remove_file(&localtime).unwrap();
+        symlink(&external, &localtime).unwrap();
+        assert!(!stays_in_installation(&localtime, &external, listed));
     }
 
     #[test]

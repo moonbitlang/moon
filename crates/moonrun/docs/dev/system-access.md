@@ -1,8 +1,8 @@
 # Built-in system access
 
-These system operations are available even when a Run has empty filesystem and
-network rules. Keep this inventory separate from configurable policy. A guest
-still needs any WASI descriptor rights required by the operation.
+Moonrun permits reads of trusted Unix timezone data with or without a policy.
+An explicit filesystem exclusion or an inherited policy cannot revoke this
+built-in read grant. WASI still requires a suitable preopen and descriptor rights.
 
 | System access | Scope |
 | --- | --- |
@@ -10,10 +10,12 @@ still needs any WASI descriptor rights required by the operation.
 | System certificate verification | A host trust provider may read its trust store or contact certificate issuers or revocation services as part of verification. This is provider activity, outside guest socket authorization. It does not grant a guest connection to those hosts. |
 
 The filesystem grant is implemented in `filesystem/authorization/system_reads.rs`.
-It assumes the installed timezone tree is administered by the host. Relative
-paths, aliases in guest-controlled directories, and paths escaping the tree use
-normal filesystem authorization. Additional timezone locations supplied by
-environment variables are not built-in grants.
+It assumes the installed timezone tree is administered by the host. For a
+read relative to an open directory or a fixed runtime working directory, the
+check uses that directory to identify the requested path. Relative names in
+a mutable process working directory, aliases in guest-controlled directories,
+and paths escaping the tree use normal filesystem authorization. Additional
+timezone locations supplied by environment variables also use normal authorization.
 
 The certificate entry documents the boundary, rather than forcing network
 fetches or changing verification settings. Windows chain construction can use

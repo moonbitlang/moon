@@ -433,13 +433,6 @@ mod tests {
             return;
         } // Minimal installations may omit tzdata.
         assert!(host.read_file(file).unwrap().starts_with(b"TZif"));
-        if Path::new("/etc/localtime").is_file() {
-            assert!(
-                host.read_file(Path::new("/etc/localtime"))
-                    .unwrap()
-                    .starts_with(b"TZif")
-            );
-        }
         let path = FsPath::Cwd(file.as_os_str());
         for access in [0, 1] {
             host.authorize(FsOperation::AccessCheck { path, access })
