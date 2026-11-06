@@ -585,7 +585,7 @@ mod tests {
         .unwrap();
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[test]
     fn unrestricted_relative_lookup_needs_no_directory_path() {
         let directory = tempfile::tempdir().unwrap();
@@ -600,7 +600,7 @@ mod tests {
         .unwrap();
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[test]
     fn restricted_absolute_lookup_still_checks_its_directory_handle() {
         let directory = tempfile::tempdir().unwrap();
