@@ -1,0 +1,65 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Build Linux x86_64 release binaries
+description: Cross-compile the shipped binaries against the target glibc.
+inputs:
+  rust-version:
+    description: Rust toolchain version.
+    required: true
+  zig-version:
+    description: Zig compiler version.
+    required: true
+  cargo-zigbuild-version:
+    description: cargo-zigbuild version.
+    required: true
+  glibc-version:
+    description: Minimum glibc version for the release binaries.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@v1
+      with:
+        toolchain: ${{ inputs.rust-version }}
+        targets: x86_64-unknown-linux-gnu
+
+    - name: Remove unused Rust toolchains
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/prune-rust-toolchains.sh"
+
+    - uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ inputs.zig-version }}
+
+    - name: Install cargo-zigbuild
+      shell: bash
+      env:
+        CARGO_ZIGBUILD_VERSION: ${{ inputs.cargo-zigbuild-version }}
+      run: cargo install --locked --version "$CARGO_ZIGBUILD_VERSION" cargo-zigbuild
+
+    - name: Cargo cache
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    - name: Build against the target glibc
+      shell: bash
+      env:
+        GLIBC_VERSION: ${{ inputs.glibc-version }}
+      run: cargo zigbuild --locked --release --target "x86_64-unknown-linux-gnu.$GLIBC_VERSION" --bin moon --bin moonrun
