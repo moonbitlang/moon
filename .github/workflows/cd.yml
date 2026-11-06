@@ -29,6 +29,9 @@ on:
     branches:
       - main
 
+env:
+  RUST_VERSION: '1.95.0'
+
 jobs:
   build:
     strategy:
@@ -45,7 +48,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: 1.95.0
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Remove unused Rust toolchains
         shell: bash
@@ -93,7 +96,10 @@ jobs:
 
       - uses: ./.github/actions/build-linux-x86_64
         with:
-          glibc-version: ${{ inputs.glibc-version }}
+          rust-version: ${{ env.RUST_VERSION }}
+          zig-version: '0.15.2'
+          cargo-zigbuild-version: '0.22.1'
+          glibc-version: ${{ inputs.glibc-version || '2.27' }}
 
       - name: Upload
         env:

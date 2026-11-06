@@ -19,15 +19,24 @@
 name: Build Linux x86_64 release binaries
 description: Cross-compile the shipped binaries against the target glibc.
 inputs:
+  rust-version:
+    description: Rust toolchain version.
+    required: true
+  zig-version:
+    description: Zig compiler version.
+    required: true
+  cargo-zigbuild-version:
+    description: cargo-zigbuild version.
+    required: true
   glibc-version:
-    description: Override the default release glibc version.
-    required: false
+    description: Minimum glibc version for the release binaries.
+    required: true
 runs:
   using: composite
   steps:
     - uses: dtolnay/rust-toolchain@v1
       with:
-        toolchain: 1.95.0
+        toolchain: ${{ inputs.rust-version }}
         targets: x86_64-unknown-linux-gnu
 
     - name: Remove unused Rust toolchains
@@ -36,11 +45,13 @@ runs:
 
     - uses: mlugg/setup-zig@v2
       with:
-        version: 0.15.2
+        version: ${{ inputs.zig-version }}
 
     - name: Install cargo-zigbuild
       shell: bash
-      run: cargo install --locked --version 0.22.1 cargo-zigbuild
+      env:
+        CARGO_ZIGBUILD_VERSION: ${{ inputs.cargo-zigbuild-version }}
+      run: cargo install --locked --version "$CARGO_ZIGBUILD_VERSION" cargo-zigbuild
 
     - name: Cargo cache
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -50,6 +61,5 @@ runs:
     - name: Build against the target glibc
       shell: bash
       env:
-        # rusty_v8 137.3.0 imports memfd_create (glibc 2.27); restore 2.23 once that dependency is removed.
-        GLIBC_VERSION: ${{ inputs.glibc-version || '2.27' }}
+        GLIBC_VERSION: ${{ inputs.glibc-version }}
       run: cargo zigbuild --locked --release --target "x86_64-unknown-linux-gnu.$GLIBC_VERSION" --bin moon --bin moonrun
