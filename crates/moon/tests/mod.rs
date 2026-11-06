@@ -24,14 +24,17 @@ use util::*;
 
 pub(crate) use support::{build_graph, dry_run_utils, process, util};
 
+const TEST_CASES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test_cases");
+
 pub(crate) struct TestDir(moon_test_util::test_dir::TestDir);
 
 impl TestDir {
     // create a new TestDir with the test directory in tests/test_cases/<sub>
     fn new(sub: &str) -> Self {
-        let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
         Self(moon_test_util::test_dir::TestDir::from_case_root(
-            case_root, sub, true,
+            TEST_CASES_ROOT,
+            sub,
+            true,
         ))
     }
 
@@ -48,6 +51,68 @@ impl TestDir {
 impl AsRef<Path> for TestDir {
     fn as_ref(&self) -> &Path {
         self.0.as_ref()
+    }
+}
+
+pub(crate) struct Fixture {
+    cwd: PathBuf,
+    target_dir: Option<PathBuf>,
+    // Owns the temporary directory for the lifetime of the fixture's commands.
+    _workspace: TestDir,
+}
+
+impl Fixture {
+    /// Share checked-in sources. Only build outputs may be written by the test.
+    fn readonly(sub: &str) -> Self {
+        let workspace = TestDir::new_empty();
+        Self {
+            cwd: Path::new(TEST_CASES_ROOT).join(sub),
+            target_dir: Some(workspace.join("_build")),
+            _workspace: workspace,
+        }
+    }
+
+    /// Copy the sources into a private workspace and let Moon choose its normal build path.
+    fn copied(sub: &str) -> Self {
+        let workspace = TestDir::new(sub);
+        Self {
+            cwd: workspace.as_ref().to_owned(),
+            target_dir: None,
+            _workspace: workspace,
+        }
+    }
+
+    fn join(&self, sub: impl AsRef<Path>) -> PathBuf {
+        self.cwd.join(sub)
+    }
+
+    /// Change the command's working directory while keeping the fixture alive.
+    fn in_subdir(mut self, sub: &str) -> Self {
+        self.cwd.push(sub);
+        self
+    }
+}
+
+/// Working directory and optional build target for the Moon command helpers.
+pub trait TestCommandDir {
+    fn cwd(&self) -> &Path;
+    fn target_dir(&self) -> Option<&Path> {
+        None
+    }
+}
+
+impl<T: AsRef<Path> + ?Sized> TestCommandDir for T {
+    fn cwd(&self) -> &Path {
+        self.as_ref()
+    }
+}
+
+impl TestCommandDir for Fixture {
+    fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+    fn target_dir(&self) -> Option<&Path> {
+        self.target_dir.as_deref()
     }
 }
 
@@ -85,20 +150,19 @@ fn standalone_target_dir(dir: impl AsRef<Path>, source_filename: &str) -> PathBu
     dir.as_ref().join("_build").join(source_filename)
 }
 
-pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
-    snapbox::cmd::Command::new(moon_bin())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .env("MOONRUN_OVERRIDE", moonrun_bin())
-        .env("MOON_DEP_CACHE", "off")
-        .current_dir(dir)
+pub fn moon_cmd(dir: &impl TestCommandDir) -> snapbox::cmd::Command {
+    snapbox::cmd::Command::from_std(moon_process_cmd(dir))
 }
 
-pub fn moon_process_cmd(dir: &impl AsRef<Path>) -> std::process::Command {
+pub fn moon_process_cmd(dir: &impl TestCommandDir) -> std::process::Command {
     let mut cmd = std::process::Command::new(moon_bin());
     cmd.env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .env("MOONRUN_OVERRIDE", moonrun_bin())
         .env("MOON_DEP_CACHE", "off")
-        .current_dir(dir);
+        .current_dir(dir.cwd());
+    if let Some(target) = dir.target_dir() {
+        cmd.arg("--target-dir").arg(target);
+    }
     cmd
 }
 
@@ -114,7 +178,7 @@ enum OutputStream {
 
 #[track_caller]
 fn get_output_without_replace(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
     status: ExpectedStatus,
@@ -136,7 +200,7 @@ fn get_output_without_replace(
 
 #[track_caller]
 pub fn get_stdout(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
     let s = get_output_without_replace(
@@ -146,12 +210,12 @@ pub fn get_stdout(
         ExpectedStatus::Success,
         OutputStream::Stdout,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }
 
 #[track_caller]
 pub fn get_stdout_with_envs(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
@@ -162,12 +226,12 @@ pub fn get_stdout_with_envs(
         ExpectedStatus::Success,
         OutputStream::Stdout,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }
 
 #[track_caller]
 pub fn get_stderr(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
     let s = get_output_without_replace(
@@ -177,12 +241,12 @@ pub fn get_stderr(
         ExpectedStatus::Success,
         OutputStream::Stderr,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }
 
 #[track_caller]
 pub fn get_stderr_with_envs(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
@@ -193,12 +257,12 @@ pub fn get_stderr_with_envs(
         ExpectedStatus::Success,
         OutputStream::Stderr,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }
 
 #[track_caller]
 pub fn assert_success(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) {
     moon_cmd(dir).args(args).assert().success();
@@ -206,7 +270,7 @@ pub fn assert_success(
 
 #[track_caller]
 pub fn get_err_stdout(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
     let s = get_output_without_replace(
@@ -216,12 +280,12 @@ pub fn get_err_stdout(
         ExpectedStatus::Failure,
         OutputStream::Stdout,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }
 
 #[track_caller]
 pub fn get_err_stderr(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
     let s = get_output_without_replace(
@@ -231,12 +295,12 @@ pub fn get_err_stderr(
         ExpectedStatus::Failure,
         OutputStream::Stderr,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }
 
 #[track_caller]
 pub fn get_err_stderr_with_envs(
-    dir: &impl AsRef<std::path::Path>,
+    dir: &impl TestCommandDir,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
@@ -247,5 +311,5 @@ pub fn get_err_stderr_with_envs(
         ExpectedStatus::Failure,
         OutputStream::Stderr,
     );
-    replace_dir(&s, dir)
+    replace_dir(&s, dir.cwd())
 }

@@ -1,8 +1,8 @@
-use crate::{TestDir, build_graph, moon_cmd};
+use crate::{Fixture, build_graph, moon_cmd};
 use expect_test::expect_file;
 
 #[track_caller]
-fn assert_dry_run_graph(dir: &TestDir, args: &[&str], expected: expect_test::ExpectFile) {
+fn assert_dry_run_graph(dir: &Fixture, args: &[&str], expected: expect_test::ExpectFile) {
     build_graph::assert_with_replacements(
         moon_cmd(dir).args(args).env("MOONBIT_NEW_NATIVE", "0"),
         expected,
@@ -17,7 +17,7 @@ fn assert_dry_run_graph(dir: &TestDir, args: &[&str], expected: expect_test::Exp
 
 #[test]
 fn test_use_cc_for_native_release() {
-    let dir = TestDir::new("moon_test/hello_exec_fntest");
+    let dir = Fixture::copied("moon_test/hello_exec_fntest");
     // build
     {
         assert_dry_run_graph(

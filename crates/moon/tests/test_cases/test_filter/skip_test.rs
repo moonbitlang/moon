@@ -1,8 +1,8 @@
-use crate::{TestDir, get_stdout};
+use crate::{Fixture, get_stdout};
 
 #[test]
 fn test_skip_noncontiguous() {
-    let dir = TestDir::new("test_filter/skip_test");
+    let dir = Fixture::readonly("test_filter/skip_test");
     let stdout = get_stdout(&dir, ["test", "--verbose"]);
     assert!(
         !stdout.contains("hello_0"),
