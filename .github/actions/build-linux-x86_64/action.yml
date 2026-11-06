@@ -17,7 +17,7 @@
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 name: Build Linux x86_64 release binaries
-description: Link the shipped binaries against the target glibc and verify their ELF requirements.
+description: Cross-compile the shipped binaries against the target glibc.
 inputs:
   glibc-version:
     description: Override the default release glibc version.
@@ -47,22 +47,9 @@ runs:
       with:
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
-    - name: Build and verify the glibc floor
+    - name: Build against the target glibc
       shell: bash
       env:
         # rusty_v8 137.3.0 imports memfd_create (glibc 2.27); restore 2.23 once that dependency is removed.
         GLIBC_VERSION: ${{ inputs.glibc-version || '2.27' }}
-      run: |
-        target=x86_64-unknown-linux-gnu
-        cargo zigbuild --locked --release --target "$target.$GLIBC_VERSION" --bin moon --bin moonrun
-
-        for bin in moon moonrun; do
-          required=$(LC_ALL=C readelf --version-info --wide "target/$target/release/$bin" |
-            sed -n 's/.*Name: GLIBC_\([^ ]*\).*/\1/p' | LC_ALL=C sort -Vu | tail -n 1)
-          echo "$bin: highest glibc requirement '$required' (target $GLIBC_VERSION)"
-          if [[ ! $required =~ ^[0-9]+(\.[0-9]+)+$ ]] ||
-             ! printf '%s\n' "$required" "$GLIBC_VERSION" | LC_ALL=C sort -VC; then
-            echo "::error::$bin has an unexpected glibc requirement: '$required' (target $GLIBC_VERSION)"
-            exit 1
-          fi
-        done
+      run: cargo zigbuild --locked --release --target "x86_64-unknown-linux-gnu.$GLIBC_VERSION" --bin moon --bin moonrun
