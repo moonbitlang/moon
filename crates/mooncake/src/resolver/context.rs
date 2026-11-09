@@ -30,8 +30,6 @@ use semver::Version;
 
 use crate::registry::Registry;
 
-use super::ModuleResolutionError;
-
 /// Registry access, manifest caches, and diagnostics for module resolution.
 pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
     registry: &'a R,
@@ -118,15 +116,13 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
     }
 
     /// Resolve a local module from its **canonical** path.
-    pub(crate) fn resolve_local_module(
-        &mut self,
-        path: &Path,
-    ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
+    /// Return read errors unchanged; the caller adds dependency-edge context.
+    pub(crate) fn resolve_local_module(&mut self, path: &Path) -> anyhow::Result<Arc<MoonMod>> {
         if let Some(module) = self.local_module_cache.get(path) {
             return Ok(Arc::clone(module));
         }
 
-        let module = read_module_desc_file_in_dir(path).map_err(ModuleResolutionError::Other)?;
+        let module = read_module_desc_file_in_dir(path)?;
         let rc_module = Arc::new(module);
         self.local_module_cache
             .insert(path.to_owned(), Arc::clone(&rc_module));

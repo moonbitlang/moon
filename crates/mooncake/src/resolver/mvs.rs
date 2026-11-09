@@ -39,6 +39,15 @@ use crate::registry::{Registry, RegistryModuleNotFound, RegistryVersionNotFound}
 
 type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 
+/// Where to read a module, without any incoming dependency's version constraint.
+/// Unlike a ModuleSource, a local target has no actual version until it is read.
+/// Input roots already carry their manifest and need no further read.
+enum DependencyTarget {
+    Root(ModuleSource, Arc<MoonMod>),
+    Local { name: ModuleName, path: PathBuf },
+    Registry(ModuleSource),
+}
+
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
 /// See https://research.swtch.com/vgo-mvs for more information.
@@ -70,60 +79,43 @@ fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
     (lhs.major < 2 && rhs.major < 2) || lhs.major == rhs.major
 }
 
-fn resolve_registry_module<R: Registry>(
-    context: &mut ModuleResolutionContext<'_, R>,
-    dependency: &ModuleName,
+/// Attach the incoming dependency edge to a query failure, after the read.
+fn module_read_error(
+    target: &DependencyTarget,
     dependant: &ModuleName,
-    req: &SourceDependencyInfo,
-    user_log: &UserLog,
-) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
-    let required = req.version().ok_or_else(|| {
-        ModuleResolutionError::Other(anyhow!(
-            "Registry dependency `{}` for module `{}` must specify a version",
-            dependency,
-            dependant
-        ))
-    })?;
-
-    // Traverse the declared version's dependencies before merging MVS requirements.
-    // Substituting a later release here would let registry changes alter the graph.
-    let source = ModuleSource::from_version(dependency.clone(), required.clone())
-        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
-    // A registry query describes the exact version; this edge supplies the
-    // requesting module for diagnostics.
-    let module = context
-        .get_registry_module(dependency, required)
-        .map_err(|error| {
+    error: anyhow::Error,
+) -> ModuleResolutionError {
+    match target {
+        DependencyTarget::Registry(source) => {
             if error.is::<RegistryModuleNotFound>() {
                 ModuleResolutionError::ModuleMissing {
-                    dependency: dependency.clone(),
+                    dependency: source.name().clone(),
                     dependant: dependant.clone(),
                 }
             } else if error.is::<RegistryVersionNotFound>() {
                 ModuleResolutionError::VersionMissing {
-                    dependency: dependency.clone(),
+                    dependency: source.name().clone(),
                     dependant: dependant.clone(),
-                    required: required.clone(),
+                    required: source.version().clone(),
                 }
             } else {
                 ModuleResolutionError::RegistryReadFailed {
-                    dependency: dependency.clone(),
+                    dependency: source.name().clone(),
                     dependant: dependant.clone(),
-                    required: required.clone(),
+                    required: source.version().clone(),
                     source: error,
                 }
             }
-        })
-        .inspect_err(|error| {
-            if matches!(
-                error,
-                ModuleResolutionError::ModuleMissing { .. }
-                    | ModuleResolutionError::VersionMissing { .. }
-            ) {
-                user_log.warn("you may need to run `moon update` to update the registry");
-            }
-        })?;
-    Ok((source, module))
+        }
+        DependencyTarget::Local { name, path } => ModuleResolutionError::Other(anyhow!(
+            "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
+            name,
+            dependant,
+            path.display(),
+            error
+        )),
+        DependencyTarget::Root(..) => ModuleResolutionError::Other(error),
+    }
 }
 
 /// Checks whether resolving local dependency is allowed for the dependant package
@@ -253,10 +245,9 @@ fn mvs_resolve<R: Registry>(
         for (name, req) in &module.deps {
             let module_name = name.as_str().into();
 
-            let (ms, module) = match resolve_module_dependency(
+            let target = match locate_module_dependency(
                 req,
                 &source,
-                context,
                 &workspace_roots,
                 &module_name,
                 user_log,
@@ -265,6 +256,59 @@ fn mvs_resolve<R: Registry>(
                 Err(e) => {
                     context.report_error(e);
                     continue;
+                }
+            };
+            let module = match read_module_dependency(&target, context) {
+                Ok(module) => module,
+                Err(error) => {
+                    let error = module_read_error(&target, source.name(), error);
+                    if matches!(
+                        error,
+                        ModuleResolutionError::ModuleMissing { .. }
+                            | ModuleResolutionError::VersionMissing { .. }
+                    ) {
+                        user_log.warn("you may need to run `moon update` to update the registry");
+                    }
+                    context.report_error(error);
+                    continue;
+                }
+            };
+            let ms = match target {
+                DependencyTarget::Root(source, _) => source,
+                DependencyTarget::Registry(source) => {
+                    tracing::debug!(
+                        dependency = %source.name(),
+                        selected = %source.version(),
+                        "resolved registry dependency"
+                    );
+                    source
+                }
+                DependencyTarget::Local { name, path } => {
+                    let ms = match ModuleSource::new_full(
+                        name,
+                        module.version.clone().expect("Expected version in module"),
+                        ModuleSourceKind::Local(path),
+                    ) {
+                        Ok(source) => source,
+                        Err(error) => {
+                            context.report_error(ModuleResolutionError::Other(error.into()));
+                            continue;
+                        }
+                    };
+                    // The minimum version belongs to this dependency edge;
+                    // reading the target only tells us the actual version.
+                    if let Some(required) = req.version()
+                        && !mvs_requirement_matches(required, ms.version())
+                    {
+                        context.report_error(ModuleResolutionError::LocalDepVersionMismatch {
+                            dependant: source.name().clone(),
+                            dependency: module_name.clone(),
+                            actual: ms.version().clone(),
+                            required: required.clone(),
+                        });
+                        continue;
+                    }
+                    ms
                 }
             };
 
@@ -417,14 +461,15 @@ fn mvs_resolve<R: Registry>(
     true
 }
 
-fn resolve_module_dependency<R: Registry>(
+/// Choose a root, a canonical local directory, or an exact registry version.
+/// Locating a target does not read a manifest or query the registry.
+fn locate_module_dependency(
     req: &SourceDependencyInfo,
     dependant: &ModuleSource,
-    context: &mut ModuleResolutionContext<'_, R>,
     workspace_roots: &WorkspaceRoots,
     module_name: &ModuleName,
     user_log: &UserLog,
-) -> Result<(ModuleSource, Arc<MoonMod>), ModuleResolutionError> {
+) -> Result<DependencyTarget, ModuleResolutionError> {
     // Registry metadata bypasses manifest parsing, so check transitive
     // requirements here as well as declarations read from manifests.
     module_name
@@ -439,7 +484,7 @@ fn resolve_module_dependency<R: Registry>(
             resolved = %source,
             "resolved dependency to workspace module"
         );
-        return Ok((source.clone(), Arc::clone(module)));
+        return Ok(DependencyTarget::Root(source.clone(), Arc::clone(module)));
     }
 
     if let Some(path) = req.path()
@@ -473,48 +518,41 @@ fn resolve_module_dependency<R: Registry>(
                 dep_path.display()
             )));
         }
-        let module = context
-            .resolve_local_module(&dep_path)
-            .map_err(|err| match err {
-                ModuleResolutionError::Other(err) => ModuleResolutionError::Other(anyhow!(
-                    "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
-                    module_name,
-                    dependant.name(),
-                    dep_path.display(),
-                    err
-                )),
-                err => err,
-            })?;
-        let ms = ModuleSource::new_full(
-            module_name.clone(),
-            module.version.clone().expect("Expected version in module"),
-            ModuleSourceKind::Local(dep_path),
-        )
-        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
-        // Assert version matches
-        if let Some(actual) = &module.version
-            && let Some(required) = req.version()
-            && !mvs_requirement_matches(required, actual)
-        {
-            return Err(ModuleResolutionError::LocalDepVersionMismatch {
-                dependant: dependant.name().clone(),
-                dependency: module_name.clone(),
-                actual: actual.clone(),
-                required: required.clone(),
-            });
-        }
-        return Ok((ms, module));
+        return Ok(DependencyTarget::Local {
+            name: module_name.clone(),
+            path: dep_path,
+        });
     }
+
     // Registry dependencies do not apply local path overrides from published modules.
-    let (ms, module) =
-        resolve_registry_module(context, module_name, dependant.name(), req, user_log)?;
-    tracing::debug!(
-        dependency = %module_name,
-        required = ?req,
-        selected = %ms.version(),
-        "resolved registry dependency"
-    );
-    Ok((ms, module))
+    let required = req.version().ok_or_else(|| {
+        ModuleResolutionError::Other(anyhow!(
+            "Registry dependency `{}` for module `{}` must specify a version",
+            module_name,
+            dependant.name()
+        ))
+    })?;
+    // Traverse the declared version's dependencies before merging MVS requirements.
+    // Substituting a later release here would let registry changes alter the graph.
+    let source = ModuleSource::from_version(module_name.clone(), required.clone())
+        .map_err(|err| ModuleResolutionError::Other(err.into()))?;
+    tracing::debug!(dependency = %module_name, required = ?req, "located registry dependency");
+    Ok(DependencyTarget::Registry(source))
+}
+
+/// Read only the target's manifest. Requirements and dependant-specific
+/// diagnostics belong to the traversal that consumes the result.
+fn read_module_dependency<R: Registry>(
+    target: &DependencyTarget,
+    context: &mut ModuleResolutionContext<'_, R>,
+) -> anyhow::Result<Arc<MoonMod>> {
+    match target {
+        DependencyTarget::Root(_, module) => Ok(Arc::clone(module)),
+        DependencyTarget::Registry(source) => {
+            context.get_registry_module(source.name(), source.version())
+        }
+        DependencyTarget::Local { path, .. } => context.resolve_local_module(path),
+    }
 }
 
 #[cfg(test)]
@@ -522,6 +560,7 @@ mod test {
     use std::{cell::RefCell, collections::HashSet};
 
     use expect_test::expect;
+    use moonutil::dependency::SourceLocalDependencyInfo;
     use moonutil::resolution::ModuleId;
     use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
@@ -823,6 +862,79 @@ mod test {
         let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
         assert_depends_on(&module_graph, "root/module@0.1.0", "dep/one@0.1.1");
+    }
+
+    #[test]
+    fn local_target_reads_its_actual_version_after_location() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let local = dir.path().join("local");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&local).unwrap();
+        let dependant = ModuleSource::local_path(
+            "test/root".into(),
+            dunce::canonicalize(root).unwrap(),
+            Version::new(1, 0, 0),
+        )
+        .unwrap();
+        let name: ModuleName = "dep/local".into();
+        let registry = MockRegistry::new();
+        let user_log = UserLog::new(log::LevelFilter::Error);
+        for (required, compatible) in [
+            (None, true),
+            (Some(Version::new(1, 0, 0)), true),
+            (Some(Version::new(1, 2, 0)), false),
+        ] {
+            let req = SourceDependencyInfo::Local(SourceLocalDependencyInfo {
+                path: "../local".into(),
+                version: required.clone(),
+            });
+            // Location must not parse the manifest or infer its version from
+            // the requirement. The reader sees the actual version afterward.
+            std::fs::write(local.join(MOON_MOD), "invalid manifest").unwrap();
+            let target =
+                locate_module_dependency(&req, &dependant, &HashMap::new(), &name, &user_log)
+                    .unwrap();
+            std::fs::write(
+                local.join(MOON_MOD),
+                "name = \"dep/local\"\nversion = \"1.1.0\"\n",
+            )
+            .unwrap();
+            let mut context = ModuleResolutionContext::new(&registry);
+            // Reading succeeds even when this edge's minimum is incompatible.
+            let module = read_module_dependency(&target, &mut context).unwrap();
+            assert_eq!(module.version, Some(Version::new(1, 1, 0)));
+            let mut root = create_mock_module("test/root", "1.0.0", []);
+            root.deps.insert(name.to_string(), req);
+            let roots = ResolvedModule::only_one_module(dependant.clone(), Arc::new(root)).0;
+            let mut graph = ModuleDependencyGraph::from_root_modules(roots);
+            assert_eq!(
+                resolve_silently(&mut MvsSolver, &mut context, &mut graph),
+                compatible
+            );
+            if compatible {
+                let source = ModuleSource::local_path(
+                    name.clone(),
+                    dunce::canonicalize(&local).unwrap(),
+                    Version::new(1, 1, 0),
+                )
+                .unwrap();
+                assert_depends_on_source(&graph, &dependant, &source);
+            } else {
+                let mut errors = context.into_errors();
+                assert_eq!(errors.len(), 1);
+                assert!(matches!(
+                    errors.pop().unwrap(),
+                    ModuleResolutionError::LocalDepVersionMismatch {
+                        dependency,
+                        dependant: parent,
+                        actual,
+                        required: minimum,
+                    } if dependency == name && parent == *dependant.name()
+                        && actual == Version::new(1, 1, 0) && Some(&minimum) == required.as_ref()
+                ));
+            }
+        }
     }
 
     #[test]
