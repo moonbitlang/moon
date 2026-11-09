@@ -99,7 +99,7 @@ fn assert_conflicting_workspace_preferred_targets_build_uses_module_backends(
 
 #[test]
 fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let check_err = get_err_stderr(&dir, ["check", "server", "--target", "js", "--dry-run"]);
     assert!(
@@ -110,7 +110,7 @@ fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
 
 #[test]
 fn test_mixed_backend_explicit_multi_path_selection_filters_unsupported_packages() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let check_out = get_stdout(
         &dir,
@@ -159,7 +159,7 @@ fn test_mixed_backend_explicit_multi_path_selection_filters_unsupported_packages
 
 #[test]
 fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let stderr = get_stderr(
         &dir,
@@ -191,7 +191,7 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
 
 #[test]
 fn test_moon_build_package_selection_uses_user_log_policy() {
-    let dir = TestDir::new("supported_targets_empty.in");
+    let dir = Fixture::readonly("supported_targets_empty.in");
     let assert = moon_cmd(&dir)
         .args([
             "build",
@@ -225,7 +225,7 @@ fn test_moon_build_package_selection_uses_user_log_policy() {
 
 #[test]
 fn test_moon_build_package_selection_preserves_warning_labels() {
-    let dir = TestDir::new("hello");
+    let dir = Fixture::readonly("hello");
 
     moon_cmd(&dir)
         .args([
@@ -244,7 +244,7 @@ Warning: Package 'moonbitlang/core/array' matched by name 'moonbitlang/core/arra
 
 #[test]
 fn test_mixed_backend_split_check_keeps_single_package_patch_file_rule() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let stderr = get_err_stderr(
         &dir,
@@ -331,7 +331,7 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
 
 #[test]
 fn test_build_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["build", "--dry-run", "--sort-input"]);
     assert!(
@@ -387,7 +387,7 @@ fn test_build_paths_split_by_module_preferred_targets() {
 
 #[test]
 fn test_supported_targets_empty_list_is_never_selected() {
-    let dir = TestDir::new("supported_targets_empty.in");
+    let dir = Fixture::readonly("supported_targets_empty.in");
 
     let explicit_err = get_err_stderr(&dir, ["check", "never", "--target", "js", "--dry-run"]);
     assert!(
@@ -442,7 +442,7 @@ fn test_moon_info_quiet_keeps_command_result_and_suppresses_user_log() {
 
 #[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
-    let dir = TestDir::new("supported_targets_module_intersection.in");
+    let dir = Fixture::readonly("supported_targets_module_intersection.in");
 
     let js_err = get_err_stderr(&dir, ["check", "lib", "--target", "js", "--dry-run"]);
     assert!(
@@ -488,7 +488,7 @@ fn test_packages_json_contains_computed_supported_targets() {
 
 #[test]
 fn test_supported_targets_transitive_mismatch_fails_fast() {
-    let dir = TestDir::new("supported_targets_transitive_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_transitive_mismatch.in");
 
     let check_err = get_err_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(check_err.contains("Failed to calculate build plan"));
@@ -577,7 +577,7 @@ fn test_run_without_module_preference_ignores_unrelated_module_preference() {
 
 #[test]
 fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
-    let dir = TestDir::new("supported_targets_virtual_root_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_virtual_root_mismatch.in");
 
     let check_err = get_err_stderr(&dir, ["check", "virtual", "--target", "js", "--dry-run"]);
     assert!(check_err.contains("incompatible with the dependency graph"));
@@ -598,7 +598,7 @@ fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
 
 #[test]
 fn test_check_skips_unrealizable_test_targets_when_source_supports_backend() {
-    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_test_target_mismatch.in");
 
     let check_out = get_stdout(
         &dir,
@@ -613,7 +613,7 @@ fn test_check_skips_unrealizable_test_targets_when_source_supports_backend() {
 
 #[test]
 fn test_test_skips_unrealizable_test_targets_when_source_supports_backend() {
-    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_test_target_mismatch.in");
 
     let test_out = get_stdout(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
     assert_contains_and_absent(
@@ -625,7 +625,7 @@ fn test_test_skips_unrealizable_test_targets_when_source_supports_backend() {
 
 #[test]
 fn test_check_warns_when_test_target_is_never_realizable() {
-    let dir = TestDir::new("supported_targets_test_target_unrealizable.in");
+    let dir = Fixture::readonly("supported_targets_test_target_unrealizable.in");
 
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(stderr.contains("Skipping whitebox tests for package"));
@@ -636,7 +636,7 @@ fn test_check_warns_when_test_target_is_never_realizable() {
 
 #[test]
 fn test_test_warns_when_test_target_is_never_realizable() {
-    let dir = TestDir::new("supported_targets_test_target_unrealizable.in");
+    let dir = Fixture::readonly("supported_targets_test_target_unrealizable.in");
 
     let stderr = get_stderr(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
     assert!(stderr.contains("Skipping whitebox tests for package"));
@@ -647,7 +647,7 @@ fn test_test_warns_when_test_target_is_never_realizable() {
 
 #[test]
 fn test_check_skips_backend_mismatched_tests_as_info() {
-    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_test_target_mismatch.in");
 
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(!stderr.contains("target is not realizable for this backend"));
@@ -661,7 +661,7 @@ fn test_check_skips_backend_mismatched_tests_as_info() {
 
 #[test]
 fn test_missing_supported_targets_root_warns_when_dep_declares() {
-    let dir = TestDir::new("supported_targets_missing_root_warning.in");
+    let dir = Fixture::readonly("supported_targets_missing_root_warning.in");
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(stderr.contains("does not declare `supported_targets`"));
     assert!(stderr.contains("supported/missing-root/main"));
@@ -686,7 +686,7 @@ fn test_legacy_supported_targets_warning_is_local_only() {
 
 #[test]
 fn test_check_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["check", "--dry-run", "--sort-input"]);
     assert!(
@@ -811,7 +811,7 @@ fn test_conflicting_workspace_preferred_targets_default_to_wasm_across_other_com
 
 #[test]
 fn test_test_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["test", "--dry-run", "--sort-input"]);
     assert!(
@@ -831,7 +831,7 @@ fn test_test_conflicting_workspace_preferred_targets_do_not_warn() {
 
 #[test]
 fn test_bench_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["bench", "--dry-run", "--sort-input"]);
     assert!(
@@ -909,7 +909,7 @@ fn test_test_without_target_respects_module_preferred_targets() {
 
 #[test]
 fn test_test_split_package_selection_keeps_multi_package_file_guard() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let stderr = get_err_stderr(
         &dir,
