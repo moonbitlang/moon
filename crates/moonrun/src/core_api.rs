@@ -20,6 +20,7 @@
 
 mod environment;
 mod registry;
+mod windows_time;
 
 pub(crate) use registry::register;
 

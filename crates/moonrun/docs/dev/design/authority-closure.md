@@ -312,6 +312,11 @@ mediate SQLite auxiliary files, TLS trust discovery, clocks, randomness, or
 library initialization. Tests for those surfaces must exercise indirect effects
 as well as the immediate import.
 
+On Windows, a guest can query the configured system timezone under an empty
+policy. Each query uses a timezone handle, so the host selects the registry key.
+See [Windows timezone imports](../windows-timezone-abi.md) for the scope of
+these reads.
+
 Helper and native execution need explicit grants coordinated with execution
 ownership. Permission to invoke a program does not confine the program's
 filesystem, network, or process access. Guest Wasm rules do not sandbox build
