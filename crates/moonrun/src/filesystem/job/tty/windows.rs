@@ -18,17 +18,29 @@
 
 use std::os::windows::io::AsRawHandle;
 
-use windows_sys::Win32::Foundation::{ERROR_OPERATION_ABORTED, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Console::{
-    GetNumberOfConsoleInputEvents, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW,
-    WINDOW_BUFFER_SIZE_EVENT,
-};
+use windows_sys::Win32::Foundation::{ERROR_OPERATION_ABORTED, HANDLE, WAIT_OBJECT_0};
+use windows_sys::Win32::System::Console::{INPUT_RECORD, KEY_EVENT, WINDOW_BUFFER_SIZE_EVENT};
 use windows_sys::Win32::System::Threading::{INFINITE, WaitForMultipleObjects};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_MENU;
+use windows_sys::core::BOOL;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use crate::resource::Resource;
+
+// <https://learn.microsoft.com/windows/console/readconsoleinputex>: exported by
+// kernel32 but absent from the SDK headers and import libraries, hence from
+// windows-sys. `windows_link` binds it without an import library.
+windows_link::link!("kernel32.dll" "system" fn ReadConsoleInputExW(
+    input: HANDLE,
+    buffer: *mut INPUT_RECORD,
+    length: u32,
+    read: *mut u32,
+    flags: u16,
+) -> BOOL);
+
+/// Return immediately, even if the input buffer has no events.
+const CONSOLE_READ_NOWAIT: u16 = 0x0002;
 
 /// `TTY_READ_RESIZED` in the native runtime: the wait ended because the
 /// window was resized, and no input was consumed.
@@ -91,28 +103,23 @@ pub(in crate::filesystem::job) fn read_console_input(
                 _ => Err(last_error()),
             }
         })?;
-        let mut available = 0;
-        if unsafe { GetNumberOfConsoleInputEvents(input, &mut available) } == 0 {
+        // Another reader of the console can drain it after the wakeup. A
+        // blocking read would then wait for more input, out of reach of the
+        // cancellation event, so read without waiting and wait again if the
+        // console is empty.
+        let mut count = 0;
+        if unsafe {
+            ReadConsoleInputExW(
+                input,
+                records.as_mut_ptr(),
+                max_records,
+                &mut count,
+                CONSOLE_READ_NOWAIT,
+            )
+        } == 0
+        {
             return Err(last_error());
         }
-        if available == 0 {
-            continue;
-        }
-        let count = with_cancellable_region(|| {
-            let mut count = 0;
-            if unsafe {
-                ReadConsoleInputW(
-                    input,
-                    records.as_mut_ptr(),
-                    available.min(max_records),
-                    &mut count,
-                )
-            } == 0
-            {
-                return Err(last_error());
-            }
-            Ok(count)
-        })?;
         *resized = records_to_text(&records[..count as usize], &mut text);
         if !text.is_empty() || *resized {
             let ret = if text.is_empty() {
