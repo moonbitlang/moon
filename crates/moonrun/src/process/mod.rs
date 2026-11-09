@@ -16,18 +16,20 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Wasm-backend-neutral process operations owned by one moonrun Runtime.
+//! Wasm-backend-neutral process operations and Moon artifact preparation.
 //!
-//! [`HostProcess`] is the module interface used by the async host. Policy,
+//! [`HostProcess`] is the Runtime-owned interface used by the async host. Policy,
 //! working-directory configuration, and child provenance stay above the
 //! native workers and [`os`] process mechanisms. Supervised Runs instead resolve
 //! guest process identities and waits within their virtual process tree.
+//! [`prepare_moon`] runs host-selected helpers and owns their artifact handoff.
 
 mod job;
 mod lookup;
 mod moon;
 pub(crate) mod native;
 pub(crate) mod os;
+mod prepare_artifact;
 mod spawn;
 #[cfg(test)]
 mod tests;
@@ -44,6 +46,7 @@ use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::Job;
 pub(crate) use os::SpawnOptions;
+pub(crate) use prepare_artifact::{Preparation, prepare_moon};
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]

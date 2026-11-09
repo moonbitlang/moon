@@ -222,7 +222,7 @@ to the guest caller. Windows handles retain the exit status after reaping.
 Help/version and parse errors complete with bound stdio and CLI status, without
 a helper or handoff directory. Execution requests ask a host-selected Moon/moonx
 helper to hand off Wasm, source map, arguments, cwd and optional policy, then use
-the same Engine artifact execution flow. `prepare_artifact` only prepares the artifact and
+the same Engine artifact execution flow. `process::prepare_artifact` only prepares the artifact and
 borrows termination control. Engine retains its private delivery directory
 through Runtime teardown and cleanup; normal build caches stay with Moon.
 `run_file` also places file loading inside its execution scope. A Run borrows

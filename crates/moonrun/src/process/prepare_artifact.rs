@@ -94,7 +94,54 @@ pub(crate) fn prepare_moon(
     // Moon/n2 currently wait for tasks, not cooperatively cancel them. Until
     // helper cancellation lands, even Engine shutdown retains the
     // request and waits for helper exit before publishing completion.
-    let status = command.status().context("failed to run Moon build helper");
+    #[cfg(unix)]
+    let status = match config.preserved_child_signal_mask {
+        Some(mask) if executable.is_absolute() && config.default_environment.is_some() => {
+            use super::os;
+            use std::os::fd::AsRawFd;
+
+            // The resolved helper has a complete environment. Use the native
+            // spawn path to restore its signal mask without a pre_exec fork,
+            // including that path's signal defaults and old-glibc fallback.
+            let stdio = match &config.stdio {
+                RuntimeStdio::Ambient => [None; 3],
+                RuntimeStdio::Bound(files) => files
+                    .each_ref()
+                    .map(|file| file.as_ref().map(|file| file.lock().unwrap().as_raw_fd())),
+            };
+            os::spawn(os::Spawn {
+                executable: os::Executable::Ambient(command.get_program().to_owned()),
+                args: std::iter::once(command.get_program())
+                    .chain(command.get_args())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+                env: command
+                    .get_envs()
+                    .filter_map(|(key, value)| {
+                        value.map(|value| [key, value].join(std::ffi::OsStr::new("=")))
+                    })
+                    .collect(),
+                stdio,
+                cwd: command
+                    .get_current_dir()
+                    .map(|cwd| cwd.as_os_str().to_owned()),
+                child_signal_mask: mask,
+                inherited: None,
+            })
+            .and_then(|child| {
+                loop {
+                    match os::wait_pid(child.pid, false) {
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        result => return result,
+                    }
+                }
+            })
+        }
+        _ => command.status(),
+    };
+    #[cfg(not(unix))]
+    let status = command.status();
+    let status = status.context("failed to run Moon build helper");
     drop(command);
     if let Some(outcome) = request.get() {
         return Ok(Preparation::Exited(outcome.into()));

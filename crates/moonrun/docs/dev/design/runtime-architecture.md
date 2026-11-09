@@ -74,7 +74,7 @@ responsibilities have distinct owners within that interface.
 | Embedding caller / CLI | Select execution placement, root configuration and grants, signal forwarding, shutdown policy, and outcome presentation | [Library exports](../../../src/lib.rs), [CLI](../../../src/main.rs) |
 | Engine | Prepare reusable Loaded Modules, execute Wasm or prepared artifacts, and own execution scopes | [engine.rs](../../../src/engine.rs) |
 | Engine supervision | Own process admission, identities, parentage, control, adoption, completion, and reaping | [process_tree.rs](../../../src/process_tree.rs) |
-| Artifact preparation | Invoke Moon and retain delivered artifacts without executing guest code or finalizing control | [prepare_artifact.rs](../../../src/prepare_artifact.rs) |
+| Artifact preparation | Invoke Moon and retain delivered artifacts without executing guest code or finalizing control | [prepare_artifact.rs](../../../src/process/prepare_artifact.rs) |
 | Run | Execute Wasm synchronously and return after its Runtime and guest execution state have torn down | `Engine::run` and its scoped implementation |
 | Runtime | Realize one environment and wire its Host Domains, shared state, Handles, and authorization inputs | [runtime/mod.rs](../../../src/runtime/mod.rs) |
 
