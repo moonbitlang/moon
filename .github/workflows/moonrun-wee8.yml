@@ -21,10 +21,28 @@ name: Moonrun wee8
 on:
   push:
     branches: [main]
-    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
+    paths:
+      - 'crates/moonrun/**'
+      - 'third_party/moonbitlang_async'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/moonrun-wee8.yml'
+      - '.github/scripts/prune-rust-toolchains.sh'
+      - '.github/actions/setup-wee8/**'
+      - '.github/scripts/download-release.sh'
+      - '.github/scripts/prepare-wee8.py'
   pull_request:
     branches: [main]
-    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
+    paths:
+      - 'crates/moonrun/**'
+      - 'third_party/moonbitlang_async'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/moonrun-wee8.yml'
+      - '.github/scripts/prune-rust-toolchains.sh'
+      - '.github/actions/setup-wee8/**'
+      - '.github/scripts/download-release.sh'
+      - '.github/scripts/prepare-wee8.py'
 
 permissions:
   contents: read
@@ -63,6 +81,7 @@ jobs:
           shared-key: moonrun-wee8
           cache-targets: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/setup-wee8
       - name: Install MoonBit (Unix)
         if: runner.os != 'Windows'
         run: |

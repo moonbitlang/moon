@@ -28,6 +28,9 @@ on:
   merge_group:
     types: [checks_requested]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -40,6 +43,9 @@ jobs:
   CCAA-check:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       CCAA-signed: ${{ steps.CCAA-check-step.outputs.CCAA-signed }}
     steps:
@@ -83,7 +89,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download HawkEye
-        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/korandoru/hawkeye/releases/download/$HAWKEYE_VERSION/hawkeye-installer.sh | sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          directory="$RUNNER_TEMP/hawkeye"
+          bash .github/scripts/download-release.sh "$HAWKEYE_VERSION" \
+            --repo korandoru/hawkeye --dir "$directory" \
+            --pattern 'hawkeye-x86_64-unknown-linux-gnu.tar.xz*'
+          (cd "$directory" && sha256sum --check hawkeye-*.sha256)
+          tar -xJf "$directory"/hawkeye-*.tar.xz -C "$directory" --strip-components=1
+          echo "$directory" >> "$GITHUB_PATH"
       - name: License Header Check
         run: hawkeye check
 
@@ -95,12 +110,20 @@ jobs:
       FORCE_COLOR: 1
       TYPOS_VERSION: v1.18.0
     steps:
-      - name: download typos
-        run: curl -LsSf https://github.com/crate-ci/typos/releases/download/$TYPOS_VERSION/typos-$TYPOS_VERSION-x86_64-unknown-linux-musl.tar.gz | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Download typos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          directory="$RUNNER_TEMP/typos"
+          bash .github/scripts/download-release.sh "$TYPOS_VERSION" \
+            --repo crate-ci/typos --dir "$directory" \
+            --pattern "typos-$TYPOS_VERSION-x86_64-unknown-linux-musl.tar.gz"
+          tar -xzf "$directory"/typos-*.tar.gz -C "$directory"
+          echo "$directory" >> "$GITHUB_PATH"
       - name: check for typos
         run: typos
 
@@ -112,9 +135,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup mdBook
-        uses: peaceiris/actions-mdbook@v2
-        with:
-          mdbook-version: 'latest'
+        uses: ./.github/actions/setup-mdbook
 
       - name: Build and Check mdBook
         run: |
@@ -154,6 +175,8 @@ jobs:
           submodules: true
 
       - uses: ./.github/actions/setup-debug-cache
+
+      - uses: ./.github/actions/setup-rusty-v8
 
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}
@@ -231,6 +254,8 @@ jobs:
 
       - uses: ./.github/actions/setup-debug-cache
 
+      - uses: ./.github/actions/setup-rusty-v8
+
       - name: install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
@@ -300,6 +325,8 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: ./.github/actions/setup-rusty-v8
 
       - name: install MoonBit(Unix)
         if: ${{ matrix.os != 'windows-latest' }}

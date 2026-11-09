@@ -58,6 +58,10 @@ runs:
       with:
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
+    - uses: ./.github/actions/setup-rusty-v8
+      with:
+        target: x86_64-unknown-linux-gnu
+
     - name: Build against the target glibc
       shell: bash
       env:

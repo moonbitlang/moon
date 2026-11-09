@@ -1,0 +1,87 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Set up wee8 archive
+description: Cache and verify the pinned wee8 release before providing local files to Cargo.
+runs:
+  using: composite
+  steps:
+    - name: Resolve wee8 archive
+      id: archive
+      shell: bash
+      env:
+        # The documented offline override must match the native release of the
+        # pinned Rust wrapper. Review this pair together when updating wee8.
+        WEE8_REVISION: 4c2ed0621ee47ff36b3a1be373d28d397dfe3019
+        WEE8_RELEASE: v0.106.0-moonbit.7
+      run: |
+        source=$(awk '
+          $0 == "name = \"wee8\"" { found = 1; next }
+          found && $1 == "source" { gsub(/"/, "", $3); print $3; exit }
+        ' Cargo.lock)
+        if [[ "$source" != "git+https://github.com/moonbitlang/v8-custom-builds.git?rev=$WEE8_REVISION#$WEE8_REVISION" ]]; then
+          echo "::error::Update setup-wee8's revision/release pair to match Cargo.lock."
+          exit 1
+        fi
+        target=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r')
+        case "$target" in
+          x86_64-pc-windows-msvc) asset="wee8_release_${target}.lib.gz" ;;
+          x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|aarch64-apple-darwin)
+            asset="libwee8_release_${target}.a.gz" ;;
+          *) echo "::error::Unsupported wee8 release target: $target"; exit 1 ;;
+        esac
+        {
+          echo "release=$WEE8_RELEASE"
+          echo "target=$target"
+          echo "asset=$asset"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore wee8 downloads
+      id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/wee8/downloads
+        key: wee8-v1-${{ steps.archive.outputs.release }}-${{ steps.archive.outputs.target }}
+
+    - name: Download wee8 archive and headers
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE: ${{ steps.archive.outputs.release }}
+        TARGET: ${{ steps.archive.outputs.target }}
+        ASSET: ${{ steps.archive.outputs.asset }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/../../scripts/download-release.sh" "$RELEASE" \
+          --repo moonbitlang/v8-custom-builds --dir "$RUNNER_TEMP/wee8/downloads" \
+          --pattern "$ASSET" --pattern "SHA256SUMS_$TARGET" \
+          --pattern "wee8_c_api_$TARGET.h" --pattern "wasm_c_api_$TARGET.h"
+
+    - name: Verify and prepare local wee8 files
+      shell: bash
+      env:
+        TARGET: ${{ steps.archive.outputs.target }}
+        ASSET: ${{ steps.archive.outputs.asset }}
+      run: python3 "$GITHUB_ACTION_PATH/../../scripts/prepare-wee8.py"
+
+    - name: Save wee8 downloads
+      if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/wee8/downloads
+        key: ${{ steps.cache.outputs.cache-primary-key }}
