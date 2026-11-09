@@ -64,7 +64,7 @@ runs:
         VERSION: ${{ steps.archive.outputs.version }}
         ASSET: ${{ steps.archive.outputs.asset }}
       run: |
-        bash "$GITHUB_ACTION_PATH/../../scripts/download-release.sh" "v$VERSION" \
+        gh release download "v$VERSION" \
           --repo denoland/rusty_v8 --pattern "$ASSET" --dir "$RUNNER_TEMP/rusty-v8"
 
     - name: Use local rusty_v8 archive

@@ -29,7 +29,6 @@ on:
       - '.github/workflows/moonrun-wee8.yml'
       - '.github/scripts/prune-rust-toolchains.sh'
       - '.github/actions/setup-wee8/**'
-      - '.github/scripts/download-release.sh'
       - '.github/scripts/prepare-wee8.py'
   pull_request:
     branches: [main]
@@ -41,7 +40,6 @@ on:
       - '.github/workflows/moonrun-wee8.yml'
       - '.github/scripts/prune-rust-toolchains.sh'
       - '.github/actions/setup-wee8/**'
-      - '.github/scripts/download-release.sh'
       - '.github/scripts/prepare-wee8.py'
 
 permissions:

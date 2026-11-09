@@ -27,7 +27,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
       run: |
         directory="$RUNNER_TEMP/mdbook"
-        bash "$GITHUB_ACTION_PATH/../../scripts/download-release.sh" \
+        gh release download \
           --repo rust-lang/mdBook \
           --pattern 'mdbook-*-x86_64-unknown-linux-gnu.tar.gz' \
           --dir "$directory"

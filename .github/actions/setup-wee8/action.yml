@@ -67,7 +67,7 @@ runs:
         TARGET: ${{ steps.archive.outputs.target }}
         ASSET: ${{ steps.archive.outputs.asset }}
       run: |
-        bash "$GITHUB_ACTION_PATH/../../scripts/download-release.sh" "$RELEASE" \
+        gh release download "$RELEASE" \
           --repo moonbitlang/v8-custom-builds --dir "$RUNNER_TEMP/wee8/downloads" \
           --pattern "$ASSET" --pattern "SHA256SUMS_$TARGET" \
           --pattern "wee8_c_api_$TARGET.h" --pattern "wasm_c_api_$TARGET.h"

@@ -28,7 +28,6 @@ on:
       - '.github/workflows/moonrun-conformance.yml'
       - '.github/actions/setup-debug-cache/**'
       - '.github/actions/setup-rusty-v8/**'
-      - '.github/scripts/download-release.sh'
       - '.github/scripts/prune-rust-toolchains.sh'
   pull_request:
     branches:
@@ -39,7 +38,6 @@ on:
       - '.github/workflows/moonrun-conformance.yml'
       - '.github/actions/setup-debug-cache/**'
       - '.github/actions/setup-rusty-v8/**'
-      - '.github/scripts/download-release.sh'
       - '.github/scripts/prune-rust-toolchains.sh'
 
 concurrency:
