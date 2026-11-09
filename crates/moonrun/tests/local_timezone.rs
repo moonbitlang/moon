@@ -129,6 +129,106 @@ fn windows_capture_and_queries_preserve_native_results_under_empty_policy() {
 
 #[cfg(windows)]
 #[test]
+fn year_queries_preserve_native_results_at_calendar_and_integer_boundaries() {
+    use std::fmt::Write;
+    use windows_sys::Win32::System::Time::{
+        DYNAMIC_TIME_ZONE_INFORMATION, GetDynamicTimeZoneInformation,
+        GetTimeZoneInformationForYear, TIME_ZONE_ID_INVALID, TIME_ZONE_INFORMATION,
+    };
+
+    let mut zone = DYNAMIC_TIME_ZONE_INFORMATION::default();
+    assert_ne!(
+        unsafe { GetDynamicTimeZoneInformation(&mut zone) },
+        TIME_ZONE_ID_INVALID
+    );
+    let mut body = String::from(
+        "(call $eq (call $capture (i32.const 0)) (i32.const 0))\n\
+         (local.set $handle (i64.load (i32.const 0)))\n",
+    );
+    // Compare both success and failure with Win32: fitting in USHORT does not
+    // guarantee that the OS supports a year. Use an unaligned guest buffer.
+    for year in [
+        1999, 2000, 2038, 2100, 2400, 9999, 10000, 32767, 32768, 65535,
+    ] {
+        let mut rule = TIME_ZONE_INFORMATION::default();
+        let status = if unsafe { GetTimeZoneInformationForYear(year, &zone, &mut rule) } == 0 {
+            std::io::Error::last_os_error().raw_os_error().unwrap()
+        } else {
+            0
+        };
+        writeln!(
+            body,
+            "(memory.fill (i32.const 65) (i32.const 165) (i32.const 44))"
+        )
+        .unwrap();
+        writeln!(body, "(call $eq (call $year (local.get $handle) (i32.const {year}) (i32.const 65)) (i32.const {status}))").unwrap();
+        let expected: Vec<u8> = if status == 0 {
+            [rule.Bias, rule.StandardBias, rule.DaylightBias]
+                .into_iter()
+                .flat_map(i32::to_le_bytes)
+                .chain(
+                    [rule.StandardDate, rule.DaylightDate]
+                        .into_iter()
+                        .flat_map(|date| {
+                            [
+                                date.wYear,
+                                date.wMonth,
+                                date.wDayOfWeek,
+                                date.wDay,
+                                date.wHour,
+                                date.wMinute,
+                                date.wSecond,
+                                date.wMilliseconds,
+                            ]
+                            .into_iter()
+                            .flat_map(u16::to_le_bytes)
+                        }),
+                )
+                .collect()
+        } else {
+            vec![165; 44]
+        };
+        for (offset, byte) in expected.into_iter().enumerate() {
+            writeln!(
+                body,
+                "(call $eq (i32.load8_u (i32.const {})) (i32.const {byte}))",
+                65 + offset
+            )
+            .unwrap();
+        }
+    }
+    body.push_str("(call $eq (call $free (local.get $handle)) (i32.const 0))");
+    run(&body);
+}
+
+#[cfg(windows)]
+#[test]
+fn unrepresentable_years_are_rejected_without_truncating_or_writing() {
+    use std::fmt::Write;
+    use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
+
+    let mut body = String::from(
+        "(call $eq (call $capture (i32.const 0)) (i32.const 0))\n\
+         (local.set $handle (i64.load (i32.const 0)))\n\
+         (memory.fill (i32.const 65) (i32.const 165) (i32.const 44))\n",
+    );
+    // 67561 would become the ordinary year 2025 if truncated to sixteen bits.
+    for year in [-1, 65536, 67561, i32::MIN, i32::MAX] {
+        writeln!(body, "(call $eq (call $year (local.get $handle) (i32.const {year}) (i32.const 65)) (i32.const {ERROR_INVALID_PARAMETER}))").unwrap();
+        for offset in 65..109 {
+            writeln!(
+                body,
+                "(call $eq (i32.load8_u (i32.const {offset})) (i32.const 165))"
+            )
+            .unwrap();
+        }
+    }
+    body.push_str("(call $eq (call $free (local.get $handle)) (i32.const 0))");
+    run(&body);
+}
+
+#[cfg(windows)]
+#[test]
 fn invalid_ranges_and_retired_handles_do_not_write_results() {
     use windows_sys::Win32::Foundation::{
         ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_ADDRESS, ERROR_INVALID_HANDLE,

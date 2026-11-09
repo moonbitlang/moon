@@ -28,6 +28,15 @@ All fields are little-endian. A rule has three signed i32 minute biases
 Each date has eight u16 fields in this order: year, month, weekday, day, hour,
 minute, second, millisecond. A guest decides how to interpret these fields.
 
+Years are full calendar years, not two-digit years or offsets from an epoch.
+The year query checks that its unsigned input fits `USHORT` before calling
+Windows; it never truncates the input. Representability does not guarantee OS
+support: the native call can still fail. In transition dates, year zero denotes
+a recurring rule and month zero denotes an absent transition, as in Win32.
+Biases retain their signed minute units. Guests should widen before adding
+biases or converting to seconds and use signed 64-bit seconds for calculated
+timestamps. No epoch timestamp is stored in the rule record.
+
 The Runtime owns the original Win32 capture. Editing the output bytes cannot
 change the key used for subsequent queries. Queries use that capture with the
 system's installed rule data; the OS does not provide an atomic registry
