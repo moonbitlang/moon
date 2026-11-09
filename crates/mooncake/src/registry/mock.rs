@@ -153,15 +153,21 @@ impl Registry for MockRegistry {
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         let versions = self
             .modules
             .get(name)
             .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))?;
-        Ok(versions.get(version).map(|module| RegistryVersionInfo {
+        let module = versions
+            .get(version)
+            .ok_or_else(|| super::RegistryVersionNotFound {
+                name: name.clone(),
+                version: version.clone(),
+            })?;
+        Ok(RegistryVersionInfo {
             deps: module.deps.clone(),
             ..Default::default()
-        }))
+        })
     }
 
     fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
@@ -199,15 +205,14 @@ mod test {
             assert!(
                 registry
                     .version_info(&name, &version.parse().unwrap())
-                    .unwrap()
-                    .is_some()
+                    .is_ok()
             );
         }
         assert!(
             registry
                 .version_info(&name, &Version::new(0, 1, 1))
-                .unwrap()
-                .is_none()
+                .unwrap_err()
+                .is::<crate::registry::RegistryVersionNotFound>()
         );
         assert_eq!(
             registry.cached_latest_version(&name).unwrap(),

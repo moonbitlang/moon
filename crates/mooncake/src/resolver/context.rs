@@ -28,7 +28,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::{Registry, RegistryModuleNotFound};
+use crate::registry::Registry;
 
 use super::ModuleResolutionError;
 
@@ -69,14 +69,13 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
         !self.errors.is_empty()
     }
 
-    /// Load an exact registry version once per resolution, sharing its manifest
-    /// across dependants. Failed reads retain the requesting dependency context.
+    /// Cache successful exact-version reads, sharing manifests across dependants.
+    /// Registry errors are returned unchanged; the caller adds dependency-edge context.
     pub(crate) fn get_registry_module(
         &mut self,
         name: &ModuleName,
         version: &Version,
-        dependant: &ModuleName,
-    ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
+    ) -> anyhow::Result<Arc<MoonMod>> {
         if let Some(module) = self
             .registry_modules
             .get(name)
@@ -85,26 +84,7 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
             return Ok(Arc::clone(&module.manifest));
         }
 
-        let info = self.registry.version_info(name, version).map_err(|error| {
-            if error.is::<RegistryModuleNotFound>() {
-                ModuleResolutionError::ModuleMissing {
-                    dependency: name.clone(),
-                    dependant: dependant.clone(),
-                }
-            } else {
-                ModuleResolutionError::RegistryReadFailed {
-                    dependency: name.clone(),
-                    dependant: dependant.clone(),
-                    required: version.clone(),
-                    source: error,
-                }
-            }
-        })?;
-        let info = info.ok_or_else(|| ModuleResolutionError::VersionMissing {
-            dependency: name.clone(),
-            dependant: dependant.clone(),
-            required: version.clone(),
-        })?;
+        let info = self.registry.version_info(name, version)?;
         let manifest = Arc::new(MoonMod {
             name: name.to_string(),
             version: Some(version.clone()),

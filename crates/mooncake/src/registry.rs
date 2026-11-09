@@ -56,6 +56,14 @@ pub struct RegistryVersionInfo {
 #[error("module `{0}` was not found in the registry")]
 pub struct RegistryModuleNotFound(pub ModuleName);
 
+/// A known registry module has no entry for the requested version.
+#[derive(Debug, thiserror::Error)]
+#[error("version `{version}` of module `{name}` was not found in the registry")]
+pub struct RegistryVersionNotFound {
+    pub name: ModuleName,
+    pub version: Version,
+}
+
 /// A metadata refresh could not complete. Callers may explicitly use cached data.
 /// Git synchronization failures, including local Git and filesystem failures,
 /// belong here, as do HTTP transport errors, 5xx responses, and request throttling.
@@ -68,7 +76,7 @@ pub struct RegistryUnavailable(pub anyhow::Error);
 pub trait Registry {
     /// Read one exact published version. Never substitute another version.
     ///
-    /// `None` means the version is absent from a known module. Return
+    /// Return [`RegistryVersionNotFound`] if the version is absent from a known module,
     /// [`RegistryModuleNotFound`] if the module has no registry entry, and
     /// preserve read errors so callers can distinguish failures from absence.
     /// Backends that cannot distinguish absence from denied access return an
@@ -77,7 +85,7 @@ pub trait Registry {
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>>;
+    ) -> anyhow::Result<RegistryVersionInfo>;
 
     /// Read the locally known latest version without contacting the registry.
     /// `None` means there is no cached latest answer, not that the remote module
@@ -160,7 +168,7 @@ where
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         (**self).version_info(name, version)
     }
 
@@ -192,7 +200,7 @@ where
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         (**self).version_info(name, version)
     }
 

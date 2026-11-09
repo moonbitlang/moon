@@ -114,7 +114,7 @@ mod tests {
             &self,
             _name: &ModuleName,
             _version: &Version,
-        ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+        ) -> anyhow::Result<RegistryVersionInfo> {
             panic!("latest selection must not query an exact release")
         }
 

@@ -603,12 +603,18 @@ impl super::Registry for RegistryClient {
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         match &self.metadata {
-            MetadataBackend::Git(index) => index.version_info(name, version),
-            MetadataBackend::Http(http) => http
-                .version_info(name, version, self.frozen_dependencies)
-                .map(Some),
+            MetadataBackend::Git(index) => index.version_info(name, version)?.ok_or_else(|| {
+                super::RegistryVersionNotFound {
+                    name: name.clone(),
+                    version: version.clone(),
+                }
+                .into()
+            }),
+            MetadataBackend::Http(http) => {
+                http.version_info(name, version, self.frozen_dependencies)
+            }
         }
     }
 
@@ -1037,7 +1043,7 @@ mod tests {
         let registry = http_test_registry(home.path(), &api);
         let name: ModuleName = "alice/secret".into();
         let version = Version::new(0, 1, 0);
-        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        assert!(registry.version_info(&name, &version).is_ok());
         let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
         assert_eq!(
             registry.source_archive_checksum(&source).unwrap(),
@@ -1049,7 +1055,7 @@ mod tests {
             requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 ")
         );
         let cached = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(cached.version_info(&name, &version).unwrap().is_some());
+        assert!(cached.version_info(&name, &version).is_ok());
         assert!(cached.version_info(&name, &Version::new(0, 1, 1)).is_err());
         assert!(cached.cached_latest_version(&name).unwrap().is_none());
     }
@@ -1084,8 +1090,7 @@ mod tests {
         assert!(
             registry
                 .version_info(&name, &"0.1.0+01".parse().unwrap())
-                .unwrap()
-                .is_some()
+                .is_ok()
         );
         assert!(
             registry
@@ -1130,17 +1135,12 @@ mod tests {
             registry.cached_latest_version(&name).unwrap(),
             Some(Version::new(0, 1, 0))
         );
-        assert!(
-            registry
-                .version_info(&name, &Version::new(0, 1, 0))
-                .unwrap()
-                .is_some()
-        );
+        assert!(registry.version_info(&name, &Version::new(0, 1, 0)).is_ok());
         assert!(
             registry
                 .version_info(&name, &Version::new(0, 2, 0))
-                .unwrap()
-                .is_none()
+                .unwrap_err()
+                .is::<crate::registry::RegistryVersionNotFound>()
         );
         assert_eq!(
             registry
@@ -1177,7 +1177,7 @@ mod tests {
                 (200, String::new(), archive),
             ],
         );
-        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        assert!(registry.version_info(&name, &version).is_ok());
         let module = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
         assert_eq!(registry.source_archive_checksum(&module).unwrap(), checksum);
         registry
@@ -1235,7 +1235,7 @@ mod tests {
         let version = registry
             .query_latest_version(&name, &quiet_user_log())
             .unwrap();
-        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        assert!(registry.version_info(&name, &version).is_ok());
         registry
             .refresh_version_info(&name, &version, &quiet_user_log())
             .unwrap();
@@ -1278,7 +1278,7 @@ mod tests {
         );
         save_test_login(home.path(), &api, "alice", "rotated-token");
         let alice = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(alice.version_info(&name, &version).unwrap().is_some());
+        assert!(alice.version_info(&name, &version).is_ok());
         assert_eq!(
             alice.cached_latest_version(&name).unwrap(),
             Some(version.clone())
@@ -1374,24 +1374,14 @@ mod tests {
                 .unwrap(),
             Version::new(0, 1, 1)
         );
-        assert!(
-            registry
-                .version_info(&name, &Version::new(0, 1, 0))
-                .unwrap()
-                .is_some()
-        );
+        assert!(registry.version_info(&name, &Version::new(0, 1, 0)).is_ok());
         assert_eq!(server.join().unwrap().len(), 2);
         let cached = http_test_registry(home.path(), &api).for_frozen_dependencies();
         assert_eq!(
             cached.cached_latest_version(&name).unwrap(),
             Some(Version::new(0, 1, 1))
         );
-        assert!(
-            cached
-                .version_info(&name, &Version::new(0, 1, 0))
-                .unwrap()
-                .is_some()
-        );
+        assert!(cached.version_info(&name, &Version::new(0, 1, 0)).is_ok());
         assert!(cached.version_info(&name, &Version::new(0, 1, 2)).is_err());
     }
 
@@ -1421,7 +1411,7 @@ mod tests {
             let version = Version::new(0, 1, 0);
             let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
             let registry = http_test_registry(home.path(), &api);
-            let expected = registry.version_info(&name, &version).unwrap().unwrap();
+            let expected = registry.version_info(&name, &version).unwrap();
             let error = registry
                 .query_latest_version(&name, &quiet_user_log())
                 .unwrap_err();
@@ -1434,10 +1424,8 @@ mod tests {
                 http_test_registry(home.path(), &api).for_frozen_dependencies(),
             ] {
                 assert_eq!(
-                    serde_json::to_value(
-                        cached.version_info(&name, &version).unwrap().unwrap().deps
-                    )
-                    .unwrap(),
+                    serde_json::to_value(cached.version_info(&name, &version).unwrap().deps)
+                        .unwrap(),
                     serde_json::to_value(&expected.deps).unwrap()
                 );
                 assert_eq!(
@@ -1472,7 +1460,7 @@ mod tests {
         let name: ModuleName = "alice/public".into();
         let version = Version::new(0, 1, 0);
         let registry = http_test_registry(home.path(), &api);
-        let expected = registry.version_info(&name, &version).unwrap().unwrap();
+        let expected = registry.version_info(&name, &version).unwrap();
         assert_eq!(
             registry
                 .query_latest_version(&name, &quiet_user_log())
@@ -1483,7 +1471,7 @@ mod tests {
             registry.for_frozen_dependencies(),
             http_test_registry(home.path(), &api).for_frozen_dependencies(),
         ] {
-            let release = cached.version_info(&name, &version).unwrap().unwrap();
+            let release = cached.version_info(&name, &version).unwrap();
             assert_eq!(
                 serde_json::to_value(release.deps).unwrap(),
                 serde_json::to_value(&expected.deps).unwrap()
@@ -1661,13 +1649,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert!(
-            !registry
-                .version_info(&name, &version)
-                .unwrap()
-                .unwrap()
-                .yanked
-        );
+        assert!(!registry.version_info(&name, &version).unwrap().yanked);
         assert!(
             !registry
                 .cached_version_info(&name, &version)
@@ -1686,7 +1668,7 @@ mod tests {
         }
         assert!(registry.cached_latest_version(&name).unwrap().is_none());
         let fresh = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(fresh.version_info(&name, &version).unwrap().unwrap().yanked);
+        assert!(fresh.version_info(&name, &version).unwrap().yanked);
         assert!(
             fresh
                 .refresh_version_info(&name, &version, &quiet_user_log())
@@ -3264,7 +3246,7 @@ mod tests {
             &quiet_user_log(),
         );
         let version = Version::parse("0.2.1").unwrap();
-        assert!(registry.version_info(&module, &version).unwrap().is_some());
+        assert!(registry.version_info(&module, &version).is_ok());
         let source = ModuleSource::from_version(module, version).unwrap();
         assert_eq!(registry.source_archive_checksum(&source).unwrap(), "abc123");
 
