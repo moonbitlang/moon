@@ -29,6 +29,9 @@ Each date has eight u16 fields in this order: year, month, weekday, day, hour,
 minute, second, millisecond. A guest decides how to interpret these fields.
 
 Years are full calendar years, not two-digit years or offsets from an epoch.
+The annual query takes the local calendar year for the captured timezone. A
+caller deriving it from an instant must not use the UTC year near New Year,
+when the local and UTC years can differ.
 The year query checks that its unsigned input fits `USHORT` before calling
 Windows; it never truncates the input. Representability does not guarantee OS
 support: the native call can still fail. In transition dates, year zero denotes

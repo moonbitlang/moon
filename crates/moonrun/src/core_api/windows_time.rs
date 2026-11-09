@@ -25,28 +25,29 @@ pub(super) use windows::{capture, current_rule, effective_years, for_year, metad
 mod windows {
     use crate::async_host::{AsyncHostError, AsyncHostResult};
     use crate::guest_memory::GuestMemory;
-    use crate::runtime::{Runtime, windows_time::TimeZone};
-    use slotmap::{Key, KeyData};
-    use windows_sys::Win32::Foundation::SYSTEMTIME;
+    use crate::runtime::{Runtime, windows_time::Rule};
 
     // Three signed minute biases, followed by two eight-word SYSTEMTIMEs.
     const RULE_SIZE: usize = 44;
-    fn write_rule(out: &mut [u8], biases: [i32; 3], dates: [SYSTEMTIME; 2]) {
+    fn write_rule(out: &mut [u8], rule: Rule) {
+        let biases = [rule.bias, rule.standard_bias, rule.daylight_bias];
         for (word, bias) in out[..12].chunks_exact_mut(4).zip(biases) {
             word.copy_from_slice(&bias.to_le_bytes());
         }
-        let fields = dates.into_iter().flat_map(|d| {
-            [
-                d.wYear,
-                d.wMonth,
-                d.wDayOfWeek,
-                d.wDay,
-                d.wHour,
-                d.wMinute,
-                d.wSecond,
-                d.wMilliseconds,
-            ]
-        });
+        let fields = [rule.standard_date, rule.daylight_date]
+            .into_iter()
+            .flat_map(|d| {
+                [
+                    d.wYear,
+                    d.wMonth,
+                    d.wDayOfWeek,
+                    d.wDay,
+                    d.wHour,
+                    d.wMinute,
+                    d.wSecond,
+                    d.wMilliseconds,
+                ]
+            });
         for (word, field) in out[12..].chunks_exact_mut(2).zip(fields) {
             word.copy_from_slice(&field.to_le_bytes());
         }
@@ -59,9 +60,8 @@ mod windows {
     ) -> AsyncHostResult<()> {
         // Validate the handle slot before acquiring any host-owned state.
         let out = memory.read_exact_mut(ptr, 8)?;
-        let zone = TimeZone::capture()?;
-        let key = rt.windows_time_zones.borrow_mut().insert(zone);
-        out.copy_from_slice(&key.data().as_ffi().to_le_bytes());
+        let handle = rt.windows_time_zones().capture()?;
+        out.copy_from_slice(&handle.to_le_bytes());
         Ok(())
     }
 
@@ -75,21 +75,16 @@ mod windows {
         use windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 
         let out = memory.read_exact_mut(ptr, capacity)?;
-        let zones = rt.windows_time_zones.borrow();
-        let zone = zones
-            .get(KeyData::from_ffi(handle).into())
-            .ok_or(AsyncHostError::Badf)?;
-        let key = &zone.0.TimeZoneKeyName;
-        let name = &key[..key.iter().position(|&unit| unit == 0).unwrap_or(key.len())];
+        let metadata = rt.windows_time_zones().metadata(handle)?;
         // Win32 bounds the key name at 128 code units. Write only its actual
         // bytes, leaving the rest of the caller's buffer untouched.
-        let name_bytes = name.len() * 2;
+        let name_bytes = metadata.key_name.len() * 2;
         let out = out
             .get_mut(..8 + name_bytes)
             .ok_or(AsyncHostError::Native(ERROR_INSUFFICIENT_BUFFER as i32))?;
-        out[..4].copy_from_slice(&u32::from(zone.0.DynamicDaylightTimeDisabled).to_le_bytes());
+        out[..4].copy_from_slice(&u32::from(metadata.dynamic_dst_disabled).to_le_bytes());
         out[4..8].copy_from_slice(&(name_bytes as u32).to_le_bytes());
-        for (dst, unit) in out[8..].chunks_exact_mut(2).zip(name) {
+        for (dst, unit) in out[8..].chunks_exact_mut(2).zip(metadata.key_name) {
             dst.copy_from_slice(&unit.to_le_bytes());
         }
         Ok(())
@@ -102,16 +97,8 @@ mod windows {
         ptr: u32,
     ) -> AsyncHostResult<()> {
         let out = memory.read_exact_mut(ptr, RULE_SIZE as u32)?;
-        let zones = rt.windows_time_zones.borrow();
-        let d = &zones
-            .get(KeyData::from_ffi(handle).into())
-            .ok_or(AsyncHostError::Badf)?
-            .0;
-        write_rule(
-            out,
-            [d.Bias, d.StandardBias, d.DaylightBias],
-            [d.StandardDate, d.DaylightDate],
-        );
+        let rule = rt.windows_time_zones().current_rule(handle)?;
+        write_rule(out, rule);
         Ok(())
     }
 
@@ -122,11 +109,7 @@ mod windows {
         ptr: u32,
     ) -> AsyncHostResult<()> {
         let out = memory.read_exact_mut(ptr, 8)?;
-        let zones = rt.windows_time_zones.borrow();
-        let zone = zones
-            .get(KeyData::from_ffi(handle).into())
-            .ok_or(AsyncHostError::Badf)?;
-        let (first, last) = zone.effective_years()?;
+        let (first, last) = rt.windows_time_zones().effective_years(handle)?;
         out[..4].copy_from_slice(&first.to_le_bytes());
         out[4..].copy_from_slice(&last.to_le_bytes());
         Ok(())
@@ -140,26 +123,13 @@ mod windows {
         ptr: u32,
     ) -> AsyncHostResult<()> {
         let out = memory.read_exact_mut(ptr, RULE_SIZE as u32)?;
-        let year = u16::try_from(year).map_err(|_| AsyncHostError::Inval)?;
-        let zones = rt.windows_time_zones.borrow();
-        let zone = zones
-            .get(KeyData::from_ffi(handle).into())
-            .ok_or(AsyncHostError::Badf)?;
-        let rule = zone.for_year(year)?;
-        write_rule(
-            out,
-            [rule.Bias, rule.StandardBias, rule.DaylightBias],
-            [rule.StandardDate, rule.DaylightDate],
-        );
+        let rule = rt.windows_time_zones().for_year(handle, year)?;
+        write_rule(out, rule);
         Ok(())
     }
 
     pub(in crate::core_api) fn release(rt: &Runtime, handle: u64) -> AsyncHostResult<()> {
-        rt.windows_time_zones
-            .borrow_mut()
-            .remove(KeyData::from_ffi(handle).into())
-            .map(|_| ())
-            .ok_or(AsyncHostError::Badf)
+        rt.windows_time_zones().release(handle)
     }
 }
 

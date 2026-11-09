@@ -140,7 +140,7 @@ pub(crate) struct Runtime {
     // before destroying the Database and Statement tables they refer to.
     async_host: AsyncHost,
     #[cfg(windows)]
-    pub(crate) windows_time_zones: RefCell<Handles<windows_time::TimeZone>>,
+    windows_time_zones: windows_time::TimeZones,
     sqlite: SqliteHost,
 }
 
@@ -287,10 +287,7 @@ impl Runtime {
             child_signal_mask,
         );
         #[cfg(windows)]
-        let windows_time_zones = RefCell::new(Handles::new(
-            Rc::clone(&keys),
-            HostResourceKind::WindowsTimeZone,
-        ));
+        let windows_time_zones = windows_time::TimeZones::new(Rc::clone(&keys));
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
             _ipc_server: ipc_server,
@@ -337,6 +334,11 @@ impl Runtime {
     pub(crate) fn sqlite(&self) -> &SqliteHost {
         &self.sqlite
     }
+
+    #[cfg(windows)]
+    pub(crate) fn windows_time_zones(&self) -> &windows_time::TimeZones {
+        &self.windows_time_zones
+    }
 }
 
 impl Drop for Runtime {
@@ -353,11 +355,8 @@ impl Drop for Runtime {
 
         let mut leaks = Vec::new();
         #[cfg(windows)]
-        if !self.windows_time_zones.borrow().is_empty() {
-            leaks.push(format!(
-                "{} Windows timezone captures",
-                self.windows_time_zones.borrow().len()
-            ));
+        if let Some(summary) = self.windows_time_zones.leak_summary() {
+            leaks.push(summary);
         }
         if let Some(summary) = self.async_host.leak_summary() {
             leaks.push(format!("async({summary})"));
