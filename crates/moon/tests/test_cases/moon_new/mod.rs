@@ -219,6 +219,25 @@ fn test_moon_new_rejects_invalid_pkg_id_project_names() {
 }
 
 #[test]
+fn test_moon_new_reports_a_broken_bundled_generator() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    let bin = toolchain.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("moon-new.wasm"), b"invalid wasm").unwrap();
+
+    let output = moon_process_cmd(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain)
+        .args(["new", "hello", "--user", "moonbitlang"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("moon-new.wasm"), "{stderr}");
+    assert!(!dir.join("hello").exists());
+}
+
+#[test]
 fn test_moon_new_exist() {
     let dir = TestDir::new("moon_new/exist");
     dir.join("hello").rm_rf();
