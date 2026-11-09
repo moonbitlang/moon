@@ -35,7 +35,7 @@ use moonutil::{
 use semver::Version;
 
 use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
-use crate::registry::Registry;
+use crate::registry::{Registry, RegistryModuleNotFound, RegistryVersionNotFound};
 
 type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 
@@ -89,8 +89,31 @@ fn resolve_registry_module<R: Registry>(
     // Substituting a later release here would let registry changes alter the graph.
     let source = ModuleSource::from_version(dependency.clone(), required.clone())
         .map_err(|err| ModuleResolutionError::Other(err.into()))?;
+    // A registry query describes the exact version; this edge supplies the
+    // requesting module for diagnostics.
     let module = context
-        .get_registry_module(dependency, required, dependant)
+        .get_registry_module(dependency, required)
+        .map_err(|error| {
+            if error.is::<RegistryModuleNotFound>() {
+                ModuleResolutionError::ModuleMissing {
+                    dependency: dependency.clone(),
+                    dependant: dependant.clone(),
+                }
+            } else if error.is::<RegistryVersionNotFound>() {
+                ModuleResolutionError::VersionMissing {
+                    dependency: dependency.clone(),
+                    dependant: dependant.clone(),
+                    required: required.clone(),
+                }
+            } else {
+                ModuleResolutionError::RegistryReadFailed {
+                    dependency: dependency.clone(),
+                    dependant: dependant.clone(),
+                    required: required.clone(),
+                    source: error,
+                }
+            }
+        })
         .inspect_err(|error| {
             if matches!(
                 error,
@@ -887,6 +910,10 @@ mod test {
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(!status);
+        let errors = context.into_errors();
+        assert_eq!(errors.len(), 1);
+        expect![[r#"Failed to resolve registry dependency `dep/nonexistant` for module `root/module`: module was not found in the registry"#]]
+            .assert_eq(&errors[0].to_string());
     }
 
     #[test]
@@ -976,7 +1003,7 @@ mod test {
                 &self,
                 _name: &ModuleName,
                 _version: &Version,
-            ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+            ) -> anyhow::Result<RegistryVersionInfo> {
                 Err(anyhow::Error::new(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "permission denied by registry fixture",
@@ -1027,21 +1054,18 @@ mod test {
                 &self,
                 name: &ModuleName,
                 version: &Version,
-            ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+            ) -> anyhow::Result<RegistryVersionInfo> {
                 assert!(
                     self.reads
                         .borrow_mut()
                         .insert((name.clone(), version.clone())),
                     "registry metadata for {name}@{version} was read again"
                 );
-                Ok(self
-                    .inner
-                    .version_info(name, version)?
-                    .map(|info| RegistryVersionInfo {
-                        yanked: name.to_string() == "dep/shared",
-                        yanked_reason: Some("Use dep/replacement.".into()),
-                        ..info
-                    }))
+                Ok(RegistryVersionInfo {
+                    yanked: name.to_string() == "dep/shared",
+                    yanked_reason: Some("Use dep/replacement.".into()),
+                    ..self.inner.version_info(name, version)?
+                })
             }
 
             fn cached_latest_version(&self, _name: &ModuleName) -> anyhow::Result<Option<Version>> {
