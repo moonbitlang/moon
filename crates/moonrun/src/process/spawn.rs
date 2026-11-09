@@ -22,7 +22,7 @@
 //! Runtime's state. Explicit lookup captures only the inputs its candidates
 //! need. OS queries and execution live below this module in `os`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -146,17 +146,17 @@ impl HostProcess {
             // Do not call getcwd just to inherit Ambient cwd: its pathname can
             // be unavailable while the directory remains usable.
             #[cfg(unix)]
-            let (executable, invokes_moonx) = (
+            let (executable, inherits_policy) = (
                 Executable::Ambient(request.path.clone()),
-                moonutil::constants::is_moonx_executable(&request.path),
+                is_policy_recipient(&request.path),
             );
             #[cfg(windows)]
-            let (executable, invokes_moonx) = (
+            let (executable, inherits_policy) = (
                 Executable::Ambient,
                 if self.policy_inheritance.is_some() {
                     let arguments =
                         os::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
-                    moonutil::constants::is_moonx_executable(&arguments[0])
+                    is_policy_recipient(&arguments[0])
                 } else {
                     false
                 },
@@ -166,7 +166,7 @@ impl HostProcess {
                 request,
                 _stdio_owner: Arc::clone(&self.stdio),
                 executable,
-                policy_inheritance: if invokes_moonx {
+                policy_inheritance: if inherits_policy {
                     self.policy_inheritance.clone()
                 } else {
                     None
@@ -284,26 +284,32 @@ impl HostProcess {
             return Ok(PreparedSpawn::Moon(Box::new(spawn)));
         }
         #[cfg(unix)]
-        let (executable, invokes_moonx) = (
+        let (executable, inherits_policy) = (
             Executable::Prepared(plan),
-            moonutil::constants::is_moonx_executable(&request.path),
+            is_policy_recipient(&request.path),
         );
         #[cfg(windows)]
-        let (executable, invokes_moonx) = (
+        let (executable, inherits_policy) = (
             Executable::Prepared(os::lookup::select_image(&plan).map_err(io_error)?),
-            moonutil::constants::is_moonx_executable(&arguments[0]),
+            is_policy_recipient(&arguments[0]),
         );
         Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
             request,
             _stdio_owner: Arc::clone(&self.stdio),
             executable,
-            policy_inheritance: if invokes_moonx {
+            policy_inheritance: if inherits_policy {
                 self.policy_inheritance.clone()
             } else {
                 None
             },
         })))
     }
+}
+
+// moonrun consumes inherited restrictions directly; moonx relays them to moonrun.
+fn is_policy_recipient(program: &OsStr) -> bool {
+    moonutil::constants::is_moonx_executable(program)
+        || moonutil::constants::is_moonrun_executable(program)
 }
 
 fn lookup_error(error: lookup::LookupError) -> AsyncHostError {

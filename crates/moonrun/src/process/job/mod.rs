@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn only_direct_moonx_invocations_prepare_policy_inheritance() {
+    fn direct_moonx_and_moonrun_invocations_prepare_policy_inheritance() {
         let directory = tempfile::tempdir().unwrap();
         let environment =
             Env::owned([("PATH".into(), directory.path().as_os_str().to_owned())]).unwrap();
@@ -556,7 +556,7 @@ mod tests {
             None,
             Arc::new(environment),
         );
-        for program in ["moonx", "moon"] {
+        for program in ["moonx", "moonrun", "moon"] {
             #[cfg(windows)]
             std::fs::copy(
                 std::env::current_exe().unwrap(),
@@ -590,7 +590,7 @@ mod tests {
             else {
                 panic!("expected native spawn")
             };
-            assert_eq!(spawn.policy_inheritance.is_some(), program == "moonx");
+            assert_eq!(spawn.policy_inheritance.is_some(), program != "moon");
             assert_eq!(job.set_cwd("changed".into()), Err(AsyncHostError::Badf));
         }
     }
