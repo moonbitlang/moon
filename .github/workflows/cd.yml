@@ -32,6 +32,9 @@ on:
 env:
   RUST_VERSION: '1.95.0'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -58,6 +61,8 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: ./.github/actions/setup-rusty-v8
 
       - name: Build
         run: cargo build --release
