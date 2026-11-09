@@ -53,7 +53,6 @@ mod native_stack;
 mod network;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod policy;
-mod prepare_artifact;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod process;
 mod process_tree;

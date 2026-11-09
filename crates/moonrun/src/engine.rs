@@ -692,7 +692,7 @@ impl Engine {
                 }
             }
         }
-        let (program, _directory) = match crate::prepare_artifact::prepare_moon(
+        let (program, _directory) = match crate::process::prepare_moon(
             executable,
             args,
             &options.runtime,
@@ -700,10 +700,8 @@ impl Engine {
             #[cfg(windows)]
             no_console_window,
         )? {
-            crate::prepare_artifact::Preparation::Ready { program, directory } => {
-                (*program, directory)
-            }
-            crate::prepare_artifact::Preparation::Exited(outcome) => return Ok(outcome),
+            crate::process::Preparation::Ready { program, directory } => (*program, directory),
+            crate::process::Preparation::Exited(outcome) => return Ok(outcome),
         };
         options.args = program.args;
         options.runtime.working_directory = WorkingDirectory::Fixed(program.working_directory);

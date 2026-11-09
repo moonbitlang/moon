@@ -544,12 +544,16 @@ fn moon_commands_run_in_virtual_tree() {
             args.push(handoff.directory().as_os_str().to_owned());
         }
         let stdout = tempfile::tempfile().unwrap();
+        let options = RunOptions::default().with_virtualize(true);
+        // Exercise the preserved-signal-mask helper path used by the CLI.
+        #[cfg(unix)]
+        let options = options.preserve_current_signal_mask_for_children().unwrap();
         let pid = tree
             .spawn_moon(
                 None,
                 &helper,
                 &args,
-                RunOptions::default().with_virtualize(true).with_stdio(
+                options.with_stdio(
                     tempfile::tempfile().unwrap(),
                     stdout.try_clone().unwrap(),
                     tempfile::tempfile().unwrap(),
