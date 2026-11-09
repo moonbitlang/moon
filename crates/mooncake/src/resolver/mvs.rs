@@ -79,34 +79,36 @@ fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
     (lhs.major < 2 && rhs.major < 2) || lhs.major == rhs.major
 }
 
-/// Attach the incoming dependency edge to a query failure, after the read.
-fn module_read_error(
+/// Share a read failure while retaining diagnostics for every incoming edge.
+fn module_read_errors(
     target: &DependencyTarget,
-    dependant: &ModuleName,
+    dependants: &[ModuleName],
     error: anyhow::Error,
-) -> ModuleResolutionError {
-    match target {
-        DependencyTarget::Registry(source) => {
-            if error.is::<RegistryModuleNotFound>() {
-                ModuleResolutionError::ModuleMissing {
-                    dependency: source.name().clone(),
-                    dependant: dependant.clone(),
-                }
-            } else if error.is::<RegistryVersionNotFound>() {
-                ModuleResolutionError::VersionMissing {
-                    dependency: source.name().clone(),
-                    dependant: dependant.clone(),
-                    required: source.version().clone(),
-                }
-            } else {
-                ModuleResolutionError::RegistryReadFailed {
-                    dependency: source.name().clone(),
-                    dependant: dependant.clone(),
-                    required: source.version().clone(),
-                    source: error,
-                }
+) -> impl Iterator<Item = ModuleResolutionError> {
+    let module_missing = error.is::<RegistryModuleNotFound>();
+    let version_missing = error.is::<RegistryVersionNotFound>();
+    // Sharing the cause preserves its error chain in each diagnostic.
+    let error: Arc<dyn std::error::Error + Send + Sync> = error.into_boxed_dyn_error().into();
+    dependants.iter().map(move |dependant| match target {
+        DependencyTarget::Registry(source) if module_missing => {
+            ModuleResolutionError::ModuleMissing {
+                dependency: source.name().clone(),
+                dependant: dependant.clone(),
             }
         }
+        DependencyTarget::Registry(source) if version_missing => {
+            ModuleResolutionError::VersionMissing {
+                dependency: source.name().clone(),
+                dependant: dependant.clone(),
+                required: source.version().clone(),
+            }
+        }
+        DependencyTarget::Registry(source) => ModuleResolutionError::RegistryReadFailed {
+            dependency: source.name().clone(),
+            dependant: dependant.clone(),
+            required: source.version().clone(),
+            source: anyhow::Error::new(Arc::clone(&error)),
+        },
         DependencyTarget::Local { name, path } => ModuleResolutionError::Other(anyhow!(
             "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
             name,
@@ -114,8 +116,10 @@ fn module_read_error(
             path.display(),
             error
         )),
-        DependencyTarget::Root(..) => ModuleResolutionError::Other(error),
-    }
+        DependencyTarget::Root(..) => {
+            ModuleResolutionError::Other(anyhow::Error::new(Arc::clone(&error)))
+        }
+    })
 }
 
 /// Checks whether resolving local dependency is allowed for the dependant package
@@ -233,6 +237,8 @@ fn mvs_resolve<R: Registry>(
     // Mark roots visited before traversal, and retain each visited manifest so
     // final graph construction uses the same metadata without further lookups.
     let mut loaded_modules = working_list.iter().cloned().collect::<HashMap<_, _>>();
+    let mut registry_requests = HashMap::<ModuleSource, Vec<ModuleName>>::new();
+    let mut read_failures = Vec::new();
     if tracing::enabled!(tracing::Level::DEBUG) {
         for &id in module_graph.input_module_ids() {
             tracing::debug!(module = %module_graph.module_source(id), "registered root module");
@@ -258,18 +264,23 @@ fn mvs_resolve<R: Registry>(
                     continue;
                 }
             };
+            // Register the exact version before reading. Later edges share the
+            // request even if it fails, and still retain their own diagnostics.
+            if let DependencyTarget::Registry(registry_source) = &target {
+                match registry_requests.entry(registry_source.clone()) {
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().push(source.name().clone());
+                        continue;
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(vec![source.name().clone()]);
+                    }
+                }
+            }
             let module = match read_module_dependency(&target, context) {
                 Ok(module) => module,
                 Err(error) => {
-                    let error = module_read_error(&target, source.name(), error);
-                    if matches!(
-                        error,
-                        ModuleResolutionError::ModuleMissing { .. }
-                            | ModuleResolutionError::VersionMissing { .. }
-                    ) {
-                        user_log.warn("you may need to run `moon update` to update the registry");
-                    }
-                    context.report_error(error);
+                    read_failures.push((target, source.name().clone(), error));
                     continue;
                 }
             };
@@ -326,6 +337,25 @@ fn mvs_resolve<R: Registry>(
         }
     }
 
+    // Finish traversal first: another module may also request a failed version.
+    for (target, dependant, error) in read_failures {
+        let dependants = match &target {
+            DependencyTarget::Registry(source) => registry_requests
+                .remove(source)
+                .expect("registry target was registered before reading"),
+            _ => vec![dependant],
+        };
+        for error in module_read_errors(&target, &dependants, error) {
+            if matches!(
+                error,
+                ModuleResolutionError::ModuleMissing { .. }
+                    | ModuleResolutionError::VersionMissing { .. }
+            ) {
+                user_log.warn("you may need to run `moon update` to update the registry");
+            }
+            context.report_error(error);
+        }
+    }
     if context.any_errors() {
         return false;
     }
@@ -557,7 +587,10 @@ fn read_module_dependency<R: Registry>(
 
 #[cfg(test)]
 mod test {
-    use std::{cell::RefCell, collections::HashSet};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::HashSet,
+    };
 
     use expect_test::expect;
     use moonutil::dependency::SourceLocalDependencyInfo;
@@ -1107,15 +1140,22 @@ mod test {
     }
 
     #[test]
-    fn test_registry_read_failure_preserves_its_cause() {
-        struct UnreadableRegistry;
+    fn test_shared_registry_failure_is_read_once_and_preserves_each_dependant() {
+        struct UnreadableRegistry {
+            inner: MockRegistry,
+            failed_reads: Cell<usize>,
+        }
 
         impl Registry for UnreadableRegistry {
             fn version_info(
                 &self,
-                _name: &ModuleName,
-                _version: &Version,
+                name: &ModuleName,
+                version: &Version,
             ) -> anyhow::Result<RegistryVersionInfo> {
+                if name.to_string() != "dep/shared" {
+                    return self.inner.version_info(name, version);
+                }
+                self.failed_reads.set(self.failed_reads.get() + 1);
                 Err(anyhow::Error::new(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "permission denied by registry fixture",
@@ -1136,8 +1176,20 @@ mod test {
             }
         }
 
-        let mut context = ModuleResolutionContext::new(&UnreadableRegistry);
-        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "1.2.3")]);
+        let mut inner = MockRegistry::new();
+        inner
+            .add_module_full("dep/left", "1.0.0", [("dep/shared", "1.2.3")])
+            .add_module_full("dep/right", "1.0.0", [("dep/shared", "1.2.3")]);
+        let registry = UnreadableRegistry {
+            inner,
+            failed_reads: Cell::new(0),
+        };
+        let mut context = ModuleResolutionContext::new(&registry);
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/left", "1.0.0"), ("dep/right", "1.0.0")],
+        );
         let mut module_graph = ModuleDependencyGraph::from_root_modules(create_mock_root(root));
         assert!(!resolve_silently(
             &mut MvsSolver,
@@ -1145,13 +1197,21 @@ mod test {
             &mut module_graph
         ));
 
-        let errors = context.into_errors();
-        assert_eq!(errors.len(), 1);
-        expect![[r#"Failed to read registry dependency `dep/one@1.2.3` for module `root/module`: could not read registry metadata: permission denied by registry fixture"#]]
-            .assert_eq(&errors[0].to_string());
-        let source =
-            std::error::Error::source(&errors[0]).expect("registry error must retain its cause");
-        assert_eq!(source.to_string(), "could not read registry metadata");
+        assert_eq!(registry.failed_reads.get(), 1);
+        let mut errors = context.into_errors();
+        errors.sort_by_key(ToString::to_string);
+        assert_eq!(errors.len(), 2);
+        for (error, dependant) in errors.iter().zip(["dep/left", "dep/right"]) {
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "Failed to read registry dependency `dep/shared@1.2.3` for module `{dependant}`: could not read registry metadata: permission denied by registry fixture"
+                )
+            );
+            let source =
+                std::error::Error::source(error).expect("registry error must retain its cause");
+            assert_eq!(source.to_string(), "could not read registry metadata");
+        }
     }
 
     #[test]
