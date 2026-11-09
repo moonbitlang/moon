@@ -138,6 +138,7 @@ fn windows_tty_lifecycle() {
     guest_owns_state(&tty);
     console_input_records(tty);
     console_read_cancellation();
+    console_read_cancellation_after_drain();
     // No controlling console must remain an error, rather than falling back to stdio.
     assert_ne!(unsafe { FreeConsole() }, 0);
     assert!(open().is_err());
@@ -405,4 +406,79 @@ fn console_read_cancellation() {
         let result = results.recv_timeout(Duration::from_secs(3)).unwrap();
         assert_eq!(result.job.err(), ERROR_OPERATION_ABORTED as i32);
     }
+}
+
+/// Another reader of the same console can drain the input between the wakeup
+/// and the read. The Job must stay cancellable instead of blocking until more
+/// input arrives.
+fn console_read_cancellation_after_drain() {
+    use crate::async_sys::internal::event_loop::thread_pool::*;
+    use slotmap::Key;
+    const ATTEMPTS: usize = 50;
+    let tty = open().unwrap();
+    let input = Arc::new(tty.input);
+    let mut drained = 0;
+    for _ in 0..ATTEMPTS {
+        assert_ne!(unsafe { FlushConsoleInputBuffer(raw(&input)) }, 0);
+        // Like the worker, the competitor waits for the console to be signaled
+        // before reading, so both race for the same record.
+        let (competitor_done, competitor_result) = mpsc::channel();
+        let competitor_input = raw(&input) as usize;
+        let competitor = std::thread::spawn(move || {
+            use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
+            let mut record = unsafe { std::mem::zeroed::<INPUT_RECORD>() };
+            let mut count = 0;
+            unsafe { WaitForSingleObject(competitor_input as _, INFINITE) };
+            let ok =
+                unsafe { ReadConsoleInputW(competitor_input as _, &mut record, 1, &mut count) };
+            competitor_done.send((ok, count)).unwrap();
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        let job = crate::filesystem::Job::read_console_input(input.clone(), 3).unwrap();
+        let (completed, results) = mpsc::channel();
+        let worker = spawn_worker(
+            WorkerJob::new(
+                WorkerCompletionId::from_abi(1),
+                crate::async_host::HandleKey::null(),
+                job.into(),
+            ),
+            |job| run_host_job(&mut job.job),
+            completed,
+            WorkerCompletionDestination::Test(Box::new(|_| {})),
+        );
+        std::thread::sleep(Duration::from_millis(10));
+        inject(&input, &[key(u16::from(b'a'), true, 0, 1)]);
+        match competitor_result.recv_timeout(Duration::from_millis(200)) {
+            Ok((ok, count)) => {
+                assert_ne!(ok, 0);
+                assert_eq!(count, 1);
+                drained += 1;
+                assert_eq!(
+                    cancel_worker(&worker).unwrap(),
+                    CancellationOutcome::NeedWait
+                );
+                let result = results.recv_timeout(Duration::from_secs(3));
+                if result.is_err() {
+                    // Release the blocked worker before failing.
+                    inject(&input, &[key(u16::from(b'b'), true, 0, 1)]);
+                }
+                let result = result.expect("a drained console read must stay cancellable");
+                assert_eq!(result.job.err(), ERROR_OPERATION_ABORTED as i32);
+            }
+            Err(_) => {
+                // The worker won the record; release the competitor.
+                results.recv_timeout(Duration::from_secs(3)).unwrap();
+                inject(&input, &[key(u16::from(b'c'), true, 0, 1)]);
+                competitor_result
+                    .recv_timeout(Duration::from_secs(3))
+                    .unwrap();
+            }
+        }
+        assert!(shutdown_workers([worker]).is_empty());
+        competitor.join().unwrap();
+    }
+    assert!(
+        drained > 0,
+        "the competitor never drained the console first"
+    );
 }
