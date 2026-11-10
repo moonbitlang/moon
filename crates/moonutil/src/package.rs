@@ -741,8 +741,6 @@ pub struct MoonPkg {
     pub link: Option<Link>,
     pub warn_list: Option<String>,
     pub proof_enabled: bool,
-    #[serde(default)]
-    pub use_async_io: bool,
 
     pub targets: Option<CondExprs>,
 
@@ -893,7 +891,6 @@ fn normalize_pkg_dsl(
         ("pkgtype", false),
         ("experimental", false),
         ("proof_enabled", false),
-        ("use_async_io", false),
         ("max_concurrent_tests", false),
         ("regex_backend", false),
         ("virtual", false),
@@ -1015,7 +1012,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let warn_list = read_dsl_option(&map, "warn_list", Some("warn-list"))?;
     let proof_enabled: Option<bool> =
         read_dsl_option(&map, "proof_enabled", Some("proof-enabled"))?;
-    let use_async_io: Option<bool> = read_dsl_option(&map, "use_async_io", None)?;
     let targets = read_dsl_option(&map, "targets", None)?;
     let pre_build = read_dsl_option(&map, "pre_build", Some("pre-build"))?;
     let local_rules: Option<Vec<MoonModRule>> = read_dsl_option(&map, "rule", None)?;
@@ -1067,7 +1063,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
             link: link.and_then(BoolOrLink::into_link),
             warn_list,
             proof_enabled: proof_enabled.unwrap_or(false),
-            use_async_io: use_async_io.unwrap_or(false),
             targets,
             pre_build,
             bin_name,
@@ -1170,7 +1165,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         link: j.link.and_then(BoolOrLink::into_link),
         warn_list: j.warn_list,
         proof_enabled: j.proof_enabled.unwrap_or(false),
-        use_async_io: false,
         targets: j.targets,
         pre_build: j.pre_build,
         bin_name: j.bin_name,
@@ -2234,20 +2228,16 @@ options(
 }
 
 #[test]
-fn convert_pkg_dsl_supports_use_async_io() {
-    let (default_pkg, _) =
-        convert_test_pkg_dsl(crate::moon_pkg::parse("").unwrap(), false).unwrap();
-    assert!(!default_pkg.use_async_io);
-
-    let (enabled_pkg, _) = convert_test_pkg_dsl(
+fn convert_pkg_dsl_rejects_removed_use_async_io() {
+    let err = convert_test_pkg_dsl(
         crate::moon_pkg::parse("use_async_io = true").unwrap(),
         false,
     )
-    .unwrap();
-    assert!(enabled_pkg.use_async_io);
-
-    let invalid = crate::moon_pkg::parse(r#"use_async_io = "true""#).unwrap();
-    assert!(convert_test_pkg_dsl(invalid, false).is_err());
+    .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Unexpected key 'use_async_io' found in moon.pkg."
+    );
 }
 
 #[test]
