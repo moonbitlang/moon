@@ -45,6 +45,8 @@ pub(super) fn async_client(
 ) -> anyhow::Result<reqwest::Client> {
     let (headers, redirect) = headers_and_redirect_policy(api, credentials)?;
     reqwest::Client::builder()
+        // The blocking client defaults to 30 seconds; the async client does not.
+        .timeout(std::time::Duration::from_secs(30))
         .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
         .default_headers(headers)
         .redirect(redirect)

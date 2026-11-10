@@ -1757,6 +1757,60 @@ mod tests {
     }
 
     #[test]
+    fn stalled_async_metadata_response_times_out() {
+        use crate::registry::VersionReader;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let home = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let api = format!("http://{}", listener.local_addr().unwrap());
+            let registry = http_test_registry(home.path(), &api);
+            let reader = registry.version_reader();
+            let name = "alice/public".into();
+            let version = Version::new(0, 1, 0);
+            let server = async {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    assert_ne!(socket.read_buf(&mut request).await.unwrap(), 0);
+                }
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{")
+                    .await
+                    .unwrap();
+                // Advance only after the real connection is established. Keep
+                // it open with an incomplete response past the 30-second limit.
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(31)).await;
+                socket
+            };
+            let read = tokio::time::timeout(
+                Duration::from_secs(35),
+                reader.read_version(&name, &version),
+            );
+            let (_connection, result) = tokio::join!(server, read);
+            let error = result
+                .expect("the registry request must time out before the test deadline")
+                .unwrap_err();
+            let unavailable = error
+                .downcast_ref::<crate::registry::RegistryUnavailable>()
+                .unwrap_or_else(|| panic!("expected RegistryUnavailable: {error:#}"));
+            assert!(
+                unavailable
+                    .0
+                    .downcast_ref::<reqwest::Error>()
+                    .unwrap()
+                    .is_timeout()
+            );
+        });
+    }
+
+    #[test]
     fn only_unavailable_http_responses_allow_explicit_cached_fallback() {
         for (status, body, unavailable) in [
             (503, "{}", true),
