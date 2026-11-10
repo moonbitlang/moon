@@ -30,12 +30,11 @@ use moonutil::{
 use semver::Version;
 use serde::Deserialize;
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, HashMap},
-    io::BufRead,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use sync::RegistryIndexUpdate;
+use tokio::sync::OnceCell;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -50,22 +49,25 @@ struct RegistryIndexEntry {
     yanked_reason: Option<String>,
 }
 
+type ModuleVersions = BTreeMap<Version, RegistryIndexEntry>;
+type ModuleVersionsCell = Arc<OnceCell<Arc<ModuleVersions>>>;
+
 pub(super) struct GitIndex {
     home: MoonHomeLayout,
-    cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryIndexEntry>>>>,
+    cache: Mutex<HashMap<ModuleName, ModuleVersionsCell>>,
 }
 
 impl GitIndex {
     pub(super) fn new(home: MoonHomeLayout) -> Self {
         Self {
             home,
-            cache: RefCell::new(HashMap::new()),
+            cache: Mutex::new(HashMap::new()),
         }
     }
 
     pub(super) fn sync(&self, config: &RegistryConfig, user_log: &UserLog) -> anyhow::Result<()> {
         let outcome = sync::sync(&self.home, config, user_log)?;
-        self.cache.borrow_mut().clear();
+        self.cache.lock().unwrap().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
     }
@@ -110,43 +112,47 @@ impl GitIndex {
         &self,
         name: &ModuleName,
     ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryIndexEntry>>> {
-        // check cache
-        if let Some(v) = self.cache.borrow().get(name) {
-            return Ok(Arc::clone(v));
+        let cached = Arc::clone(self.cache.lock().unwrap().entry(name.clone()).or_default());
+        if let Some(versions) = cached.get() {
+            return Ok(Arc::clone(versions));
         }
-
         let index_file = self.home.registry_index_file(name);
-        log::debug!("Reading versions of {} from {}", name, index_file.display());
-        let file = std::fs::File::open(index_file).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                anyhow::Error::new(super::RegistryModuleNotFound(name.clone()))
-            } else {
-                error.into()
-            }
-        })?;
-        let reader = std::io::BufReader::new(file);
+        let file =
+            std::fs::File::open(index_file).map_err(|error| index_read_error(name, error))?;
+        let versions = Arc::new(parse_versions(name, std::io::BufReader::new(file))?);
+        let _ = cached.set(Arc::clone(&versions));
+        Ok(versions)
+    }
 
-        let lines = reader.lines();
-        let mut res = BTreeMap::new();
-        for line in lines {
-            let line = line?;
-            let entry = match serde_json_lenient::from_str::<RegistryIndexEntry>(&line) {
-                Ok(m) => m,
-                Err(e) => {
-                    log::warn!("Error when reading index file of {}: {}", name, e);
-                    continue;
-                }
-            };
-            res.insert(Version::parse(&entry.version)?, entry);
-        }
-
-        // put in cache
-        let res = Arc::new(res);
-        self.cache
-            .borrow_mut()
-            .insert(name.clone(), Arc::clone(&res));
-
-        Ok(res)
+    pub(super) async fn version_info_async(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        // Different exact versions share one index file. Initialization is
+        // coalesced at module granularity, without borrowing the map across I/O.
+        let cached = Arc::clone(self.cache.lock().unwrap().entry(name.clone()).or_default());
+        let versions = cached
+            .get_or_try_init(|| async {
+                let index_file = self.home.registry_index_file(name);
+                tracing::debug!(module = %name, path = %index_file.display(), "reading registry index");
+                let bytes = tokio::fs::read(index_file)
+                    .await
+                    .map_err(|error| index_read_error(name, error))?;
+                parse_versions(name, std::io::Cursor::new(bytes)).map(Arc::new)
+            })
+            .await?;
+        let entry = versions
+            .get(version)
+            .ok_or_else(|| super::RegistryVersionNotFound {
+                name: name.clone(),
+                version: version.clone(),
+            })?;
+        Ok(RegistryVersionInfo {
+            deps: entry.deps.clone(),
+            yanked: entry.yanked,
+            yanked_reason: entry.yanked_reason.clone(),
+        })
     }
 
     pub(super) fn source_archive_checksum(
@@ -189,6 +195,33 @@ impl GitIndex {
     }
 }
 
+fn index_read_error(name: &ModuleName, error: std::io::Error) -> anyhow::Error {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        super::RegistryModuleNotFound(name.clone()).into()
+    } else {
+        error.into()
+    }
+}
+
+fn parse_versions(
+    name: &ModuleName,
+    reader: impl std::io::BufRead,
+) -> anyhow::Result<BTreeMap<Version, RegistryIndexEntry>> {
+    let mut versions = BTreeMap::new();
+    for line in reader.lines() {
+        let line = line?;
+        let entry = match serde_json_lenient::from_str::<RegistryIndexEntry>(&line) {
+            Ok(entry) => entry,
+            Err(error) => {
+                log::warn!("Error when reading index file of {}: {}", name, error);
+                continue;
+            }
+        };
+        versions.insert(Version::parse(&entry.version)?, entry);
+    }
+    Ok(versions)
+}
+
 fn log_sync_outcome(outcome: RegistryIndexUpdate, user_log: &UserLog) {
     match outcome {
         RegistryIndexUpdate::Cloned => user_log.status("Registry index cloned successfully"),
@@ -223,13 +256,21 @@ mod tests {
             )
             .unwrap();
             let index = GitIndex::new(home);
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
             if checksum_first {
                 assert_eq!(
                     index.source_archive_checksum(&name, &version).unwrap(),
                     "original"
                 );
             } else {
-                assert!(index.version_info(&name, &version).unwrap().is_some());
+                assert!(
+                    runtime
+                        .block_on(index.version_info_async(&name, &version))
+                        .is_ok()
+                );
             }
 
             // A client keeps one observation until it explicitly synchronizes
@@ -239,7 +280,9 @@ mod tests {
                 index.source_archive_checksum(&name, &version).unwrap(),
                 "original"
             );
-            let info = index.version_info(&name, &version).unwrap().unwrap();
+            let info = runtime
+                .block_on(index.version_info_async(&name, &version))
+                .unwrap();
             assert!(info.deps.contains_key("test/dep"));
             assert!(info.yanked);
             assert_eq!(info.yanked_reason.as_deref(), Some("superseded"));

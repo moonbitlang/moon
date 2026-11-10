@@ -47,7 +47,7 @@ use super::{
 
 /// Select the metadata implementation once, when constructing the client.
 enum MetadataBackend {
-    Git(GitIndex),
+    Git(Arc<GitIndex>),
     Http(HttpMetadata),
 }
 
@@ -243,7 +243,7 @@ impl RegistryClient {
                 credentials.clone(),
             ))
         } else {
-            MetadataBackend::Git(GitIndex::new(home.clone()))
+            MetadataBackend::Git(Arc::new(GitIndex::new(home.clone())))
         };
         Self {
             config,
@@ -598,7 +598,34 @@ fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
     Ok(checksum.to_ascii_lowercase())
 }
 
+enum RegistryVersionReader {
+    Git(Arc<GitIndex>),
+    Http(super::http::HttpVersionReader),
+}
+
+impl super::VersionReader for RegistryVersionReader {
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        match self {
+            Self::Git(index) => index.version_info_async(name, version).await,
+            Self::Http(reader) => reader.read_version(name, version).await,
+        }
+    }
+}
+
 impl super::Registry for RegistryClient {
+    fn version_reader(&self) -> impl super::VersionReader + 'static {
+        match &self.metadata {
+            MetadataBackend::Git(index) => RegistryVersionReader::Git(Arc::clone(index)),
+            MetadataBackend::Http(http) => {
+                RegistryVersionReader::Http(http.version_reader(self.frozen_dependencies))
+            }
+        }
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
@@ -917,7 +944,7 @@ mod tests {
             MoonHomeLayout::new(home.to_owned()),
             &quiet_user_log(),
         );
-        registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
+        registry.metadata = MetadataBackend::Git(Arc::new(GitIndex::new(registry.home.clone())));
         registry
     }
 
@@ -1027,36 +1054,84 @@ mod tests {
     }
 
     #[test]
-    fn exact_metadata_is_shared_by_resolution_and_checksum_without_latest_queries() {
+    fn exact_metadata_is_shared_across_readers_and_checksum_without_latest_queries() {
+        use crate::registry::VersionReader;
+
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "secret-token");
         let server = api_test_server(
             listener,
-            vec![(
-                200,
-                String::new(),
-                resolver_response("alice/secret", "PUBLIC", "0.1.0"),
-            )],
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                ),
+                (
+                    200,
+                    String::new(),
+                    serde_json::json!({
+                        "module": "alice/public", "visibility": "PUBLIC", "version": "0.1.0",
+                        "deps": {}, "checksum": "a".repeat(64), "yanked": false
+                    })
+                    .to_string(),
+                ),
+            ],
         );
 
         let registry = http_test_registry(home.path(), &api);
         let name: ModuleName = "alice/secret".into();
         let version = Version::new(0, 1, 0);
-        assert!(registry.version_info(&name, &version).is_ok());
+        // A reader's connections belong to its runtime. Later readers and the
+        // synchronous checksum lookup reuse the registry's metadata cache.
+        for _ in 0..2 {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let reader = registry.version_reader();
+            let info = runtime
+                .block_on(reader.read_version(&name, &version))
+                .unwrap();
+            assert!(info.deps.contains_key("alice/public"));
+            let info = runtime
+                .block_on(reader.read_version(&"alice/public".into(), &version))
+                .unwrap();
+            assert!(info.deps.is_empty());
+        }
         let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
         assert_eq!(
             registry.source_archive_checksum(&source).unwrap(),
             "b".repeat(64)
         );
         let requests = server.join().unwrap();
-        assert_eq!(requests.len(), 1);
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer secret-token")
+        }));
         assert!(
             requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 ")
         );
         let cached = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(cached.version_info(&name, &version).is_ok());
-        assert!(cached.version_info(&name, &Version::new(0, 1, 1)).is_err());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let reader = cached.version_reader();
+        assert!(
+            runtime
+                .block_on(reader.read_version(&name, &version))
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .block_on(reader.read_version(&name, &Version::new(0, 1, 1)))
+                .is_err()
+        );
         assert!(cached.cached_latest_version(&name).unwrap().is_none());
     }
 
@@ -3113,7 +3188,8 @@ mod tests {
                 home,
                 &quiet_user_log(),
             );
-            registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
+            registry.metadata =
+                MetadataBackend::Git(Arc::new(GitIndex::new(registry.home.clone())));
             registry
         });
 

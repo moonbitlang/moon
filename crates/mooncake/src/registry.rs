@@ -73,8 +73,28 @@ pub struct RegistryVersionNotFound {
 #[error(transparent)]
 pub struct RegistryUnavailable(pub anyhow::Error);
 
+/// Exact-version reads within one resolution. Readers own their backend handles
+/// and transport state; the resolver owns their lifetime and task scheduling.
+/// Futures may stay on the calling thread, so no `Send` bound is required.
+#[allow(async_fn_in_trait)]
+pub trait VersionReader {
+    /// Read only the requested version, with the same absence and failure
+    /// semantics as [`Registry::version_info`].
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo>;
+}
+
 pub trait Registry {
-    /// Read one exact published version. Never substitute another version.
+    /// Start a resolution's read session, sharing this registry's metadata cache.
+    /// Drop the reader and its tasks before dropping the resolution runtime.
+    fn version_reader(&self) -> impl VersionReader + 'static;
+
+    /// Read one exact published version synchronously. Never substitute another version.
+    /// TODO: Switch module resolution to [`Self::version_reader`] when its
+    /// concurrent traversal is connected.
     ///
     /// Return [`RegistryVersionNotFound`] if the version is absent from a known module,
     /// [`RegistryModuleNotFound`] if the module has no registry entry, and
@@ -164,6 +184,10 @@ impl<R> Registry for &mut R
 where
     R: Registry,
 {
+    fn version_reader(&self) -> impl VersionReader + 'static {
+        (**self).version_reader()
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
@@ -196,6 +220,10 @@ impl<R> Registry for Box<R>
 where
     R: Registry + ?Sized,
 {
+    fn version_reader(&self) -> impl VersionReader + 'static {
+        (**self).version_reader()
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,

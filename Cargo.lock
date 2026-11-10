@@ -2203,6 +2203,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 1.0.63",
+ "tokio",
  "tracing",
  "zip",
 ]

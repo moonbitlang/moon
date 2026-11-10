@@ -31,6 +31,7 @@ use semver::Version;
 use super::{Registry, RegistryVersionInfo};
 
 /// A mock registry, primarily used in tests.
+#[derive(Clone)]
 pub struct MockRegistry {
     modules: HashMap<ModuleName, Arc<BTreeMap<Version, Arc<MoonMod>>>>,
 }
@@ -149,6 +150,10 @@ impl Default for MockRegistry {
 }
 
 impl Registry for MockRegistry {
+    fn version_reader(&self) -> impl super::VersionReader + 'static {
+        self.clone()
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
@@ -186,6 +191,16 @@ impl Registry for MockRegistry {
         // The fixture is the authoritative registry and has no separate cache.
         self.cached_latest_version(name)?
             .ok_or_else(|| super::RegistryModuleNotFound(name.clone()).into())
+    }
+}
+
+impl super::VersionReader for MockRegistry {
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        Registry::version_info(self, name, version)
     }
 }
 
