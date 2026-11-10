@@ -338,6 +338,11 @@ If not specified, the package scanning root path is `.`,
 meaning the packages are relative to the root of the module.
 Newer modules created by `moon new` by default sets this to `src`.
 
+After module synchronization, package discovery scans modules independently on
+scoped threads, bounded by available CPU parallelism. Results and diagnostics are
+combined in module order, so completion order does not affect package IDs or
+which module's error is reported first. Local-only project discovery stays serial.
+
 To discover all package within the module,
 one recursively search from the scanning root for files named `moon.pkg`,
 unless the folder contains `moon.mod`.

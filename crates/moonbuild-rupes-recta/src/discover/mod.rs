@@ -61,7 +61,7 @@ use moonutil::{
         warn_module_manifest,
     },
     package::resolve_supported_targets,
-    user_log::UserLog,
+    user_log::{UserLog, UserLogEntryLevel},
 };
 use relative_path::{PathExt, RelativePath};
 use tracing::{Level, instrument};
@@ -88,26 +88,71 @@ pub fn discover_packages(
         module_graph.module_count()
     );
 
-    for (id, m) in module_graph.all_modules_and_id() {
-        // SPECIAL_CASE: Skip stdlib in discovering. They are handled below.
-        // UPDATED: stdlib is not skipped anymore, as we require
-        // packages in stdlib to be explicitly imported by users.
-        if let ModuleSourceKind::SingleFile(_) = m.source() {
-            continue;
-        };
-
+    let modules = module_graph
+        .all_modules_and_id()
+        .filter_map(|(id, m)| {
+            (!matches!(m.source(), ModuleSourceKind::SingleFile(_))).then_some(id)
+        })
+        .collect::<Vec<_>>();
+    let scan_module = |&id| {
+        let mut discovered = DiscoverResult::default();
+        let (log, capture) = UserLog::captured(log::LevelFilter::Debug);
         let dir = dirs.get(id).expect("Bad module ID to get directory");
         let location = format!("at module root '{}'", dir.display());
-        warn_module_manifest(dir, &location, user_log);
-        discover_packages_for_mod(
-            &mut res,
+        warn_module_manifest(dir, &location, &log);
+        let outcome = discover_packages_for_mod(
+            &mut discovered,
             dir,
             id,
             module_graph.resolved_module(id),
             module_graph.input_module_ids().contains(&id),
-            user_log,
+            &log,
             false,
-        )?;
+        );
+        (discovered, outcome, capture.take())
+    };
+    let workers = std::thread::available_parallelism().map_or(1, usize::from);
+    // Each scanner owns its output. Join in module order so filesystem timing
+    // cannot change package IDs, the first reported error, or warning order.
+    let scanned = if workers == 1 || modules.len() <= 1 {
+        modules.iter().map(scan_module).collect::<Vec<_>>()
+    } else {
+        let span = tracing::Span::current();
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
+        std::thread::scope(|scope| {
+            let handles = modules
+                .chunks(modules.len().div_ceil(workers))
+                .map(|chunk| {
+                    scope.spawn(|| {
+                        tracing::dispatcher::with_default(&dispatch, || {
+                            let batch =
+                                tracing::debug_span!(parent: &span, "discover_module_batch");
+                            let _entered = batch.enter();
+                            chunk.iter().map(scan_module).collect::<Vec<_>>()
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .flat_map(|handle| match handle.join() {
+                    Ok(modules) => modules,
+                    Err(panic) => std::panic::resume_unwind(panic),
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    for (discovered, outcome, entries) in scanned {
+        for entry in entries {
+            match entry.level {
+                UserLogEntryLevel::Error => user_log.error(entry.message),
+                UserLogEntryLevel::Warning => user_log.warn(entry.message),
+                UserLogEntryLevel::Info => user_log.info(entry.message),
+                UserLogEntryLevel::Debug => user_log.debug(entry.message),
+            }
+        }
+        res.extend(discovered)?;
+        outcome?;
     }
 
     info!(
@@ -597,6 +642,97 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("failed to create temporary module directory");
         dir
+    }
+
+    #[test]
+    fn module_scans_preserve_package_ids_warnings_and_first_error() -> anyhow::Result<()> {
+        use moonutil::resolution::{ResolvedModule, ResolvedRootModules};
+
+        let dir = tempfile::tempdir()?;
+        let mut roots = ResolvedRootModules::with_key();
+        let mut dirs = DirSyncResult::default();
+        // Different-sized modules, deliberately outside lexical name order.
+        for (name, packages) in [("z", 20), ("a", 1), ("m", 5)] {
+            let root = dir.path().join(name);
+            std::fs::create_dir_all(&root)?;
+            std::fs::write(root.join("moon.mod"), format!("name = \"test/{name}\"\n"))?;
+            for index in 0..packages {
+                let package = root.join(format!("p{index}"));
+                std::fs::create_dir_all(&package)?;
+                std::fs::write(package.join("moon.pkg"), "")?;
+                std::fs::write(package.join("moon.pkg.json"), "{}")?;
+                std::fs::write(package.join("lib.mbt"), "")?;
+            }
+            let module = moonutil::manifest::read_module_desc_file_in_dir(&root)?;
+            let source = ModuleSource::from_local_module(&module, &root)?;
+            let id = roots.insert(ResolvedModule::new(source, std::sync::Arc::new(module)));
+            dirs.insert(id, root);
+        }
+        let graph = ModuleDependencyGraph::from_root_modules(roots);
+        for invalid in [false, true] {
+            if invalid {
+                // Both early and late workers fail. Only the first module's
+                // error and preceding diagnostics should reach the caller.
+                for name in ["z", "a"] {
+                    std::fs::write(dir.path().join(name).join("p0/moon.pkg"), "=")?;
+                }
+            }
+            let (serial_log, serial_capture) = UserLog::captured(log::LevelFilter::Warn);
+            let mut serial = super::DiscoverResult::default();
+            let serial_outcome = graph.all_modules_and_id().try_for_each(|(id, _)| {
+                super::discover_packages_for_mod(
+                    &mut serial,
+                    dirs.get(id).expect("fixture module has a source directory"),
+                    id,
+                    graph.resolved_module(id),
+                    true,
+                    &serial_log,
+                    false,
+                )
+            });
+            let (parallel_log, parallel_capture) = UserLog::captured(log::LevelFilter::Warn);
+            let parallel = discover_packages(&graph, &dirs, &parallel_log);
+            assert_eq!(
+                parallel_capture
+                    .take()
+                    .into_iter()
+                    .map(|e| e.message)
+                    .collect::<Vec<_>>(),
+                serial_capture
+                    .take()
+                    .into_iter()
+                    .map(|e| e.message)
+                    .collect::<Vec<_>>()
+            );
+            if invalid {
+                assert_eq!(
+                    parallel
+                        .expect_err("invalid manifest must fail discovery")
+                        .to_string(),
+                    serial_outcome
+                        .expect_err("invalid manifest must fail discovery")
+                        .to_string()
+                );
+            } else {
+                serial_outcome?;
+                let parallel = parallel?;
+                for (id, expected) in serial.all_packages(false) {
+                    let actual = parallel.get_package(id);
+                    assert_eq!(actual.fqn, expected.fqn);
+                    assert_eq!(actual.source_files, expected.source_files);
+                    assert_eq!(
+                        parallel.get_package_id(actual.module, actual.fqn.package()),
+                        Some(id)
+                    );
+                    assert_eq!(
+                        parallel.get_package_id_by_name(&actual.fqn.to_string()),
+                        Some(id)
+                    );
+                }
+                assert_eq!(parallel.package_count(), serial.package_count());
+            }
+        }
+        Ok(())
     }
 
     #[test]
