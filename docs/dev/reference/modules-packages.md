@@ -7,12 +7,16 @@ The root of a module is signified by `moon.mod` or the legacy `moon.mod.json`.
 A module recursively contain all directories and files under its root,
 until another module is met.
 
-Commands that discover modules, including `moon check`, warn when a module uses
-`moon.mod.json` and suggest `moon fmt` to migrate it to `moon.mod`. When both
-files exist, `moon.mod` takes precedence and a single format warning asks the
-user to remove the old file. Manifest warnings follow the user-log level
-(`--quiet` suppresses them) and are suppressed for dependency cache files under
-`.mooncakes`.
+Project builds use `moon.mod` and `moon.pkg`. `moon fmt` accepts legacy
+`moon.mod.json` and `moon.pkg.json` files. For each manifest selected for
+formatting, it migrates JSON when the corresponding DSL file is absent.
+Normal formatting writes the DSL manifest and removes the JSON file; `--check`
+and `--warn` compare the migration result while preserving the source manifests.
+`--dry-run` prints the planned commands.
+When both formats exist, the DSL file takes precedence and a single format
+warning asks the user to remove the old file. Manifest warnings follow the
+user-log level (`--quiet` suppresses them) and are suppressed for dependency
+cache files under `.mooncakes`.
 
 The optional module field `private = true` (or `"private": true` in JSON)
 requests private visibility for the published module: only authorized users may
