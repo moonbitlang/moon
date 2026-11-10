@@ -30,10 +30,11 @@ use moonutil::{
     registry::{RegistryCredentials, registry_api_url},
     resolution::{ModuleName, ModuleSource},
 };
+use once_cell::unsync::OnceCell;
 use reqwest::StatusCode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{cell::OnceCell, sync::Arc};
+use std::sync::Arc;
 
 /// Module visibility within one registry; it does not select a registry.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -73,10 +74,23 @@ where
 }
 
 pub(super) struct HttpMetadata {
+    state: Arc<HttpMetadataState>,
+    client: OnceCell<reqwest::blocking::Client>,
+}
+
+/// Shared metadata and credentials, independent of either transport's lifetime.
+struct HttpMetadataState {
     api: String,
     credentials: Option<Arc<RegistryCredentials>>,
     cache: MetadataCache,
-    client: OnceCell<reqwest::blocking::Client>,
+}
+
+/// The asynchronous connection pool belongs to one resolution runtime.
+/// It shares metadata with synchronous update and source-acquisition callers.
+pub(super) struct HttpVersionReader {
+    state: Arc<HttpMetadataState>,
+    client: OnceCell<reqwest::Client>,
+    frozen: bool,
 }
 
 impl HttpMetadata {
@@ -86,9 +100,11 @@ impl HttpMetadata {
         credentials: Option<Arc<RegistryCredentials>>,
     ) -> Self {
         Self {
-            credentials,
-            cache: MetadataCache::new(home, api.clone()),
-            api,
+            state: Arc::new(HttpMetadataState {
+                credentials,
+                cache: MetadataCache::new(home, api.clone()),
+                api,
+            }),
             client: OnceCell::new(),
         }
     }
@@ -108,7 +124,7 @@ impl HttpMetadata {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<Option<RegistryVersionInfo>> {
-        Ok(self.cached_release(name, version)?.map(Into::into))
+        Ok(self.state.cached_release(name, version)?.map(Into::into))
     }
 
     pub(super) fn refresh_version_info(
@@ -139,7 +155,7 @@ impl HttpMetadata {
         frozen: bool,
     ) -> anyhow::Result<ModuleMetadata> {
         super::path::parse_module_path(&name.to_string())?;
-        if let Some(metadata) = self.cached_release(name, version)? {
+        if let Some(metadata) = self.state.cached_release(name, version)? {
             return Ok(metadata);
         }
         if frozen {
@@ -151,7 +167,7 @@ impl HttpMetadata {
     pub(super) fn query_latest_version(&self, name: &ModuleName) -> anyhow::Result<Version> {
         super::path::parse_module_path(&name.to_string())?;
         let metadata = self.fetch_release(name, None)?;
-        self.cache.store_latest(name, &metadata.version)?;
+        self.state.cache.store_latest(name, &metadata.version)?;
         Ok(metadata.version)
     }
 
@@ -159,13 +175,62 @@ impl HttpMetadata {
         &self,
         name: &ModuleName,
     ) -> anyhow::Result<Option<Version>> {
-        let version = self.cache.latest(name)?;
+        let version = self.state.cache.latest(name)?;
         if let Some(version) = &version {
-            self.cached_release(name, version)?;
+            self.state.cached_release(name, version)?;
         }
         Ok(version)
     }
 
+    pub(super) fn is_restricted(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        frozen: bool,
+    ) -> anyhow::Result<bool> {
+        Ok(self.exact_release(name, version, frozen)?.visibility == ModuleVisibility::Private)
+    }
+
+    /// This endpoint returns latest when the version query parameter is absent.
+    /// Keep that wire representation here; callers use distinct exact/latest APIs.
+    fn fetch_release(
+        &self,
+        name: &ModuleName,
+        version: Option<&Version>,
+    ) -> anyhow::Result<ModuleMetadata> {
+        let url = self.state.release_url(name, version)?;
+        let response = self
+            .http_client()?
+            .get(&url)
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|error| metadata_request_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        let metadata = self.state.decode_release(name, version, &bytes)?;
+        self.state.cache.store_release(name, metadata)
+    }
+
+    pub(super) fn version_reader(&self, frozen: bool) -> HttpVersionReader {
+        HttpVersionReader {
+            state: Arc::clone(&self.state),
+            client: OnceCell::new(),
+            frozen,
+        }
+    }
+
+    fn http_client(&self) -> anyhow::Result<&reqwest::blocking::Client> {
+        // Successful initialization retains connections and the operation's login.
+        // Cache-only reads never need to construct a network client.
+        self.client.get_or_try_init(|| {
+            authentication::client(&self.state.api, self.state.credentials.as_deref())
+        })
+    }
+}
+
+impl HttpMetadataState {
     fn cached_release(
         &self,
         name: &ModuleName,
@@ -191,22 +256,7 @@ impl HttpMetadata {
         Ok(())
     }
 
-    pub(super) fn is_restricted(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        frozen: bool,
-    ) -> anyhow::Result<bool> {
-        Ok(self.exact_release(name, version, frozen)?.visibility == ModuleVisibility::Private)
-    }
-
-    /// This endpoint returns latest when the version query parameter is absent.
-    /// Keep that wire representation here; callers use distinct exact/latest APIs.
-    fn fetch_release(
-        &self,
-        name: &ModuleName,
-        version: Option<&Version>,
-    ) -> anyhow::Result<ModuleMetadata> {
+    fn release_url(&self, name: &ModuleName, version: Option<&Version>) -> anyhow::Result<String> {
         let module_path = name
             .segments()
             .map(encode_path_segment)
@@ -224,58 +274,95 @@ impl HttpMetadata {
             url.push('?');
             url.push_str(&query);
         }
-        let response = self
-            .http_client()?
-            .get(&url)
-            .send()
-            .map_err(|error| {
-                if error.is_connect() || error.is_timeout() || error.is_request() {
-                    anyhow::Error::new(RegistryUnavailable(error.into()))
-                } else {
-                    error.into()
-                }
-            })
-            .with_context(|| format!("failed to fetch registry metadata for {name}"))?;
-        if matches!(
-            response.status(),
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
-        ) {
-            // The endpoint deliberately does not distinguish absence from denial.
-            bail!("Module `{name}` not found or access denied");
-        }
-        let status = response.status();
-        let response = response
-            .error_for_status()
-            .map_err(|error| {
-                if status.is_server_error()
-                    || status == StatusCode::REQUEST_TIMEOUT
-                    || status == StatusCode::TOO_MANY_REQUESTS
-                {
-                    anyhow::Error::new(RegistryUnavailable(error.into()))
-                } else {
-                    error.into()
-                }
-            })
-            .with_context(|| format!("registry metadata request failed for {name}"))?;
-        let bytes = response
-            .bytes()
-            .map_err(|error| RegistryUnavailable(error.into()))
-            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
-        let metadata: ModuleMetadata = serde_json::from_slice(&bytes)
+        Ok(url)
+    }
+
+    fn decode_release(
+        &self,
+        name: &ModuleName,
+        version: Option<&Version>,
+        bytes: &[u8],
+    ) -> anyhow::Result<ModuleMetadata> {
+        let metadata: ModuleMetadata = serde_json::from_slice(bytes)
             .with_context(|| format!("invalid registry metadata response for {name}"))?;
         metadata.validate(name, version)?;
         self.check_access(name, &metadata)?;
-        self.cache.store_release(name, metadata)
+        Ok(metadata)
     }
+}
 
-    fn http_client(&self) -> anyhow::Result<&reqwest::blocking::Client> {
-        if let Some(client) = self.client.get() {
-            return Ok(client);
+impl super::VersionReader for HttpVersionReader {
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        super::path::parse_module_path(&name.to_string())?;
+        let state = Arc::clone(&self.state);
+        let owned_name = name.clone();
+        let owned_version = version.clone();
+        // Cache reads and publications use the same complete operations as
+        // synchronous callers. Only network I/O is driven directly by Tokio.
+        let cached =
+            tokio::task::spawn_blocking(move || state.cached_release(&owned_name, &owned_version))
+                .await??;
+        if let Some(metadata) = cached {
+            return Ok(metadata.into());
         }
-        // Successful initialization retains connections and the operation's login.
-        // Cache-only reads never need to construct a network client.
-        let client = authentication::client(&self.api, self.credentials.as_deref())?;
-        Ok(self.client.get_or_init(|| client))
+        if self.frozen {
+            bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
+        }
+        let client = self.client.get_or_try_init(|| {
+            authentication::async_client(&self.state.api, self.state.credentials.as_deref())
+        })?;
+        let url = self.state.release_url(name, Some(version))?;
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(|error| metadata_request_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        let metadata = self.state.decode_release(name, Some(version), &bytes)?;
+        let state = Arc::clone(&self.state);
+        let name = name.clone();
+        let metadata =
+            tokio::task::spawn_blocking(move || state.cache.store_release(&name, metadata))
+                .await??;
+        Ok(metadata.into())
+    }
+}
+
+fn metadata_request_error(name: &ModuleName, error: reqwest::Error) -> anyhow::Error {
+    if let Some(status) = error.status() {
+        if matches!(
+            status,
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ) {
+            // The endpoint deliberately does not distinguish absence from denial.
+            return anyhow::anyhow!("Module `{name}` not found or access denied");
+        }
+        let error: anyhow::Error = if status.is_server_error()
+            || status == StatusCode::REQUEST_TIMEOUT
+            || status == StatusCode::TOO_MANY_REQUESTS
+        {
+            RegistryUnavailable(error.into()).into()
+        } else {
+            error.into()
+        };
+        error.context(format!("registry metadata request failed for {name}"))
+    } else {
+        let error: anyhow::Error = if error.is_connect() || error.is_timeout() || error.is_request()
+        {
+            RegistryUnavailable(error.into()).into()
+        } else {
+            error.into()
+        };
+        error.context(format!("failed to fetch registry metadata for {name}"))
     }
 }
 

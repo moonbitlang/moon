@@ -590,6 +590,7 @@ mod test {
     use std::{
         cell::{Cell, RefCell},
         collections::HashSet,
+        rc::Rc,
     };
 
     use expect_test::expect;
@@ -600,7 +601,7 @@ mod test {
 
     use super::*;
     use crate::registry::mock::{MockRegistry, create_mock_module};
-    use crate::registry::{Registry, RegistryVersionInfo};
+    use crate::registry::{Registry, RegistryVersionInfo, VersionReader};
     use crate::resolver::context::ModuleResolutionContext;
     use crate::resolver::{ModuleResolutionConfig, ModuleResolutionErrors, resolve_modules};
 
@@ -1141,12 +1142,27 @@ mod test {
 
     #[test]
     fn test_shared_registry_failure_is_read_once_and_preserves_each_dependant() {
+        #[derive(Clone)]
         struct UnreadableRegistry {
             inner: MockRegistry,
-            failed_reads: Cell<usize>,
+            failed_reads: Rc<Cell<usize>>,
+        }
+
+        impl VersionReader for UnreadableRegistry {
+            async fn read_version(
+                &self,
+                name: &ModuleName,
+                version: &Version,
+            ) -> anyhow::Result<RegistryVersionInfo> {
+                Registry::version_info(self, name, version)
+            }
         }
 
         impl Registry for UnreadableRegistry {
+            fn version_reader(&self) -> impl VersionReader + 'static {
+                self.clone()
+            }
+
             fn version_info(
                 &self,
                 name: &ModuleName,
@@ -1182,7 +1198,7 @@ mod test {
             .add_module_full("dep/right", "1.0.0", [("dep/shared", "1.2.3")]);
         let registry = UnreadableRegistry {
             inner,
-            failed_reads: Cell::new(0),
+            failed_reads: Rc::new(Cell::new(0)),
         };
         let mut context = ModuleResolutionContext::new(&registry);
         let root = create_mock_module(
@@ -1216,12 +1232,27 @@ mod test {
 
     #[test]
     fn test_resolution_reuses_registry_metadata() {
-        struct SingleReadRegistry<'a> {
-            inner: &'a MockRegistry,
-            reads: RefCell<HashSet<(ModuleName, Version)>>,
+        #[derive(Clone)]
+        struct SingleReadRegistry {
+            inner: MockRegistry,
+            reads: Rc<RefCell<HashSet<(ModuleName, Version)>>>,
         }
 
-        impl Registry for SingleReadRegistry<'_> {
+        impl VersionReader for SingleReadRegistry {
+            async fn read_version(
+                &self,
+                name: &ModuleName,
+                version: &Version,
+            ) -> anyhow::Result<RegistryVersionInfo> {
+                Registry::version_info(self, name, version)
+            }
+        }
+
+        impl Registry for SingleReadRegistry {
+            fn version_reader(&self) -> impl VersionReader + 'static {
+                self.clone()
+            }
+
             fn version_info(
                 &self,
                 name: &ModuleName,
@@ -1259,8 +1290,8 @@ mod test {
             .add_module_full("dep/right", "1.0.0", [("dep/shared", "1.0.0")])
             .add_module_full("dep/shared", "1.0.0", []);
         let registry = SingleReadRegistry {
-            inner: &inner,
-            reads: RefCell::default(),
+            inner,
+            reads: Rc::default(),
         };
         let config = ModuleResolutionConfig {
             registry: &registry,

@@ -41,6 +41,8 @@ clap.workspace = true
 sha2.workspace = true
 log.workspace = true
 tracing.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+once_cell.workspace = true
 tempfile.workspace = true
 form_urlencoded.workspace = true
 indexmap.workspace = true
@@ -50,3 +52,4 @@ dunce.workspace = true
 [dev-dependencies]
 expect-test.workspace = true
 petgraph.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

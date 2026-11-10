@@ -2194,6 +2194,7 @@ dependencies = [
  "indexmap",
  "log",
  "moonutil",
+ "once_cell",
  "petgraph",
  "reqwest",
  "semver",
@@ -2203,6 +2204,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 1.0.63",
+ "tokio",
  "tracing",
  "zip",
 ]

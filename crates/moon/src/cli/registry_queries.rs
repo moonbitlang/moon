@@ -105,11 +105,27 @@ mod tests {
         cached: C,
     }
 
+    struct NoVersionReads;
+
+    impl mooncake::registry::VersionReader for NoVersionReads {
+        async fn read_version(
+            &self,
+            _name: &ModuleName,
+            _version: &Version,
+        ) -> anyhow::Result<RegistryVersionInfo> {
+            panic!("latest selection must not query an exact release")
+        }
+    }
+
     impl<Q, C> Registry for TestRegistry<Q, C>
     where
         Q: Fn() -> anyhow::Result<Version>,
         C: Fn() -> anyhow::Result<Option<Version>>,
     {
+        fn version_reader(&self) -> impl mooncake::registry::VersionReader + 'static {
+            NoVersionReads
+        }
+
         fn version_info(
             &self,
             _name: &ModuleName,
