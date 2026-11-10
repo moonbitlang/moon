@@ -446,6 +446,14 @@ fn console_read_cancellation_after_drain() {
             completed,
             WorkerCompletionDestination::Test(Box::new(|_| {})),
         );
+        // Race only once the worker runs the Job. Before that, cancellation
+        // targets the thread and returns RetryLater, which MoonBit retries.
+        while !matches!(
+            worker.cancellation_target(),
+            WorkerCancellationTarget::Resource(_)
+        ) {
+            std::thread::yield_now();
+        }
         std::thread::sleep(Duration::from_millis(10));
         inject(&input, &[key(u16::from(b'a'), true, 0, 1)]);
         match competitor_result.recv_timeout(Duration::from_millis(200)) {
