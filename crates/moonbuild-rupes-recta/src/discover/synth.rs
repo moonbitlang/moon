@@ -93,7 +93,6 @@ pub fn build_synth_single_file_package(
         link: None,
         warn_list: None,
         proof_enabled: false,
-        use_async_io: false,
         targets: None,
         pre_build: None,
         bin_name: None,

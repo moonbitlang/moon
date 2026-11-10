@@ -187,7 +187,6 @@ pub(crate) struct BuildCommonConfig<'a> {
 
     // Package configuration
     pub pkgtype: PackageKind,
-    pub use_async_io: bool,
 
     /// Module directory (parent of moon.mod.json)
     pub workspace_root: Option<Cow<'a, Path>>,
@@ -214,7 +213,6 @@ impl<'a> Default for BuildCommonConfig<'a> {
             deny_warn: false,
             warn_config: WarnAlertConfig::Default,
             pkgtype: PackageKind::Library,
-            use_async_io: false,
             workspace_root: None,
             check_mi: None,
             virtual_implementation: None,
@@ -255,13 +253,6 @@ impl<'a> BuildCommonConfig<'a> {
     pub(crate) fn add_pkgtype(&self, args: &mut Vec<String>) {
         args.push("-pkg-type".to_string());
         args.push(self.pkgtype.as_str().to_string());
-    }
-
-    /// Enable the compiler's asynchronous I/O mode for this package.
-    pub(crate) fn add_use_async_io(&self, args: &mut Vec<String>) {
-        if self.use_async_io {
-            args.push("-use-async-io".to_string());
-        }
     }
 
     /// Add virtual package check arguments

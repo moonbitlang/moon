@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod async_io_planning;
 mod backend_selection;
 mod cli_to_planner;
 mod dummy_core_planning;
