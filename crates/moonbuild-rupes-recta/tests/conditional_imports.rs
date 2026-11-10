@@ -155,7 +155,6 @@ import { "example/conditional/helper" } for "test"
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             warn_list: None,
-            info_no_alias: false,
         };
         let backend = config.backend.target_backend();
         let expected_mi = format!(

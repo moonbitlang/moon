@@ -440,8 +440,8 @@ Current registry configuration behavior today is:
 - Command inputs become a `ModuleRequest::Versioned` or `Unversioned` request.
   Commands separately decide whether remote access is allowed; an unversioned
   request does not itself choose current or cached latest.
-- `moonx` and `moon runwasm` use cached latest for unpinned coordinates and
-  query current latest on a cache miss or for explicit `@latest`. `moon add`,
+- `moonx` uses cached latest for unpinned coordinates and
+  queries current latest on a cache miss or for explicit `@latest`. `moon add`,
   `moon fetch`, and registry binary installation query current latest when no
   version is specified. If metadata cannot be refreshed, these three commands
   warn and explicitly fall back to a cached latest answer, if any; authoritative

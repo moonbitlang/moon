@@ -18,7 +18,6 @@ fn test_moon_help() {
               check                  Check the current package, but don't build object files
               prove                  Prove the current package
               run                    Run a main package
-              runwasm                Deprecated: use moon run --target wasm locally or moonx for registry packages
               test                   Test the current package
               testcli                Run CLI tests with the current toolchain's mooncram
               clean                  Remove local build outputs or configured global caches

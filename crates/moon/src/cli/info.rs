@@ -61,13 +61,6 @@ pub(crate) struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
-    /// Do not use alias to shorten package names in the output
-    ///
-    /// Deprecated: this has been created for AI stuff, and doesn't seem to be
-    /// used recently.
-    #[clap(long, hide = true)]
-    pub no_alias: bool,
-
     /// Inspect one or more target backends without changing the canonical
     /// `pkg.generated.mbti` output
     #[clap(long, value_delimiter = ',')]
@@ -261,11 +254,6 @@ pub(crate) fn run_info(
     cmd: InfoSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    if cmd.no_alias {
-        output.user_log().warn(
-            "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092",
-        );
-    }
     if cli.dry_run {
         bail!("dry-run is not supported for info")
     }
@@ -368,7 +356,7 @@ fn plan_info_rr(
         target_kind,
         user_log,
     };
-    let mut compile_config = rr_build::prepare_resolved_build(
+    let compile_config = rr_build::prepare_resolved_build(
         cli,
         &BuildFlags::default(),
         target,
@@ -377,7 +365,6 @@ fn plan_info_rr(
         user_log,
         &resolved_project,
     )?;
-    compile_config.info_no_alias = cmd.no_alias;
     let intent = calc_user_intent_for_info(
         &ctx,
         &resolved_project,

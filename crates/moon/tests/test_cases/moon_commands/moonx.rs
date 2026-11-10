@@ -224,7 +224,7 @@ Caused by:
 }
 
 #[test]
-fn test_moonx_runs_cached_wasm_and_forwards_everything_after_the_coordinate() {
+fn test_moonx_cached_wasm_preserves_args_exit_status_and_policy() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
         .args(["build", "--target", "wasm"])
@@ -285,4 +285,26 @@ native
         .code(7)
         .stdout_eq("")
         .stderr_eq("");
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "--experimental-policy",
+            "missing-policy.json",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+        ])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes
+
+Caused by:
+    0: failed to read policy missing-policy.json
+    1: [..]
+
+"#]]);
 }

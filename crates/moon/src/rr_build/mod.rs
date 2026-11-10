@@ -402,7 +402,6 @@ pub(crate) fn prepare_resolved_build(
             WarningCondition::Default
         },
         warn_list: build_flags.warn_list.clone(),
-        info_no_alias: false,
     })
 }
 

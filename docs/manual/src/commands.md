@@ -10,7 +10,6 @@ This document contains the help content for the `moon` command-line program.
 * [`moon check`↴](#moon-check)
 * [`moon prove`↴](#moon-prove)
 * [`moon run`↴](#moon-run)
-* [`moon runwasm`↴](#moon-runwasm)
 * [`moon test`↴](#moon-test)
 * [`moon testcli`↴](#moon-testcli)
 * [`moon clean`↴](#moon-clean)
@@ -57,7 +56,6 @@ This document contains the help content for the `moon` command-line program.
 * `check` — Check the current package, but don't build object files
 * `prove` — Prove the current package
 * `run` — Run a main package
-* `runwasm` — Deprecated: use moon run --target wasm locally or moonx for registry packages
 * `test` — Test the current package
 * `testcli` — Run CLI tests with the current toolchain's mooncram
 * `clean` — Remove local build outputs or configured global caches
@@ -267,45 +265,6 @@ Run a main package
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux
-
-
-
-## `moon runwasm`
-
-Deprecated:
-  Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`.
-  Registry packages: use `moonx <PACKAGE[@VERSION]>`.
-
-Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
-
-Local package inputs are handled like `moon run --target wasm`:
-  moon runwasm main
-  moon runwasm ./main
-
-Experimental moonrun policy forwarding:
-  moon runwasm --experimental-policy moonrun-policy.json main
-
-Accepted Mooncakes coordinate forms:
-  moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
-  moon runwasm moonbitlang/parser/cmd/moonfmt@latest
-  moon runwasm moonbitlang/parser/cmd/moonfmt
-
-Pinned coordinates use the given version directly. `@latest` refreshes the
-registry index before resolving the latest version. Unpinned coordinates use
-the latest version already in the local index, updating it only when the module
-is absent. Fetched wasm files are cached under $MOON_HOME/registry/cache/assets
-and reused on later runs.
-
-**Usage:** `moon runwasm [OPTIONS] <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
-
-###### **Arguments:**
-
-* `<LOCAL_PACKAGE|PACKAGE[@VERSION]>` — Local package path or Mooncakes package coordinate of the prebuilt wasm binary
-* `<ARGS>` — The arguments provided to the wasm program
-
-###### **Options:**
-
-* `--experimental-policy <PATH>` — Experimental: pass a moonrun JSON policy file for runtime host access
 
 
 

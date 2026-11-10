@@ -172,7 +172,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                info_no_alias: false,
                 stdlib_path: None,
             };
 
@@ -424,7 +423,6 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            info_no_alias: false,
             stdlib_path: None,
         };
 
@@ -608,7 +606,6 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            info_no_alias: false,
             stdlib_path: None,
         };
 
@@ -888,7 +885,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                info_no_alias: false,
                 stdlib_path: None,
             };
 

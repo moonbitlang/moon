@@ -33,7 +33,7 @@ they own the behavior being changed or compatibility is part of the task.
 | Dry-run output | [Dry-run behavior](reference/dry-run.md) | [CLI lifecycle](design/cli-execution-lifecycle.md) |
 | `moon run` process launch, stdin, signals, or cleanup | [`moon run` process lifecycle](design/moon-run-process-lifecycle.md) | This is the CLI process layer; runtime internals use the Moonrun route below. |
 | Moon home, global caches, or cleaning | [Moon home layout](reference/moon-home-layout.md) | [Cache design](design/global-build-cache.md), [artifact dependencies](reference/build-plan-artifact-dependencies.md) |
-| Registry package execution or installed binaries | [`moonx`](reference/moonx.md), [`moon runwasm`](reference/runwasm.md), or [`moon install`](reference/moon-install-binary.md) | [moonx dispatch decision](../adr/0003-dispatch-moonx-by-executable-name.md), [binary discovery](reference/binaries.md) |
+| Registry package execution or installed binaries | [`moonx`](reference/moonx.md) or [`moon install`](reference/moon-install-binary.md) | [moonx dispatch decision](../adr/0003-dispatch-moonx-by-executable-name.md), [binary discovery](reference/binaries.md) |
 | Prebuild tasks, bundles, or indirect dependencies | [Prebuild](reference/prebuild.md), [bundle](reference/bundle.md), or [indirect dependencies](reference/indirect-dep.md) | [Toolchain layout](reference/toolchain-layout.md) for packaging |
 | Wasm runtime imports, Handles, async hosts, V8, or Wasmtime | [Async host boundary decision](../adr/0001-async-wasm-host-boundary.md) | [Moonrun developer guide](../../crates/moonrun/docs/dev/README.md) |
 
