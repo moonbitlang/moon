@@ -242,15 +242,21 @@ available or required elsewhere in the graph; it is not silently substituted.
 This keeps publishing an unrelated release from changing an existing dependency
 graph, provided published versions and their metadata remain immutable.
 
-Registry traversal runs up to 16 exact-version queries concurrently, deduplicating
-before dispatch and expanding each completed result without waiting for its
-siblings. A Tokio runtime and HTTP connection pool live only for this traversal;
-version selection, final graph construction, and source acquisition run after it
-returns. Git queries read module files from the complete local index on Tokio's
-blocking pool; parsed records are reused by subsequent synchronous queries,
-including checksum lookup. HTTP readers use asynchronous network I/O and run
-complete cache reads and publications on the blocking pool, sharing that cache with
-synchronous registry operations. These backend details remain outside MVS.
+Registry traversal spawns each distinct exact-version query as it is discovered,
+without an application-level concurrency cap, and expands each completed result
+without waiting for its siblings. MVS exposes an asynchronous computation, awaited
+within a caller-owned Tokio runtime and `LocalSet`. The synchronous module-resolution
+entry point creates and drives that runtime; MVS does not configure or drive an
+executor. Its HTTP reader and connection pool live only during traversal. Version
+selection and final graph construction then compute directly from the gathered
+manifests. Source acquisition starts after module resolution returns.
+
+The resolution runtime uses Tokio's default blocking-pool limit. Git queries read
+module files from the complete local index on Tokio's blocking pool; parsed records
+are reused by subsequent synchronous queries, including checksum lookup. HTTP
+readers use asynchronous network I/O and run complete cache reads and publications
+on the blocking pool, sharing that cache with synchronous registry operations.
+These backend details remain outside MVS.
 
 Manifests specify full version numbers, not version ranges. After traversal,
 MVS selects the highest version actually required in each compatibility bucket:
