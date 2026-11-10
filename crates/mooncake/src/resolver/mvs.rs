@@ -34,16 +34,11 @@ use moonutil::{
     user_log::UserLog,
 };
 use semver::Version;
-use tokio::{
-    runtime::Builder,
-    task::{JoinSet, LocalSet},
-};
+use tokio::task::JoinSet;
 use tracing::Instrument;
 
 use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
 use crate::registry::{Registry, RegistryModuleNotFound, RegistryVersionNotFound, VersionReader};
-
-const MAX_VERSION_QUERIES: usize = 16;
 
 struct GatheredRequirements {
     versions: HashMap<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>,
@@ -64,16 +59,19 @@ enum DependencyTarget {
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
 /// See https://research.swtch.com/vgo-mvs for more information.
+///
+/// Await the computation inside a Tokio LocalSet. The caller owns and drives
+/// the runtime; MVS owns only its queries and dependency graph computation.
 pub(crate) struct MvsSolver;
 
 impl<R: Registry> ModuleResolver<R> for MvsSolver {
-    fn resolve(
+    async fn resolve(
         &mut self,
         context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
         user_log: &UserLog,
     ) -> bool {
-        mvs_resolve(context, module_graph, user_log)
+        mvs_resolve(context, module_graph, user_log).await
     }
 }
 
@@ -237,7 +235,6 @@ async fn gather_requirements<R: Registry>(
     let mut registry_requests = HashMap::<ModuleSource, Vec<ModuleName>>::new();
     let mut read_failures = Vec::new();
     let reader = Rc::new(context.version_reader());
-    let mut pending = Vec::new();
     let mut queries = JoinSet::new();
     if tracing::enabled!(tracing::Level::DEBUG) {
         for &id in module_graph.input_module_ids() {
@@ -263,24 +260,42 @@ async fn gather_requirements<R: Registry>(
                         continue;
                     }
                 };
-                let (ms, module) = match target {
-                    DependencyTarget::Registry(registry_source) => {
-                        // Keep every exact requirement, including versions MVS
-                        // later discards. Deduplicate before queueing any I/O.
-                        gathered_versions
-                            .entry(module_name)
-                            .or_default()
-                            .insert(registry_source.clone().into());
-                        match registry_requests.entry(registry_source.clone()) {
-                            Entry::Occupied(mut entry) => {
-                                entry.get_mut().push(source.name().clone())
-                            }
-                            Entry::Vacant(entry) => {
-                                entry.insert(vec![source.name().clone()]);
-                                pending.push(registry_source);
-                            }
+                if let DependencyTarget::Registry(registry_source) = target {
+                    // Keep every exact requirement, including versions MVS
+                    // later discards. Deduplicate before spawning any I/O.
+                    gathered_versions
+                        .entry(module_name)
+                        .or_default()
+                        .insert(registry_source.clone().into());
+                    match registry_requests.entry(registry_source.clone()) {
+                        Entry::Occupied(mut entry) => entry.get_mut().push(source.name().clone()),
+                        Entry::Vacant(entry) => {
+                            entry.insert(vec![source.name().clone()]);
+                            let reader = Rc::clone(&reader);
+                            let span = tracing::debug_span!(
+                                "read_registry_version",
+                                module = %registry_source
+                            );
+                            queries.spawn_local(
+                                async move {
+                                    let result = reader
+                                        .read_version(
+                                            registry_source.name(),
+                                            registry_source.version(),
+                                        )
+                                        .await;
+                                    (registry_source, result)
+                                }
+                                .instrument(span),
+                            );
                         }
-                        continue;
+                    }
+                    continue;
+                }
+
+                let (ms, module) = match target {
+                    DependencyTarget::Registry(_) => {
+                        unreachable!("registry query was dispatched above")
                     }
                     DependencyTarget::Root(source, module) => (source, module),
                     DependencyTarget::Local { name, path } => {
@@ -331,20 +346,6 @@ async fn gather_requirements<R: Registry>(
                     .or_default()
                     .insert(ms.into());
             }
-        }
-        while queries.len() < MAX_VERSION_QUERIES {
-            let Some(source) = pending.pop() else {
-                break;
-            };
-            let reader = Rc::clone(&reader);
-            let span = tracing::debug_span!("read_registry_version", module = %source);
-            queries.spawn_local(
-                async move {
-                    let result = reader.read_version(source.name(), source.version()).await;
-                    (source, result)
-                }
-                .instrument(span),
-            );
         }
         let Some(completed) = queries.join_next().await else {
             break;
@@ -409,7 +410,7 @@ async fn gather_requirements<R: Registry>(
     skip_all,
     fields(root_count = module_graph.input_module_ids().len())
 )]
-fn mvs_resolve<R: Registry>(
+async fn mvs_resolve<R: Registry>(
     context: &mut ModuleResolutionContext<'_, R>,
     module_graph: &mut ModuleDependencyGraph,
     user_log: &UserLog,
@@ -427,25 +428,9 @@ fn mvs_resolve<R: Registry>(
             )
         })
         .collect::<WorkspaceRoots>();
-    // The runtime and its connection pools cover traversal only. Version
-    // selection, graph construction, and source acquisition remain synchronous.
-    let gathered = {
-        let runtime = match Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                context.report_error(ModuleResolutionError::Other(error.into()));
-                return false;
-            }
-        };
-        LocalSet::new().block_on(
-            &runtime,
-            gather_requirements(context, module_graph, &workspace_roots, user_log),
-        )
-    };
+    // Only traversal awaits registry I/O. Selection and graph construction
+    // below compute directly from the gathered manifests.
+    let gathered = gather_requirements(context, module_graph, &workspace_roots, user_log).await;
     if context.any_errors() {
         return false;
     }
@@ -676,6 +661,7 @@ mod test {
     use moonutil::resolution::ModuleId;
     use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
+    use tokio::{runtime::Builder, task::LocalSet};
 
     use super::*;
     use crate::registry::mock::{MockRegistry, create_mock_module};
@@ -710,15 +696,19 @@ mod test {
         context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
     ) -> bool {
-        resolver.resolve(
-            context,
-            module_graph,
-            &UserLog::new(log::LevelFilter::Error),
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        LocalSet::new().block_on(
+            &runtime,
+            resolver.resolve(
+                context,
+                module_graph,
+                &UserLog::new(log::LevelFilter::Error),
+            ),
         )
     }
 
-    #[test]
-    fn api_walkthrough() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn api_walkthrough() {
         let registry = create_mock_registry();
 
         let mut resolver = MvsSolver;
@@ -733,7 +723,15 @@ mod test {
         let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
         let mut context = ModuleResolutionContext::new(&registry);
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
-        let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
+        // The caller can await MVS within an existing runtime; the solver
+        // must not construct or block on a nested runtime.
+        let status = LocalSet::new()
+            .run_until(resolver.resolve(
+                &mut context,
+                &mut module_graph,
+                &UserLog::new(log::LevelFilter::Error),
+            ))
+            .await;
         assert!(status, "Resolve failed");
 
         let id = module_graph
@@ -1312,13 +1310,14 @@ mod test {
     }
 
     #[test]
-    fn concurrent_reads_are_bounded_and_expand_completed_dependencies() {
+    fn concurrent_reads_start_without_a_cap_and_expand_completed_dependencies() {
         #[derive(Clone)]
         struct SingleReadRegistry {
             inner: MockRegistry,
             reads: Rc<RefCell<HashSet<(ModuleName, Version)>>>,
             active: Rc<Cell<usize>>,
             peak: Rc<Cell<usize>>,
+            roots_started: Rc<tokio::sync::Barrier>,
             child_read: Rc<tokio::sync::Notify>,
         }
 
@@ -1330,6 +1329,15 @@ mod test {
             ) -> anyhow::Result<RegistryVersionInfo> {
                 self.active.set(self.active.get() + 1);
                 self.peak.set(self.peak.get().max(self.active.get()));
+                if name.to_string() != "dep/shared" {
+                    // Every discovered root dependency must start before any
+                    // completes. A fixed query cap would stall at this barrier.
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        self.roots_started.wait(),
+                    )
+                    .await?;
+                }
                 if name.to_string() == "dep/slow" {
                     // A sibling's child must run before this request completes.
                     // Waiting for a whole batch would deadlock here.
@@ -1400,6 +1408,7 @@ mod test {
             reads: Rc::default(),
             active: Rc::default(),
             peak: Rc::default(),
+            roots_started: Rc::new(tokio::sync::Barrier::new(names.len())),
             child_read: Rc::default(),
         };
         let config = ModuleResolutionConfig {
@@ -1415,7 +1424,7 @@ mod test {
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
         let graph = resolve_modules(&config, create_mock_root(root), &user_log).unwrap();
         assert_eq!(registry.reads.borrow().len(), 41);
-        assert_eq!(registry.peak.get(), MAX_VERSION_QUERIES);
+        assert_eq!(registry.peak.get(), names.len());
         assert_eq!(registry.active.get(), 0);
         assert!(tokio::runtime::Handle::try_current().is_err());
         assert_depends_on(&graph, "dep/node00@1.0.0", "dep/shared@1.0.0");
@@ -1617,8 +1626,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_workspace_roots_are_not_reprocessed() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_workspace_roots_are_not_reprocessed() {
         let registry = MockRegistry::new();
         let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
@@ -1639,7 +1648,9 @@ mod test {
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-        let status = resolver.resolve(&mut context, &mut module_graph, &user_log);
+        let status = LocalSet::new()
+            .run_until(resolver.resolve(&mut context, &mut module_graph, &user_log))
+            .await;
 
         assert!(status, "Resolve failed");
         assert_eq!(

@@ -116,7 +116,7 @@ pub(crate) trait ModuleResolver<R: Registry> {
     ///
     /// If the dependencies cannot be resolved, this function should return
     /// `false`. The errors should be emitted in `context`.
-    fn resolve(
+    async fn resolve(
         &mut self,
         context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
@@ -273,9 +273,9 @@ pub(crate) struct ModuleResolutionConfig<'a, R: Registry> {
     pub(crate) warn_deprecated: bool,
 }
 
-pub(crate) fn resolve_modules_with_solver<R: Registry>(
+pub(crate) async fn resolve_modules_with_solver<R: Registry>(
     config: &ModuleResolutionConfig<'_, R>,
-    resolver: &mut dyn ModuleResolver<R>,
+    resolver: &mut impl ModuleResolver<R>,
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
@@ -306,7 +306,9 @@ pub(crate) fn resolve_modules_with_solver<R: Registry>(
         })?;
     }
 
-    let status = resolver.resolve(&mut context, &mut module_graph, user_log);
+    let status = resolver
+        .resolve(&mut context, &mut module_graph, user_log)
+        .await;
     if context.any_errors() {
         Err(ModuleResolutionErrors(context.into_errors()))
     } else {
@@ -377,11 +379,25 @@ fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 pub(crate) fn resolve_modules<R: Registry>(
     config: &ModuleResolutionConfig<'_, R>,
     root: ResolvedRootModules,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
-    let mut resolver = MvsSolver;
-    resolve_modules_with_solver(config, &mut resolver, root, user_log)
+    // The synchronous entry point drives the computation; the solver only
+    // describes it. Source acquisition starts after this boundary returns.
+    // TODO: Move runtime ownership to command orchestration when resolution
+    // and test execution share a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|error| {
+            ModuleResolutionErrors(vec![ModuleResolutionError::Other(error.into())])
+        })?;
+    tokio::task::LocalSet::new().block_on(
+        &runtime,
+        resolve_modules_with_solver(config, &mut MvsSolver, root, user_log),
+    )
 }
