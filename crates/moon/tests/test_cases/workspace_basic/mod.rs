@@ -377,63 +377,33 @@ fn test_empty_workspace_fmt_formats_workspace_manifest() {
 }
 
 #[test]
-fn test_workspace_preferred_target_warns() {
+fn test_workspace_rejects_removed_preferred_target() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::write(
         dir.join("moon.work"),
-        r#"members = [
-  "./app",
-  "./liba",
-]
+        r#"members = ["./app", "./liba"]
 preferred_target = "wasm-gc"
 "#,
     )
     .unwrap();
 
-    check(
-        get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
+    moon_cmd(&dir)
+        .args(["build", "--dry-run"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to parse workspace file `[..]/moon.work`
 
-    check(
-        get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
+Caused by:
+    unknown field `preferred_target`, expected `members`
 
-    check(
-        get_stderr(&dir, ["-C", "app", "clean"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["work", "use", "app"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["--quiet", "build", "--dry-run"]),
-        expect![[r#""#]],
-    );
+"#]]);
 }
 
 #[test]
-fn test_workspace_fmt_removes_deprecated_preferred_target() {
+fn test_workspace_fmt_formats_existing_manifest() {
     let dir = TestDir::new("fmt_moon_work_existing.in");
-
-    check(
-        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -656,7 +626,7 @@ fn test_work_init_creates_empty_workspace() {
 }
 
 #[test]
-fn test_work_use_updates_workspace_and_preserves_deprecated_preferred_target() {
+fn test_work_use_appends_members_to_existing_workspace() {
     let dir = TestDir::new("workspace_basic.in");
 
     std::fs::write(
@@ -664,7 +634,6 @@ fn test_work_use_updates_workspace_and_preserves_deprecated_preferred_target() {
         r#"members = [
   "./liba",
 ]
-preferred_target = "wasm-gc"
 "#,
     )
     .unwrap();
@@ -677,14 +646,6 @@ preferred_target = "wasm-gc"
     );
 
     let moon_work = std::fs::read_to_string(dir.join("moon.work")).unwrap();
-    let preferred_target = moon_work
-        .lines()
-        .find(|line| line.starts_with("preferred_target"))
-        .unwrap_or("");
-    check(
-        preferred_target,
-        expect![[r#"preferred_target = "wasm-gc""#]],
-    );
     check(
         moon_work,
         expect![[r#"
@@ -692,7 +653,6 @@ preferred_target = "wasm-gc"
               "./liba",
               "./app",
             ]
-            preferred_target = "wasm-gc"
         "#]],
     );
 }
@@ -958,7 +918,7 @@ fn test_single_member_workspace_tree_json_marks_member() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[{"level":"warning","message":"`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead."}]}
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[]}
 
 "#]]);
 }
@@ -971,10 +931,7 @@ fn test_single_member_workspace_tree_text_omits_member_marker() {
         .args(["-C", "app", "tree"])
         .assert()
         .success()
-        .stderr_eq(snapbox::str![[r#"
-Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-
-"#]])
+        .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
 fmt/workspace/app@0.1.0 (local [..]/app):
   (no dependencies)

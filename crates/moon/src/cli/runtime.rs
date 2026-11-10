@@ -279,7 +279,7 @@ fn dispatch(
         Upgrade(command) => super::run_upgrade(flags, command).map(Into::into),
         ShellCompletion(command) => super::gen_shellcomp(&flags, command).map(Into::into),
         Version(command) => super::run_version(&flags, command).map(Into::into),
-        Tool(command) => super::run_tool(&flags, command, output.user_log()).map(Into::into),
+        Tool(command) => super::run_tool(&flags, command).map(Into::into),
         Login(_) | Register(_) | External(_) | TestCli => {
             unreachable!("transparent delegates are selected before Moon runtime setup")
         }

@@ -49,10 +49,8 @@ A workspace manifest defines:
 Workspace members are canonicalized relative to the workspace root and deduped.
 Project discovery reads the selected `moon.work` and resolves its members once;
 dependency sync, package discovery, and workspace maintenance receive that
-completed layout instead of reopening the manifest. `preferred_target` in
-`moon.work` is deprecated: commands warn once when they select that layout, but
-they do not use it for backend selection. `moon fmt` removes it. Use
-module-level `preferred_target` instead.
+completed layout instead of reopening the manifest. Set `preferred_target` in
+each module manifest to choose its default backend.
 
 The workspace root may or may not also contain a module manifest.
 
