@@ -138,9 +138,6 @@ output uses the compiler's cycle-capable allocation bookkeeping and the shared
 native runtime; it does not need an additional `moonc` flag. LLVM runtime builds
 do not enable it.
 
-During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
-when the split runtime directory is absent.
-
 This is why Moon needs both a compiler driver and an archiver.
 
 ## Debug information and optimization

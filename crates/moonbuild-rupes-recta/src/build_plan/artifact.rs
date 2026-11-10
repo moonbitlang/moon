@@ -123,8 +123,8 @@ pub enum ArtifactKey {
         package: PackageId,
     },
     RuntimeObject {
-        /// Path within the toolchain library layout (`runtime/foo.c` or
-        /// legacy `runtime.c`), independent of the installed toolchain root.
+        /// Path within the toolchain library layout (`runtime/foo.c`),
+        /// independent of the installed toolchain root.
         source: PathBuf,
     },
     RuntimeLibrary,
