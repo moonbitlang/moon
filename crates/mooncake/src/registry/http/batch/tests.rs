@@ -670,3 +670,52 @@ async fn batches_share_an_async_connection_pool_without_blocking_the_runtime() {
     assert!(two[0].is_ok());
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn stalled_batch_body_times_out_without_fallback_or_publication() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api = format!("http://{}", listener.local_addr().unwrap());
+    let home = tempfile::tempdir().unwrap();
+    let reader = HttpMetadata::new(
+        api,
+        moonutil::MoonHomeLayout::new(home.path().to_owned()),
+        None,
+    )
+    .version_reader(false);
+    let server = async {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            assert_ne!(socket.read_buf(&mut request).await.unwrap(), 0);
+        }
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{")
+            .await
+            .unwrap();
+        // The response headers arrived; the body must share the same timeout.
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(31)).await;
+        socket
+    };
+    let versions = [coordinate("alice/one"), coordinate("alice/two")];
+    let read = tokio::time::timeout(Duration::from_secs(35), reader.version_infos(&versions));
+    let (_connection, result) = tokio::join!(server, read);
+    let results = result.expect("a stalled body must fail before the test deadline");
+    assert!(
+        results
+            .iter()
+            .all(|result| result.as_ref().unwrap_err().is::<RegistryUnavailable>())
+    );
+    for (name, version) in versions {
+        assert!(
+            reader
+                .state
+                .cached_release(&name, &version)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert!(reader.batch_supported.get());
+}

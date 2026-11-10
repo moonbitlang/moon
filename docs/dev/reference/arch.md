@@ -486,8 +486,8 @@ Current registry configuration behavior today is:
   their former combined endpoint layout while users migrate to the split
   configuration.
 - MVS requests every declared dependency's exact version through
-  `Registry::version_info`, without constructing transport URLs or enumerating
-  version histories. The default adapter still reads the local Git index.
+  `VersionReader`, without constructing transport URLs or enumerating version
+  histories. The default adapter still reads the local Git index.
   `MOON_REGISTRY_API=1` enables the experimental HTTP metadata adapter globally,
   including modules already present in that index. HTTP reads share the captured
   registry login and support public and owner-only private metadata. Batch reads
