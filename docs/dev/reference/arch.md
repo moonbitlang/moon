@@ -422,6 +422,12 @@ Current registry configuration behavior today is:
   searches the remote service and downloads and verifies package archives and
   prebuilt wasm assets. Resolver code sees only the narrower `Registry`
   capability.
+- `VersionReader::read_versions` reads exact coordinates in input order, with a
+  result for each request. The reader advertises its maximum batch size: Git
+  uses one coordinate, while HTTP groups up to 64 cache misses. MVS schedules at
+  most 16 concurrent read tasks and expands each completed batch without waiting
+  for slower siblings, retaining per-edge failure diagnostics and traversal of
+  every declared exact version. The server does not perform MVS.
 - The public `Registry` trait exposes exact-version metadata and two distinct
   latest operations. `cached_latest_version` reads the locally known answer
   without network access; `None` means no cached answer, not remote absence.
@@ -483,9 +489,9 @@ Current registry configuration behavior today is:
   `Registry::version_info`, without constructing transport URLs or enumerating
   version histories. The default adapter still reads the local Git index.
   `MOON_REGISTRY_API=1` enables the experimental HTTP metadata adapter globally,
-  including modules already present in that index. The initial HTTP adapter
-  accepts public metadata only and sends no login credentials for resolver
-  requests. The configured server must support public metadata.
+  including modules already present in that index. HTTP reads share the captured
+  registry login and support public and owner-only private metadata. Batch reads
+  fall back to exact GET when the registry does not support the batch endpoint.
   See [Moon home layout](./moon-home-layout.md) for caching and frozen behavior.
 
 [semver]: https://semver.org/

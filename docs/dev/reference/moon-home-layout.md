@@ -83,7 +83,7 @@ $MOON_HOME/
   authoritative. Metadata queries use the configured API's saved login when
   available, supporting public and owner-only private modules through the same
   endpoint. This mode does not fall back to a different registry or backend.
-- On a cache miss, API resolution requests
+- Single-coordinate reads request
   `GET /api/v0/registry/modules/<owner>/<module>?version=<exact>` for the declared
   version. Unversioned commands may omit the query to ask for
   latest. Neither operation lists version history or performs a range lookup.
@@ -91,6 +91,28 @@ $MOON_HOME/
   A response for an already cached release must preserve its dependencies,
   checksum and visibility. Conflicting responses fail without replacing the
   cache; only deprecation status may change.
+- Module resolution groups already discovered exact requirements into read tasks
+  with at most 16 tasks in flight. Each completed task can expand dependencies
+  without waiting for slower tasks. The HTTP adapter sends uncached, deduplicated
+  coordinates to
+  `POST /api/v0/registry/metadata`, at most 64 coordinates and 65,536 serialized
+  UTF-8 request bytes per batch. Every declared exact version is still traversed
+  before MVS chooses final versions. Local dependencies and workspace overrides
+  do not create registry requests. Git uses individual local reads.
+- Batch results must match the requested count, order, identities, metadata and
+  access checks. An invalid envelope fails before its records are cached. Valid
+  responses can retain successful releases alongside opaque denied/missing items;
+  failures keep their dependency-edge context. Reads share the existing cache.
+- HTTP 422 with `code: batch_response_too_large` and HTTP 413 split the batch in
+  half. An oversized single coordinate uses exact GET. HTTP 404/405/501 on the
+  batch endpoint select exact GET for the rest of that read session, supporting
+  registries without the batch API. Retries keep the same captured credentials.
+  Other rejections, transport errors and malformed metadata never trigger fallback.
+  Batch responses are limited to 4 MiB as actually read, including EOF or chunked
+  framing. Individually oversized GET records retain single-record behavior.
+- Frozen reads never probe batch support or send fallback requests. Explicit
+  single-release refresh and latest queries retain their GET/freshness policies.
+  HTTP mode remains enabled only by `MOON_REGISTRY_API=1`.
 - API release records are keyed by normalized API URL, module and exact version
   beneath `cache/registry/metadata/v1`. The optional `latest.json` contains only a version
   pointer. Exact requests share release records directly; no generation or

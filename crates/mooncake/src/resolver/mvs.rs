@@ -332,16 +332,19 @@ async fn gather_requirements<R: Registry>(
                     .insert(ms.into());
             }
         }
-        while queries.len() < MAX_VERSION_QUERIES {
-            let Some(source) = pending.pop() else {
-                break;
-            };
+        while queries.len() < MAX_VERSION_QUERIES && !pending.is_empty() {
+            let batch_size = reader.max_batch_size().max(1);
+            let sources = pending.split_off(pending.len().saturating_sub(batch_size));
             let reader = Rc::clone(&reader);
-            let span = tracing::debug_span!("read_registry_version", module = %source);
+            let span = tracing::debug_span!("read_registry_versions", count = sources.len());
             queries.spawn_local(
                 async move {
-                    let result = reader.read_version(source.name(), source.version()).await;
-                    (source, result)
+                    let versions = sources
+                        .iter()
+                        .map(|source| (source.name().clone(), source.version().clone()))
+                        .collect::<Vec<_>>();
+                    let results = reader.read_versions(&versions).await;
+                    (sources, results)
                 }
                 .instrument(span),
             );
@@ -349,7 +352,7 @@ async fn gather_requirements<R: Registry>(
         let Some(completed) = queries.join_next().await else {
             break;
         };
-        let (source, result) = match completed {
+        let (sources, results) = match completed {
             Ok(completed) => completed,
             Err(error) => {
                 context.report_error(ModuleResolutionError::Other(error.into()));
@@ -357,20 +360,31 @@ async fn gather_requirements<R: Registry>(
                 break;
             }
         };
-        match result {
-            Ok(info) => {
-                let module = context.record_registry_module(source.name(), source.version(), info);
-                tracing::debug!(module = %source, "resolved registry dependency");
-                loaded_modules.insert(source.clone(), Arc::clone(&module));
-                // Expand this result before waiting for any slower sibling.
-                working_list.push((source, module));
-            }
-            Err(error) => {
-                let dependant = registry_requests[&source][0].clone();
-                read_failures.push((DependencyTarget::Registry(source), dependant, error));
+        if sources.len() != results.len() {
+            context.report_error(ModuleResolutionError::Other(anyhow!(
+                "registry bulk read returned a different result count"
+            )));
+            queries.shutdown().await;
+            break;
+        }
+        for (source, result) in sources.into_iter().zip(results) {
+            match result {
+                Ok(info) => {
+                    let module =
+                        context.record_registry_module(source.name(), source.version(), info);
+                    tracing::debug!(module = %source, "resolved registry dependency");
+                    loaded_modules.insert(source.clone(), Arc::clone(&module));
+                    // Expand each completed batch before waiting for a slower sibling.
+                    working_list.push((source, module));
+                }
+                Err(error) => {
+                    let dependant = registry_requests[&source][0].clone();
+                    read_failures.push((DependencyTarget::Registry(source), dependant, error));
+                }
             }
         }
     }
+
     read_failures.sort_by_cached_key(|(target, dependant, _)| match target {
         DependencyTarget::Registry(source) => (source.to_string(), String::new()),
         DependencyTarget::Local { name, path } => {
@@ -1426,6 +1440,131 @@ mod test {
             Dependency `dep/shared@1.0.0` is deprecated: Use dep/replacement.
               required through root/module@0.1.0 -> dep/node00@1.0.0 -> dep/shared@1.0.0"#]]
         .assert_eq(&warnings[0].message);
+    }
+
+    #[test]
+    fn concurrent_batches_are_bounded_and_expand_completed_dependencies() {
+        #[derive(Clone)]
+        struct BatchRegistry {
+            inner: MockRegistry,
+            reads: Rc<RefCell<HashSet<(ModuleName, Version)>>>,
+            batch_sizes: Rc<RefCell<Vec<usize>>>,
+            active: Rc<Cell<usize>>,
+            peak: Rc<Cell<usize>>,
+            child_read: Rc<tokio::sync::Notify>,
+        }
+
+        impl VersionReader for BatchRegistry {
+            async fn read_version(
+                &self,
+                _: &ModuleName,
+                _: &Version,
+            ) -> anyhow::Result<RegistryVersionInfo> {
+                unreachable!("resolution must use the bulk reader")
+            }
+
+            fn max_batch_size(&self) -> usize {
+                64
+            }
+
+            async fn read_versions(
+                &self,
+                versions: &[(ModuleName, Version)],
+            ) -> Vec<anyhow::Result<RegistryVersionInfo>> {
+                assert!(!versions.is_empty() && versions.len() <= self.max_batch_size());
+                self.batch_sizes.borrow_mut().push(versions.len());
+                self.active.set(self.active.get() + 1);
+                self.peak.set(self.peak.get().max(self.active.get()));
+                if versions
+                    .iter()
+                    .any(|(name, _)| name.to_string() == "dep/slow")
+                {
+                    // A completed batch's child must run while this batch is pending.
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        self.child_read.notified(),
+                    )
+                    .await
+                    .unwrap();
+                } else {
+                    tokio::task::yield_now().await;
+                    if versions
+                        .iter()
+                        .any(|(name, _)| name.to_string() == "dep/shared")
+                    {
+                        self.child_read.notify_one();
+                    }
+                }
+                self.active.set(self.active.get() - 1);
+                versions
+                    .iter()
+                    .map(|(name, version)| {
+                        assert!(
+                            self.reads
+                                .borrow_mut()
+                                .insert((name.clone(), version.clone())),
+                            "duplicate exact read for {name}@{version}"
+                        );
+                        self.inner.version_info(name, version)
+                    })
+                    .collect()
+            }
+        }
+        impl Registry for BatchRegistry {
+            fn version_reader(&self) -> impl VersionReader + 'static {
+                self.clone()
+            }
+            fn version_info(
+                &self,
+                _: &ModuleName,
+                _: &Version,
+            ) -> anyhow::Result<RegistryVersionInfo> {
+                unreachable!("resolution must use the asynchronous reader")
+            }
+            fn cached_latest_version(&self, _: &ModuleName) -> anyhow::Result<Option<Version>> {
+                unreachable!("MVS only queries exact versions")
+            }
+            fn query_latest_version(&self, _: &ModuleName, _: &UserLog) -> anyhow::Result<Version> {
+                unreachable!("MVS only queries exact versions")
+            }
+        }
+        // More than 16 full batches verifies the scheduler bound rather than
+        // only the reader's request size. Every parent shares one child.
+        let names = (0..64 * MAX_VERSION_QUERIES + 5)
+            .map(|i| format!("dep/node{i:04}"))
+            .chain(std::iter::once("dep/slow".into()))
+            .collect::<Vec<_>>();
+        let mut inner = MockRegistry::new();
+        for name in &names {
+            inner.add_module_full(name, "1.0.0", [("dep/shared", "1.0.0")]);
+        }
+        inner.add_module_full("dep/shared", "1.0.0", []);
+        let registry = BatchRegistry {
+            inner,
+            reads: Rc::default(),
+            batch_sizes: Rc::default(),
+            active: Rc::default(),
+            peak: Rc::default(),
+            child_read: Rc::default(),
+        };
+        let config = ModuleResolutionConfig {
+            registry: &registry,
+            inject_std: false,
+            warn_deprecated: false,
+        };
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            names.iter().map(|name| (name.as_str(), "1.0.0")),
+        );
+        let (user_log, _) = UserLog::captured(log::LevelFilter::Warn);
+        let graph = resolve_modules(&config, create_mock_root(root), &user_log).unwrap();
+        assert_eq!(registry.reads.borrow().len(), names.len() + 1);
+        assert_eq!(registry.peak.get(), MAX_VERSION_QUERIES);
+        assert_eq!(registry.active.get(), 0);
+        assert!(registry.batch_sizes.borrow().contains(&64));
+        assert_depends_on(&graph, "dep/node0000@1.0.0", "dep/shared@1.0.0");
+        assert_depends_on(&graph, "dep/slow@1.0.0", "dep/shared@1.0.0");
     }
 
     #[test]
