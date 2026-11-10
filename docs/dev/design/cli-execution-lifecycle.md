@@ -158,9 +158,8 @@ enum ProcessAction {
 }
 ```
 
-Most commands return `Exit`. A command such as registry-backed `runwasm` or
-`cram test` may perform Moon-owned preparation and return a fully configured
-child command as `Delegate`.
+Most commands return `Exit`. A command such as `cram test` may perform
+Moon-owned preparation and return a fully configured child command as `Delegate`.
 
 The runtime executes the action only after tracing is finalized. On Unix,
 delegation may then replace the Moon process. On Windows, Moon waits for the
@@ -234,7 +233,7 @@ Public CLI tests cover:
   without a MoonBit project;
 - transparent delegate signal handling;
 - trace ownership around the cram delegation point;
-- complete traces before `cram test` and registry `runwasm` delegation;
+- complete traces before `cram test` delegation;
 - complete JSON stdout and trace files for successful and failed JSON checks;
 - complete JSON stdout with empty stderr for successful and failed registry
   searches;

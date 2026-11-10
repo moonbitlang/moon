@@ -422,7 +422,7 @@ fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
 fn test_moon_info_quiet_keeps_command_result_and_suppresses_user_log() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
     let assert = moon_cmd(&dir)
-        .args(["info", "--target", "js", "--no-alias", "--quiet"])
+        .args(["info", "--target", "js", "--quiet"])
         .assert()
         .success()
         .stderr_eq("");

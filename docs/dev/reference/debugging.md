@@ -77,8 +77,8 @@ delegated executable. For example, `moon --trace cram --version` is rejected,
 but `moon cram --trace` forwards the flag to `moon-cram`.
 
 Commands that perform Moon-owned preparation and then delegate, such as
-`moon cram test` and registry-backed `moon runwasm`, trace the preparation and
-finalize the trace file before starting the delegated program. The trace does
+`moon cram test`, trace the preparation and finalize the trace file before
+starting the delegated program. The trace does
 not include work inside that program. `MOON_TRACE` is ignored for transparent
 delegates because no Moon tracing lifecycle is created.
 

@@ -94,7 +94,7 @@ _Avoid_: User log, command result
 
 **Executable Package Coordinate**:
 Registry selector containing a module, an optional package path, and an optional version selector that resolves to exactly one version of one main package for direct execution.
-_Avoid_: Install source, wildcard package selector, runwasm coordinate
+_Avoid_: Install source, wildcard package selector
 
 **Cached Executable Artifact**:
 The final runnable file retained for an Executable Package Coordinate and Target Backend so later executions can skip acquisition or building.

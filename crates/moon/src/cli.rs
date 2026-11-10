@@ -46,7 +46,6 @@ mod registry_queries;
 pub(crate) mod registry_runner;
 pub(crate) mod run;
 pub(crate) mod runtime;
-pub(crate) mod runwasm;
 pub(crate) mod search;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
@@ -84,7 +83,6 @@ use moonutil::cli_support::{
 pub(crate) use new::*;
 pub(crate) use prove::*;
 pub(crate) use run::*;
-pub(crate) use runwasm::*;
 pub(crate) use search::*;
 pub(crate) use shell_completion::*;
 pub(crate) use test::*;
@@ -144,10 +142,6 @@ pub(crate) enum MoonBuildSubcommands {
     Check(CheckSubcommand),
     Prove(ProveSubcommand),
     Run(RunSubcommand),
-    // TODO(2026-09-14): Remove `moon runwasm` after the two-week deprecation
-    // window; its replacements depend on whether the input is local or remote.
-    #[clap(name = "runwasm")]
-    RunWasm(RunWasmSubcommand),
     Test(TestSubcommand),
     /// Run CLI tests with the current toolchain's mooncram
     ///

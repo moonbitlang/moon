@@ -63,8 +63,6 @@ pub struct CompileConfig {
     pub warning_condition: WarningCondition,
     /// List of warnings to enable
     pub warn_list: Option<String>,
-    /// Whether to not emit alias when running `mooninfo`
-    pub info_no_alias: bool,
 }
 
 /// The output information of the compilation.
@@ -367,7 +365,6 @@ mod tests {
                     docs_serve: false,
                     warning_condition: WarningCondition::Default,
                     warn_list: None,
-                    info_no_alias: false,
                 };
                 let output = compile(
                     &config,
@@ -630,7 +627,6 @@ mod tests {
                     moonc_output_json: false,
                     docs_serve: false,
                     warning_condition: WarningCondition::Default,
-                    info_no_alias: false,
                     warn_list: None,
                 };
                 let plan = build_plan(
@@ -814,7 +810,6 @@ mod tests {
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             warn_list: None,
-            info_no_alias: false,
         };
 
         let requested_artifacts = [ArtifactKey::Executable {
@@ -932,7 +927,6 @@ mod tests {
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             warn_list: None,
-            info_no_alias: false,
         };
 
         let output = compile(

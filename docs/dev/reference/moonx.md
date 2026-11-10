@@ -208,12 +208,18 @@ Documentation should prefer the first form. `@latest` refreshes the registry
 index before resolving the newest version and fails if the refresh fails.
 Unpinned coordinates resolve the latest version already known to the local
 registry index. The index is updated only when the module cannot be resolved
-locally, matching `moon runwasm`.
+locally.
+
+Pinned coordinates use the supplied version without querying the index for
+version selection. For unpinned coordinates, Moon retries local resolution
+after one registry refresh when no cached latest answer is available. Registry
+read errors remain errors; a missing module and a module with no version
+metadata produce distinct diagnostics. Package-path existence does not trigger
+a search for a different module version.
 
 ## Registry package execution
 
-Registry packages run as linear-memory Wasm artifacts, using the same
-acquisition and execution path as registry-backed `moon runwasm`:
+Registry packages run as linear-memory Wasm artifacts:
 
 1. Resolve the exact module version.
 2. Compute the published linear-Wasm asset URL and cache path.
@@ -223,9 +229,16 @@ acquisition and execution path as registry-backed `moon runwasm`:
 A missing published Wasm asset is an error. Version 1 does not fall back to
 downloading source and building Wasm locally.
 
-Registry-backed `moon runwasm` must use the linear Wasm backend consistently.
-Tests for its cached-asset mode must use linear-Wasm fixtures rather than
-WasmGC fixtures.
+The registry client owns asset URLs, checksum verification, and publication
+under `$MOON_HOME/registry/cache/assets`. Once a version is resolved, an artifact
+cache hit does not read registry metadata, including when
+`MOON_REGISTRY_CACHE=off` or after `moon clean --registry-cache`.
+
+Private prebuilt downloads are not implemented. In HTTP mode, a cache miss
+checks the selected release's visibility and rejects private releases. Existing
+cached artifacts come from public downloads, and the artifact cache is not
+partitioned by visibility. The Git backend does not update its index on an
+asset cache miss.
 
 ## Distribution
 

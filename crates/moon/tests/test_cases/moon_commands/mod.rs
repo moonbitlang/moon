@@ -4,7 +4,6 @@ mod explain;
 mod help_and_version;
 mod moonx;
 mod run;
-mod runwasm;
 mod tool;
 mod whoami;
 

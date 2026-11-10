@@ -289,7 +289,6 @@ impl<'a> super::LoweringContext<'a> {
         let cmd = Mooninfo {
             mi_in: input.into(),
             out: output.into(),
-            no_alias: self.opt.info_no_alias,
         };
 
         BuildCommand {
