@@ -1569,34 +1569,22 @@ impl<'a> BuildPlanConstructor<'a> {
         // file input, so n2 connects it to the matching prebuild provider.
         self.plan_package_prebuild(target)?;
 
-        let canonical = pkg.root_path.join(MBTI_USER_WRITTEN);
-        let legacy = pkg
-            .root_path
-            .join(format!("{}.mbti", pkg.fqn.short_alias()));
-        let selected = [canonical, legacy].into_iter().find(|candidate| {
-            pkg.virtual_mbti_files.contains(candidate)
-                || self
-                    .res
-                    .package_prebuild
-                    .output_paths(target)
-                    .any(|output| output == candidate)
-        });
-        let Some(selected) = selected else {
+        let contract = pkg.root_path.join(MBTI_USER_WRITTEN);
+        if !pkg.virtual_mbti_files.contains(&contract)
+            && !self
+                .res
+                .package_prebuild
+                .output_paths(target)
+                .any(|output| output == &contract)
+        {
             return Err(BuildPlanConstructError::MissingVirtualMbtiFile(
                 pkg.fqn.clone().into(),
-            ));
-        };
-        if selected.file_name().and_then(OsStr::to_str) != Some(MBTI_USER_WRITTEN) {
-            self.user_log.warn(format!(
-                "Using package name in MBTI file is deprecated. Please rename {} to {}",
-                selected.display(),
-                MBTI_USER_WRITTEN
             ));
         }
         self.res
             .backend
             .virtual_contract_inputs
-            .insert(target, selected);
+            .insert(target, contract);
 
         for dep in self.rel.dep_graph.neighbors_directed(
             target.build_target(TargetKind::Source),

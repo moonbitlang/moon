@@ -240,12 +240,6 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "test-import")]
     pub test_import: Option<PkgJSONImport>,
 
-    /// Whether to import all definitions from the package being tested
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "test-import-all")]
-    #[schemars(rename = "test-import-all")]
-    pub test_import_all: Option<bool>,
-
     /// Link configuration for the package.
     ///
     /// The boolean form `link: true` (force-link a non-main library) is
@@ -1025,8 +1019,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let max_concurrent_tests =
         read_dsl_option(&map, "max_concurrent_tests", Some("max-concurrent-tests"))?;
     let regex_backend = read_dsl_option(&map, "regex_backend", Some("regex-backend"))?;
-    // This legacy option is still type-checked, although it no longer has an effect.
-    let _: Option<bool> = read_dsl_option(&map, "test_import_all", Some("test-import-all"))?;
     // Unknown options are ignored, as they are in moon.pkg.json.
 
     if emit_warnings {
@@ -1439,7 +1431,6 @@ fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
     for (key, value) in [
         ("allow_experimental_packages", "true"),
         ("is_main", "true"),
-        ("test_import_all", "false"),
         ("warn_list", r#""+1""#),
         ("proof_enabled", "true"),
         (

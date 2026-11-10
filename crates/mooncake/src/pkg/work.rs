@@ -69,10 +69,7 @@ pub fn init_workspace(
         }
         use_paths.into_iter().collect()
     };
-    let workspace = MoonWork {
-        use_paths,
-        preferred_target: None,
-    };
+    let workspace = MoonWork { use_paths };
     write_workspace(workspace_root, &workspace).context(format!(
         "failed to write `{}`",
         workspace_root.join(MOON_WORK).display()
@@ -91,11 +88,10 @@ pub fn use_workspace(
     quiet: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let (workspace_root, preferred_target, mut use_paths, mut member_dirs, existed) = match target {
-        WorkspaceEditTarget::CreateAt(root) => (root, None, Vec::new(), BTreeSet::new(), false),
+    let (workspace_root, mut use_paths, mut member_dirs, existed) = match target {
+        WorkspaceEditTarget::CreateAt(root) => (root, Vec::new(), BTreeSet::new(), false),
         WorkspaceEditTarget::Existing(workspace) => (
             workspace.root().to_path_buf(),
-            workspace.manifest().preferred_target,
             workspace.manifest().use_paths.clone(),
             workspace.members().iter().cloned().collect(),
             true,
@@ -110,10 +106,7 @@ pub fn use_workspace(
         }
     }
 
-    let workspace = MoonWork {
-        use_paths,
-        preferred_target,
-    };
+    let workspace = MoonWork { use_paths };
     write_workspace(&workspace_root, &workspace).context(format!(
         "failed to write `{}`",
         workspace_root.join(MOON_WORK).display()

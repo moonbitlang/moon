@@ -413,23 +413,6 @@ fn test_moon_check_complete_json_project_not_found() {
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_moon_warnings() {
-    let dir = TestDir::new("fmt_moon_work_existing.in");
-    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
-
-    assert_eq!(report["status"], "success");
-    assert_eq!(report["messages"][0]["$message_type"], "moon");
-    assert_eq!(report["messages"][0]["level"], "warning");
-    assert!(
-        report["messages"][0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("preferred_target")
-    );
-    assert_eq!(report["summary"]["moon_warnings"], 1);
-}
-
-#[test]
 fn test_moon_check_complete_json_captures_resolution_failure() {
     let dir = TestDir::new_empty();
     std::fs::write(
@@ -551,18 +534,10 @@ fn test_moon_check_complete_json_captures_workspace_override_warning() {
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_workspace_deprecation_once() {
-    let dir = TestDir::new("workspace_basic.in");
-    std::fs::write(
-        dir.join("moon.work"),
-        r#"members = [
-  "./app",
-  "./liba",
-]
-preferred_target = "wasm-gc"
-"#,
-    )
-    .unwrap();
+fn test_moon_check_complete_json_captures_workspace_warning_once() {
+    // A single-member workspace isolates this warning from dependency overrides.
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+    std::fs::write(dir.join("moon.mod"), "name = \"workspace/root\"\n").unwrap();
 
     let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
     let warnings = report["messages"]
@@ -572,12 +547,15 @@ preferred_target = "wasm-gc"
         .filter(|message| {
             message["message"]
                 .as_str()
-                .is_some_and(|message| message.contains("`preferred_target` in `moon.work`"))
+                .is_some_and(|message| message.contains("not listed as a workspace member"))
         })
         .collect::<Vec<_>>();
 
+    assert_eq!(report["status"], "success");
     assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0]["$message_type"], "moon");
     assert_eq!(warnings[0]["level"], "warning");
+    assert_eq!(report["summary"]["moon_warnings"], 1);
 }
 
 #[test]
