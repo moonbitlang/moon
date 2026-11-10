@@ -21,7 +21,6 @@
 mod build_common;
 mod build_interface;
 mod build_package;
-mod bundle_core;
 mod check;
 mod gen_node_test_package_config;
 mod gen_test_driver;
@@ -42,7 +41,6 @@ use crate::pkg_name::PackageFQN;
 pub(super) use self::build_common::*;
 pub(super) use self::build_interface::*;
 pub(super) use self::build_package::*;
-pub(super) use self::bundle_core::*;
 pub(super) use self::check::*;
 pub(super) use self::gen_node_test_package_config::*;
 pub(super) use self::gen_test_driver::*;

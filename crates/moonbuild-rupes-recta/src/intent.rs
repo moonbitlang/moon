@@ -49,7 +49,7 @@ pub enum UserIntent {
     TestOutline(PackageId),
     /// Bench a package (same artifact set as Test; runtime behavior differs elsewhere).
     Bench(PackageId),
-    /// Bundle all non-virtual packages in a module.
+    /// Build per-package artifacts for module packaging.
     Bundle(ModuleId),
     /// Build docs for a single module.
     Doc(ModuleId),
@@ -237,8 +237,25 @@ impl UserIntent {
                     }
                 }
             }
-            UserIntent::Bundle(m) => {
-                out.push(ArtifactKey::BundleResult { module: m });
+            UserIntent::Bundle(module) => {
+                // Request each package directly, including orphan packages. The
+                // build graph orders dependencies; no aggregate core is needed.
+                let packages = resolved
+                    .pkg_dirs
+                    .packages_for_module(module)
+                    .expect("bundle module should exist");
+                // TODO(bundle-virtual): Request the contract as a bundle root
+                // when the stdlib gains a pure virtual package, and cover its
+                // installed interface in a bundle fixture.
+                out.extend(packages.values().filter_map(|&package| {
+                    let pkg = resolved.pkg_dirs.get_package(package);
+                    (pkg.effective_supported_targets.contains(&target_backend)
+                        && pkg.has_implementation())
+                    .then_some(ArtifactKey::CoreIr {
+                        package,
+                        target_kind: TargetKind::Source,
+                    })
+                }));
             }
             UserIntent::Doc(module_id) => {
                 out.push(ArtifactKey::DocsDir { module: module_id });

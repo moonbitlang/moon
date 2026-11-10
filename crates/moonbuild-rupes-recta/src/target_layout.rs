@@ -30,10 +30,7 @@ use std::{
 };
 
 use moonutil::{
-    build_options::RunMode,
-    cond_expr::OptLevel,
-    resolution::{ModuleDependencyGraph, ModuleName, ModuleSource},
-    target::TargetBackend,
+    build_options::RunMode, cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend,
 };
 
 use crate::{
@@ -465,12 +462,6 @@ impl TargetLayout {
         base_dir
     }
 
-    pub fn bundle_result_path(&self, backend: TargetBackend, module: &ModuleName) -> PathBuf {
-        let mut result = self.run_mode_dir(backend);
-        result.push(format!("{}.core", module.last_segment()));
-        result
-    }
-
     pub fn runtime_output_dir(&self, backend: TargetBackend) -> PathBuf {
         match backend {
             TargetBackend::WasmGC | TargetBackend::Wasm | TargetBackend::Js => {
@@ -794,7 +785,6 @@ impl ArtifactPathResolver {
         artifact: &ArtifactKey,
         action_context: BuildAction<'_>,
         packages: &DiscoverResult,
-        modules: &ModuleDependencyGraph,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         match artifact {
@@ -930,13 +920,6 @@ impl ArtifactPathResolver {
                     self.target_layout
                         .package_dir(pkg, options.target_backend())
                         .join("package.json"),
-                ]
-            }
-            ArtifactKey::BundleResult { module } => {
-                let module_name = modules.module_source(*module);
-                vec![
-                    self.target_layout
-                        .bundle_result_path(options.target_backend(), module_name.name()),
                 ]
             }
             ArtifactKey::RuntimeObject { .. } => {
@@ -1162,7 +1145,7 @@ mod tests {
         compiler_flags::{ARKind, CC, CCKind, NativeAllocator, Toolchain},
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::ModuleSource,
+        resolution::{ModuleDependencyGraph, ModuleSource},
     };
 
     use super::*;
@@ -1536,7 +1519,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
@@ -1566,7 +1548,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
@@ -1597,7 +1578,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.impl.mi")],
@@ -1624,7 +1604,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_proof_artifacts_with_matching_context() {
-        let (packages, modules, package) = package_fixture("username/hello", "ffi");
+        let (packages, _, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
@@ -1640,7 +1620,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![
@@ -1660,7 +1639,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![resolver.target_layout.prove_report_path(&packages, &target)],
@@ -1669,7 +1647,7 @@ mod tests {
 
     #[test]
     fn prove_virtual_contract_and_proof_interfaces_have_distinct_paths() {
-        let (packages, modules, package) = package_fixture("username/hello", "ffi");
+        let (packages, _, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             TargetLayout::new(
                 PathBuf::from("_build"),
@@ -1690,7 +1668,6 @@ mod tests {
                 input: Path::new("pkg.mbti"),
             },
             &packages,
-            &modules,
             options,
         );
         let proof_interface = resolver.paths_for_artifact(
@@ -1703,7 +1680,6 @@ mod tests {
                 info: &info,
             },
             &packages,
-            &modules,
             options,
         );
 
@@ -1745,7 +1721,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::NativeExecutable),
             ),
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
@@ -1770,7 +1745,6 @@ mod tests {
                     info: &runtime_info(),
                 },
                 &packages,
-                &modules,
                 options,
             ),
             vec![PathBuf::from("_build/native/debug/build/libruntime.a")],
@@ -1780,7 +1754,6 @@ mod tests {
                 &ArtifactKey::DocsDir { module },
                 BuildAction::BuildDocs { module },
                 &packages,
-                &modules,
                 options,
             ),
             vec![PathBuf::from("_build/doc")],

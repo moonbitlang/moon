@@ -40,7 +40,6 @@ fn test_backend_flag() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib
             moonc build-package ./main/main.mbt -o ./_build/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./_build/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./main
-            moonc bundle-core ./_build/js/release/bundle/lib/lib.core ./_build/js/release/bundle/main/main.core -o ./_build/js/release/bundle/hello.core
         "#]],
     );
 }

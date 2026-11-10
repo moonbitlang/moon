@@ -94,10 +94,6 @@ pub(crate) enum BuildAction<'a> {
         package: PackageId,
         input: &'a Path,
     },
-    Bundle {
-        module: ModuleId,
-        targets: &'a [BuildTarget],
-    },
     BuildRuntimeObject {
         index: u32,
         info: &'a BuildRuntimeInfo,
@@ -232,14 +228,6 @@ impl BackendPlan {
                     .get(&package)
                     .map(|path| path.as_path())
                     .expect("virtual contract input should be selected during build planning"),
-            },
-            BuildPlanNode::Bundle(module) => BuildAction::Bundle {
-                module,
-                targets: &self
-                    .bundle_info
-                    .get(&module)
-                    .expect("Bundle info should be present when lowering bundle node")
-                    .bundle_targets,
             },
             BuildPlanNode::BuildRuntimeObject(index) => BuildAction::BuildRuntimeObject {
                 index,
