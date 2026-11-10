@@ -85,6 +85,25 @@ pub trait VersionReader {
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<RegistryVersionInfo>;
+
+    /// Maximum number of coordinates to combine in one scheduled read.
+    /// Single-coordinate backends retain independent concurrent reads.
+    fn max_batch_size(&self) -> usize {
+        1
+    }
+
+    /// Read exact coordinates in input order, preserving one result per coordinate.
+    /// Batching changes transport only; it never selects or substitutes versions.
+    async fn read_versions(
+        &self,
+        versions: &[(ModuleName, Version)],
+    ) -> Vec<anyhow::Result<RegistryVersionInfo>> {
+        let mut results = Vec::with_capacity(versions.len());
+        for (name, version) in versions {
+            results.push(self.read_version(name, version).await);
+        }
+        results
+    }
 }
 
 pub trait Registry {

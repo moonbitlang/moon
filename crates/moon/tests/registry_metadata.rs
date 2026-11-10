@@ -18,7 +18,7 @@
 
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     path::Path,
     sync::{
@@ -84,13 +84,38 @@ impl Server {
                     }
                     request.push_str(&line);
                 }
-                let target = request.split_whitespace().nth(1).unwrap();
-                let (status, body) = served
-                    .lock()
-                    .unwrap()
-                    .get(target)
-                    .cloned()
-                    .unwrap_or((404, "{}".to_owned()));
+                let target = request.split_whitespace().nth(1).unwrap().to_owned();
+                let length = request
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("Content-Length"))
+                    .map(|(_, value)| value.trim().parse::<usize>().unwrap())
+                    .unwrap_or(0);
+                let mut payload = vec![0; length];
+                reader.read_exact(&mut payload).unwrap();
+                let (status, body) = if target == "/api/v0/registry/metadata" {
+                    let query: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+                    let results = query["modules"].as_array().unwrap().iter().map(|item| {
+                        let module = item["module"].as_str().unwrap();
+                        let version = item["version"].as_str().unwrap();
+                        let encoded = reqwest::Url::parse("http://registry.test").unwrap().query_pairs_mut().append_pair("version",version).finish().query().unwrap().to_owned();
+                        let release = served.lock().unwrap().get(&format!("/api/v0/registry/modules/{module}?{encoded}")).cloned();
+                        match release {
+                            Some((200, body)) => serde_json::json!({"module":module,"version":version,"status":200,"metadata":serde_json::from_str::<serde_json::Value>(&body).unwrap()}),
+                            _ => serde_json::json!({"module":module,"version":version,"status":404,"detail":"Module not found or access denied"}),
+                        }
+                    }).collect::<Vec<_>>();
+                    request.push_str("\r\n");
+                    request.push_str(std::str::from_utf8(&payload).unwrap());
+                    (200, serde_json::json!({"results":results}).to_string())
+                } else {
+                    served
+                        .lock()
+                        .unwrap()
+                        .get(&target)
+                        .cloned()
+                        .unwrap_or((404, "{}".to_owned()))
+                };
                 recorded.lock().unwrap().push(request);
                 write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             }
@@ -245,22 +270,34 @@ fn api_mode_preserves_exact_mvs_traversal_and_offline_resolution() {
     );
     server.stop();
     let requests = server.requests.lock().unwrap();
-    assert_eq!(requests.len(), 4);
+    assert_eq!(requests.len(), 3);
     assert!(
         requests
             .iter()
-            .all(|r| r.contains("?version=") && !r.to_lowercase().contains("authorization:"))
+            .all(|r| r.starts_with("POST /api/v0/registry/metadata ")
+                && !r.to_lowercase().contains("authorization:"))
     );
-    assert!(
-        requests
+    let batches = requests
+        .iter()
+        .map(|r| {
+            serde_json::from_str::<serde_json::Value>(r.split_once("\r\n\r\n").unwrap().1).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(batches[0]["modules"].as_array().unwrap().len(), 2);
+    assert!(batches.iter().any(|r| {
+        r["modules"]
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|r| r.starts_with("GET /api/v0/registry/modules/alice/shared?version=0.1.0 "))
-    );
-    assert!(
-        requests
+            .any(|item| item["module"] == "alice/shared" && item["version"] == "0.1.0")
+    }));
+    assert!(batches.iter().any(|r| {
+        r["modules"]
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|r| r.starts_with("GET /api/v0/registry/modules/alice/leaf?version=0.1.0 "))
-    );
+            .any(|item| item["module"] == "alice/leaf" && item["version"] == "0.1.0")
+    }));
     drop(requests);
     let offline = moon(project.path(), home.path(), true)
         .args(["tree", "--json"])
@@ -298,7 +335,8 @@ fn missing_declared_version_is_not_replaced_by_an_available_newer_release() {
     server.stop();
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
-    assert!(requests[0].starts_with("GET /api/v0/registry/modules/alice/shared?version=0.1.1 "));
+    assert!(requests[0].starts_with("POST /api/v0/registry/metadata "));
+    assert!(requests[0].contains(r#""version":"0.1.1""#));
 }
 
 #[test]
@@ -491,7 +529,9 @@ fn no_update_allows_acquiring_missing_exact_metadata() {
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(
-            requests[0].starts_with("GET /api/v0/registry/modules/alice/shared?version=0.1.0 ")
+            requests[0].starts_with("POST /api/v0/registry/metadata ")
+                || requests[0]
+                    .starts_with("GET /api/v0/registry/modules/alice/shared?version=0.1.0 ")
         );
         let source = match command {
             "add" => project.path().join(".mooncakes/alice/shared/moon.mod"),

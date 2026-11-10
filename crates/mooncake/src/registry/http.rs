@@ -20,6 +20,7 @@
 
 use super::{RegistryUnavailable, RegistryVersionInfo, authentication, encode_path_segment};
 
+mod batch;
 mod cache;
 use anyhow::{Context, bail};
 use cache::MetadataCache;
@@ -91,6 +92,7 @@ pub(super) struct HttpVersionReader {
     state: Arc<HttpMetadataState>,
     client: OnceCell<reqwest::Client>,
     frozen: bool,
+    batch_supported: std::cell::Cell<bool>,
 }
 
 impl HttpMetadata {
@@ -218,6 +220,7 @@ impl HttpMetadata {
             state: Arc::clone(&self.state),
             client: OnceCell::new(),
             frozen,
+            batch_supported: std::cell::Cell::new(true),
         }
     }
 
@@ -312,28 +315,28 @@ impl super::VersionReader for HttpVersionReader {
         if self.frozen {
             bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
         }
-        let client = self.client.get_or_try_init(|| {
-            authentication::async_client(&self.state.api, self.state.credentials.as_deref())
-        })?;
-        let url = self.state.release_url(name, Some(version))?;
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .and_then(reqwest::Response::error_for_status)
-            .map_err(|error| metadata_request_error(name, error))?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| RegistryUnavailable(error.into()))
-            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
-        let metadata = self.state.decode_release(name, Some(version), &bytes)?;
+        let metadata = self.request_release(name, version).await?;
         let state = Arc::clone(&self.state);
         let name = name.clone();
         let metadata =
             tokio::task::spawn_blocking(move || state.cache.store_release(&name, metadata))
                 .await??;
         Ok(metadata.into())
+    }
+
+    fn max_batch_size(&self) -> usize {
+        if self.batch_supported.get() {
+            batch::MAX_COORDINATES
+        } else {
+            1
+        }
+    }
+
+    async fn read_versions(
+        &self,
+        versions: &[(ModuleName, Version)],
+    ) -> Vec<anyhow::Result<RegistryVersionInfo>> {
+        self.version_infos(versions).await
     }
 }
 
@@ -401,5 +404,35 @@ impl From<ModuleMetadata> for RegistryVersionInfo {
             yanked: metadata.yanked,
             yanked_reason: metadata.yanked_reason,
         }
+    }
+}
+
+impl HttpVersionReader {
+    fn http_client(&self) -> anyhow::Result<&reqwest::Client> {
+        self.client.get_or_try_init(|| {
+            authentication::async_client(&self.state.api, self.state.credentials.as_deref())
+        })
+    }
+
+    async fn request_release(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<ModuleMetadata> {
+        let client = self.http_client()?;
+        let url = self.state.release_url(name, Some(version))?;
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(|error| metadata_request_error(name, error))?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| RegistryUnavailable(error.into()))
+            .with_context(|| format!("failed to read registry metadata response for {name}"))?;
+        let metadata = self.state.decode_release(name, Some(version), &bytes)?;
+        Ok(metadata)
     }
 }

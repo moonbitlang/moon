@@ -242,10 +242,11 @@ available or required elsewhere in the graph; it is not silently substituted.
 This keeps publishing an unrelated release from changing an existing dependency
 graph, provided published versions and their metadata remain immutable.
 
-Registry traversal runs up to 16 exact-version queries concurrently, deduplicating
-before dispatch and expanding each completed result without waiting for its
-siblings. A Tokio runtime and HTTP connection pool live only for this traversal;
-version selection, final graph construction, and source acquisition run after it
+Registry traversal runs up to 16 read tasks concurrently, deduplicating exact
+coordinates before dispatch. Git tasks read a single coordinate; HTTP tasks group
+up to 64 coordinates into a batch. Each completed task expands its dependencies
+without waiting for slower tasks. A Tokio runtime and HTTP connection pool live
+only for this traversal; version selection, final graph construction, and source acquisition run after it
 returns. Git queries read module files from the complete local index on Tokio's
 blocking pool; parsed records are reused by subsequent synchronous queries,
 including checksum lookup. HTTP readers use asynchronous network I/O and run

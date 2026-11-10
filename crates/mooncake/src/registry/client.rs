@@ -614,6 +614,29 @@ impl super::VersionReader for RegistryVersionReader {
             Self::Http(reader) => reader.read_version(name, version).await,
         }
     }
+
+    fn max_batch_size(&self) -> usize {
+        match self {
+            Self::Git(_) => 1,
+            Self::Http(reader) => reader.max_batch_size(),
+        }
+    }
+
+    async fn read_versions(
+        &self,
+        versions: &[(ModuleName, Version)],
+    ) -> Vec<anyhow::Result<RegistryVersionInfo>> {
+        match self {
+            Self::Git(_) => {
+                let mut results = Vec::with_capacity(versions.len());
+                for (name, version) in versions {
+                    results.push(self.read_version(name, version).await);
+                }
+                results
+            }
+            Self::Http(reader) => reader.read_versions(versions).await,
+        }
+    }
 }
 
 impl super::Registry for RegistryClient {
@@ -992,6 +1015,18 @@ mod tests {
                     }
                     request.push_str(&line);
                 }
+                let length = request
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("Content-Length"))
+                    .map(|(_, value)| value.trim().parse::<usize>().unwrap())
+                    .unwrap_or(0);
+                let mut payload = vec![0; length];
+                reader.read_exact(&mut payload).unwrap();
+                if !payload.is_empty() {
+                    request.push_str("\r\n");
+                    request.push_str(std::str::from_utf8(&payload).unwrap());
+                }
                 requests.push(request);
                 let body = body.as_ref();
                 write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n", body.len()).unwrap();
@@ -1065,15 +1100,16 @@ mod tests {
                 (
                     200,
                     String::new(),
-                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                    serde_json::json!({"results": [{"module": "alice/secret", "version": "0.1.0", "status": 200,
+                        "metadata": serde_json::from_str::<serde_json::Value>(&resolver_response("alice/secret", "PRIVATE", "0.1.0")).unwrap()}]}).to_string(),
                 ),
                 (
                     200,
                     String::new(),
-                    serde_json::json!({
+                    serde_json::json!({"results": [{"module": "alice/public", "version": "0.1.0", "status": 200, "metadata": {
                         "module": "alice/public", "visibility": "PUBLIC", "version": "0.1.0",
                         "deps": {}, "checksum": "a".repeat(64), "yanked": false
-                    })
+                    }}]})
                     .to_string(),
                 ),
             ],
@@ -1123,7 +1159,9 @@ mod tests {
                 .contains("authorization: bearer secret-token")
         }));
         assert!(
-            requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 ")
+            requests
+                .iter()
+                .all(|request| request.starts_with("POST /api/v0/registry/metadata "))
         );
         let cached = http_test_registry(home.path(), &api).for_frozen_dependencies();
         let runtime = tokio::runtime::Builder::new_current_thread()
