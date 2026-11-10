@@ -334,8 +334,7 @@ For ordinary native builds, each C translation unit shipped under the
 toolchain's `lib/runtime/` directory is compiled by a `BuildRuntimeObject`
 node. `BuildRuntimeLib` archives those objects into one static library, which
 is shared by every `MakeExecutable` node in the build plan. Release builds also
-enable and archive supported prebuilt SIMDUTF objects. Toolchains with only the
-legacy `lib/runtime.c` layout remain supported as a one-object archive.
+enable and archive supported prebuilt SIMDUTF objects.
 Static archives are always created from their complete member list. An
 update-style archiver runs through `moon tool archive`, which
 deletes the previous archive first, so adding, removing, or renaming a runtime

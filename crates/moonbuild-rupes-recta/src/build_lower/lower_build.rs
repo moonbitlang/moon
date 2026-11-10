@@ -446,10 +446,8 @@ impl<'a> LoweringContext<'a> {
         }
         self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
-        let commandline = moonc_command::lower(
-            cmd.build_command(compiler::ProveDriver::from_toolchain()),
-            &whyml_output,
-        )?;
+        let commandline =
+            moonc_command::lower(cmd.build_command(&*BINARIES.moonc_prove), &whyml_output)?;
 
         Ok(BuildCommand {
             extra_inputs,
@@ -529,10 +527,8 @@ impl<'a> LoweringContext<'a> {
         }
         self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
-        let commandline = moonc_command::lower(
-            cmd.build_command(compiler::ProveDriver::from_toolchain()),
-            &whyml_output,
-        )?;
+        let commandline =
+            moonc_command::lower(cmd.build_command(&*BINARIES.moonc_prove), &whyml_output)?;
 
         Ok(BuildCommand {
             extra_inputs,

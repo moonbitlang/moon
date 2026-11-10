@@ -54,10 +54,8 @@ pub const RESERVED_BIN_NAMES: &[&str] = &[
     "moonbit-lsp",
 ];
 
-/// Return the runtime C translation units shipped by the selected toolchain.
-///
-/// New toolchains split the runtime across `lib/runtime/*.c`. Keep the legacy
-/// single-file layout as a fallback during the toolchain transition.
+/// Return the runtime C translation units shipped under `lib/runtime/` by the
+/// selected toolchain.
 pub fn runtime_source_paths() -> anyhow::Result<Vec<PathBuf>> {
     runtime_source_paths_in(&lib())
 }
@@ -87,16 +85,7 @@ fn runtime_source_paths_in(lib_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         }
     }
 
-    let legacy_runtime = lib_path.join("runtime.c");
-    if legacy_runtime.is_file() {
-        return Ok(vec![legacy_runtime]);
-    }
-
-    anyhow::bail!(
-        "no runtime C sources found in {} or at {}",
-        runtime_dir.display(),
-        legacy_runtime.display()
-    )
+    anyhow::bail!("no runtime C sources found in {}", runtime_dir.display())
 }
 
 /// Resolves an executable using the platform's command lookup rules.
@@ -197,15 +186,16 @@ mod tests {
     }
 
     #[test]
-    fn runtime_sources_fall_back_to_legacy_runtime_file() {
+    fn runtime_sources_require_split_runtime_files() {
         let dir = tempfile::tempdir().unwrap();
-        let legacy_runtime = dir.path().join("runtime.c");
-        std::fs::write(&legacy_runtime, []).unwrap();
+        std::fs::write(dir.path().join("runtime.c"), []).unwrap();
 
-        assert_eq!(
-            runtime_source_paths_in(dir.path()).unwrap(),
-            vec![legacy_runtime]
-        );
+        assert!(runtime_source_paths_in(dir.path()).is_err());
+
+        let runtime_dir = dir.path().join("runtime");
+        std::fs::create_dir(&runtime_dir).unwrap();
+        std::fs::write(runtime_dir.join("README.md"), []).unwrap();
+        assert!(runtime_source_paths_in(dir.path()).is_err());
     }
 
     fn test_executable_name(stem: &str) -> String {
