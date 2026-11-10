@@ -30,10 +30,11 @@ use moonutil::{
     registry::{RegistryCredentials, registry_api_url},
     resolution::{ModuleName, ModuleSource},
 };
+use once_cell::unsync::OnceCell;
 use reqwest::StatusCode;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{cell::OnceCell, sync::Arc};
+use std::sync::Arc;
 
 /// Module visibility within one registry; it does not select a registry.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -221,13 +222,11 @@ impl HttpMetadata {
     }
 
     fn http_client(&self) -> anyhow::Result<&reqwest::blocking::Client> {
-        if let Some(client) = self.client.get() {
-            return Ok(client);
-        }
         // Successful initialization retains connections and the operation's login.
         // Cache-only reads never need to construct a network client.
-        let client = authentication::client(&self.state.api, self.state.credentials.as_deref())?;
-        Ok(self.client.get_or_init(|| client))
+        self.client.get_or_try_init(|| {
+            authentication::client(&self.state.api, self.state.credentials.as_deref())
+        })
     }
 }
 
@@ -299,23 +298,25 @@ impl super::VersionReader for HttpVersionReader {
         version: &Version,
     ) -> anyhow::Result<RegistryVersionInfo> {
         super::path::parse_module_path(&name.to_string())?;
-        if let Some(metadata) = self.state.cache.release_async(name, version).await? {
-            self.state.check_access(name, &metadata)?;
+        let state = Arc::clone(&self.state);
+        let owned_name = name.clone();
+        let owned_version = version.clone();
+        // Cache reads and publications use the same complete operations as
+        // synchronous callers. Only network I/O is driven directly by Tokio.
+        let cached =
+            tokio::task::spawn_blocking(move || state.cached_release(&owned_name, &owned_version))
+                .await??;
+        if let Some(metadata) = cached {
             return Ok(metadata.into());
         }
         if self.frozen {
             bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
         }
-        if self.client.get().is_none() {
-            let client =
-                authentication::async_client(&self.state.api, self.state.credentials.as_deref())?;
-            self.client.get_or_init(|| client);
-        }
+        let client = self.client.get_or_try_init(|| {
+            authentication::async_client(&self.state.api, self.state.credentials.as_deref())
+        })?;
         let url = self.state.release_url(name, Some(version))?;
-        let response = self
-            .client
-            .get()
-            .unwrap()
+        let response = client
             .get(url)
             .send()
             .await
@@ -327,12 +328,12 @@ impl super::VersionReader for HttpVersionReader {
             .map_err(|error| RegistryUnavailable(error.into()))
             .with_context(|| format!("failed to read registry metadata response for {name}"))?;
         let metadata = self.state.decode_release(name, Some(version), &bytes)?;
-        Ok(self
-            .state
-            .cache
-            .store_release_async(name, metadata)
-            .await?
-            .into())
+        let state = Arc::clone(&self.state);
+        let name = name.clone();
+        let metadata =
+            tokio::task::spawn_blocking(move || state.cache.store_release(&name, metadata))
+                .await??;
+        Ok(metadata.into())
     }
 }
 

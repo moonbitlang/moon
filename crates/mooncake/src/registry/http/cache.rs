@@ -27,12 +27,13 @@ use moonutil::{
     registry::registry_api_url,
     resolution::ModuleName,
 };
+use once_cell::sync::OnceCell;
 use semver::Version;
 use serde::Serialize;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::Mutex,
 };
 
 /// One registry's exact releases and observed latest answers. Memory lookups use
@@ -41,7 +42,7 @@ use std::{
 pub(super) struct MetadataCache {
     home: MoonHomeLayout,
     api: String,
-    directory: OnceLock<Option<PathBuf>>,
+    directory: OnceCell<Option<PathBuf>>,
     releases: Mutex<HashMap<ModuleName, HashMap<Version, ModuleMetadata>>>,
     latest: Mutex<HashMap<ModuleName, Version>>,
 }
@@ -51,32 +52,28 @@ impl MetadataCache {
         Self {
             home,
             api,
-            directory: OnceLock::new(),
+            directory: OnceCell::new(),
             releases: Mutex::new(HashMap::new()),
             latest: Mutex::new(HashMap::new()),
         }
     }
 
     fn metadata_cache_dir(&self, name: &ModuleName) -> anyhow::Result<Option<PathBuf>> {
-        if self.directory.get().is_none() {
+        let directory = self.directory.get_or_try_init(|| -> anyhow::Result<_> {
             let root = resolve_cache_root_for_home(CacheKind::RegistryMetadata, &self.home)?;
             if let CacheRoot::Path { path, .. } = &root {
                 create_cache_directory(path)?;
             }
             root.initialize()?;
-            let directory = match root {
+            Ok(match root {
                 CacheRoot::Disabled => None,
                 CacheRoot::Path { path, .. } => Some(
                     path.join("v1")
                         .join(sha256_hex(registry_api_url(&self.api)?.as_str().as_bytes())),
                 ),
-            };
-            self.directory.get_or_init(|| directory);
-        }
-        Ok(self
-            .directory
-            .get()
-            .unwrap()
+            })
+        })?;
+        Ok(directory
             .as_ref()
             .map(|root| root.join(sha256_hex(name.to_string().as_bytes()))))
     }
@@ -120,46 +117,15 @@ impl MetadataCache {
         let Some(cached) = Self::read_release(&path, name, version)? else {
             return Ok(None);
         };
-        self.releases
-            .lock()
-            .unwrap()
+        // A concurrent store may have published a newer observation while we
+        // read the file. Keep that observation instead of overwriting it.
+        let mut releases = self.releases.lock().unwrap();
+        let cached = releases
             .entry(name.clone())
             .or_default()
-            .insert(version.clone(), cached.clone());
-        Ok(Some(cached))
-    }
-
-    pub(super) async fn release_async(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<Option<ModuleMetadata>> {
-        if let Some(cached) = self
-            .releases
-            .lock()
-            .unwrap()
-            .get(name)
-            .and_then(|versions| versions.get(version))
-        {
-            return Ok(Some(cached.clone()));
-        }
-        let Some(path) = self.release_cache_path(name, version)? else {
-            return Ok(None);
-        };
-        let cached = match tokio::fs::read(path).await {
-            Ok(bytes) => serde_json::from_slice::<ModuleMetadata>(&bytes)
-                .context("failed to parse cached registry release")?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error).context("failed to read cached registry release"),
-        };
-        cached.validate(name, Some(version))?;
-        self.releases
-            .lock()
-            .unwrap()
-            .entry(name.clone())
-            .or_default()
-            .insert(version.clone(), cached.clone());
-        Ok(Some(cached))
+            .entry(version.clone())
+            .or_insert(cached);
+        Ok(Some(cached.clone()))
     }
 
     fn read_release(
@@ -217,19 +183,32 @@ impl MetadataCache {
         name: &ModuleName,
         metadata: ModuleMetadata,
     ) -> anyhow::Result<ModuleMetadata> {
-        let path = self.release_cache_path(name, &metadata.version)?;
-        let metadata = if let Some(path) = &path {
-            Self::publish_release(Some(path), name, metadata, None)?
-        } else {
+        let Some(path) = self.release_cache_path(name, &metadata.version)? else {
             // Without a disk cache, compare and publish under the memory lock.
-            // publish_release(None, ...) performs no filesystem operations.
             let mut releases = self.releases.lock().unwrap();
             let versions = releases.entry(name.clone()).or_default();
             let cached = versions.get(&metadata.version).cloned();
-            let metadata = Self::publish_release(None, name, metadata, cached)?;
+            let metadata = Self::merge_release(name, metadata, cached)?;
             versions.insert(metadata.version.clone(), metadata.clone());
             return Ok(metadata);
         };
+        let parent = path.parent().expect("release cache has a parent");
+        create_cache_directory(parent)?;
+        let lock_path = std::fs::canonicalize(parent)?
+            .join(path.file_name().unwrap())
+            .with_extension("json.lock");
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)?;
+        lock.lock()?;
+        // Keep the file lock through both disk and memory publication, so two
+        // writers cannot leave memory with an older advisory than the file.
+        let cached = Self::read_release(&path, name, &metadata.version)?;
+        let metadata = Self::merge_release(name, metadata, cached)?;
+        Self::write_metadata_cache(&path, &metadata)?;
         self.releases
             .lock()
             .unwrap()
@@ -239,58 +218,11 @@ impl MetadataCache {
         Ok(metadata)
     }
 
-    pub(super) async fn store_release_async(
-        &self,
-        name: &ModuleName,
-        metadata: ModuleMetadata,
-    ) -> anyhow::Result<ModuleMetadata> {
-        let Some(path) = self.release_cache_path(name, &metadata.version)? else {
-            return self.store_release(name, metadata);
-        };
-        let owned_name = name.clone();
-        // Lock, compare, and atomically publish together on the blocking pool.
-        // No in-memory cache borrow is held while waiting for another process.
-        let metadata = tokio::task::spawn_blocking(move || {
-            Self::publish_release(Some(&path), &owned_name, metadata, None)
-        })
-        .await??;
-        self.releases
-            .lock()
-            .unwrap()
-            .entry(name.clone())
-            .or_default()
-            .insert(metadata.version.clone(), metadata.clone());
-        Ok(metadata)
-    }
-
-    fn publish_release(
-        path: Option<&Path>,
+    fn merge_release(
         name: &ModuleName,
         mut metadata: ModuleMetadata,
         cached: Option<ModuleMetadata>,
     ) -> anyhow::Result<ModuleMetadata> {
-        // Keep the lock until comparison and publication have both completed.
-        let _lock = if let Some(path) = path {
-            let parent = path.parent().expect("release cache has a parent");
-            create_cache_directory(parent)?;
-            let lock_path = std::fs::canonicalize(parent)?
-                .join(path.file_name().unwrap())
-                .with_extension("json.lock");
-            let lock = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(lock_path)?;
-            lock.lock()?;
-            Some(lock)
-        } else {
-            None
-        };
-        let cached = match path {
-            Some(path) => Self::read_release(path, name, &metadata.version)?,
-            None => cached,
-        };
         if let Some(mut cached) = cached {
             // Compare dependency meaning, not JSON spelling or map order. Both
             // records have already been validated as exact registry dependencies.
@@ -314,9 +246,6 @@ impl MetadataCache {
             cached.yanked = metadata.yanked;
             cached.yanked_reason = metadata.yanked_reason;
             metadata = cached;
-        }
-        if let Some(path) = path {
-            Self::write_metadata_cache(path, &metadata)?;
         }
         Ok(metadata)
     }
@@ -431,11 +360,7 @@ mod tests {
                         yanked_reason: None,
                     };
                     barrier.wait();
-                    tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap()
-                        .block_on(cache.store_release_async(name, metadata))
+                    cache.store_release(name, metadata)
                 })
             });
             threads.map(|thread| thread.join().unwrap())

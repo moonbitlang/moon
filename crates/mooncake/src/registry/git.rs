@@ -27,6 +27,7 @@ use moonutil::{
     MoonHomeLayout, dependency::SourceDependencyInfo, registry::RegistryConfig,
     resolution::ModuleName, user_log::UserLog,
 };
+use once_cell::sync::OnceCell;
 use semver::Version;
 use serde::Deserialize;
 use std::{
@@ -34,7 +35,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 use sync::RegistryIndexUpdate;
-use tokio::sync::OnceCell;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -54,20 +54,22 @@ type ModuleVersionsCell = Arc<OnceCell<Arc<ModuleVersions>>>;
 
 pub(super) struct GitIndex {
     home: MoonHomeLayout,
-    cache: Mutex<HashMap<ModuleName, ModuleVersionsCell>>,
+    // The checkout contains the complete index. Retain parsed module files so
+    // version and checksum queries use the same records until the next sync.
+    parsed_modules: Mutex<HashMap<ModuleName, ModuleVersionsCell>>,
 }
 
 impl GitIndex {
     pub(super) fn new(home: MoonHomeLayout) -> Self {
         Self {
             home,
-            cache: Mutex::new(HashMap::new()),
+            parsed_modules: Mutex::new(HashMap::new()),
         }
     }
 
     pub(super) fn sync(&self, config: &RegistryConfig, user_log: &UserLog) -> anyhow::Result<()> {
         let outcome = sync::sync(&self.home, config, user_log)?;
-        self.cache.lock().unwrap().clear();
+        self.parsed_modules.lock().unwrap().clear();
         log_sync_outcome(outcome, user_log);
         Ok(())
     }
@@ -108,51 +110,39 @@ impl GitIndex {
         }
     }
 
-    fn all_versions_of(
-        &self,
-        name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryIndexEntry>>> {
-        let cached = Arc::clone(self.cache.lock().unwrap().entry(name.clone()).or_default());
-        if let Some(versions) = cached.get() {
-            return Ok(Arc::clone(versions));
-        }
-        let index_file = self.home.registry_index_file(name);
-        let file =
-            std::fs::File::open(index_file).map_err(|error| index_read_error(name, error))?;
-        let versions = Arc::new(parse_versions(name, std::io::BufReader::new(file))?);
-        let _ = cached.set(Arc::clone(&versions));
-        Ok(versions)
+    fn all_versions_of(&self, name: &ModuleName) -> anyhow::Result<Arc<ModuleVersions>> {
+        let parsed = Arc::clone(
+            self.parsed_modules
+                .lock()
+                .unwrap()
+                .entry(name.clone())
+                .or_default(),
+        );
+        // Only queries for the same module wait for its file to be parsed.
+        // Synchronous and asynchronous callers use this same initialization.
+        parsed.get_or_try_init(|| {
+            let index_file = self.home.registry_index_file(name);
+            tracing::debug!(module = %name, path = %index_file.display(), "reading registry index");
+            let file = std::fs::File::open(index_file)
+                .map_err(|error| index_read_error(name, error))?;
+            parse_versions(name, std::io::BufReader::new(file)).map(Arc::new)
+        }).map(Arc::clone)
     }
 
     pub(super) async fn version_info_async(
-        &self,
+        self: &Arc<Self>,
         name: &ModuleName,
         version: &Version,
     ) -> anyhow::Result<RegistryVersionInfo> {
-        // Different exact versions share one index file. Initialization is
-        // coalesced at module granularity, without borrowing the map across I/O.
-        let cached = Arc::clone(self.cache.lock().unwrap().entry(name.clone()).or_default());
-        let versions = cached
-            .get_or_try_init(|| async {
-                let index_file = self.home.registry_index_file(name);
-                tracing::debug!(module = %name, path = %index_file.display(), "reading registry index");
-                let bytes = tokio::fs::read(index_file)
-                    .await
-                    .map_err(|error| index_read_error(name, error))?;
-                parse_versions(name, std::io::Cursor::new(bytes)).map(Arc::new)
-            })
-            .await?;
-        let entry = versions
-            .get(version)
-            .ok_or_else(|| super::RegistryVersionNotFound {
-                name: name.clone(),
-                version: version.clone(),
-            })?;
-        Ok(RegistryVersionInfo {
-            deps: entry.deps.clone(),
-            yanked: entry.yanked,
-            yanked_reason: entry.yanked_reason.clone(),
+        let index = Arc::clone(self);
+        let name = name.clone();
+        let version = version.clone();
+        tokio::task::spawn_blocking(move || {
+            index
+                .version_info(&name, &version)?
+                .ok_or_else(|| super::RegistryVersionNotFound { name, version }.into())
         })
+        .await?
     }
 
     pub(super) fn source_archive_checksum(
@@ -242,7 +232,7 @@ mod tests {
     use moonutil::user_log::UserLogEntryLevel;
 
     #[test]
-    fn metadata_and_checksum_share_one_cached_release() {
+    fn metadata_and_checksum_share_one_parsed_module() {
         for checksum_first in [false, true] {
             let root = tempfile::tempdir().unwrap();
             let home = MoonHomeLayout::new(root.path().to_owned());
@@ -255,7 +245,7 @@ mod tests {
                 r#"{"version":"1.0.0","deps":{"test/dep":"0.1.0"},"checksum":"original","yanked":true,"yanked_reason":"superseded"}"#,
             )
             .unwrap();
-            let index = GitIndex::new(home);
+            let index = Arc::new(GitIndex::new(home));
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

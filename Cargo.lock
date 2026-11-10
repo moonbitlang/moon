@@ -2194,6 +2194,7 @@ dependencies = [
  "indexmap",
  "log",
  "moonutil",
+ "once_cell",
  "petgraph",
  "reqwest",
  "semver",
