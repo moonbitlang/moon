@@ -122,9 +122,6 @@ pub enum ArtifactKey {
     NodeTestPackageConfig {
         package: PackageId,
     },
-    BundleResult {
-        module: ModuleId,
-    },
     RuntimeObject {
         /// Path within the toolchain library layout (`runtime/foo.c` or
         /// legacy `runtime.c`), independent of the installed toolchain root.
@@ -212,7 +209,6 @@ impl ArtifactKey {
             | Self::CStubObject { .. }
             | Self::CStubLibrary { .. }
             | Self::ForeignLibrary { .. }
-            | Self::BundleResult { .. }
             | Self::RuntimeObject { .. }
             | Self::RuntimeLibrary
             | Self::DocsDir { .. } => None,

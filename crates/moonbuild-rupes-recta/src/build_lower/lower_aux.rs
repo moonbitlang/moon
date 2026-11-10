@@ -35,7 +35,7 @@ use crate::{
     model::{BuildTarget, PackageId, TargetKind},
 };
 
-use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts, moonc_command};
+use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts};
 
 const LEGACY_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/async";
 const CORE_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/core/async";
@@ -166,45 +166,6 @@ impl<'a> super::LoweringContext<'a> {
             commandline: commandline.into(),
             extra_inputs,
         }
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, artifacts))]
-    pub(super) fn lower_bundle(
-        &mut self,
-        artifacts: &ActionArtifacts,
-        module_id: ModuleId,
-        targets: &[BuildTarget],
-    ) -> Result<BuildCommand, LoweringError> {
-        let output = artifacts.single_output_path_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::BundleResult {
-                    module: artifact_module,
-                    ..
-                } if *artifact_module == module_id
-            )
-        });
-
-        let mut inputs = vec![];
-        for dep in targets {
-            inputs.push(artifacts.single_dependency_path_matching(|artifact| {
-                matches!(
-                    artifact,
-                    ArtifactKey::CoreIr {
-                        package,
-                        target_kind,
-                    } if *package == dep.package && *target_kind == dep.kind
-                )
-            }));
-        }
-
-        let cmd = compiler::MooncBundleCore::new(&inputs, output.clone());
-        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &output)?;
-
-        Ok(BuildCommand {
-            extra_inputs: vec![],
-            commandline,
-        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]

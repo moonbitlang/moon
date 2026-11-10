@@ -371,11 +371,6 @@ impl<'a> BuildPlanConstructor<'a> {
                     .artifacts
                     .provide(node, ArtifactKey::NodeTestPackageConfig { package });
             }
-            BuildPlanNode::Bundle(module) => {
-                self.res
-                    .artifacts
-                    .provide(node, ArtifactKey::BundleResult { module });
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 let info = self
                     .res
@@ -508,7 +503,6 @@ impl<'a> BuildPlanConstructor<'a> {
             ArtifactKey::NodeTestPackageConfig { package } => {
                 BuildPlanNode::GenerateNodeTestPackageConfig(*package)
             }
-            ArtifactKey::BundleResult { module } => BuildPlanNode::Bundle(*module),
             ArtifactKey::RuntimeObject { source } => {
                 let info = self
                     .res
@@ -612,14 +606,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::GenerateNodeTestPackageConfig(_) | BuildPlanNode::GenerateMbti(_) => (),
-            BuildPlanNode::Bundle(module_id) => {
-                assert!(
-                    self.res.backend.bundle_info.contains_key(&module_id),
-                    "Bundle info for module {:?} should be present when resolving node {:?}",
-                    module_id,
-                    node
-                );
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 let info = self
                     .res
@@ -712,7 +698,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.resolved_node(node);
                 Ok(())
             }
-            BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeObject(index) => self.build_runtime_object(node, index),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),

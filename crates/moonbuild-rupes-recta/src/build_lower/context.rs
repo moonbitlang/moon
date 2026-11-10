@@ -95,7 +95,6 @@ impl ActionArtifacts {
             &artifact,
             ctx.action(provider_action),
             ctx.packages,
-            ctx.modules,
             ctx.artifact_path_options(),
         );
         RealizedArtifact { artifact, paths }
@@ -387,9 +386,6 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildVirtual { package, input } => {
                 self.lower_parse_mbti(&action_artifacts, package, input)?
             }
-            BuildAction::Bundle { module, targets } => {
-                self.lower_bundle(&action_artifacts, module, targets)?
-            }
             BuildAction::BuildRuntimeObject { index, info } => {
                 self.lower_compile_runtime_object(&action_artifacts, index, info)
             }
@@ -490,7 +486,6 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::GenerateNodeTestPackageConfig { .. }
             | BuildAction::GenerateMbti { .. }
             | BuildAction::BuildVirtual { .. }
-            | BuildAction::Bundle { .. }
             | BuildAction::BuildRuntimeObject { .. }
             | BuildAction::BuildRuntimeLib { .. } => true,
             // These actions still observe filesystem state that is broader
@@ -528,8 +523,7 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::Prove { .. }
             | BuildAction::BuildCore { .. }
             | BuildAction::LinkCore { .. }
-            | BuildAction::BuildVirtual { .. }
-            | BuildAction::Bundle { .. } => ActionOutputKind::Compiler,
+            | BuildAction::BuildVirtual { .. } => ActionOutputKind::Compiler,
             BuildAction::BuildCStub { .. }
             | BuildAction::ArchiveOrLinkCStubs { .. }
             | BuildAction::MakeExecutable { .. }

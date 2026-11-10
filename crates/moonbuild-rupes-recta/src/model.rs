@@ -348,12 +348,6 @@ pub enum BuildPlanNode {
     /// This does not promote the `.mbti` into the source directory.
     GenerateMbti(BuildTarget),
 
-    /// Bundle all non-virtual packages in the given module. This produces a
-    /// `.core` file containing all packages.
-    ///
-    /// This is only used in the standard library `moonbitlang/core` currently.
-    Bundle(ModuleId),
-
     /// Build the i-th runtime C translation unit.
     BuildRuntimeObject(u32),
 
@@ -390,7 +384,6 @@ impl BuildPlanNode {
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
             | BuildPlanNode::ArchiveForeignLibrary(_)
             | BuildPlanNode::GenerateNodeTestPackageConfig(_)
-            | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs(_)
             | BuildPlanNode::BuildVirtual(_) => None,
@@ -487,14 +480,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(build_target.package);
                 format!("generate mbti for {}{}", fqn, qualifier(build_target.kind))
             }
-            BuildPlanNode::Bundle(module_id) => {
-                let module_src = env.module_source(*module_id);
-                format!(
-                    "bundle module {}@{}",
-                    module_src.name(),
-                    module_src.version()
-                )
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("build runtime object {index}")
             }
@@ -574,10 +559,6 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateMbti(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@GenerateMbti", fqn, t.kind)
-            }
-            BuildPlanNode::Bundle(mid) => {
-                let src = env.module_source(*mid);
-                format!("{}@Bundle", src)
             }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("BuildRuntimeObject_{index}")

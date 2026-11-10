@@ -114,7 +114,6 @@ fn test_warn_list_dry_run() {
             moonc build-package ./lib1/hello.mbt -w -a -o ./_build/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json
             moonc build-package ./lib/hello.mbt -w -a -o ./_build/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json
             moonc build-package ./main/main.mbt -w -a -o ./_build/wasm-gc/release/bundle/main/main.core -pkg username/hello/main -pkg-type executable -i ./_build/wasm-gc/release/bundle/lib/lib.mi:lib -i ./_build/wasm-gc/release/bundle/lib1/lib1.mi:lib1 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json
-            moonc bundle-core ./_build/wasm-gc/release/bundle/lib/lib.core ./_build/wasm-gc/release/bundle/lib1/lib1.core ./_build/wasm-gc/release/bundle/main/main.core -o ./_build/wasm-gc/release/bundle/hello.core
         "#]],
     );
 
@@ -209,7 +208,7 @@ fn test_warn_list_real_run() {
     check(
         get_stderr(&dir, ["bundle", "--sort-input", "--no-render"]),
         expect![[r#"
-            Finished. moon: ran 4 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 

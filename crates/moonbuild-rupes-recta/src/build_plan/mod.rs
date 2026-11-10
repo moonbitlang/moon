@@ -55,7 +55,6 @@ use log::{debug, info};
 use moonutil::{
     compiler_flags::{NativeAllocator, NativeLinkArg, OptLevel as CCOptLevel, Toolchain},
     cond_expr::OptLevel,
-    resolution::ModuleId,
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -153,9 +152,6 @@ pub(crate) struct BackendPlan {
 
     /// The concrete `.mbti` input selected for each planned virtual contract.
     virtual_contract_inputs: HashMap<PackageId, PathBuf>,
-
-    /// The map of build target to its bundle information
-    bundle_info: HashMap<ModuleId, BuildBundleInfo>,
 }
 
 impl BackendPlan {
@@ -514,12 +510,6 @@ pub struct BuildRuntimeInfo {
     pub(crate) simdutf_objects: Vec<PathBuf>,
     /// The allocator selected for compiling the native runtime.
     pub(crate) native_allocator: NativeAllocator,
-}
-
-/// Metadata about bundling the build output of different targets together.
-pub struct BuildBundleInfo {
-    /// The targets to bundle into the final bundle.
-    pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
 /// Command-specific directives provided alongside requested artifacts.

@@ -296,7 +296,6 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::NodeTestPackageConfig { .. } => {
                 (b"node-test-package-config".as_slice(), None, None)
             }
-            ArtifactKey::BundleResult { .. } => (b"bundle-result".as_slice(), None, None),
             ArtifactKey::RuntimeObject { source } => {
                 (b"runtime-object".as_slice(), None, Some(source.clone()))
             }
