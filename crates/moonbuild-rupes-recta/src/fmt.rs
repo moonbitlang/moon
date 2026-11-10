@@ -82,12 +82,6 @@ pub struct FmtConfig {
 
     /// Warn instead of showing differences
     pub warn_only: bool,
-
-    /// Migrate moon.mod.json to moon.mod when only the JSON file exists.
-    pub migrate_moon_mod_json: bool,
-
-    /// Migrate moon.pkg.json to moon.pkg when only the JSON file exists.
-    pub migrate_moon_pkg_json: bool,
 }
 
 /// Generate the executor-neutral actions for the formatter operation.
@@ -232,7 +226,7 @@ fn format_moon_mod_node(
 
     if has_dsl {
         format_moon_mod_dsl(execution, cfg, &moon_mod, &target_moon_mod, module_dir)?;
-    } else if cfg.migrate_moon_mod_json {
+    } else {
         user_log.warn(format!(
             "Migrating to {} at module root '{}', deprecated {} is removed.",
             MOON_MOD,
@@ -604,7 +598,7 @@ fn format_moon_pkg_node(
     if has_dsl {
         // Format moon.pkg (new format)
         format_moon_pkg_dsl(execution, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
-    } else if cfg.migrate_moon_pkg_json {
+    } else {
         // Only moon.pkg.json exists: migrate to moon.pkg
         format_moon_pkg_json_migrate(
             execution,
@@ -615,12 +609,6 @@ fn format_moon_pkg_node(
             pkg,
             user_log,
         )
-    } else {
-        debug!(
-            "Skipping moon.pkg.json migration for {} - feature disabled",
-            pkg.fqn
-        );
-        Ok(())
     }
 }
 

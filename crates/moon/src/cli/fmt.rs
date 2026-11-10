@@ -76,8 +76,6 @@ fn run_fmt_rr(
         check_only: cmd.check,
         warn_only: cmd.warn,
         extra_args: cmd.args.clone(),
-        migrate_moon_mod_json: cli.unstable_feature.rr_moon_mod,
-        migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
     let (scripts, package_paths): (Vec<_>, Vec<_>) = cmd
         .path

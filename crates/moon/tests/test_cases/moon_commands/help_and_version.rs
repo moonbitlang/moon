@@ -105,7 +105,7 @@ fn test_moon_version_flag_reports_unstable_features() {
     let dir = TestDir::new_empty();
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["-Z", "rr_moon_pkg", "--version"])
+        .args(["-Z", "rr_export_module_graph", "--version"])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
@@ -113,7 +113,7 @@ moon [..]
 moonc [..]
 moonrun [..]
 
-Feature flags enabled: rr_moon_mod,rr_moon_pkg
+Feature flags enabled: rr_export_module_graph
 
 "#]])
         .stderr_eq("");
