@@ -2335,8 +2335,7 @@ impl AsyncHost {
             ResourcePublication::Unpublished(resource) => resource,
         };
         let process_pid = job.ret() as i32;
-        let fd = self.handles.borrow_mut().insert_resource(resource);
-        self.process.track_process_handle(fd, process_pid);
+        let fd = self.insert_host_process_handle(resource, process_pid);
         job.process_mut()?
             .set_spawn_result(ResourcePublication::Published(fd))?;
         Ok(fd)
@@ -2667,13 +2666,13 @@ impl AsyncHost {
         f(socket)
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
-    pub(crate) fn insert_host_process_handle(&self, raw_fd: RawFd, pid: i32) -> HostHandle {
-        let handle = self
-            .handles
-            .borrow_mut()
-            .insert_resource(Resource::new(raw_fd));
-        self.process.track_process_handle(handle, pid);
+    pub(crate) fn insert_host_process_handle(&self, resource: Resource, pid: i32) -> HostHandle {
+        let mut handles = self.handles.borrow_mut();
+        let handle = handles.insert_resource(resource);
+        let resource = handles
+            .acquire_resource(handle)
+            .expect("new process resource");
+        self.process.track_process_handle(handle, pid, resource);
         handle
     }
 
@@ -5070,6 +5069,24 @@ mod tests {
         let pid = host.with_job(spawn_job, |job| job.ret()).unwrap() as i32;
         host.check_owned_child_pid(pid).unwrap();
         let process_handle = host.get_spawn_job_result_handle(spawn_job).unwrap();
+        #[cfg(any(windows, target_os = "linux"))]
+        let (process_handle, retained) = if process_handle == host.invalid_fd() {
+            (process_handle, None)
+        } else {
+            let retained = Arc::downgrade(&host.acquire_resource(process_handle).unwrap());
+            host.close_fd(process_handle).unwrap();
+            host.check_owned_child_pid(pid).unwrap();
+            assert!(retained.upgrade().is_some());
+            // spawn_orphan closes its initial handle; wait_pid must still be
+            // able to open the same child even if it has already exited.
+            let raw = host
+                .with_owned_child_pid(pid, || crate::async_sys::process::open_pid_handle(pid))
+                .unwrap();
+            (
+                host.insert_host_process_handle(Resource::new(raw), pid),
+                Some(retained),
+            )
+        };
         let process_resource = if process_handle == host.invalid_fd() {
             None
         } else {
@@ -5108,6 +5125,10 @@ mod tests {
         host.run_job(wait_job).unwrap();
 
         assert_eq!(host.with_job(wait_job, |job| job.err()).unwrap(), 0);
+        #[cfg(any(windows, target_os = "linux"))]
+        if let Some(retained) = retained {
+            assert!(retained.upgrade().is_none());
+        }
         assert_eq!(
             host.check_owned_child_pid(pid),
             Err(AsyncHostError::PermissionDenied)
@@ -5127,8 +5148,11 @@ mod tests {
         host.process.track_owned_child(checked_pid);
         host.process.track_owned_child(tracked_pid);
         let [process_handle, other] = host.pipe(false, false).unwrap();
-        host.process
-            .track_process_handle(process_handle, tracked_pid);
+        host.process.track_process_handle(
+            process_handle,
+            tracked_pid,
+            host.acquire_resource(process_handle).unwrap(),
+        );
         let process_resource = host.acquire_resource(process_handle).unwrap();
 
         assert_eq!(
@@ -5162,7 +5186,7 @@ mod tests {
     }
 
     #[test]
-    fn process_policy_revokes_pid_after_last_process_handle_closes() {
+    fn process_policy_preserves_child_after_last_process_handle_closes() {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
@@ -5170,17 +5194,28 @@ mod tests {
         let pid = 1001;
         host.process.track_owned_child(pid);
         let [first, second] = host.pipe(false, false).unwrap();
-        host.process.track_process_handle(first, pid);
-        host.process.track_process_handle(second, pid);
+        let resource = host.acquire_resource(first).unwrap();
+        let retained = Arc::downgrade(&resource);
+        host.process.track_process_handle(first, pid, resource);
+        host.process
+            .track_process_handle(second, pid, host.acquire_resource(second).unwrap());
 
         host.close_fd(first).unwrap();
         host.check_owned_child_pid(pid).unwrap();
         host.close_fd(second).unwrap();
 
-        assert_eq!(
-            host.check_owned_child_pid(pid),
-            Err(AsyncHostError::PermissionDenied)
-        );
+        host.check_owned_child_pid(pid).unwrap();
+        assert!(matches!(
+            host.acquire_resource(first),
+            Err(AsyncHostError::Badf)
+        ));
+        assert!(matches!(
+            host.acquire_resource(second),
+            Err(AsyncHostError::Badf)
+        ));
+        assert!(retained.upgrade().is_some());
+        drop(host);
+        assert!(retained.upgrade().is_none());
     }
 
     #[test]
