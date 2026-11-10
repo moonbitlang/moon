@@ -93,8 +93,7 @@ pub trait Registry {
     fn version_reader(&self) -> impl VersionReader + 'static;
 
     /// Read one exact published version synchronously. Never substitute another version.
-    /// TODO: Switch module resolution to [`Self::version_reader`] when its
-    /// concurrent traversal is connected.
+    /// Module resolution uses [`Self::version_reader`] instead.
     ///
     /// Return [`RegistryVersionNotFound`] if the version is absent from a known module,
     /// [`RegistryModuleNotFound`] if the module has no registry entry, and

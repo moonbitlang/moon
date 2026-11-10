@@ -1054,9 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_metadata_is_shared_across_readers_and_checksum_without_latest_queries() {
-        use crate::registry::VersionReader;
-
+    fn exact_metadata_is_shared_by_resolution_and_checksum_without_latest_queries() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -1084,22 +1082,33 @@ mod tests {
         let registry = http_test_registry(home.path(), &api);
         let name: ModuleName = "alice/secret".into();
         let version = Version::new(0, 1, 0);
-        // A reader's connections belong to its runtime. Later readers and the
-        // synchronous checksum lookup reuse the registry's metadata cache.
+        // Each resolution owns a new runtime and reader; both share the registry
+        // metadata with the later synchronous checksum lookup.
         for _ in 0..2 {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let reader = registry.version_reader();
-            let info = runtime
-                .block_on(reader.read_version(&name, &version))
-                .unwrap();
-            assert!(info.deps.contains_key("alice/public"));
-            let info = runtime
-                .block_on(reader.read_version(&"alice/public".into(), &version))
-                .unwrap();
-            assert!(info.deps.is_empty());
+            let root = crate::registry::mock::create_mock_module(
+                "test/root",
+                "1.0.0",
+                [("alice/secret", "0.1.0")],
+            );
+            let source = ModuleSource::local_path(
+                "test/root".into(),
+                dunce::canonicalize(home.path()).unwrap(),
+                Version::new(1, 0, 0),
+            )
+            .unwrap();
+            let roots =
+                moonutil::resolution::ResolvedModule::only_one_module(source, Arc::new(root)).0;
+            let graph = crate::resolver::resolve_modules(
+                &crate::resolver::ModuleResolutionConfig {
+                    registry: &registry,
+                    inject_std: false,
+                    warn_deprecated: false,
+                },
+                roots,
+                &quiet_user_log(),
+            )
+            .unwrap();
+            assert_eq!(graph.all_modules().count(), 3);
         }
         let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
         assert_eq!(
@@ -1122,6 +1131,7 @@ mod tests {
             .build()
             .unwrap();
         let reader = cached.version_reader();
+        use crate::registry::VersionReader;
         assert!(
             runtime
                 .block_on(reader.read_version(&name, &version))
