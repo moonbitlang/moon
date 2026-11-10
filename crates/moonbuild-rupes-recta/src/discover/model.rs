@@ -380,6 +380,9 @@ impl DiscoverResult {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DiscoverError {
+    #[error("Unable to start package discovery runtime: {0}")]
+    CantStartRuntime(#[source] std::io::Error),
+
     #[error("Unable to load local workspace rooted at path '{path}', error: {inner}")]
     CantReadLocalWorkspace { path: PathBuf, inner: anyhow::Error },
 

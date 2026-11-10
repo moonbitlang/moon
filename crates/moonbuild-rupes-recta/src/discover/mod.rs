@@ -90,59 +90,59 @@ pub fn discover_packages(
 
     let modules = module_graph
         .all_modules_and_id()
-        .filter_map(|(id, m)| {
-            (!matches!(m.source(), ModuleSourceKind::SingleFile(_))).then_some(id)
-        })
-        .collect::<Vec<_>>();
-    let scan_module = |&id| {
-        let mut discovered = DiscoverResult::default();
-        let (log, capture) = UserLog::captured(log::LevelFilter::Debug);
-        let dir = dirs.get(id).expect("Bad module ID to get directory");
-        let location = format!("at module root '{}'", dir.display());
-        warn_module_manifest(dir, &location, &log);
-        let outcome = discover_packages_for_mod(
-            &mut discovered,
-            dir,
-            id,
-            module_graph.resolved_module(id),
-            module_graph.input_module_ids().contains(&id),
-            &log,
-            false,
-        );
-        (discovered, outcome, capture.take())
-    };
-    let workers = std::thread::available_parallelism().map_or(1, usize::from);
-    // Each scanner owns its output. Join in module order so filesystem timing
-    // cannot change package IDs, the first reported error, or warning order.
-    let scanned = if workers == 1 || modules.len() <= 1 {
-        modules.iter().map(scan_module).collect::<Vec<_>>()
-    } else {
-        let span = tracing::Span::current();
-        let dispatch = tracing::dispatcher::get_default(Clone::clone);
-        std::thread::scope(|scope| {
-            let handles = modules
-                .chunks(modules.len().div_ceil(workers))
-                .map(|chunk| {
-                    scope.spawn(|| {
-                        tracing::dispatcher::with_default(&dispatch, || {
-                            let batch =
-                                tracing::debug_span!(parent: &span, "discover_module_batch");
-                            let _entered = batch.enter();
-                            chunk.iter().map(scan_module).collect::<Vec<_>>()
-                        })
-                    })
+        .filter(|(_, module)| !matches!(module.source(), ModuleSourceKind::SingleFile(_)))
+        .enumerate();
+    // Discovery owns this pool for the duration of its scans. Each module's
+    // blocking reads and parsing stay in one job, scheduled by Tokio with its
+    // default blocking-pool settings.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .map_err(DiscoverError::CantStartRuntime)?;
+    let mut scanned = runtime.block_on(async {
+        let mut scans = tokio::task::JoinSet::new();
+        for (order, (id, _)) in modules {
+            let dir = dirs
+                .get(id)
+                .expect("Bad module ID to get directory")
+                .clone();
+            let module = module_graph.resolved_module(id).clone();
+            let is_root_module = module_graph.input_module_ids().contains(&id);
+            let span = tracing::Span::current();
+            let dispatch = tracing::dispatcher::get_default(Clone::clone);
+            scans.spawn_blocking(move || {
+                tracing::dispatcher::with_default(&dispatch, || {
+                    let task = tracing::debug_span!(parent: &span, "discover_module_task");
+                    let _entered = task.enter();
+                    let mut discovered = DiscoverResult::default();
+                    let (log, capture) = UserLog::captured(log::LevelFilter::Debug);
+                    let location = format!("at module root '{}'", dir.display());
+                    warn_module_manifest(&dir, &location, &log);
+                    let outcome = discover_packages_for_mod(
+                        &mut discovered,
+                        &dir,
+                        id,
+                        &module,
+                        is_root_module,
+                        &log,
+                        false,
+                    );
+                    (order, discovered, outcome, capture.take())
                 })
-                .collect::<Vec<_>>();
-            handles
-                .into_iter()
-                .flat_map(|handle| match handle.join() {
-                    Ok(modules) => modules,
-                    Err(panic) => std::panic::resume_unwind(panic),
-                })
-                .collect::<Vec<_>>()
-        })
-    };
-    for (discovered, outcome, entries) in scanned {
+            });
+        }
+        let mut scanned = Vec::new();
+        while let Some(completed) = scans.join_next().await {
+            // These jobs are never aborted, so a failed join is a scanner panic.
+            scanned.push(
+                completed.unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic())),
+            );
+        }
+        scanned
+    });
+    // Assign IDs and emit diagnostics in module order, independent of which
+    // scans finished first. No scanner shares mutable discovery state.
+    scanned.sort_unstable_by_key(|(order, ..)| *order);
+    for (_, discovered, outcome, entries) in scanned {
         for entry in entries {
             match entry.level {
                 UserLogEntryLevel::Error => user_log.error(entry.message),

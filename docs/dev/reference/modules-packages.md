@@ -338,9 +338,12 @@ If not specified, the package scanning root path is `.`,
 meaning the packages are relative to the root of the module.
 Newer modules created by `moon new` by default sets this to `src`.
 
-After module synchronization, package discovery scans modules independently on
-scoped threads, bounded by available CPU parallelism. Results and diagnostics are
-combined in module order, so completion order does not affect package IDs or
+After module synchronization, package discovery creates its own Tokio runtime and
+submits each module's synchronous scan as one `spawn_blocking` job. All scans are
+submitted without an application-level concurrency cap; Tokio schedules them
+using its default blocking-pool settings. The pool is dropped when discovery
+returns and is independent of module resolution and test execution. Results and
+diagnostics are combined in module order, so completion order does not affect package IDs or
 which module's error is reported first. Local-only project discovery stays serial.
 
 To discover all package within the module,
