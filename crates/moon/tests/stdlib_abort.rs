@@ -81,21 +81,21 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                     .any(|output| output.as_str().unwrap().ends_with("abort/abort.core"))),
                 state != "absent"
             );
-            let bundle_node = nodes
-                .iter()
-                .find(|node| {
-                    node["command"]
+            // Toolchain packaging needs the individual package artifacts only.
+            for node in &nodes {
+                assert!(
+                    !node["command"]
                         .as_str()
                         .is_some_and(|cmd| cmd.contains(" bundle-core "))
-                })
-                .unwrap();
-            assert_eq!(
-                bundle_node["command"]
-                    .as_str()
-                    .unwrap()
-                    .contains("abort/abort.core"),
-                state == "bundled"
-            );
+                );
+                assert!(
+                    !node["outputs"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|output| { output.as_str().unwrap().ends_with("bundle/core.core") })
+                );
+            }
         }
         snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
             .current_dir(project.path())

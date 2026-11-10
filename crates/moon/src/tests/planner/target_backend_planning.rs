@@ -19,8 +19,8 @@
 use super::fixture::{
     PlannedGraph, PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
     parse_bundle_command, parse_check_command, parse_run_command, parse_test_command,
-    planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
-    planned_target_backends,
+    planned_check_package_runs, planned_graph_inputs, planned_requested_artifacts,
+    planned_root_package_runs, planned_target_backends,
 };
 use moonutil::target::{TargetBackend, lower_surface_targets};
 
@@ -84,6 +84,33 @@ fn expected_package_runs(expected: &[(TargetBackend, &[&str])]) -> Vec<PlannedPa
             packages: packages.iter().map(|pkg| (*pkg).to_string()).collect(),
         })
         .collect()
+}
+
+#[test]
+fn bundle_requests_package_cores_including_virtual_defaults() {
+    let fixture = PlanningFixture::new("virtual_pkg.in/virtual").expect("fixture should resolve");
+    let (cli, cmd) = parse_bundle_command(&["bundle", "--target", "wasm-gc", "--dry-run"]);
+    let plans = fixture
+        .plan_bundle_all_with_backend(&cli, &cmd, Some(TargetBackend::WasmGC))
+        .expect("bundle should plan");
+
+    // lib1 and lib3 are virtual packages with defaults. The pure virtual root
+    // and deep/lib have no core, and main must not request an executable.
+    assert_eq!(
+        plans
+            .into_iter()
+            .flat_map(planned_requested_artifacts)
+            .collect::<Vec<_>>(),
+        [
+            "username/hello/dummy_lib core",
+            "username/hello/lib1 core",
+            "username/hello/lib2 core",
+            "username/hello/lib3 core",
+            "username/hello/lib4 core",
+            "username/hello/lib5 core",
+            "username/hello/main core",
+        ],
+    );
 }
 
 #[test]
@@ -163,7 +190,13 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target bundle plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_target_backend_runs(runs, &[TargetBackend::Wasm, TargetBackend::Js]);
+    assert_root_package_runs(
+        runs,
+        &[
+            (TargetBackend::Wasm, all_packages),
+            (TargetBackend::Js, all_packages),
+        ],
+    );
 
     let (cli, cmd) =
         parse_test_command(&["test", "--target", "js,wasm", "--dry-run", "--sort-input"]);
