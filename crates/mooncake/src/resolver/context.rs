@@ -28,7 +28,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::Registry;
+use crate::registry::{Registry, RegistryVersionInfo, VersionReader};
 
 /// Registry access, manifest caches, and diagnostics for module resolution.
 pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
@@ -67,39 +67,35 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
         !self.errors.is_empty()
     }
 
-    /// Cache successful exact-version reads, sharing manifests across dependants.
-    /// Registry errors are returned unchanged; the caller adds dependency-edge context.
-    pub(crate) fn get_registry_module(
+    /// Own the query session outside individual tasks, while keeping registry
+    /// access encapsulated in the resolution context.
+    pub(crate) fn version_reader(&self) -> impl VersionReader + 'static {
+        self.registry.version_reader()
+    }
+
+    /// Accept a completed read. Only the resolver updates its manifest and
+    /// advisory cache; tasks never borrow the mutable resolution context.
+    pub(crate) fn record_registry_module(
         &mut self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Arc<MoonMod>> {
-        if let Some(module) = self
+        info: RegistryVersionInfo,
+    ) -> Arc<MoonMod> {
+        let module = self
             .registry_modules
-            .get(name)
-            .and_then(|versions| versions.get(version))
-        {
-            return Ok(Arc::clone(&module.manifest));
-        }
-
-        let info = self.registry.version_info(name, version)?;
-        let manifest = Arc::new(MoonMod {
-            name: name.to_string(),
-            version: Some(version.clone()),
-            deps: info.deps,
-            ..Default::default()
-        });
-        self.registry_modules
             .entry(name.clone())
             .or_default()
-            .insert(
-                version.clone(),
-                RegistryModule {
-                    manifest: Arc::clone(&manifest),
-                    deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
-                },
-            );
-        Ok(manifest)
+            .entry(version.clone())
+            .or_insert_with(|| RegistryModule {
+                manifest: Arc::new(MoonMod {
+                    name: name.to_string(),
+                    version: Some(version.clone()),
+                    deps: info.deps,
+                    ..Default::default()
+                }),
+                deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
+            });
+        Arc::clone(&module.manifest)
     }
 
     /// Advisory status observed during traversal, without another registry read.

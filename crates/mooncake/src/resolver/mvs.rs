@@ -19,6 +19,7 @@
 use std::{
     collections::{BTreeSet, HashMap, hash_map::Entry},
     path::PathBuf,
+    rc::Rc,
     sync::Arc,
 };
 
@@ -33,9 +34,21 @@ use moonutil::{
     user_log::UserLog,
 };
 use semver::Version;
+use tokio::{
+    runtime::Builder,
+    task::{JoinSet, LocalSet},
+};
+use tracing::Instrument;
 
 use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
-use crate::registry::{Registry, RegistryModuleNotFound, RegistryVersionNotFound};
+use crate::registry::{Registry, RegistryModuleNotFound, RegistryVersionNotFound, VersionReader};
+
+const MAX_VERSION_QUERIES: usize = 16;
+
+struct GatheredRequirements {
+    versions: HashMap<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>,
+    manifests: HashMap<ModuleSource, Arc<MoonMod>>,
+}
 
 type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 
@@ -197,6 +210,200 @@ fn workspace_version_override_warning(
     ))
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
+async fn gather_requirements<R: Registry>(
+    context: &mut ModuleResolutionContext<'_, R>,
+    module_graph: &ModuleDependencyGraph,
+    workspace_roots: &WorkspaceRoots,
+    user_log: &UserLog,
+) -> GatheredRequirements {
+    // Ordered set used to ensure they are iterated in order later.
+    let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
+
+    // Collect all version constraints for each dependency.
+    let mut working_list = module_graph
+        .input_module_ids()
+        .iter()
+        .map(|&id| {
+            (
+                module_graph.module_source(id).clone(),
+                Arc::clone(module_graph.module_info(id)),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Mark roots visited before traversal, and retain each visited manifest so
+    // final graph construction uses the same metadata without further lookups.
+    let mut loaded_modules = working_list.iter().cloned().collect::<HashMap<_, _>>();
+    let mut registry_requests = HashMap::<ModuleSource, Vec<ModuleName>>::new();
+    let mut read_failures = Vec::new();
+    let reader = Rc::new(context.version_reader());
+    let mut pending = Vec::new();
+    let mut queries = JoinSet::new();
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        for &id in module_graph.input_module_ids() {
+            tracing::debug!(module = %module_graph.module_source(id), "registered root module");
+        }
+    }
+
+    loop {
+        while let Some((source, module)) = working_list.pop() {
+            tracing::debug!(module = %source, "visiting module dependencies");
+            for (name, req) in &module.deps {
+                let module_name = name.as_str().into();
+                let target = match locate_module_dependency(
+                    req,
+                    &source,
+                    workspace_roots,
+                    &module_name,
+                    user_log,
+                ) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        context.report_error(error);
+                        continue;
+                    }
+                };
+                let (ms, module) = match target {
+                    DependencyTarget::Registry(registry_source) => {
+                        // Keep every exact requirement, including versions MVS
+                        // later discards. Deduplicate before queueing any I/O.
+                        gathered_versions
+                            .entry(module_name)
+                            .or_default()
+                            .insert(registry_source.clone().into());
+                        match registry_requests.entry(registry_source.clone()) {
+                            Entry::Occupied(mut entry) => {
+                                entry.get_mut().push(source.name().clone())
+                            }
+                            Entry::Vacant(entry) => {
+                                entry.insert(vec![source.name().clone()]);
+                                pending.push(registry_source);
+                            }
+                        }
+                        continue;
+                    }
+                    DependencyTarget::Root(source, module) => (source, module),
+                    DependencyTarget::Local { name, path } => {
+                        let module = match context.resolve_local_module(&path) {
+                            Ok(module) => module,
+                            Err(error) => {
+                                read_failures.push((
+                                    DependencyTarget::Local { name, path },
+                                    source.name().clone(),
+                                    error,
+                                ));
+                                continue;
+                            }
+                        };
+                        let ms = match ModuleSource::new_full(
+                            name,
+                            module.version.clone().expect("Expected version in module"),
+                            ModuleSourceKind::Local(path),
+                        ) {
+                            Ok(source) => source,
+                            Err(error) => {
+                                context.report_error(ModuleResolutionError::Other(error.into()));
+                                continue;
+                            }
+                        };
+                        // The minimum version belongs to this dependency edge;
+                        // reading the target only tells us the actual version.
+                        if let Some(required) = req.version()
+                            && !mvs_requirement_matches(required, ms.version())
+                        {
+                            context.report_error(ModuleResolutionError::LocalDepVersionMismatch {
+                                dependant: source.name().clone(),
+                                dependency: module_name.clone(),
+                                actual: ms.version().clone(),
+                                required: required.clone(),
+                            });
+                            continue;
+                        }
+                        (ms, module)
+                    }
+                };
+                if let Entry::Vacant(entry) = loaded_modules.entry(ms.clone()) {
+                    entry.insert(Arc::clone(&module));
+                    working_list.push((ms.clone(), module));
+                }
+                gathered_versions
+                    .entry(module_name)
+                    .or_default()
+                    .insert(ms.into());
+            }
+        }
+        while queries.len() < MAX_VERSION_QUERIES {
+            let Some(source) = pending.pop() else {
+                break;
+            };
+            let reader = Rc::clone(&reader);
+            let span = tracing::debug_span!("read_registry_version", module = %source);
+            queries.spawn_local(
+                async move {
+                    let result = reader.read_version(source.name(), source.version()).await;
+                    (source, result)
+                }
+                .instrument(span),
+            );
+        }
+        let Some(completed) = queries.join_next().await else {
+            break;
+        };
+        let (source, result) = match completed {
+            Ok(completed) => completed,
+            Err(error) => {
+                context.report_error(ModuleResolutionError::Other(error.into()));
+                queries.shutdown().await;
+                break;
+            }
+        };
+        match result {
+            Ok(info) => {
+                let module = context.record_registry_module(source.name(), source.version(), info);
+                tracing::debug!(module = %source, "resolved registry dependency");
+                loaded_modules.insert(source.clone(), Arc::clone(&module));
+                // Expand this result before waiting for any slower sibling.
+                working_list.push((source, module));
+            }
+            Err(error) => {
+                let dependant = registry_requests[&source][0].clone();
+                read_failures.push((DependencyTarget::Registry(source), dependant, error));
+            }
+        }
+    }
+    read_failures.sort_by_cached_key(|(target, dependant, _)| match target {
+        DependencyTarget::Registry(source) => (source.to_string(), String::new()),
+        DependencyTarget::Local { name, path } => {
+            (format!("{name}@{}", path.display()), dependant.to_string())
+        }
+        DependencyTarget::Root(source, _) => (source.to_string(), dependant.to_string()),
+    });
+    // Finish traversal first: another module may also request a failed version.
+    for (target, dependant, error) in read_failures {
+        let mut dependants = match &target {
+            DependencyTarget::Registry(source) => registry_requests
+                .remove(source)
+                .expect("registry target was registered before reading"),
+            _ => vec![dependant],
+        };
+        dependants.sort();
+        for error in module_read_errors(&target, &dependants, error) {
+            if matches!(
+                error,
+                ModuleResolutionError::ModuleMissing { .. }
+                    | ModuleResolutionError::VersionMissing { .. }
+            ) {
+                user_log.warn("you may need to run `moon update` to update the registry");
+            }
+            context.report_error(error);
+        }
+    }
+    GatheredRequirements {
+        versions: gathered_versions,
+        manifests: loaded_modules,
+    }
+}
+
 #[tracing::instrument(
     level = "debug",
     skip_all,
@@ -220,145 +427,32 @@ fn mvs_resolve<R: Registry>(
             )
         })
         .collect::<WorkspaceRoots>();
-    // Ordered set used to ensure they are iterated in order later.
-    let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
-
-    // Collect all version constraints for each dependency.
-    let mut working_list = module_graph
-        .input_module_ids()
-        .iter()
-        .map(|&id| {
-            (
-                module_graph.module_source(id).clone(),
-                Arc::clone(module_graph.module_info(id)),
-            )
-        })
-        .collect::<Vec<_>>();
-    // Mark roots visited before traversal, and retain each visited manifest so
-    // final graph construction uses the same metadata without further lookups.
-    let mut loaded_modules = working_list.iter().cloned().collect::<HashMap<_, _>>();
-    let mut registry_requests = HashMap::<ModuleSource, Vec<ModuleName>>::new();
-    let mut read_failures = Vec::new();
-    if tracing::enabled!(tracing::Level::DEBUG) {
-        for &id in module_graph.input_module_ids() {
-            tracing::debug!(module = %module_graph.module_source(id), "registered root module");
-        }
-    }
-
-    // Do a DFS in the graph
-    while let Some((source, module)) = working_list.pop() {
-        tracing::debug!(module = %source, "visiting module dependencies");
-        for (name, req) in &module.deps {
-            let module_name = name.as_str().into();
-
-            let target = match locate_module_dependency(
-                req,
-                &source,
-                &workspace_roots,
-                &module_name,
-                user_log,
-            ) {
-                Ok(value) => value,
-                Err(e) => {
-                    context.report_error(e);
-                    continue;
-                }
-            };
-            // Register the exact version before reading. Later edges share the
-            // request even if it fails, and still retain their own diagnostics.
-            if let DependencyTarget::Registry(registry_source) = &target {
-                match registry_requests.entry(registry_source.clone()) {
-                    Entry::Occupied(mut entry) => {
-                        entry.get_mut().push(source.name().clone());
-                        continue;
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(vec![source.name().clone()]);
-                    }
-                }
+    // The runtime and its connection pools cover traversal only. Version
+    // selection, graph construction, and source acquisition remain synchronous.
+    let gathered = {
+        let runtime = match Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                context.report_error(ModuleResolutionError::Other(error.into()));
+                return false;
             }
-            let module = match read_module_dependency(&target, context) {
-                Ok(module) => module,
-                Err(error) => {
-                    read_failures.push((target, source.name().clone(), error));
-                    continue;
-                }
-            };
-            let ms = match target {
-                DependencyTarget::Root(source, _) => source,
-                DependencyTarget::Registry(source) => {
-                    tracing::debug!(
-                        dependency = %source.name(),
-                        selected = %source.version(),
-                        "resolved registry dependency"
-                    );
-                    source
-                }
-                DependencyTarget::Local { name, path } => {
-                    let ms = match ModuleSource::new_full(
-                        name,
-                        module.version.clone().expect("Expected version in module"),
-                        ModuleSourceKind::Local(path),
-                    ) {
-                        Ok(source) => source,
-                        Err(error) => {
-                            context.report_error(ModuleResolutionError::Other(error.into()));
-                            continue;
-                        }
-                    };
-                    // The minimum version belongs to this dependency edge;
-                    // reading the target only tells us the actual version.
-                    if let Some(required) = req.version()
-                        && !mvs_requirement_matches(required, ms.version())
-                    {
-                        context.report_error(ModuleResolutionError::LocalDepVersionMismatch {
-                            dependant: source.name().clone(),
-                            dependency: module_name.clone(),
-                            actual: ms.version().clone(),
-                            required: required.clone(),
-                        });
-                        continue;
-                    }
-                    ms
-                }
-            };
-
-            // Add module to working list
-            if let Entry::Vacant(entry) = loaded_modules.entry(ms.clone()) {
-                entry.insert(Arc::clone(&module));
-                working_list.push((ms.clone(), module));
-            }
-
-            // Add to gathered versions
-            gathered_versions
-                .entry(module_name)
-                .or_default()
-                .insert(ms.into());
-        }
-    }
-
-    // Finish traversal first: another module may also request a failed version.
-    for (target, dependant, error) in read_failures {
-        let dependants = match &target {
-            DependencyTarget::Registry(source) => registry_requests
-                .remove(source)
-                .expect("registry target was registered before reading"),
-            _ => vec![dependant],
         };
-        for error in module_read_errors(&target, &dependants, error) {
-            if matches!(
-                error,
-                ModuleResolutionError::ModuleMissing { .. }
-                    | ModuleResolutionError::VersionMissing { .. }
-            ) {
-                user_log.warn("you may need to run `moon update` to update the registry");
-            }
-            context.report_error(error);
-        }
-    }
+        LocalSet::new().block_on(
+            &runtime,
+            gather_requirements(context, module_graph, &workspace_roots, user_log),
+        )
+    };
     if context.any_errors() {
         return false;
     }
+    let GatheredRequirements {
+        versions: gathered_versions,
+        manifests: loaded_modules,
+    } = gathered;
 
     tracing::debug!("selecting minimal version for each compatibility set");
 
@@ -570,27 +664,11 @@ fn locate_module_dependency(
     Ok(DependencyTarget::Registry(source))
 }
 
-/// Read only the target's manifest. Requirements and dependant-specific
-/// diagnostics belong to the traversal that consumes the result.
-fn read_module_dependency<R: Registry>(
-    target: &DependencyTarget,
-    context: &mut ModuleResolutionContext<'_, R>,
-) -> anyhow::Result<Arc<MoonMod>> {
-    match target {
-        DependencyTarget::Root(_, module) => Ok(Arc::clone(module)),
-        DependencyTarget::Registry(source) => {
-            context.get_registry_module(source.name(), source.version())
-        }
-        DependencyTarget::Local { path, .. } => context.resolve_local_module(path),
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::{
         cell::{Cell, RefCell},
         collections::HashSet,
-        rc::Rc,
     };
 
     use expect_test::expect;
@@ -601,7 +679,7 @@ mod test {
 
     use super::*;
     use crate::registry::mock::{MockRegistry, create_mock_module};
-    use crate::registry::{Registry, RegistryVersionInfo, VersionReader};
+    use crate::registry::{Registry, RegistryVersionInfo};
     use crate::resolver::context::ModuleResolutionContext;
     use crate::resolver::{ModuleResolutionConfig, ModuleResolutionErrors, resolve_modules};
 
@@ -936,7 +1014,10 @@ mod test {
             .unwrap();
             let mut context = ModuleResolutionContext::new(&registry);
             // Reading succeeds even when this edge's minimum is incompatible.
-            let module = read_module_dependency(&target, &mut context).unwrap();
+            let DependencyTarget::Local { path, .. } = target else {
+                panic!("expected local target");
+            };
+            let module = context.resolve_local_module(&path).unwrap();
             assert_eq!(module.version, Some(Version::new(1, 1, 0)));
             let mut root = create_mock_module("test/root", "1.0.0", []);
             root.deps.insert(name.to_string(), req);
@@ -1231,11 +1312,14 @@ mod test {
     }
 
     #[test]
-    fn test_resolution_reuses_registry_metadata() {
+    fn concurrent_reads_are_bounded_and_expand_completed_dependencies() {
         #[derive(Clone)]
         struct SingleReadRegistry {
             inner: MockRegistry,
             reads: Rc<RefCell<HashSet<(ModuleName, Version)>>>,
+            active: Rc<Cell<usize>>,
+            peak: Rc<Cell<usize>>,
+            child_read: Rc<tokio::sync::Notify>,
         }
 
         impl VersionReader for SingleReadRegistry {
@@ -1244,7 +1328,25 @@ mod test {
                 name: &ModuleName,
                 version: &Version,
             ) -> anyhow::Result<RegistryVersionInfo> {
-                Registry::version_info(self, name, version)
+                self.active.set(self.active.get() + 1);
+                self.peak.set(self.peak.get().max(self.active.get()));
+                if name.to_string() == "dep/slow" {
+                    // A sibling's child must run before this request completes.
+                    // Waiting for a whole batch would deadlock here.
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        self.child_read.notified(),
+                    )
+                    .await?;
+                } else {
+                    tokio::task::yield_now().await;
+                    if name.to_string() == "dep/shared" {
+                        self.child_read.notify_one();
+                    }
+                }
+                let result = Registry::version_info(self, name, version);
+                self.active.set(self.active.get() - 1);
+                result
             }
         }
 
@@ -1284,14 +1386,21 @@ mod test {
             }
         }
 
+        let names = (0..39)
+            .map(|i| format!("dep/node{i:02}"))
+            .chain(std::iter::once("dep/slow".into()))
+            .collect::<Vec<_>>();
         let mut inner = MockRegistry::new();
-        inner
-            .add_module_full("dep/left", "1.0.0", [("dep/shared", "1.0.0")])
-            .add_module_full("dep/right", "1.0.0", [("dep/shared", "1.0.0")])
-            .add_module_full("dep/shared", "1.0.0", []);
+        for name in &names {
+            inner.add_module_full(name, "1.0.0", [("dep/shared", "1.0.0")]);
+        }
+        inner.add_module_full("dep/shared", "1.0.0", []);
         let registry = SingleReadRegistry {
             inner,
             reads: Rc::default(),
+            active: Rc::default(),
+            peak: Rc::default(),
+            child_read: Rc::default(),
         };
         let config = ModuleResolutionConfig {
             registry: &registry,
@@ -1301,18 +1410,21 @@ mod test {
         let root = create_mock_module(
             "root/module",
             "0.1.0",
-            [("dep/left", "1.0.0"), ("dep/right", "1.0.0")],
+            names.iter().map(|name| (name.as_str(), "1.0.0")),
         );
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
         let graph = resolve_modules(&config, create_mock_root(root), &user_log).unwrap();
-        assert_eq!(registry.reads.borrow().len(), 3);
-        assert_depends_on(&graph, "dep/left@1.0.0", "dep/shared@1.0.0");
-        assert_depends_on(&graph, "dep/right@1.0.0", "dep/shared@1.0.0");
+        assert_eq!(registry.reads.borrow().len(), 41);
+        assert_eq!(registry.peak.get(), MAX_VERSION_QUERIES);
+        assert_eq!(registry.active.get(), 0);
+        assert!(tokio::runtime::Handle::try_current().is_err());
+        assert_depends_on(&graph, "dep/node00@1.0.0", "dep/shared@1.0.0");
+        assert_depends_on(&graph, "dep/slow@1.0.0", "dep/shared@1.0.0");
         let warnings = capture.take();
         assert_eq!(warnings.len(), 1);
         expect![[r#"
             Dependency `dep/shared@1.0.0` is deprecated: Use dep/replacement.
-              required through root/module@0.1.0 -> dep/left@1.0.0 -> dep/shared@1.0.0"#]]
+              required through root/module@0.1.0 -> dep/node00@1.0.0 -> dep/shared@1.0.0"#]]
         .assert_eq(&warnings[0].message);
     }
 
