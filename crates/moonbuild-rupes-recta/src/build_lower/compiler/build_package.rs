@@ -42,14 +42,6 @@ pub(crate) struct MooncBuildPackage<'a> {
     /// The output `.core` file's path.
     pub core_out: Cow<'a, Path>,
 
-    /// The output `.mi` file's path.
-    ///
-    /// This file is currently unused in the commandline arguments.
-    /// Theoretically, it should be `core_out.replace_extension("mi")`, but we
-    /// leave it here for future use.
-    #[allow(unused)]
-    pub mi_out: Cow<'a, Path>,
-
     pub flags: CompilationFlags,
 
     /// Whether `moonc build-package` should accept the inline import
