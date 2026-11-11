@@ -17,5 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 pub mod cmdtest;
+mod fixture;
 pub mod stack_trace;
+// TODO: Make this module private once legacy TestDir and copy_tree callers migrate.
+#[doc(hidden)]
 pub mod test_dir;
+
+pub use fixture::{Fixture, TestCommandDir};

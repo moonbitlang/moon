@@ -83,7 +83,7 @@ impl TestDir {
     /// Paths must be relative to this workspace. The writes form a `setup`
     /// trace phase; failures clean up or retain partially initialized files
     /// according to the same policy as copied fixtures.
-    pub fn with_files(
+    pub(crate) fn with_files(
         mut self,
         files: impl IntoIterator<Item = (impl AsRef<Path>, impl AsRef<[u8]>)>,
     ) -> Self {

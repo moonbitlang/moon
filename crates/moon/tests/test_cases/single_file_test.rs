@@ -69,7 +69,7 @@ fn test_mbtx_requires_main() {
 
 #[test]
 fn test_mbtx_runs_tests_without_running_main() {
-    let dir = Fixture::readonly("single_file_test/without_running_main.in");
+    let dir = Fixture::readonly(test_case_path("single_file_test/without_running_main.in"));
 
     for backend in ["wasm", "wasm-gc", "js", "native"] {
         moon_cmd(&dir)

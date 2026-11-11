@@ -18,17 +18,17 @@
 
 // Exercise ordinary stdlib packages through discovery, bundling, and linking.
 // Artifact contents are irrelevant to dry runs.
-use moon_test_util::test_dir::TestDir;
+use moon_test_util::Fixture;
 
 #[test]
 fn stdlib_abort_uses_normal_build_pipeline() {
-    let project = TestDir::new_empty().with_files([
+    let project = Fixture::new().with_files([
         ("moon.mod", "name = \"test/stdlib_abort\"\n"),
         ("moon.pkg", "pkgtype(kind: \"executable\")\n"),
         ("main.mbt", "fn main { () }\n"),
     ]);
 
-    let core = TestDir::new_empty().with_files([
+    let core = Fixture::new().with_files([
         ("moon.mod", "name = \"moonbitlang/core\"\n"),
         ("prelude/moon.pkg", ""),
         ("_build/wasm-gc/release/bundle/prelude/prelude.mi", ""),
@@ -50,8 +50,7 @@ fn stdlib_abort_uses_normal_build_pipeline() {
         }
         let graph = project.join("graph.jsonl");
         if matches!(state, "absent" | "bundled") {
-            snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-                .current_dir(core.as_ref())
+            core.moon_cmd(snapbox::cargo_bin!("moon"))
                 .env("MOON_DEP_CACHE", "off")
                 .env("MOON_WORK", "off")
                 .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
@@ -87,9 +86,9 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                 );
             }
         }
-        snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-            .current_dir(project.as_ref())
-            .env("MOON_CORE_OVERRIDE", core.as_ref())
+        project
+            .moon_cmd(snapbox::cargo_bin!("moon"))
+            .env("MOON_CORE_OVERRIDE", core.cwd())
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
             .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
@@ -136,8 +135,7 @@ fn stdlib_abort_uses_normal_build_pipeline() {
     std::fs::create_dir(core.join("coverage")).unwrap();
     std::fs::write(core.join("coverage/moon.pkg"), "").unwrap();
     let graph = project.join("test-graph.jsonl");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(core.as_ref())
+    core.moon_cmd(snapbox::cargo_bin!("moon"))
         .env("MOON_DEP_CACHE", "off")
         .env("MOON_WORK", "off")
         .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)

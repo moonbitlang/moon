@@ -16,11 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moon_test_util::test_dir::TestDir;
+use moon_test_util::Fixture;
 
 #[test]
 fn native_file_conditions_match_compiler_cfg_on_llvm() {
-    let project = TestDir::new_empty().with_files([
+    let project = Fixture::new().with_files([
         ("moon.mod", "name = \"test/llvm\"\n"),
         (
             "moon.pkg",
@@ -44,8 +44,8 @@ pub fn require_native_answer() -> Int { answer() }
     // must retain their implementations. The unconditional caller ensures
     // disabling the native cfg cannot make this test pass vacuously.
     for backend in ["native", "llvm"] {
-        snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-            .current_dir(project.as_ref())
+        project
+            .moon_cmd(snapbox::cargo_bin!("moon"))
             .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
@@ -58,22 +58,22 @@ pub fn require_native_answer() -> Int { answer() }
 
 #[test]
 fn missing_llvm_prelude_reports_an_actionable_error() {
-    let project = TestDir::new_empty().with_files([
+    let project = Fixture::new().with_files([
         ("moon.mod", "name = \"test/llvm\"\n"),
         ("moon.pkg", ""),
         ("lib.mbt", "pub fn answer() -> Int { 42 }\n"),
     ]);
 
     // A core checkout without a compiled LLVM bundle.
-    let core = TestDir::new_empty().with_files([
+    let core = Fixture::new().with_files([
         ("moon.mod", "name = \"moonbitlang/core\"\n"),
         ("prelude/moon.pkg", ""),
     ]);
 
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(project.as_ref())
+    project
+        .moon_cmd(snapbox::cargo_bin!("moon"))
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
-        .env("MOON_CORE_OVERRIDE", core.as_ref())
+        .env("MOON_CORE_OVERRIDE", core.cwd())
         .env("MOONC_OVERRIDE", project.join("missing-moonc"))
         .env("MOON_DEP_CACHE", "off")
         .env("MOON_WORK", "off")

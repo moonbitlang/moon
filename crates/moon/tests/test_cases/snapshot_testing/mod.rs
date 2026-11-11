@@ -26,7 +26,7 @@ fn normalize_test_output(output: &str) -> String {
 
 #[test]
 fn test_snapshot_test_target_js() {
-    let dir = Fixture::copied("snapshot_testing.in");
+    let dir = Fixture::copied(test_case_path("snapshot_testing.in"));
     let output = get_err_stdout(
         &dir,
         ["test", "--target", "js", "--sort-input", "--no-parallelize"],
@@ -153,7 +153,7 @@ fn test_snapshot_test_target_js() {
 
 #[test]
 fn test_snapshot_test() {
-    let dir = Fixture::copied("snapshot_testing.in");
+    let dir = Fixture::copied(test_case_path("snapshot_testing.in"));
     let output = get_err_stdout(&dir, ["test", "--sort-input", "--no-parallelize"]);
     let normalized_output = normalize_test_output(&output);
     check(

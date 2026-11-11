@@ -16,8 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moon_test_util::test_dir::TestDir;
-use std::{fs, path::Path};
+use moon_test_util::Fixture;
+use std::fs;
 
 // Run check synchronously inside the MoonBit test. If the outer command still
 // holds the build lock, check times out and the MoonBit assertion fails.
@@ -31,10 +31,10 @@ extern "js" fn check() -> Int =
   #| ).status ?? -1
 "#;
 
-fn moon(root: &Path) -> snapbox::cmd::Command {
-    let target = root.join("custom build");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(root)
+fn moon(fixture: &Fixture) -> snapbox::cmd::Command {
+    let target = fixture.join("custom build");
+    fixture
+        .moon_cmd(snapbox::cargo_bin!("moon"))
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .env("MOON_DEP_CACHE", "off")
         .env("MOON_TEST_MOON", snapbox::cargo_bin!("moon"))
@@ -46,7 +46,7 @@ fn moon(root: &Path) -> snapbox::cmd::Command {
 
 #[test]
 fn test_and_bench_allow_check_during_execution() {
-    let dir = TestDir::new_empty().with_files([
+    let dir = Fixture::new().with_files([
         (
             "moon.mod",
             r#"name = "test/lock"
@@ -72,17 +72,17 @@ test "bench" (b : @bench.T) {{ assert_eq(check(), 0); b.bench(fn() {{ () }}) }}
     ]);
 
     for command in ["test", "bench"] {
-        moon(dir.as_ref()).arg(command).assert().success();
+        moon(&dir).arg(command).assert().success();
     }
 }
 
 #[test]
 fn standalone_test_allows_check_during_execution() {
-    let dir = TestDir::new_empty().with_files([(
+    let dir = Fixture::new().with_files([(
         "script.mbtx",
         format!("{CHECK}\nfn main {{}}\ntest {{ assert_eq(check(), 0) }}\n").as_str(),
     )]);
-    moon(dir.as_ref())
+    moon(&dir)
         .env("MOON_TEST_CHECK_PATH", "script.mbtx")
         .args(["test", "script.mbtx", "--target", "js"])
         .assert()
@@ -92,7 +92,7 @@ fn standalone_test_allows_check_during_execution() {
 
 #[test]
 fn test_update_allows_check_on_each_run() {
-    let dir = TestDir::new_empty().with_files([
+    let dir = Fixture::new().with_files([
         (
             "moon.mod",
             r#"
@@ -110,7 +110,7 @@ test {{ assert_eq(check(), 0); inspect(1, content="0") }}
             .as_str(),
         ),
     ]);
-    moon(dir.as_ref())
+    moon(&dir)
         .args(["test", "--target", "js", "--update"])
         .assert()
         .success();

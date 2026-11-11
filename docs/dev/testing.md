@@ -34,13 +34,13 @@ requirements unless those are the behavior being tested; state them by the case.
 Filesystem access alone does not make a test E2E: a CLI test that removes seeded
 cache files checks a filesystem boundary; building a project, cleaning its real
 artifacts, and successfully rebuilding checks the complete workflow.
-Use `Fixture::readonly(case)` for tests that share source and need a private build
-target. Use `Fixture::copied(case)` when a test writes into its project or
+Use `Fixture::readonly(source)` for tests that share source and need a private build
+target. Use `Fixture::copied(source)` when a test writes into its project or
 checks the default build path. For examples,
 timing, and retaining artifacts for inspection, see
 [Test-directory diagnostics](test-directory-diagnostics.md#choose-what-to-isolate).
 Small inline projects can use
-`moon_test_util::test_dir::TestDir::new_empty().with_files(...)` to keep inputs
+`moon_test_util::Fixture::new().with_files(...)` to keep inputs
 beside assertions while sharing initialization timing and workspace retention.
 
 ## Make the assertion explain the contract
