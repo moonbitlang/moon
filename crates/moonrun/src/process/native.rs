@@ -554,7 +554,7 @@ mod windows_tests {
             None,
             Arc::new(crate::WorkingDirectory::Ambient),
             Arc::new(crate::runtime::Stdio::Ambient),
-            None,
+            Default::default(),
             Arc::new(crate::runtime::Env::ambient()),
         );
 

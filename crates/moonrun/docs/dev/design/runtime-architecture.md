@@ -89,8 +89,22 @@ mode; guest process operations use virtual identities only in Virtual mode.
 `Engine::new` creates an independent process namespace. Clones share its backend
 and process table. Table entries retain relationships, control, and completion,
 not Engine or Runtime. A running Runtime may refer to its Engine through
-Process Context without forming an ownership cycle through the table. Neither
+Execution Context without forming an ownership cycle through the table. Neither
 admission nor lookup reconstructs Runtime state from a process entry.
+
+Runtime construction wires three separate interfaces. `ExecutionContext` records
+Engine membership for managed, IPC, and virtual Runs. `GuestIdentity` supplies
+only the PID reported to the guest. `ChildProcesses` owns child authority,
+control, and wait completion, using either native operations or an Engine child
+owner; it does not inspect the reported PID. IPC takes its Engine from the
+execution context while retaining native identity and child control.
+
+Command interception classifies and validates an invocation before selecting its
+execution preparation. A recognized `MoonInvocation` carries decoded arguments,
+environment, cwd, and stream bindings into Moon preparation, which owns image
+resolution and resource binding. It does not repeat command recognition.
+Frontends resolve the `virtualize` preset once into identity, child ownership,
+and interception inputs; individual host operations consume only their inputs.
 
 `moonrun::initialize(config)` explicitly initializes the selected backend's
 process-wide state. For V8, the caller must initialize on the common ancestor

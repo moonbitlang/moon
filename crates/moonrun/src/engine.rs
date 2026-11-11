@@ -140,6 +140,22 @@ impl std::str::FromStr for TestArgs {
 }
 
 impl RunOptions {
+    pub(crate) fn bind_execution(&mut self, execution: crate::process_tree::ExecutionContext) {
+        use crate::process::{CommandInterception, GuestIdentity, ProcessConfig};
+        // Resolve the frontend preset once. Identity, child control, and command
+        // recognition consume separate inputs after Runtime construction.
+        self.runtime.process = if self.virtualize() {
+            ProcessConfig {
+                identity: GuestIdentity::Virtual(execution.pid),
+                managed_children: Some(execution.clone()),
+                interception: CommandInterception::Moonx,
+            }
+        } else {
+            ProcessConfig::default()
+        };
+        self.runtime.execution = Some(execution);
+    }
+
     /// Use Engine-managed process identities and internal child execution.
     /// Also captures owned root environment/cwd; IPC and explicit Runtime
     /// configuration can select owned state without virtual process identities.
@@ -579,7 +595,7 @@ impl Engine {
                 !options.virtualize(),
                 "IPC virtual process sessions are not supported yet"
             );
-            options.runtime.ipc_engine = Some(self.clone());
+            options.runtime.ipc = true;
         }
         let outcome = (|| {
             if let Some(outcome) = termination.get() {

@@ -294,25 +294,32 @@ impl Job {
                 tracked_pid,
                 pid,
                 ..
-            } => process.check_wait(handle.is_some(), *tracked_pid, *pid),
+            } => process
+                .children
+                .check_wait(handle.is_some(), *tracked_pid, *pid),
             Kind::WaitForVirtualProcess(_) => Ok(()),
             Kind::NativeSpawn { .. } | Kind::SpawnMoon { .. } => Err(AsyncHostError::Inval),
         }
     }
 
-    pub(super) fn finish(&self, process: &HostProcess, ret: i64, err: i32) -> AsyncHostResult<()> {
+    pub(super) fn finish(
+        &self,
+        children: &super::ChildProcesses,
+        ret: i64,
+        err: i32,
+    ) -> AsyncHostResult<()> {
         if err != 0 {
             return Ok(());
         }
         match &self.kind {
-            Kind::NativeSpawn { .. } if ret >= 0 => process.track_spawned_child(ret as i32),
+            Kind::NativeSpawn { .. } if ret >= 0 => children.track_spawned_child(ret as i32),
             Kind::WaitForProcess {
                 pid,
                 #[cfg(unix)]
                 defer_reap,
                 ..
             } => {
-                process.finish_waited_child(
+                children.finish_waited_child(
                     *pid,
                     #[cfg(unix)]
                     *defer_reap,
@@ -323,14 +330,19 @@ impl Job {
         Ok(())
     }
 
-    pub(super) fn revoke_unclaimed_spawn(&self, process: &HostProcess, ret: i64, err: i32) {
+    pub(super) fn revoke_unclaimed_spawn(
+        &self,
+        children: &super::ChildProcesses,
+        ret: i64,
+        err: i32,
+    ) {
         if err != 0 || ret < 0 {
             return;
         }
         if let Kind::NativeSpawn { result, .. } = &self.kind
             && !matches!(result, Some(ResourcePublication::Published(_)))
         {
-            process.revoke_child_if_unreferenced(ret as i32);
+            children.revoke_child_if_unreferenced(ret as i32);
         }
     }
 }
@@ -351,7 +363,7 @@ mod tests {
             None,
             Arc::new(working_directory),
             Arc::new(stdio),
-            None,
+            Default::default(),
             Arc::new(Env::ambient()),
         )
     }
@@ -528,7 +540,7 @@ mod tests {
             None,
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
             Arc::new(Stdio::Ambient),
-            None,
+            Default::default(),
             Arc::clone(&environment),
         );
         let mut job = spawn_job("probe", Vec::new());
@@ -553,7 +565,7 @@ mod tests {
             Some(policy),
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
             Arc::new(Stdio::Ambient),
-            None,
+            Default::default(),
             Arc::new(environment),
         );
         for program in ["moonx", "moonrun", "moon"] {

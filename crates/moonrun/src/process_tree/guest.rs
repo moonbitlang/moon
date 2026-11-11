@@ -21,7 +21,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{VirtualPid, WaitClaim};
+use super::{ExecutionContext, VirtualPid, WaitClaim};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::{
     CancellationOutcome, JobCancellation, JobCancellationOverride,
@@ -41,25 +41,7 @@ pub(super) fn exit_status(result: &Result<RunOutcome, super::ProcessError>) -> i
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct ProcessContext {
-    pub(super) pid: VirtualPid,
-    pub(super) engine: crate::Engine,
-}
-
-impl std::fmt::Debug for ProcessContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProcessContext")
-            .field("pid", &self.pid)
-            .finish_non_exhaustive()
-    }
-}
-
-impl ProcessContext {
-    pub(crate) fn pid(&self) -> i32 {
-        self.pid.get()
-    }
-
+impl ExecutionContext {
     pub(crate) fn spawn_moon(
         &self,
         executable: &std::path::Path,
@@ -263,14 +245,14 @@ impl ProcessContext {
 #[cfg(windows)]
 #[derive(Debug)]
 pub(crate) struct ProcessHandle {
-    owner: ProcessContext,
+    owner: ExecutionContext,
     pid: i32,
     completion: Arc<super::ProcessCompletion>,
 }
 
 #[cfg(windows)]
 impl ProcessHandle {
-    pub(crate) fn from_spawn(owner: &ProcessContext, spawned: super::SpawnedProcess) -> Self {
+    pub(crate) fn from_spawn(owner: &ExecutionContext, spawned: super::SpawnedProcess) -> Self {
         Self {
             owner: owner.clone(),
             pid: spawned.pid.get(),
@@ -278,7 +260,7 @@ impl ProcessHandle {
         }
     }
 
-    pub(crate) fn open(owner: &ProcessContext, pid: i32) -> AsyncHostResult<Self> {
+    pub(crate) fn open(owner: &ExecutionContext, pid: i32) -> AsyncHostResult<Self> {
         let wait = owner.wait(pid)?;
         Ok(Self {
             owner: owner.clone(),
@@ -287,7 +269,7 @@ impl ProcessHandle {
         })
     }
 
-    pub(crate) fn matches(&self, owner: &ProcessContext, pid: i32) -> bool {
+    pub(crate) fn matches(&self, owner: &ExecutionContext, pid: i32) -> bool {
         self.pid == pid
             && self.owner.pid == owner.pid
             && Arc::ptr_eq(&self.owner.engine.processes.0, &owner.engine.processes.0)
@@ -410,7 +392,7 @@ impl ProcessWait {
 
 #[derive(Debug)]
 struct WaitCancellation {
-    context: ProcessContext,
+    context: ExecutionContext,
     completion: Arc<super::ProcessCompletion>,
     cancelled: AtomicBool,
 }
@@ -450,13 +432,65 @@ mod tests {
         engine
     }
 
+    #[test]
+    fn guest_identity_does_not_select_child_wait_or_interception() {
+        use crate::process::{CommandInterception, GuestIdentity, HostProcess, ProcessConfig};
+        use crate::runtime::{Env, Stdio, WorkingDirectory};
+
+        let parent = VirtualPid(1);
+        let child = VirtualPid(2);
+        for identity in [GuestIdentity::Native, GuestIdentity::Virtual(parent)] {
+            let completion = Arc::new(ProcessCompletion::default());
+            completion.publish(Ok(RunOutcome::Exited(23)));
+            let engine = test_engine(test_table(BTreeMap::from([(
+                child,
+                Entry {
+                    info: ProcessInfo {
+                        pid: child,
+                        parent: Some(parent),
+                        state: ProcessState::Exited,
+                    },
+                    terminator: crate::termination_channel().0,
+                    signals: crate::signal_channel().0,
+                    completion,
+                    waiting: false,
+                },
+            )])));
+            let process = HostProcess::new(
+                None,
+                Arc::new(WorkingDirectory::Ambient),
+                Arc::new(Stdio::Ambient),
+                ProcessConfig {
+                    identity,
+                    managed_children: Some(ExecutionContext {
+                        pid: parent,
+                        engine: engine.clone(),
+                    }),
+                    interception: CommandInterception::Disabled,
+                },
+                Arc::new(Env::ambient()),
+            );
+            assert_eq!(
+                process.pid(),
+                match identity {
+                    GuestIdentity::Native => std::process::id() as i32,
+                    GuestIdentity::Virtual(pid) => pid.get(),
+                }
+            );
+            let mut wait = process.children.wait_job(None, None, child.get()).unwrap();
+            assert_eq!(wait.run(), Ok(23));
+            wait.consume_wait_result();
+            assert!(engine.snapshot().is_empty());
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn signal_probe_and_unsupported_signals_do_not_terminate() {
         let pid = VirtualPid(1);
         let (terminator, receiver) = crate::termination_channel();
         let (signals, _signals) = crate::signal_channel();
-        let context = ProcessContext {
+        let context = ExecutionContext {
             pid,
             engine: test_engine(test_table(BTreeMap::from([(
                 pid,
@@ -503,7 +537,7 @@ mod tests {
             let parent = VirtualPid(1);
             let child = VirtualPid(2);
             let completion = Arc::new(ProcessCompletion::default());
-            let context = ProcessContext {
+            let context = ExecutionContext {
                 pid: parent,
                 engine: test_engine(test_table(BTreeMap::from([(
                     child,
@@ -610,7 +644,7 @@ mod tests {
         for finish in ["event", "ready", "closed"] {
             let child = VirtualPid(2);
             let completion = Arc::new(ProcessCompletion::default());
-            let context = ProcessContext {
+            let context = ExecutionContext {
                 pid: VirtualPid(1),
                 engine: test_engine(test_table(BTreeMap::from([(
                     child,
@@ -629,7 +663,11 @@ mod tests {
             };
             let runtime = Runtime::new(
                 crate::runtime::RuntimeConfig {
-                    process_context: Some(context.clone()),
+                    process: crate::process::ProcessConfig {
+                        managed_children: Some(context.clone()),
+                        identity: crate::process::GuestIdentity::Virtual(context.pid),
+                        interception: crate::process::CommandInterception::Moonx,
+                    },
                     ..Default::default()
                 },
                 Executable::unavailable(),
@@ -681,7 +719,7 @@ mod tests {
         let parent = VirtualPid(1);
         let child = VirtualPid(2);
         let completion = Arc::new(ProcessCompletion::default());
-        let owner = ProcessContext {
+        let owner = ExecutionContext {
             pid: parent,
             engine: test_engine(test_table(BTreeMap::from([(
                 child,
@@ -702,7 +740,7 @@ mod tests {
         let second = ProcessHandle::open(&owner, child.get()).unwrap();
         assert!(first.matches(&owner, child.get()));
         assert!(!first.matches(&owner, parent.get()));
-        let stranger = ProcessContext {
+        let stranger = ExecutionContext {
             pid: parent,
             engine: test_engine(Default::default()),
         };
@@ -758,7 +796,7 @@ mod tests {
     fn spawn_handle_can_be_published_after_supervisor_reaps_pid() {
         let child = VirtualPid(2);
         let completion = Arc::new(ProcessCompletion::default());
-        let owner = ProcessContext {
+        let owner = ExecutionContext {
             pid: VirtualPid(1),
             engine: test_engine(Default::default()),
         };
@@ -786,10 +824,14 @@ mod tests {
                 cwd.path().to_owned(),
             )),
             Arc::new(crate::runtime::Stdio::Ambient),
-            Some(ProcessContext {
-                pid: VirtualPid(1),
-                engine: tree.clone(),
-            }),
+            crate::process::ProcessConfig {
+                managed_children: Some(ExecutionContext {
+                    pid: VirtualPid(1),
+                    engine: tree.clone(),
+                }),
+                identity: crate::process::GuestIdentity::Virtual(VirtualPid(1)),
+                interception: crate::process::CommandInterception::Moonx,
+            },
             Arc::new(crate::runtime::Env::owned([]).unwrap()),
         );
         // Use an existing executable so malformed payloads are tested
@@ -835,7 +877,7 @@ mod tests {
         // relying on guest code to follow async's normal call sequence.
         let child = VirtualPid(2);
         let completion = Arc::new(ProcessCompletion::default());
-        let owner = ProcessContext {
+        let owner = ExecutionContext {
             pid: VirtualPid(1),
             engine: test_engine(test_table(BTreeMap::from([(
                 child,
@@ -956,7 +998,7 @@ mod tests {
                     waiting: false,
                 },
             )]));
-            let context = ProcessContext {
+            let context = ExecutionContext {
                 pid: parent,
                 engine: test_engine(Arc::clone(&table)),
             };
