@@ -49,7 +49,7 @@ fn test_native_backend_simdutf_links_with_available_non_tcc_compilers() {
             envs,
         );
         assert_eq!(
-            stdout, "6\n6\nA©中😀B\n11\n11\nb'/x41'\nb'/x42'\n-2\nok\n",
+            stdout, "6\n6\nA©中😀B\n11\n11\n65\n66\n-2\nok\n",
             "simdutf native executable should run UTF conversion after linking with {name}"
         );
     }
