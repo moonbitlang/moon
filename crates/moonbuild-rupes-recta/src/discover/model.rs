@@ -255,15 +255,6 @@ pub struct DiscoveredLocalProject {
 }
 
 impl DiscoverResult {
-    /// Assign final package IDs when combining independently scanned modules.
-    pub(super) fn extend(&mut self, other: Self) -> Result<(), DiscoverError> {
-        self.module_infos.extend(other.module_infos);
-        for (_, package) in other.packages {
-            self.add_package(package.module, package.fqn.package().clone(), package)?;
-        }
-        Ok(())
-    }
-
     pub(super) fn set_module_info(&mut self, module: ModuleId, info: Arc<MoonMod>) {
         self.module_infos.insert(module, info);
     }
@@ -380,9 +371,6 @@ impl DiscoverResult {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DiscoverError {
-    #[error("Unable to start package discovery runtime: {0}")]
-    CantStartRuntime(#[source] std::io::Error),
-
     #[error("Unable to load local workspace rooted at path '{path}', error: {inner}")]
     CantReadLocalWorkspace { path: PathBuf, inner: anyhow::Error },
 

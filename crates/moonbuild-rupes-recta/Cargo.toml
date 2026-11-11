@@ -38,7 +38,6 @@ petgraph.workspace = true
 indexmap.workspace = true
 shlex.workspace = true
 tracing.workspace = true
-tokio.workspace = true
 regex.workspace = true
 dunce.workspace = true
 
