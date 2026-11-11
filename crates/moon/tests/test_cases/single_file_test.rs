@@ -69,30 +69,7 @@ fn test_mbtx_requires_main() {
 
 #[test]
 fn test_mbtx_runs_tests_without_running_main() {
-    let dir = TestDir::new_empty();
-    std::fs::write(
-        dir.join("script.mbtx"),
-        r#"----
-import {
-  "moonbitlang/core/int",
-}
-----
-
-fn main { println("script main must not run") }
-
-/// ```mbt check
-/// test {
-/// assert_eq(@single.maximum(), 2147483647)
-/// }
-/// ```
-pub fn maximum() -> Int { @int.MAX_VALUE }
-
-test "maximum" {
-  assert_eq(maximum(), 2147483647)
-}
-"#,
-    )
-    .unwrap();
+    let dir = Fixture::readonly("single_file_test/without_running_main.in");
 
     for backend in ["wasm", "wasm-gc", "js", "native"] {
         moon_cmd(&dir)
