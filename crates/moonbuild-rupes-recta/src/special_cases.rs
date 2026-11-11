@@ -34,16 +34,11 @@ const MOONBIT: &str = "moonbitlang";
 const CORE: &str = "core";
 const BUILTIN: &str = "builtin";
 const COVERAGE: &str = "coverage";
-pub(crate) const CORE_MODULE: &str = "moonbitlang/core";
 pub(crate) const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
 
 /// Libraries that should use themselves for coverage
 const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
     &[(MOONBIT, CORE, BUILTIN), (MOONBIT, CORE, COVERAGE)];
-
-pub(crate) fn module_name_is_core(name: &str) -> bool {
-    name == CORE_MODULE
-}
 
 /// Core packages require importing `prelude` in test imports, or the test will
 /// not be able to run.

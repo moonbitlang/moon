@@ -1,0 +1,3 @@
+// A different warning distinguishes this dependency from the project root.
+supported_targets = "js"
+options("supported-targets": "native")

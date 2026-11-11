@@ -27,7 +27,7 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
     manifest::{
-        MoonMod, convert_module_to_mod_json, read_module_desc_file_in_dir, warn_module_manifest,
+        MoonMod, convert_module_to_mod_json, read_module_manifest, warn_module_manifest,
         write_module_json_to_file,
     },
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
@@ -155,12 +155,7 @@ fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<P
     if !member_dir.is_dir() {
         bail!("workspace member `{}` is not a directory", path.display());
     }
-    warn_module_manifest(
-        &member_dir,
-        &format!("at module root '{}'", member_dir.display()),
-        user_log,
-    );
-    read_module_desc_file_in_dir(&member_dir).with_context(|| {
+    let (format, module) = read_module_manifest(&member_dir, false).with_context(|| {
         format!(
             "workspace member `{}` does not contain `{}` or `{}`",
             path.display(),
@@ -168,6 +163,7 @@ fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<P
             MOON_MOD_JSON
         )
     })?;
+    warn_module_manifest(&member_dir, format, &module, user_log);
     Ok(member_dir)
 }
 
@@ -215,12 +211,9 @@ fn workspace_roots(
     let mut roots = ResolvedRootModules::with_key();
 
     for member_dir in member_dirs {
-        warn_module_manifest(
-            member_dir,
-            &format!("at module root '{}'", member_dir.display()),
-            user_log,
-        );
-        let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
+        let (format, module) = read_module_manifest(member_dir, false)?;
+        warn_module_manifest(member_dir, format, &module, user_log);
+        let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, member_dir)?;
         roots.insert(ResolvedModule::new(source, module));
     }

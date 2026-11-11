@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use moonutil::manifest::{
     MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
     read_module_desc_file_in_dir, read_module_desc_file_in_dir_with_legacy, read_module_from_dsl,
-    warn_module_manifest, write_module_dsl_to_file,
+    read_module_manifest, warn_module_manifest, write_module_dsl_to_file,
 };
 use moonutil::package::SupportedTargetsConfig;
 use moonutil::target::TargetBackend;
@@ -174,43 +174,45 @@ fn read_module_desc_prefers_dsl() {
 }
 
 #[test]
-fn warn_module_manifest_only_warns_when_both_formats_exist() {
-    let dir = temp_dir("legacy-module-format");
-    std::fs::write(dir.join("moon.mod.json"), r#"{"name": "example/legacy"}"#).unwrap();
+fn module_manifest_only_warns_when_both_formats_exist() {
     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-
-    warn_module_manifest(&dir, "at test module root", &user_log);
-
-    assert!(capture.take().is_empty());
-
-    std::fs::write(dir.join("moon.mod"), "name = \"example/legacy\"\n").unwrap();
-    warn_module_manifest(&dir, "at test module root", &user_log);
-    let entries = capture.take();
-    assert_eq!(entries.len(), 1);
-    expect_test::expect![[r#"Both moon.mod.json and moon.mod exist at test module root, using the new format moon.mod. Please remove the deprecated moon.mod.json."#]]
-        .assert_eq(&entries[0].message);
-
-    std::fs::remove_file(dir.join("moon.mod.json")).unwrap();
-    warn_module_manifest(&dir, "at test module root", &user_log);
-    assert!(capture.take().is_empty());
+    for (fixture, warnings) in [
+        ("module_legacy_only", 0),
+        ("module_both", 1),
+        ("module_dsl_toplevel", 0),
+    ] {
+        let dir = fixture_dir(fixture);
+        let (format, module) = read_module_manifest(&dir, true).unwrap();
+        warn_module_manifest(&dir, format, &module, &user_log);
+        let entries = capture.take();
+        assert_eq!(entries.len(), warnings, "{fixture}");
+        if let Some(entry) = entries.first() {
+            assert_eq!(
+                entry.message,
+                format!(
+                    "Both moon.mod.json and moon.mod exist at module root '{}', using the new format moon.mod. Please remove the deprecated moon.mod.json.",
+                    dir.display()
+                )
+            );
+        }
+    }
 }
 
 #[test]
-fn warn_module_manifest_reports_deprecated_packaging_fields() {
-    let dir = temp_dir("deprecated-packaging-fields");
-    std::fs::write(
+fn deprecated_field_warnings_reuse_the_parsed_manifest() {
+    let temporary = tempfile::tempdir().unwrap();
+    let dir = temporary.path();
+    std::fs::copy(
+        fixture_dir("module_deprecated_packaging").join("moon.mod"),
         dir.join("moon.mod"),
-        r#"name = "example/deprecated"
-
-options(
-  include: ["src/**"],
-  exclude: ["target/**"],
-)"#,
     )
     .unwrap();
     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-    warn_module_manifest(&dir, "at test module root", &user_log);
+    let path = dir.join("moon.mod");
+    let (format, module) = read_module_manifest(dir, false).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    warn_module_manifest(dir, format, &module, &user_log);
 
     let entries = capture.take();
     assert_eq!(entries.len(), 1);
@@ -224,30 +226,12 @@ options(
 }
 
 #[test]
-fn warn_module_manifest_uses_the_selected_manifest_path() {
-    let dir = temp_dir("selected-deprecated-packaging-fields");
-    std::fs::write(
-        dir.join("moon.mod"),
-        r#"name = "example/deprecated"
-
-options(
-  "include": ["src/**"],
-)
-"#,
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("moon.mod.json"),
-        r#"{
-  "name": "example/deprecated",
-  "exclude": ["target/**"]
-}
-"#,
-    )
-    .unwrap();
+fn module_warnings_use_the_selected_manifest_path() {
+    let dir = fixture_dir("module_deprecated_formats");
     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-    warn_module_manifest(&dir, "at test module root", &user_log);
+    let (format, module) = read_module_manifest(&dir, true).unwrap();
+    warn_module_manifest(&dir, format, &module, &user_log);
 
     let entries = capture.take();
     assert_eq!(entries.len(), 2);

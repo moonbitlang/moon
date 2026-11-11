@@ -26,7 +26,7 @@ use std::{
 };
 
 use anyhow::Context;
-use moonbuild_rupes_recta::{DiscoveredProject, fmt::FmtResolveOutput, model::PackageId};
+use moonbuild_rupes_recta::{DiscoveredProject, discover::FmtProject, model::PackageId};
 use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
@@ -550,28 +550,18 @@ where
     PackageMatchResult { matched, missing }
 }
 
-/// From a canonicalized directory path, find the corresponding package ID in `FmtResolveOutput`.
+/// From a canonicalized directory path, find the corresponding package ID in `FmtProject`.
 ///
 /// This is a simpler version of `filter_pkg_by_dir` for the formatter case, which doesn't
 /// have the full `ResolvedProject` available.
 pub(crate) fn filter_pkg_by_dir_for_fmt(
-    resolved: &FmtResolveOutput,
+    resolved: &FmtProject,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
     resolved
-        .root_module_ids
-        .iter()
-        .flat_map(|&module_id| {
-            resolved
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .find(|&pkg_id| {
-            let pkg = resolved.pkg_dirs.get_package(pkg_id);
-            dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
-        })
+        .package_roots()
+        .find(|(_, root)| dunce::simplified(root) == dunce::simplified(dir))
+        .map(|(id, _)| id)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Cannot find package to format at path `{}`.\n\

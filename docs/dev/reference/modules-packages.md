@@ -14,9 +14,8 @@ Normal formatting writes the DSL manifest and removes the JSON file; `--check`
 and `--warn` compare the migration result while preserving the source manifests.
 `--dry-run` prints the planned commands.
 When both formats exist, the DSL file takes precedence and a single format
-warning asks the user to remove the old file. Manifest warnings follow the
-user-log level (`--quiet` suppresses them) and are suppressed for dependency
-cache files under `.mooncakes`.
+warning asks the user to remove the old file. Manifest warnings are shown for
+the current project's modules, not its dependencies. `--quiet` suppresses them.
 
 The optional module field `private = true` (or `"private": true` in JSON)
 requests private visibility for the published module: only authorized users may
@@ -83,7 +82,7 @@ declarations with disjoint [import conditions](cond-comp.md) do not warn.
 Duplicate items, aliases, and import-all flags are retained in source order,
 preserving existing dependency ordering and alias precedence. Different import
 kinds do not produce duplicate warnings.
-These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
+These warnings are suppressed for dependency manifests.
 
 Named import aliases must be unique within each build target's dependencies.
 The special alias `*` marks an import-all declaration rather than a package
@@ -329,6 +328,9 @@ error. Every backend selected for the current invocation or watch pass must
 resolve successfully before its build planning begins.
 `rr_build::prepare_resolved_build` receives the already selected backend and
 does not choose one itself.
+
+`moon fmt` scans the current project's modules without resolving dependencies
+or preparing build inputs such as C stubs and virtual interfaces.
 
 The `source` field in `moon.mod` specifies where package scanning starts,
 relative to the folder containing `moon.mod`.

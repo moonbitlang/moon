@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use serde::Serialize;
 
 use crate::{
-    constants::{DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON},
+    constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON},
     moon_pkg,
     package::{
         convert_pkg_dsl_to_package_with_supported_targets_decl,
@@ -356,32 +356,25 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
 
 fn read_package_from_json_with_supported_targets_decl(
     path: &Path,
+    emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j = serde_json_lenient::from_reader(reader).context(format!("Failed to parse {path:?}"))?;
-    let emit_warnings = should_warn_manifest(path);
     convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings, user_log)
 }
 
 /// Reads a moon.pkg from the given path.
 fn read_package_from_dsl_with_supported_targets_decl(
     path: &Path,
+    emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let file = File::open(path)?;
     let str = std::io::read_to_string(file)?;
     let dsl = moon_pkg::parse(&str)?;
-    let emit_warnings = should_warn_manifest(path);
     convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, emit_warnings, user_log)
-}
-
-/// Avoid emitting manifest warnings for dependency cache files in .mooncakes.
-fn should_warn_manifest(path: &Path) -> bool {
-    !path
-        .components()
-        .any(|component| component.as_os_str() == DEP_PATH)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -404,34 +397,25 @@ pub fn preferred_manifest_in_dir(
     }
 }
 
-pub fn warn_if_shadowed_manifest(
+/// Warn about the selected manifest without reading or parsing it again.
+pub fn warn_module_manifest(
     dir: &Path,
-    legacy_manifest: &'static str,
-    new_manifest: &'static str,
-    location: &str,
+    format: ManifestFormat,
+    module: &MoonMod,
     user_log: &UserLog,
 ) {
-    if dir.join(new_manifest).exists() && dir.join(legacy_manifest).exists() {
-        warn_known_shadowed_manifest(dir, legacy_manifest, new_manifest, location, user_log);
-    }
-}
-
-/// Emit user-facing warnings associated with the selected module manifest.
-pub fn warn_module_manifest(dir: &Path, location: &str, user_log: &UserLog) {
-    if !should_warn_manifest(dir) {
+    if matches!(format, ManifestFormat::Legacy) {
         return;
     }
-    warn_if_shadowed_manifest(dir, MOON_MOD_JSON, MOON_MOD, location, user_log);
-
-    let Some((manifest_path, ManifestFormat::New)) =
-        preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
-    else {
-        return;
-    };
-    let Ok(module) = read_module_from_dsl(&manifest_path) else {
-        // The normal manifest read reports format and I/O errors.
-        return;
-    };
+    if dir.join(MOON_MOD_JSON).exists() {
+        warn_known_shadowed_manifest(
+            MOON_MOD_JSON,
+            MOON_MOD,
+            &format!("at module root '{}'", dir.display()),
+            user_log,
+        );
+    }
+    let manifest_path = dir.join(MOON_MOD);
     let deprecated_fields = match (module.include.is_some(), module.exclude.is_some()) {
         (true, true) => Some(("`include` and `exclude`", "are")),
         (true, false) => Some(("`include`", "is")),
@@ -447,28 +431,14 @@ pub fn warn_module_manifest(dir: &Path, location: &str, user_log: &UserLog) {
 }
 
 pub fn warn_known_shadowed_manifest(
-    dir: &Path,
     legacy_manifest: &'static str,
     new_manifest: &'static str,
     location: &str,
     user_log: &UserLog,
 ) {
-    if let Some(warning) = shadowed_manifest_warning(dir, legacy_manifest, new_manifest, location) {
-        user_log.warn(warning);
-    }
-}
-
-fn shadowed_manifest_warning(
-    dir: &Path,
-    legacy_manifest: &'static str,
-    new_manifest: &'static str,
-    location: &str,
-) -> Option<String> {
-    should_warn_manifest(dir).then(|| {
-        format!(
+    user_log.warn(format!(
             "Both {legacy_manifest} and {new_manifest} exist {location}, using the new format {new_manifest}. Please remove the deprecated {legacy_manifest}."
-        )
-    })
+        ));
 }
 
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
@@ -540,9 +510,23 @@ pub fn read_module_desc_file_in_dir_with_legacy(
     dir: &Path,
     allow_legacy: bool,
 ) -> anyhow::Result<MoonMod> {
+    Ok(read_module_manifest(dir, allow_legacy)?.1)
+}
+
+/// Read the preferred manifest, retaining its format for warnings and migration.
+pub fn read_module_manifest(
+    dir: &Path,
+    allow_legacy: bool,
+) -> anyhow::Result<(ManifestFormat, MoonMod)> {
     match preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON) {
-        Some((path, ManifestFormat::New)) => read_module_from_dsl(&path),
-        Some((path, ManifestFormat::Legacy)) if allow_legacy => Ok(read_module_from_json(&path)?),
+        Some((path, ManifestFormat::New)) => {
+            let module = read_module_from_dsl(&path)?;
+            Ok((ManifestFormat::New, module))
+        }
+        Some((path, ManifestFormat::Legacy)) if allow_legacy => {
+            let module = read_module_from_json(&path)?;
+            Ok((ManifestFormat::Legacy, module))
+        }
         Some((_, ManifestFormat::Legacy)) => bail!(
             "`{MOON_MOD_JSON}` at '{}' is no longer supported. Run `moon fmt` to migrate to `{MOON_MOD}`.",
             dir.display()
@@ -556,18 +540,26 @@ pub fn read_module_desc_file_in_dir_with_legacy(
     }
 }
 
-pub fn read_package_desc_file_in_dir(dir: &Path, user_log: &UserLog) -> anyhow::Result<MoonPkg> {
-    Ok(read_package_desc_file_in_dir_with_supported_targets_decl(dir, user_log)?.0)
+pub fn read_package_desc_file_in_dir(
+    dir: &Path,
+    emit_warnings: bool,
+    user_log: &UserLog,
+) -> anyhow::Result<MoonPkg> {
+    Ok(read_package_desc_file_in_dir_with_supported_targets_decl(dir, emit_warnings, user_log)?.0)
 }
 
 pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
     dir: &Path,
+    emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     match preferred_manifest_in_dir(dir, MOON_PKG, MOON_PKG_JSON) {
-        Some((path, _)) => {
-            read_package_desc_file_from_path_with_supported_targets_decl(&path, user_log, false)
-        }
+        Some((path, _)) => read_package_desc_file_from_path_with_supported_targets_decl(
+            &path,
+            user_log,
+            false,
+            emit_warnings,
+        ),
         None => bail!(
             "Failed to find `{}` or `{}` for package at path `{}`",
             MOON_PKG,
@@ -577,14 +569,17 @@ pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
     }
 }
 
+/// Read the selected package manifest. The caller decides whether author-facing
+/// warnings apply; `UserLog` independently controls their visibility.
 pub fn read_package_desc_file_from_path_with_supported_targets_decl(
     path: &Path,
     user_log: &UserLog,
     allow_legacy: bool,
+    emit_warnings: bool,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     match path.file_name() {
         Some(filename) if filename == OsStr::new(MOON_PKG) => {
-            read_package_from_dsl_with_supported_targets_decl(path, user_log)
+            read_package_from_dsl_with_supported_targets_decl(path, emit_warnings, user_log)
         }
         Some(filename) if filename == OsStr::new(MOON_PKG_JSON) => {
             if !allow_legacy {
@@ -593,7 +588,7 @@ pub fn read_package_desc_file_from_path_with_supported_targets_decl(
                     path.parent().unwrap_or(path).display()
                 );
             }
-            read_package_from_json_with_supported_targets_decl(path, user_log)
+            read_package_from_json_with_supported_targets_decl(path, emit_warnings, user_log)
                 .context(format!("Failed to load {:?}", path))
         }
         _ => bail!(
