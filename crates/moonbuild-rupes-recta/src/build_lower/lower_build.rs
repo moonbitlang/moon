@@ -303,11 +303,12 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_check(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
@@ -334,8 +335,6 @@ impl<'a> LoweringContext<'a> {
                     unreachable!("regular Check actions should have one package interface artifact")
                 }
             });
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
-
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = self.compiler_source_files(info);
 
@@ -395,14 +394,14 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_emit_proof(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let files_vec = self.compiler_source_files(info);
 
@@ -457,14 +456,14 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_prove(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let files_vec = self.compiler_source_files(info);
 
@@ -538,11 +537,12 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_build_mbt(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
@@ -572,8 +572,6 @@ impl<'a> LoweringContext<'a> {
                     self.opt.backend.target_backend(),
                 )
             });
-
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let mut files = self.compiler_source_files(info);
         match target.kind {
@@ -1365,7 +1363,7 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn mi_inputs_of(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
     ) -> MiInputs<'a> {
@@ -1414,39 +1412,53 @@ impl<'a> LoweringContext<'a> {
             })
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
+        let mut installed_stdlib = BTreeSet::new();
+        for root in stdlib_deps {
+            installed_stdlib.extend(self.installed_stdlib_closure(root).iter().cloned());
+        }
         MiInputs {
             deps,
-            installed_stdlib: self.installed_stdlib_closure(stdlib_deps),
+            installed_stdlib: installed_stdlib.into_iter().collect(),
         }
     }
 
-    /// Installed stdlib interfaces that `moonc` may read when importing `roots`.
+    /// Installed stdlib interfaces that `moonc` may read when importing `root`.
     ///
     /// Besides each `-i` file, `moonc` loads the interfaces of indirect
     /// dependencies through the paths listed in `all_pkgs.json`. Local
     /// interfaces are covered by their producers, but installed stdlib
     /// interfaces have none, so the whole reachable stdlib closure is observed.
-    fn installed_stdlib_closure(&self, roots: Vec<BuildTarget>) -> Vec<PathBuf> {
-        let mut visited = HashSet::new();
-        let mut pending = roots;
-        let mut paths = BTreeSet::new();
-        while let Some(current) = pending.pop() {
-            if !visited.insert(current) {
-                continue;
+    fn installed_stdlib_closure(&mut self, root: BuildTarget) -> &[PathBuf] {
+        if !self.installed_stdlib_closures.contains_key(&root) {
+            let mut visited = HashSet::new();
+            let mut pending = vec![root];
+            let mut paths = BTreeSet::new();
+            while let Some(current) = pending.pop() {
+                if !visited.insert(current) {
+                    continue;
+                }
+                if let Some(cached) = self.installed_stdlib_closures.get(&current) {
+                    paths.extend(cached.iter().cloned());
+                    continue;
+                }
+                paths.insert(self.artifact_paths.mi_of_build_target(
+                    self.packages,
+                    &current,
+                    self.opt.backend.target_backend(),
+                ));
+                pending.extend(
+                    self.rel
+                        .dep_graph
+                        .neighbors_directed(current, Direction::Outgoing)
+                        .filter(|dep| self.packages.is_stdlib_package(dep.package)),
+                );
             }
-            paths.insert(self.artifact_paths.mi_of_build_target(
-                self.packages,
-                &current,
-                self.opt.backend.target_backend(),
-            ));
-            pending.extend(
-                self.rel
-                    .dep_graph
-                    .neighbors_directed(current, Direction::Outgoing)
-                    .filter(|dep| self.packages.is_stdlib_package(dep.package)),
-            );
+            // Cache only roots requested by compiler actions. Materializing
+            // every intermediate closure costs more for small import sets.
+            self.installed_stdlib_closures
+                .insert(root, paths.into_iter().collect());
         }
-        paths.into_iter().collect()
+        &self.installed_stdlib_closures[&root]
     }
 }
 

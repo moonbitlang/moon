@@ -368,6 +368,129 @@ mod tests {
     }
 
     #[test]
+    fn stdlib_interface_inputs_are_exact_per_action_and_backend() {
+        let (mut project, target) = single_package_resolve_output();
+        let template = project.pkg_dirs.get_package(target.package).clone();
+        let [a, b, shared, unrelated] = ["a", "b", "shared", "unrelated"].map(|name| {
+            let path = PackagePath::new(name).expect("valid fixture package name");
+            let mut package = template.clone();
+            package.fqn = PackageFQN::new(template.fqn.module().clone(), path.clone());
+            package.is_stdlib = true;
+            project
+                .discovered
+                .pkg_dirs
+                .test_add_package(template.module, path, package)
+                .build_target(TargetKind::Source)
+        });
+        let smaller = target.package.build_target(TargetKind::WhiteboxTest);
+        let empty = target.package.build_target(TargetKind::BlackboxTest);
+        let mut plan = BuildPlan::default();
+        for target in [target, smaller, empty] {
+            let node = BuildPlanNode::Check(target);
+            plan.test_add_node(node);
+            plan.test_insert_build_target_info(target, build_target_info());
+            plan.test_provide_artifact(
+                node,
+                ArtifactKey::CheckMi {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+            );
+        }
+        // A diamond, an overlapping but smaller import set, and no stdlib
+        // imports. Reusing a previous action's union would over-observe files.
+        for backend in [BackendConfig::WasmGc { use_wat: false }, BackendConfig::Js] {
+            let relations = project
+                .package_relations
+                .get_mut(&backend.target_backend())
+                .expect("fixture supplies relations for each backend");
+            relations.dep_graph.add_node(unrelated);
+            for (from, to, alias) in [
+                (target, a, "a"),
+                (target, b, "b"),
+                (smaller, a, "a"),
+                (a, shared, "shared"),
+                (b, shared, "shared"),
+            ] {
+                relations.dep_graph.add_edge(
+                    from,
+                    to,
+                    crate::pkg_solve::DepEdge {
+                        short_alias: arcstr::Substr::from(alias),
+                        import_all: false,
+                        kind: TargetKind::Source,
+                    },
+                );
+            }
+            let stdlib = PathBuf::from("toolchain/core");
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                debug_info: Default::default(),
+                warn_list: None,
+                artifact_paths: ArtifactPathResolver::new(
+                    TargetLayout::new(
+                        PathBuf::from("_build"),
+                        TargetLayoutMode::Workspace,
+                        OptLevel::Debug,
+                        RunMode::Check,
+                    ),
+                    Some(stdlib.clone()),
+                ),
+                backend,
+                opt_level: OptLevel::Debug,
+                action: RunMode::Check,
+                enable_coverage: false,
+                moonc_output_json: false,
+                docs_serve: false,
+                warning_condition: WarningCondition::Default,
+                stdlib_path: Some(stdlib.clone()),
+            };
+            let mut context = LoweringContext::new(&project, &plan, &options);
+            let mut execution = ExecutionPlanBuilder::default();
+            let mut observations = Vec::new();
+            for (target, expected) in [
+                (target, vec![a, b, shared]),
+                (smaller, vec![a, shared]),
+                (empty, vec![]),
+            ] {
+                let action = context
+                    .lower_action(
+                        &BuildPlanActionKey::Backend(BuildPlanNode::Check(target)),
+                        &mut execution,
+                    )
+                    .expect("check action should lower");
+                let mut expected = expected
+                    .iter()
+                    .map(|target| {
+                        options.artifact_paths.mi_of_build_target(
+                            &project.pkg_dirs,
+                            target,
+                            options.backend.target_backend(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                expected.sort();
+                observations.push((action, expected));
+            }
+            let lowered = execution.finish([]);
+            for (action, expected) in observations {
+                // Inspect the compiler action's actual file observations,
+                // including transitive interfaces and excluding unrelated ones.
+                let mut inputs = lowered
+                    .action(action)
+                    .inputs()
+                    .iter()
+                    .filter(|path| path.starts_with(&stdlib))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                inputs.sort();
+                assert_eq!(inputs, expected);
+            }
+        }
+    }
+
+    #[test]
     fn opaque_module_flags_make_compiler_actions_ineligible() {
         let mut module_info = moon_mod("username/hello");
         module_info.compile_flags = Some(vec!["-include".to_string(), "config.mbt".to_string()]);
