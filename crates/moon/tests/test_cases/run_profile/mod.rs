@@ -107,26 +107,39 @@ fn profile_cwd_shim() -> (tempfile::TempDir, String) {
 if [ "$1" = "record" ]; then
   pwd > "$MOON_PROFILE_CWD_MARKER"
   data_path=""
+  cpu=""
+  status=0
   while [ "$#" -gt 0 ]; do
     if [ "$1" = "-o" ]; then
       shift
       data_path="$1"
+    elif [ "$1" = "--sample-cpu" ]; then
+      cpu="[001]"
     elif [ "$1" = "--" ]; then
       shift
       "$@" >/dev/null 2>/dev/null
       status=$?
-      : > "$data_path"
-      exit $status
+      break
     fi
     shift
   done
-  : > "$data_path"
-  exit 0
+  printf '%s\n' "$cpu" > "$data_path"
+  exit $status
 fi
 
 if [ "$1" = "script" ]; then
+  data_path=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-i" ]; then
+      shift
+      data_path="$1"
+    fi
+    shift
+  done
+  # Like perf, only print the CPU column if it was recorded.
+  cpu=$(cat "$data_path")
+  printf '            profile 1234 %s 10.000000: cpu-clock:\n' "$cpu"
   cat <<'PERF'
-            profile 1234 [001] 10.000000: cpu-clock:
         400000000001 _M0profile+0x14 (/tmp/main.exe)
 PERF
   exit 0
@@ -238,6 +251,7 @@ fn test_moon_run_profile_dry_run_prints_perf_commands() {
             "100",
             "-e",
             "cpu-clock",
+            "--sample-cpu",
             "--call-graph",
             "dwarf",
             "-o",
@@ -278,18 +292,17 @@ fn test_moon_test_profile_runs_profiler_from_module_root() {
     let marker = dir.join("profile-cwd.txt");
     let (_tmp, path) = profile_cwd_shim();
 
-    let output = moon_process_cmd(&spawn_dir)
+    moon_cmd(&spawn_dir)
         .env("PATH", path)
         .env("MOON_PROFILE_CWD_MARKER", &marker)
         .args(["-C", "..", "test", "--profile"])
-        .output()
-        .expect("failed to run profiled tests");
-    assert!(
-        output.status.success(),
-        "profiled tests failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+...
+Samples: 1, sample weight: [..]ms
+...
+"#]]);
 
     let recorded = std::fs::read_to_string(&marker).expect("failed to read profiler cwd marker");
     let recorded = std::fs::canonicalize(recorded.trim()).expect("failed to canonicalize marker");

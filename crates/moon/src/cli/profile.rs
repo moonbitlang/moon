@@ -878,7 +878,8 @@ fn perf_record_command(
     current_dir: Option<&Path>,
 ) -> Command {
     let mut cmd = Command::new(PERF_COMMAND);
-    cmd.args(["record", "--quiet", "-F"]);
+    // Record CPU metadata so perf script emits the CPU column our parser expects.
+    cmd.args(["record", "--quiet", "--sample-cpu", "-F"]);
     cmd.arg(PERF_SAMPLE_FREQUENCY_HZ.to_string());
     cmd.args(["-e", "cpu-clock", "--call-graph", "dwarf", "-o"]);
     cmd.arg(data_path);
@@ -1908,8 +1909,9 @@ mod tests {
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,
         build_report, build_test_report, default_output_dir, parse_perf_script_output,
-        parse_xctrace_time_profile_xml, profile_target, render_terminal_report,
-        sanitize_path_component, test_profile_output_dir_for_executable, with_json_report,
+        parse_xctrace_time_profile_xml, perf_record_command, profile_target,
+        render_terminal_report, sanitize_path_component, test_profile_output_dir_for_executable,
+        with_json_report,
     };
 
     #[test]
@@ -1957,6 +1959,20 @@ mod tests {
         assert_eq!(parsed.total_samples, 2);
         assert_eq!(parsed.self_counts["_M0foo"], 2);
         assert_eq!(parsed.inclusive_counts["_M0bar"], 2);
+    }
+
+    #[test]
+    fn perf_record_includes_cpu_in_sample_metadata() {
+        let command = perf_record_command(Path::new("perf.data"), Path::new("main.exe"), &[], None);
+
+        // perf script only emits the CPU column required by our parser when
+        // CPU metadata was requested while recording.
+        assert!(
+            command
+                .get_args()
+                .take_while(|arg| *arg != "--")
+                .any(|arg| arg == "--sample-cpu")
+        );
     }
 
     #[test]
