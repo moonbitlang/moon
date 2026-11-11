@@ -58,7 +58,7 @@ use crate::mbtx::parse_mbtx_imports;
 use crate::discover::special_case::inject_core_coverage_into_builtin;
 use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
-    discover::{DiscoverError, DiscoverResult, SingleFileSourceKind, discover_packages},
+    discover::{DiscoverError, DiscoverResult, SingleFileSourceKind, discover_for_build},
     pkg_solve::{self, PackageRelations},
 };
 
@@ -413,7 +413,7 @@ pub fn discover_synced_project(
 ) -> Result<DiscoveredProject, ProjectPreparationError> {
     let (module_graph, dir_sync_result) = synced_dependencies;
 
-    let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
+    let mut discover_result = discover_for_build(&module_graph, &dir_sync_result, user_log)?;
     let main_is_core = {
         let ids = module_graph.input_module_ids();
         ids.len() == 1 && *module_graph.module_source(ids[0]).name() == CORE_MODULE_TUPLE
@@ -496,7 +496,7 @@ pub fn discover_single_file_project(
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
     // Discover all packages in resolved modules
-    let mut discover_result = discover_packages(&module_graph, &dir_sync_result, user_log)?;
+    let mut discover_result = discover_for_build(&module_graph, &dir_sync_result, user_log)?;
     // Synthesize the single-file package with only its declared imports.
     crate::discover::synth::build_synth_single_file_package(
         source_file,

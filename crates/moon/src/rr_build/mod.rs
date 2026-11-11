@@ -42,7 +42,8 @@ use moonbuild_rupes_recta::{
     CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
-    fmt::{FmtConfig, FmtResolveOutput},
+    discover::FmtProject,
+    fmt::FmtConfig,
     intent::UserIntent,
     model::{
         BackendConfig, DebugInfoRequest, DebugSymbols, ENV_MOONBIT_NEW_NATIVE, NativeTarget,
@@ -540,7 +541,7 @@ pub(crate) fn plan_resolved_build_from_intent(
 }
 
 pub fn plan_fmt(
-    resolved: &FmtResolveOutput,
+    resolved: &FmtProject,
     cfg: &FmtConfig,
     target_dir: &Path,
     selected_packages: &[PackageId],

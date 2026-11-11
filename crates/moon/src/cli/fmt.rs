@@ -124,12 +124,12 @@ fn run_fmt_rr(
             .query(cli.workspace_env.clone())?
             .select(user_log)?
             .package_dirs()?;
-        let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(
+        let resolved = moonbuild_rupes_recta::discover::discover_for_fmt(
             &dirs.source_dir,
             &dirs.project_manifest,
             user_log,
         )
-        .context("Failed to resolve environment")?;
+        .context("Failed to discover project for formatting")?;
         let selected_packages = select_packages(&package_paths, user_log, |dir| {
             filter_pkg_by_dir_for_fmt(&resolved, dir)
         })?

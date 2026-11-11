@@ -18,60 +18,30 @@
 
 //! The formatter's pipeline
 //!
-//! The formatter only needs a bare minimum project to run, so its pipeline
-//! bypasses the regular compilation pipeline of resolving and discovering
-//! modules and packages.
-//!
-//! This pipeline still strives to use as much of the existing infrastructure
-//! as possible.
-//!
-//! # Maintainers
-//!
-//! If a similar no-resolving, files-only command is needed, refactor this
-//! module into a more generic one, probably named "source utility" or similar.
+//! Construct formatting actions from [`FmtProject`], produced by
+//! [`crate::discover::discover_for_fmt`].
 
 use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
 use moonutil::project::ProjectManifest;
-use moonutil::resolution::{ModuleSourceKind, ResolvedModule};
+use moonutil::resolution::ModuleSourceKind;
 use moonutil::toolchain::BINARIES;
 use moonutil::{
+    build_options::RunMode,
     cond_expr::OptLevel,
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
-    manifest::validate_module_dsl_deps,
+    manifest::{ManifestFormat, validate_module_dsl_deps},
     user_log::UserLog,
 };
 
 use crate::{
-    discover::{
-        DiscoveredLocalProject, DiscoveredPackage, discover_local_project, resolve_prebuild_path,
-    },
+    discover::{FmtModule, FmtProject, PackageInput, resolve_prebuild_path},
     execution_plan::{ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, LoweredCommand},
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
-    resolve::ProjectPreparationError,
-    target_layout::TargetLayout,
+    target_layout::{TargetLayout, TargetLayoutMode},
 };
-
-pub type FmtResolveOutput = DiscoveredLocalProject;
-
-/// Perform a barebones, faked resolving process for `moon fmt`.
-///
-/// This supports either a single module rooted at `source_dir` or a workspace
-/// rooted there via `moon.work`.
-pub fn resolve_for_fmt(
-    source_dir: &Path,
-    project_manifest: &ProjectManifest,
-    user_log: &UserLog,
-) -> Result<FmtResolveOutput, ProjectPreparationError> {
-    info!(
-        "Resolving formatter environment for {}",
-        source_dir.display()
-    );
-    discover_local_project(source_dir, project_manifest, user_log)
-        .map_err(ProjectPreparationError::from)
-}
 
 pub struct FmtConfig {
     /// Checks the formatting without writing to files
@@ -89,7 +59,7 @@ pub struct FmtConfig {
 /// If `selected_packages` is non-empty, only the specified packages will be formatted.
 /// Otherwise, all packages in the current module or workspace will be formatted.
 pub fn build_execution_plan_for_fmt(
-    resolved: &FmtResolveOutput,
+    project: &FmtProject,
     cfg: &FmtConfig,
     target_dir: &Path,
     selected_packages: &[PackageId],
@@ -98,11 +68,16 @@ pub fn build_execution_plan_for_fmt(
 ) -> anyhow::Result<ExecutionPlan> {
     info!(
         "Building format execution plan for {} root modules",
-        resolved.root_module_ids.len()
+        project.modules.len()
     );
 
-    let layout =
-        TargetLayout::from_fmt_resolve_output(target_dir.into(), resolved, OptLevel::Release);
+    let mode = match project.modules.as_slice() {
+        [module] => TargetLayoutMode::Mono {
+            main_module: module.module.source().clone(),
+        },
+        _ => TargetLayoutMode::Workspace,
+    };
+    let layout = TargetLayout::new(target_dir.into(), mode, OptLevel::Release, RunMode::Format);
 
     debug!("Layout built for formatting");
 
@@ -114,33 +89,20 @@ pub fn build_execution_plan_for_fmt(
         && format_workspace_node(&mut execution, cfg, &layout, project_manifest)?;
     let mut has_module_manifest = false;
 
-    // If no path filter is provided, find and format `moon.mod`/`moon.mod.json`.
     if selected_packages.is_none() {
-        for &module_id in &resolved.root_module_ids {
-            let module = &resolved.root_modules[module_id];
-            match module.source().source() {
-                ModuleSourceKind::Local(path) | ModuleSourceKind::Stdlib(path) => {
-                    has_module_manifest |=
-                        format_moon_mod_node(&mut execution, cfg, &layout, module, path, user_log)?
-                }
-                ModuleSourceKind::Registry | ModuleSourceKind::SingleFile(_) => (),
-            };
+        for module in &project.modules {
+            format_moon_mod_node(&mut execution, cfg, &layout, module, user_log)?;
+            has_module_manifest = true;
         }
     }
-
-    for &module_id in &resolved.root_module_ids {
-        let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
-            continue;
-        };
-
-        for &id in packages.values() {
+    for module in &project.modules {
+        for &id in module.packages.values() {
             if let Some(selected_packages) = &selected_packages
                 && !selected_packages.contains(&id)
             {
                 continue;
             }
-
-            let pkg = resolved.pkg_dirs.get_package(id);
+            let pkg = &project.packages[id];
             info!("Processing package {}", pkg.fqn);
             build_for_package(&mut execution, cfg, &layout, pkg, user_log)?;
             package_count += 1;
@@ -206,45 +168,44 @@ fn format_moon_mod_node(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
     layout: &TargetLayout,
-    module: &ResolvedModule,
-    module_dir: &Path,
+    input: &FmtModule,
     user_log: &UserLog,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
+    let module = &input.module;
+    let ModuleSourceKind::Local(module_dir) = module.source().source() else {
+        unreachable!("formatting only discovers local modules");
+    };
     let moon_mod = module_dir.join(MOON_MOD);
-    let moon_mod_json = module_dir.join(MOON_MOD_JSON);
-
-    let has_dsl = moon_mod.exists();
-    let has_json = moon_mod_json.exists();
-    if !has_dsl && !has_json {
-        return Ok(false);
-    }
 
     let target_moon_mod = layout.format_artifact_path(
         &PackageFQN::new(module.source().clone(), PackagePath::empty()),
         OsStr::new(MOON_MOD),
     );
 
-    if has_dsl {
-        format_moon_mod_dsl(execution, cfg, &moon_mod, &target_moon_mod, module_dir)?;
-    } else {
-        user_log.warn(format!(
-            "Migrating to {} at module root '{}', deprecated {} is removed.",
-            MOON_MOD,
-            module_dir.display(),
-            MOON_MOD_JSON
-        ));
-        format_moon_mod_json_migrate(
-            execution,
-            cfg,
-            &moon_mod_json,
-            &target_moon_mod,
-            &moon_mod,
-            module.module_info(),
-            module_dir,
-        )?;
+    match input.manifest_format {
+        ManifestFormat::New => {
+            format_moon_mod_dsl(execution, cfg, &moon_mod, &target_moon_mod, module_dir)?;
+        }
+        ManifestFormat::Legacy => {
+            user_log.warn(format!(
+                "Migrating to {} at module root '{}', deprecated {} is removed.",
+                MOON_MOD,
+                module_dir.display(),
+                MOON_MOD_JSON
+            ));
+            format_moon_mod_json_migrate(
+                execution,
+                cfg,
+                &module_dir.join(MOON_MOD_JSON),
+                &target_moon_mod,
+                &moon_mod,
+                module.module_info(),
+                module_dir,
+            )?;
+        }
     }
 
-    Ok(true)
+    Ok(())
 }
 
 fn format_moon_mod_dsl(
@@ -396,12 +357,12 @@ fn build_for_package(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
     layout: &TargetLayout,
-    pkg: &DiscoveredPackage,
+    pkg: &PackageInput,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
-    let ignore_set = &pkg.raw.formatter.ignore;
+    let ignore_set = &pkg.manifest.formatter.ignore;
     let prebuild_outputs = pkg
-        .raw
+        .manifest
         .pre_build
         .iter()
         .flatten()
@@ -409,34 +370,32 @@ fn build_for_package(
         .map(|path| resolve_prebuild_path(&pkg.root_path, path))
         .collect::<HashSet<_>>();
 
-    let mut add_fmt_for_file = |file: &Path| -> anyhow::Result<()> {
-        let name = file.file_name().and_then(|name| name.to_str());
-        if name.is_some_and(|name| ignore_set.contains(name)) {
+    use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
+    for file in &pkg.files {
+        let name = file.file_name().expect("scanned file has a name");
+        if !matches!(
+            package_source_file_kind(&name.to_string_lossy()),
+            Some(PackageSourceFileKind::Mbt | PackageSourceFileKind::MbtMd)
+        ) {
+            continue;
+        }
+        if name.to_str().is_some_and(|name| ignore_set.contains(name)) {
             debug!(
                 "Skipping formatter input {} due to formatter.ignore",
                 file.display()
             );
-            return Ok(());
+            continue;
         }
         if prebuild_outputs.contains(file) {
             debug!(
                 "Skipping formatter input {} due to pre-build output",
                 file.display()
             );
-            return Ok(());
+            continue;
         }
 
-        let out_file =
-            layout.format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"));
+        let out_file = layout.format_artifact_path(&pkg.fqn, name);
         format_node(execution, cfg, file, &out_file)?;
-        Ok(())
-    };
-
-    for file in &pkg.source_files {
-        add_fmt_for_file(file)?;
-    }
-    for file in &pkg.mbt_md_files {
-        add_fmt_for_file(file)?;
     }
 
     // Always format moon.pkg when present; migration from moon.pkg.json is gated.
@@ -565,50 +524,33 @@ fn format_moon_work_dsl(
 
 /// Format moon.pkg package configuration files and optionally migrate moon.pkg.json.
 ///
-/// This function handles three scenarios:
-/// 1. Both `moon.pkg` and `moon.pkg.json` exist: prefer `moon.pkg`, report error about duplicate
-/// 2. Only `moon.pkg.json` exists: migrate to `moon.pkg` format if enabled
-/// 3. Only `moon.pkg` exists: format it in place
+/// The scanner has already selected the manifest and reported shadowed formats.
+/// Planning retains that selection: format DSL directly or migrate legacy JSON.
 fn format_moon_pkg_node(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
     layout: &TargetLayout,
-    pkg: &DiscoveredPackage,
+    pkg: &PackageInput,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
-    use moonutil::constants::{MOON_PKG, MOON_PKG_JSON};
-
     let moon_pkg_dsl = pkg.root_path.join(MOON_PKG);
-    let moon_pkg_json = pkg.root_path.join(MOON_PKG_JSON);
-
-    let has_dsl = moon_pkg_dsl.exists();
-    let has_json = moon_pkg_json.exists();
-
-    if !has_dsl && !has_json {
-        debug!(
-            "Skipping moon.pkg formatting for {} - no config file exists",
-            pkg.fqn
-        );
-        return Ok(());
-    }
 
     // Output to target directory
     let target_moon_pkg = layout.format_artifact_path(&pkg.fqn, std::ffi::OsStr::new("moon.pkg"));
 
-    if has_dsl {
-        // Format moon.pkg (new format)
-        format_moon_pkg_dsl(execution, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
-    } else {
-        // Only moon.pkg.json exists: migrate to moon.pkg
-        format_moon_pkg_json_migrate(
+    match pkg.manifest_format {
+        ManifestFormat::New => {
+            format_moon_pkg_dsl(execution, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
+        }
+        ManifestFormat::Legacy => format_moon_pkg_json_migrate(
             execution,
             cfg,
-            &moon_pkg_json,
+            &pkg.root_path.join(MOON_PKG_JSON),
             &target_moon_pkg,
             &moon_pkg_dsl,
             pkg,
             user_log,
-        )
+        ),
     }
 }
 
@@ -621,7 +563,7 @@ fn format_moon_pkg_dsl(
     cfg: &FmtConfig,
     moon_pkg: &std::path::Path,
     target_moon_pkg: &std::path::Path,
-    pkg: &DiscoveredPackage,
+    pkg: &PackageInput,
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
@@ -694,7 +636,7 @@ fn format_moon_pkg_json_migrate(
     moon_pkg_json: &std::path::Path,
     target_moon_pkg: &std::path::Path,
     moon_pkg: &std::path::Path,
-    pkg: &DiscoveredPackage,
+    pkg: &PackageInput,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // Warn the user about migration and prompt to remove the old config
@@ -762,10 +704,51 @@ fn format_moon_pkg_json_migrate(
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // Mutate a copied fixture between discovery and planning.
 mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::discover::discover_for_fmt;
+
+    #[test]
+    fn formatting_plan_reuses_the_selected_manifests() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root = std::fs::canonicalize(dir.path())?;
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fmt_manifest_selection");
+        for file in [MOON_MOD_JSON, MOON_PKG_JSON] {
+            std::fs::copy(fixture.join("initial").join(file), root.join(file))?;
+        }
+        let log = UserLog::new(log::LevelFilter::Off);
+        let project = discover_for_fmt(&root, &ProjectManifest::None, &log)?;
+        // Planning consumes discovery's selection even if another format has
+        // appeared in the meantime. It must not select or parse a second time.
+        for file in [MOON_MOD, MOON_PKG] {
+            std::fs::copy(fixture.join("appeared").join(file), root.join(file))?;
+        }
+        let plan = build_execution_plan_for_fmt(
+            &project,
+            &FmtConfig {
+                check_only: true,
+                warn_only: false,
+                extra_args: Vec::new(),
+            },
+            &root.join("_build"),
+            &[],
+            &ProjectManifest::None,
+            &log,
+        )?;
+        let mut inputs = plan
+            .action_ids()
+            .flat_map(|id| plan.action(id).inputs())
+            .filter(|path| path.parent() == Some(root.as_path()))
+            .cloned()
+            .collect::<Vec<_>>();
+        inputs.sort();
+        assert_eq!(inputs, [root.join(MOON_MOD_JSON), root.join(MOON_PKG_JSON)]);
+        Ok(())
+    }
 
     #[test]
     fn formatter_sources_are_file_observations() {

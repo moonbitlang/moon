@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 
-use moonbuild_rupes_recta::discover::discover_packages;
+use moonbuild_rupes_recta::discover::discover_for_build;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource};
 use moonutil::user_log::UserLog;
@@ -41,7 +41,7 @@ fn discover_skips_nested_module_with_moon_mod() {
     let mut dirs = DirSyncResult::new();
     dirs.insert(module_id, root.clone());
 
-    let discovered = discover_packages(&resolved, &dirs, &UserLog::new(log::LevelFilter::Error))
+    let discovered = discover_for_build(&resolved, &dirs, &UserLog::new(log::LevelFilter::Error))
         .expect("discover packages");
     let mut packages = discovered
         .all_packages(false)

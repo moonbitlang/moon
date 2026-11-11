@@ -16,565 +16,161 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Discovers packages and build targets from source directory layouts.
+//! Package discovery for builds and formatting.
 //!
-//! The discover process is designed to be minimal, only fetching required
-//! information from the file system. Later stages that do not require file
-//! system access should be split into a separate module instead of coupled with
-//! this discover process.
+//! [`discover_for_build`] scans resolved modules and prepares build inputs.
+//! [`discover_for_fmt`] scans project roots without resolving dependencies.
+//! Both entry points use the same package scanner.
 
-// Specifically allow file I/O here, because that what this module is about.
+// Filesystem APIs are allowed here; later build phases consume the results.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods)]
 
 mod model;
+mod prepare;
+mod scan;
 pub mod special_case;
 pub mod synth;
 
-pub(crate) use model::resolve_prebuild_path;
 pub use model::{
-    DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage, SingleFileSourceKind,
+    DiscoverError, DiscoverResult, DiscoveredPackage, FmtProject, SingleFileSourceKind,
 };
-use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
-use moonutil::project::ProjectManifest;
+pub(crate) use model::{FmtModule, resolve_prebuild_path};
+pub(crate) use scan::PackageInput;
 
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-
-use indexmap::IndexSet;
-use log::{debug, info, trace};
-use moonutil::package::MoonPkg;
-use moonutil::resolution::{
-    DirSyncResult, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
-    ResolvedModule, ResolvedRootModules,
-};
-use moonutil::target::TargetBackend;
+use crate::pkg_name::PackageFQN;
 use moonutil::{
-    constants::{
-        MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON,
-        is_ignored_directory_name,
-    },
-    manifest::{
-        read_module_desc_file_in_dir_with_legacy,
-        read_package_desc_file_from_path_with_supported_targets_decl, warn_known_shadowed_manifest,
-        warn_module_manifest,
-    },
+    manifest::{read_module_manifest, warn_module_manifest},
     package::resolve_supported_targets,
+    project::ProjectManifest,
+    resolution::{
+        DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind, ResolvedModule,
+    },
     user_log::UserLog,
 };
-use relative_path::{PathExt, RelativePath};
-use tracing::{Level, instrument};
-use walkdir::WalkDir;
-
-use crate::{
-    pkg_name::{PackageFQN, PackagePath},
-    special_cases::{add_prelude_as_import_for_core, module_name_is_core},
-    util::strip_trailing_slash,
+use slotmap::SlotMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    sync::Arc,
 };
+use tracing::{info, instrument};
 
-/// Discover packages contained by all dependencies from their paths
+/// Discover packages and prepare their build inputs across resolved modules.
+/// Formatting uses [`discover_for_fmt`] instead.
 #[instrument(skip_all)]
-pub fn discover_packages(
+pub fn discover_for_build(
     module_graph: &ModuleDependencyGraph,
     dirs: &DirSyncResult,
     user_log: &UserLog,
 ) -> Result<DiscoverResult, DiscoverError> {
     info!("Starting package discovery across all modules");
     let mut res = DiscoverResult::default();
-
-    debug!(
-        "Discovering packages in {} modules",
-        module_graph.module_count()
-    );
-
-    for (id, m) in module_graph.all_modules_and_id() {
-        // SPECIAL_CASE: Skip stdlib in discovering. They are handled below.
-        // UPDATED: stdlib is not skipped anymore, as we require
-        // packages in stdlib to be explicitly imported by users.
-        if let ModuleSourceKind::SingleFile(_) = m.source() {
+    for (id, source) in module_graph.all_modules_and_id() {
+        if matches!(source.source(), ModuleSourceKind::SingleFile(_)) {
             continue;
-        };
-
-        let dir = dirs.get(id).expect("Bad module ID to get directory");
-        let location = format!("at module root '{}'", dir.display());
-        warn_module_manifest(dir, &location, user_log);
-        discover_packages_for_mod(
-            &mut res,
-            dir,
-            id,
-            module_graph.resolved_module(id),
-            module_graph.input_module_ids().contains(&id),
-            user_log,
-            false,
-        )?;
-    }
-
-    info!(
-        "Package discovery completed: found {} packages across {} modules",
-        res.package_count(),
-        module_graph.module_count()
-    );
-
-    Ok(res)
-}
-
-/// Discover a local project directly from the source tree without dependency resolution.
-///
-/// This supports either a single local module rooted at `source_dir` or a
-/// workspace rooted there via `moon.work`.
-#[instrument(skip_all)]
-pub fn discover_local_project(
-    source_dir: &Path,
-    project_manifest: &ProjectManifest,
-    user_log: &UserLog,
-) -> Result<DiscoveredLocalProject, DiscoverError> {
-    info!(
-        "Starting local project discovery for {}",
-        source_dir.display()
-    );
-
-    let module_dirs = match project_manifest {
-        ProjectManifest::Workspace(workspace) => workspace.members().to_vec(),
-        ProjectManifest::None | ProjectManifest::Module(_) => vec![source_dir.to_path_buf()],
-    };
-
-    let mut root_modules = ResolvedRootModules::with_key();
-    let mut root_module_ids = Vec::with_capacity(module_dirs.len());
-    let mut pkg_dirs = DiscoverResult::default();
-
-    for module_dir in module_dirs {
-        warn_module_manifest(
-            &module_dir,
-            &format!("at module root '{}'", module_dir.display()),
-            user_log,
-        );
-        let module =
-            read_module_desc_file_in_dir_with_legacy(&module_dir, true).map_err(|inner| {
-                DiscoverError::CantReadLocalModuleFile {
-                    path: module_dir.clone(),
+        }
+        let dir = dirs
+            .get(id)
+            .expect("resolved module has a source directory");
+        // Author-facing manifest warnings depend on the module's role, not its
+        // storage directory. Read/validation errors are still returned for every module.
+        let emit_warnings = module_graph.input_module_ids().contains(&id)
+            && !matches!(source.source(), ModuleSourceKind::Stdlib(_));
+        let (format, manifest) = read_module_manifest(dir, false).map_err(|inner| {
+            DiscoverError::CantReadModuleFile {
+                module: source.clone(),
+                path: dir.clone(),
+                inner,
+            }
+        })?;
+        if emit_warnings {
+            warn_module_manifest(dir, format, &manifest, user_log);
+        }
+        if manifest.name != module_graph.module_info(id).name {
+            return Err(DiscoverError::ModuleNameMismatch {
+                registry: module_graph.module_info(id).name.clone(),
+                read: manifest.name,
+            });
+        }
+        let (targets, _) =
+            resolve_supported_targets(manifest.supported_targets.as_ref()).map_err(|inner| {
+                DiscoverError::CantReadModuleFile {
+                    module: source.clone(),
+                    path: dir.clone(),
                     inner,
                 }
             })?;
-        let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, &module_dir).map_err(|inner| {
+        let manifest = Arc::new(manifest);
+        res.set_module_info(id, Arc::clone(&manifest));
+        for input in scan::scan_packages(source, dir, &manifest, false, emit_warnings, user_log)? {
+            let package = prepare::prepare_package(id, input, &targets)?;
+            if emit_warnings {
+                scan::warn_package_name(&package.fqn, user_log);
+            }
+            res.add_package(id, package.fqn.package().clone(), package)?;
+        }
+    }
+    info!(
+        packages = res.package_count(),
+        modules = module_graph.module_count(),
+        "Package discovery completed"
+    );
+    Ok(res)
+}
+
+/// Read only the current project's root modules and scan their packages.
+/// Legacy manifests remain readable here because formatting migrates them.
+#[tracing::instrument(skip_all)]
+pub fn discover_for_fmt(
+    source_dir: &Path,
+    project_manifest: &ProjectManifest,
+    user_log: &UserLog,
+) -> Result<FmtProject, DiscoverError> {
+    let single_module = [source_dir.to_owned()];
+    let module_dirs = match project_manifest {
+        ProjectManifest::Workspace(workspace) => workspace.members(),
+        ProjectManifest::None | ProjectManifest::Module(_) => &single_module,
+    };
+    let mut project = FmtProject {
+        modules: Vec::new(),
+        packages: SlotMap::with_key(),
+    };
+    let mut names = HashMap::<String, PackageFQN>::new();
+    for module_dir in module_dirs {
+        let (manifest_format, manifest) =
+            read_module_manifest(module_dir, true).map_err(|inner| {
+                DiscoverError::CantReadLocalModuleFile {
+                    path: module_dir.to_path_buf(),
+                    inner,
+                }
+            })?;
+        warn_module_manifest(module_dir, manifest_format, &manifest, user_log);
+        let source = ModuleSource::from_local_module(&manifest, module_dir).map_err(|inner| {
             DiscoverError::CantReadLocalModuleFile {
-                path: module_dir.clone(),
+                path: module_dir.to_path_buf(),
                 inner: inner.into(),
             }
         })?;
-        let id = root_modules.insert(ResolvedModule::new(source, module));
-        root_module_ids.push(id);
-
-        discover_packages_for_mod(
-            &mut pkg_dirs,
-            &module_dir,
-            id,
-            &root_modules[id],
-            true,
-            user_log,
-            true,
-        )?;
-    }
-
-    info!(
-        "Local project discovery completed: found {} packages",
-        pkg_dirs.package_count()
-    );
-
-    Ok(DiscoveredLocalProject {
-        root_modules,
-        root_module_ids,
-        pkg_dirs,
-    })
-}
-
-/// Discover packages within the given module directory
-#[instrument(level = Level::DEBUG, skip(res, dir, module))]
-pub(crate) fn discover_packages_for_mod(
-    res: &mut DiscoverResult,
-    dir: &Path,
-    id: ModuleId,
-    module: &ResolvedModule,
-    is_root_module: bool,
-    user_log: &UserLog,
-    allow_legacy: bool,
-) -> Result<(), DiscoverError> {
-    // This information is the one we get from the registry. We will read again
-    // from the resolved directory
-    let module_source = module.source();
-    let m_registry = module.module_info();
-
-    info!(
-        "Begin discovering packages for {} at {}",
-        module_source,
-        dir.display()
-    );
-
-    // This is the version we read from directory
-    let m = read_module_desc_file_in_dir_with_legacy(dir, allow_legacy).map_err(|e| {
-        DiscoverError::CantReadModuleFile {
-            module: module_source.clone(),
-            path: dir.to_owned(),
-            inner: e,
-        }
-    })?;
-
-    // Do some basic sanity checks
-    if m.name != m_registry.name {
-        return Err(DiscoverError::ModuleNameMismatch {
-            registry: m_registry.name.clone(),
-            read: m.name.clone(),
-        });
-    }
-
-    let source_dir_name = m.source.clone().unwrap_or_default();
-    let scan_source_root = {
-        let p = dir.join(&source_dir_name);
-        // Preserve the canonical prefix before descendants grow beyond MAX_PATH.
-        // Complete file arguments are simplified only at the consumer boundary.
-        std::fs::canonicalize(p).map_err(|e| DiscoverError::CantReadModulePackages {
-            module: module_source.clone(),
-            inner: e.into(),
-        })?
-    };
-    let is_core = module_name_is_core(&m.name);
-    let (module_supported_targets, _) = resolve_supported_targets(m.supported_targets.as_ref())
-        .map_err(|e| DiscoverError::CantReadModuleFile {
-            module: module_source.clone(),
-            path: dir.to_owned(),
-            inner: e,
-        })?;
-    res.set_module_info(id, Arc::new(m));
-
-    // Recursively walk through the module's directories
-    let mut walkdir = WalkDir::new(&scan_source_root)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_entry(|x| x.file_type().is_dir());
-    while let Some(entry) = walkdir.next() {
-        let entry = entry.map_err(|e| DiscoverError::CantReadModulePackages {
-            module: module_source.clone(),
-            inner: e.into(),
-        })?;
-
-        let abs_path = strip_trailing_slash(entry.path());
-        // this will be fed to package path
-        let rel_path = abs_path
-            .relative_to(&scan_source_root)
-            .expect("Walked directory should be a descendant of the scan source");
-
-        // The configured source root is explicit, so only filter its descendants.
-        if entry.depth() != 0 && is_ignored_directory_name(entry.file_name()) {
-            debug!(
-                "Skipping {} recursively because its directory name is ignored",
-                abs_path.display()
-            );
-            walkdir.skip_current_dir();
-            continue;
-        }
-
-        // Avoid descending into another module
-        let mod_path = abs_path.join(MOON_MOD);
-        let mod_json_path = abs_path.join(MOON_MOD_JSON);
-        if (mod_path.exists() || mod_json_path.exists()) && rel_path != "" {
-            debug!(
-                "Skipping {} recursively because it contains a module configuration file",
-                abs_path.display()
-            );
-            walkdir.skip_current_dir();
-            continue;
-        }
-
-        // Check if this directory is a package.
-        let moon_pkg_path = abs_path.join(MOON_PKG);
-        let moon_pkg_json_path = abs_path.join(MOON_PKG_JSON);
-        let pkg_manifest_path = if moon_pkg_path.exists() {
-            if moon_pkg_json_path.exists() {
-                let location = format!("at package root '{}'", abs_path.display());
-                warn_known_shadowed_manifest(
-                    abs_path,
-                    MOON_PKG_JSON,
-                    MOON_PKG,
-                    &location,
-                    user_log,
-                );
-            }
-            moon_pkg_path
-        } else if moon_pkg_json_path.exists() {
-            moon_pkg_json_path
-        } else {
-            debug!(
-                "Skipping {} because it does not contain a package configuration file",
-                abs_path.display()
-            );
-            continue;
-        };
-
-        // Begin discovering the package
-        debug!("Discovering package at {}", abs_path.display());
-        let is_stdlib_pkg = matches!(module_source.source(), ModuleSourceKind::Stdlib(_));
-        let pkg = discover_one_package(
-            id,
-            module_source,
-            &rel_path,
-            is_core,
-            is_stdlib_pkg,
-            &module_supported_targets,
-            &pkg_manifest_path,
-            user_log,
-            allow_legacy,
-        )?;
-        debug!(
-            "Found package: {} with {} source files",
-            pkg.fqn,
-            pkg.source_files.len()
-        );
-        // Warn authors in the selected project, not consumers of dependencies.
-        // The same full import path could also denote a versioned module root.
-        // Reuse module-name classification so this warning follows its grammar.
-        // TODO: Remove this exception once moonbitlang/core/v128 follows the
-        // major-version package naming convention.
-        let is_temporarily_allowed_core_v128 = is_core && pkg.fqn.package().as_str() == "v128";
-        if is_root_module
-            && !is_stdlib_pkg
-            && !is_temporarily_allowed_core_v128
-            && !module_source.name().username.is_empty()
-            && !pkg.fqn.package().is_empty()
-            && matches!(
-                ModuleName::from(pkg.fqn.to_string().as_str()).major_version_suffix(),
-                Ok(Some(_))
-            )
-        {
-            user_log.warn(format!(
-                "Package `{}` in module `{}` has the same import path as a major-version module. \
-                 Consider renaming package `{}` to avoid ambiguity.",
-                pkg.fqn,
-                module_source.name(),
-                pkg.fqn.package(),
-            ));
-        }
-        res.add_package(id, pkg.fqn.package().clone(), pkg)?;
-    }
-
-    Ok(())
-}
-
-/// Discover one package and get its basic information. This does *not* create
-/// e.g. subpackages.
-#[instrument(level = Level::DEBUG, skip(m, rel, pkg_manifest_path))]
-#[allow(clippy::too_many_arguments)]
-fn discover_one_package(
-    mid: ModuleId,
-    m: &ModuleSource,
-    rel: &RelativePath,
-    is_core: bool, // We have a couple of special cases for core packages. is_core is true when building the core module.
-    pkg_is_stdlib: bool, // Whether the package being discovered is inside the stdlib (core) module.
-    module_supported_targets: &IndexSet<TargetBackend>,
-    pkg_manifest_path: &Path,
-    user_log: &UserLog,
-    allow_legacy: bool,
-) -> Result<DiscoveredPackage, DiscoverError> {
-    let abs = pkg_manifest_path
-        .parent()
-        .expect("package manifest path should be inside package root");
-    let pkg_path = PackagePath::new_from_rel_path(rel)
-        .expect("Generation of package path from relative path should not error");
-    let fqn = PackageFQN::new(m.clone(), pkg_path);
-
-    // Discover the package config
-    let (pkg_json, supported_targets_decl) =
-        read_package_desc_file_from_path_with_supported_targets_decl(
-            pkg_manifest_path,
-            user_log,
-            allow_legacy,
-        )
-        .map_err(|e| DiscoverError::CantReadPackageFile {
-            module: m.clone(),
-            package: fqn.package().clone(),
-            path: abs.to_path_buf(),
-            inner: e,
-        })?;
-    let pkg_json = if is_core {
-        add_prelude_as_import_for_core(pkg_json)
-    } else {
-        pkg_json
-    };
-    let mut effective_supported_targets = pkg_json.supported_targets.clone();
-    effective_supported_targets.retain(|t| module_supported_targets.contains(t));
-
-    // Discover source files within the package
-    let mut source_files = Vec::new();
-    let mut mbt_md_files = Vec::new();
-    let mut mbtp_files = Vec::new();
-
-    let dir = abs
-        .read_dir()
-        .map_err(|x| DiscoverError::CantListPackageDir {
-            module: m.clone(),
-            package: fqn.package().clone(),
-            path: abs.to_owned(),
-            inner: x.into(),
-        })?;
-    for file in dir {
-        let file = file.map_err(|e| DiscoverError::CantListPackageDir {
-            module: m.clone(),
-            package: fqn.package().clone(),
-            path: abs.to_owned(),
-            inner: e.into(),
-        })?;
-        let path = file.path();
-        let file_type = file
-            .file_type()
-            .map_err(|e| DiscoverError::CantReadFileInfo {
-                module: m.clone(),
-                package: fqn.package().clone(),
-                file: path.clone(),
-                inner: e.into(),
-            })?;
-
-        if !file_type.is_file() && !file_type.is_symlink() {
-            // Only files (including symlinked files) are included within the package
-            continue;
-        }
-        trace!("Found file {}", path.display());
-
-        let filename = path
-            .file_name()
-            .expect("We are listing a dir, file should have name");
-        let filename_str = filename.to_string_lossy();
-        if filename_str.ends_with(".mbl") || filename_str.ends_with(".mby") {
-            // Explicit custom rules may use legacy extensions as ordinary assets.
-            // Only reliance on the removed implicit generators is an error.
-            let declared = pkg_json.pre_build.iter().flatten().any(|rule| {
-                rule.input()
-                    .iter()
-                    .chain(rule.output().iter())
-                    .any(|declared| resolve_prebuild_path(abs, declared) == path)
-            });
-            if !declared {
-                return Err(DiscoverError::UnsupportedLegacyGeneratedSource { file: path });
-            }
-        }
-        match package_source_file_kind(&filename_str) {
-            Some(PackageSourceFileKind::Mbt) => source_files.push(path),
-            Some(PackageSourceFileKind::MbtMd) => mbt_md_files.push(path),
-            Some(PackageSourceFileKind::Mbtp) => mbtp_files.push(path),
-            None => {
-                // File is not one of our expected types, skip
-            }
-        }
-    }
-
-    // Read C stubs from package json
-    let mut c_stubs = Vec::new();
-    if let Some(stub_list) = &pkg_json.native_stub {
-        for stub in stub_list {
-            let (stub_path, escapes_package) = if cfg!(windows) {
-                // Native joining handles both slash styles and dot components
-                // against the canonical verbatim package root. Validate the
-                // resolved location using the same semantics.
-                let path = abs.join(stub);
-                let escapes_package = !path.starts_with(abs);
-                (path, escapes_package)
-            } else {
-                let rel_path = RelativePath::new(stub).normalize();
-                (rel_path.to_path(abs), rel_path.starts_with(".."))
-            };
-            if escapes_package {
-                return Err(DiscoverError::InvalidStubPath {
-                    module: m.clone(),
-                    package: fqn.package().clone(),
-                    path: stub.clone(),
-                    msg: "Path descends into parent directory",
+        let mut packages = BTreeMap::new();
+        for input in scan::scan_packages(&source, module_dir, &manifest, true, true, user_log)? {
+            scan::warn_package_name(&input.fqn, user_log);
+            if let Some(first) = names.insert(input.fqn.to_string(), input.fqn.clone()) {
+                return Err(DiscoverError::ConflictingPackageNameString {
+                    first: first.into(),
+                    second: input.fqn.into(),
                 });
             }
-            c_stubs.push(stub_path);
+            let path = input.fqn.package().clone();
+            let id = project.packages.insert(input);
+            packages.insert(path, id);
         }
-    };
-    let c_stub_headers = if c_stubs.is_empty() {
-        Vec::new()
-    } else {
-        discover_c_stub_headers(abs).map_err(|inner| DiscoverError::CantListPackageDir {
-            module: m.clone(),
-            package: fqn.package().clone(),
-            path: abs.to_owned(),
-            inner,
-        })?
-    };
-
-    // Sort the source files for repeatable results
-    let _sort_guard = tracing::debug_span!("sorting_files").entered();
-    source_files.sort();
-    mbt_md_files.sort();
-    mbtp_files.sort();
-    drop(_sort_guard);
-
-    // Record only virtual contracts that are already part of the Package File
-    // Set. Build planning later combines this with actual prebuild providers.
-    let virtual_mbti_files = discover_virtual_mbti_files(&pkg_json, abs);
-
-    Ok(DiscoveredPackage {
-        root_path: abs.to_path_buf(),
-        module: mid,
-        fqn,
-        single_file_source_kind: None,
-        manifest_path: Some(pkg_manifest_path.to_owned()),
-        raw: Box::new(pkg_json),
-        supported_targets_decl,
-        effective_supported_targets,
-        source_files,
-        mbt_md_files,
-        mbtp_files,
-        c_stub_files: c_stubs,
-        c_stub_header_files: c_stub_headers,
-        virtual_mbti_files,
-        is_stdlib: pkg_is_stdlib,
-    })
-}
-
-fn discover_c_stub_headers(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    let mut headers = Vec::new();
-    let mut entries = WalkDir::new(root).sort_by_file_name().into_iter();
-    while let Some(entry) = entries.next() {
-        let entry = entry?;
-        if entry.depth() != 0 && entry.file_type().is_dir() {
-            if is_ignored_directory_name(entry.file_name()) {
-                entries.skip_current_dir();
-                continue;
-            }
-
-            let path = entry.path();
-            if [MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON]
-                .iter()
-                .any(|manifest| path.join(manifest).exists())
-            {
-                entries.skip_current_dir();
-                continue;
-            }
-        }
-
-        if (entry.file_type().is_file() || entry.file_type().is_symlink())
-            && entry.path().extension().is_some_and(|extension| {
-                matches!(extension.to_str(), Some("h" | "hh" | "hpp" | "hxx"))
-            })
-        {
-            headers.push(entry.into_path());
-        }
+        project.modules.push(FmtModule {
+            module: ResolvedModule::new(source, Arc::new(manifest)),
+            manifest_format,
+            packages,
+        });
     }
-    headers.sort();
-    Ok(headers)
-}
-
-fn discover_virtual_mbti_files(pkg_json: &MoonPkg, abs: &Path) -> Vec<PathBuf> {
-    if pkg_json.virtual_pkg.is_some() {
-        [abs.join(MBTI_USER_WRITTEN)]
-            .into_iter()
-            .filter(|path| path.exists())
-            .collect()
-    } else {
-        Vec::new()
-    }
+    Ok(project)
 }
 
 #[cfg(test)]
@@ -587,7 +183,9 @@ mod tests {
         user_log::UserLog,
     };
 
-    use super::{discover_c_stub_headers, discover_packages, discover_virtual_mbti_files};
+    use super::prepare::{discover_c_stub_headers, discover_virtual_mbti_files};
+    use super::{DiscoverError, discover_for_build, discover_for_fmt};
+    use moonutil::project::ProjectManifest;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -597,6 +195,83 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("failed to create temporary module directory");
         dir
+    }
+
+    #[test]
+    fn formatting_does_not_prepare_native_build_inputs() -> anyhow::Result<()> {
+        // The fixture has a C-stub path that builds must reject, while its
+        // MoonBit files and manifests remain valid formatter inputs.
+        let dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fmt_invalid_native_stub");
+        let log = UserLog::new(log::LevelFilter::Off);
+        let project = discover_for_fmt(&dir, &ProjectManifest::None, &log)?;
+        assert_eq!(project.packages.len(), 1);
+
+        let module = &project.modules[0].module;
+        let (graph, id) = moonutil::resolution::ModuleDependencyGraph::only_one_module(
+            module.source().clone(),
+            module.module_info().as_ref().clone(),
+        );
+        let mut dirs = moonutil::resolution::DirSyncResult::default();
+        dirs.insert(id, dir);
+        assert!(matches!(
+            crate::discover::discover_for_build(&graph, &dirs, &log),
+            Err(DiscoverError::InvalidStubPath { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn manifest_warnings_follow_module_role_not_directory_name() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let root_dir = dir.path().join(".mooncakes/project");
+        let dependency_dir = dir.path().join("local-dependency");
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/manifest_warning_roles");
+        for relative in [".mooncakes/project", "local-dependency"] {
+            let target = dir.path().join(relative);
+            std::fs::create_dir_all(&target)?;
+            for file in ["moon.mod", "moon.pkg"] {
+                std::fs::copy(fixture.join(relative).join(file), target.join(file))?;
+            }
+        }
+        let root = moonutil::manifest::read_module_desc_file_in_dir(&root_dir)?;
+        let dependency = moonutil::manifest::read_module_desc_file_in_dir(&dependency_dir)?;
+        let (mut graph, root_id) = ModuleDependencyGraph::only_one_module(
+            ModuleSource::from_local_module(&root, &root_dir)?,
+            root,
+        );
+        let dependency_id = graph.add_module(
+            ModuleSource::from_local_module(&dependency, &dependency_dir)?,
+            std::sync::Arc::new(dependency),
+        );
+        let mut dirs = DirSyncResult::default();
+        dirs.insert(root_id, root_dir);
+        dirs.insert(dependency_id, dependency_dir.clone());
+
+        for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
+            let (log, capture) = UserLog::captured(level);
+            discover_for_build(&graph, &dirs, &log)?;
+            let warnings = capture.take();
+            assert_eq!(warnings.len(), usize::from(level == log::LevelFilter::Warn));
+            if let Some(warning) = warnings.first() {
+                assert_eq!(
+                    warning.message,
+                    "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                );
+            }
+        }
+        // Suppressing a dependency's author-facing warnings must not suppress
+        // its parse errors.
+        std::fs::copy(
+            fixture.join("local-dependency/moon.pkg.invalid"),
+            dependency_dir.join("moon.pkg"),
+        )?;
+        assert!(matches!(
+            discover_for_build(&graph, &dirs, &UserLog::new(log::LevelFilter::Warn)),
+            Err(super::DiscoverError::CantReadPackageFile { .. })
+        ));
+        Ok(())
     }
 
     #[test]
@@ -628,7 +303,7 @@ mod tests {
                 root.join("moon.pkg"),
                 format!("options(\"native-stub\": [{stub:?}])\n"),
             )?;
-            let result = discover_packages(&module_graph, &dirs, &log);
+            let result = discover_for_build(&module_graph, &dirs, &log);
             if valid {
                 let discovered = result?;
                 let package = discovered
@@ -678,7 +353,7 @@ mod tests {
 
             for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
                 let (user_log, capture) = UserLog::captured(level);
-                let discovered = discover_packages(&module_graph, &dirs, &user_log)?;
+                let discovered = discover_for_build(&module_graph, &dirs, &user_log)?;
                 assert!(
                     discovered
                         .get_package_id_by_name(&format!("{name}/v2"))
@@ -741,7 +416,7 @@ mod tests {
             dirs.insert(dep_id, dep_dir.clone());
             let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-            let discovered = discover_packages(&module_graph, &dirs, &user_log)?;
+            let discovered = discover_for_build(&module_graph, &dirs, &user_log)?;
             assert!(discovered.get_package_id_by_name("a/b/v2").is_some());
             assert!(capture.take().is_empty());
         }
@@ -767,7 +442,7 @@ mod tests {
         dirs.insert(id, dir.path().to_owned());
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-        discover_packages(&module_graph, &dirs, &user_log)?;
+        discover_for_build(&module_graph, &dirs, &user_log)?;
 
         let warnings = capture.take();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
@@ -779,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_packages_keeps_installed_module_manifest() {
+    fn discover_for_build_keeps_installed_module_manifest() {
         let dir = temp_dir("module-info");
         std::fs::write(
             dir.join("moon.mod"),
@@ -812,7 +487,7 @@ options(
         dirs.insert(id, dir.clone());
 
         let discovered =
-            discover_packages(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
+            discover_for_build(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
                 .expect("failed to discover test packages");
 
         let module = discovered.module_info(id);
@@ -868,7 +543,7 @@ source = ".src""#,
         dirs.insert(id, dir.clone());
 
         let discovered =
-            discover_packages(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
+            discover_for_build(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
                 .expect("failed to discover test packages");
 
         assert!(discovered.get_package_id_by_name("example/pkg").is_some());
@@ -910,6 +585,7 @@ dev_build(
             &manifest_path,
             &UserLog::new(log::LevelFilter::Error),
             false,
+            true,
         )
         .expect("failed to read package manifest");
 

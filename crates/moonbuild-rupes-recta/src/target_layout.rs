@@ -36,7 +36,7 @@ use moonutil::{
 use crate::{
     ResolvedProject,
     build_plan::{ArtifactKey, BuildAction},
-    discover::{DiscoverResult, DiscoveredLocalProject},
+    discover::DiscoverResult,
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
 };
@@ -135,15 +135,6 @@ impl TargetLayoutMode {
             _ => Self::Workspace,
         }
     }
-
-    pub fn from_fmt_resolve_output(resolved: &DiscoveredLocalProject) -> Self {
-        match resolved.root_module_ids.as_slice() {
-            &[module_id] => Self::Mono {
-                main_module: resolved.root_modules[module_id].source().clone(),
-            },
-            _ => Self::Workspace,
-        }
-    }
 }
 
 /// Target folder layout for generated artifacts.
@@ -188,19 +179,6 @@ impl TargetLayout {
             TargetLayoutMode::from_resolved_project(resolved_project),
             opt_level,
             run_mode,
-        )
-    }
-
-    pub fn from_fmt_resolve_output(
-        target_base_dir: PathBuf,
-        resolved: &DiscoveredLocalProject,
-        opt_level: OptLevel,
-    ) -> Self {
-        Self::new(
-            target_base_dir,
-            TargetLayoutMode::from_fmt_resolve_output(resolved),
-            opt_level,
-            RunMode::Format,
         )
     }
 
