@@ -109,6 +109,123 @@ fn trace_records_phase_boundaries_and_durations() {
 }
 
 #[test]
+fn inline_files_record_setup_and_are_cleaned_up() {
+    let traces = tempfile::tempdir().unwrap();
+    let dir = TestDir::prepare(
+        None,
+        false,
+        Options {
+            trace_dir: Some(traces.path().to_owned()),
+            keep_dir: None,
+        },
+    )
+    .with_files([
+        ("moon.mod", b"name = \"test/inline\"\n".as_slice()),
+        ("src/nested/input", &[0, 255, 10]),
+        ("src/moon.pkg", b""),
+    ]);
+    let workspace = dir.as_ref().to_owned();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moon.mod")).unwrap(),
+        "name = \"test/inline\"\n"
+    );
+    assert_eq!(
+        std::fs::read(dir.join("src/nested/input")).unwrap(),
+        [0, 255, 10]
+    );
+    assert_eq!(std::fs::read(dir.join("src/moon.pkg")).unwrap(), b"");
+    let prepared = records(traces.path());
+    assert_eq!(prepared.last().unwrap()["event"]["phase"], "setup");
+    assert_eq!(prepared.last().unwrap()["event"]["state"], "ok");
+    drop(dir);
+    let data = records(traces.path());
+    let phases: Vec<_> = data
+        .iter()
+        .map(|row| {
+            (
+                row["event"]["phase"].as_str().unwrap(),
+                row["event"]["state"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        phases,
+        [
+            ("create", "started"),
+            ("create", "ok"),
+            ("setup", "started"),
+            ("setup", "ok"),
+            ("cleanup", "started"),
+            ("cleanup", "ok"),
+        ]
+    );
+    for row in data.iter().filter(|row| row["event"]["state"] != "started") {
+        assert!(row["event"]["elapsed_us"].is_u64());
+    }
+    assert!(!workspace.exists());
+}
+
+#[test]
+fn inline_file_error_cleans_up_or_retains_partial_setup() {
+    for retain in [false, true] {
+        let traces = tempfile::tempdir().unwrap();
+        let kept = tempfile::tempdir().unwrap();
+        let result = std::panic::catch_unwind(|| {
+            TestDir::prepare(
+                None,
+                false,
+                Options {
+                    trace_dir: Some(traces.path().to_owned()),
+                    keep_dir: retain.then(|| kept.path().to_owned()),
+                },
+            )
+            // The first file prevents creating the second file's parent directory.
+            .with_files([("input", "keep this"), ("input/blocked", "unreachable")])
+        });
+        assert!(result.is_err());
+        let data = records(traces.path());
+        let setup = data
+            .iter()
+            .find(|row| row["event"]["phase"] == "setup" && row["event"]["state"] == "error")
+            .unwrap();
+        assert!(setup["event"]["elapsed_us"].is_u64());
+        assert!(setup["event"]["error"].as_str().unwrap().contains("input"));
+        let workspace = Path::new(setup["workspace"].as_str().unwrap());
+        if retain {
+            assert_eq!(
+                std::fs::read_to_string(workspace.join("input")).unwrap(),
+                "keep this"
+            );
+            assert_eq!(data.last().unwrap()["event"]["state"], "retained");
+        } else {
+            assert!(!workspace.exists());
+            assert_eq!(data.last().unwrap()["event"]["state"], "ok");
+        }
+    }
+}
+
+#[test]
+fn inline_file_paths_reject_parent_components_and_absolute_paths() {
+    let outside = tempfile::tempdir().unwrap();
+    for path in [PathBuf::from("../outside"), outside.path().join("absolute")] {
+        let result = std::panic::catch_unwind(|| {
+            TestDir::prepare(
+                None,
+                false,
+                Options {
+                    trace_dir: None,
+                    keep_dir: Some(outside.path().to_owned()),
+                },
+            )
+            .with_files([(path, "invalid")])
+        });
+        assert!(result.is_err());
+    }
+    assert!(!outside.path().join("outside").exists());
+    assert!(!outside.path().join("absolute").exists());
+}
+
+#[test]
 fn retention_keeps_generated_files_and_reports_no_cleanup() {
     let kept = tempfile::tempdir().unwrap();
     let traces = tempfile::tempdir().unwrap();

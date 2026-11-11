@@ -23,6 +23,8 @@ use std::{
     time::Instant,
 };
 
+use anyhow::Context;
+
 pub fn copy_tree(src: &Path, dest: &Path, exclude_target: bool) -> anyhow::Result<()> {
     if src.is_dir() {
         if !dest.exists() {
@@ -75,6 +77,52 @@ impl TestDir {
 
     pub fn new_empty() -> Self {
         Self::prepare(None, false, Options::from_env())
+    }
+
+    /// Write inline fixture files, creating their parent directories as needed.
+    /// Paths must be relative to this workspace. The writes form a `setup`
+    /// trace phase; failures clean up or retain partially initialized files
+    /// according to the same policy as copied fixtures.
+    pub fn with_files(
+        mut self,
+        files: impl IntoIterator<Item = (impl AsRef<Path>, impl AsRef<[u8]>)>,
+    ) -> Self {
+        if let Some(trace) = &mut self.trace {
+            trace.record(serde_json::json!({"phase": "setup", "state": "started"}));
+        }
+        let started = Instant::now();
+        let initialized = files.into_iter().try_for_each(|(relative, contents)| {
+            let relative = relative.as_ref();
+            anyhow::ensure!(
+                !relative.as_os_str().is_empty()
+                    && relative.components().all(|part| matches!(
+                        part,
+                        std::path::Component::Normal(_) | std::path::Component::CurDir
+                    )),
+                "fixture file path must be relative without parent components: {}",
+                relative.display()
+            );
+            let path = self.join(relative);
+            if let Some(parent) = relative
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
+                std::fs::create_dir_all(self.join(parent))
+                    .with_context(|| format!("create parent directory for {}", path.display()))?;
+            }
+            std::fs::write(&path, contents)
+                .with_context(|| format!("write test fixture file {}", path.display()))
+        });
+        let elapsed = started.elapsed();
+        if let Some(trace) = &mut self.trace {
+            trace.record(serde_json::json!({
+                "phase": "setup", "state": if initialized.is_ok() { "ok" } else { "error" },
+                "elapsed_us": elapsed.as_micros(),
+                "error": initialized.as_ref().err().map(|error| format!("{error:#}")),
+            }));
+        }
+        initialized.expect("initialize test fixture files");
+        self
     }
 
     fn prepare(source: Option<&Path>, exclude_target: bool, options: Options) -> Self {

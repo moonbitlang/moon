@@ -39,6 +39,9 @@ target. Use `Fixture::copied(case)` when a test writes into its project or
 checks the default build path. For examples,
 timing, and retaining artifacts for inspection, see
 [Test-directory diagnostics](test-directory-diagnostics.md#choose-what-to-isolate).
+Small inline projects can use
+`moon_test_util::test_dir::TestDir::new_empty().with_files(...)` to keep inputs
+beside assertions while sharing initialization timing and workspace retention.
 
 ## Make the assertion explain the contract
 
