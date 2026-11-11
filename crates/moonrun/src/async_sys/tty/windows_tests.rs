@@ -339,12 +339,12 @@ fn console_input_records(tty: TtyResources) {
     ];
     inject(&input, &records);
     // A cancelled Job leaves nothing behind for the next one.
-    let cancelled = Job::read_console_input(input.clone(), 8).unwrap();
+    let cancelled = Job::read_console_input(input.clone(), 80).unwrap();
     let cancel = cancelled.cancellation_resource().unwrap();
     assert_ne!(unsafe { SetEvent(raw(&cancel)) }, 0);
     drop(cancelled);
     // Read every record, so the resize at the end is seen with the input.
-    let mut job = Job::read_console_input(input.clone(), records.len() as u32).unwrap();
+    let mut job = Job::read_console_input(input.clone(), records.len() as u32 * 10).unwrap();
     assert_eq!(job.run().unwrap(), 4);
     assert!(job.read_console_input_resized().unwrap());
     let mut memory = [0_u8; 8];
@@ -357,9 +357,9 @@ fn console_input_records(tty: TtyResources) {
     // Focus events are dropped, as in native.
     assert_eq!(text, [0x03bb, 0, 0xd83d, 0xde00]);
     inject(&input, &[resize]);
-    let mut empty = Job::read_console_input(input.clone(), 0).unwrap();
+    let mut empty = Job::read_console_input(input.clone(), 9).unwrap();
     assert_eq!(empty.run(), Err(crate::async_host::AsyncHostError::Inval));
-    let mut job = Job::read_console_input(input.clone(), 1).unwrap();
+    let mut job = Job::read_console_input(input.clone(), 10).unwrap();
     assert_eq!(job.run().unwrap(), -1);
     assert!(job.read_console_input_resized().unwrap());
     set_state(&input, &tty.output, &state).unwrap();
@@ -372,7 +372,7 @@ fn console_read_cancellation() {
         let tty = open().unwrap();
         assert_ne!(unsafe { FlushConsoleInputBuffer(raw(&tty.input)) }, 0);
         let input = Arc::new(tty.input);
-        let job = crate::filesystem::Job::read_console_input(input, 3).unwrap();
+        let job = crate::filesystem::Job::read_console_input(input, 30).unwrap();
         let (started, ready) = mpsc::channel();
         let (release, resume) = mpsc::channel();
         let (completed, results) = mpsc::channel();
@@ -434,7 +434,7 @@ fn console_read_cancellation_after_drain() {
             competitor_done.send((ok, count)).unwrap();
         });
         std::thread::sleep(Duration::from_millis(10));
-        let job = crate::filesystem::Job::read_console_input(input.clone(), 3).unwrap();
+        let job = crate::filesystem::Job::read_console_input(input.clone(), 30).unwrap();
         let (completed, results) = mpsc::channel();
         let worker = spawn_worker(
             WorkerJob::new(

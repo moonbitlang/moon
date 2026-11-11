@@ -82,7 +82,12 @@ pub(in crate::filesystem::job) fn read_console_input(
     resized: &mut bool,
 ) -> AsyncHostResult<i64> {
     const MAX_RECORDS: usize = 256;
-    let max_records = len.min(MAX_RECORDS as u32);
+    // As in native, `len` is a UTF-16 buffer capacity, and the records read
+    // must fit in that buffer, though the host keeps them in its own array.
+    // A record produces at most one code unit.
+    const INPUT_RECORD_UNITS: u32 =
+        (std::mem::size_of::<INPUT_RECORD>() / std::mem::size_of::<u16>()) as u32;
+    let max_records = (len / INPUT_RECORD_UNITS).min(MAX_RECORDS as u32);
     // Reading no records would spin on the signaled console. Reject it before
     // waiting.
     if max_records == 0 {
