@@ -18,7 +18,10 @@
 
 //! Lowering context and core implementation.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use moonutil::{
     resolution::{DirSyncResult, ModuleDependencyGraph},
@@ -52,6 +55,10 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) rel: &'a PackageRelations,
     pub(crate) plan: &'a BuildPlan,
     pub(crate) opt: &'a CompileConfig,
+
+    // The graph, backend and toolchain paths are fixed for this lowering.
+    // Reuse requested stdlib targets' closures across compiler actions.
+    pub(super) installed_stdlib_closures: HashMap<BuildTarget, Vec<PathBuf>>,
 
     // Native compilation observes the selected Moon toolchain include tree.
     // Discover it at most once for all actions lowered by this context.
@@ -190,6 +197,7 @@ impl<'a> LoweringContext<'a> {
             module_dirs: &resolved_project.module_dirs,
             plan,
             opt,
+            installed_stdlib_closures: HashMap::new(),
             toolchain_include_files: None,
         }
     }
