@@ -228,6 +228,13 @@ jobs:
       - name: Build xtask
         run: cargo build -p xtask
 
+      - name: Install perf (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y "linux-tools-$(uname -r)"
+          sudo sysctl -w kernel.perf_event_paranoid=1
+
       - name: Run tests
         run: cargo test
 

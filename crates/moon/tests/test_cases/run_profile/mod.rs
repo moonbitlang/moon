@@ -310,6 +310,51 @@ Samples: 1, sample weight: [..]ms
     assert_eq!(recorded, expected);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn test_moon_run_profile_with_real_perf() {
+    // Given a sustained MoonBit workload and real perf with DWARF unwinding
+    // and permission to record per-process cpu-clock events.
+    let dir = Fixture::readonly("run_profile/real_perf");
+
+    // When the normal CLI records, exports, and parses the profile.
+    moon_cmd(&dir)
+        .args(["run", ".", "--profile"])
+        .assert()
+        .success();
+
+    // Then the retained report must contain samples from the workload itself.
+    let reports: Vec<_> = walkdir::WalkDir::new(dir.target_dir().unwrap())
+        .into_iter()
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_name() == "profile.json")
+        .map(|entry| entry.into_path())
+        .collect();
+    assert_eq!(reports.len(), 1, "expected one profile report");
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&reports[0]).unwrap()).unwrap();
+    assert_eq!(report["producer"]["profiler_backend"], "perf");
+    assert!(
+        report["summary"]["profiled_samples"].as_u64().unwrap() > 0,
+        "expected nonzero MoonBit samples: {report:#}"
+    );
+    assert!(
+        report["rankings"]["inclusive_time"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["symbol"].as_str().unwrap().contains("fib")
+                    && entry["samples"].as_u64().unwrap() > 0
+            }),
+        "expected samples attributed to fib: {report:#}"
+    );
+    for artifact in ["trace", "perf_script"] {
+        let path = Path::new(report["artifacts"][artifact].as_str().unwrap());
+        assert!(std::fs::metadata(path).unwrap().len() > 0);
+    }
+}
+
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 #[test]
 fn test_moon_run_profile_on_non_macos_reports_error() {
