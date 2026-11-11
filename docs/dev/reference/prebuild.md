@@ -49,6 +49,13 @@ these overrides, and `paths` contains `module_root` and `out_dir`. `module_root`
 remains the module directory; `out_dir` now contains the real directory provided
 as `MOON_BUILD_DIR`.
 
+Reading any bytes from this compatibility stdin input emits a deprecation
+warning naming the module and script. Scripts should use the environment
+variables above instead. The warning follows the user-log level, including
+`--quiet`. Scripts that leave stdin unread or close it without reading receive
+no warning. Input delivery and stdout parsing are unchanged; byte consumption
+does not establish whether a script parsed or used the JSON.
+
 Host OS and architecture describe the Moon process's platform. Backend and
 profile describe the project build, even when the prebuild script itself is
 compiled to Wasm. They reflect effective

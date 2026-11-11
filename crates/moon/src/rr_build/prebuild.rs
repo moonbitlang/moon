@@ -20,9 +20,9 @@
 
 use std::{
     collections::HashMap,
-    io::Write,
+    io::{self, Write},
     path::Path,
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
 };
 
 use anyhow::{Context, anyhow};
@@ -38,6 +38,7 @@ use moonutil::{
     manifest::preferred_manifest_in_dir,
     project::SourceTargetDirs,
     resolution::ModuleName,
+    user_log::UserLog,
 };
 use tracing::instrument;
 
@@ -52,6 +53,7 @@ pub(super) fn run_prebuild_config(
     cx: &CompileConfig,
     jobs: usize,
     frozen: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<PrebuildOutput> {
     let environment: HashMap<String, String> = std::env::vars().collect();
     let build_dir = cx
@@ -87,7 +89,7 @@ pub(super) fn run_prebuild_config(
             },
         };
         let script_output =
-            run_build_script_for_module(ms, m_dir, input, prebuild, cx, jobs, frozen)
+            run_build_script_for_module(ms, m_dir, input, prebuild, cx, jobs, frozen, user_log)
                 .with_context(|| {
                     format!("Failed to run prebuild script for module {}", m_info.name)
                 })?;
@@ -192,6 +194,7 @@ fn run_script_cmd(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_build_script_for_module(
     module: &moonutil::resolution::ModuleSource,
     dir: &Path,
@@ -200,6 +203,7 @@ fn run_build_script_for_module(
     cx: &CompileConfig,
     jobs: usize,
     frozen: bool,
+    user_log: &UserLog,
 ) -> Result<BuildScriptOutput, anyhow::Error> {
     // TODO: This executes arbitrary scripts. It's essentially the same as
     // `build.rs` -- the user must check for the safeness of the build script
@@ -210,8 +214,8 @@ fn run_build_script_for_module(
     );
     let (manifest_path, _) = preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
         .with_context(|| format!("failed to locate module manifest for `{module}`"))?;
-    let mut cmd = run_script_cmd(prebuild, module.name(), dir, &cx.target_dir, frozen)?
-        .current_dir(dir)
+    let mut cmd = run_script_cmd(prebuild, module.name(), dir, &cx.target_dir, frozen)?;
+    cmd.current_dir(dir)
         .envs(&input.env)
         .env("MOON_MOD", manifest_path)
         .env("MOON_BUILD_DIR", &input.paths.out_dir)
@@ -220,31 +224,20 @@ fn run_build_script_for_module(
         .env("MOON_BACKEND", cx.backend.target_backend().to_flag())
         .env("MOON_PROFILE", cx.opt_level.as_str())
         .env("MOON_JOBS", jobs.to_string())
-        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .with_context(|| {
-            format!("failed to spawn prebuild script `{prebuild}` for module `{module}`")
-        })?;
+        .stderr(Stdio::inherit());
     // TODO: Remove this stdin transport once compatibility with scripts reading
     // the legacy JSON input is no longer required.
-    let stdin = cmd.stdin.take().expect("Didn't get stdin");
-    let join = std::thread::spawn(move || {
-        let mut stdin = stdin;
-        let input = serde_json::to_string(&input).expect("failed to serialize input");
-        let _ = stdin.write_all(input.as_bytes());
-    });
-    let output = cmd.wait_with_output().with_context(|| {
+    let input = serde_json::to_vec(&input).context("failed to serialize prebuild input")?;
+    let (output, stdin_read) = run_prebuild_command(cmd, input).with_context(|| {
         format!("failed to run prebuild script `{prebuild}` for module `{module}`")
     })?;
-    join.join().map_err(|_| {
-        anyhow::anyhow!(
-            "failed to join prebuild script `{}` for module `{}`",
-            prebuild,
-            module,
-        )
-    })?;
+    if stdin_read {
+        user_log.warn(format!(
+            "Prebuild script `{prebuild}` for module `{}` read the deprecated stdin input; use the prebuild environment variables instead.",
+            module.name(),
+        ));
+    }
     if !output.status.success() {
         anyhow::bail!(
             "prebuild script `{}` for module `{}` failed",
@@ -258,4 +251,91 @@ fn run_build_script_for_module(
         })?;
 
     Ok(output)
+}
+
+/// Run a prebuild command and report whether its processes consumed stdin bytes.
+fn run_prebuild_command(mut cmd: Command, input: Vec<u8>) -> anyhow::Result<(Output, bool)> {
+    let input_len = input.len() as u64;
+    let (mut reader, mut writer) = io::pipe().context("failed to create prebuild stdin pipe")?;
+    let child = cmd
+        .stdin(
+            reader
+                .try_clone()
+                .context("failed to clone prebuild stdin pipe")?,
+        )
+        .spawn()
+        .context("failed to spawn prebuild script")?;
+    drop(cmd);
+
+    // Retaining a reader lets us count unread bytes after the script exits.
+    // Do not read from it while the script runs: pipe readers consume, not copy.
+    let writing = std::thread::spawn(move || writer.write_all(&input));
+    let output = child.wait_with_output()?;
+    // An ignored or partially read payload can leave the writer blocked on a
+    // full pipe. Drain before joining it, and close the reader even if draining
+    // fails so that no parent-owned reader can keep the writer blocked.
+    let remaining = io::copy(&mut reader, &mut io::sink());
+    drop(reader);
+    let written = writing
+        .join()
+        .map_err(|_| anyhow!("prebuild stdin writer panicked"))?;
+    let remaining = remaining.context("failed to drain prebuild stdin")?;
+    written.context("failed to write prebuild stdin")?;
+    Ok((output, remaining < input_len))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{process::Command, sync::mpsc, time::Duration};
+
+    use moonutil::toolchain::BINARIES;
+
+    use super::run_prebuild_command;
+
+    #[test]
+    fn stdin_consumption_preserves_output_and_handles_large_unread_inputs() {
+        for size in [32, 2 * 1024 * 1024] {
+            for (read_input, expected_read, exit_code) in [
+                ("", false, 0),
+                ("require('node:fs').closeSync(0)", false, 0),
+                (
+                    "require('node:fs').readSync(0, Buffer.alloc(1), 0, 1, null)",
+                    true,
+                    0,
+                ),
+                ("require('node:fs').readFileSync(0)", true, 0),
+                (
+                    "require('node:fs').readSync(0, Buffer.alloc(1), 0, 1, null)",
+                    true,
+                    3,
+                ),
+            ] {
+                let (send, receive) = mpsc::channel();
+                let running = std::thread::spawn(move || {
+                    let mut cmd = Command::new(BINARIES.node.as_ref().expect("node is required"));
+                    cmd.args([
+                        "-e",
+                        &format!(
+                            "{read_input}\nprocess.stdout.write('output'); process.exitCode = {exit_code}",
+                        ),
+                    ])
+                    .stdout(std::process::Stdio::piped());
+                    let _ = send.send(run_prebuild_command(cmd, vec![b'x'; size]));
+                });
+                // A drain/join ordering regression must fail instead of hanging
+                // the test suite when the input exceeds the pipe's capacity.
+                let (output, stdin_read) = receive
+                    .recv_timeout(Duration::from_secs(30))
+                    .expect("prebuild command did not finish")
+                    .unwrap();
+                running.join().unwrap();
+                assert_eq!(output.status.code(), Some(exit_code));
+                assert_eq!(output.stdout, b"output");
+                assert_eq!(
+                    stdin_read, expected_read,
+                    "input: {size}, script: {read_input}"
+                );
+            }
+        }
+    }
 }

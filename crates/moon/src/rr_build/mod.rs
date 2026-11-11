@@ -484,6 +484,7 @@ pub(crate) fn plan_resolved_build_from_intent(
             &cx,
             resolve_parallelism(jobs),
             frozen,
+            user_log,
         )?)
     } else {
         info!("Skipping prebuild configuration: no applicable scripts");

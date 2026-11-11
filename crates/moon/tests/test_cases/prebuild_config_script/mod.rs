@@ -23,6 +23,56 @@ fn test_prebuild_config_mbtx() {
 }
 
 #[test]
+fn test_prebuild_config_warns_only_when_stdin_is_read() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"name = "testuser/stdin"
+options("--moonbit-unstable-prebuild": "build.js")
+"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(dir.join("lib.mbt"), "pub fn answer() -> Int { 42 }").unwrap();
+
+    for (read_input, reads_stdin) in [
+        ("", false),
+        ("require('node:fs').closeSync(0)", false),
+        (
+            "require('node:fs').readSync(0, Buffer.alloc(1), 0, 1, null)",
+            true,
+        ),
+        (
+            "const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); require('node:assert/strict').equal(input.paths.out_dir, process.env.MOON_BUILD_DIR)",
+            true,
+        ),
+    ] {
+        std::fs::write(
+            dir.join("build.js"),
+            format!("{read_input}\nconsole.log('{{}}')\n"),
+        )
+        .unwrap();
+
+        for quiet in [false, true] {
+            moon_cmd(&dir)
+                .args(["build", "--target", "native", "--dry-run"])
+                .args(quiet.then_some("--quiet"))
+                .timeout(std::time::Duration::from_secs(30))
+                .assert()
+                .success()
+                .stderr_eq(if reads_stdin && !quiet {
+                    snapbox::str![[r#"
+Warning: Prebuild script `build.js` for module `testuser/stdin` read the deprecated stdin input; use the prebuild environment variables instead.
+
+"#]]
+                } else {
+                    snapbox::str![""]
+                });
+        }
+    }
+}
+
+#[test]
 fn test_prebuild_config_skipped_dry_runs_do_not_lock() {
     let dir = TestDir::new_empty();
     let target = dir.join("custom build");
