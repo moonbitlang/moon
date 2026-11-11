@@ -195,8 +195,9 @@ fn main {
   println(utf8_len_from_utf16(decoded_string, 0, 6))
   let encoded = FixedArray::make(11, b'\x00')
   println(utf8_encode_from_utf16(decoded_string, 0, 6, encoded, 0))
-  println(encoded[0])
-  println(encoded[10])
+  // Compare converted byte values independently of Byte's display format.
+  println(encoded[0].to_int())
+  println(encoded[10].to_int())
 
   let invalid : FixedArray[Byte] = [b'\x41', b'\x80', b'\x42']
   println(
