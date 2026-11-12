@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Diagnose profiling timeout
+name: Diagnose xctrace without Moon
 
 on:
   push:
@@ -24,47 +24,25 @@ permissions:
 
 jobs:
   reproduce:
-    name: Fresh macOS runner ${{ matrix.attempt }}
     runs-on: macos-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         attempt: [1, 2, 3]
-    env:
-      CARGO_TERM_COLOR: always
-      RUST_BACKTRACE: 0
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
-      - uses: ./.github/actions/setup-debug-cache
-      - uses: ./.github/actions/setup-rusty-v8
-      - name: Install MoonBit
+      - name: Record runner versions
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
-          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
-      - name: Build
-        run: |
-          cargo build
-          cargo build -p xtask
-          cargo test -p moon --test mod --no-run
-      - name: Prepare integration tests
-        run: |
-          target/debug/moon version --all
+          sw_vers
           xcodebuild -version
-          target/debug/moon -C "$HOME/.moon/lib/core" bundle --all --target llvm
-          target/debug/moon update
-      - name: Repeat with diagnostics
-        run: |
-          python3 .github/scripts/diagnose-profile-timeout.py \
-            --output "$RUNNER_TEMP/profile-diagnostics" --suite-first --repetitions 5
+      - name: Repeat standalone xctrace
+        run: python3 .github/scripts/diagnose-xctrace-record.py
       - name: Retain diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: profile-diagnostics-${{ matrix.attempt }}
-          path: ${{ runner.temp }}/profile-diagnostics
+          name: xctrace-diagnostics-${{ matrix.attempt }}
+          path: ${{ runner.temp }}/xctrace-diagnostics
           retention-days: 3
           if-no-files-found: warn
