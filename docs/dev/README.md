@@ -51,8 +51,9 @@ they own the behavior being changed or compatibility is part of the task.
   MoonBuild behavior and must change with that behavior.
 - [`docs/dev/research`](research/) contains non-normative investigations that
   inform design choices but do not define implemented behavior. Existing
-  comparisons include [dependency-tree deduplication](research/dependency-tree-dedup-comparison.md)
-  and [GitHub permalink installation](research/github-permalink-install.md).
+  comparisons include [dependency-tree deduplication](research/dependency-tree-dedup-comparison.md),
+  [GitHub permalink installation](research/github-permalink-install.md), and
+  [Windows native CPU profiling](research/windows-native-profiling.md).
 - [Command output migration](command-output-migration.md) owns the sequencing
   of that in-progress migration.
 - [`docs/manual`](../manual/) and [`docs/manual-zh`](../manual-zh/) own
