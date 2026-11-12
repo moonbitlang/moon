@@ -29,7 +29,9 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{self, CC, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
+    compiler_flags::{
+        self, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainPolicy, ToolchainSource,
+    },
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
@@ -110,16 +112,27 @@ impl<'a> BuildPlanConstructor<'a> {
         );
     }
 
-    fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+    fn effective_native_toolchain(
+        &mut self,
+        package_cc: Option<&str>,
+    ) -> anyhow::Result<Toolchain> {
         // TODO: Consume explicit toolchain candidates and environment overrides
         // once native toolchain discovery moves to command orchestration.
         debug_assert!(self.config.backend.target_backend().is_native());
         if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::windows_msvc_native_toolchain(package_cc);
+            return compiler_flags::effective_native_toolchain(
+                compiler_flags::ENV_CC.as_ref(),
+                package_cc,
+                ToolchainPolicy::WindowsMsvc,
+            );
         }
 
-        compiler_flags::effective_native_toolchain(package_cc)
+        compiler_flags::effective_native_toolchain(
+            compiler_flags::ENV_CC.as_ref(),
+            package_cc,
+            ToolchainPolicy::PlatformDefault,
+        )
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
@@ -880,13 +893,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let stub_cc = native_config
             .and_then(|native| native.stub_cc.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref()).map_err(|e| {
-                    BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?;
+            .map(|s| self.replace_build_vars(target, pkg.module, s));
 
         let cc_flags = native_config
             .and_then(|native| native.stub_cc_flags.as_ref())
@@ -914,7 +921,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .collect();
 
         let effective_native_toolchain = self
-            .effective_native_toolchain(stub_cc.as_ref())
+            .effective_native_toolchain(stub_cc.as_deref())
             .map_err(|e| {
                 BuildPlanConstructError::FailedToSetStubCC(
                     self.new_native_linker_context(e),
@@ -1145,12 +1152,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
             .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(package, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref())
-                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
-            })
-            .transpose()?;
+            .map(|s| self.replace_build_vars(package, pkg.module, s));
         let c_flags = native_config
             .and_then(|native| native.cc_flags.as_ref())
             .map(|s| self.replace_build_vars(package, pkg.module, s))
@@ -1163,12 +1165,13 @@ impl<'a> BuildPlanConstructor<'a> {
             .unwrap_or_default();
 
         let effective_native_toolchain =
-            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
-                BuildPlanConstructError::FailedToSetCC(
-                    self.new_native_linker_context(e),
-                    pkg.fqn.clone().into(),
-                )
-            })?;
+            self.effective_native_toolchain(cc.as_deref())
+                .map_err(|e| {
+                    BuildPlanConstructError::FailedToSetCC(
+                        self.new_native_linker_context(e),
+                        pkg.fqn.clone().into(),
+                    )
+                })?;
 
         let native_allocator = self
             .config
@@ -1871,7 +1874,7 @@ fn prebuild_command_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::{ARKind, CCKind};
+    use moonutil::compiler_flags::{ARKind, CC, CCKind};
 
     use super::*;
 

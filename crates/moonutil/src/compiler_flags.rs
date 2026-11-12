@@ -38,12 +38,13 @@ use gcc_like::{
     add_cc_common_libraries, add_cc_specific_flags as add_cc_gcc_like_specific_flags,
     add_linker_common_libraries,
 };
+#[cfg(test)]
+use msvc::ensure_windows_msvc_compatible;
 #[cfg(all(test, windows))]
 use msvc::windows_msvc_host_target_triple;
 pub use msvc::{
     WINDOWS_MSVC_C_STANDARD_FLAG, WINDOWS_MSVC_DEFAULT_LIBS, WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
     has_incompatible_windows_msvc_env_override, resolve_windows_msvc_toolchain,
-    windows_msvc_native_toolchain,
 };
 use msvc::{
     add_cc_linker_flags as add_cc_msvc_linker_flags,
@@ -53,9 +54,7 @@ use msvc::{
     add_linker_specific_flags as add_linker_msvc_specific_flags, default_librarian,
 };
 #[cfg(windows)]
-use msvc::{discovered_windows_msvc_toolchain, resolve_msvc_toolchain_override};
-#[cfg(test)]
-use msvc::{ensure_windows_msvc_compatible, windows_msvc_toolchain_with_package_override};
+use msvc::{discovered_windows_msvc_toolchain, resolve_requested_msvc_toolchain};
 use tcc::{
     add_cc_specific_flags as add_cc_tcc_specific_flags,
     add_macos_sdk_library_path as add_tcc_macos_sdk_library_path,
@@ -85,6 +84,8 @@ pub enum ARKind {
 }
 
 #[derive(Clone, Debug)]
+// TODO: Make CC resolved compiler facts only once native toolchain resolution
+// owns probing and archiver selection; constructors still perform I/O here.
 pub struct CC {
     pub cc_kind: CCKind,
     pub cc_path: String,
@@ -126,6 +127,15 @@ pub enum ToolchainSource {
     EnvOverride,
     PathProbe,
     PackageOverride,
+}
+
+/// Platform discovery and compiler compatibility rules for native tool selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolchainPolicy {
+    /// Honor configured compilers and use the host platform's default discovery.
+    PlatformDefault,
+    /// Require a cl-compatible driver and MSVC discovery for Windows objects.
+    WindowsMsvc,
 }
 
 #[derive(Clone, Debug)]
@@ -315,17 +325,6 @@ impl Toolchain {
         self.cc_wrapper = Some(wrapper);
         self
     }
-
-    pub fn with_package_override(&self, package_cc: Option<&CC>) -> Toolchain {
-        match (self.source, package_cc) {
-            (ToolchainSource::EnvOverride, Some(_)) => self.clone(),
-            (ToolchainSource::EnvOverride, None) | (_, None) => self.clone(),
-            (_, Some(package_cc)) => Toolchain {
-                cc_wrapper: self.cc_wrapper.clone(),
-                ..Toolchain::from_package_override(package_cc.clone())
-            },
-        }
-    }
 }
 
 // Used to detect the availability of libmoonbitrun.o on host system
@@ -379,6 +378,7 @@ fn triple_matches_host(triple: &str, host_arch: &str, host_os: &str) -> bool {
     }
 }
 
+#[cfg(windows)]
 fn is_path_like_tool(tool: &str) -> bool {
     let path = Path::new(tool);
     let has_parent = path
@@ -413,14 +413,6 @@ fn resolve_native_toolchain_executables_with(
 /// Finalizes the effective native toolchain after source selection and overrides.
 /// Toolchains returned across this boundary always contain concrete executable paths.
 fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<Toolchain> {
-    #[cfg(windows)]
-    let toolchain = if toolchain.cc.uses_msvc_cli() && !is_path_like_tool(&toolchain.cc.cc_path) {
-        let discovered = resolve_windows_msvc_toolchain()?;
-        resolve_msvc_toolchain_override(toolchain, &discovered)
-    } else {
-        toolchain
-    };
-
     let mut toolchain = resolve_native_toolchain_executables_with(toolchain, |tool| {
         crate::toolchain::resolve_executable(tool)
     })?;
@@ -808,26 +800,45 @@ fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     try_cc_on_path().map(Toolchain::from_path_probe)
 }
 
-fn selected_default_native_toolchain() -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(Toolchain::from_env_override(env_cc.clone()));
-    }
-    detected_default_native_toolchain()
-}
-
-pub fn default_native_toolchain() -> anyhow::Result<Toolchain> {
-    resolve_native_toolchain_executables(selected_default_native_toolchain()?)
-}
-
-pub fn effective_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-    let selected = if let Some(env_cc) = ENV_CC.as_ref() {
-        Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
+/// Resolve the winning explicit override, or discover a toolchain when none applies.
+pub fn effective_native_toolchain(
+    env_cc: Option<&CC>,
+    package_cc: Option<&str>,
+    policy: ToolchainPolicy,
+) -> anyhow::Result<Toolchain> {
+    // Preserve the Windows direct-object policy: an incompatible MOON_CC is
+    // ignored (with a warning from the caller), while a package override errors.
+    let (cc, source) = if let Some(cc) =
+        env_cc.filter(|cc| policy != ToolchainPolicy::WindowsMsvc || cc.uses_msvc_cli())
+    {
+        (cc.clone(), ToolchainSource::EnvOverride)
     } else if let Some(package_cc) = package_cc {
-        Toolchain::from_package_override(package_cc.clone())
+        let cc = CC::try_from_path(package_cc)?;
+        if policy == ToolchainPolicy::WindowsMsvc {
+            msvc::ensure_windows_msvc_compatible(&cc)?;
+        }
+        (cc, ToolchainSource::PackageOverride)
     } else {
-        selected_default_native_toolchain()?
+        let toolchain = match policy {
+            ToolchainPolicy::WindowsMsvc => msvc::discovered_windows_msvc_toolchain()?,
+            ToolchainPolicy::PlatformDefault => detected_default_native_toolchain()?,
+        };
+        return resolve_native_toolchain_executables(toolchain);
     };
-    resolve_native_toolchain_executables(selected)
+
+    let toolchain = match cc {
+        #[cfg(windows)]
+        cc if cc.uses_msvc_cli() && !is_path_like_tool(&cc.cc_path) => {
+            resolve_requested_msvc_toolchain(cc, source)?
+        }
+        cc => Toolchain {
+            cc,
+            source,
+            msvc_environment: None,
+            cc_wrapper: None,
+        },
+    };
+    resolve_native_toolchain_executables(toolchain)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1958,9 +1969,6 @@ mod tests {
             wrapped.cc().is_libmoonbitrun_o_available(),
             toolchain.cc().is_libmoonbitrun_o_available()
         );
-        let overridden = wrapped.with_package_override(Some(&fake_cc(CCKind::Gcc, None)));
-        assert!(matches!(overridden.cc().cc_kind, CCKind::Gcc));
-        assert_eq!(overridden.cc_wrapper(), wrapped.cc_wrapper());
     }
 
     #[test]
@@ -2077,99 +2085,97 @@ mod tests {
     }
 
     #[test]
-    fn windows_msvc_package_override_preserves_env_override_precedence() {
-        let fixture = native_toolchain_fixture();
-        let compiler = fixture.join("env/env-cl.exe");
-        let archiver = fixture.join("env/env-lib.exe");
+    fn compiler_selection_applies_precedence_before_parsing_package_override() {
+        let compiler = native_toolchain_fixture().join("custom/bin/cl.exe");
+        let compiler = compiler.to_str().unwrap();
+        let env = CC {
+            is_env_override: true,
+            ..CC::try_from_path(compiler).unwrap()
+        };
+        for policy in [
+            ToolchainPolicy::PlatformDefault,
+            ToolchainPolicy::WindowsMsvc,
+        ] {
+            let toolchain = effective_native_toolchain(Some(&env), Some(""), policy).unwrap();
+            assert_eq!(Path::new(&toolchain.cc().cc_path), Path::new(compiler));
+            assert_eq!(toolchain.source(), ToolchainSource::EnvOverride);
+        }
 
-        let mut env_cc = fake_cc(CCKind::Msvc, None);
-        env_cc.cc_path = compiler.display().to_string();
-        env_cc.ar_kind = ARKind::MsvcLib;
-        env_cc.ar_path = archiver.display().to_string();
-        env_cc.is_env_override = true;
-        let resolved =
-            Toolchain::from_env_override(env_cc).with_msvc_environment(MsvcEnvironment {
-                command_env: vec![("INCLUDE".to_string(), "env/include".to_string())],
-            });
-        let mut package_cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
-        package_cc.cc_path = "clang.exe".to_string();
-
-        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
-            .expect("MOON_CC-style source should ignore package cc");
-
-        assert_eq!(toolchain.source(), ToolchainSource::EnvOverride);
-        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
-        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
-        assert_eq!(
-            toolchain
-                .msvc_environment()
-                .expect("env toolchain keeps MSVC environment")
-                .command_env(),
-            &[("INCLUDE".to_string(), "env/include".to_string())]
+        let incompatible = fake_cc(CCKind::Gcc, None);
+        let toolchain = effective_native_toolchain(
+            Some(&incompatible),
+            Some(compiler),
+            ToolchainPolicy::WindowsMsvc,
+        )
+        .unwrap();
+        assert_eq!(Path::new(&toolchain.cc().cc_path), Path::new(compiler));
+        assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
+        assert!(
+            effective_native_toolchain(None, Some("gcc"), ToolchainPolicy::WindowsMsvc).is_err()
         );
     }
 
     #[test]
-    fn bare_windows_msvc_package_override_uses_discovered_tool_paths() {
+    fn path_like_msvc_request_does_not_require_discovery() {
         let fixture = native_toolchain_fixture();
-        let compiler = fixture.join("msvc/bin/cl.exe");
-        let archiver = fixture.join("msvc/bin/lib.exe");
-
-        let discovered_cc = CC::try_from_path(&compiler.display().to_string())
-            .expect("parse discovered MSVC compiler path");
-        let resolved =
-            Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
-                command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
-            });
-        let package_cc = CC::try_from_path("cl.exe").expect("parse bare MSVC package override");
-
-        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
-            .expect("bare cl.exe package override should remain MSVC-compatible");
-
-        assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
-        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
-        assert_eq!(Path::new(&toolchain.cc_command_path()), compiler);
-        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
-        assert!(toolchain.msvc_environment().is_some());
+        let compiler = fixture.join("custom/bin/cl.exe");
+        let archiver = fixture.join("custom/bin/lib.exe");
+        // This also runs outside Windows, where MSVC discovery always errors.
+        for policy in [
+            ToolchainPolicy::PlatformDefault,
+            ToolchainPolicy::WindowsMsvc,
+        ] {
+            let toolchain =
+                effective_native_toolchain(None, Some(compiler.to_str().unwrap()), policy).unwrap();
+            assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+            assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
+            assert_eq!(toolchain.msvc_environment(), None);
+            assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
+        }
     }
 
     #[cfg(windows)]
     #[test]
-    fn bare_windows_msvc_resolution_uses_discovery() {
-        let cc = CC::try_from_path("cl.exe").expect("parse bare MSVC override");
-        let toolchain = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
-            .expect("resolve bare MSVC override through discovery");
+    fn bare_msvc_requests_resolve_the_requested_compiler() {
+        let incompatible = fake_cc(CCKind::Gcc, None);
+        let default =
+            effective_native_toolchain(Some(&incompatible), None, ToolchainPolicy::WindowsMsvc)
+                .expect("discover MSVC when no explicit override applies");
+        assert_eq!(default.source(), ToolchainSource::PathProbe);
+        assert!(default.uses_msvc_cli());
 
-        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
-        assert!(Path::new(&toolchain.cc().cc_path).is_file());
-        assert!(Path::new(&toolchain.cc().ar_path).is_absolute());
-        assert!(Path::new(&toolchain.cc().ar_path).is_file());
-        assert!(toolchain.msvc_environment().is_some());
-    }
-
-    #[test]
-    fn path_like_windows_msvc_package_override_keeps_its_own_toolchain() {
-        let fixture = native_toolchain_fixture();
-        let discovered_compiler = fixture.join("msvc/bin/cl.exe");
-        let custom_compiler = fixture.join("custom/bin/cl.exe");
-        let custom_archiver = fixture.join("custom/bin/lib.exe");
-
-        let discovered_cc = CC::try_from_path(&discovered_compiler.display().to_string())
-            .expect("parse discovered MSVC compiler path");
-        let resolved =
-            Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
-                command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
-            });
-        let package_cc = CC::try_from_path(&custom_compiler.display().to_string())
-            .expect("parse path-like package override");
-
-        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
-            .expect("path-like package override should remain MSVC-compatible");
-
-        assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
-        assert_eq!(Path::new(&toolchain.cc().cc_path), custom_compiler);
-        assert_eq!(Path::new(&toolchain.cc().ar_path), custom_archiver);
-        assert_eq!(toolchain.msvc_environment(), None);
+        for name in ["cl", "cl.exe", "clang-cl", "clang-cl.exe"] {
+            // SDK discovery can find cl outside PATH; only clang-cl is optional.
+            if name.starts_with("clang-cl") && which::which(name).is_err() {
+                assert!(env::var_os("CI").is_none(), "{name} missing in CI");
+                eprintln!("skipping compiler selection case: {name} is unavailable");
+                continue;
+            }
+            for policy in [
+                ToolchainPolicy::PlatformDefault,
+                ToolchainPolicy::WindowsMsvc,
+            ] {
+                let toolchain = effective_native_toolchain(None, Some(name), policy)
+                    .expect("resolve requested compiler and SDK");
+                assert_eq!(
+                    Path::new(&toolchain.cc().cc_path).file_stem().unwrap(),
+                    Path::new(name).file_stem().unwrap()
+                );
+                assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+                assert!(Path::new(&toolchain.cc().ar_path).is_absolute());
+                assert!(toolchain.msvc_environment().is_some());
+            }
+        }
+        for policy in [
+            ToolchainPolicy::PlatformDefault,
+            ToolchainPolicy::WindowsMsvc,
+        ] {
+            let err = effective_native_toolchain(None, Some("moon-missing-clang-cl"), policy)
+                .unwrap_err();
+            assert!(
+                format!("{err:#}").contains("native compiler executable `moon-missing-clang-cl`")
+            );
+        }
     }
 
     #[test]
