@@ -88,7 +88,7 @@ features = [
 
 [dev-dependencies]
 regex.workspace = true
-snapbox = { workspace = true, features = ["regex"] }
+snapbox = { workspace = true, features = ["regex", "cmd"] }
 expect-test.workspace = true
 escargot.workspace = true
 clap-markdown.workspace = true
