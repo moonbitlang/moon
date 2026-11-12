@@ -68,8 +68,9 @@ use super::{
 static STDLIB_PACKAGE: LazyLock<PackageFQN> =
     LazyLock::new(|| PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty()));
 
-/// The inputs of one `moonc link-core` invocation.
-struct LinkCoreInputs<'a> {
+/// The Core IR closure of a compilation: every `.core` file it loads, in
+/// initialization order, and the source roots of their packages.
+struct CoreIrClosure<'a> {
     /// The installed stdlib `.core` files, which n2 must observe explicitly.
     stdlib_inputs: Vec<PathBuf>,
     /// Every `.core` input in initialization order.
@@ -670,11 +671,11 @@ impl<'a> LoweringContext<'a> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
-        let LinkCoreInputs {
+        let CoreIrClosure {
             stdlib_inputs,
             core_deps,
             package_sources,
-        } = self.link_core_inputs(artifacts, info);
+        } = self.core_ir_closure(artifacts, info);
 
         let out_file = artifacts.single_output_path();
 
@@ -715,13 +716,12 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    /// Collect the `.core` inputs of a `link-core` invocation in
-    /// initialization order, together with the source roots of their packages.
-    fn link_core_inputs(
+    /// Collect the Core IR closure of the packages `info` links.
+    fn core_ir_closure(
         &self,
         artifacts: &ActionArtifacts,
         info: &LinkCoreInfo,
-    ) -> LinkCoreInputs<'a> {
+    ) -> CoreIrClosure<'a> {
         let backend = self.opt.backend.target_backend();
         // Installed stdlib `.core` files are not produced by any action, so
         // n2 must observe them as extra inputs.
@@ -770,7 +770,7 @@ impl<'a> LoweringContext<'a> {
             }))
             .collect();
 
-        LinkCoreInputs {
+        CoreIrClosure {
             stdlib_inputs,
             core_deps,
             package_sources,
