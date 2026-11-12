@@ -1,8 +1,11 @@
 mod cc_flags;
+#[cfg(windows)]
+mod compiler_selection;
 #[cfg(unix)]
 mod compiler_wrapper;
 #[cfg(unix)]
 mod cross_compiler;
+mod integer_semantics;
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64"),

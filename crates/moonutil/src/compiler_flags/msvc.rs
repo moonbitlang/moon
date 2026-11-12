@@ -19,11 +19,13 @@
 use std::path::Path;
 
 #[cfg(windows)]
+use super::ToolchainSource;
+#[cfg(windows)]
 use anyhow::Context;
 
 use super::{
-    CC, CCConfig, ENV_CC, LinkerConfig, MsvcEnvironment, OutputType, Toolchain, ToolchainSource,
-    is_path_like_tool, resolve_native_toolchain_executables,
+    CC, CCConfig, CCKind, ENV_CC, LinkerConfig, MsvcEnvironment, OutputType, Toolchain,
+    resolve_native_toolchain_executables,
 };
 
 pub const WINDOWS_MSVC_DEFAULT_LIBS: &[&str] = &[
@@ -39,7 +41,10 @@ pub const WINDOWS_MSVC_STATIC_RUNTIME_FLAG: &str = "/MT";
 pub const WINDOWS_MSVC_C_STANDARD_FLAG: &str = "/std:c11";
 
 #[cfg(windows)]
-static WINDOWS_MSVC_TOOLCHAIN: std::sync::OnceLock<Option<DiscoveredMsvcToolchain>> =
+static WINDOWS_CL_TOOLCHAIN: std::sync::OnceLock<Option<DiscoveredMsvcToolchain>> =
+    std::sync::OnceLock::new();
+#[cfg(windows)]
+static WINDOWS_CLANG_CL_TOOLCHAIN: std::sync::OnceLock<Option<DiscoveredMsvcToolchain>> =
     std::sync::OnceLock::new();
 
 #[derive(Clone, Debug)]
@@ -58,9 +63,8 @@ pub(super) fn windows_msvc_host_target_triple() -> Option<String> {
 }
 
 #[cfg(windows)]
-fn find_windows_msvc_toolchain(target: &str) -> Option<DiscoveredMsvcToolchain> {
-    let tool = find_msvc_tools::find_tool(target, "cl.exe")
-        .or_else(|| find_msvc_tools::find_tool(target, "clang-cl.exe"))?;
+fn find_windows_msvc_toolchain(target: &str, compiler: &str) -> Option<DiscoveredMsvcToolchain> {
+    let tool = find_msvc_tools::find_tool(target, compiler)?;
     let cc = CC::try_from_path(&tool.path().display().to_string()).ok()?;
     if !Path::new(&cc.ar_path).is_file() {
         return None;
@@ -82,9 +86,10 @@ fn find_windows_msvc_toolchain(target: &str) -> Option<DiscoveredMsvcToolchain> 
     })
 }
 
-fn resolve_windows_msvc_discovery() -> anyhow::Result<DiscoveredMsvcToolchain> {
+fn resolve_windows_msvc_discovery(kind: CCKind) -> anyhow::Result<DiscoveredMsvcToolchain> {
     #[cfg(not(windows))]
     {
+        let _ = kind;
         anyhow::bail!("Windows MSVC environment resolution is only supported on Windows")
     }
 
@@ -93,8 +98,13 @@ fn resolve_windows_msvc_discovery() -> anyhow::Result<DiscoveredMsvcToolchain> {
         let target = windows_msvc_host_target_triple()
             .context("Windows MSVC discovery currently supports 64-bit x64 and ARM64 hosts")?;
 
-        WINDOWS_MSVC_TOOLCHAIN
-            .get_or_init(|| find_windows_msvc_toolchain(&target))
+        let (cache, compiler) = match kind {
+            CCKind::Msvc => (&WINDOWS_CL_TOOLCHAIN, "cl.exe"),
+            CCKind::ClangCl => (&WINDOWS_CLANG_CL_TOOLCHAIN, "clang-cl.exe"),
+            _ => anyhow::bail!("MSVC discovery requires a cl-compatible compiler"),
+        };
+        cache
+            .get_or_init(|| find_windows_msvc_toolchain(&target, compiler))
             .clone()
             .with_context(|| {
                 "Windows native backend requires MSVC Build Tools with C++ tools and Windows SDK"
@@ -103,7 +113,8 @@ fn resolve_windows_msvc_discovery() -> anyhow::Result<DiscoveredMsvcToolchain> {
 }
 
 pub(super) fn discovered_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
-    let discovered = resolve_windows_msvc_discovery()?;
+    let discovered = resolve_windows_msvc_discovery(CCKind::Msvc)
+        .or_else(|_| resolve_windows_msvc_discovery(CCKind::ClangCl))?;
     Ok(Toolchain::from_path_probe(discovered.cc).with_msvc_environment(discovered.environment))
 }
 
@@ -122,75 +133,53 @@ pub(super) fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
     }
 }
 
-pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.uses_msvc_cli()) {
-        let override_toolchain = Toolchain::from_env_override(env_cc.clone());
-        let resolved = if is_path_like_tool(&env_cc.cc_path) {
-            override_toolchain
-        } else {
-            let discovered = discovered_windows_msvc_toolchain()?;
-            resolve_msvc_toolchain_override(override_toolchain, &discovered)
-        };
-        return windows_msvc_toolchain_with_package_override(resolved, package_cc);
-    }
-
-    if let Some(package_cc) = package_cc {
-        ensure_windows_msvc_compatible(package_cc)?;
-    }
-
-    let resolved = discovered_windows_msvc_toolchain()?;
-    windows_msvc_toolchain_with_package_override(resolved, package_cc)
-}
-
 pub fn has_incompatible_windows_msvc_env_override() -> bool {
     ENV_CC.as_ref().is_some_and(|cc| !cc.uses_msvc_cli())
 }
 
-pub(super) fn windows_msvc_toolchain_with_package_override(
-    resolved: Toolchain,
-    package_cc: Option<&CC>,
+/// Resolve a selected bare MSVC-style request. Compiler selection is already
+/// complete; discovery supplies the requested cl or the SDK for another driver.
+#[cfg(windows)]
+pub(super) fn resolve_requested_msvc_toolchain(
+    mut cc: CC,
+    source: ToolchainSource,
 ) -> anyhow::Result<Toolchain> {
-    let mut toolchain = resolved.with_package_override(package_cc);
-    ensure_windows_msvc_compatible(toolchain.cc())?;
-
-    if toolchain.source() == ToolchainSource::PackageOverride {
-        toolchain = resolve_msvc_toolchain_override(toolchain, &resolved);
-    }
-
-    resolve_native_toolchain_executables(toolchain)
+    let discovered =
+        if cc.cc_path.eq_ignore_ascii_case("cl") || cc.cc_path.eq_ignore_ascii_case("cl.exe") {
+            let discovered = resolve_windows_msvc_discovery(CCKind::Msvc)?;
+            cc.cc_path.clone_from(&discovered.cc.cc_path);
+            discovered
+        } else {
+            // Resolve the requested driver before looking for SDK support, so a
+            // missing clang-cl never silently selects a different compiler.
+            cc.cc_path = crate::toolchain::resolve_executable(&cc.cc_path)
+                .with_context(|| {
+                    format!(
+                        "failed to resolve native compiler executable `{}`",
+                        cc.cc_path
+                    )
+                })?
+                .display()
+                .to_string();
+            resolve_windows_msvc_discovery(CCKind::Msvc)
+                .or_else(|_| resolve_windows_msvc_discovery(CCKind::ClangCl))?
+        };
+    cc.ar_path = discovered.cc.ar_path;
+    Ok(Toolchain {
+        cc,
+        source,
+        msvc_environment: Some(discovered.environment),
+        cc_wrapper: None,
+    })
 }
 
-// A bare override selects the discovered toolchain as a whole. Path-like overrides
-// remain self-contained so they cannot inherit an environment for another installation.
-pub(super) fn resolve_msvc_toolchain_override(
-    mut toolchain: Toolchain,
-    resolved: &Toolchain,
-) -> Toolchain {
-    if is_path_like_tool(&toolchain.cc.cc_path) {
-        return toolchain;
-    }
-
-    toolchain.cc.cc_path.clone_from(&resolved.cc.cc_path);
-    toolchain.cc.ar_path.clone_from(&resolved.cc.ar_path);
-
-    match resolved.msvc_environment() {
-        Some(environment) => toolchain.with_msvc_environment(environment.clone()),
-        None => toolchain,
-    }
-}
-
-pub(super) fn default_librarian(cc_path: &Path) -> String {
+pub(super) fn default_librarian(cc_path: &Path, cc_kind: CCKind) -> String {
     let lib = CC::resolve_tool_path(cc_path, "lib.exe");
     if Path::new(&lib).is_file() {
         return lib;
     }
 
-    let compiler_name = cc_path
-        .file_name()
-        .and_then(std::ffi::OsStr::to_str)
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if CC::strip_exe_suffix(&compiler_name).ends_with("clang-cl") {
+    if matches!(cc_kind, CCKind::ClangCl) {
         let llvm_lib = CC::resolve_tool_path(cc_path, "llvm-lib.exe");
         if Path::new(&llvm_lib).is_file() {
             return llvm_lib;
@@ -233,6 +222,12 @@ pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_fla
     buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
     // Large generated C files can exceed the default COFF section limit.
     buf.push("/bigobj".to_string());
+
+    if matches!(cc.cc_kind, CCKind::ClangCl) {
+        // Generated C relies on wrapping signed arithmetic. Older clang-cl
+        // versions otherwise optimize as if signed overflow cannot occur.
+        buf.push("/clang:-fwrapv".to_string());
+    }
 
     if !has_user_flags {
         buf.push("/utf-8".to_string());

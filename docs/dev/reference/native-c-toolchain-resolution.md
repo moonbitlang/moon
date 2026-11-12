@@ -142,6 +142,22 @@ This is why Moon needs both a compiler driver and an archiver.
 
 ## Debug information and optimization
 
+Generated C relies on wrapping signed integer addition, subtraction, and
+multiplication. Moon passes `-fwrapv` to GCC, Clang, and the system `cc`, and
+`/clang:-fwrapv` to clang-cl, including when package C flags are present.
+clang-cl is resolved as a distinct compiler kind while sharing the MSVC CLI,
+ABI, and CRT policy. User C flags remain opaque and follow these defaults;
+an explicit conflicting flag can override them.
+
+MSVC `cl` still has a known release-mode limitation: it can simplify
+`(x * 2) / 2` into `x` even when multiplication overflows. Its undocumented
+`/d2UndefIntOverflow-` switch is not a general wrapping contract, so Moon does
+not pass it. The ignored MSVC release regression records this limitation;
+fixing it requires the C emitted by `moonc` to express wrapping arithmetic
+explicitly instead of relying on signed overflow.
+See [Microsoft's optimizer description](https://devblogs.microsoft.com/cppblog/new-code-optimizer/)
+and [the limitations discussed with its author](https://bugzilla.mozilla.org/show_bug.cgi?id=1377550#c7).
+
 Moon's CLI profile and debug-information policy are described in
 [Default CLI profiles](build.md#default-cli-profiles). Compiler options with the
 same spelling are not interchangeable across the build stages:
@@ -197,13 +213,17 @@ For the regular native pipeline, compiler selection uses this precedence:
 3. Windows only: MSVC discovery through `find-msvc-tools`
 4. PATH probing: `cc`, then `gcc`, then `clang`
 
-`effective_native_toolchain()` applies environment and package overrides before automatic
-selection. `detected_default_native_toolchain()` tries Windows MSVC discovery before the
-cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in `detect_cc_on_path()`.
+`effective_native_toolchain()` receives the environment and package requests explicitly.
+It selects the winning override before parsing the package compiler; a package
+compiler overridden by `MOON_CC` is not probed. When neither request applies,
+it performs automatic discovery. Invalid or unavailable selected compilers produce
+errors. `detected_default_native_toolchain()` tries Windows MSVC discovery before
+the cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in
+`detect_cc_on_path()`.
 
-The Windows MSVC direct object native target uses `windows_msvc_native_toolchain()` instead.
-It requires a cl-compatible driver, warns and ignores an incompatible `MOON_CC`, and has no
-GCC-like fallback.
+The Windows MSVC direct object native target uses the same resolver with an MSVC
+compatibility requirement. It warns and ignores an incompatible `MOON_CC`, rejects
+an incompatible package request, and has no GCC-like fallback.
 
 ## Global Environment Override
 
@@ -240,7 +260,8 @@ native toolchain actions do not resolve or invoke it.
 - `link.native.cc`
 - `link.native.stub_cc`
 
-These are parsed into `CC` values during build-plan construction.
+Build-plan construction passes these requests to the toolchain resolver after
+expanding package variables. Only the selected request is parsed and probed.
 
 They are useful as escape hatches, but they are toolchain-specific, not portable configuration.
 For example, `cc = "cl"` is MSVC-specific, while `cc = "gcc"` or GNU-style flags are specific to
@@ -293,9 +314,11 @@ without requiring a successfully probed MSVC target triple.
 
 - Archiver is `lib.exe`. A path-like `clang-cl` installation falls back to its sibling
   `llvm-lib.exe` when `lib.exe` is absent.
-- For a bare MSVC override such as `cl.exe`, Moon uses the discovered full paths for both
-  `cl.exe` and `lib.exe`. The discovered command environment is attached separately and is not
-  relied on to locate either executable.
+- A bare `cl` or `cl.exe` request discovers that compiler and its SDK environment
+  and librarian. Other bare MSVC-style requests, including `clang-cl`, first
+  resolve the requested executable through `PATH`, then discover SDK support.
+  A missing requested compiler is an error. Both executable paths are resolved
+  before command generation.
 - A path-like MSVC override uses its sibling librarian (`lib.exe`, or `llvm-lib.exe` for
   `clang-cl` when `lib.exe` is absent) and does not inherit the environment from a separately
   discovered toolchain. The configured environment must already support that toolchain.
