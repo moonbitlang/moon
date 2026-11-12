@@ -1,0 +1,2 @@
+supported_targets = "all"
+import { "example/conditional/app" }

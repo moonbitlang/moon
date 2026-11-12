@@ -263,27 +263,14 @@ impl<'a> BuildPlanConstructor<'a> {
             ));
         }
 
-        let dependency_realizable = self
-            .rel
-            .realizable_supported_targets
-            .get(&dep)
-            .expect("realizable backend support should be available for every dependency node");
-
-        if dependency_realizable.contains(&selected_backend) {
+        if !self.rel.unsupported_targets.contains(&dep) {
             return Ok(());
         }
-
-        let mut supported_backends = dependency_realizable
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        supported_backends.sort();
 
         Err(BuildPlanConstructError::BackendIncompatibleDependency {
             backend: selected_backend,
             importer: importer_pkg.fqn.to_string(),
             dependency: dependency_pkg.fqn.to_string(),
-            supported_backends: format!("[{}]", supported_backends.join(", ")),
             path: format!("{} -> {}", importer_pkg.fqn, dependency_pkg.fqn),
         })
     }

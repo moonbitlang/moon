@@ -76,13 +76,14 @@ pub(super) fn verify(
     }
 }
 
-/// Compute per-target realizable backend support.
+/// Collect targets incompatible with the selected backend.
 ///
 /// `verify` must run first so the graph is guaranteed to have no import loops.
-pub(super) fn compute_realizable_supported_targets(
+pub(super) fn find_unsupported_targets(
     dep: &PackageRelations,
     packages: &DiscoverResult,
-) -> HashMap<BuildTarget, IndexSet<TargetBackend>> {
+    backend: TargetBackend,
+) -> HashSet<BuildTarget> {
     let graph = &dep.dep_graph;
     let mut topo = petgraph::visit::Topo::new(graph);
     let mut topo_order = Vec::new();
@@ -90,25 +91,23 @@ pub(super) fn compute_realizable_supported_targets(
         topo_order.push(node);
     }
 
-    let mut realizable_supported_targets = HashMap::new();
+    let mut unsupported_targets = HashSet::new();
     for node in topo_order.into_iter().rev() {
-        let mut realizable = packages
+        // Dependencies are visited first, so absence from the set means that
+        // a dependency is compatible, rather than still awaiting evaluation.
+        if !packages
             .get_package(node.package)
             .effective_supported_targets
-            .clone();
-        for dep_target in graph.neighbors(node) {
-            let dep_realizable: &IndexSet<TargetBackend> = realizable_supported_targets
-                .get(&dep_target)
-                .expect("dependency target should be resolved before dependent");
-            realizable.retain(|backend| dep_realizable.contains(backend));
-            if realizable.is_empty() {
-                break;
-            }
+            .contains(&backend)
+            || graph
+                .neighbors(node)
+                .any(|dependency| unsupported_targets.contains(&dependency))
+        {
+            unsupported_targets.insert(node);
         }
-        realizable_supported_targets.insert(node, realizable);
     }
 
-    realizable_supported_targets
+    unsupported_targets
 }
 
 /// Verify there's no loops within the dependency graph. If there's any import
