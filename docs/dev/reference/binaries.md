@@ -24,6 +24,18 @@ resolved from that directory.
 The cached entry point is `moonutil::toolchain::BINARIES`. Build engines should
 use it instead of duplicating tool lookup rules.
 
+Linux profiling resolves `perf` through an optional entry in this cache,
+using `MOON_PERF_OVERRIDE` before searching `PATH`. Availability checks,
+recording, export, and dry-run output use the same resolved executable.
+
+macOS profiling invokes `xcrun xctrace`. The `xcrun` launcher uses the same
+cache, selecting `MOON_XCRUN_OVERRIDE` before searching `PATH`; Xcode selects
+`xctrace` when the launcher runs.
+
+Each cache entry uses `LazyLock`: its initializer runs on first access and
+the result, including an unavailable optional tool, is reused for the rest of
+the process. Repeated availability checks do not repeat executable discovery.
+
 Binary resolution is demand-driven. The cache must not expose an aggregate
 inventory API: code for display, diagnostics, or tests must never enumerate all
 entries or otherwise force resolution of the complete executable inventory.
