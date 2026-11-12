@@ -1,4 +1,38 @@
-use crate::{TestDir, get_stdout_with_envs};
+use crate::{TestDir, get_stdout_with_envs, moon_cmd};
+
+#[test]
+fn overridden_package_compilers_are_not_probed() {
+    let dir = TestDir::new("native_backend/no_compiler_probe");
+    let log = dir.join("unused-compiler.log");
+    let compiler = dir.join("fake-toolchain/bin/probe-gcc");
+    let compiler = compiler.to_str().unwrap();
+    std::fs::write(
+        dir.join("lib/moon.pkg"),
+        format!(
+            r#"options(
+  "native-stub": ["stub.c"],
+  link: {{ "native": {{ "cc": "{compiler}", "stub-cc": "{compiler}" }} }},
+)
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.join("lib/stub.c"), "int answer(void) { return 42; }\n").unwrap();
+
+    for profile in ["--debug", "--release"] {
+        moon_cmd(&dir)
+            .env("MOON_CC", which::which("cc").unwrap())
+            .env_remove("MOON_AR")
+            .env("MOON_TEST_CC_PROBE_LOG", &log)
+            .args(["test", "--target", "native", profile, "--dry-run"])
+            .assert()
+            .success();
+    }
+    assert!(
+        !log.exists(),
+        "package compiler was probed even though MOON_CC overrides it"
+    );
+}
 
 /// Run `moon` with a `MOON_CC` that logs each call, and return the calls.
 fn compiler_calls(dir: &TestDir, args: &[&str]) -> String {
@@ -10,7 +44,7 @@ fn compiler_calls(dir: &TestDir, args: &[&str]) -> String {
         [
             ("MOON_CC", "probe-gcc".to_string()),
             ("PATH", dir.join("fake-toolchain/bin").display().to_string()),
-            ("PROBE_LOG", log.display().to_string()),
+            ("MOON_TEST_CC_PROBE_LOG", log.display().to_string()),
         ],
     );
     std::fs::read_to_string(&log).unwrap_or_default()

@@ -1,4 +1,6 @@
 mod cc_flags;
+#[cfg(windows)]
+mod compiler_selection;
 #[cfg(unix)]
 mod compiler_wrapper;
 #[cfg(unix)]
