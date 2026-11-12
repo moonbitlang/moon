@@ -1,8 +1,8 @@
-use crate::{Fixture, get_stdout};
+use crate::{Fixture, get_stdout, test_case_path};
 
 #[test]
 fn test_single_test_skip() {
-    let dir = Fixture::readonly("test_filter/skip_test");
+    let dir = Fixture::readonly(test_case_path("test_filter/skip_test"));
     let stdout = get_stdout(
         &dir,
         [

@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{fs, path::Path};
+use moon_test_util::Fixture;
+use std::fs;
 
 // Run check synchronously inside the MoonBit test. If the outer command still
 // holds the build lock, check times out and the MoonBit assertion fails.
@@ -30,10 +31,10 @@ extern "js" fn check() -> Int =
   #| ).status ?? -1
 "#;
 
-fn moon(root: &Path) -> snapbox::cmd::Command {
-    let target = root.join("custom build");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(root)
+fn moon(fixture: &Fixture) -> snapbox::cmd::Command {
+    let target = fixture.join("custom build");
+    fixture
+        .moon_cmd(snapbox::cargo_bin!("moon"))
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .env("MOON_DEP_CACHE", "off")
         .env("MOON_TEST_MOON", snapbox::cargo_bin!("moon"))
@@ -45,47 +46,43 @@ fn moon(root: &Path) -> snapbox::cmd::Command {
 
 #[test]
 fn test_and_bench_allow_check_during_execution() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    fs::write(
-        root.join("moon.mod"),
-        r#"name = "test/lock"
+    let dir = Fixture::new().with_files([
+        (
+            "moon.mod",
+            r#"name = "test/lock"
 
 preferred_target = "js""#,
-    )
-    .unwrap();
-    fs::write(
-        root.join("moon.pkg"),
-        r#"import {
+        ),
+        (
+            "moon.pkg",
+            r#"import {
   "moonbitlang/core/bench",
 }"#,
-    )
-    .unwrap();
-    fs::write(
-        root.join("test.mbt"),
-        format!(
-            r#"{CHECK}
+        ),
+        (
+            "test.mbt",
+            format!(
+                r#"{CHECK}
 test {{ assert_eq(check(), 0) }}
 test "bench" (b : @bench.T) {{ assert_eq(check(), 0); b.bench(fn() {{ () }}) }}
 "#
+            )
+            .as_str(),
         ),
-    )
-    .unwrap();
+    ]);
 
     for command in ["test", "bench"] {
-        moon(root).arg(command).assert().success();
+        moon(&dir).arg(command).assert().success();
     }
 }
 
 #[test]
 fn standalone_test_allows_check_during_execution() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("script.mbtx"),
-        format!("{CHECK}\nfn main {{}}\ntest {{ assert_eq(check(), 0) }}\n"),
-    )
-    .unwrap();
-    moon(dir.path())
+    let dir = Fixture::new().with_files([(
+        "script.mbtx",
+        format!("{CHECK}\nfn main {{}}\ntest {{ assert_eq(check(), 0) }}\n").as_str(),
+    )]);
+    moon(&dir)
         .env("MOON_TEST_CHECK_PATH", "script.mbtx")
         .args(["test", "script.mbtx", "--target", "js"])
         .assert()
@@ -95,31 +92,30 @@ fn standalone_test_allows_check_during_execution() {
 
 #[test]
 fn test_update_allows_check_on_each_run() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
-    fs::write(
-        root.join("moon.mod"),
-        r#"
+    let dir = Fixture::new().with_files([
+        (
+            "moon.mod",
+            r#"
 name = "test/lock"
 "#,
-    )
-    .unwrap();
-    fs::write(root.join("moon.pkg"), "").unwrap();
-    fs::write(
-        root.join("test.mbt"),
-        format!(
-            r#"{CHECK}
+        ),
+        ("moon.pkg", ""),
+        (
+            "test.mbt",
+            format!(
+                r#"{CHECK}
 test {{ assert_eq(check(), 0); inspect(1, content="0") }}
 "#
+            )
+            .as_str(),
         ),
-    )
-    .unwrap();
-    moon(root)
+    ]);
+    moon(&dir)
         .args(["test", "--target", "js", "--update"])
         .assert()
         .success();
     assert_eq!(
-        fs::read_to_string(root.join("test.mbt")).unwrap(),
+        fs::read_to_string(dir.join("test.mbt")).unwrap(),
         format!(
             r#"{CHECK}
 test {{ assert_eq(check(), 0); inspect(1, content=(

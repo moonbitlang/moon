@@ -1,0 +1,18 @@
+----
+import {
+  "moonbitlang/core/int",
+}
+----
+
+fn main { println("script main must not run") }
+
+/// ```mbt check
+/// test {
+/// assert_eq(@single.maximum(), 2147483647)
+/// }
+/// ```
+pub fn maximum() -> Int { @int.MAX_VALUE }
+
+test "maximum" {
+  assert_eq(maximum(), 2147483647)
+}

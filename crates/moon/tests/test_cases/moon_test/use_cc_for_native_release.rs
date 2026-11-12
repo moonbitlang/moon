@@ -1,4 +1,4 @@
-use crate::{Fixture, build_graph, moon_cmd};
+use crate::{Fixture, build_graph, moon_cmd, test_case_path};
 use expect_test::expect_file;
 
 #[track_caller]
@@ -17,7 +17,7 @@ fn assert_dry_run_graph(dir: &Fixture, args: &[&str], expected: expect_test::Exp
 
 #[test]
 fn test_use_cc_for_native_release() {
-    let dir = Fixture::copied("moon_test/hello_exec_fntest");
+    let dir = Fixture::copied(test_case_path("moon_test/hello_exec_fntest"));
     // build
     {
         assert_dry_run_graph(

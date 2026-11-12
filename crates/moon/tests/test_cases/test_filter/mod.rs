@@ -16,7 +16,7 @@ fn normalize_outline(output: String) -> String {
 
 #[test]
 fn test_moon_test_filter_by_name_smoke() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     check(
         get_stdout(
@@ -42,7 +42,7 @@ fn test_moon_test_filter_by_name_smoke() {
 
 #[test]
 fn test_moon_test_filter_outline_wiring() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     let output = normalize_outline(get_stdout(
         &dir,
@@ -128,7 +128,7 @@ fn test_moon_test_filter_outline_wiring() {
 
 #[test]
 fn test_moon_test_filter_package() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     check(
         get_stdout(
@@ -175,7 +175,7 @@ fn test_moon_test_filter_package() {
 
 #[test]
 fn test_moon_test_filter_multi_package() {
-    let dir = Fixture::readonly("test_filter/pkg_with_test_imports");
+    let dir = Fixture::readonly(test_case_path("test_filter/pkg_with_test_imports"));
 
     check(
         get_stdout(
@@ -214,7 +214,7 @@ fn test_moon_test_filter_multi_package() {
 
 #[test]
 fn test_moon_test_filter_package_with_singlefile() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     check(
         get_stdout(&dir, ["test", "A/hello.mbt"]),
@@ -249,7 +249,7 @@ fn test_moon_test_filter_package_with_singlefile() {
 
 #[test]
 fn test_moon_test_filter_package_with_folder() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     check(
         get_stdout(&dir, ["test", "A", "--sort-input", "--no-parallelize"]),
@@ -297,7 +297,7 @@ fn test_moon_test_filter_package_with_folder() {
 
 #[test]
 fn test_moon_test_filter_package_with_deps() {
-    let dir = Fixture::readonly("test_filter/pkg_with_deps");
+    let dir = Fixture::readonly(test_case_path("test_filter/pkg_with_deps"));
 
     check(
         get_stdout(
@@ -344,7 +344,7 @@ fn test_moon_test_filter_package_with_deps() {
 
 #[test]
 fn test_moon_test_filter_package_with_test_imports() {
-    let dir = Fixture::readonly("test_filter/pkg_with_test_imports");
+    let dir = Fixture::readonly(test_case_path("test_filter/pkg_with_test_imports"));
 
     check(
         get_stdout(
@@ -496,7 +496,7 @@ fn test_moon_test_filter_package_with_test_imports() {
 
 #[test]
 fn test_moon_test_filter_file_index_with_path_arg() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     // Path argument form from module root
     check(
@@ -521,7 +521,7 @@ fn test_moon_test_filter_file_index_with_path_arg() {
 #[cfg(unix)]
 #[test]
 fn test_moon_test_filter_multiple_paths_reject_index() {
-    let dir = Fixture::readonly("test_filter/test_filter");
+    let dir = Fixture::readonly(test_case_path("test_filter/test_filter"));
 
     let stderr = get_err_stderr(&dir, ["test", "A/hello.mbt", "lib/hello.mbt", "-i", "1"]);
     assert!(
@@ -532,7 +532,7 @@ fn test_moon_test_filter_multiple_paths_reject_index() {
 
 #[test]
 fn test_moon_test_filter_index_with_auto_update() {
-    let dir = Fixture::copied("test_filter/test_filter");
+    let dir = Fixture::copied(test_case_path("test_filter/test_filter"));
 
     let _ = get_stdout(
         &dir,
@@ -572,7 +572,7 @@ fn test_moon_test_filter_index_with_auto_update() {
         "#]],
     );
 
-    let dir = Fixture::copied("test_filter/test_filter");
+    let dir = Fixture::copied(test_case_path("test_filter/test_filter"));
     let _ = get_err_stderr(
         &dir,
         [
@@ -611,7 +611,7 @@ fn test_moon_test_filter_index_with_auto_update() {
         "#]],
     );
 
-    let dir = Fixture::copied("test_filter/test_filter");
+    let dir = Fixture::copied(test_case_path("test_filter/test_filter"));
     let _ = get_err_stderr(
         &dir,
         [
@@ -651,7 +651,7 @@ fn test_moon_test_filter_index_with_auto_update() {
 
 #[test]
 fn moon_test_parallelize_should_success() {
-    let dir = Fixture::readonly("test_filter/pkg_with_test_imports");
+    let dir = Fixture::readonly(test_case_path("test_filter/pkg_with_test_imports"));
 
     let output = get_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 14, passed: 14, failed: 0."));
@@ -662,7 +662,7 @@ fn moon_test_parallelize_should_success() {
 
 #[test]
 fn moon_test_parallelize_test_filter_should_success() {
-    let dir = Fixture::copied("test_filter/test_filter");
+    let dir = Fixture::copied(test_case_path("test_filter/test_filter"));
 
     let output = get_err_stdout(&dir, ["test"]);
     assert!(output.contains("Total tests: 13, passed: 11, failed: 2."));

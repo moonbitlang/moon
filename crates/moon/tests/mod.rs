@@ -20,27 +20,30 @@ mod support;
 mod test_cases;
 
 use std::path::{Path, PathBuf};
+
+pub(crate) use moon_test_util::{Fixture, TestCommandDir};
 use util::*;
 
 pub(crate) use support::{build_graph, dry_run_utils, process, util};
 
 const TEST_CASES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test_cases");
 
-pub(crate) struct TestDir(moon_test_util::test_dir::TestDir);
+fn test_case_path(sub: &str) -> PathBuf {
+    Path::new(TEST_CASES_ROOT).join(sub)
+}
+
+// TODO: Remove this writable-only adapter once remaining TestDir callers use Fixture.
+pub(crate) struct TestDir(Fixture);
 
 impl TestDir {
     // create a new TestDir with the test directory in tests/test_cases/<sub>
     fn new(sub: &str) -> Self {
-        Self(moon_test_util::test_dir::TestDir::from_case_root(
-            TEST_CASES_ROOT,
-            sub,
-            true,
-        ))
+        Self(Fixture::copied(test_case_path(sub)))
     }
 
     // create a empty TestDir
     fn new_empty() -> Self {
-        Self(moon_test_util::test_dir::TestDir::new_empty())
+        Self(Fixture::new())
     }
 
     fn join(&self, sub: impl AsRef<str>) -> PathBuf {
@@ -50,69 +53,7 @@ impl TestDir {
 
 impl AsRef<Path> for TestDir {
     fn as_ref(&self) -> &Path {
-        self.0.as_ref()
-    }
-}
-
-pub(crate) struct Fixture {
-    cwd: PathBuf,
-    target_dir: Option<PathBuf>,
-    // Owns the temporary directory for the lifetime of the fixture's commands.
-    _workspace: TestDir,
-}
-
-impl Fixture {
-    /// Share checked-in sources. Only build outputs may be written by the test.
-    fn readonly(sub: &str) -> Self {
-        let workspace = TestDir::new_empty();
-        Self {
-            cwd: Path::new(TEST_CASES_ROOT).join(sub),
-            target_dir: Some(workspace.join("_build")),
-            _workspace: workspace,
-        }
-    }
-
-    /// Copy the sources into a private workspace and let Moon choose its normal build path.
-    fn copied(sub: &str) -> Self {
-        let workspace = TestDir::new(sub);
-        Self {
-            cwd: workspace.as_ref().to_owned(),
-            target_dir: None,
-            _workspace: workspace,
-        }
-    }
-
-    fn join(&self, sub: impl AsRef<Path>) -> PathBuf {
-        self.cwd.join(sub)
-    }
-
-    /// Change the command's working directory while keeping the fixture alive.
-    fn in_subdir(mut self, sub: &str) -> Self {
-        self.cwd.push(sub);
-        self
-    }
-}
-
-/// Working directory and optional build target for the Moon command helpers.
-pub trait TestCommandDir {
-    fn cwd(&self) -> &Path;
-    fn target_dir(&self) -> Option<&Path> {
-        None
-    }
-}
-
-impl<T: AsRef<Path> + ?Sized> TestCommandDir for T {
-    fn cwd(&self) -> &Path {
-        self.as_ref()
-    }
-}
-
-impl TestCommandDir for Fixture {
-    fn cwd(&self) -> &Path {
-        &self.cwd
-    }
-    fn target_dir(&self) -> Option<&Path> {
-        self.target_dir.as_deref()
+        self.0.cwd()
     }
 }
 
@@ -155,14 +96,10 @@ pub fn moon_cmd(dir: &impl TestCommandDir) -> snapbox::cmd::Command {
 }
 
 pub fn moon_process_cmd(dir: &impl TestCommandDir) -> std::process::Command {
-    let mut cmd = std::process::Command::new(moon_bin());
+    let mut cmd = dir.moon_process_cmd(moon_bin());
     cmd.env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .env("MOONRUN_OVERRIDE", moonrun_bin())
-        .env("MOON_DEP_CACHE", "off")
-        .current_dir(dir.cwd());
-    if let Some(target) = dir.target_dir() {
-        cmd.arg("--target-dir").arg(target);
-    }
+        .env("MOON_DEP_CACHE", "off");
     cmd
 }
 

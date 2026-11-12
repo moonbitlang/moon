@@ -18,32 +18,22 @@
 
 // Exercise ordinary stdlib packages through discovery, bundling, and linking.
 // Artifact contents are irrelevant to dry runs.
+use moon_test_util::Fixture;
+
 #[test]
 fn stdlib_abort_uses_normal_build_pipeline() {
-    let project = tempfile::tempdir().unwrap();
-    std::fs::write(
-        project.path().join("moon.mod"),
-        "name = \"test/stdlib_abort\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        project.path().join("moon.pkg"),
-        "pkgtype(kind: \"executable\")\n",
-    )
-    .unwrap();
-    std::fs::write(project.path().join("main.mbt"), "fn main { () }\n").unwrap();
+    let project = Fixture::new().with_files([
+        ("moon.mod", "name = \"test/stdlib_abort\"\n"),
+        ("moon.pkg", "pkgtype(kind: \"executable\")\n"),
+        ("main.mbt", "fn main { () }\n"),
+    ]);
 
-    let core = tempfile::tempdir().unwrap();
-    std::fs::write(
-        core.path().join("moon.mod"),
-        "name = \"moonbitlang/core\"\n",
-    )
-    .unwrap();
-    std::fs::create_dir(core.path().join("prelude")).unwrap();
-    std::fs::write(core.path().join("prelude/moon.pkg"), "").unwrap();
-    let bundle = core.path().join("_build/wasm-gc/release/bundle");
-    std::fs::create_dir_all(bundle.join("prelude")).unwrap();
-    std::fs::write(bundle.join("prelude/prelude.mi"), "").unwrap();
+    let core = Fixture::new().with_files([
+        ("moon.mod", "name = \"moonbitlang/core\"\n"),
+        ("prelude/moon.pkg", ""),
+        ("_build/wasm-gc/release/bundle/prelude/prelude.mi", ""),
+    ]);
+    let bundle = core.join("_build/wasm-gc/release/bundle");
 
     for state in ["absent", "stale", "bundled", "missing_artifact"] {
         if state == "stale" {
@@ -51,17 +41,16 @@ fn stdlib_abort_uses_normal_build_pipeline() {
             std::fs::write(bundle.join("abort/abort.core"), "").unwrap();
         }
         if state == "bundled" {
-            std::fs::create_dir(core.path().join("abort")).unwrap();
-            std::fs::write(core.path().join("abort/moon.pkg"), "").unwrap();
-            std::fs::write(core.path().join("abort/abort.mbt"), "").unwrap();
+            std::fs::create_dir(core.join("abort")).unwrap();
+            std::fs::write(core.join("abort/moon.pkg"), "").unwrap();
+            std::fs::write(core.join("abort/abort.mbt"), "").unwrap();
         }
         if state == "missing_artifact" {
             std::fs::remove_file(bundle.join("abort/abort.core")).unwrap();
         }
-        let graph = project.path().join("graph.jsonl");
+        let graph = project.join("graph.jsonl");
         if matches!(state, "absent" | "bundled") {
-            snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-                .current_dir(core.path())
+            core.moon_cmd(snapbox::cargo_bin!("moon"))
                 .env("MOON_DEP_CACHE", "off")
                 .env("MOON_WORK", "off")
                 .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
@@ -97,9 +86,9 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                 );
             }
         }
-        snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-            .current_dir(project.path())
-            .env("MOON_CORE_OVERRIDE", core.path())
+        project
+            .moon_cmd(snapbox::cargo_bin!("moon"))
+            .env("MOON_CORE_OVERRIDE", core.cwd())
             .env("MOON_DEP_CACHE", "off")
             .env("MOON_WORK", "off")
             .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
@@ -143,11 +132,10 @@ fn stdlib_abort_uses_normal_build_pipeline() {
     }
 
     // Core's abort package can be tested and instrumented like any other package.
-    std::fs::create_dir(core.path().join("coverage")).unwrap();
-    std::fs::write(core.path().join("coverage/moon.pkg"), "").unwrap();
-    let graph = project.path().join("test-graph.jsonl");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(core.path())
+    std::fs::create_dir(core.join("coverage")).unwrap();
+    std::fs::write(core.join("coverage/moon.pkg"), "").unwrap();
+    let graph = project.join("test-graph.jsonl");
+    core.moon_cmd(snapbox::cargo_bin!("moon"))
         .env("MOON_DEP_CACHE", "off")
         .env("MOON_WORK", "off")
         .env("MOON_TEST_DUMP_BUILD_GRAPH", &graph)
