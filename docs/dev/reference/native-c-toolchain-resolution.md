@@ -225,6 +225,12 @@ The Windows MSVC direct object native target uses the same resolver with an MSVC
 compatibility requirement. It warns and ignores an incompatible `MOON_CC`, rejects
 an incompatible package request, and has no GCC-like fallback.
 
+Build-plan construction reuses successfully resolved toolchains for identical
+package compiler requests, including requests shared by `cc` and `stub-cc`.
+The cache is scoped to one build plan, whose environment and selection policy
+are fixed. It is populated only when a native toolchain is needed; Wasm,
+WasmGC, and JS builds do not resolve C toolchains.
+
 ## Global Environment Override
 
 - If `MOON_CC` is set, Moon uses it as the compiler for the regular native pipeline.
