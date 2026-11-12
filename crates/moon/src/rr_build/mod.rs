@@ -659,7 +659,7 @@ fn write_metadata_if_changed(metadata_file: &Path, metadata: &str) -> anyhow::Re
 
 fn collect_check_commands_by_output(
     build_input: &BuildInput,
-) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
+) -> moonbuild_rupes_recta::metadata::CheckCommandMap<'_> {
     let mut commands = BTreeMap::new();
     for id in build_input.execution_plan().action_ids() {
         let action = build_input.execution_plan().action(id);
@@ -668,18 +668,18 @@ fn collect_check_commands_by_output(
             continue;
         };
         for output in action.outputs() {
-            commands.insert(output.clone(), command_args.clone());
+            commands.insert(output.clone(), command_args);
         }
     }
     commands
 }
 
-fn check_command_args_without_executable(args: &[String]) -> Option<Vec<String>> {
+fn check_command_args_without_executable(args: &[String]) -> Option<&[String]> {
     let (_executable, command_args) = args.split_first()?;
     command_args
         .first()
         .is_some_and(|arg| arg == "check")
-        .then(|| command_args.to_vec())
+        .then_some(command_args)
 }
 
 pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {

@@ -43,8 +43,9 @@ use crate::{
 /// `moonc check` command arguments keyed by their generated `.mi` output path.
 ///
 /// The executable path is intentionally omitted so metadata stays independent
-/// of the active host/toolchain layout.
-pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
+/// of the active host/toolchain layout. Arguments borrow the execution plan
+/// until they are copied into the owned metadata document.
+pub type CheckCommandMap<'a> = BTreeMap<PathBuf, &'a [String]>;
 
 /// Generate the full legacy `packages.json` document shared by IDE plugins and
 /// other tools.
@@ -54,7 +55,7 @@ pub fn gen_metadata_json(
     artifact_paths: &ArtifactPathResolver,
     opt_level: OptLevel,
     backend: TargetBackend,
-    check_commands: &CheckCommandMap,
+    check_commands: &CheckCommandMap<'_>,
 ) -> ModuleDBJSON {
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
@@ -104,7 +105,7 @@ fn gen_package_json(
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
-    check_commands: &CheckCommandMap,
+    check_commands: &CheckCommandMap<'_>,
 ) -> PackageJSON {
     let pkg = ctx.pkg_dirs.get_package(pkg_id);
     let is_in_workspace = ctx.local_modules().contains(&pkg.module);
@@ -230,7 +231,9 @@ fn gen_package_json(
         artifact: dunce::simplified(&source_artifact)
             .to_string_lossy()
             .into_owned(),
-        check_command: check_commands.get(&source_artifact).cloned(),
+        check_command: check_commands
+            .get(&source_artifact)
+            .map(|args| args.to_vec()),
         wbtest_check_command,
         test_check_command,
         supported_targets: pkg.effective_supported_targets.iter().copied().collect(),
@@ -276,10 +279,10 @@ fn metadata_check_command(
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
-    check_commands: &CheckCommandMap,
+    check_commands: &CheckCommandMap<'_>,
 ) -> Option<Vec<String>> {
     let artifact = metadata_mi_path(ctx, artifact_paths, target, backend);
-    check_commands.get(&artifact).cloned()
+    check_commands.get(&artifact).map(|args| args.to_vec())
 }
 
 fn edge_to_alias_json(
