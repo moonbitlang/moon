@@ -73,10 +73,9 @@ fn probe_windows_cpu_profiler() {
         .join("\n");
     std::fs::write(artifacts.join("tool-inventory.txt"), inventory).unwrap();
     for (name, args) in [
-        ("help", vec!["/?"]),
-        ("start-help", vec!["start", "/?"]),
-        ("stop-help", vec!["stop", "/?"]),
-        ("export-help", vec!["export", "/?"]),
+        ("help", vec!["help"]),
+        ("start-help", vec!["start", "/help"]),
+        ("stop-help", vec!["stop", "/help"]),
     ] {
         record_command(Command::new(&profiler).args(args), &artifacts, name).unwrap();
     }
@@ -184,4 +183,34 @@ async fn main { workload() }
             std::fs::write(artifacts.join("container-error.txt"), error.to_string()).unwrap();
         }
     }
+
+    // Use Microsoft's ETL reader only to establish feasibility. Requiring .NET
+    // for a production Moon profiler remains a separate design decision.
+    let decoder = temporary.path().join("decoder");
+    std::fs::create_dir(&decoder).unwrap();
+    std::fs::write(
+        decoder.join("Decoder.csproj"),
+        include_str!("fixtures/windows_profile_decoder/Decoder.csproj"),
+    )
+    .unwrap();
+    std::fs::write(
+        decoder.join("Program.cs"),
+        include_str!("fixtures/windows_profile_decoder/Program.cs"),
+    )
+    .unwrap();
+    let decoded = record_command(
+        Command::new("dotnet")
+            .args(["run", "--project"])
+            .arg(decoder.join("Decoder.csproj"))
+            .arg("--")
+            .arg(&artifacts)
+            .arg(executable.file_name().unwrap()),
+        &artifacts,
+        "decode",
+    )
+    .unwrap();
+    assert!(
+        decoded.status.success(),
+        "expected sampled workload symbols"
+    );
 }
