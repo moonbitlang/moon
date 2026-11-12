@@ -7,7 +7,7 @@ mod run;
 mod tool;
 mod whoami;
 
-use crate::util::{check, moon_bin, moonrun_bin};
+use crate::util::{check, moon_bin, moonrun_bin, toolchain_root_for_tests};
 use crate::{TestDir, get_err_stderr_with_envs, get_stdout, moon_cmd};
 use expect_test::expect;
 
@@ -66,16 +66,21 @@ fn path_with_fake_bin(fake_bin_dir: &std::path::Path) -> std::ffi::OsString {
 
 #[test]
 fn test_moon_doc_query_warns_and_succeeds() {
-    let dir = TestDir::new_empty();
+    // Query inside a private core so the real IDE checks this tiny module
+    // instead of the installed stdlib.
+    let dir = TestDir::new("query_symbol.in/core");
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["doc", "@json"])
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOON_CORE_OVERRIDE", dir.as_ref())
+        .args(["doc", "@builtin.dummy"])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-package "moonbitlang/core/json"
-...
+package "moonbitlang/core/builtin"
+pub fn dummy() -> String
+
 "#]])
         .stderr_eq(
             "Warning: `moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.\n",
