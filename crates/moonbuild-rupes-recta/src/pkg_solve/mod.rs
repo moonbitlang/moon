@@ -22,10 +22,7 @@ mod model;
 mod solve;
 mod verify;
 
-use crate::{
-    discover::DiscoverResult,
-    pkg_solve::verify::{find_unsupported_targets, verify},
-};
+use crate::{discover::DiscoverResult, pkg_solve::verify::verify_and_compute_support};
 use log::info;
 use moonutil::{resolution::ModuleDependencyGraph, target::TargetBackend, user_log::UserLog};
 use tracing::{Level, instrument};
@@ -46,8 +43,13 @@ pub fn resolve_packages(
     info!("Starting dependency resolution");
 
     let mut res = solve_only(modules, packages, enable_coverage, backend, user_log)?;
-    verify(&res, packages, modules.input_module_ids(), user_log)?;
-    res.unsupported_targets = find_unsupported_targets(&res, packages, backend);
+    res.unsupported_targets = verify_and_compute_support(
+        &res,
+        packages,
+        modules.input_module_ids(),
+        backend,
+        user_log,
+    )?;
 
     info!("Dependency resolution completed successfully");
     Ok(res)

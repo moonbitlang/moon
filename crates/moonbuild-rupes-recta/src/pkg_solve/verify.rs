@@ -39,24 +39,29 @@ use moonutil::user_log::UserLog;
 
 use super::model::MultipleError;
 
-/// Verify that this package dependency graph is valid.
+/// Verify this dependency graph and collect targets unsupported by the selected backend.
 ///
 /// This function checks the following:
 /// - No loops (except test imports, which don't currently have a workaround)
 /// - Named aliases are unique within one package
-pub(super) fn verify(
+pub(super) fn verify_and_compute_support(
     dep: &PackageRelations,
     packages: &DiscoverResult,
     root_modules: &[ModuleId],
+    backend: TargetBackend,
     user_log: &UserLog,
-) -> Result<(), PackageResolutionError> {
+) -> Result<HashSet<BuildTarget>, PackageResolutionError> {
     debug!("Verifying package dependency graph integrity");
 
     let mut errs = vec![];
 
-    if let Err(e) = verify_no_loop(packages, dep) {
-        errs.push(e);
-    }
+    let unsupported_targets = match check_cycles_and_support(packages, dep, backend) {
+        Ok(unsupported) => unsupported,
+        Err(error) => {
+            errs.push(error);
+            HashSet::new()
+        }
+    };
     debug!("Done loop verification");
 
     verify_no_duplicated_alias(dep, packages, &mut errs);
@@ -70,52 +75,19 @@ pub(super) fn verify(
 
     debug!("Package dependency graph verification completed successfully");
     if errs.is_empty() {
-        Ok(())
+        Ok(unsupported_targets)
     } else {
         Err(PackageResolutionError::Multiple(MultipleError(errs)))
     }
 }
 
-/// Collect targets incompatible with the selected backend.
-///
-/// `verify` must run first so the graph is guaranteed to have no import loops.
-pub(super) fn find_unsupported_targets(
-    dep: &PackageRelations,
+/// Check cycles and propagate backend support in the same depth-first traversal.
+/// A cycle returns an error instead of publishing partial support results.
+fn check_cycles_and_support(
     packages: &DiscoverResult,
+    dep: &PackageRelations,
     backend: TargetBackend,
-) -> HashSet<BuildTarget> {
-    let graph = &dep.dep_graph;
-    let mut topo = petgraph::visit::Topo::new(graph);
-    let mut topo_order = Vec::new();
-    while let Some(node) = topo.next(graph) {
-        topo_order.push(node);
-    }
-
-    let mut unsupported_targets = HashSet::new();
-    for node in topo_order.into_iter().rev() {
-        // Dependencies are visited first, so absence from the set means that
-        // a dependency is compatible, rather than still awaiting evaluation.
-        if !packages
-            .get_package(node.package)
-            .effective_supported_targets
-            .contains(&backend)
-            || graph
-                .neighbors(node)
-                .any(|dependency| unsupported_targets.contains(&dependency))
-        {
-            unsupported_targets.insert(node);
-        }
-    }
-
-    unsupported_targets
-}
-
-/// Verify there's no loops within the dependency graph. If there's any import
-/// loop, return an error.
-fn verify_no_loop(
-    packages: &DiscoverResult,
-    dep: &PackageRelations,
-) -> Result<(), PackageResolutionError> {
+) -> Result<HashSet<BuildTarget>, PackageResolutionError> {
     // An indexed current-visiting path, for finding loops
     let mut path = IndexSet::new();
     // Work stack.
@@ -123,6 +95,7 @@ fn verify_no_loop(
     // The visited list
     let mut vis = HashSet::new();
     let graph = &dep.dep_graph;
+    let mut unsupported_targets = HashSet::new();
 
     // Loop through all nodes for starting
     for starting_node in graph.node_identifiers() {
@@ -137,6 +110,18 @@ fn verify_no_loop(
         while let Some(it) = stack.pop() {
             if it.pop {
                 assert_eq!(path.pop(), Some(it.node), "DFS path mismatch");
+                // All dependencies have completed. Absence from the set now
+                // means supported, so each node only needs its direct dependencies.
+                if !packages
+                    .get_package(it.node.package)
+                    .effective_supported_targets
+                    .contains(&backend)
+                    || graph
+                        .neighbors(it.node)
+                        .any(|dependency| unsupported_targets.contains(&dependency))
+                {
+                    unsupported_targets.insert(it.node);
+                }
                 continue;
             }
             let node = it.node;
@@ -163,8 +148,7 @@ fn verify_no_loop(
             // Add to the path
             path.insert(node);
 
-            // Visit the node, which is currently no-op here
-            // (we may want to do something with the node in the future)
+            // Complete this node after its dependencies.
             stack.push(WorkStackItem::pop(node));
 
             // Push outgoing edges
@@ -174,7 +158,7 @@ fn verify_no_loop(
         }
     }
 
-    Ok(())
+    Ok(unsupported_targets)
 }
 
 struct WorkStackItem {
