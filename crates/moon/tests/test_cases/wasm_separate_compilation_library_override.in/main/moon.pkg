@@ -1,0 +1,5 @@
+import {
+  "username/vo/lib",
+}
+
+pkgtype(kind: "executable")
