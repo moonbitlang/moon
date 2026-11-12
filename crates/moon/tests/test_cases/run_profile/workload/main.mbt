@@ -9,7 +9,7 @@ fn fib(n : Int32) -> Int32 {
 
 ///|
 fn workload() -> Unit {
-  // Keep observable MoonBit work running long enough for 100 Hz sampling.
+  // Keep observable MoonBit work running long enough for sampling.
   let deadline = @env.now() + 1_000
   let result = for sum = 0 {
     let next = sum + fib(38 + (sum & 1))
