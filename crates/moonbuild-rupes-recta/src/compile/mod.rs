@@ -134,7 +134,6 @@ fn lower_plan(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use indexmap::IndexSet;
     use moonutil::{
         build_options::RunMode,
         cond_expr::OptLevel,
@@ -307,9 +306,6 @@ mod tests {
             let target = main.build_target(TargetKind::Source);
             let mut relationship = PackageRelations::default();
             relationship.dep_graph.add_node(target);
-            relationship
-                .realizable_supported_targets
-                .insert(target, TargetBackend::all().iter().copied().collect());
             let mut module_dirs = DirSyncResult::default();
             module_dirs.insert(module, PathBuf::from("."));
             let resolved = ResolvedProject {
@@ -759,16 +755,6 @@ mod tests {
                 kind: TargetKind::Source,
             },
         );
-        let supported = TargetBackend::all()
-            .iter()
-            .copied()
-            .collect::<IndexSet<_>>();
-        relationship
-            .realizable_supported_targets
-            .insert(script_target, supported.clone());
-        relationship
-            .realizable_supported_targets
-            .insert(dependency_target, supported);
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(dependency_module, PathBuf::from("../dependency"));
         module_dirs.insert(module, PathBuf::from("."));

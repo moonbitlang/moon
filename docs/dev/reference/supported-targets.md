@@ -118,6 +118,11 @@ After root selection for backend `B` , Moon checks reachable required
 dependencies from those roots. If any required dependency package does not
 support `B` , the command fails with a normal user-facing error (not a panic).
 
+Compatibility is computed for `B` using its active imports, separately for
+source and test targets. When the source target is compatible but a whitebox
+or blackbox test target is not, that test target is skipped with an informational
+message visible under `--verbose`. This does not infer support for other backends.
+
 ## Warnings
 
 * Legacy array syntax in `supported_targets` is deprecated; local packages using it emit a warning.

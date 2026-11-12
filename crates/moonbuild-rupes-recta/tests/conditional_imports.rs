@@ -307,10 +307,11 @@ import { "example/conditional/common" @native_common }
         ]
     );
     for &backend in TargetBackend::all() {
-        let supported = &resolved.package_relations[&backend].realizable_supported_targets
-            [&target(&resolved, "consumer", TargetKind::Source)];
+        let unsupported = resolved.package_relations[&backend]
+            .unsupported_targets
+            .contains(&target(&resolved, "consumer", TargetKind::Source));
         // The native import includes LLVM, but its dependency only supports Native C.
-        assert_eq!(supported.contains(&backend), backend != LLVM);
+        assert_eq!(unsupported, backend == LLVM);
     }
 }
 

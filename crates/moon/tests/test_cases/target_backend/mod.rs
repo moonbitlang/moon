@@ -496,19 +496,19 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
     assert!(check_err.contains("incompatible with the dependency graph"));
     assert!(check_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(check_err.contains("requires 'supported/mismatch/lib'"));
-    assert!(check_err.contains("supports [native]"));
+    assert!(check_err.contains("active dependency graph does not support this backend"));
 
     let build_err = get_err_stderr(&dir, ["build", "--target", "js", "--dry-run"]);
     assert!(build_err.contains("incompatible with the dependency graph"));
     assert!(build_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(build_err.contains("requires 'supported/mismatch/lib'"));
-    assert!(build_err.contains("supports [native]"));
+    assert!(build_err.contains("active dependency graph does not support this backend"));
 
     let run_err = get_err_stderr(&dir, ["run", "main", "--target", "js", "--dry-run"]);
     assert!(run_err.contains("incompatible with the dependency graph"));
     assert!(run_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("requires 'supported/mismatch/lib'"));
-    assert!(run_err.contains("supports [native]"));
+    assert!(run_err.contains("active dependency graph does not support this backend"));
 }
 
 #[test]
@@ -585,7 +585,7 @@ fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
         check_err
             .contains("'supported/virtual-root/virtual' requires 'supported/virtual-root/lib'")
     );
-    assert!(check_err.contains("supports [native]"));
+    assert!(check_err.contains("active dependency graph does not support this backend"));
 
     let build_err = get_err_stderr(&dir, ["build", "virtual", "--target", "js", "--dry-run"]);
     assert!(build_err.contains("incompatible with the dependency graph"));
@@ -593,7 +593,7 @@ fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
         build_err
             .contains("'supported/virtual-root/virtual' requires 'supported/virtual-root/lib'")
     );
-    assert!(build_err.contains("supports [native]"));
+    assert!(build_err.contains("active dependency graph does not support this backend"));
 }
 
 #[test]
@@ -624,39 +624,38 @@ fn test_test_skips_unrealizable_test_targets_when_source_supports_backend() {
 }
 
 #[test]
-fn test_check_warns_when_test_target_is_never_realizable() {
-    let dir = Fixture::readonly("supported_targets_test_target_unrealizable.in");
-
-    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
-    assert!(stderr.contains("Skipping whitebox tests for package"));
-    assert!(stderr.contains("Skipping blackbox tests for package"));
-    assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
-}
-
-#[test]
-fn test_test_warns_when_test_target_is_never_realizable() {
+fn test_test_reports_backend_incompatible_test_targets_as_info() {
     let dir = Fixture::readonly("supported_targets_test_target_unrealizable.in");
 
     let stderr = get_stderr(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
     assert!(stderr.contains("Skipping whitebox tests for package"));
     assert!(stderr.contains("Skipping blackbox tests for package"));
     assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
+    assert!(stderr.contains("its active dependency graph does not support this backend"));
+    assert!(!stderr.contains("Warning: Skipping"));
 }
 
 #[test]
 fn test_check_skips_backend_mismatched_tests_as_info() {
-    let dir = Fixture::readonly("supported_targets_test_target_mismatch.in");
+    // Empty and nonempty cross-backend intersections both mean only that this
+    // backend cannot run the tests. Neither case should produce a warning.
+    for fixture in [
+        "supported_targets_test_target_mismatch.in",
+        "supported_targets_test_target_unrealizable.in",
+    ] {
+        let dir = Fixture::readonly(fixture);
+        let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
+        assert!(!stderr.contains("Skipping"), "{stderr}");
 
-    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
-    assert!(!stderr.contains("target is not realizable for this backend"));
-
-    let verbose_stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run", "-v"]);
-    assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
-    assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
-    assert!(verbose_stderr.contains("target is not realizable for this backend"));
-    assert!(!verbose_stderr.contains("Info: Skipping"));
+        let verbose_stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run", "-v"]);
+        assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
+        assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
+        assert!(
+            verbose_stderr.contains("its active dependency graph does not support this backend")
+        );
+        assert!(!verbose_stderr.contains("Warning: Skipping"));
+        assert!(!verbose_stderr.contains("Info: Skipping"));
+    }
 }
 
 #[test]

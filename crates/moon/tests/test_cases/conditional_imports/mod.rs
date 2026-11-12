@@ -87,32 +87,32 @@ import { "missing/conditional/package" }
 
 #[test]
 fn test_conditional_import_support_error_describes_active_graph() {
-    let dir = TestDir::new("conditional_imports/fixture");
-    std::fs::write(
-        dir.join("app/moon.pkg"),
-        r#"
-supported_targets = "all"
-#cfg(target = "native")
-import { "example/conditional/portable" }
-#cfg(target = "js")
-import { "example/conditional/native" }
-"#,
-    )
-    .unwrap();
+    let dir = Fixture::readonly("conditional_imports/backend_support");
 
-    moon_cmd(&dir)
-        .args(["check", "main", "--target", "js", "--dry-run"])
-        .assert()
-        .failure()
-        .stderr_eq(snapbox::str![[r#"
-Error: failed to run check for target Js
+    // Each active graph has a nonempty backend intersection, but neither
+    // supports its own backend. Do not suggest the other backend as a fix.
+    for (backend, target) in [("js", "Js"), ("native", "Native")] {
+        moon_cmd(&dir)
+            .args(["check", "main", "--target", backend, "--dry-run"])
+            .assert()
+            .failure()
+            .stderr_eq(format!(
+                "Error: failed to run check for target {target}
 
 Caused by:
     0: Failed to calculate build plan
     1: Failed to build a build plan for the modules
-    2: Selected backend 'js' is incompatible with the dependency graph. 'example/conditional/main' requires 'example/conditional/app' whose active dependency graph supports [native]. Dependency path: example/conditional/main -> example/conditional/app
-
-"#]]);
+    2: Selected backend '{backend}' is incompatible with the dependency graph. 'example/conditional/main' requires 'example/conditional/app' whose active dependency graph does not support this backend. Dependency path: example/conditional/main -> example/conditional/app
+"
+            ));
+    }
+    // Both imports are inactive for WasmGC, so the same transitive dependency
+    // is valid there. Unsupported targets elsewhere in the graph do not fail it.
+    moon_cmd(&dir)
+        .args(["check", "main", "--target", "wasm-gc", "--dry-run"])
+        .assert()
+        .success()
+        .stderr_eq("");
 }
 
 #[test]

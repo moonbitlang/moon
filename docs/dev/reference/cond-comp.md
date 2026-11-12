@@ -75,8 +75,9 @@ checks or transitive backend support. Virtual implementation and override syntax
 remains unconditional, with the resolved data owned by each backend's relationship.
 
 Planning, lowering, and backend-scoped metadata consume the same resolved
-relationship. Its derived support sets describe the intersection of active
-dependencies' declared backends; they do not predict another backend's imports.
+relationship. Its derived support records whether each build target and its
+active transitive dependencies support the selected backend. Other backends
+must be checked against their own active imports.
 This applies across build, check, run, test, bench, info, doc, bundle, and proof
 operations. `moon tree --package` resolves only its selected backend and shows that
 backend's imports; see [supported targets](supported-targets.md).
