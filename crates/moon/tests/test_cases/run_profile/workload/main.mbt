@@ -1,27 +1,22 @@
 ///|
-fn fib(n : Int32) -> Int32 {
-  if n < 2 {
-    n
-  } else {
-    fib(n - 1) + fib(n - 2)
-  }
-}
-
-///|
-fn workload() -> Unit {
-  // Keep observable MoonBit work running long enough for sampling.
-  let deadline = @env.now() + 1_000
-  let result = for sum = 0 {
-    let next = sum + fib(38 + (sum & 1))
-    if @env.now() >= deadline {
-      break next
+async fn workload() -> Unit {
+  // Alternate CPU work with sleeps so the profile includes running and
+  // suspended tasks. Printing the checksum keeps the work observable.
+  let result = for batch = 0, checksum = 1; batch < 20; {
+    let next = for i = 0, value = checksum; i < 10_000_000; {
+      continue i + 1, (value * 33) ^ (value >> 5) ^ i
+    } nobreak {
+      value
     }
-    continue next
+    @async.sleep(50)
+    continue batch + 1, next
+  } nobreak {
+    checksum
   }
   println(result)
 }
 
 ///|
-fn main {
+async fn main {
   workload()
 }

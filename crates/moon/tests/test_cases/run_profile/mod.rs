@@ -158,6 +158,7 @@ fn test_moon_run_profile_with_real_profiler() {
 
     // When the normal CLI records, exports, and parses the profile.
     moon_cmd(&dir)
+        .timeout(std::time::Duration::from_secs(120))
         .env_remove("MOON_PERF_OVERRIDE")
         .env_remove("MOON_XCRUN_OVERRIDE")
         .args(["run", ".", "--profile"])
@@ -197,6 +198,7 @@ fn test_moon_test_profile_with_real_profiler() {
 
     // When Moon profiles the test executable and builds its aggregate report.
     moon_cmd(&dir)
+        .timeout(std::time::Duration::from_secs(120))
         .current_dir(&spawn_dir)
         .env(override_var, &selected_profiler)
         .args(["-C", "..", "test", "--profile"])
@@ -253,10 +255,10 @@ fn assert_profile_report(target_dir: &Path) -> serde_json::Value {
             .unwrap()
             .iter()
             .any(|entry| {
-                entry["symbol"].as_str().unwrap().contains("fib")
+                entry["symbol"].as_str().unwrap().contains("workload")
                     && entry["samples"].as_u64().unwrap() > 0
             }),
-        "expected samples attributed to fib: {report:#}"
+        "expected samples attributed to workload: {report:#}"
     );
     report
 }

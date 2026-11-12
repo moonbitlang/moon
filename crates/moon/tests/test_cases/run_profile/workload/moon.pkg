@@ -1,5 +1,9 @@
 import {
-  "moonbitlang/core/env",
+  "moonbitlang/core/async",
 }
+
+import {
+  "moonbitlang/core/env",
+} for "wbtest"
 
 pkgtype(kind: "executable")
