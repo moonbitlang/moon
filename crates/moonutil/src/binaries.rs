@@ -47,6 +47,7 @@ const EXECUTABLE_OVERRIDES: &[&str] = &[
     "MOONRUN_OVERRIDE",
     "MOON_CRAM_OVERRIDE",
     "MOON_NODE_OVERRIDE",
+    "MOON_PERF_OVERRIDE",
 ];
 
 /// Return only explicitly configured binary paths for best-effort display
@@ -157,6 +158,7 @@ pub struct CachedBinaries {
     pub node: LazyLock<Option<PathBuf>>,
     pub python: LazyLock<Option<PathBuf>>,
     pub git: LazyLock<Option<PathBuf>>,
+    pub perf: LazyLock<Option<PathBuf>>,
 }
 
 impl CachedBinaries {
@@ -189,6 +191,7 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
     node: LazyLock::new(|| optional_executable(&["node.cmd", "node"], "MOON_NODE_OVERRIDE")),
     python: LazyLock::new(|| optional_executable(&["python", "python3"], "MOON_PYTHON_OVERRIDE")),
     git: LazyLock::new(|| optional_executable(&["git"], "MOON_GIT_OVERRIDE")),
+    perf: LazyLock::new(|| optional_executable(&["perf"], "MOON_PERF_OVERRIDE")),
 };
 
 #[cfg(test)]

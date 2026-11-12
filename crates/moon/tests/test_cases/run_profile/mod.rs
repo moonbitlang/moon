@@ -21,23 +21,6 @@ fn xcrun_version_shim() -> (tempfile::TempDir, String) {
     (tmp, path)
 }
 
-#[cfg(target_os = "linux")]
-fn perf_path_shim() -> (tempfile::TempDir, String) {
-    use std::os::unix::fs::PermissionsExt;
-
-    let tmp = tempfile::tempdir().expect("failed to create temporary directory");
-    let shim_path = tmp.path().join("perf");
-    std::fs::write(&shim_path, "#!/usr/bin/env sh\nexit 0\n").unwrap();
-    let mut perms = std::fs::metadata(&shim_path).unwrap().permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&shim_path, perms).unwrap();
-
-    let path = std::env::var("PATH")
-        .map(|value| format!("{}:{}", tmp.path().display(), value))
-        .unwrap_or_else(|_| tmp.path().display().to_string());
-    (tmp, path)
-}
-
 #[cfg(target_os = "macos")]
 fn profile_cwd_shim() -> (tempfile::TempDir, String) {
     use std::os::unix::fs::PermissionsExt;
@@ -78,70 +61,6 @@ if [ "$1" = "xctrace" ] && [ "$2" = "export" ]; then
 <row><thread-state id="1" fmt="Running">Running</thread-state><weight id="2" fmt="1.00 ms">1000000</weight><stack id="3" fmt="_M0profile"><frame id="4" name="_M0profile" addr="0x1"/></stack></row>
 </node></trace-query-result>
 XML
-  exit 0
-fi
-
-exit 1
-"#,
-    )
-    .unwrap();
-    let mut perms = std::fs::metadata(&shim_path).unwrap().permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&shim_path, perms).unwrap();
-
-    let path = std::env::var("PATH")
-        .map(|value| format!("{}:{}", tmp.path().display(), value))
-        .unwrap_or_else(|_| tmp.path().display().to_string());
-    (tmp, path)
-}
-
-#[cfg(target_os = "linux")]
-fn profile_cwd_shim() -> (tempfile::TempDir, String) {
-    use std::os::unix::fs::PermissionsExt;
-
-    let tmp = tempfile::tempdir().expect("failed to create temporary directory");
-    let shim_path = tmp.path().join("perf");
-    std::fs::write(
-        &shim_path,
-        r#"#!/usr/bin/env sh
-if [ "$1" = "record" ]; then
-  pwd > "$MOON_PROFILE_CWD_MARKER"
-  data_path=""
-  cpu=""
-  status=0
-  while [ "$#" -gt 0 ]; do
-    if [ "$1" = "-o" ]; then
-      shift
-      data_path="$1"
-    elif [ "$1" = "--sample-cpu" ]; then
-      cpu="[001]"
-    elif [ "$1" = "--" ]; then
-      shift
-      "$@" >/dev/null 2>/dev/null
-      status=$?
-      break
-    fi
-    shift
-  done
-  printf '%s\n' "$cpu" > "$data_path"
-  exit $status
-fi
-
-if [ "$1" = "script" ]; then
-  data_path=""
-  while [ "$#" -gt 0 ]; do
-    if [ "$1" = "-i" ]; then
-      shift
-      data_path="$1"
-    fi
-    shift
-  done
-  # Like perf, only print the CPU column if it was recorded.
-  cpu=$(cat "$data_path")
-  printf '            profile 1234 %s 10.000000: cpu-clock:\n' "$cpu"
-  cat <<'PERF'
-        400000000001 _M0profile+0x14 (/tmp/main.exe)
-PERF
   exit 0
 fi
 
@@ -230,16 +149,17 @@ fn test_moon_test_profile_dry_run_uses_native_release_graph() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn test_moon_run_profile_dry_run_prints_perf_commands() {
+fn test_moon_run_profile_dry_run_uses_perf_override() {
     use crate::dry_run_utils::line_with;
 
     let dir = TestDir::new("hello");
-    let (_tmp, path) = perf_path_shim();
-
+    let tools = tempfile::tempdir().unwrap();
+    let perf = tools.path().join("perf");
+    std::os::unix::fs::symlink(which::which("perf").unwrap(), &perf).unwrap();
     let output = get_stdout_with_envs(
         &dir,
         ["run", "main", "--profile", "--dry-run"],
-        [("PATH", path)],
+        [("MOON_PERF_OVERRIDE", &perf)],
     );
 
     let record_cmd = line_with(
@@ -258,6 +178,12 @@ fn test_moon_run_profile_dry_run_prints_perf_commands() {
         ],
     );
     let script_cmd = line_with(&output, "perf script", &["-i"]);
+    for command in [&record_cmd, &script_cmd] {
+        assert!(
+            command.contains(perf.to_str().unwrap()),
+            "command should use MOON_PERF_OVERRIDE: {command}"
+        );
+    }
 
     assert!(
         record_cmd.contains("perf.data"),
@@ -283,7 +209,7 @@ fn test_moon_run_profile_dry_run_prints_perf_commands() {
     );
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 #[test]
 fn test_moon_test_profile_runs_profiler_from_module_root() {
     let dir = TestDir::new("run_profile/profile_test_cwd");
@@ -319,12 +245,66 @@ fn test_moon_run_profile_with_real_perf() {
 
     // When the normal CLI records, exports, and parses the profile.
     moon_cmd(&dir)
+        .env_remove("MOON_PERF_OVERRIDE")
         .args(["run", ".", "--profile"])
         .assert()
         .success();
 
     // Then the retained report must contain samples from the workload itself.
-    let reports: Vec<_> = walkdir::WalkDir::new(dir.target_dir().unwrap())
+    let report = assert_perf_report(dir.target_dir().unwrap());
+    assert_eq!(report["target"]["command"], "moon run --profile");
+    for artifact in ["trace", "perf_script"] {
+        let path = Path::new(report["artifacts"][artifact].as_str().unwrap());
+        assert!(std::fs::metadata(path).unwrap().len() > 0);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_moon_test_profile_with_real_perf() {
+    // Given the same real-perf workload, launched outside the module root.
+    let dir = Fixture::copied("run_profile/real_perf");
+    let spawn_dir = dir.join("spawn");
+    std::fs::create_dir(&spawn_dir).unwrap();
+    let tools = tempfile::tempdir().unwrap();
+    let perf = tools.path().join("perf");
+    std::os::unix::fs::symlink(which::which("perf").unwrap(), &perf).unwrap();
+
+    // When Moon profiles the test executable and builds its aggregate report.
+    moon_cmd(&dir)
+        .current_dir(&spawn_dir)
+        .env("MOON_PERF_OVERRIDE", &perf)
+        .args(["-C", "..", "test", "--profile"])
+        .assert()
+        .success();
+
+    // Then samples and artifacts must come from the real test workload.
+    let report = assert_perf_report(&dir.join("_build"));
+    assert_eq!(report["target"]["command"], "moon test --profile");
+    let executables = report["executables"].as_array().unwrap();
+    assert_eq!(executables.len(), 1);
+    let artifacts = &executables[0]["artifacts"];
+    for artifact in ["trace", "perf_script"] {
+        let path = Path::new(artifacts[artifact].as_str().unwrap());
+        assert!(std::fs::metadata(path).unwrap().len() > 0);
+    }
+
+    // The test process itself reports its cwd, so this also checks that the
+    // real profiler launches it from the module root.
+    let stdout = std::fs::read_to_string(artifacts["stdout"].as_str().unwrap()).unwrap();
+    let recorded = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("cwd: "))
+        .expect("test workload should report its working directory");
+    assert_eq!(
+        std::fs::canonicalize(recorded).unwrap(),
+        std::fs::canonicalize(dir.cwd()).unwrap()
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn assert_perf_report(target_dir: &Path) -> serde_json::Value {
+    let reports: Vec<_> = walkdir::WalkDir::new(target_dir)
         .into_iter()
         .map(Result::unwrap)
         .filter(|entry| entry.file_name() == "profile.json")
@@ -349,10 +329,7 @@ fn test_moon_run_profile_with_real_perf() {
             }),
         "expected samples attributed to fib: {report:#}"
     );
-    for artifact in ["trace", "perf_script"] {
-        let path = Path::new(report["artifacts"][artifact].as_str().unwrap());
-        assert!(std::fs::metadata(path).unwrap().len() > 0);
-    }
+    report
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]

@@ -8,15 +8,20 @@ fn fib(n : Int32) -> Int32 {
 }
 
 ///|
-fn main {
+fn workload() -> Unit {
   // Keep observable MoonBit work running long enough for 100 Hz sampling.
-  let start = @bench.monotonic_clock_start()
+  let deadline = @env.now() + 1_000
   let result = for sum = 0 {
     let next = sum + fib(38 + (sum & 1))
-    if @bench.monotonic_clock_end(start) >= 1_000_000.0 {
+    if @env.now() >= deadline {
       break next
     }
     continue next
   }
   println(result)
+}
+
+///|
+fn main {
+  workload()
 }

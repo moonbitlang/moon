@@ -33,6 +33,7 @@ use moonutil::{
     command_output::CommandOutput,
     cond_expr::OptLevel,
     target::{SurfaceTarget, TargetBackend},
+    toolchain::BINARIES,
 };
 use serde::Serialize;
 
@@ -43,7 +44,6 @@ const DEFAULT_TOP: usize = 12;
 const MIN_ACTIONABLE_SAMPLES: usize = 100;
 const PERF_SAMPLE_FREQUENCY_HZ: u32 = 100;
 const PERF_SAMPLE_WEIGHT_MS: f64 = 1000.0 / PERF_SAMPLE_FREQUENCY_HZ as f64;
-const PERF_COMMAND: &str = "perf";
 const PERF_PERMISSION_HINT: &str = concat!(
     "If this is a permissions issue, check `/proc/sys/kernel/perf_event_paranoid`. ",
     "You may need to lower it or run with sufficient privileges for profiling on this machine."
@@ -773,7 +773,9 @@ pub(crate) fn ensure_profile_available(command_name: &str) -> anyhow::Result<Pro
     let profiler_backend = current_profile_backend(command_name)?;
     match profiler_backend {
         ProfileBackend::Xctrace => ensure_xctrace_available(command_name)?,
-        ProfileBackend::Perf => ensure_perf_available(command_name)?,
+        ProfileBackend::Perf => {
+            perf_executable(command_name)?;
+        }
     }
     Ok(profiler_backend)
 }
@@ -797,10 +799,12 @@ fn ensure_xctrace_available(command_name: &str) -> anyhow::Result<()> {
     )
 }
 
-fn ensure_perf_available(command_name: &str) -> anyhow::Result<()> {
-    which::which(PERF_COMMAND)
-        .with_context(|| format!("{command_name} on Linux requires `{PERF_COMMAND}` on PATH"))?;
-    Ok(())
+fn perf_executable(command_name: &str) -> anyhow::Result<&'static Path> {
+    BINARIES.perf.as_deref().with_context(|| {
+        format!(
+            "{command_name} on Linux requires `perf` on PATH or an executable set by `MOON_PERF_OVERRIDE`"
+        )
+    })
 }
 
 fn run_xctrace_record(
@@ -876,8 +880,8 @@ fn perf_record_command(
     executable: &Path,
     args: &[String],
     current_dir: Option<&Path>,
-) -> Command {
-    let mut cmd = Command::new(PERF_COMMAND);
+) -> anyhow::Result<Command> {
+    let mut cmd = Command::new(perf_executable(MOON_PROFILE_COMMAND)?);
     // Record CPU metadata so perf script emits the CPU column our parser expects.
     cmd.args(["record", "--quiet", "--sample-cpu", "-F"]);
     cmd.arg(PERF_SAMPLE_FREQUENCY_HZ.to_string());
@@ -889,14 +893,14 @@ fn perf_record_command(
     if let Some(current_dir) = current_dir {
         cmd.current_dir(current_dir);
     }
-    cmd
+    Ok(cmd)
 }
 
-fn perf_script_command(data_path: &Path) -> Command {
-    let mut cmd = Command::new(PERF_COMMAND);
+fn perf_script_command(data_path: &Path) -> anyhow::Result<Command> {
+    let mut cmd = Command::new(perf_executable(MOON_PROFILE_COMMAND)?);
     cmd.args(["script", "-i"]);
     cmd.arg(data_path);
-    cmd
+    Ok(cmd)
 }
 
 fn run_perf_record(
@@ -911,7 +915,7 @@ fn run_perf_record(
         .with_context(|| format!("failed to create stdout file `{}`", stdout_path.display()))?;
     let stderr = File::create(stderr_path)
         .with_context(|| format!("failed to create stderr file `{}`", stderr_path.display()))?;
-    let mut cmd = perf_record_command(data_path, executable, args, current_dir);
+    let mut cmd = perf_record_command(data_path, executable, args, current_dir)?;
     let status = cmd
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -933,7 +937,7 @@ fn run_perf_record(
 fn run_perf_script(data_path: &Path, script_path: &Path) -> anyhow::Result<()> {
     let script = File::create(script_path)
         .with_context(|| format!("failed to create perf script `{}`", script_path.display()))?;
-    let mut cmd = perf_script_command(data_path);
+    let mut cmd = perf_script_command(data_path)?;
     let output = cmd
         .stdout(Stdio::from(script))
         .output()
@@ -993,18 +997,20 @@ fn write_perf_record_command(
     executable: &Path,
     args: &[String],
     current_dir: Option<&Path>,
-) -> std::io::Result<()> {
-    let cmd = perf_record_command(data_path, executable, args, current_dir);
-    write_command_with_output_redirects(output, &cmd, stdout_path, Some(stderr_path))
+) -> anyhow::Result<()> {
+    let cmd = perf_record_command(data_path, executable, args, current_dir)?;
+    write_command_with_output_redirects(output, &cmd, stdout_path, Some(stderr_path))?;
+    Ok(())
 }
 
 fn write_perf_script_command(
     output: &mut dyn Write,
     data_path: &Path,
     script_path: &Path,
-) -> std::io::Result<()> {
-    let cmd = perf_script_command(data_path);
-    write_command_with_stdout_redirect(output, &cmd, script_path)
+) -> anyhow::Result<()> {
+    let cmd = perf_script_command(data_path)?;
+    write_command_with_stdout_redirect(output, &cmd, script_path)?;
+    Ok(())
 }
 
 fn write_command(output: &mut dyn Write, cmd: &Command) -> std::io::Result<()> {
@@ -1908,10 +1914,9 @@ mod tests {
 
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,
-        build_report, build_test_report, default_output_dir, parse_perf_script_output,
-        parse_xctrace_time_profile_xml, perf_record_command, profile_target,
-        render_terminal_report, sanitize_path_component, test_profile_output_dir_for_executable,
-        with_json_report,
+        build_report, build_test_report, default_output_dir, parse_perf_script,
+        parse_xctrace_time_profile_xml, profile_target, render_terminal_report,
+        sanitize_path_component, test_profile_output_dir_for_executable, with_json_report,
     };
 
     #[test]
@@ -1962,21 +1967,7 @@ mod tests {
     }
 
     #[test]
-    fn perf_record_includes_cpu_in_sample_metadata() {
-        let command = perf_record_command(Path::new("perf.data"), Path::new("main.exe"), &[], None);
-
-        // perf script only emits the CPU column required by our parser when
-        // CPU metadata was requested while recording.
-        assert!(
-            command
-                .get_args()
-                .take_while(|arg| *arg != "--")
-                .any(|arg| arg == "--sample-cpu")
-        );
-    }
-
-    #[test]
-    fn parses_perf_script_callchains() {
+    fn parses_perf_script_file() {
         let script = r#"
             main 1234 [001] 10.000000: cpu-clock:
         400000000001 _M0hot+0x14 (/tmp/main.exe)
@@ -1991,7 +1982,9 @@ mod tests {
         7f0000000006 __libc_poll (/usr/lib/libc.so.6)
 "#;
 
-        let parsed = parse_perf_script_output(script);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), script).unwrap();
+        let parsed = parse_perf_script(file.path()).unwrap();
         assert_eq!(parsed.observed_rows, 3);
         assert_eq!(parsed.running_samples, 3);
         assert_eq!(parsed.total_samples, 2);

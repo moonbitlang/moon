@@ -1,5 +1,5 @@
 import {
-  "moonbitlang/core/bench",
+  "moonbitlang/core/env",
 }
 
 pkgtype(kind: "executable")

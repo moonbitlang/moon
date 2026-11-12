@@ -24,6 +24,10 @@ resolved from that directory.
 The cached entry point is `moonutil::toolchain::BINARIES`. Build engines should
 use it instead of duplicating tool lookup rules.
 
+Linux profiling resolves `perf` through an optional entry in this cache,
+using `MOON_PERF_OVERRIDE` before searching `PATH`. Availability checks,
+recording, export, and dry-run output use the same resolved executable.
+
 Binary resolution is demand-driven. The cache must not expose an aggregate
 inventory API: code for display, diagnostics, or tests must never enumerate all
 entries or otherwise force resolution of the complete executable inventory.

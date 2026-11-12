@@ -45,11 +45,11 @@ cargo xtask
 cargo test --workspace
 ```
 
-On Linux, the profiling E2E test requires `perf` with DWARF unwinding support
+On Linux, the profiling E2E tests require `perf` with DWARF unwinding support
 and permission to record per-process `cpu-clock` events. The existing Linux CI
 test job installs the kernel tools and sets `kernel.perf_event_paranoid=1`.
-The test runs as part of the normal Cargo suite and can be selected with
-`cargo test -p moon --test mod test_moon_run_profile_with_real_perf`.
+The run and test profiling cases are part of the normal Cargo suite and can
+be selected with `cargo test -p moon --test mod profile_with_real_perf`.
 
 `cargo xtask` checks the test-driver template with Moon, Rust formatting, and
 Clippy, including the runtime backend configurations. The exact commands live
