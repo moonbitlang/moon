@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Throwaway feasibility probe: capture a real native MoonBit process and retain
-//! the profiler's help, configuration, and raw artifacts for format inspection.
+//! the system WPR trace, Rust-decoded samples, and PDB symbol results.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -45,7 +45,10 @@ fn record_command(
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "requires the Windows Visual Studio collector")]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires Windows WPR and the Samply ETL importer"
+)]
 fn probe_windows_cpu_profiler() {
     let temporary = tempfile::tempdir().unwrap();
     let artifacts = std::env::var_os("MOON_PROFILE_PROBE_ARTIFACT_DIR")
@@ -53,34 +56,22 @@ fn probe_windows_cpu_profiler() {
         .unwrap_or_else(|| temporary.path().join("artifacts"));
     std::fs::create_dir_all(&artifacts).unwrap();
 
-    let vswhere = PathBuf::from(std::env::var_os("ProgramFiles(x86)").unwrap())
-        .join("Microsoft Visual Studio/Installer/vswhere.exe");
-    let discovery = record_command(
-        Command::new(vswhere).args(["-latest", "-products", "*", "-property", "installationPath"]),
-        &artifacts,
-        "vswhere",
-    )
-    .unwrap();
-    assert!(discovery.status.success());
-    let installation = String::from_utf8(discovery.stdout).unwrap();
-    let collector = Path::new(installation.trim()).join("Team Tools/DiagnosticsHub/Collector");
-    let profiler = collector.join("VSDiagnostics.exe");
-    assert!(profiler.is_file(), "VSDiagnostics is missing");
-    let inventory = walkdir::WalkDir::new(collector.parent().unwrap())
-        .into_iter()
-        .map(|entry| entry.unwrap().path().display().to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-    std::fs::write(artifacts.join("tool-inventory.txt"), inventory).unwrap();
+    // Explicitly use the inbox executable; an ADK install may also add WPR to PATH.
+    let profiler = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/wpr.exe");
+    let importer = PathBuf::from(std::env::var_os("MOON_PROFILE_PROBE_SAMPLY").unwrap());
     for (name, args) in [
-        ("help", vec!["help"]),
-        ("start-help", vec!["start", "/help"]),
-        ("stop-help", vec!["stop", "/help"]),
+        ("wpr-help", vec!["-help"]),
+        ("wpr-profiles", vec!["-profiles"]),
+        ("wpr-cpu-profile", vec!["-profiledetails", "CPU"]),
     ] {
         record_command(Command::new(&profiler).args(args), &artifacts, name).unwrap();
     }
-    let config = collector.join("AgentConfigs/CPUUsageBase.json");
-    std::fs::copy(&config, artifacts.join("CPUUsageBase.json")).unwrap();
+    record_command(
+        Command::new(&importer).arg("--version"),
+        &artifacts,
+        "samply-version",
+    )
+    .unwrap();
 
     let project = temporary.path().join("workload");
     std::fs::create_dir(&project).unwrap();
@@ -144,73 +135,135 @@ async fn main { workload() }
         }
     }
 
-    let session = artifacts.join("workload.diagsession");
+    let session = artifacts.join("workload.etl");
+    // An explicit instance keeps this probe separate from the default WPR/UI
+    // session. If it is already in use, fail instead of canceling another trace.
+    let instance = "MoonProfileProbe";
     let start = record_command(
-        Command::new(&profiler).args([
-            "start".to_string(),
-            "1".to_string(),
-            format!("/launch:{}", executable.display()),
-            format!("/loadConfig:{}", config.display()),
-        ]),
+        Command::new(&profiler).args(["-start", "CPU", "-instancename", instance]),
         &artifacts,
         "start",
-    );
-    std::thread::sleep(Duration::from_secs(15));
-    // Stop even if start failed or timed out, before asserting on its result.
+    )
+    .unwrap();
+    assert!(start.status.success());
+    let workload = record_command(Command::new(executable), &artifacts, "workload");
+    // Save and stop our session before inspecting workload failure or timeout.
     let stop = record_command(
-        Command::new(&profiler).args([
-            "stop".to_string(),
-            "1".to_string(),
-            format!("/output:{}", session.display()),
-        ]),
+        Command::new(&profiler)
+            .arg("-stop")
+            .arg(&session)
+            .args(["-instancename", instance]),
         &artifacts,
         "stop",
     );
-    assert!(start.unwrap().status.success());
+    // A failed stop can leave an ETW session alive. Never cancel the default
+    // instance or a trace whose start did not succeed.
+    if !stop.as_ref().is_ok_and(|output| output.status.success()) {
+        let _ = record_command(
+            Command::new(&profiler).args(["-cancel", "-instancename", instance]),
+            &artifacts,
+            "cancel-after-stop-failure",
+        );
+    }
     assert!(stop.unwrap().status.success());
+    assert!(workload.unwrap().status.success());
     assert!(session.metadata().unwrap().len() > 0);
 
-    // Inspect the actual container before choosing a parsing approach.
-    match zip::ZipArchive::new(std::fs::File::open(&session).unwrap()) {
-        Ok(mut archive) => {
-            let entries = archive.file_names().collect::<Vec<_>>().join("\n");
-            println!("diagsession entries:\n{entries}");
-            std::fs::write(artifacts.join("session-entries.txt"), entries).unwrap();
-            archive.extract(artifacts.join("session")).unwrap();
-        }
-        Err(error) => {
-            println!("diagsession is not a readable ZIP: {error}");
-            std::fs::write(artifacts.join("container-error.txt"), error.to_string()).unwrap();
-        }
-    }
-
-    // Use Microsoft's ETL reader only to establish feasibility. Requiring .NET
-    // for a production Moon profiler remains a separate design decision.
-    let decoder = temporary.path().join("decoder");
-    std::fs::create_dir(&decoder).unwrap();
-    std::fs::write(
-        decoder.join("Decoder.csproj"),
-        include_str!("fixtures/windows_profile_decoder/Decoder.csproj"),
-    )
-    .unwrap();
-    std::fs::write(
-        decoder.join("Program.cs"),
-        include_str!("fixtures/windows_profile_decoder/Program.cs"),
-    )
-    .unwrap();
+    // Samply's published Windows binary decodes ETL in Rust. Use only its import
+    // path: its recording command depends on xperf, which is not part of Windows.
+    let profile = artifacts.join("profile.json");
     let decoded = record_command(
-        Command::new("dotnet")
-            .args(["run", "--project"])
-            .arg(decoder.join("Decoder.csproj"))
-            .arg("--")
-            .arg(&artifacts)
-            .arg(executable.file_name().unwrap()),
+        Command::new(&importer)
+            .arg("import")
+            .arg(&session)
+            .args(["--save-only", "--name", "profile_probe", "-o"])
+            .arg(&profile),
         &artifacts,
         "decode",
     )
     .unwrap();
+    assert!(decoded.status.success());
+
+    // The released importer produces module-relative addresses. Resolve only
+    // addresses actually reachable from CPU samples against this build's PDB;
+    // finding a workload name in an unused symbol table would prove nothing.
+    let profile: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&profile).unwrap()).unwrap();
+    let libraries = profile["libs"].as_array().unwrap();
+    let pdb_file = artifacts
+        .join(executable.file_name().unwrap())
+        .with_extension("pdb");
+    let pdb = pdb_addr2line::pdb::PDB::open(std::fs::File::open(pdb_file).unwrap()).unwrap();
+    let data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb).unwrap();
+    let context = data.make_context().unwrap();
+    let mut samples = Vec::new();
+    let mut addresses = std::collections::BTreeMap::new();
+    let mut workload_samples = 0;
+    for thread in profile["threads"].as_array().unwrap() {
+        for stack in thread["samples"]["stack"].as_array().unwrap() {
+            let mut index = stack.as_u64();
+            let mut frames = Vec::new();
+            while let Some(stack_index) = index {
+                let stack_index = stack_index as usize;
+                let frame = thread["stackTable"]["frame"][stack_index].as_u64().unwrap() as usize;
+                let function = thread["frameTable"]["func"][frame].as_u64().unwrap() as usize;
+                let resource = thread["funcTable"]["resource"][function].as_u64();
+                let library = resource.and_then(|resource| {
+                    thread["resourceTable"]["lib"][resource as usize].as_u64()
+                });
+                let address = thread["frameTable"]["address"][frame].as_u64();
+                if let (Some(library), Some(address)) = (library, address) {
+                    let library = &libraries[library as usize];
+                    if library["name"]
+                        .as_str()
+                        .unwrap()
+                        .eq_ignore_ascii_case(executable.file_name().unwrap().to_str().unwrap())
+                    {
+                        let rva = u32::try_from(address).unwrap();
+                        let names = addresses.entry(rva).or_insert_with(|| {
+                            context
+                                .find_frames(rva)
+                                .unwrap()
+                                .map(|frames| {
+                                    frames
+                                        .frames
+                                        .into_iter()
+                                        .filter_map(|frame| frame.function)
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default()
+                        });
+                        frames.extend(names.iter().cloned());
+                    }
+                }
+                index = thread["stackTable"]["prefix"][stack_index].as_u64();
+            }
+            if frames.iter().any(|name| name.contains("workload")) {
+                workload_samples += 1;
+            }
+            samples.push(serde_json::json!({
+                "pid": thread["pid"], "tid": thread["tid"], "targetFrames": frames,
+            }));
+        }
+    }
+    let unresolved = addresses.values().filter(|names| names.is_empty()).count();
+    let summary = serde_json::json!({
+        "samples": samples.len(),
+        "workloadSamples": workload_samples,
+        "targetAddresses": addresses.len(),
+        "unresolvedTargetAddresses": unresolved,
+    });
+    println!("Rust ETL/PDB result: {summary}");
+    std::fs::write(
+        artifacts.join("samples.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "summary": summary, "samples": samples, "addresses": addresses,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     assert!(
-        decoded.status.success(),
-        "expected sampled workload symbols"
+        workload_samples > 0,
+        "expected real CPU samples with workload symbols"
     );
 }

@@ -227,6 +227,22 @@ jobs:
       - name: Build xtask
         run: cargo build -p xtask
 
+      - name: Prepare Rust ETL importer
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'samply.zip'
+          Invoke-WebRequest 'https://github.com/mstange/samply/releases/download/samply-v0.13.1/samply-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '8fed74dac18197bbb2520125b0199255e09709bed7903a7672a06225a5d7e976') {
+            throw 'Samply archive checksum mismatch'
+          }
+          $directory = Join-Path $env:RUNNER_TEMP 'samply'
+          Expand-Archive $archive $directory
+          $importer = (Get-ChildItem $directory -Recurse -Filter samply.exe).FullName
+          "MOON_PROFILE_PROBE_SAMPLY=$importer" | Out-File $env:GITHUB_ENV -Append
+          $artifacts = Join-Path $env:RUNNER_TEMP 'windows-profile-probe'
+          New-Item -ItemType Directory -Force $artifacts | Out-Null
+          (Get-Item "$env:SystemRoot\System32\wpr.exe").VersionInfo | Format-List * | Out-File (Join-Path $artifacts 'wpr-version.txt')
+
       - name: Run tests
         timeout-minutes: 10
         env:
