@@ -1,8 +1,16 @@
 use super::*;
 
-// Concurrent xctrace recordings contend for the kernel tracing session.
+// xctrace can hang after its target exits, even for standalone C workloads.
+// Keep macOS CLI coverage deterministic; Linux still exercises the real perf.
 #[cfg(target_os = "macos")]
-static XCTRACE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn fake_xcrun(tools: &Path) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let xcrun = tools.join("fake xcrun");
+    std::fs::write(&xcrun, include_str!("fake-xcrun.sh")).unwrap();
+    std::fs::set_permissions(&xcrun, std::fs::Permissions::from_mode(0o755)).unwrap();
+    xcrun
+}
 
 #[cfg(target_os = "macos")]
 #[test]
@@ -11,12 +19,7 @@ fn test_moon_run_profile_dry_run_uses_xcrun_override() {
 
     let dir = TestDir::new("hello");
     let tools = tempfile::tempdir().unwrap();
-    let xcrun = tools.path().join("xcrun");
-    std::os::unix::fs::symlink(
-        moonutil::toolchain::BINARIES.xcrun.as_ref().unwrap(),
-        &xcrun,
-    )
-    .unwrap();
+    let xcrun = fake_xcrun(tools.path());
 
     let output = get_stdout_with_envs(
         &dir,
@@ -148,37 +151,40 @@ fn test_moon_run_profile_dry_run_uses_perf_override() {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn test_moon_run_profile_with_real_profiler() {
-    #[cfg(target_os = "macos")]
-    let _recording = XCTRACE_LOCK.lock().unwrap();
-
-    // Given a sustained MoonBit workload and the platform profiler, with
-    // permission to record and unwind the native executable.
+fn test_moon_run_profile_report_and_artifacts() {
+    // Given a sustained MoonBit workload, using real perf on Linux and a fake
+    // xcrun on macOS that launches the workload and exports fixed samples.
     let dir = Fixture::readonly("run_profile/workload");
+    let cmd = moon_cmd(&dir)
+        .env_remove("MOON_PERF_OVERRIDE")
+        .env_remove("MOON_XCRUN_OVERRIDE");
+    #[cfg(target_os = "macos")]
+    let tools = tempfile::tempdir().unwrap();
+    #[cfg(target_os = "macos")]
+    let cmd = cmd.env("MOON_XCRUN_OVERRIDE", fake_xcrun(tools.path()));
 
     // When the normal CLI records, exports, and parses the profile.
-    moon_cmd(&dir)
-        .timeout(std::time::Duration::from_secs(120))
-        .env_remove("MOON_PERF_OVERRIDE")
-        .env_remove("MOON_XCRUN_OVERRIDE")
+    cmd.timeout(std::time::Duration::from_secs(120))
         .args(["run", ".", "--profile"])
         .assert()
         .success();
 
-    // Then the retained report must contain samples from the workload itself.
+    // Then the retained report contains the profiler's samples and artifacts.
     let report = assert_profile_report(dir.target_dir().unwrap());
     assert_eq!(report["target"]["command"], "moon run --profile");
     assert_profile_artifacts(&report["artifacts"]);
+    let stdout = std::fs::read_to_string(report["artifacts"]["stdout"].as_str().unwrap()).unwrap();
+    assert!(
+        stdout.trim().parse::<i32>().is_ok(),
+        "the profiler should capture the workload's checksum: {stdout}"
+    );
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn test_moon_test_profile_with_real_profiler() {
-    #[cfg(target_os = "macos")]
-    let _recording = XCTRACE_LOCK.lock().unwrap();
-
+fn test_moon_test_profile_report_artifacts_and_cwd() {
     // Given the same workload, launched outside the module root, and an
-    // explicit override pointing to the real platform profiler.
+    // explicit profiler override (real perf on Linux, fake xcrun on macOS).
     let dir = Fixture::copied("run_profile/workload");
     let spawn_dir = dir.join("spawn");
     std::fs::create_dir(&spawn_dir).unwrap();
@@ -188,13 +194,12 @@ fn test_moon_test_profile_with_real_profiler() {
         moonutil::toolchain::BINARIES.perf.as_ref().unwrap(),
         "MOON_PERF_OVERRIDE",
     );
-    #[cfg(target_os = "macos")]
-    let (profiler, override_var) = (
-        moonutil::toolchain::BINARIES.xcrun.as_ref().unwrap(),
-        "MOON_XCRUN_OVERRIDE",
-    );
+    #[cfg(target_os = "linux")]
     let selected_profiler = tools.path().join(profiler.file_name().unwrap());
+    #[cfg(target_os = "linux")]
     std::os::unix::fs::symlink(profiler, &selected_profiler).unwrap();
+    #[cfg(target_os = "macos")]
+    let (selected_profiler, override_var) = (fake_xcrun(tools.path()), "MOON_XCRUN_OVERRIDE");
 
     // When Moon profiles the test executable and builds its aggregate report.
     moon_cmd(&dir)
@@ -205,7 +210,7 @@ fn test_moon_test_profile_with_real_profiler() {
         .assert()
         .success();
 
-    // Then samples and artifacts must come from the real test workload.
+    // Then the aggregate report retains samples and per-executable artifacts.
     let report = assert_profile_report(&dir.join("_build"));
     assert_eq!(report["target"]["command"], "moon test --profile");
     let executables = report["executables"].as_array().unwrap();
@@ -214,7 +219,7 @@ fn test_moon_test_profile_with_real_profiler() {
     assert_profile_artifacts(artifacts);
 
     // The test process itself reports its cwd, so this also checks that the
-    // real profiler launches it from the module root.
+    // profiler launches it from the module root.
     let stdout = std::fs::read_to_string(artifacts["stdout"].as_str().unwrap()).unwrap();
     let recorded = stdout
         .lines()
@@ -260,6 +265,15 @@ fn assert_profile_report(target_dir: &Path) -> serde_json::Value {
             }),
         "expected samples attributed to workload: {report:#}"
     );
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(report["summary"]["profiled_samples"], 2);
+        assert_eq!(
+            report["rankings"]["inclusive_time"][0]["symbol"],
+            "_M0fake_workload"
+        );
+        assert_eq!(report["rankings"]["inclusive_time"][0]["samples"], 2);
+    }
     report
 }
 
