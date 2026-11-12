@@ -87,8 +87,9 @@ features = [
 ]
 
 [dev-dependencies]
+pdb-addr2line = "0.12.1"
 regex.workspace = true
-snapbox = { workspace = true, features = ["regex"] }
+snapbox = { workspace = true, features = ["regex", "cmd"] }
 expect-test.workspace = true
 escargot.workspace = true
 clap-markdown.workspace = true
