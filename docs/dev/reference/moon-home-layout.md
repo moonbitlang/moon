@@ -231,16 +231,18 @@ separate:
   `moon update` invokes both operations in Git mode and treats symbols failures
   as warnings. HTTP metadata queries keep their existing per-release cache and
   do not participate in either synchronization record.
-- `moonutil::registry::RegistryCredentials` owns saved credential loading and
-  persistence, legacy compatibility, and API destination matching. Login and
-  API consumers share these operations; HTTP headers and redirect policy stay
+- `mooncake::registry::credentials` owns saved credential loading, legacy
+  compatibility, and API destination matching. Registry consumers share these
+  operations; HTTP headers and redirect policy stay
   in the request layer. `registry_api_url` validates and normalizes their API
-  base URLs without selecting the configured registry.
+  base URLs without selecting the configured registry. The shared account and
+  configuration types remain in `moonutil::registry`, without URL handling.
 - `RegistryClient` owns the captured credentials and shares them immutably with
   its HTTP metadata backend. `registry::authentication` constructs API clients
   from those credentials without loading files or holding global state. The
-  external mooncake executable owns private source delivery; Moon owns archive
-  verification and cache publication.
+  `registry::external` owns the stdin download-request protocol sent to the
+  external mooncake executable, which owns login, credential persistence, and
+  private source delivery; Moon owns archive verification and cache publication.
 - `moonutil::cache` owns cache-root selection, ownership validation, and
   lifecycle rules.
 - `moonutil::toolchain` owns installed toolchain paths and must not be used to

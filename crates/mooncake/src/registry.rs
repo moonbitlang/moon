@@ -18,6 +18,7 @@
 
 mod authentication;
 mod client;
+mod credentials;
 pub(crate) mod download;
 mod executable;
 mod external;

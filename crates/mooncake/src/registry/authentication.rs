@@ -18,8 +18,8 @@
 
 //! Registry HTTP clients using credentials loaded by their owning registry.
 
+use super::credentials::{RegistryCredentials, registry_api_url};
 use anyhow::{Context, bail};
-use moonutil::registry::{RegistryCredentials, registry_api_url};
 use reqwest::{
     Url,
     header::{AUTHORIZATION, HeaderMap, HeaderValue},
