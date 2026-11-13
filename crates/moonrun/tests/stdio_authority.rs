@@ -18,6 +18,10 @@
 
 //! Stdio grants authorize acquired-handle operations independently of path policy.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::{Engine, RunOptions, RunOutcome};
 
 const STDIN_SIZE: &str = r#"(module

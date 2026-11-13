@@ -16,6 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(feature = "v8")]
+#[path = "../common/test_init.rs"]
+mod test_init;
+
 mod async_host;
 mod cli;
 mod embedding;

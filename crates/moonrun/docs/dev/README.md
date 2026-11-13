@@ -414,6 +414,21 @@ cargo test
 cargo test -p moonrun --no-default-features --features wasmtime
 ```
 
+V8 tests must initialize the default platform before libtest creates its test
+threads, so those threads inherit Linux protection-key permissions. The library
+unit tests have a startup hook in `src/lib.rs`. Integration tests that use V8 in
+the test process must include `tests/common/test_init.rs` with a
+`#[cfg(feature = "v8")]` module declaration; integration tests link the normal
+library and do not run its unit-test hook. Keep these pre-main hooks limited to
+engine initialization, without Rust arguments, environment access, or stdio.
+
+Tests that select a different `EngineConfig`, such as `initialization.rs` and
+`process_tree.rs`, use separate processes and initialize their configuration
+before creating execution threads. They must not include the default startup
+hook. Tests that only spawn the Moonrun CLI rely on its existing initialization.
+Serializing libtest does not replace startup initialization: even with
+`--test-threads=1`, test functions run on separate threads.
+
 ## Before PR
 
 We encourage to add the following prefix to your commit message and PR title: feat, fix, internal, or minor.

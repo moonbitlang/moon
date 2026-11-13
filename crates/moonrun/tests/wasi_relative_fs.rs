@@ -18,6 +18,10 @@
 
 //! Exercise the WASI adapter and shared handle-relative filesystem operations.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 
 #[test]

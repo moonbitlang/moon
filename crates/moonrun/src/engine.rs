@@ -757,6 +757,30 @@ impl Default for Engine {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "v8")]
+    #[test]
+    fn test_harness_initializes_v8_before_test_threads() {
+        // Isolate the check so other tests cannot initialize V8 first and
+        // conceal a missing startup hook.
+        if std::env::var_os("MOONRUN_TEST_INITIALIZATION_PROBE").is_none() {
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "engine::tests::test_harness_initializes_v8_before_test_threads",
+                    "--nocapture",
+                ])
+                .env("MOONRUN_TEST_INITIALIZATION_PROBE", "1")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+        assert!(
+            initialize(EngineConfig::default().with_stack_size(512)).is_err(),
+            "the test harness must initialize V8 before starting test threads"
+        );
+    }
+
     #[test]
     #[allow(clippy::single_range_in_vec_init)]
     fn test_args_preserve_names_and_selection_order() {

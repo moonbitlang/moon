@@ -16,6 +16,34 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
+#[cfg(feature = "v8")]
+#[test]
+fn test_harness_initializes_v8_before_test_threads() {
+    // Integration tests link the normal library, so its unit-test hook cannot
+    // initialize this process. Isolate the check from other tests as well.
+    if std::env::var_os("MOONRUN_TEST_INITIALIZATION_PROBE").is_none() {
+        snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "test_harness_initializes_v8_before_test_threads",
+                "--nocapture",
+            ])
+            .env("MOONRUN_TEST_INITIALIZATION_PROBE", "1")
+            .timeout(std::time::Duration::from_secs(15))
+            .assert()
+            .success();
+        return;
+    }
+    assert!(
+        moonrun::initialize(moonrun::EngineConfig::default().with_stack_size(512)).is_err(),
+        "the test harness must initialize V8 before starting test threads"
+    );
+}
+
 #[test]
 fn engine_backend_reuses_compiled_modules() {
     let engine = moonrun::Engine::default();

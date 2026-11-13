@@ -828,6 +828,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor-lite"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e162d0c2e2068eb736b71e5597eff0b9944e6b973cd9f37b6a288ab9bf20e300"
+
+[[package]]
 name = "ctrlc"
 version = "3.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2198,6 +2204,7 @@ dependencies = [
  "anyhow",
  "cc",
  "clap",
+ "ctor-lite",
  "dunce",
  "escargot",
  "globset",
