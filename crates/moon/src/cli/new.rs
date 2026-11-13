@@ -18,15 +18,17 @@
 
 use std::{fs::File, io::BufReader, path::PathBuf};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use moonutil::{
     MOON_HOME,
     constants::{is_moon_mod_exist, is_moon_pkg_exist},
     registry::{Credentials, validate_username},
+    toolchain,
     user_log::UserLog,
 };
 
-use super::UniversalFlags;
+use super::{UniversalFlags, process::ProcessAction};
+use crate::run::{ExecutionMode, command_for};
 
 /// Read the existing username from the credentials file
 fn get_existing_username(user_log: &UserLog) -> Option<String> {
@@ -71,7 +73,7 @@ pub(crate) fn run_new(
     cli: &UniversalFlags,
     cmd: NewSubcommand,
     user_log: &UserLog,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ProcessAction> {
     if cli.dry_run {
         bail!("dry-run is not supported for new")
     }
@@ -118,7 +120,22 @@ pub(crate) fn run_new(
         );
     }
 
-    // Warn about reserved suffixes that may cause template files to be misrecognized
+    let generator = toolchain::bin().join("moon_new.wasm");
+    if generator
+        .try_exists()
+        .with_context(|| format!("failed to locate {}", generator.display()))?
+    {
+        let mut command = command_for(ExecutionMode::MoonRun, &generator, None);
+        command
+            .arg(format!("--user={username}"))
+            .arg(format!("--name={project_name}"))
+            .arg("--")
+            .arg(&path);
+        return Ok(ProcessAction::Delegate(command));
+    }
+
+    // FIXME: Remove this fallback and the Rust generator once all supported
+    // SDKs ship moon_new.wasm.
     if project_name.ends_with("_test") || project_name.ends_with("_wbtest") {
         user_log.warn(format!(
             "Project name '{}' ends with a reserved suffix. \
@@ -128,5 +145,5 @@ pub(crate) fn run_new(
         ));
     }
 
-    moonbuild::new::moon_new_default(&path, username, project_name)
+    moonbuild::new::moon_new_default(&path, username, project_name).map(Into::into)
 }

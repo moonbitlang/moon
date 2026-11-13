@@ -259,7 +259,7 @@ fn dispatch(
         Explain(command) => super::run_explain(&flags, command).map(Into::into),
         Install(command) => super::install_cli(flags, command, output.user_log()).map(Into::into),
         Whoami(command) => super::run_whoami(&flags, command).map(Into::into),
-        New(command) => super::run_new(&flags, command, output.user_log()).map(Into::into),
+        New(command) => super::run_new(&flags, command, output.user_log()),
         Publish(command) => {
             super::mooncake_adapter::publish_cli(flags, command, output.user_log()).map(Into::into)
         }
