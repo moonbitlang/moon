@@ -108,7 +108,8 @@ compares the architecture, operating system, and ABI of the probed target
 triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
 targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
 require no ABI component. Windows does not compare the ABI, because the shipped
-objects are not used there and the MSVC toolchain policy selects the ABI.
+objects are not used there. Windows direct object selection separately requires
+a cl-compatible driver.
 When they differ, Moon does not link `libmoonbitrun.o` or `libbacktrace.a`,
 and it does not define `MOONBIT_USE_SIMDUTF` or archive the SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
 backtraces depend on `libbacktrace.a`, so Moon also does not define
@@ -221,9 +222,18 @@ errors. `detected_default_native_toolchain()` tries Windows MSVC discovery befor
 the cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in
 `detect_cc_on_path()`.
 
-The Windows MSVC direct object native target uses the same resolver with an MSVC
-compatibility requirement. It warns and ignores an incompatible `MOON_CC`, rejects
-an incompatible package request, and has no GCC-like fallback.
+For Native executable and foreign-library requests, build planning first resolves
+the shared runtime compiler, each requested package's `cc`, and the `stub-cc` of
+packages whose C stubs will be linked. These selections are retained for the
+actions that consume them. Unused packages and commands without native toolchain
+actions do not trigger compiler resolution.
+
+Automatic Native payload selection then checks those selected toolchains. A
+compiler targeting another platform requires generated C. The Windows direct
+object target also requires every selected driver to be cl-compatible; a selected
+GCC-style driver therefore uses generated C. Debug/profile and package C-flag
+constraints still apply. An explicit compiler request is honored or produces an
+error; payload selection never substitutes another compiler to keep direct objects.
 
 ## Global Environment Override
 

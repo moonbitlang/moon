@@ -29,9 +29,7 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{
-        self, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainPolicy, ToolchainSource,
-    },
+    compiler_flags::{self, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
@@ -100,19 +98,6 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn warn_incompatible_windows_msvc_env_override(&mut self) {
-        if self.warned_incompatible_windows_msvc_env_override
-            || !compiler_flags::has_incompatible_windows_msvc_env_override()
-        {
-            return;
-        }
-
-        self.warned_incompatible_windows_msvc_env_override = true;
-        self.user_log.warn(
-            "MOON_CC is ignored for Windows MSVC direct object native target because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
-        );
-    }
-
     fn effective_native_toolchain(
         &mut self,
         package_cc: Option<&str>,
@@ -120,20 +105,67 @@ impl<'a> BuildPlanConstructor<'a> {
         // TODO: Consume explicit toolchain candidates and environment overrides
         // once native toolchain discovery moves to command orchestration.
         debug_assert!(self.config.backend.target_backend().is_native());
-        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-            self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::effective_native_toolchain(
-                compiler_flags::ENV_CC.as_ref(),
-                package_cc,
-                ToolchainPolicy::WindowsMsvc,
-            );
+        let request = package_cc.map(str::to_owned);
+        if let Some(toolchain) = self.native_toolchains.get(&request) {
+            return Ok(toolchain.clone());
         }
 
-        compiler_flags::effective_native_toolchain(
+        let toolchain = compiler_flags::effective_native_toolchain(
             compiler_flags::ENV_CC.as_ref(),
             package_cc,
-            ToolchainPolicy::PlatformDefault,
-        )
+        )?;
+        self.native_toolchains.insert(request, toolchain.clone());
+        Ok(toolchain)
+    }
+
+    /// Select the tools required by executable and foreign-library requests before
+    /// choosing their payload form. Later actions reuse these exact selections.
+    pub(super) fn resolve_native_toolchains(
+        &mut self,
+        requested: &[ArtifactKey],
+    ) -> Result<(), BuildPlanConstructError> {
+        for artifact in requested {
+            let target = match *artifact {
+                ArtifactKey::Executable {
+                    package,
+                    target_kind,
+                } => package.build_target(target_kind),
+                ArtifactKey::ForeignLibrary { package } => package.build_target(TargetKind::Source),
+                _ => continue,
+            };
+            self.effective_native_toolchain(None)
+                .map_err(BuildPlanConstructError::FailedToSetRuntimeCC)?;
+
+            let pkg = self.input.pkg_dirs.get_package(target.package);
+            let cc = pkg
+                .raw
+                .link
+                .as_ref()
+                .and_then(|link| link.native.as_ref())
+                .and_then(|native| native.cc.as_ref())
+                .map(|cc| self.replace_build_vars(target.package, pkg.module, cc));
+            self.effective_native_toolchain(cc.as_deref())
+                .map_err(|error| {
+                    BuildPlanConstructError::FailedToSetCC(error, pkg.fqn.clone().into())
+                })?;
+
+            let (_, stubs) = self.dfs_link_core_sources(target)?;
+            for package in stubs {
+                let pkg = self.input.pkg_dirs.get_package(package);
+                let cc = pkg
+                    .raw
+                    .link
+                    .as_ref()
+                    .and_then(|link| link.native.as_ref())
+                    .and_then(|native| native.stub_cc.as_ref())
+                    .map(|cc| self.replace_build_vars(package, pkg.module, cc));
+                self.effective_native_toolchain(cc.as_deref())
+                    .map_err(|error| {
+                        BuildPlanConstructError::FailedToSetStubCC(error, pkg.fqn.clone().into())
+                    })?;
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {

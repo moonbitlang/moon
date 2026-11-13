@@ -29,7 +29,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId, WasmObject},
     prebuild::PrebuildOutput,
 };
-use moonutil::user_log::UserLog;
+use moonutil::{compiler_flags::Toolchain, user_log::UserLog};
 use tracing::{Level, instrument};
 
 use super::{
@@ -54,10 +54,13 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
-    pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
     pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
+
+    /// Toolchains selected independently of payload form, shared by runtime,
+    /// generated C, and C-stub actions within this build plan.
+    pub(super) native_toolchains: HashMap<Option<String>, Toolchain>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -93,10 +96,10 @@ impl<'a> BuildPlanConstructor<'a> {
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
-            warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
             package_native_compile: HashMap::new(),
+            native_toolchains: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }

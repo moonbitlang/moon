@@ -1,4 +1,60 @@
-use crate::{TestDir, get_err_stderr_with_envs, get_stdout_with_envs};
+use crate::{TestDir, get_err_stderr_with_envs, get_stdout_with_envs, moon_cmd};
+
+#[test]
+fn package_compilers_select_compatible_payload() {
+    for use_dependency_stub in [false, true] {
+        let dir = TestDir::new("native_backend/cross_compiler");
+        let compiler = dir.join("fake-toolchain/bin/fake-cross-gcc");
+        if use_dependency_stub {
+            std::fs::create_dir(dir.join("stub_dep")).unwrap();
+            std::fs::write(dir.join("stub_dep/stub.c"), "int stub(void) { return 0; }").unwrap();
+            std::fs::write(
+                dir.join("stub_dep/moon.pkg"),
+                format!(r#"options("native-stub": ["stub.c"], link: {{ "native": {{ "stub-cc": "{}" }} }})"#, compiler.display()),
+            ).unwrap();
+            std::fs::write(
+                dir.join("main/moon.pkg"),
+                "import { \"cross_compiler/stub_dep\" }\noptions(\"is-main\": true)",
+            )
+            .unwrap();
+        } else {
+            std::fs::write(
+                dir.join("main/moon.pkg"),
+                format!(
+                    r#"options("is-main": true, link: {{ "native": {{ "cc": "{}" }} }})"#,
+                    compiler.display(),
+                ),
+            )
+            .unwrap();
+        }
+        // An unused package must not contribute a compiler request.
+        std::fs::create_dir(dir.join("unused")).unwrap();
+        std::fs::write(dir.join("unused/stub.c"), "").unwrap();
+        std::fs::write(
+            dir.join("unused/moon.pkg"),
+            r#"options("native-stub": ["stub.c"], link: { "native": { "stub-cc": "moon-missing-gcc" }})"#,
+        ).unwrap();
+        moon_cmd(&dir)
+            .env_remove("MOON_CC")
+            .env_remove("MOON_AR")
+            .env("MOONBIT_NEW_NATIVE", "1")
+            .args([
+                "build",
+                "main",
+                "--target",
+                "native",
+                "--debug",
+                "--dry-run",
+            ])
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
+...
+[..]moonc link-core[..] -o [..].c [..]
+...
+"#]]);
+    }
+}
 
 /// Prebuilt objects and the flags that require them. They are built for the
 /// host, so a compiler for another target must not receive them.

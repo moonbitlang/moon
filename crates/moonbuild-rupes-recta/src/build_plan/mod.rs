@@ -622,11 +622,12 @@ pub enum BuildPlanConstructError {
 
 /// Select one Native payload form for all requested artifacts in a plan.
 /// Host capability is supplied by the caller; package policy belongs to RR.
-pub(super) fn resolve_native_backend_mode(
+pub(super) fn resolve_native_backend_mode<'a>(
     resolved: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     opt_level: OptLevel,
     native_target: Option<crate::model::NativeTarget>,
+    toolchains: impl IntoIterator<Item = &'a Toolchain>,
 ) -> crate::model::NativeBackendMode {
     use crate::model::{DirectNativeMode, NativeBackendMode};
 
@@ -636,6 +637,15 @@ pub(super) fn resolve_native_backend_mode(
     let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
         return NativeBackendMode::GeneratedC;
     };
+    // Explicit compiler choices constrain the automatic payload selection.
+    // Windows direct objects currently require a cl-compatible link driver.
+    if toolchains.into_iter().any(|toolchain| {
+        !toolchain.cc().targets_host()
+            || (native_target == crate::model::NativeTarget::X86_64PcWindowsMsvc
+                && !toolchain.uses_msvc_cli())
+    }) {
+        return NativeBackendMode::GeneratedC;
+    }
     let needs_c_compiler = requested_artifacts.iter().any(|artifact| {
         let (ArtifactKey::Executable { package, .. } | ArtifactKey::ForeignLibrary { package }) =
             artifact
@@ -684,11 +694,13 @@ pub fn build_plan(
         ..
     } = &config.backend
     {
+        constructor.resolve_native_toolchains(&input)?;
         constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
             resolved,
             &input,
             config.opt_level,
             *direct_object_candidate,
+            constructor.native_toolchains.values(),
         ));
     }
     constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {

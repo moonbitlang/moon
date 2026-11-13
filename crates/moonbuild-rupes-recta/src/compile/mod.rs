@@ -648,6 +648,33 @@ mod tests {
             package: with_flags,
             target_kind: TargetKind::Source,
         };
+        // Windows direct objects may constrain payload selection, but must not
+        // replace a user-selected GCC-style driver with cl.exe.
+        use moonutil::compiler_flags::{ARKind, CC, CCKind, Toolchain};
+        for (kind, triple, permits_direct_object) in [
+            (CCKind::Msvc, None, true),
+            (CCKind::ClangCl, None, true),
+            (CCKind::Clang, None, false),
+            (CCKind::Gcc, None, false),
+            (CCKind::ClangCl, Some("wasm32-unknown-none"), false),
+        ] {
+            let selected = Toolchain::from_env_override(CC {
+                cc_kind: kind,
+                cc_path: "selected-compiler".into(),
+                ar_kind: ARKind::GnuAr,
+                ar_path: "selected-archiver".into(),
+                target_triple: triple.map(str::to_owned),
+                is_env_override: true,
+            });
+            let mode = resolve_native_backend_mode(
+                &resolved,
+                std::slice::from_ref(&plain_exe),
+                OptLevel::Debug,
+                Some(NativeTarget::X86_64PcWindowsMsvc),
+                [&selected],
+            );
+            assert_eq!(mode.direct_target().is_some(), permits_direct_object);
+        }
         for (requested, permits_direct_object) in [
             (vec![], true),
             (vec![plain_exe.clone()], true),
@@ -670,8 +697,13 @@ mod tests {
                 Some(NativeTarget::X86_64UnknownLinuxGnu),
                 Some(NativeTarget::X86_64PcWindowsMsvc),
             ] {
-                let mode =
-                    resolve_native_backend_mode(&resolved, &requested, OptLevel::Debug, candidate);
+                let mode = resolve_native_backend_mode(
+                    &resolved,
+                    &requested,
+                    OptLevel::Debug,
+                    candidate,
+                    std::iter::empty(),
+                );
                 assert_eq!(
                     mode.direct_target(),
                     if permits_direct_object {
@@ -686,6 +718,7 @@ mod tests {
                     &requested,
                     OptLevel::Release,
                     candidate,
+                    std::iter::empty(),
                 );
                 assert!(release_mode.direct_target().is_none());
             }
