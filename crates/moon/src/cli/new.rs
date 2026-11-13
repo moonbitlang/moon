@@ -120,7 +120,7 @@ pub(crate) fn run_new(
         );
     }
 
-    let generator = toolchain::bin().join("moon-new.wasm");
+    let generator = toolchain::bin().join("moon_new.wasm");
     if generator
         .try_exists()
         .with_context(|| format!("failed to locate {}", generator.display()))?
@@ -135,7 +135,7 @@ pub(crate) fn run_new(
     }
 
     // FIXME: Remove this fallback and the Rust generator once all supported
-    // SDKs ship moon-new.wasm.
+    // SDKs ship moon_new.wasm.
     if project_name.ends_with("_test") || project_name.ends_with("_wbtest") {
         user_log.warn(format!(
             "Project name '{}' ends with a reserved suffix. \

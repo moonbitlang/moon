@@ -291,14 +291,19 @@ fn test_moon_new_reports_a_broken_bundled_generator() {
 
     // Use the real moonrun to prove an installed but invalid artifact fails
     // without creating a project through the Rust fallback.
-    let output = moon_process_cmd(&dir)
+    moon_cmd(&dir)
         .env("MOON_TOOLCHAIN_ROOT", toolchain)
         .args(["new", "hello", "--user", "moonbitlang"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("moon_new.wasm"), "{stderr}");
+        .assert()
+        .code(1)
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to compile `[..]/sdk/bin/moon_new.wasm`
+
+Caused by:
+    Uncaught CompileError: WebAssembly.Module(): expected magic word 00 61 73 6d, found 69 6e 76 61 @+0
+
+"#]]);
     assert!(!dir.join("hello").exists());
 }
 
