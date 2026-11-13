@@ -91,9 +91,9 @@ features = [
 ]
 
 [build-dependencies]
-cc = "1"
+cc.workspace = true
 vergen.workspace = true
-chrono.workspace = true
+time.workspace = true
 
 [dev-dependencies]
 dunce.workspace = true

@@ -69,4 +69,4 @@ expect-test.workspace = true
 
 [build-dependencies]
 vergen.workspace = true
-chrono.workspace = true
+time.workspace = true
