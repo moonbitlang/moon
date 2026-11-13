@@ -24,7 +24,7 @@ use super::ToolchainSource;
 use anyhow::Context;
 
 use super::{
-    CC, CCConfig, CCKind, ENV_CC, LinkerConfig, MsvcEnvironment, OutputType, Toolchain,
+    CC, CCConfig, CCKind, LinkerConfig, MsvcEnvironment, OutputType, Toolchain,
     resolve_native_toolchain_executables,
 };
 
@@ -120,21 +120,6 @@ pub(super) fn discovered_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
 
 pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
     resolve_native_toolchain_executables(discovered_windows_msvc_toolchain()?)
-}
-
-pub(super) fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
-    if cc.uses_msvc_cli() {
-        Ok(())
-    } else {
-        anyhow::bail!(
-            "Windows native backend requires an MSVC cl-compatible compiler driver such as cl.exe or clang-cl.exe; found {}",
-            cc.cc_path
-        )
-    }
-}
-
-pub fn has_incompatible_windows_msvc_env_override() -> bool {
-    ENV_CC.as_ref().is_some_and(|cc| !cc.uses_msvc_cli())
 }
 
 /// Resolve a selected bare MSVC-style request. Compiler selection is already
