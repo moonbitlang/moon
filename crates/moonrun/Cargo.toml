@@ -96,6 +96,7 @@ vergen.workspace = true
 time.workspace = true
 
 [dev-dependencies]
+ctor-lite = "0.1.2"
 dunce.workspace = true
 escargot.workspace = true
 moon-test-util.workspace = true

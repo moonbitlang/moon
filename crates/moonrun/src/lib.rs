@@ -89,3 +89,20 @@ pub use run_termination::{
     RunTermination, RunTerminationReceiver, RunTerminator, termination_channel,
 };
 pub use runtime::WorkingDirectory;
+
+// libtest creates sibling threads, which cannot inherit Linux protection-key
+// permissions from a test that initializes V8 lazily. Initialize the production
+// platform on their ancestor instead. Integration tests have a separate hook.
+#[cfg(all(test, feature = "v8"))]
+ctor_lite::ctor! {
+    // SAFETY: this is the only V8 startup hook in this binary. The default
+    // path uses initially unlocked OnceLock/Mutex globals (with no prior
+    // panic), allocation, and V8's C++ API; none need Rust runtime setup.
+    // Keep Rust arguments, env, stdio, and thread APIs out of this path.
+    // Abort on returned errors without running Rust cleanup.
+    unsafe fn initialize_test_engine() {
+        if initialize(EngineConfig::default()).is_err() {
+            std::process::abort();
+        }
+    }
+}

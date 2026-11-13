@@ -18,6 +18,10 @@
 
 //! Frontend completion must not require an artifact, helper, or compiler.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::path::Path;

@@ -18,6 +18,10 @@
 
 //! The same Runtime restrictions must apply across filesystem import families.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 
 #[test]

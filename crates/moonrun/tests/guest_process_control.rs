@@ -18,6 +18,10 @@
 
 #![cfg(feature = "v8")]
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::{Engine, ProcessError, ProcessState, RunOptions, RunOutcome, RunTermination};
 use std::thread;
 use std::time::{Duration, Instant};

@@ -18,6 +18,10 @@
 
 #![cfg(all(unix, feature = "v8"))]
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::ipc::{ClientRun, Invocation, serve};
 use moonrun::{Engine, RunOptions, RunOutcome, RunTermination};
 use std::fs::File;

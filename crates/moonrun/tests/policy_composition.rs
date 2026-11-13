@@ -18,6 +18,10 @@
 
 //! Additional child restrictions must narrow the inherited authority.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 
 const DENIED_READ: &str = r#"(module

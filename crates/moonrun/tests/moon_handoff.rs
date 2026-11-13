@@ -18,6 +18,10 @@
 
 #![cfg(feature = "v8")]
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{Read, Seek, Write};
