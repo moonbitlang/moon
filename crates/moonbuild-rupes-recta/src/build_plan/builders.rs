@@ -62,7 +62,7 @@ use crate::{
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
     CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
-    PackagePrebuildKey, WasmLinkInfo,
+    PackagePrebuildKey, WasmLibraryInput, WasmLinkInfo,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
     constructor::{BuildPlanConstructor, PackageFileSet},
 };
@@ -1189,7 +1189,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         let target = match object {
             WasmObject::Main(target) => target,
-            WasmObject::Library(package) => package.build_target(TargetKind::Source),
+            WasmObject::Library(package, _) => package.build_target(TargetKind::Source),
         };
         let inputs = self.wasm_object_inputs(target)?;
         let info = self.require_core_ir_closure(node, inputs);
@@ -1223,18 +1223,52 @@ impl<'a> BuildPlanConstructor<'a> {
             .filter(|&dep| dep != target)
             .map(|dep| {
                 debug_assert_eq!(dep.kind, TargetKind::Source);
-                dep.package
+                let package = dep.package;
+                if let Some(path) = self.prebuilt_wasm_object(package) {
+                    WasmLibraryInput::Prebuilt(path)
+                } else {
+                    self.require_artifact(
+                        node,
+                        ArtifactKey::WasmLibraryObject {
+                            package,
+                            opt_level: self.config.opt_level,
+                        },
+                    );
+                    WasmLibraryInput::Built(package)
+                }
             })
-            .collect::<Vec<_>>();
-        for &package in &library_objects {
-            self.require_artifact(node, ArtifactKey::WasmLibraryObject { package });
-        }
+            .collect();
         self.res
             .backend
             .wasm_link_info
             .insert(target, WasmLinkInfo { library_objects });
         self.resolved_node(node);
         Ok(())
+    }
+
+    /// Select an installed object only when its code generation and symbol
+    /// policy match this invocation. Missing objects retain the local provider.
+    fn prebuilt_wasm_object(&mut self, package: PackageId) -> Option<PathBuf> {
+        if !self.config.backend.supports_prebuilt_wasm_objects()
+            || self.res.backend.moonc_debug_info() != (self.config.opt_level == OptLevel::Debug)
+            || !self.input.pkg_dirs.is_stdlib_package(package)
+        {
+            return None;
+        }
+        let core_root = self.config.stdlib_path.as_ref()?;
+        self.prebuilt_wasm_objects
+            .entry(package)
+            .or_insert_with(|| {
+                let fqn = &self.input.pkg_dirs.get_package(package).fqn;
+                let path = moonutil::toolchain::core_package_wasm_object_in(
+                    core_root,
+                    fqn.package().as_str(),
+                    fqn.short_alias(),
+                    self.config.opt_level,
+                );
+                path.is_file().then_some(path)
+            })
+            .clone()
     }
 
     /// Plan the native toolchain action that turns linked Core output into an executable.

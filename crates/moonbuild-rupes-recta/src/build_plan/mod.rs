@@ -455,7 +455,15 @@ pub struct WasmLinkInfo {
     /// The packages whose library objects are linked, in dependency order:
     /// the standard library's, then the program's. The linker initializes
     /// them in this order.
-    pub(crate) library_objects: Vec<PackageId>,
+    pub(crate) library_objects: Vec<WasmLibraryInput>,
+}
+
+/// A library object is either provided by this plan or shipped in the toolchain.
+/// Planning selects the input once; lowering does not probe the filesystem.
+#[derive(Debug)]
+pub(crate) enum WasmLibraryInput {
+    Built(PackageId),
+    Prebuilt(PathBuf),
 }
 
 #[derive(Debug)]

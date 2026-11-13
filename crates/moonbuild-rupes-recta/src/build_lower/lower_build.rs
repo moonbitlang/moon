@@ -49,7 +49,7 @@ use crate::{
     },
     build_plan::{
         ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, WasmLinkInfo,
+        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, WasmLibraryInput, WasmLinkInfo,
     },
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind, WasmObject},
@@ -740,9 +740,18 @@ impl<'a> LoweringContext<'a> {
         let out_file = artifacts.single_output_path();
         let mut extra_inputs = stdlib_inputs;
 
+        let mut flags = self.set_flags();
         let (target, library_object) = match object {
             WasmObject::Main(target) => (target, false),
-            WasmObject::Library(package) => (package.build_target(TargetKind::Source), true),
+            WasmObject::Library(package, profile) => {
+                flags.no_opt = profile == OptLevel::Debug;
+                if self.opt.action == RunMode::Bundle {
+                    // Bundle both code profiles from the distributed release
+                    // Core IR, independently of the bundle invocation's symbols.
+                    flags.symbols = profile == OptLevel::Debug;
+                }
+                (package.build_target(TargetKind::Source), true)
+            }
         };
         let package = self.get_package(target);
         // Only a main object reads the package's manifest and exports the
@@ -772,7 +781,7 @@ impl<'a> LoweringContext<'a> {
             stdlib_core_source: None,
             target_backend: TargetBackend::Wasm,
             native_target: None,
-            flags: self.set_flags(),
+            flags,
             test_mode: target.kind.is_test(),
             wasm_config: self.wasm_object_config(),
             js_config: None,
@@ -799,13 +808,18 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &WasmLinkInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mut extra_inputs = Vec::new();
         let mut objects = info
             .library_objects
             .iter()
-            .map(|&object| {
-                artifacts.single_dependency_path_matching(|artifact| {
-                    matches!(artifact, ArtifactKey::WasmLibraryObject { package } if *package == object)
-                })
+            .map(|object| match object {
+                WasmLibraryInput::Built(object) => artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(artifact, ArtifactKey::WasmLibraryObject { package, .. } if package == object)
+                }),
+                WasmLibraryInput::Prebuilt(path) => {
+                    extra_inputs.push(path.clone());
+                    path.clone()
+                }
             })
             .collect::<Vec<_>>();
         objects.push(artifacts.single_dependency_path_matching(|artifact| {
@@ -825,7 +839,7 @@ impl<'a> LoweringContext<'a> {
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
 
         Ok(BuildCommand {
-            extra_inputs: Vec::new(),
+            extra_inputs,
             commandline,
         })
     }

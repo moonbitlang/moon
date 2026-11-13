@@ -279,8 +279,14 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::WasmMainObject { target_kind, .. } => {
                 (b"wasm-main-object".as_slice(), Some(*target_kind), None)
             }
-            ArtifactKey::WasmLibraryObject { .. } => {
-                (b"wasm-library-object".as_slice(), None, None)
+            ArtifactKey::WasmLibraryObject { opt_level, .. } => {
+                let kind = match opt_level {
+                    moonutil::cond_expr::OptLevel::Debug => b"wasm-library-object-debug".as_slice(),
+                    moonutil::cond_expr::OptLevel::Release => {
+                        b"wasm-library-object-release".as_slice()
+                    }
+                };
+                (kind, None, None)
             }
             ArtifactKey::GeneratedCObject { target_kind, .. } => {
                 (b"generated-c-object".as_slice(), Some(*target_kind), None)

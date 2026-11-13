@@ -304,7 +304,9 @@ program package they are already among its dependencies through `prelude`.
   artifact, to `{package_dir}/{package}.o`, with `link-core -pkg-type
   library`. The object compiles its package's source target alone, so every
   executable using the package shares it; it does not read the package's link
-  configuration.
+  configuration. Bundling may request both debug and release object profiles
+  from the same release Core IR, so the library object's logical identity also
+  includes its object profile.
 - `LinkWasmObjects(BuildTarget)` provides the `Executable` with
   `moonc wasm-ld`. It links the objects of the packages the main object
   reads, in the same dependency order, then the main package's object. The
@@ -315,6 +317,12 @@ program package they are already among its dependencies through `prelude`.
   main object reads, so every reference is linked. The objects and the linker
   get the same `-wasi`, allocator and trial-deletion settings, and `-g` keeps
   names.
+
+For injected standard-library packages, planning first selects a compatible
+[bundled object](bundle.md#prebuilt-wasm-library-objects) when present. Those
+objects are external linker inputs rather than locally provided artifacts;
+lowering consumes the selected paths without probing the filesystem. A missing
+or incompatible object keeps its local `BuildWasmObject` provider.
 
 `BuildPlanConstructor::links_wasm_objects` decides per target, and keeps the
 whole-program `LinkCore` for: `--output-wat`; targets other

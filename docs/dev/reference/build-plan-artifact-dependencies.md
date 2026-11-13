@@ -74,10 +74,12 @@ rules stay in lowering. The command adapter supplies OS and compiler paths
 only for Native and LLVM, where the backend variants require them. These
 configuration values perform no lazy host or environment lookups inside RR.
 
-An `ArtifactKey` does not repeat the backend, optimization profile, or run mode
-because one `BuildPlan` is scoped to one such configuration. If one plan later
-contains multiple configurations, that scope must become an explicit part of
-artifact identity before providers can be shared safely.
+An `ArtifactKey` generally does not repeat the backend, optimization profile, or
+run mode because one `BuildPlan` is scoped to one such configuration. Wasm library
+objects also name their object-code profile: a release bundle produces both debug
+and release objects from the same Core IR compilation. If other artifacts later
+span multiple configurations, their identities must distinguish that scope before
+providers can be shared safely.
 
 ## Build Artifact identity
 
@@ -104,7 +106,7 @@ pub enum ArtifactKey {
     GeneratedTestDriver { package: PackageId, target_kind: TargetKind },
     LinkedCore { package: PackageId, target_kind: TargetKind },
     WasmMainObject { package: PackageId, target_kind: TargetKind },
-    WasmLibraryObject { package: PackageId },
+    WasmLibraryObject { package: PackageId, opt_level: OptLevel },
     GeneratedCObject { package: PackageId, target_kind: TargetKind },
     Executable { package: PackageId, target_kind: TargetKind },
     ForeignLibrary { package: PackageId },
@@ -139,8 +141,11 @@ object, and the executable's target never runs `LinkCore`. Its
 `WasmObject::Main` form provides the `WasmMainObject` of the executable's main
 package target, carrying its entry, exports and link settings. Its
 `WasmObject::Library` form provides each other package's `WasmLibraryObject`,
-which is keyed by package alone because every executable shares it.
-`LinkWasmObjects` consumes both and provides the `Executable`.
+which is keyed by package and object-code profile because a bundle includes both
+profiles. `LinkWasmObjects` consumes both kinds and provides the `Executable`.
+Compatible injected stdlib objects may instead be selected from the toolchain;
+they are tracked external file inputs with no local artifact provider. See
+[bundling](bundle.md#prebuilt-wasm-library-objects) for generation and fallback.
 
 `Executable { package, target_kind }` includes test executables: source,
 inline-test, whitebox-test, and blackbox-test targets have different

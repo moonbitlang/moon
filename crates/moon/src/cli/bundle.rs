@@ -243,7 +243,12 @@ fn plan_bundle_rr_from_resolved(
     } else {
         WarningCondition::Allow
     };
-    let intent = bundle_user_intent(&resolved_project);
+    // Both object profiles must use the release Core IR that consumers load.
+    // Non-default runtime and instrumented bundles keep their existing artifacts.
+    let wasm_objects = compile_config.backend.supports_prebuilt_wasm_objects()
+        && compile_config.opt_level == moonutil::cond_expr::OptLevel::Release
+        && !compile_config.enable_coverage;
+    let intent = bundle_user_intent(&resolved_project, wasm_objects);
     rr_build::plan_resolved_build_from_intent(
         compile_config,
         user_log,
@@ -257,11 +262,15 @@ fn plan_bundle_rr_from_resolved(
 
 fn bundle_user_intent(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
+    wasm_objects: bool,
 ) -> CalcUserIntentOutput {
     discovered
         .local_modules()
         .iter()
-        .map(|&module| UserIntent::Bundle(module))
+        .map(|&module| UserIntent::Bundle {
+            module,
+            wasm_objects,
+        })
         .collect::<Vec<_>>()
         .into()
 }

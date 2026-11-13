@@ -37,6 +37,33 @@ pub use crate::moon_dir::{
     why3_datadir, why3_libdir,
 };
 
+/// The per-package objects shipped beside the release Core IR bundle. Both
+/// profiles are compiled from that same Core IR, with their usual symbol policy.
+pub fn core_package_wasm_object_in(
+    core_root: &Path,
+    package_path: &str,
+    package_last_segment: &str,
+    profile: crate::cond_expr::OptLevel,
+) -> PathBuf {
+    bundle_wasm_object_path(
+        &core_bundle_in(core_root, crate::target::TargetBackend::Wasm).join(package_path),
+        package_last_segment,
+        profile,
+    )
+}
+
+/// Object layout within one package directory of a distributable bundle.
+pub fn bundle_wasm_object_path(
+    package_dir: &Path,
+    package_last_segment: &str,
+    profile: crate::cond_expr::OptLevel,
+) -> PathBuf {
+    package_dir
+        .join("wasm-objects")
+        .join(profile.as_str())
+        .join(format!("{package_last_segment}.o"))
+}
+
 /// Reserved binary names that cannot be overwritten by user-installed packages.
 pub const RESERVED_BIN_NAMES: &[&str] = &[
     "moon",

@@ -53,8 +53,9 @@ pub(crate) fn runtime_source_key(path: &Path) -> PathBuf {
 /// Physical output roots and provider actions are intentionally absent.
 /// Check, build, and virtual-contract interfaces are distinct because they are
 /// not interchangeable inputs even though all three currently use `.mi` files.
-/// Backend, profile, and run-mode scope live on the plan until one plan is able
-/// to contain more than one such configuration.
+/// Backend, profile, and run-mode scope live on the plan. Wasm library objects
+/// additionally name their code profile because a bundle builds both profiles
+/// from one release Core IR compilation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ArtifactKey {
     CheckMi {
@@ -110,6 +111,8 @@ pub enum ArtifactKey {
     /// executables of the programs using it (Wasm separate compilation).
     WasmLibraryObject {
         package: PackageId,
+        /// Object code profile; a bundle contains both profiles of one Core IR.
+        opt_level: moonutil::cond_expr::OptLevel,
     },
     /// The native object compiled from generated-C `LinkedCore` output.
     GeneratedCObject {
@@ -161,7 +164,7 @@ impl ArtifactKey {
             | Self::NodeTestPackageConfig { package }
             | Self::CStubObject { package, .. }
             | Self::CStubLibrary { package }
-            | Self::WasmLibraryObject { package }
+            | Self::WasmLibraryObject { package, .. }
             | Self::ForeignLibrary { package } => Some(*package),
             _ => self.package_target().map(|target| target.package),
         }

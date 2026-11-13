@@ -50,7 +50,11 @@ pub enum UserIntent {
     /// Bench a package (same artifact set as Test; runtime behavior differs elsewhere).
     Bench(PackageId),
     /// Build per-package artifacts for module packaging.
-    Bundle(ModuleId),
+    Bundle {
+        module: ModuleId,
+        /// Include debug and release Wasm library objects in the bundle.
+        wasm_objects: bool,
+    },
     /// Build docs for a single module.
     Doc(ModuleId),
     /// Generate .mbti for a package (non-virtual only).
@@ -237,7 +241,10 @@ impl UserIntent {
                     }
                 }
             }
-            UserIntent::Bundle(module) => {
+            UserIntent::Bundle {
+                module,
+                wasm_objects,
+            } => {
                 // Request each package directly, including orphan packages. The
                 // build graph orders dependencies; no aggregate core is needed.
                 let packages = resolved
@@ -247,15 +254,33 @@ impl UserIntent {
                 // TODO(bundle-virtual): Request the contract as a bundle root
                 // when the stdlib gains a pure virtual package, and cover its
                 // installed interface in a bundle fixture.
-                out.extend(packages.values().filter_map(|&package| {
+                for &package in packages.values() {
                     let pkg = resolved.pkg_dirs.get_package(package);
-                    (pkg.effective_supported_targets.contains(&target_backend)
-                        && pkg.has_implementation())
-                    .then_some(ArtifactKey::CoreIr {
+                    if !pkg.effective_supported_targets.contains(&target_backend)
+                        || !pkg.has_implementation()
+                    {
+                        continue;
+                    }
+                    out.push(ArtifactKey::CoreIr {
                         package,
                         target_kind: TargetKind::Source,
-                    })
-                }));
+                    });
+                    if wasm_objects
+                        && target_backend == TargetBackend::Wasm
+                        && !pkg.raw.is_main
+                        && !pkg.is_virtual()
+                        && !pkg.is_virtual_impl()
+                    {
+                        out.extend(
+                            moonutil::cond_expr::OptLevel::all()
+                                .iter()
+                                .map(|&opt_level| ArtifactKey::WasmLibraryObject {
+                                    package,
+                                    opt_level,
+                                }),
+                        );
+                    }
+                }
             }
             UserIntent::Doc(module_id) => {
                 out.push(ArtifactKey::DocsDir { module: module_id });

@@ -58,6 +58,8 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
     pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
+    /// Cache both present and absent objects, shared by all executable links.
+    pub(super) prebuilt_wasm_objects: HashMap<PackageId, Option<PathBuf>>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -97,6 +99,7 @@ impl<'a> BuildPlanConstructor<'a> {
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
             package_native_compile: HashMap::new(),
+            prebuilt_wasm_objects: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }
@@ -332,7 +335,9 @@ impl<'a> BuildPlanConstructor<'a> {
                         package: target.package,
                         target_kind: target.kind,
                     },
-                    WasmObject::Library(package) => ArtifactKey::WasmLibraryObject { package },
+                    WasmObject::Library(package, opt_level) => {
+                        ArtifactKey::WasmLibraryObject { package, opt_level }
+                    }
                 };
                 self.res.artifacts.provide(node, artifact);
             }
@@ -486,8 +491,8 @@ impl<'a> BuildPlanConstructor<'a> {
             } => {
                 BuildPlanNode::BuildWasmObject(WasmObject::Main(package.build_target(*target_kind)))
             }
-            ArtifactKey::WasmLibraryObject { package } => {
-                BuildPlanNode::BuildWasmObject(WasmObject::Library(*package))
+            ArtifactKey::WasmLibraryObject { package, opt_level } => {
+                BuildPlanNode::BuildWasmObject(WasmObject::Library(*package, *opt_level))
             }
             ArtifactKey::GeneratedCObject {
                 package,
