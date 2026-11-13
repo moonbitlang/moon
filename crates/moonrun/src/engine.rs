@@ -757,6 +757,17 @@ impl Default for Engine {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "v8")]
+    #[test]
+    fn test_harness_initializes_v8_before_test_threads() {
+        // Run this test alone to check startup independently of other tests.
+        // A different configuration must already be rejected on entry.
+        assert!(
+            initialize(EngineConfig::default().with_stack_size(512)).is_err(),
+            "the test harness must initialize V8 before starting test threads"
+        );
+    }
+
     #[test]
     #[allow(clippy::single_range_in_vec_init)]
     fn test_args_preserve_names_and_selection_order() {
