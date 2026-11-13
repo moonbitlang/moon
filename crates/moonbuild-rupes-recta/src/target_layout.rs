@@ -299,6 +299,7 @@ impl TargetLayout {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let backend = linked_core.target_backend();
         let mut base_dir = self.package_dir(pkg_fqn, backend);
+        // Keep main-package objects apart from the package's other objects.
         if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
             base_dir.push(LINKED_CORE_OBJECT_DIR);
         }
@@ -344,6 +345,45 @@ impl TargetLayout {
             "{}{}",
             artifact(pkg_fqn, target.kind),
             object_file_ext(os)
+        ));
+        base_dir
+    }
+
+    /// Returns the wasm1 object of an executable's main package under Wasm
+    /// separate compilation, kept apart from the package's library object.
+    ///
+    /// Format: `_build/wasm/{opt_level}/build/{package_path}/__moonbit_link_core__/{artifact}.o`
+    pub fn wasm_main_object_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        base_dir.push(LINKED_CORE_OBJECT_DIR);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            WASM_OBJECT_EXTENSION
+        ));
+        base_dir
+    }
+
+    /// Returns the wasm1 library object of a package under Wasm separate
+    /// compilation. `moonc` writes an object for a `.o` output on every host.
+    ///
+    /// Format: `_build/wasm/{opt_level}/build/{package_path}/{artifact}.o`
+    pub fn wasm_library_object_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, TargetKind::Source),
+            WASM_OBJECT_EXTENSION
         ));
         base_dir
     }
@@ -842,6 +882,19 @@ impl ArtifactPathResolver {
                     options.linked_core,
                 )]
             }
+            ArtifactKey::WasmMainObject {
+                package,
+                target_kind,
+            } => vec![
+                self.target_layout
+                    .wasm_main_object_path(packages, &package.build_target(*target_kind)),
+            ],
+            ArtifactKey::WasmLibraryObject { package } => {
+                vec![
+                    self.target_layout
+                        .wasm_library_object_path(packages, *package),
+                ]
+            }
             ArtifactKey::GeneratedCObject {
                 package,
                 target_kind,
@@ -1001,6 +1054,7 @@ struct PackageArtifactName<'a> {
 
 /// The package-relative directory holding object-form linked Core payloads.
 const LINKED_CORE_OBJECT_DIR: &str = "__moonbit_link_core__";
+const WASM_OBJECT_EXTENSION: &str = ".o";
 
 fn artifact(fqn: &'_ PackageFQN, kind: TargetKind) -> PackageArtifactName<'_> {
     PackageArtifactName { fqn, kind }

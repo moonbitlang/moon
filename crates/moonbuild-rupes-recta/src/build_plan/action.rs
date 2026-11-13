@@ -22,9 +22,9 @@ use moonutil::{compiler_flags::Toolchain, resolution::ModuleId};
 
 use super::{
     BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo,
+    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo, WasmLinkInfo,
 };
-use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind};
+use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind, WasmObject};
 
 /// A semantic Build Plan action hydrated with the metadata needed by lowering.
 ///
@@ -63,6 +63,14 @@ pub(crate) enum BuildAction<'a> {
         /// The native toolchain of the action that consumes the linked core,
         /// if any. Its ABI selects the LLVM target.
         native_toolchain: Option<&'a Toolchain>,
+    },
+    BuildWasmObject {
+        object: WasmObject,
+        info: &'a LinkCoreInfo,
+    },
+    LinkWasmObjects {
+        target: BuildTarget,
+        info: &'a WasmLinkInfo,
     },
     MakeExecutable {
         target: BuildTarget,
@@ -178,6 +186,20 @@ impl BackendPlan {
                     .get(&target)
                     .expect("Link core info should be present for LinkCore nodes"),
                 native_toolchain: self.linked_core_consumer_toolchain(target),
+            },
+            BuildPlanNode::BuildWasmObject(object) => BuildAction::BuildWasmObject {
+                object,
+                info: self
+                    .wasm_object_info
+                    .get(&object)
+                    .expect("Wasm object info should be present for BuildWasmObject nodes"),
+            },
+            BuildPlanNode::LinkWasmObjects(target) => BuildAction::LinkWasmObjects {
+                target,
+                info: self
+                    .wasm_link_info
+                    .get(&target)
+                    .expect("Wasm link info should be present for LinkWasmObjects nodes"),
             },
             BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
                 target,

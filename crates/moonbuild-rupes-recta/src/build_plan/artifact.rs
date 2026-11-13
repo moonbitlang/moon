@@ -92,9 +92,24 @@ pub enum ArtifactKey {
     CStubLibrary {
         package: PackageId,
     },
+    /// The native payload of `LinkCore`, which later actions turn into the
+    /// executable.
     LinkedCore {
         package: PackageId,
         target_kind: TargetKind,
+    },
+    /// The relocatable wasm1 object of an executable's main package target:
+    /// the program's entry, exports and link settings (Wasm separate
+    /// compilation). The `BuildWasmObject` action provides it by running
+    /// `moonc link-core`; the `LinkCore` action is not involved.
+    WasmMainObject {
+        package: PackageId,
+        target_kind: TargetKind,
+    },
+    /// The relocatable wasm1 library object of a package, shared by the
+    /// executables of the programs using it (Wasm separate compilation).
+    WasmLibraryObject {
+        package: PackageId,
     },
     /// The native object compiled from generated-C `LinkedCore` output.
     GeneratedCObject {
@@ -146,6 +161,7 @@ impl ArtifactKey {
             | Self::NodeTestPackageConfig { package }
             | Self::CStubObject { package, .. }
             | Self::CStubLibrary { package }
+            | Self::WasmLibraryObject { package }
             | Self::ForeignLibrary { package } => Some(*package),
             _ => self.package_target().map(|target| target.package),
         }
@@ -184,6 +200,10 @@ impl ArtifactKey {
                 package,
                 target_kind,
             }
+            | Self::WasmMainObject {
+                package,
+                target_kind,
+            }
             | Self::GeneratedCObject {
                 package,
                 target_kind,
@@ -208,6 +228,7 @@ impl ArtifactKey {
             | Self::NodeTestPackageConfig { .. }
             | Self::CStubObject { .. }
             | Self::CStubLibrary { .. }
+            | Self::WasmLibraryObject { .. }
             | Self::ForeignLibrary { .. }
             | Self::RuntimeObject { .. }
             | Self::RuntimeLibrary

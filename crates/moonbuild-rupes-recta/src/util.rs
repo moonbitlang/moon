@@ -22,7 +22,7 @@ use crate::discover::DiscoverResult;
 use crate::pkg_solve::PackageRelations;
 use crate::{
     build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
-    model::BuildPlanNode,
+    model::{BuildPlanNode, WasmObject},
 };
 use moonutil::resolution::ModuleDependencyGraph;
 use petgraph::Direction;
@@ -194,6 +194,8 @@ impl BuildPlanNode {
             }
             BuildPlanNode::ArchiveOrLinkCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
+            BuildPlanNode::BuildWasmObject(object) => format!("{:?}@BuildWasmObject", object),
+            BuildPlanNode::LinkWasmObjects(target) => format!("{:?}@LinkWasmObjects", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::CompileGeneratedC(target) => {
                 format!("{:?}@CompileGeneratedC", target)
@@ -245,6 +247,18 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nLinkCore", fqn)
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Main(target)) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nBuildWasmMainObject", fqn)
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(package)) => {
+                let fqn = packages.fqn(*package);
+                format!("{}\\nBuildWasmLibraryObject", fqn)
+            }
+            BuildPlanNode::LinkWasmObjects(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nLinkWasmObjects", fqn)
             }
             BuildPlanNode::MakeExecutable(target) => {
                 let fqn = packages.fqn(target.package);
@@ -298,6 +312,8 @@ impl BuildPlanNode {
             BuildPlanNode::BuildCStub(_, _) => "lightsalmon",
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
+            BuildPlanNode::BuildWasmObject(_) => "lightcoral",
+            BuildPlanNode::LinkWasmObjects(_) => "lightpink",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::CompileGeneratedC(_) => "lightcoral",
             BuildPlanNode::ArchiveForeignLibrary(_) => "lightpink",

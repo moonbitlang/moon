@@ -30,6 +30,7 @@ mod moondoc;
 mod mooninfo;
 pub(super) mod msvc;
 mod prove;
+mod wasm_ld;
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -49,6 +50,7 @@ pub(super) use self::moon_archive::*;
 pub(super) use self::moondoc::*;
 pub(super) use self::mooninfo::*;
 pub(super) use self::prove::*;
+pub(super) use self::wasm_ld::*;
 
 /// The format of error reports from `moonc`.
 ///

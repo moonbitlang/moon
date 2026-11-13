@@ -26,7 +26,7 @@ use std::{
 use crate::{
     CompileConfig, ResolvedProject,
     build_plan::InputDirective,
-    model::{BuildPlanNode, BuildTarget, PackageId},
+    model::{BuildPlanNode, BuildTarget, PackageId, WasmObject},
     prebuild::PrebuildOutput,
 };
 use moonutil::user_log::UserLog;
@@ -326,7 +326,17 @@ impl<'a> BuildPlanConstructor<'a> {
                 };
                 self.res.artifacts.provide(node, artifact);
             }
-            BuildPlanNode::MakeExecutable(target) => {
+            BuildPlanNode::BuildWasmObject(object) => {
+                let artifact = match object {
+                    WasmObject::Main(target) => ArtifactKey::WasmMainObject {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                    WasmObject::Library(package) => ArtifactKey::WasmLibraryObject { package },
+                };
+                self.res.artifacts.provide(node, artifact);
+            }
+            BuildPlanNode::LinkWasmObjects(target) | BuildPlanNode::MakeExecutable(target) => {
                 self.res.artifacts.provide(
                     node,
                     ArtifactKey::Executable {
@@ -470,6 +480,15 @@ impl<'a> BuildPlanConstructor<'a> {
                 package,
                 target_kind,
             } => BuildPlanNode::LinkCore(package.build_target(*target_kind)),
+            ArtifactKey::WasmMainObject {
+                package,
+                target_kind,
+            } => {
+                BuildPlanNode::BuildWasmObject(WasmObject::Main(package.build_target(*target_kind)))
+            }
+            ArtifactKey::WasmLibraryObject { package } => {
+                BuildPlanNode::BuildWasmObject(WasmObject::Library(*package))
+            }
             ArtifactKey::GeneratedCObject {
                 package,
                 target_kind,
@@ -488,6 +507,8 @@ impl<'a> BuildPlanConstructor<'a> {
                 let target = package.build_target(*target_kind);
                 if self.config.backend.target_backend().is_native() {
                     BuildPlanNode::MakeExecutable(target)
+                } else if self.links_wasm_objects(target) {
+                    BuildPlanNode::LinkWasmObjects(target)
                 } else {
                     BuildPlanNode::LinkCore(target)
                 }
@@ -561,6 +582,22 @@ impl<'a> BuildPlanConstructor<'a> {
                 assert!(
                     self.res.backend.link_core_info.contains_key(&build_target),
                     "Link core info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::BuildWasmObject(object) => {
+                assert!(
+                    self.res.backend.wasm_object_info.contains_key(&object),
+                    "Wasm object info for {:?} should be present when resolving node {:?}",
+                    object,
+                    node
+                );
+            }
+            BuildPlanNode::LinkWasmObjects(build_target) => {
+                assert!(
+                    self.res.backend.wasm_link_info.contains_key(&build_target),
+                    "Wasm link info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
                 );
@@ -683,6 +720,8 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.build_archive_or_link_c_stubs(node, target)
             }
             BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
+            BuildPlanNode::BuildWasmObject(object) => self.build_wasm_object(node, object),
+            BuildPlanNode::LinkWasmObjects(target) => self.build_link_wasm_objects(node, target),
             BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
             BuildPlanNode::CompileGeneratedC(target) => {
                 self.build_compile_generated_c(node, target)

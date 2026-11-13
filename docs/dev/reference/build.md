@@ -275,6 +275,62 @@ test-target suffix. This name is debugging information that tools may strip or
 rewrite; it is not trusted provenance. Moon does not request this name for debug
 builds or plain WAT output.
 
+### Wasm separate compilation (experimental)
+
+With `MOON_SEPARATE_COMPILATION=1`, captured in `BackendConfig::Wasm`, an
+executable on the linear-memory Wasm backend is linked from one relocatable
+wasm1 object per package instead of one whole-program `link-core`, so that an
+edit recompiles only the objects that read the edited `.core` files. It needs
+a `moonc` that supports `-pkg-type library` and `moonc wasm-ld`.
+
+Every object reads the `.core` files of its package's transitive
+dependencies, followed by those of `moonbitlang/core/json`,
+`moonbitlang/core/debug` and their dependencies that it does not already read.
+`moonc` gives each error constructor an object uses an entry in the error
+table, whose methods call into those two packages, and not every standard
+library package that uses errors depends on them (`builtin` does not). For a
+program package they are already among its dependencies through `prelude`.
+
+`BuildWasmObject(WasmObject)` compiles both kinds of object with
+`moonc link-core`; the executable's target never runs `LinkCore`.
+
+- `BuildWasmObject(WasmObject::Main(BuildTarget))` writes the object of the
+  executable's main package target, the `WasmMainObject` artifact, to
+  `{package_dir}/__moonbit_link_core__/{artifact}.o`. It carries what applies
+  to the executable alone: the package's link configuration, its exports and
+  the test driver's entry points.
+- `BuildWasmObject(WasmObject::Library(PackageId))` writes the library object
+  of every other package the executable links, the `WasmLibraryObject`
+  artifact, to `{package_dir}/{package}.o`, with `link-core -pkg-type
+  library`. The object compiles its package's source target alone, so every
+  executable using the package shares it; it does not read the package's link
+  configuration.
+- `LinkWasmObjects(BuildTarget)` provides the `Executable` with
+  `moonc wasm-ld`. It links the objects of the packages the main object
+  reads, in the same dependency order, then the main package's object. The
+  linker initializes packages in this order and drops what the program does
+  not use. An object refers only to packages whose `.core` files it reads,
+  since `moonc` keeps a definition local to an object when its owning package
+  is not loaded; the packages each linked object reads are among those the
+  main object reads, so every reference is linked. The objects and the linker
+  get the same `-wasi`, allocator and trial-deletion settings, and `-g` keeps
+  names.
+
+`BuildPlanConstructor::links_wasm_objects` decides per target, and keeps the
+whole-program `LinkCore` for: `--output-wat`; targets other
+than main packages and tests; the blackbox tests of main packages, which
+would need a main package's library object; packages with `link.wasm`
+settings and modules with link flags, which objects cannot carry;
+targets reaching a virtual package, since each executable resolves virtual
+packages with its own overrides while a library object is shared by every
+executable using it; and source, inline-test and
+whitebox-test targets that would link a library object depending on their
+own package, such as a whitebox test importing a dependent of the package
+under test, or a test of a package the error table packages depend on. A
+library object cannot refer to the package the main object compiles, and
+would be initialized before it. Release builds do not name the linked
+module.
+
 ### Example
 
 Assume we have a dependency graph as following (edge point from one item to its dependency):
@@ -475,14 +531,16 @@ The driver is used in `BuildPackage` like a regular source file.
 Backend build-plan nodes and package prebuild actions are peer action kinds.
 `TargetKind` appears only inside backend nodes for which it has meaning.
 
-| Build plan node                 | Command                     | Outputs               | Dependencies                               | Note                                           |
-| ------------------------------- | --------------------------- | --------------------- | ------------------------------------------ | ---------------------------------------------- |
-| `Check(BuildTarget)`            | `moonc check`               | `.mi`                 | source files, `.mi` of dependency packages | Typecheck the target                           |
-| `BuildPackage(BuildTarget)`     | `moonc build-package`       | `.mi`, `.core`        | same as above                              | Build the target                               |
-| `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
-| `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
-| `GenerateDsym(BuildTarget)`     | `dsymutil`                  | `.dSYM` bundle        | executable                                 | Generates macOS debug symbols (optional)       |
-| `CompileGeneratedC(BuildTarget)` | C compiler                 | object file           | generated-C `LinkCore` output              | Compiles a foreign library's payload           |
+| Build plan node                     | Command                     | Outputs               | Dependencies                               | Note                                           |
+| ----------------------------------- | --------------------------- | --------------------- | ------------------------------------------ | ---------------------------------------------- |
+| `Check(BuildTarget)`                | `moonc check`               | `.mi`                 | source files, `.mi` of dependency packages | Typecheck the target                           |
+| `BuildPackage(BuildTarget)`         | `moonc build-package`       | `.mi`, `.core`        | same as above                              | Build the target                               |
+| `LinkCore(BuildTarget)`             | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
+| `BuildWasmObject(WasmObject)`       | `moonc link-core`           | wasm1 object          | `.core` of the target and its deps         | Main or library object (separate compilation)  |
+| `LinkWasmObjects(BuildTarget)`      | `moonc wasm-ld`             | executable            | wasm1 main object, library objects         | Links Wasm objects (separate compilation)      |
+| `MakeExecutable(BuildTarget)`       | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
+| `GenerateDsym(BuildTarget)`         | `dsymutil`                  | `.dSYM` bundle        | executable                                 | Generates macOS debug symbols (optional)       |
+| `CompileGeneratedC(BuildTarget)`    | C compiler                  | object file           | generated-C `LinkCore` output              | Compiles a foreign library's payload           |
 | `ArchiveForeignLibrary(PackageId)` | archiver                 | static library        | payload, C stub and runtime objects        | Builds a native foreign library                |
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
