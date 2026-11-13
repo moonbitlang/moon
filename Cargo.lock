@@ -2245,6 +2245,7 @@ dependencies = [
  "wasmtime",
  "wat",
  "wee8",
+ "windows-link 0.2.1",
  "windows-sys 0.61.2",
 ]
 

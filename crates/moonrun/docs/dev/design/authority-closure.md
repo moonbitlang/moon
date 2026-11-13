@@ -257,8 +257,9 @@ the child's policy instead of an
 embedded declaration; neither can replace the inherited ceiling. Invalid or
 missing selected child policies fail execution instead of being ignored.
 
-Transfer version 3 carries a nonempty `rule_groups` sequence,
-including when only one group is present. Older versions are rejected. Ordinary
+Transfer version 4 carries a nonempty `rule_groups` sequence,
+including when only one group is present; each group also records whether it
+allows the controlling terminal. Older versions are rejected. Ordinary
 string rules retain their user-facing semantics. Decoding preserves group
 boundaries so conjunction and DNS provenance survive repeated inheritance.
 Unknown versions and empty collections fail closed.

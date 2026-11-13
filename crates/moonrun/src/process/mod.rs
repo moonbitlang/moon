@@ -410,8 +410,3 @@ impl HostProcess {
         }
     }
 }
-
-#[cfg(windows)]
-pub(crate) fn cancel_wait(cancel: &crate::resource::ResourceRef) -> AsyncHostResult<()> {
-    native::cancel_wait_for_process(cancel)
-}
