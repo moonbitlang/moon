@@ -46,7 +46,7 @@ dunce.workspace = true
 ctrlc.workspace = true
 home.workspace = true
 which.workspace = true
-chrono.workspace = true
+chrono = { workspace = true, features = ["clock"] }
 log.workspace = true
 walkdir.workspace = true
 notify.workspace = true
