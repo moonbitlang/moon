@@ -149,14 +149,15 @@ pub(crate) struct Runtime {
 /// and provisions Env while composing the already resolved policy rules.
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
-    pub(crate) ipc_engine: Option<crate::Engine>,
+    pub(crate) ipc: bool,
+    pub(crate) execution: Option<crate::process_tree::ExecutionContext>,
     pub(crate) selected_policy: Option<policy::LoadedPolicy>,
     pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
     // Explicit policy provisioning takes precedence over the source environment.
     pub(crate) default_environment: Option<Vec<(OsString, OsString)>>,
-    pub(crate) process_context: Option<crate::process_tree::ProcessContext>,
+    pub(crate) process: crate::process::ProcessConfig,
     #[cfg(unix)]
     pub(crate) preserved_child_signal_mask: Option<libc::sigset_t>,
 }
@@ -254,23 +255,25 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
-        let ipc_server = config
-            .ipc_engine
-            .take()
-            .map(|engine| {
-                crate::ipc::server::IpcServer::start(
-                    engine,
-                    policy.clone(),
-                    #[cfg(unix)]
-                    child_signal_mask,
-                )
-            })
-            .transpose()?;
+        let ipc_server = if config.ipc {
+            let execution = config
+                .execution
+                .as_ref()
+                .context("IPC execution requires Engine membership")?;
+            Some(crate::ipc::server::IpcServer::start(
+                execution.engine.clone(),
+                policy.clone(),
+                #[cfg(unix)]
+                child_signal_mask,
+            )?)
+        } else {
+            None
+        };
         let process = HostProcess::new(
             policy,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
-            config.process_context,
+            config.process,
             Arc::clone(&environment),
         );
         let process =

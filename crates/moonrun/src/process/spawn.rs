@@ -22,14 +22,15 @@
 //! Runtime's state. Explicit lookup captures only the inputs its candidates
 //! need. OS queries and execution live below this module in `os`.
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
 
+use super::intercept::{Command, is_policy_recipient};
 #[cfg(windows)]
 use super::os;
 use super::os::Executable;
-use super::{HostProcess, SpawnOptions, lookup};
+use super::{CommandInterception, HostProcess, SpawnOptions, lookup};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{Resource, ResourceRef};
 use crate::runtime::{Stdio, StdioStream, WorkingDirectory};
@@ -137,7 +138,7 @@ impl HostProcess {
         // Linux resolves relative images after child chdir. Windows executable
         // search and Darwin's post-spawn PATH stat still observe caller cwd, so
         // a Fixed Runtime directory needs explicit lookup on those platforms.
-        let ambient_lookup = self.context.is_none()
+        let ambient_lookup = self.interception == CommandInterception::Disabled
             && self.environment.is_ambient()
             && (cfg!(target_os = "linux")
                 || matches!(self.working_directory.as_ref(), WorkingDirectory::Ambient));
@@ -187,7 +188,8 @@ impl HostProcess {
             )
             .map_err(lookup_error)?;
             if plan.needs_cwd()
-                || (self.context.is_some() && child_cwd.is_none_or(|cwd| !cwd.is_absolute()))
+                || (self.interception == CommandInterception::Moonx
+                    && child_cwd.is_none_or(|cwd| !cwd.is_absolute()))
             {
                 let parent_cwd = self.working_directory.current_dir().map_err(io_error)?;
                 let child_cwd =
@@ -239,7 +241,7 @@ impl HostProcess {
                 lookup::windows(program, parent_path.as_deref(), parent_cwd, directories)
                     .map_err(lookup_error)?;
             if plan.needs_cwd()
-                || (self.context.is_some()
+                || (self.interception == CommandInterception::Moonx
                     && request
                         .cwd
                         .as_deref()
@@ -257,59 +259,42 @@ impl HostProcess {
             (arguments, plan)
         };
         request.configure_stdio(&self.stdio)?;
-        if let Some(context) = &self.context {
-            #[cfg(unix)]
-            let spawn = super::moon::Spawn::unix(
-                context.clone(),
-                request.path,
-                plan,
-                request.args,
-                request.env,
-                request.stdio,
-                request.cwd,
-                request.options,
-                self.policy_inheritance.clone(),
-            )?;
-            #[cfg(windows)]
-            let spawn = super::moon::Spawn::windows(
-                context.clone(),
-                plan,
-                arguments,
-                request.env,
-                request.stdio,
-                request.cwd,
-                request.options,
-                self.policy_inheritance.clone(),
-            )?;
-            return Ok(PreparedSpawn::Moon(Box::new(spawn)));
-        }
-        #[cfg(unix)]
-        let (executable, inherits_policy) = (
-            Executable::Prepared(plan),
-            is_policy_recipient(&request.path),
-        );
-        #[cfg(windows)]
-        let (executable, inherits_policy) = (
-            Executable::Prepared(os::lookup::select_image(&plan).map_err(io_error)?),
-            is_policy_recipient(&arguments[0]),
-        );
-        Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
+        match self.interception.select(
             request,
-            _stdio_owner: Arc::clone(&self.stdio),
-            executable,
-            policy_inheritance: if inherits_policy {
-                self.policy_inheritance.clone()
-            } else {
-                None
-            },
-        })))
+            #[cfg(windows)]
+            arguments,
+        )? {
+            Command::Moonx(invocation) => {
+                let context = self.children.managed().ok_or(AsyncHostError::Inval)?;
+                Ok(PreparedSpawn::Moon(Box::new(super::moon::Spawn::prepare(
+                    context.clone(),
+                    plan,
+                    invocation,
+                    self.policy_inheritance.clone(),
+                )?)))
+            }
+            Command::Native {
+                request,
+                inherits_policy,
+            } => {
+                #[cfg(unix)]
+                let executable = Executable::Prepared(plan);
+                #[cfg(windows)]
+                let executable =
+                    Executable::Prepared(os::lookup::select_image(&plan).map_err(io_error)?);
+                Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
+                    request,
+                    _stdio_owner: Arc::clone(&self.stdio),
+                    executable,
+                    policy_inheritance: if inherits_policy {
+                        self.policy_inheritance.clone()
+                    } else {
+                        None
+                    },
+                })))
+            }
+        }
     }
-}
-
-// moonrun consumes inherited restrictions directly; moonx relays them to moonrun.
-fn is_policy_recipient(program: &OsStr) -> bool {
-    moonutil::constants::is_moonx_executable(program)
-        || moonutil::constants::is_moonrun_executable(program)
 }
 
 fn lookup_error(error: lookup::LookupError) -> AsyncHostError {
