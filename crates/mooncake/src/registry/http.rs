@@ -18,7 +18,11 @@
 
 //! On-demand HTTP release metadata and the cache policy for exact/latest queries.
 
-use super::{RegistryUnavailable, RegistryVersionInfo, authentication, encode_path_segment};
+use super::{
+    RegistryUnavailable, RegistryVersionInfo, authentication,
+    credentials::{RegistryCredentials, registry_api_url},
+    encode_path_segment,
+};
 
 mod cache;
 use anyhow::{Context, bail};
@@ -27,7 +31,6 @@ use indexmap::IndexMap;
 use moonutil::{
     MoonHomeLayout,
     dependency::SourceDependencyInfo,
-    registry::{RegistryCredentials, registry_api_url},
     resolution::{ModuleName, ModuleSource},
 };
 use once_cell::unsync::OnceCell;

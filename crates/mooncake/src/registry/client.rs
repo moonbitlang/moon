@@ -27,7 +27,7 @@ use anyhow::{Context, bail};
 use moonutil::{
     MOON_HOME, MoonHomeLayout,
     locks::{lock_directory, lock_file},
-    registry::{RegistryConfig, RegistryCredentials, RegistryDownloadRequest},
+    registry::RegistryConfig,
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
@@ -41,7 +41,8 @@ use crate::{
 };
 
 use super::{
-    authentication, encode_path_segment, git::GitIndex, http::HttpMetadata, sha256_hex,
+    authentication, credentials::RegistryCredentials, encode_path_segment,
+    external::RegistryDownloadRequest, git::GitIndex, http::HttpMetadata, sha256_hex,
     stage_registry_cache_file,
 };
 
@@ -925,8 +926,9 @@ mod tests {
     use moonutil::{constants::MOON_LOCK, locks::lock_file};
 
     use super::*;
-    use crate::registry::{Registry, authentication::registry_authorization};
-    use moonutil::registry::{RegistryCredentials, registry_api_url};
+    use crate::registry::{
+        Registry, authentication::registry_authorization, credentials::registry_api_url,
+    };
 
     fn quiet_user_log() -> UserLog {
         UserLog::new(log::LevelFilter::Error)

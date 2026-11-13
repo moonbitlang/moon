@@ -19,12 +19,11 @@
 //! Persistence for exact HTTP releases and previously observed latest versions.
 
 use super::ModuleMetadata;
-use crate::registry::{sha256_hex, stage_registry_cache_file};
+use crate::registry::{credentials::registry_api_url, sha256_hex, stage_registry_cache_file};
 use anyhow::{Context, bail};
 use moonutil::{
     MoonHomeLayout,
     cache::{CacheKind, CacheRoot, resolve_cache_root_for_home},
-    registry::registry_api_url,
     resolution::ModuleName,
 };
 use once_cell::sync::OnceCell;
