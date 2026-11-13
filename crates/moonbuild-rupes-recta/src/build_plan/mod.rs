@@ -689,19 +689,22 @@ pub fn build_plan(
     let mut constructor =
         BuildPlanConstructor::new(resolved, config, input_directive, prebuild_config, user_log);
     let input = input.collect::<Vec<_>>();
-    if let BackendConfig::Native {
-        direct_object_candidate,
-        ..
-    } = &config.backend
-    {
-        constructor.resolve_native_toolchains(&input)?;
-        constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
-            resolved,
-            &input,
-            config.opt_level,
-            *direct_object_candidate,
-            constructor.native_toolchains.values(),
-        ));
+    if config.backend.target_backend().is_native() {
+        let native_toolchains = constructor.resolve_native_toolchains(&input)?;
+        if let BackendConfig::Native {
+            direct_object_candidate,
+            ..
+        } = &config.backend
+        {
+            constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
+                resolved,
+                &input,
+                config.opt_level,
+                *direct_object_candidate,
+                native_toolchains.values(),
+            ));
+        }
+        constructor.native_toolchains = native_toolchains;
     }
     constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
         DebugSymbols::None => false,

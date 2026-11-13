@@ -62,7 +62,7 @@ use super::{
     CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
     PackagePrebuildKey, WasmLinkInfo,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
-    constructor::{BuildPlanConstructor, PackageFileSet},
+    constructor::{BuildPlanConstructor, NativeToolchainRole, PackageFileSet},
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -84,46 +84,17 @@ fn should_generate_direct_native_dsym(
 }
 
 impl<'a> BuildPlanConstructor<'a> {
-    fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-            err.context(
-                "Windows MSVC direct object native target requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
-            )
-        } else if self.res.backend.direct_native_target().is_some() {
-            err.context(
-                "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
-            )
-        } else {
-            err
-        }
-    }
-
-    fn effective_native_toolchain(
-        &mut self,
-        package_cc: Option<&str>,
-    ) -> anyhow::Result<Toolchain> {
-        // TODO: Consume explicit toolchain candidates and environment overrides
-        // once native toolchain discovery moves to command orchestration.
-        debug_assert!(self.config.backend.target_backend().is_native());
-        let request = package_cc.map(str::to_owned);
-        if let Some(toolchain) = self.native_toolchains.get(&request) {
-            return Ok(toolchain.clone());
-        }
-
-        let toolchain = compiler_flags::effective_native_toolchain(
-            compiler_flags::ENV_CC.as_ref(),
-            package_cc,
-        )?;
-        self.native_toolchains.insert(request, toolchain.clone());
-        Ok(toolchain)
-    }
-
-    /// Select the tools required by executable and foreign-library requests before
-    /// choosing their payload form. Later actions reuse these exact selections.
+    /// Resolve compiler bindings for the requested Native/LLVM actions before
+    /// choosing payloads. The result records each consumer's role independently
+    /// of the compiler request; later action builders do not resolve compilers.
     pub(super) fn resolve_native_toolchains(
-        &mut self,
+        &self,
         requested: &[ArtifactKey],
-    ) -> Result<(), BuildPlanConstructError> {
+    ) -> Result<HashMap<NativeToolchainRole, Toolchain>, BuildPlanConstructError> {
+        use NativeToolchainRole::{CStubs, Program, Runtime};
+
+        debug_assert!(self.config.backend.target_backend().is_native());
+        let mut roles = IndexSet::new();
         for artifact in requested {
             let target = match *artifact {
                 ArtifactKey::Executable {
@@ -131,41 +102,81 @@ impl<'a> BuildPlanConstructor<'a> {
                     target_kind,
                 } => package.build_target(target_kind),
                 ArtifactKey::ForeignLibrary { package } => package.build_target(TargetKind::Source),
+                ArtifactKey::CStubObject { package, .. }
+                | ArtifactKey::CStubLibrary { package } => {
+                    roles.insert(CStubs(package));
+                    continue;
+                }
+                ArtifactKey::GeneratedCObject { package, .. } => {
+                    roles.insert(Program(package));
+                    continue;
+                }
+                ArtifactKey::RuntimeObject { .. } | ArtifactKey::RuntimeLibrary => {
+                    roles.insert(Runtime);
+                    continue;
+                }
                 _ => continue,
             };
-            self.effective_native_toolchain(None)
-                .map_err(BuildPlanConstructError::FailedToSetRuntimeCC)?;
-
-            let pkg = self.input.pkg_dirs.get_package(target.package);
-            let cc = pkg
-                .raw
-                .link
-                .as_ref()
-                .and_then(|link| link.native.as_ref())
-                .and_then(|native| native.cc.as_ref())
-                .map(|cc| self.replace_build_vars(target.package, pkg.module, cc));
-            self.effective_native_toolchain(cc.as_deref())
-                .map_err(|error| {
-                    BuildPlanConstructError::FailedToSetCC(error, pkg.fqn.clone().into())
-                })?;
-
+            roles.insert(Runtime);
+            roles.insert(Program(target.package));
             let (_, stubs) = self.dfs_link_core_sources(target)?;
-            for package in stubs {
-                let pkg = self.input.pkg_dirs.get_package(package);
-                let cc = pkg
-                    .raw
-                    .link
-                    .as_ref()
-                    .and_then(|link| link.native.as_ref())
-                    .and_then(|native| native.stub_cc.as_ref())
-                    .map(|cc| self.replace_build_vars(package, pkg.module, cc));
-                self.effective_native_toolchain(cc.as_deref())
-                    .map_err(|error| {
-                        BuildPlanConstructError::FailedToSetStubCC(error, pkg.fqn.clone().into())
-                    })?;
-            }
+            roles.extend(stubs.into_iter().map(CStubs));
         }
-        Ok(())
+
+        // Deduplicate probes within this resolution only. The returned bindings
+        // retain roles even when several consumers select the same compiler.
+        let mut cache = HashMap::<Option<String>, Toolchain>::new();
+        roles
+            .into_iter()
+            .map(|role| {
+                // TODO: Receive captured toolchain candidates and environment inputs
+                // once native toolchain discovery moves to command orchestration.
+                // Keep this lazy: an empty role set must not probe MOON_CC.
+                let env_cc = compiler_flags::ENV_CC.as_ref();
+                let request = match role {
+                    Runtime => None,
+                    Program(package) | CStubs(package) => {
+                        let pkg = self.input.pkg_dirs.get_package(package);
+                        pkg.raw
+                            .link
+                            .as_ref()
+                            .and_then(|link| link.native.as_ref())
+                            .and_then(|native| {
+                                if matches!(role, Program(_)) {
+                                    native.cc.as_ref()
+                                } else {
+                                    native.stub_cc.as_ref()
+                                }
+                            })
+                            .map(|cc| {
+                                self.replace_build_vars(package, pkg.module, cc)
+                                    .into_owned()
+                            })
+                    }
+                }
+                .filter(|_| env_cc.is_none());
+                let toolchain = if let Some(toolchain) = cache.get(&request) {
+                    toolchain.clone()
+                } else {
+                    let toolchain =
+                        compiler_flags::effective_native_toolchain(env_cc, request.as_deref())
+                            .map_err(|error| match role {
+                                Runtime => BuildPlanConstructError::FailedToSetRuntimeCC(error),
+                                Program(package) => BuildPlanConstructError::FailedToSetCC(
+                                    error,
+                                    self.input.pkg_dirs.fqn(package).clone().into(),
+                                ),
+                                CStubs(package) => BuildPlanConstructError::FailedToSetStubCC(
+                                    error,
+                                    self.input.pkg_dirs.fqn(package).clone().into(),
+                                ),
+                            })?;
+                    cache.insert(request, toolchain.clone());
+                    toolchain
+                };
+                Ok((role, toolchain))
+            })
+            .collect()
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
@@ -924,10 +935,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let pkg = self.input.pkg_dirs.get_package(target);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
-        let stub_cc = native_config
-            .and_then(|native| native.stub_cc.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s));
-
         let cc_flags = native_config
             .and_then(|native| native.stub_cc_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
@@ -954,13 +961,10 @@ impl<'a> BuildPlanConstructor<'a> {
             .collect();
 
         let effective_native_toolchain = self
-            .effective_native_toolchain(stub_cc.as_deref())
-            .map_err(|e| {
-                BuildPlanConstructError::FailedToSetStubCC(
-                    self.new_native_linker_context(e),
-                    pkg.fqn.clone().into(),
-                )
-            })?;
+            .native_toolchains
+            .get(&NativeToolchainRole::CStubs(target))
+            .expect("C-stub toolchain should be selected before action planning")
+            .clone();
 
         if let Some(prebuild) = self.prebuild_config {
             prebuild.append_link_args(std::iter::once(target), &mut link_args);
@@ -1281,6 +1285,9 @@ impl<'a> BuildPlanConstructor<'a> {
         let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
 
+        // TODO: Validate the program's ABI against its runtime and C-stub
+        // toolchain bindings before planning their link.
+
         let payload = if matches!(&self.config.backend, BackendConfig::Native { .. })
             && matches!(
                 self.res.backend.native_mode(),
@@ -1408,9 +1415,6 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let pkg = self.input.pkg_dirs.get_package(package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-        let cc = native_config
-            .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(package, pkg.module, s));
         let c_flags = native_config
             .and_then(|native| native.cc_flags.as_ref())
             .map(|s| self.replace_build_vars(package, pkg.module, s))
@@ -1422,14 +1426,11 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let effective_native_toolchain =
-            self.effective_native_toolchain(cc.as_deref())
-                .map_err(|e| {
-                    BuildPlanConstructError::FailedToSetCC(
-                        self.new_native_linker_context(e),
-                        pkg.fqn.clone().into(),
-                    )
-                })?;
+        let effective_native_toolchain = self
+            .native_toolchains
+            .get(&NativeToolchainRole::Program(package))
+            .expect("program toolchain should be selected before action planning")
+            .clone();
 
         let native_allocator = self
             .config
@@ -1741,9 +1742,11 @@ impl<'a> BuildPlanConstructor<'a> {
             return Ok(());
         }
 
-        let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
-            BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
-        })?;
+        let effective_native_toolchain = self
+            .native_toolchains
+            .get(&NativeToolchainRole::Runtime)
+            .expect("runtime toolchain should be selected before action planning")
+            .clone();
         // TODO: Consume supplied runtime sources and optional SIMDUTF objects
         // once command orchestration captures the runtime file inventory.
         let source_files = toolchain::runtime_source_paths()

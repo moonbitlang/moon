@@ -222,11 +222,18 @@ errors. `detected_default_native_toolchain()` tries Windows MSVC discovery befor
 the cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in
 `detect_cc_on_path()`.
 
-For Native executable and foreign-library requests, build planning first resolves
-the shared runtime compiler, each requested package's `cc`, and the `stub-cc` of
-packages whose C stubs will be linked. These selections are retained for the
-actions that consume them. Unused packages and commands without native toolchain
-actions do not trigger compiler resolution.
+For Native and LLVM requests, build planning first resolves toolchains into
+bindings for the shared runtime, each requested program package's `cc`, and each
+package's `stub-cc` whose C stubs will be linked. Repeated compiler requests share
+resolution within this step, but the returned bindings retain each consumer's
+role. Payload selection reads these bindings, and action construction looks them
+up by role without reading compiler requests or resolving executables again.
+Unused packages and commands without native toolchain actions do not trigger
+compiler resolution.
+
+The program binding supplies both generated-C compilation and final linking (or
+foreign-library archiving). Runtime and C-stub compilation and archiving consume
+their own bindings, which can select different toolchains.
 
 Automatic Native payload selection then checks those selected toolchains. A
 compiler targeting another platform requires generated C. The Windows direct

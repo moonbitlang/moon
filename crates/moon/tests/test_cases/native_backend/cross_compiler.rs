@@ -1,4 +1,57 @@
 use crate::{TestDir, get_err_stderr_with_envs, get_stdout_with_envs, moon_cmd};
+use snapbox::IntoData;
+
+#[test]
+fn independent_programs_and_stubs_keep_their_compiler_choices() {
+    let dir = TestDir::new("native_backend/cross_compiler");
+    let bin = dir.join("fake-toolchain/bin");
+    for name in ["first", "second", "stub"] {
+        std::fs::copy(bin.join("fake-cross-gcc"), bin.join(format!("{name}-gcc"))).unwrap();
+        std::fs::copy(bin.join("fake-cross-ar"), bin.join(format!("{name}-ar"))).unwrap();
+    }
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        format!(
+            r#"options("is-main": true, "native-stub": ["stub.c"], link: {{ "native": {{
+  "cc": "{}", "stub-cc": "{}"
+}} }})"#,
+            bin.join("first-gcc").display(),
+            bin.join("stub-gcc").display(),
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.join("main/stub.c"), "int stub(void) { return 0; }").unwrap();
+    std::fs::create_dir(dir.join("second")).unwrap();
+    std::fs::copy(dir.join("main/main.mbt"), dir.join("second/main.mbt")).unwrap();
+    std::fs::write(
+        dir.join("second/moon.pkg"),
+        format!(
+            r#"options("is-main": true, link: {{ "native": {{ "cc": "{}" }} }})"#,
+            bin.join("second-gcc").display()
+        ),
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env_remove("MOON_CC")
+        .env_remove("MOON_AR")
+        .env_remove("MOON_CC_WRAPPER")
+        .env("MOONBIT_NEW_NATIVE", "1")
+        .args(["build", "--target", "native", "--debug", "--dry-run"])
+        .assert()
+        .success()
+        .stdout_eq(
+            snapbox::str![[r#"
+[..]/first-gcc -o [..]/main/__moonbit_link_core__/main.o [..] -c [..] [..]/main/main.c
+[..]/second-gcc -o [..]/second/__moonbit_link_core__/second.o [..] -c [..] [..]/second/second.c
+[..]/stub-gcc -o [..]/main/stub.o [..] -c [..] [..]/main/stub.c
+[..]/first-gcc -o [..]/main/main.exe [..]/main/__moonbit_link_core__/main.o [..]/main/libmain.a [..]/libruntime.a[..]
+[..]/second-gcc -o [..]/second/second.exe [..]/second/__moonbit_link_core__/second.o [..]/libruntime.a[..]
+...
+"#]]
+            .unordered(),
+        );
+}
 
 #[test]
 fn package_compilers_select_compatible_payload() {

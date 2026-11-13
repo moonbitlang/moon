@@ -37,6 +37,19 @@ use super::{
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
 
+/// The native action family whose compiler is selected before payload planning.
+/// Package test targets share their package's compiler and C stubs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum NativeToolchainRole {
+    /// Compile and archive the shared native runtime.
+    Runtime,
+    /// Compile the package's generated C and link its executable, or archive
+    /// its foreign library. Direct-object/LLVM payloads skip C compilation.
+    Program(PackageId),
+    /// Compile and archive the package's C stubs.
+    CStubs(PackageId),
+}
+
 /// The struct responsible for holding the states and dependencies used during
 /// the construction of a build plan.
 pub(super) struct BuildPlanConstructor<'a> {
@@ -58,9 +71,9 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
     pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
 
-    /// Toolchains selected independently of payload form, shared by runtime,
-    /// generated C, and C-stub actions within this build plan.
-    pub(super) native_toolchains: HashMap<Option<String>, Toolchain>,
+    /// Complete role bindings selected before payload planning. Action builders
+    /// only read these bindings; compiler-request caching is local to resolution.
+    pub(super) native_toolchains: HashMap<NativeToolchainRole, Toolchain>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
