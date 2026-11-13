@@ -21,7 +21,7 @@
 //! [`HostProcess`] is the Runtime-owned interface used by the async host. Policy,
 //! working-directory configuration, and child provenance stay above the
 //! native workers and [`os`] process mechanisms. Supervised Runs instead resolve
-//! guest process identities and waits within their virtual process tree.
+//! managed child identities and waits within their Engine process table.
 //! [`prepare_moon`] runs host-selected helpers and owns their artifact handoff.
 
 mod job;
@@ -34,7 +34,7 @@ mod spawn;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
@@ -45,8 +45,10 @@ use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::Job;
+pub(crate) use native::{NativeChild, NativeControl};
 pub(crate) use os::SpawnOptions;
 pub(crate) use prepare_artifact::{Preparation, prepare_moon};
+pub(crate) use spawn::NativeSpawn;
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
@@ -69,7 +71,11 @@ struct ChildAuthorityState {
 
 #[derive(Default)]
 struct ChildAuthorityStateInner {
-    owned_child_pids: HashSet<i32>,
+    // Closing a guest handle does not relinquish child ownership. Pin a native
+    // process resource until completion, especially on Windows where an open
+    // HANDLE prevents PID reuse after the child exits. Unix also retains the
+    // unreaped child when no process resource is available.
+    owned_children: HashMap<i32, Option<ResourceRef>>,
     process_handle_pids: HashMap<u64, i32>,
 }
 
@@ -135,8 +141,8 @@ impl HostProcess {
         })
     }
 
-    // Native-handle paths must never reinterpret a virtual PID as an
-    // operating-system process identity.
+    // Supervised children use table-owned control and completion, including
+    // native children whose OS PID may have been reaped before the guest waits.
     fn require_ambient(&self) -> AsyncHostResult<()> {
         if self.context.is_none() {
             return Ok(());
@@ -166,9 +172,9 @@ impl HostProcess {
                 if !handle.matches(context, pid) {
                     return Err(AsyncHostError::PermissionDenied);
                 }
-                return Ok(Job::wait_for_virtual_process(handle.wait()));
+                return Ok(Job::wait_for_managed_process(handle.wait()));
             }
-            return Ok(Job::wait_for_virtual_process(context.wait(pid)?));
+            return Ok(Job::wait_for_managed_process(context.wait(pid)?));
         }
         // On Unix, enforced authorization must inspect this provenance before
         // reaping, so the worker defers the final reap to HostProcess.
@@ -207,7 +213,7 @@ impl HostProcess {
             return f();
         };
         let state = state.inner.lock().unwrap();
-        if !state.owned_child_pids.contains(&pid) {
+        if !state.owned_children.contains_key(&pid) {
             return Err(AsyncHostError::PermissionDenied);
         }
         f()
@@ -225,13 +231,13 @@ impl HostProcess {
             return f();
         };
         let mut state = state.inner.lock().unwrap();
-        if !state.owned_child_pids.contains(&pid)
+        if !state.owned_children.contains_key(&pid)
             || handle.is_some_and(|handle| state.process_handle_pids.get(&handle) != Some(&pid))
         {
             return Err(AsyncHostError::PermissionDenied);
         }
         let result = f()?;
-        state.owned_child_pids.remove(&pid);
+        state.owned_children.remove(&pid);
         Ok(result)
     }
 
@@ -255,7 +261,7 @@ impl HostProcess {
             return Err(AsyncHostError::PermissionDenied);
         }
         let result = f()?;
-        state.owned_child_pids.remove(&pid);
+        state.owned_children.remove(&pid);
         Ok(result)
     }
 
@@ -277,31 +283,29 @@ impl HostProcess {
             .ok_or(AsyncHostError::PermissionDenied)
     }
 
-    pub(crate) fn track_process_handle(&self, handle: u64, pid: i32) {
+    pub(crate) fn track_process_handle(&self, handle: u64, pid: i32, resource: ResourceRef) {
         if self.context.is_some() {
             return;
         }
+        if let Some(state) = self.child_authority.as_deref() {
+            let mut state = state.inner.lock().unwrap();
+            state.process_handle_pids.insert(handle, pid);
+            // A concurrent wait may already have consumed the child. Publishing
+            // its handle must not restore PID authority after completion.
+            if let Some(retained) = state.owned_children.get_mut(&pid) {
+                retained.get_or_insert(resource);
+            }
+        }
+    }
+
+    pub(crate) fn untrack_process_handle(&self, handle: u64) {
         if let Some(state) = self.child_authority.as_deref() {
             state
                 .inner
                 .lock()
                 .unwrap()
                 .process_handle_pids
-                .insert(handle, pid);
-        }
-    }
-
-    pub(crate) fn untrack_process_handle(&self, handle: u64) {
-        if let Some(state) = self.child_authority.as_deref() {
-            let mut state = state.inner.lock().unwrap();
-            if let Some(pid) = state.process_handle_pids.remove(&handle)
-                && !state
-                    .process_handle_pids
-                    .values()
-                    .any(|tracked_pid| *tracked_pid == pid)
-            {
-                state.owned_child_pids.remove(&pid);
-            }
+                .remove(&handle);
         }
     }
 
@@ -366,7 +370,13 @@ impl HostProcess {
         let Some(state) = self.child_authority.as_deref() else {
             return Ok(());
         };
-        if state.inner.lock().unwrap().owned_child_pids.contains(&pid) {
+        if state
+            .inner
+            .lock()
+            .unwrap()
+            .owned_children
+            .contains_key(&pid)
+        {
             Ok(())
         } else {
             Err(AsyncHostError::PermissionDenied)
@@ -375,7 +385,7 @@ impl HostProcess {
 
     fn track_spawned_child(&self, pid: i32) {
         if let Some(state) = self.child_authority.as_deref() {
-            state.inner.lock().unwrap().owned_child_pids.insert(pid);
+            state.inner.lock().unwrap().owned_children.insert(pid, None);
         }
     }
 
@@ -392,7 +402,7 @@ impl HostProcess {
         if defer_reap {
             os::reap(pid)?;
         }
-        state.owned_child_pids.remove(&pid);
+        state.owned_children.remove(&pid);
         Ok(())
     }
 
@@ -406,7 +416,7 @@ impl HostProcess {
             .values()
             .any(|tracked_pid| *tracked_pid == pid)
         {
-            state.owned_child_pids.remove(&pid);
+            state.owned_children.remove(&pid);
         }
     }
 }

@@ -119,13 +119,18 @@ pub(crate) fn send_console_event(group_id: u32, event: u32) -> io::Result<()> {
 
 #[cfg(windows)]
 pub(crate) fn terminate_process(pid: u32, exit_code: u32) -> io::Result<()> {
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE};
     let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
     if handle.is_null() {
         return Err(io::Error::last_os_error());
     }
     let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
-    if unsafe { TerminateProcess(handle.as_raw_handle(), exit_code) } == 0 {
+    terminate_handle(handle.as_raw_handle(), exit_code)
+}
+
+#[cfg(windows)]
+pub(crate) fn terminate_handle(handle: RawHandle, exit_code: u32) -> io::Result<()> {
+    if unsafe { windows_sys::Win32::System::Threading::TerminateProcess(handle, exit_code) } == 0 {
         Err(io::Error::last_os_error())
     } else {
         Ok(())

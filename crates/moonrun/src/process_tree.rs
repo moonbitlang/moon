@@ -19,6 +19,8 @@
 //! Execution admission, control, and reaping owned by the Engine.
 
 mod guest;
+#[cfg(all(test, unix, feature = "v8"))]
+mod native_tests;
 #[cfg(windows)]
 pub(crate) use guest::ProcessHandle;
 pub(crate) use guest::{ProcessContext, ProcessWait};
@@ -37,18 +39,16 @@ use crate::run_termination::{RunTerminationReceiver, TerminationRequest};
 use crate::{Engine, Module, RunOptions, RunOutcome, RunTermination, RunTerminator};
 use crate::{WorkingDirectory, termination_channel};
 
-/// A process identity in moonrun's virtual namespace, never an OS PID.
-///
-/// Values occupy the upper half of positive `i32`s and are not reused yet.
-/// This range is only a convention: safety comes from table lookup, never from
-/// assuming the OS cannot allocate the same integer.
+/// A process identity in one Engine. Native children retain their OS PID;
+/// Wasm executions receive an allocated identity. Guest control always resolves
+/// the identity through the owning Engine, never by its numeric range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VirtualPid(i32);
+pub struct ProcessId(i32);
 
-// Allocate across Engines so an ID from another host cannot alias a local Run.
+// Allocate Wasm IDs across Engines; admission also excludes native IDs in the table.
 static NEXT_PID: AtomicU32 = AtomicU32::new(1 << 30);
 
-impl VirtualPid {
+impl ProcessId {
     pub fn get(self) -> i32 {
         self.0
     }
@@ -62,7 +62,7 @@ impl VirtualPid {
     }
 }
 
-impl std::fmt::Display for VirtualPid {
+impl std::fmt::Display for ProcessId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
@@ -80,9 +80,9 @@ pub enum ProcessState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProcessInfo {
-    pub pid: VirtualPid,
+    pub pid: ProcessId,
     /// `None` denotes a root or a child adopted by the Engine.
-    pub parent: Option<VirtualPid>,
+    pub parent: Option<ProcessId>,
     pub state: ProcessState,
 }
 
@@ -94,34 +94,53 @@ pub enum ProcessError {
     PidExhausted,
     #[error("virtual process stack size must be nonzero and fit in bytes with a host reserve")]
     InvalidStackSize,
-    #[error("unknown virtual process {0}")]
-    NotFound(VirtualPid),
-    #[error("virtual parent {0} is no longer running")]
-    ParentNotRunning(VirtualPid),
+    #[error("unknown process {0}")]
+    NotFound(ProcessId),
+    #[error("parent process {0} is no longer running")]
+    ParentNotRunning(ProcessId),
     #[error("the Engine process namespace is shutting down")]
     ShuttingDown,
-    #[error("another caller is already waiting for virtual process {0}")]
-    AlreadyWaiting(VirtualPid),
+    #[error("another caller is already waiting for process {0}")]
+    AlreadyWaiting(ProcessId),
     #[error("spawned execution owns the Run termination receiver")]
     TerminationAlreadyConfigured,
     #[error("Moon handoff owns the program arguments; pass them through the Moon command")]
     MoonArgumentsAlreadyConfigured,
     #[error("virtual execution requires an owned environment and fixed working directory")]
     InvalidVirtualConfiguration,
-    #[error("failed to prepare or start a virtual process")]
+    #[error("failed to prepare or start a process")]
     Spawn(#[from] std::io::Error),
-    #[error("virtual process Run failed")]
+    #[error("native process control failed")]
+    Control(#[source] std::io::Error),
+    #[error("process execution failed")]
     RunFailed(#[source] anyhow::Error),
-    #[error("virtual process {0} panicked")]
-    Panicked(VirtualPid),
+    #[error("process {0} panicked")]
+    Panicked(ProcessId),
 }
 
 struct Entry {
     info: ProcessInfo,
-    terminator: RunTerminator,
-    signals: crate::SignalSender,
+    control: ProcessControl,
     completion: Arc<ProcessCompletion>,
     waiting: bool,
+}
+
+enum ProcessControl {
+    Run {
+        terminator: RunTerminator,
+        signals: crate::SignalSender,
+    },
+    Native(crate::process::NativeControl),
+}
+
+impl ProcessControl {
+    fn terminate(&self, outcome: RunTermination) -> std::io::Result<bool> {
+        match self {
+            Self::Run { terminator, .. } => Ok(terminator.terminate(outcome)),
+            // Native processes report the OS status after forced termination.
+            Self::Native(child) => child.kill(),
+        }
+    }
 }
 
 impl Entry {
@@ -130,7 +149,12 @@ impl Entry {
         // A caller-supplied terminator reaches the shared request directly.
         // Derive this state from that request instead of requiring every
         // termination source to update a second copy in the process table.
-        if info.state == ProcessState::Running && self.terminator.requested().is_some() {
+        if info.state == ProcessState::Running
+            && match &self.control {
+                ProcessControl::Run { terminator, .. } => terminator.requested().is_some(),
+                ProcessControl::Native(child) => child.is_terminating(),
+            }
+        {
             info.state = ProcessState::Terminating;
         }
         info
@@ -180,7 +204,7 @@ impl ProcessCompletion {
     // Dropping the sender without a thread cancels this unused reservation.
     fn start_reaper(
         self: &Arc<Self>,
-        pid: VirtualPid,
+        pid: ProcessId,
     ) -> std::io::Result<mpsc::Sender<JoinHandle<anyhow::Result<RunOutcome>>>> {
         let (sender, receiver) = mpsc::channel::<JoinHandle<anyhow::Result<RunOutcome>>>();
         let completion = Arc::clone(self);
@@ -202,7 +226,7 @@ impl ProcessCompletion {
 
 #[derive(Default)]
 struct TableState {
-    entries: BTreeMap<VirtualPid, Entry>,
+    entries: BTreeMap<ProcessId, Entry>,
     // Admission and shutdown share this lock: a new execution is either
     // included in shutdown or rejected before its thread can start.
     shutting_down: bool,
@@ -213,7 +237,7 @@ type Table = Arc<Mutex<TableState>>;
 // A Windows spawn must pin completion before another supervisor can reap its
 // PID. Publishing the guest HANDLE later must not depend on a new PID lookup.
 pub(crate) struct SpawnedProcess {
-    pub(crate) pid: VirtualPid,
+    pub(crate) pid: ProcessId,
     #[cfg(windows)]
     completion: Arc<ProcessCompletion>,
 }
@@ -264,7 +288,12 @@ impl ExecutionScope<'_> {
             if table.shutting_down {
                 return Err(ProcessError::ShuttingDown);
             }
-            let pid = VirtualPid::allocate(&NEXT_PID)?;
+            let pid = loop {
+                let candidate = ProcessId::allocate(&NEXT_PID)?;
+                if !table.entries.contains_key(&candidate) {
+                    break candidate;
+                }
+            };
             table.entries.insert(
                 pid,
                 Entry {
@@ -273,8 +302,10 @@ impl ExecutionScope<'_> {
                         parent: None,
                         state: ProcessState::Running,
                     },
-                    terminator: self.receiver.sender(),
-                    signals: signals.sender(),
+                    control: ProcessControl::Run {
+                        terminator: self.receiver.sender(),
+                        signals: signals.sender(),
+                    },
                     completion: Arc::new(ProcessCompletion::default()),
                     waiting: true,
                 },
@@ -297,6 +328,83 @@ impl ExecutionScope<'_> {
 }
 
 impl Engine {
+    pub(crate) fn spawn_native(
+        &self,
+        parent: ProcessId,
+        spawn: crate::process::NativeSpawn,
+    ) -> crate::async_host::AsyncHostResult<SpawnedProcess> {
+        use crate::async_host::AsyncHostError;
+
+        let mut table = self.processes.0.lock().unwrap();
+        if table.shutting_down
+            || table
+                .entries
+                .get(&parent)
+                .is_none_or(|entry| entry.info().state != ProcessState::Running)
+        {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        // Native creation and admission share the shutdown lock. Spawn errors
+        // remain spawn errors, and no successfully created child escapes shutdown.
+        let child = crate::process::NativeChild::spawn(spawn)?;
+        let pid = ProcessId(child.pid());
+        if table.entries.contains_key(&pid) {
+            // Never alias a live or unread identity, even on platforms whose
+            // native PID range overlaps our allocated Wasm identities.
+            drop(table);
+            #[cfg(unix)]
+            return Err(AsyncHostError::Native(libc::EAGAIN));
+            #[cfg(windows)]
+            return Err(AsyncHostError::Native(
+                windows_sys::Win32::Foundation::ERROR_RETRY as i32,
+            ));
+        }
+        let control = child.control();
+        let completion = Arc::new(ProcessCompletion::default());
+        let reaper = completion.start_reaper(pid)?;
+        let shared_table = Arc::clone(&self.processes.0);
+        let thread = thread::Builder::new()
+            .name(format!("moonrun-native-{pid}"))
+            .spawn(move || {
+                let _exit = ProcessExitGuard {
+                    table: shared_table,
+                    pid,
+                    reap_on_drop: false,
+                };
+                let status = child.wait()?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    if let Some(signal) = status.signal() {
+                        return Ok(RunOutcome::KilledBySignal(signal));
+                    }
+                }
+                Ok(RunOutcome::Exited(status.code().unwrap()))
+            })?;
+        let spawned = SpawnedProcess {
+            pid,
+            #[cfg(windows)]
+            completion: Arc::clone(&completion),
+        };
+        table.entries.insert(
+            pid,
+            Entry {
+                info: ProcessInfo {
+                    pid,
+                    parent: Some(parent),
+                    state: ProcessState::Running,
+                },
+                control: ProcessControl::Native(control),
+                completion,
+                waiting: false,
+            },
+        );
+        reaper
+            .send(thread)
+            .expect("process reaper must accept its execution");
+        Ok(spawned)
+    }
+
     pub(crate) fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
         self.config
             .stack_size
@@ -328,10 +436,10 @@ impl Engine {
     /// follows `options`. Failures after admission are returned by `wait`.
     pub fn spawn(
         &self,
-        parent: Option<VirtualPid>,
+        parent: Option<ProcessId>,
         module: &Module,
         options: RunOptions,
-    ) -> Result<VirtualPid, ProcessError> {
+    ) -> Result<ProcessId, ProcessError> {
         self.spawn_with_signal_receiver(parent, module, options, crate::signal_channel().1)
     }
 
@@ -339,11 +447,11 @@ impl Engine {
     /// process-signal adapter. The tree retains a sender for guest control.
     pub fn spawn_with_signal_receiver(
         &self,
-        parent: Option<VirtualPid>,
+        parent: Option<ProcessId>,
         module: &Module,
         options: RunOptions,
         signals: crate::SignalReceiver,
-    ) -> Result<VirtualPid, ProcessError> {
+    ) -> Result<ProcessId, ProcessError> {
         let mut options = options;
         options.prepare_root()?;
         let module = module.clone();
@@ -362,11 +470,11 @@ impl Engine {
     /// and cleanup, and receive signals through the supplied channel.
     pub fn spawn_file_with_signal_receiver(
         &self,
-        parent: Option<VirtualPid>,
+        parent: Option<ProcessId>,
         executable: &Path,
         options: RunOptions,
         signals: crate::SignalReceiver,
-    ) -> Result<VirtualPid, ProcessError> {
+    ) -> Result<ProcessId, ProcessError> {
         let mut options = options;
         options.prepare_root()?;
         let executable = executable.to_owned();
@@ -398,11 +506,11 @@ impl Engine {
     /// is retained until the helper exits and prevents subsequent Wasm execution.
     pub fn spawn_moon(
         &self,
-        parent: Option<VirtualPid>,
+        parent: Option<ProcessId>,
         executable: &Path,
         args: &[OsString],
         options: RunOptions,
-    ) -> Result<VirtualPid, ProcessError> {
+    ) -> Result<ProcessId, ProcessError> {
         if !options.args.is_empty() || options.test_args.is_some() {
             return Err(ProcessError::MoonArgumentsAlreadyConfigured);
         }
@@ -482,7 +590,7 @@ impl Engine {
 
     pub(crate) fn spawn_execution(
         &self,
-        parent: Option<VirtualPid>,
+        parent: Option<ProcessId>,
         mut options: RunOptions,
         signal_receiver: crate::SignalReceiver,
         execute: impl FnOnce(
@@ -524,7 +632,12 @@ impl Engine {
                 return Err(ProcessError::ParentNotRunning(parent));
             }
         }
-        let pid = VirtualPid::allocate(&NEXT_PID)?;
+        let pid = loop {
+            let candidate = ProcessId::allocate(&NEXT_PID)?;
+            if !table.entries.contains_key(&candidate) {
+                break candidate;
+            }
+        };
         options.runtime.process_context = options.virtualize().then(|| ProcessContext {
             pid,
             engine: self.clone(),
@@ -583,8 +696,10 @@ impl Engine {
                     parent,
                     state: ProcessState::Running,
                 },
-                terminator,
-                signals,
+                control: ProcessControl::Run {
+                    terminator,
+                    signals,
+                },
                 completion,
                 waiting: false,
             },
@@ -597,17 +712,18 @@ impl Engine {
 
     /// Request forced termination of one member, without affecting descendants.
     /// Acceptance is not completion; synchronous host I/O may delay `wait`.
-    /// Unknown IDs are errors and are never forwarded to the operating system.
-    pub fn terminate(
-        &self,
-        pid: VirtualPid,
-        outcome: RunTermination,
-    ) -> Result<bool, ProcessError> {
+    /// Native children are killed and report their OS exit status, regardless of
+    /// `outcome`; Wasm executions use the requested outcome. Unknown IDs are errors
+    /// and are never forwarded to the operating system.
+    pub fn terminate(&self, pid: ProcessId, outcome: RunTermination) -> Result<bool, ProcessError> {
         let table = self.processes.0.lock().unwrap();
         let entry = table.entries.get(&pid).ok_or(ProcessError::NotFound(pid))?;
         // Lock order is table then termination. Run completion acquires the
         // table only after execution has closed the termination channel.
-        Ok(entry.terminator.terminate(outcome))
+        entry
+            .control
+            .terminate(outcome)
+            .map_err(ProcessError::Control)
     }
 
     /// Close admission and request termination of every admitted execution.
@@ -615,7 +731,8 @@ impl Engine {
     /// This includes adopted descendants and is shared by clones of this
     /// Engine. The first call returns `true`; later calls return `false` and
     /// leave the first requests intact. Existing per-process termination
-    /// requests retain their own first outcome.
+    /// requests retain their own first outcome. Native members are killed and
+    /// report their OS exit status.
     ///
     /// This only requests shutdown. Callers must still wait for cleanup and
     /// reap the members they own. Native caller-thread Runs without IPC are not
@@ -630,14 +747,16 @@ impl Engine {
         // The existing table -> termination lock order also serializes with
         // parent exit/adoption. Wake callbacks must never re-enter the table.
         for entry in table.entries.values() {
-            entry.terminator.terminate(outcome);
+            if let Err(error) = entry.control.terminate(outcome) {
+                tracing::warn!(pid = entry.info.pid.get(), %error, "failed to terminate native child");
+            }
         }
         true
     }
 
     /// Join and reap exactly once, including Run failures and thread panics.
     /// No table lock is held while waiting for Run and thread teardown.
-    pub fn wait(&self, pid: VirtualPid) -> Result<RunOutcome, ProcessError> {
+    pub fn wait(&self, pid: ProcessId) -> Result<RunOutcome, ProcessError> {
         let claim = WaitClaim::new(Arc::clone(&self.processes.0), pid)?;
         let mut result = claim.completion.result.lock().unwrap();
         while result.is_none() {
@@ -670,7 +789,7 @@ impl Engine {
 // Engine. Inline execution instead removes the entry when its caller returns.
 struct ProcessExitGuard {
     table: Table,
-    pid: VirtualPid,
+    pid: ProcessId,
     reap_on_drop: bool,
 }
 
@@ -694,12 +813,12 @@ impl Drop for ProcessExitGuard {
 // Dropping/cancelling an unconsumed Job releases it without losing the exit.
 struct WaitClaim {
     table: Table,
-    pid: VirtualPid,
+    pid: ProcessId,
     completion: Arc<ProcessCompletion>,
 }
 
 impl WaitClaim {
-    fn new(table: Table, pid: VirtualPid) -> Result<Self, ProcessError> {
+    fn new(table: Table, pid: ProcessId) -> Result<Self, ProcessError> {
         let completion = {
             let mut entries = table.lock().unwrap();
             let entry = entries
@@ -967,10 +1086,10 @@ mod tests {
     #[test]
     fn pid_exhaustion_never_wraps_or_reuses_an_id() {
         let next = AtomicU32::new(i32::MAX as u32);
-        assert_eq!(VirtualPid::allocate(&next).unwrap().get(), i32::MAX);
+        assert_eq!(ProcessId::allocate(&next).unwrap().get(), i32::MAX);
         for _ in 0..2 {
             assert!(matches!(
-                VirtualPid::allocate(&next),
+                ProcessId::allocate(&next),
                 Err(ProcessError::PidExhausted)
             ));
         }
@@ -1279,7 +1398,7 @@ mod tests {
         }
         for (panic, native_tls) in [(false, false), (true, false), (false, true), (true, true)] {
             let tree = Arc::new(Engine::default());
-            let pid = VirtualPid::allocate(&NEXT_PID).unwrap();
+            let pid = ProcessId::allocate(&NEXT_PID).unwrap();
             let (terminator, receiver) = termination_channel();
             let (release, blocked) = mpsc::channel();
             let (finish_thread, cleanup) = mpsc::channel();
@@ -1317,8 +1436,10 @@ mod tests {
                         parent: None,
                         state: ProcessState::Running,
                     },
-                    terminator,
-                    signals: crate::signal_channel().0,
+                    control: ProcessControl::Run {
+                        terminator,
+                        signals: crate::signal_channel().0,
+                    },
                     completion: process_completion,
                     waiting: false,
                 },
@@ -1439,9 +1560,10 @@ mod tests {
                 )
                 .unwrap();
             run_returned.recv_timeout(Duration::from_secs(5)).unwrap();
-            let terminator = tree.processes.0.lock().unwrap().entries[&spawned.pid]
-                .terminator
-                .clone();
+            let terminator = match &tree.processes.0.lock().unwrap().entries[&spawned.pid].control {
+                ProcessControl::Run { terminator, .. } => terminator.clone(),
+                ProcessControl::Native(_) => unreachable!(),
+            };
             let accepted = tree
                 .terminate(spawned.pid, RunTermination::Exit(42))
                 .unwrap();
@@ -1496,9 +1618,10 @@ mod tests {
             .unwrap();
         let tree = engine;
         let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
-        let terminator = tree.processes.0.lock().unwrap().entries[&pid]
-            .terminator
-            .clone();
+        let terminator = match &tree.processes.0.lock().unwrap().entries[&pid].control {
+            ProcessControl::Run { terminator, .. } => terminator.clone(),
+            ProcessControl::Native(_) => unreachable!(),
+        };
         let table = Arc::downgrade(&tree.processes.0);
         drop(tree);
         assert!(table.upgrade().is_some());

@@ -26,7 +26,6 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(windows)]
 use super::os;
 use super::os::Executable;
 use super::{HostProcess, SpawnOptions, lookup};
@@ -54,7 +53,7 @@ pub(super) struct SpawnRequest {
 }
 
 #[derive(Debug)]
-pub(super) struct NativeSpawn {
+pub(crate) struct NativeSpawn {
     // Keep the original argv/command line: lookup must not rewrite guest argv0
     // or change the lexical request that the process policy authorized.
     pub(super) request: SpawnRequest,
@@ -257,7 +256,13 @@ impl HostProcess {
             (arguments, plan)
         };
         request.configure_stdio(&self.stdio)?;
-        if let Some(context) = &self.context {
+        #[cfg(unix)]
+        let invokes_moonx = moonutil::constants::is_moonx_executable(&request.path);
+        #[cfg(windows)]
+        let invokes_moonx = moonutil::constants::is_moonx_executable(&arguments[0]);
+        if let Some(context) = &self.context
+            && invokes_moonx
+        {
             #[cfg(unix)]
             let spawn = super::moon::Spawn::unix(
                 context.clone(),
@@ -310,6 +315,37 @@ impl HostProcess {
 fn is_policy_recipient(program: &OsStr) -> bool {
     moonutil::constants::is_moonx_executable(program)
         || moonutil::constants::is_moonrun_executable(program)
+}
+
+impl NativeSpawn {
+    pub(super) fn spawn(self) -> AsyncHostResult<os::Spawned> {
+        let Self {
+            request,
+            _stdio_owner,
+            executable,
+            policy_inheritance,
+        } = self;
+        #[cfg(unix)]
+        return super::native::run_spawn_job_unix(
+            executable,
+            request.args,
+            request.env,
+            request.stdio,
+            request.cwd,
+            request.options,
+            policy_inheritance,
+        );
+        #[cfg(windows)]
+        return super::native::run_spawn_job_windows(
+            executable,
+            request.command_line,
+            request.env,
+            request.stdio,
+            request.cwd,
+            request.options,
+            policy_inheritance,
+        );
+    }
 }
 
 fn lookup_error(error: lookup::LookupError) -> AsyncHostError {

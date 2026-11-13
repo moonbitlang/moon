@@ -27,6 +27,8 @@ use crate::async_host::read_u16;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::process;
 use crate::guest_memory::GuestMemory;
+#[cfg(any(windows, target_os = "linux"))]
+use crate::resource::Resource;
 
 use super::context::ImportContext;
 use super::os_string::read_guest as read_guest_os_string;
@@ -272,7 +274,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+    if let Some(result) = context.host.open_managed_process_handle(pid) {
         return result;
     }
     let handle = context
@@ -293,7 +295,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+    if let Some(result) = context.host.open_managed_process_handle(pid) {
         return result;
     }
     let handle = context.host.with_owned_child_pid(pid, || {
@@ -304,7 +306,7 @@ pub(super) fn open_pid_handle(
         }
     })?;
     match handle {
-        Some(handle) => Ok(context.host.insert_host_process_handle(handle, pid)),
+        Some(handle) => Ok(context.host.insert_host_process_handle(Resource::new(handle), pid)),
         None => Ok(context.host.invalid_fd()),
     }
 }
@@ -318,13 +320,13 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    if let Some(result) = context.host.open_virtual_process_handle(pid) {
+    if let Some(result) = context.host.open_managed_process_handle(pid) {
         return result;
     }
     let handle = context
         .host
         .with_owned_child_pid(pid, || process::open_pid_handle(pid))?;
-    Ok(context.host.insert_host_process_handle(handle, pid))
+    Ok(context.host.insert_host_process_handle(Resource::new(handle), pid))
 }
 
 #[ported(
