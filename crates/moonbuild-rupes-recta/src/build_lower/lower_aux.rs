@@ -20,7 +20,7 @@
 
 use moonutil::{
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        ArchiverConfig, CCConfig, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_cc_command_resolved,
     },
     resolution::{ModuleId, ModuleSourceKind},
@@ -182,19 +182,19 @@ impl<'a> super::LoweringContext<'a> {
         } else {
             make_cc_command_resolved(
                 resolved_cc,
-                CCConfigBuilder::default()
-                    .no_sys_header(true)
-                    .output_ty(CCOutputType::Object)
-                    .opt_level(CCOptLevel::Speed)
-                    .debug_info(true)
-                    .allow_stacktrace(info.enable_backtrace)
-                    .link_moonbitrun(true)
-                    .define_use_shared_runtime_macro(false)
-                    .use_simdutf(!info.simdutf_objects.is_empty())
-                    .native_allocator(info.native_allocator)
-                    .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
-                    .build()
-                    .expect("Failed to build CC configuration for runtime"),
+                CCConfig {
+                    debug_info: true,
+                    link_moonbitrun: true,
+                    link_libbacktrace: false,
+                    no_sys_header: true,
+                    output_ty: CCOutputType::Object,
+                    opt_level: CCOptLevel::Speed,
+                    allow_stacktrace: info.enable_backtrace,
+                    define_use_shared_runtime_macro: false,
+                    use_simdutf: !info.simdutf_objects.is_empty(),
+                    collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+                    native_allocator: Some(info.native_allocator),
+                },
                 &[] as &[&str],
                 [source.display().to_string()],
                 &self
@@ -225,10 +225,7 @@ impl<'a> super::LoweringContext<'a> {
             matches!(artifact, ArtifactKey::RuntimeObject { .. })
         });
         object_files.extend(info.simdutf_objects.iter().cloned());
-        let config = ArchiverConfigBuilder::default()
-            .archive_moonbitrun(false)
-            .build()
-            .expect("Failed to build archiver configuration");
+        let config = ArchiverConfig::default();
         let mut command = BuildCommand::archive(
             &info.effective_native_toolchain,
             config,
