@@ -219,13 +219,78 @@ fn test_moon_new_rejects_invalid_pkg_id_project_names() {
 }
 
 #[test]
+fn test_moon_new_delegates_arguments_and_exit_status() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    let bin = toolchain.join("bin");
+    let workdir = dir.join("working directory");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir(&workdir).unwrap();
+    std::fs::write(bin.join("moon_new.wasm"), []).unwrap();
+    let runner = dir.join(format!("new-runner{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/moon_new_runner.rs"))
+        .arg("-o")
+        .arg(&runner)
+        .assert()
+        .success();
+
+    // A controlled runner checks the SDK artifact, both argument separators,
+    // and effective -C directory. Its status and streams must pass through,
+    // and neither successful nor failed delegation may run the Rust fallback.
+    for code in [0, 37] {
+        moon_cmd(&dir)
+            .env("MOON_TOOLCHAIN_ROOT", &toolchain)
+            .env("MOONRUN_OVERRIDE", &runner)
+            .env("MOON_NEW_EXPECTED_CWD", &workdir)
+            .env("MOON_NEW_EXIT_CODE", code.to_string())
+            .args([
+                "-C",
+                "working directory",
+                "new",
+                "--user",
+                "moonbitlang",
+                "--name",
+                "hello",
+                "--",
+                "-new project",
+            ])
+            .assert()
+            .code(code)
+            .stdout_eq("generator stdout\n")
+            .stderr_eq("generator stderr\n");
+        assert!(!workdir.join("-new project").exists());
+    }
+}
+
+#[test]
+fn test_moon_new_falls_back_without_a_bundled_generator() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    std::fs::create_dir(&toolchain).unwrap();
+
+    // An older SDK has no generator. Even without a runnable moonrun, the
+    // Rust fallback must still produce the established default template.
+    moon_cmd(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", &toolchain)
+        .env("MOONRUN_OVERRIDE", toolchain.join("missing-moonrun"))
+        .args(["new", "hello", "--user", "moonbitlang"])
+        .assert()
+        .success();
+    expect_file!["new_snapshot_with_user_name.expect"]
+        .assert_eq(&snapshot_layout_and_files(&dir.join("hello")));
+}
+
+#[test]
 fn test_moon_new_reports_a_broken_bundled_generator() {
     let dir = TestDir::new_empty();
     let toolchain = dir.join("sdk");
     let bin = toolchain.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("moon-new.wasm"), b"invalid wasm").unwrap();
+    std::fs::write(bin.join("moon_new.wasm"), b"invalid wasm").unwrap();
 
+    // Use the real moonrun to prove an installed but invalid artifact fails
+    // without creating a project through the Rust fallback.
     let output = moon_process_cmd(&dir)
         .env("MOON_TOOLCHAIN_ROOT", toolchain)
         .args(["new", "hello", "--user", "moonbitlang"])
@@ -233,7 +298,7 @@ fn test_moon_new_reports_a_broken_bundled_generator() {
         .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("moon-new.wasm"), "{stderr}");
+    assert!(stderr.contains("moon_new.wasm"), "{stderr}");
     assert!(!dir.join("hello").exists());
 }
 
