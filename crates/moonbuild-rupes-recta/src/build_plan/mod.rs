@@ -132,7 +132,8 @@ pub(crate) struct BackendPlan {
     /// The map of build target to the metadata it needs when linking core
     link_core_info: HashMap<BuildTarget, LinkCoreInfo>,
 
-    /// The `.core` inputs of each package's wasm1 library object.
+    /// The `.core` inputs of each wasm1 object, both the main objects of
+    /// executables and the library objects of packages.
     wasm_object_info: HashMap<WasmObject, LinkCoreInfo>,
 
     /// The library objects linked into each executable linked from objects.

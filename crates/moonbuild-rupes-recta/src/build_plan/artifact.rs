@@ -98,9 +98,10 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
-    /// The relocatable wasm1 object of an executable's main package, written
-    /// by its `LinkCore`: the program's entry, exports and link settings
-    /// (Wasm separate compilation).
+    /// The relocatable wasm1 object of an executable's main package target:
+    /// the program's entry, exports and link settings (Wasm separate
+    /// compilation). The `BuildWasmObject` action provides it by running
+    /// `moonc link-core`; the `LinkCore` action is not involved.
     WasmMainObject {
         package: PackageId,
         target_kind: TargetKind,

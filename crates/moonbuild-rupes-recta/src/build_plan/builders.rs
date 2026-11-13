@@ -1061,17 +1061,23 @@ impl<'a> BuildPlanConstructor<'a> {
         {
             return false;
         }
-        let linked = self.wasm_linked_targets(target);
-        !linked
-            .iter()
-            .any(|linked| self.input.pkg_dirs.get_package(linked.package).is_virtual())
-            && !self.links_dependent_of_main_package(target, &linked)
+        let reachable = self.wasm_reachable_targets(target);
+        !reachable.iter().any(|reached| {
+            self.input
+                .pkg_dirs
+                .get_package(reached.package)
+                .is_virtual()
+        }) && !self.links_dependent_of_main_package(target, &reachable)
     }
 
-    /// The targets whose packages `target`'s executable would link from
-    /// objects: those `target` and the error table packages reach (see
-    /// `wasm_object_inputs`), before any virtual package is resolved.
-    fn wasm_linked_targets(&self, target: BuildTarget) -> HashSet<BuildTarget> {
+    /// The targets reachable from `target` and the error table packages in
+    /// the raw dependency graph, before virtual packages are resolved.
+    ///
+    /// `links_wasm_objects` inspects this set before deciding whether objects
+    /// are linked at all. It is not the link input: `wasm_object_inputs`
+    /// produces the resolved Core IR inputs, in dependency order, of an
+    /// object that is planned.
+    fn wasm_reachable_targets(&self, target: BuildTarget) -> HashSet<BuildTarget> {
         let graph = &self.rel.dep_graph;
         let mut visited = HashSet::new();
         let mut stack = std::iter::once(target)
@@ -1089,8 +1095,8 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     /// Whether a library object that `target`'s executable would link, among
-    /// the `linked` targets, depends on the package whose code `target`'s main
-    /// object compiles.
+    /// the `reachable` targets (see [`Self::wasm_reachable_targets`]), depends
+    /// on the package whose code `target`'s main object compiles.
     ///
     /// The main object of a source, inline-test or whitebox-test target
     /// compiles its package, and keeps that package's definitions local. A
@@ -1102,7 +1108,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn links_dependent_of_main_package(
         &self,
         target: BuildTarget,
-        linked: &HashSet<BuildTarget>,
+        reachable: &HashSet<BuildTarget>,
     ) -> bool {
         // A blackbox test's main object compiles only the test code, which no
         // package depends on.
@@ -1127,7 +1133,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         dependents.remove(&target.package);
 
-        linked
+        reachable
             .iter()
             .any(|node| node.kind == TargetKind::Source && dependents.contains(&node.package))
     }

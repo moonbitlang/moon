@@ -745,24 +745,18 @@ impl<'a> LoweringContext<'a> {
             WasmObject::Library(package) => (package.build_target(TargetKind::Source), true),
         };
         let package = self.get_package(target);
-        let (pkg_config_path, wasm_config, exports) = if library_object {
-            let wasm_config = WasmConfig {
-                wasi: self.opt.backend.wasi_link(),
-                new_allocator: self.wasm_new_allocator(),
-                collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
-                ..Default::default()
-            };
-            (None, wasm_config, None)
+        // Only a main object reads the package's manifest and exports the
+        // program's functions; `links_wasm_objects` keeps packages with
+        // `link.wasm` settings whole, so the manifest adds no Wasm settings.
+        let (pkg_config_path, exports) = if library_object {
+            (None, None)
         } else {
             let config_path = package.config_path();
             if !package.is_single_file() {
                 extra_inputs.push(config_path.clone());
             }
-            let mut wasm_config = self.get_wasm_config(target, package);
-            // `moonc wasm-ld` does not name the module it links.
-            wasm_config.module_name = None;
             let exports = package.exported_functions(TargetBackend::Wasm);
-            (Some(config_path), wasm_config, exports)
+            (Some(config_path), exports)
         };
 
         let cmd = compiler::MooncLinkCore {
@@ -780,7 +774,7 @@ impl<'a> LoweringContext<'a> {
             native_target: None,
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
-            wasm_config,
+            wasm_config: self.wasm_object_config(),
             js_config: None,
             exports,
             // `links_wasm_objects` keeps modules with link flags whole.
@@ -805,12 +799,6 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &WasmLinkInfo,
     ) -> Result<BuildCommand, LoweringError> {
-        // Library objects are shared by every executable, so they all target
-        // WASI exactly when the backend links it: they are main packages and
-        // tests, in commands that link them.
-        let wasi = self.should_link_wasi(target, self.get_package(target));
-        debug_assert_eq!(wasi, self.opt.backend.wasi_link());
-
         let mut objects = info
             .library_objects
             .iter()
@@ -825,13 +813,14 @@ impl<'a> LoweringContext<'a> {
         }));
         let out_file = artifacts.single_output_path();
 
+        let config = self.wasm_object_config();
         let cmd = compiler::MooncWasmLd {
             objects: &objects,
             output_path: out_file.as_path().into(),
             symbols: self.set_flags().symbols,
-            wasi,
-            new_allocator: self.wasm_new_allocator(),
-            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            wasi: config.wasi,
+            new_allocator: config.new_allocator,
+            collect_ref_cycle: config.collect_ref_cycle,
         };
         let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
 
@@ -841,7 +830,21 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    fn wasm_new_allocator(&self) -> bool {
+    /// The Wasm settings of every wasm1 object and of the `moonc wasm-ld`
+    /// link that combines them, taken from the backend alone: a library
+    /// object is shared by every executable using it, and the linker
+    /// generates a runtime matching the objects.
+    fn wasm_object_config(&self) -> WasmConfig<'static> {
+        WasmConfig {
+            wasi: self.opt.backend.wasi_link(),
+            new_allocator: self.uses_moonbit_tlsf_allocator(),
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            ..Default::default()
+        }
+    }
+
+    /// Whether the backend selects the MoonBit TLSF allocator (`tlsf-mbt`).
+    fn uses_moonbit_tlsf_allocator(&self) -> bool {
         matches!(
             self.opt.backend,
             BackendConfig::Wasm {
