@@ -373,13 +373,22 @@ impl TargetLayout {
     /// compilation. `moonc` writes an object for a `.o` output on every host.
     ///
     /// Format: `_build/wasm/{opt_level}/build/{package_path}/{artifact}.o`
+    /// Bundles keep both profiles under the package's `wasm-objects/` directory.
     pub fn wasm_library_object_path(
         &self,
         pkg_list: &DiscoverResult,
         package: PackageId,
+        profile: OptLevel,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        if self.run_mode == RunMode::Bundle {
+            return moonutil::toolchain::bundle_wasm_object_path(
+                &base_dir,
+                pkg_fqn.short_alias(),
+                profile,
+            );
+        }
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, TargetKind::Source),
@@ -889,10 +898,10 @@ impl ArtifactPathResolver {
                 self.target_layout
                     .wasm_main_object_path(packages, &package.build_target(*target_kind)),
             ],
-            ArtifactKey::WasmLibraryObject { package } => {
+            ArtifactKey::WasmLibraryObject { package, opt_level } => {
                 vec![
                     self.target_layout
-                        .wasm_library_object_path(packages, *package),
+                        .wasm_library_object_path(packages, *package, *opt_level),
                 ]
             }
             ArtifactKey::GeneratedCObject {

@@ -18,6 +18,7 @@
 
 use moonutil::{
     compiler_flags::{CompilerPaths, NativeAllocator},
+    cond_expr::OptLevel,
     resolution::{ModuleDependencyGraph, ModuleId},
     target::TargetBackend,
 };
@@ -161,6 +162,21 @@ impl NativeBackendMode {
 }
 
 impl BackendConfig {
+    /// Whether the default Wasm runtime settings match the objects distributed
+    /// in the core bundle. Other settings still compile library objects locally.
+    pub fn supports_prebuilt_wasm_objects(&self) -> bool {
+        matches!(
+            self,
+            Self::Wasm {
+                use_wat: false,
+                wasi_link: true,
+                new_allocator: false,
+                collect_ref_cycle: false,
+                separate_compilation: true,
+            }
+        )
+    }
+
     pub fn target_backend(&self) -> TargetBackend {
         match self {
             Self::Wasm { .. } => TargetBackend::Wasm,
@@ -387,8 +403,8 @@ pub enum WasmObject {
     Main(BuildTarget),
     /// The library object of a package, which defines every non-generic
     /// function and value of the package and is shared by every executable
-    /// using it.
-    Library(PackageId),
+    /// using it. Bundling can request both object profiles from the same Core IR.
+    Library(PackageId, OptLevel),
 }
 
 impl BuildPlanNode {
@@ -410,7 +426,7 @@ impl BuildPlanNode {
             BuildPlanNode::BuildCStub(_, _)
             | BuildPlanNode::BuildRuntimeObject(_)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
-            | BuildPlanNode::BuildWasmObject(WasmObject::Library(_))
+            | BuildPlanNode::BuildWasmObject(WasmObject::Library(_, _))
             | BuildPlanNode::ArchiveForeignLibrary(_)
             | BuildPlanNode::GenerateNodeTestPackageConfig(_)
             | BuildPlanNode::BuildRuntimeLib
@@ -480,8 +496,12 @@ impl BuildPlanNode {
                     qualifier(build_target.kind)
                 )
             }
-            BuildPlanNode::BuildWasmObject(WasmObject::Library(package_id)) => {
-                format!("build wasm library object {}", packages.fqn(*package_id))
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(package_id, profile)) => {
+                format!(
+                    "build wasm library object {} ({})",
+                    packages.fqn(*package_id),
+                    profile.as_str()
+                )
             }
             BuildPlanNode::LinkWasmObjects(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -580,9 +600,9 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@BuildWasmMainObject", fqn, t.kind)
             }
-            BuildPlanNode::BuildWasmObject(WasmObject::Library(pkg)) => {
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(pkg, profile)) => {
                 let fqn = packages.fqn(*pkg);
-                format!("{}@BuildWasmLibraryObject", fqn)
+                format!("{}@BuildWasmLibraryObject@{}", fqn, profile.as_str())
             }
             BuildPlanNode::LinkWasmObjects(t) => {
                 let fqn = packages.fqn(t.package);

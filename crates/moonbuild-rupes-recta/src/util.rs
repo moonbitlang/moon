@@ -252,9 +252,9 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nBuildWasmMainObject", fqn)
             }
-            BuildPlanNode::BuildWasmObject(WasmObject::Library(package)) => {
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(package, profile)) => {
                 let fqn = packages.fqn(*package);
-                format!("{}\\nBuildWasmLibraryObject", fqn)
+                format!("{}\\nBuildWasmLibraryObject ({})", fqn, profile.as_str())
             }
             BuildPlanNode::LinkWasmObjects(target) => {
                 let fqn = packages.fqn(target.package);
