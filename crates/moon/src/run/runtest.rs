@@ -279,8 +279,7 @@ pub(crate) async fn run_tests(
     Ok(stats)
 }
 
-#[derive(derive_builder::Builder, Debug)]
-#[builder(derive(Debug))]
+#[derive(Debug)]
 struct TestExecutableToRun<'a> {
     target: BuildTarget,
     executable: &'a Path,
@@ -700,7 +699,8 @@ pub(crate) fn collect_test_outline(
 /// Gather tests executables from the build metadata.
 #[instrument(level = "trace", skip(build_meta))]
 fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
-    let mut pending = HashMap::with_capacity(build_meta.artifacts.len());
+    let mut pending: HashMap<BuildTarget, (Option<&Path>, Option<&Path>)> =
+        HashMap::with_capacity(build_meta.artifacts.len());
     let mut results = vec![];
 
     for (artifact, paths) in &build_meta.artifacts {
@@ -720,22 +720,26 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
             .expect("test result artifacts should resolve to one path");
         trace!(?target, ?artifact, "processing test artifact");
 
-        let working = pending.entry(target).or_insert_with(|| {
-            let mut res = TestExecutableToRunBuilder::create_empty();
-            res.target(target);
-            res
-        });
-
+        let (executable, meta) = pending.entry(target).or_insert((None, None));
         if is_executable {
-            working.executable(path);
+            *executable = Some(path);
         } else {
-            working.meta(path);
+            *meta = Some(path);
         }
 
-        if let Ok(tgt) = working.build() {
+        if let (Some(executable), Some(meta)) = (*executable, *meta) {
             pending.remove(&target);
-            debug!(target = ?tgt.target, executable = %tgt.executable.display(), meta = %tgt.meta.display(), "assembled test executable");
-            results.push(tgt);
+            debug!(
+                target = ?target,
+                executable = %executable.display(),
+                meta = %meta.display(),
+                "assembled test executable"
+            );
+            results.push(TestExecutableToRun {
+                target,
+                executable,
+                meta,
+            });
         }
     }
 

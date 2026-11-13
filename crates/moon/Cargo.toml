@@ -58,7 +58,6 @@ petgraph.workspace = true
 rand.workspace = true
 tempfile.workspace = true
 shlex.workspace = true
-derive_builder.workspace = true
 sha2.workspace = true
 blake3.workspace = true
 percent-encoding.workspace = true

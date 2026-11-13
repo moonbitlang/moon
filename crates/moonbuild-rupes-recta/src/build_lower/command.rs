@@ -149,7 +149,7 @@ impl BuildCommand {
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::{ARKind, ArchiverConfigBuilder, CC, CCKind};
+    use moonutil::compiler_flags::{ARKind, ArchiverConfig, CC, CCKind};
 
     use crate::execution_plan::{LoweredCommandExecution, LoweredResponseFile};
 
@@ -201,10 +201,7 @@ mod tests {
         });
         BuildCommand::archive(
             &toolchain,
-            ArchiverConfigBuilder::default()
-                .archive_moonbitrun(false)
-                .build()
-                .expect("archiver configuration should build"),
+            ArchiverConfig::default(),
             &[PathBuf::from("a.o"), PathBuf::from("b.o")],
             Path::new("lib.a"),
             &CompilerPaths {

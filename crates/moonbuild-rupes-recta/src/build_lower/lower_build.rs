@@ -27,8 +27,8 @@ use std::{
 use moonutil::{
     build_options::RunMode,
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OutputType as CCOutputType,
-        Toolchain, make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
+        ArchiverConfig, CCConfig, LinkerConfig, OutputType as CCOutputType, Toolchain,
+        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -1050,16 +1050,19 @@ impl<'a> LoweringContext<'a> {
             )
         });
 
-        let config = CCConfigBuilder::default()
-            .no_sys_header(true)
-            .output_ty(CCOutputType::Object)
-            .opt_level(info.opt_level)
-            .debug_info(info.debug_info)
-            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
-            .link_moonbitrun(true)
-            .define_use_shared_runtime_macro(false)
-            .build()
-            .expect("Failed to build CC configuration for C stub");
+        let config = CCConfig {
+            debug_info: info.debug_info,
+            link_moonbitrun: true,
+            link_libbacktrace: false,
+            no_sys_header: true,
+            output_ty: CCOutputType::Object,
+            opt_level: info.opt_level,
+            allow_stacktrace: false,
+            define_use_shared_runtime_macro: false,
+            use_simdutf: false,
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            native_allocator: None,
+        };
 
         let intermediate_dir = self
             .artifact_paths
@@ -1120,10 +1123,7 @@ impl<'a> LoweringContext<'a> {
         object_files: &[PathBuf],
         archive: PathBuf,
     ) -> BuildCommand {
-        let config = ArchiverConfigBuilder::default()
-            .archive_moonbitrun(false)
-            .build()
-            .expect("Failed to build archiver configuration");
+        let config = ArchiverConfig::default();
         BuildCommand::archive(
             &info.effective_native_toolchain,
             config,
@@ -1209,17 +1209,19 @@ impl<'a> LoweringContext<'a> {
 
         // Compile with the settings an executable link would use for the
         // same generated C, so the object matches the runtime it links with.
-        let config = CCConfigBuilder::default()
-            .no_sys_header(true)
-            .output_ty(CCOutputType::Object)
-            .opt_level(info.c_opt_level)
-            .debug_info(info.c_debug_info)
-            .link_moonbitrun(true)
-            .define_use_shared_runtime_macro(false)
-            .native_allocator(info.native_allocator)
-            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
-            .build()
-            .expect("Failed to build CC configuration for linked core object");
+        let config = CCConfig {
+            debug_info: info.c_debug_info,
+            link_moonbitrun: true,
+            link_libbacktrace: false,
+            no_sys_header: true,
+            output_ty: CCOutputType::Object,
+            opt_level: info.c_opt_level,
+            allow_stacktrace: false,
+            define_use_shared_runtime_macro: false,
+            use_simdutf: false,
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            native_allocator: Some(info.native_allocator),
+        };
 
         let pkg_dir = self
             .artifact_paths
@@ -1293,11 +1295,10 @@ impl<'a> LoweringContext<'a> {
         }));
         members.extend(runtime.simdutf_objects.iter().cloned());
 
-        let config = ArchiverConfigBuilder::default()
-            .archive_moonbitrun(true)
-            .native_allocator(info.native_allocator)
-            .build()
-            .expect("Failed to build archiver configuration");
+        let config = ArchiverConfig {
+            archive_moonbitrun: true,
+            native_allocator: info.native_allocator,
+        };
         let mut command = BuildCommand::archive(
             &info.effective_native_toolchain,
             config,
@@ -1379,15 +1380,15 @@ impl<'a> LoweringContext<'a> {
 
         let sources = self.native_executable_dependency_paths(artifacts, info);
 
-        let config = LinkerConfigBuilder::<&Path>::default()
-            .driver_flags(info.c_flags.clone())
-            .opt_level(Some(info.c_opt_level))
-            .debug_info(info.c_debug_info)
-            .link_moonbitrun(true)
-            .link_libbacktrace(true)
-            .native_allocator(info.native_allocator)
-            .build()
-            .expect("Failed to build linker configuration for executable");
+        let config = LinkerConfig::<&Path> {
+            driver_flags: info.c_flags.clone(),
+            opt_level: Some(info.c_opt_level),
+            debug_info: info.c_debug_info,
+            link_moonbitrun: true,
+            link_libbacktrace: true,
+            native_allocator: info.native_allocator,
+            ..Default::default()
+        };
 
         let dest = artifacts.single_output_path().display().to_string();
 
@@ -1454,13 +1455,13 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let config = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(true)
-            .link_libbacktrace(true)
-            .output_ty(CCOutputType::Executable)
-            .native_allocator(info.native_allocator)
-            .build()
-            .expect("Failed to build LinkerConfig for new native executable");
+        let config = LinkerConfig::<&Path> {
+            link_moonbitrun: true,
+            link_libbacktrace: true,
+            output_ty: CCOutputType::Executable,
+            native_allocator: info.native_allocator,
+            ..Default::default()
+        };
 
         let source_args = sources
             .iter()

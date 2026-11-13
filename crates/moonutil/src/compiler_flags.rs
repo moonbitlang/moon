@@ -18,7 +18,6 @@
 
 use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
-use derive_builder::Builder;
 use std::{
     env,
     ffi::OsStr,
@@ -856,17 +855,14 @@ pub enum OptLevel {
     None,
 }
 
-#[derive(Clone, Builder)]
-#[builder(setter(into))]
+#[derive(Clone)]
 pub struct CCConfig {
-    #[builder(default = false)]
     // indicates -g for gcc-like compilers
     // we don't set /Zi as it will have concurrency problem
     // like multiple msvc instances race to write the same .pdb file
     pub debug_info: bool,
     // TCC cannot link libmoonbitrun.o
     pub link_moonbitrun: bool,
-    #[builder(default = false)]
     // Link libbacktrace.a from the configured MoonBit lib path if it exists
     // and the compiler targets the host.
     pub link_libbacktrace: bool,
@@ -874,11 +870,8 @@ pub struct CCConfig {
     // Usually used with TCC
     // TCC may not be able to handle the system header
     pub no_sys_header: bool,
-    #[builder(default = OutputType::Object)]
     pub output_ty: OutputType,
-    #[builder(default = OptLevel::Speed)]
     pub opt_level: OptLevel,
-    #[builder(default = false)]
     // Define MOONBIT_ALLOW_STACKTRACE
     pub allow_stacktrace: bool,
     // Define MOONBIT_USE_SHARED_RUNTIME
@@ -887,50 +880,50 @@ pub struct CCConfig {
     // with extra __declspec(dllimport)
     // This is needed to use the shared runtime
     pub define_use_shared_runtime_macro: bool,
-    #[builder(default = false)]
     // Define MOONBIT_USE_SIMDUTF.
     pub use_simdutf: bool,
-    #[builder(default = false)]
     // Define MOONBIT_TRIAL_DELETION=1 for native runtime and program compilation.
     pub collect_ref_cycle: bool,
-    #[builder(default)]
     // Select native runtime allocator when this command participates in
     // runtime compilation or native executable linking.
     pub native_allocator: Option<NativeAllocator>,
 }
 
-#[derive(Clone, Builder)]
-#[builder(setter(into))]
+#[derive(Clone)]
 pub struct LinkerConfig<P: AsRef<Path>> {
     /// Compiler-driver options that also affect linking, before MSVC's `/link`.
-    #[builder(default)]
     pub driver_flags: Vec<String>,
-    #[builder(default = false)]
     pub debug_info: bool,
     /// Retain the generated-C/LLVM driver's optimization policy for LTO.
-    #[builder(default)]
     pub opt_level: Option<OptLevel>,
-    #[builder(default = false)]
     pub link_moonbitrun: bool,
-    #[builder(default = false)]
     // Link libbacktrace.a from the configured MoonBit lib path if it exists
     // and the compiler targets the host.
     pub link_libbacktrace: bool,
-    #[builder(default = OutputType::Executable)]
     pub output_ty: OutputType,
-    #[builder(default = None)]
     // This is the parent directory to the shared runtime library
     pub link_shared_runtime: Option<P>,
-    #[builder(default)]
     pub native_allocator: NativeAllocator,
 }
 
-#[derive(Clone, Builder)]
-#[builder(setter(into))]
+impl<P: AsRef<Path>> Default for LinkerConfig<P> {
+    fn default() -> Self {
+        Self {
+            driver_flags: Vec::new(),
+            debug_info: false,
+            opt_level: None,
+            link_moonbitrun: false,
+            link_libbacktrace: false,
+            output_ty: OutputType::Executable,
+            link_shared_runtime: None,
+            native_allocator: NativeAllocator::default(),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct ArchiverConfig {
-    #[builder(default = false)]
     pub archive_moonbitrun: bool,
-    #[builder(default)]
     pub native_allocator: NativeAllocator,
 }
 
@@ -1973,12 +1966,12 @@ mod tests {
 
     #[test]
     fn linker_preserves_driver_flags_before_msvc_linker_arguments() {
-        let config = LinkerConfigBuilder::<&Path>::default()
-            .driver_flags(vec!["/GL".to_string()])
-            .debug_info(true)
-            .opt_level(Some(OptLevel::Speed))
-            .build()
-            .unwrap();
+        let config = LinkerConfig::<&Path> {
+            driver_flags: vec!["/GL".to_string()],
+            debug_info: true,
+            opt_level: Some(OptLevel::Speed),
+            ..Default::default()
+        };
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Msvc, None),
             config,
@@ -2264,13 +2257,19 @@ mod tests {
 
         let command = make_cc_command_resolved_for_toolchain(
             &toolchain,
-            CCConfigBuilder::default()
-                .no_sys_header(true)
-                .link_moonbitrun(false)
-                .output_ty(OutputType::Object)
-                .define_use_shared_runtime_macro(false)
-                .build()
-                .expect("MSVC command config should build"),
+            CCConfig {
+                debug_info: false,
+                link_moonbitrun: false,
+                link_libbacktrace: false,
+                no_sys_header: true,
+                output_ty: OutputType::Object,
+                opt_level: OptLevel::Speed,
+                allow_stacktrace: false,
+                define_use_shared_runtime_macro: false,
+                use_simdutf: false,
+                collect_ref_cycle: false,
+                native_allocator: None,
+            },
             &["/MD"],
             &[],
             ["stub.c".to_string()],
@@ -2543,12 +2542,12 @@ mod tests {
         );
         assert!(!command.iter().any(|flag| flag == &libbacktrace_arg));
 
-        let linker_config = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(false)
-            .link_libbacktrace(true)
-            .output_ty(OutputType::Executable)
-            .build()
-            .expect("build linker config");
+        let linker_config = LinkerConfig::<&Path> {
+            link_moonbitrun: false,
+            link_libbacktrace: true,
+            output_ty: OutputType::Executable,
+            ..Default::default()
+        };
         let command = make_linker_command_resolved(
             fake_cc(CCKind::Gcc, Some(foreign_triple())),
             linker_config,
