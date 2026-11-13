@@ -145,6 +145,14 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 tracing-chrome = "0.7.2"
 
+# These libraries are runtime dependencies of moon and build dependencies of
+# moonrun. Keep their development profiles identical so builds can share them.
+[profile.dev.package.fnv]
+debug = false
+
+[profile.dev.package.crc32fast]
+debug = false
+
 [profile.release]
 debug = false
 lto = true
