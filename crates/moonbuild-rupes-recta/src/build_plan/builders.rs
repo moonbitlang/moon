@@ -119,20 +119,25 @@ impl<'a> BuildPlanConstructor<'a> {
         // TODO: Consume explicit toolchain candidates and environment overrides
         // once native toolchain discovery moves to command orchestration.
         debug_assert!(self.config.backend.target_backend().is_native());
-        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-            self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::effective_native_toolchain(
-                compiler_flags::ENV_CC.as_ref(),
-                package_cc,
-                ToolchainPolicy::WindowsMsvc,
-            );
+        let request = package_cc.map(str::to_owned);
+        if let Some(toolchain) = self.native_toolchains.get(&request) {
+            return Ok(toolchain.clone());
         }
 
-        compiler_flags::effective_native_toolchain(
+        let policy =
+            if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+                self.warn_incompatible_windows_msvc_env_override();
+                ToolchainPolicy::WindowsMsvc
+            } else {
+                ToolchainPolicy::PlatformDefault
+            };
+        let toolchain = compiler_flags::effective_native_toolchain(
             compiler_flags::ENV_CC.as_ref(),
             package_cc,
-            ToolchainPolicy::PlatformDefault,
-        )
+            policy,
+        )?;
+        self.native_toolchains.insert(request, toolchain.clone());
+        Ok(toolchain)
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
