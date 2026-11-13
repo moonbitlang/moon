@@ -284,7 +284,10 @@ fn test_moon_new_falls_back_to_a_minimal_runnable_project() {
         .collect::<Vec<_>>();
     files.sort();
     assert_eq!(files, ["main.mbt", "moon.mod", "moon.pkg"]);
-    assert_eq!(read(project.join("moon.mod")), "name = \"moonbitlang/hello\"\n");
+    assert_eq!(
+        read(project.join("moon.mod")),
+        "name = \"moonbitlang/hello\"\n"
+    );
     assert_eq!(
         read(project.join("moon.pkg")),
         "pkgtype(kind: \"executable\")\n"

@@ -1,5 +1,0 @@
-// import {
-//   "{{username}}/{{module}}" @lib,
-// }
-
-pkgtype(kind: "executable")
