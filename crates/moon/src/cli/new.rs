@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{
+    fs::{self, File},
+    io::{BufReader, Write},
+    path::PathBuf,
+};
 
 use anyhow::{Context, bail};
 use moonutil::{
@@ -134,16 +138,22 @@ pub(crate) fn run_new(
         return Ok(ProcessAction::Delegate(command));
     }
 
-    // FIXME: Remove this fallback and the Rust generator once all supported
+    // FIXME: Remove this minimal fallback once all supported
     // SDKs ship moon_new.wasm.
-    if project_name.ends_with("_test") || project_name.ends_with("_wbtest") {
-        user_log.warn(format!(
-            "Project name '{}' ends with a reserved suffix. \
-             In MoonBit, files ending with '_test.mbt' or '_wbtest.mbt' are treated as test files. \
-             Template files in this project may be incorrectly recognized as test files.",
-            project_name
-        ));
+    fs::create_dir_all(&path).context("failed to create target directory")?;
+    let module = format!("name = \"{username}/{project_name}\"\n");
+    // Create the entry point first so an existing main.mbt is rejected before
+    // writing manifests. Exclusive creation never overwrites existing files.
+    for (name, content) in [
+        ("main.mbt", "///|\nfn main {\n  println(\"Hello\")\n}\n"),
+        ("moon.pkg", "pkgtype(kind: \"executable\")\n"),
+        ("moon.mod", module.as_str()),
+    ] {
+        let file = path.join(name);
+        File::create_new(&file)
+            .and_then(|mut file| file.write_all(content.as_bytes()))
+            .with_context(|| format!("failed to create {}", file.display()))?;
     }
-
-    moonbuild::new::moon_new_default(&path, username, project_name).map(Into::into)
+    println!("Created {username}/{project_name} at {}", path.display());
+    Ok(ProcessAction::Exit(0))
 }

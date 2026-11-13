@@ -264,21 +264,62 @@ fn test_moon_new_delegates_arguments_and_exit_status() {
 }
 
 #[test]
-fn test_moon_new_falls_back_without_a_bundled_generator() {
+fn test_moon_new_falls_back_to_a_minimal_runnable_project() {
     let dir = TestDir::new_empty();
     let toolchain = dir.join("sdk");
     std::fs::create_dir(&toolchain).unwrap();
 
-    // An older SDK has no generator. Even without a runnable moonrun, the
-    // Rust fallback must still produce the established default template.
+    // Given an older SDK without the generator or runner, scaffolding must
+    // still produce only the three files needed for a runnable project.
     moon_cmd(&dir)
         .env("MOON_TOOLCHAIN_ROOT", &toolchain)
         .env("MOONRUN_OVERRIDE", toolchain.join("missing-moonrun"))
         .args(["new", "hello", "--user", "moonbitlang"])
         .assert()
         .success();
-    expect_file!["new_snapshot_with_user_name.expect"]
-        .assert_eq(&snapshot_layout_and_files(&dir.join("hello")));
+    let project = dir.join("hello");
+    let mut files = std::fs::read_dir(&project)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    files.sort();
+    assert_eq!(files, ["main.mbt", "moon.mod", "moon.pkg"]);
+    assert_eq!(
+        read(project.join("moon.mod")),
+        "name = \"moonbitlang/hello\"\n"
+    );
+    assert_eq!(
+        read(project.join("moon.pkg")),
+        "pkgtype(kind: \"executable\")\n"
+    );
+
+    // Then the real compiler and runtime can run the root package directly.
+    moon_cmd(&project)
+        .args(["run", "."])
+        .assert()
+        .success()
+        .stdout_eq("Hello\n");
+}
+
+#[test]
+fn test_moon_new_fallback_does_not_overwrite_main() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    let project = dir.join("hello");
+    std::fs::create_dir(&toolchain).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("main.mbt"), "// existing program\n").unwrap();
+
+    // Refusing an occupied entry point must leave both it and the project
+    // manifests untouched, rather than partially scaffolding over user code.
+    moon_cmd(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", &toolchain)
+        .args(["new", "hello", "--user", "moonbitlang"])
+        .assert()
+        .failure();
+    assert_eq!(read(project.join("main.mbt")), "// existing program\n");
+    assert!(!project.join("moon.mod").exists());
+    assert!(!project.join("moon.pkg").exists());
 }
 
 #[test]

@@ -123,7 +123,6 @@ ignore = "0.4.23"
 similar = { version = "2.7.0", features = ["inline"] }
 notify = "6.1.1"
 json-structural-diff = { version = "0.1.0", features = ["colorize"] }
-handlebars = { version = "6.3.2", default-features = false }
 logos = "0.15.1"
 globset = "0.4"
 # Share vergen's date/time dependency when generating build versions.
