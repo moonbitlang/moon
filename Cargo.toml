@@ -49,6 +49,8 @@ dunce = "1.0.4"
 escargot = "0.5.15"
 expect-test = "1.5.0"
 find-msvc-tools = "0.1.9"
+# Keep native build helper features consistent for workspace and standalone builds.
+cc = { version = "1", features = ["parallel"] }
 flate2 = "1.0.30"
 form_urlencoded = "1.2.1"
 snapbox = "0.6.23"
