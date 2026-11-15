@@ -16,6 +16,7 @@ fn test_moon_help() {
               new                    Create a new MoonBit module
               build                  Build the current package
               check                  Check the current package, but don't build object files
+              fix                    Apply the machine-applicable fixes that check diagnostics propose
               prove                  Prove the current package
               run                    Run a main package
               test                   Test the current package

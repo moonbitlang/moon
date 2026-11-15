@@ -41,6 +41,7 @@ use anyhow::Context;
 use log::LevelFilter;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
@@ -55,6 +56,7 @@ use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
 use moonutil::user_log::{UserLog, UserLogCapture, UserLogEntry, UserLogEntryLevel};
 use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::instrument;
 
@@ -116,6 +118,8 @@ struct CheckJsonReport {
 #[derive(Default)]
 struct CheckJsonAccumulator {
     diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
+    /// The local source files each Target Backend's compiler actions read.
+    compiled_sources: CompiledSources,
     messages: Vec<MoonMessage>,
     tasks_executed: Option<usize>,
     build_failed: bool,
@@ -158,6 +162,42 @@ impl CheckJsonAccumulator {
                     "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
                     result.hidden_errors, result.hidden_warnings
                 ));
+        }
+    }
+
+    /// Record which local source files each backend's compiler actions read.
+    fn record_compiled_sources(&mut self, build_metas: &[BuildMeta], build_input: &BuildInput) {
+        let local_sources = build_metas
+            .iter()
+            .flat_map(|meta| {
+                let resolved = &meta.resolved_project;
+                resolved.local_modules().iter().flat_map(|&module| {
+                    resolved
+                        .pkg_dirs
+                        .packages_for_module(module)
+                        .into_iter()
+                        .flat_map(|packages| packages.values())
+                        .map(|&package| resolved.pkg_dirs.get_package(package))
+                        .flat_map(|package| {
+                            package.source_files.iter().chain(&package.mbt_md_files)
+                        })
+                })
+            })
+            .collect::<HashSet<_>>();
+        let plan = build_input.execution_plan();
+        for id in plan.action_ids() {
+            let action = plan.action(id);
+            if action.output_kind() != ActionOutputKind::Compiler {
+                continue;
+            }
+            for input in action.inputs() {
+                if local_sources.contains(input) {
+                    self.compiled_sources
+                        .entry(input.clone())
+                        .or_default()
+                        .insert(build_input.action_backend(id));
+                }
+            }
         }
     }
 
@@ -344,6 +384,42 @@ fn project_check_json_diagnostic(
             );
     }
     value
+}
+
+/// Local source files mapped to the Target Backends whose compiler actions
+/// read them; `None` stands for an action shared by several backends.
+pub(crate) type CompiledSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
+
+/// The structured result of one check, for commands that consume its
+/// diagnostics instead of reporting them.
+pub(crate) struct CollectedCheck {
+    pub diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
+    pub compiled_sources: CompiledSources,
+}
+
+/// Run a check with JSON diagnostics and return them with the sources each
+/// backend compiled. User logs go to `output` as in an ordinary check;
+/// diagnostics are not rendered, and no diagnostic limit applies.
+pub(crate) fn run_check_collecting(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<CollectedCheck> {
+    anyhow::ensure!(
+        !cmd.watch && !cmd.fmt && !cmd.json,
+        "a collecting check cannot watch, format, or render JSON"
+    );
+    let mut cmd = cmd.clone();
+    cmd.build_flags.output_json = true;
+    cmd.build_flags.no_render = false;
+    cmd.build_flags.diagnostic_limit = None;
+    let mut accumulator = CheckJsonAccumulator::default();
+    // A failed check still proposes fixes, e.g. for warnings denied as errors.
+    run_check_impl(cli, &cmd, output, Some(&mut accumulator))?;
+    Ok(CollectedCheck {
+        diagnostics: accumulator.diagnostics,
+        compiled_sources: accumulator.compiled_sources,
+    })
 }
 
 fn run_check_json(
@@ -832,6 +908,7 @@ fn run_planned_checks(
     let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
     let build_input = BuildInput::compose(build_inputs)?;
     let successful = if let Some(json) = json {
+        json.record_compiled_sources(&build_metas, &build_input);
         let result = moonbuild::execution::execute_build_json(
             &cfg.with_suppressed_progress(true),
             build_input,

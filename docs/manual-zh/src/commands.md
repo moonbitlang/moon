@@ -8,6 +8,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon new`↴](#moon-new)
 * [`moon build`↴](#moon-build)
 * [`moon check`↴](#moon-check)
+* [`moon fix`↴](#moon-fix)
 * [`moon prove`↴](#moon-prove)
 * [`moon run`↴](#moon-run)
 * [`moon test`↴](#moon-test)
@@ -54,6 +55,7 @@ This document contains the help content for the `moon` command-line program.
 * `new` — Create a new MoonBit module
 * `build` — Build the current package
 * `check` — Check the current package, but don't build object files
+* `fix` — Apply the machine-applicable fixes that check diagnostics propose
 * `prove` — Prove the current package
 * `run` — Run a main package
 * `test` — Test the current package
@@ -190,6 +192,31 @@ A successful check also updates `pkg.generated.mbti` of the checked local packag
 * `--fmt` — Check whether the code is properly formatted
 * `--json` — Output one complete JSON result to stdout
 * `--no-mbti` — Do not update `pkg.generated.mbti` files of the checked packages
+
+
+
+## `moon fix`
+
+Apply the machine-applicable fixes that check diagnostics propose
+
+Runs the same check as `moon check` and applies the fixes attached to its diagnostics, but only those that still match the files and pass the fix checks; any other fix is skipped as a whole. A fix is applied only if every target backend that compiles its file proposes it. Pass `--verbose` to see why a fix was skipped.
+
+**Usage:** `moon fix [OPTIONS] [PATH]...`
+
+###### **Arguments:**
+
+* `<PATH>` — Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
+
+###### **Options:**
+
+* `--target <TARGET>` — Select the target backends to check
+
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
+
+* `--warn-list <WARN_LIST>` — Warn list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
+* `--diff` — Print the changes as a unified diff instead of writing them
 
 
 
