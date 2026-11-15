@@ -107,7 +107,7 @@ pub(super) fn execute<'a>(
         context_by_build.insert(
             build_id,
             (
-                input.action_backends.get(&id).copied().flatten(),
+                input.action_backend(id),
                 action.description().to_owned(),
                 command.clone(),
                 action.output_kind(),

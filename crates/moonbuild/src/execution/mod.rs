@@ -150,6 +150,12 @@ impl BuildInput {
         &self.execution_plan
     }
 
+    /// The Target Backend of an action, or `None` for an action shared by
+    /// several backends.
+    pub fn action_backend(&self, id: ActionId) -> Option<TargetBackend> {
+        self.action_backends.get(&id).copied().flatten()
+    }
+
     pub fn compose(inputs: Vec<Self>) -> anyhow::Result<Self> {
         let mut inputs = inputs.into_iter();
         let first = inputs
