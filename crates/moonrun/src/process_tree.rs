@@ -21,7 +21,7 @@
 mod guest;
 #[cfg(windows)]
 pub(crate) use guest::ProcessHandle;
-pub(crate) use guest::{ProcessContext, ProcessWait};
+pub(crate) use guest::ProcessWait;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -36,6 +36,21 @@ use crate::engine::SUPPORTS_RUN_TERMINATION;
 use crate::run_termination::{RunTerminationReceiver, TerminationRequest};
 use crate::{Engine, Module, RunOptions, RunOutcome, RunTermination, RunTerminator};
 use crate::{WorkingDirectory, termination_channel};
+
+/// Engine membership, independent of the identity exposed to guest code.
+#[derive(Clone)]
+pub(crate) struct ExecutionContext {
+    pub(crate) pid: VirtualPid,
+    pub(crate) engine: crate::Engine,
+}
+
+impl std::fmt::Debug for ExecutionContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionContext")
+            .field("pid", &self.pid)
+            .finish_non_exhaustive()
+    }
+}
 
 /// A process identity in moonrun's virtual namespace, never an OS PID.
 ///
@@ -286,9 +301,7 @@ impl ExecutionScope<'_> {
             });
             pid
         };
-        // IPC participates in host shutdown without changing guest identity or
-        // routing native spawns through the virtual process tree.
-        options.runtime.process_context = options.virtualize().then(|| ProcessContext {
+        options.bind_execution(ExecutionContext {
             pid,
             engine: engine.clone(),
         });
@@ -525,7 +538,7 @@ impl Engine {
             }
         }
         let pid = VirtualPid::allocate(&NEXT_PID)?;
-        options.runtime.process_context = options.virtualize().then(|| ProcessContext {
+        options.bind_execution(ExecutionContext {
             pid,
             engine: self.clone(),
         });
@@ -747,7 +760,7 @@ mod tests {
                     assert!(engine.snapshot().is_empty());
                     let mut options = options.with_policy_file(&policy_path)?;
                     scope.bind_supervision(engine, &mut options, &signals)?;
-                    let pid = options.runtime.process_context.as_ref().unwrap().pid;
+                    let pid = options.runtime.execution.as_ref().unwrap().pid;
                     assert_eq!(engine.snapshot()[0].pid, pid);
                     assert!(options.runtime.default_environment.is_some());
                     engine.request_shutdown(RunTermination::Exit(77));
@@ -768,7 +781,7 @@ mod tests {
                     let pid = engine.snapshot()[0].pid;
                     let mut options = options.with_policy_file(&policy_path)?;
                     scope.bind_supervision(engine, &mut options, &signals)?;
-                    assert_eq!(options.runtime.process_context.unwrap().pid, pid);
+                    assert_eq!(options.runtime.execution.unwrap().pid, pid);
                     assert_eq!(engine.snapshot().len(), 1);
                     Ok(RunOutcome::Completed)
                 },
@@ -870,7 +883,7 @@ mod tests {
                     RunOptions::default().with_virtualize(true),
                     crate::signal_channel().1,
                     |engine, options, _, _| {
-                        let parent = options.runtime.process_context.as_ref().unwrap().pid;
+                        let parent = options.runtime.execution.as_ref().unwrap().pid;
                         child = Some(
                             engine
                                 .spawn_execution(
@@ -987,7 +1000,7 @@ mod tests {
                     crate::signal_channel().1,
                     |engine, options, _, _| {
                         assert_eq!(thread::current().id(), caller);
-                        assert!(options.runtime.process_context.is_none());
+                        assert!(options.runtime.execution.is_none());
                         assert!(options.runtime.default_environment.is_none());
                         assert!(matches!(
                             options.runtime.working_directory,
@@ -1010,7 +1023,19 @@ mod tests {
             RunOptions::default().with_ipc(true),
             crate::signal_channel().1,
             |engine, options, _, scope| {
-                assert!(options.runtime.process_context.is_none());
+                assert_eq!(
+                    options.runtime.execution.as_ref().unwrap().pid,
+                    engine.snapshot()[0].pid,
+                );
+                let process = crate::process::HostProcess::new(
+                    None,
+                    Arc::new(options.runtime.working_directory.clone()),
+                    Arc::new(crate::runtime::Stdio::Ambient),
+                    options.runtime.process,
+                    Arc::new(crate::runtime::Env::owned([]).unwrap()),
+                );
+                assert_eq!(process.pid(), std::process::id() as i32);
+                assert!(process.children.managed().is_none());
                 assert!(options.runtime.default_environment.is_some());
                 assert_eq!(engine.snapshot().len(), 1);
                 assert!(engine.request_shutdown(RunTermination::Exit(17)));
@@ -1047,7 +1072,7 @@ mod tests {
             crate::signal_channel().1,
             |engine, options, signals, scope| {
                 assert_eq!(thread::current().id(), caller);
-                let pid = options.runtime.process_context.as_ref().unwrap().pid;
+                let pid = options.runtime.execution.as_ref().unwrap().pid;
                 assert!(options.runtime.default_environment.is_some());
                 assert!(matches!(
                     options.runtime.working_directory,
@@ -1097,7 +1122,7 @@ mod tests {
                     .with_termination_receiver(receiver),
                 crate::signal_channel().1,
                 |engine, options, _, _| {
-                    let parent = options.runtime.process_context.as_ref().unwrap().pid;
+                    let parent = options.runtime.execution.as_ref().unwrap().pid;
                     child = Some(
                         engine
                             .spawn_execution(

@@ -18,28 +18,24 @@
 
 //! Resolve an authorized guest moonx invocation into a supervised child.
 
-#[cfg(unix)]
-use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::File;
-#[cfg(unix)]
-use std::path::Path;
 use std::path::PathBuf;
 
-use super::SpawnOptions;
+use super::intercept::MoonInvocation;
 use super::lookup::LookupPlan;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::policy::Policy;
-use crate::process_tree::ProcessContext;
+use crate::process_tree::ExecutionContext;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
 use crate::runtime::Stdio;
-use crate::runtime::{Env, StdioStream};
+use crate::runtime::StdioStream;
 use crate::{RunOptions, WorkingDirectory};
 
 #[derive(Debug)]
 pub(super) struct Spawn {
-    context: ProcessContext,
+    context: ExecutionContext,
     executable: PathBuf,
     args: Vec<OsString>,
     options: Option<RunOptions>,
@@ -48,133 +44,19 @@ pub(super) struct Spawn {
 }
 
 impl Spawn {
-    #[cfg(unix)]
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn unix(
-        context: ProcessContext,
-        program: OsString,
+    pub(super) fn prepare(
+        context: ExecutionContext,
         plan: LookupPlan,
-        args: Vec<OsString>,
-        env: Vec<OsString>,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        options: SpawnOptions,
+        invocation: MoonInvocation,
         policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
-        use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        let env = env
-            .into_iter()
-            .map(|entry| {
-                let bytes = entry.into_vec();
-                let split = bytes
-                    .iter()
-                    .position(|byte| *byte == b'=')
-                    .ok_or(AsyncHostError::Inval)?;
-                Ok((
-                    OsStr::from_bytes(&bytes[..split]).to_owned(),
-                    OsStr::from_bytes(&bytes[split + 1..]).to_owned(),
-                ))
-            })
-            .collect::<AsyncHostResult<Vec<_>>>()?;
-        // Moon selects moonx by argv[0]. Do not silently change a forged argv[0].
-        if args.first().and_then(|arg| Path::new(arg).file_name())
-            != Path::new(&program).file_name()
-        {
-            return Err(AsyncHostError::Inval);
-        }
-        let mut spawn = Self::prepare(
-            context,
-            program,
-            plan,
-            args.into_iter().skip(1).collect(),
-            env,
-            stdio,
+        let MoonInvocation {
+            args,
+            environment,
             cwd,
-            policy,
-        )?;
-        spawn
-            .options
-            .as_mut()
-            .unwrap()
-            .runtime
-            .preserved_child_signal_mask = Some(options.child_signal_mask);
-        Ok(spawn)
-    }
-
-    #[cfg(windows)]
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn windows(
-        context: ProcessContext,
-        plan: LookupPlan,
-        mut args: Vec<OsString>,
-        env: Vec<u16>,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        options: SpawnOptions,
-        policy: Option<Policy>,
-    ) -> AsyncHostResult<Self> {
-        use std::os::windows::ffi::OsStringExt;
-        let program = args.remove(0);
-        let env = env
-            .split(|unit| *unit == 0)
-            .take_while(|entry| !entry.is_empty())
-            .map(|entry| {
-                // Windows also carries hidden drive-directory entries (=C:=...).
-                let split = entry
-                    .iter()
-                    .enumerate()
-                    .skip(1)
-                    .find(|(_, unit)| **unit == b'=' as u16)
-                    .map(|(index, _)| index)
-                    .ok_or(AsyncHostError::Inval)?;
-                Ok((
-                    OsString::from_wide(&entry[..split]),
-                    OsString::from_wide(&entry[split + 1..]),
-                ))
-            })
-            .collect::<AsyncHostResult<Vec<_>>>()?;
-        let mut spawn = Self::prepare(context, program, plan, args, env, stdio, cwd, policy)?;
-        spawn.no_console_window = options.no_console_window;
-        Ok(spawn)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn prepare(
-        context: ProcessContext,
-        program: OsString,
-        plan: LookupPlan,
-        args: Vec<OsString>,
-        env: Vec<(OsString, OsString)>,
-        stdio: [Option<ResourceRef>; 3],
-        cwd: Option<OsString>,
-        policy: Option<Policy>,
-    ) -> AsyncHostResult<Self> {
-        if program.as_encoded_bytes().contains(&0)
-            || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))
-        {
-            return Err(AsyncHostError::Inval);
-        }
-        // Validate the encoded child environment before admitting a PID. This
-        // keeps malformed guest requests as spawn errors rather than child exits.
-        let env = Env::owned(env)
-            .map_err(|_| AsyncHostError::Inval)?
-            .entries();
-        // Guest Virtual spawn only admits moonx. Host-selected Engine preparation
-        // is a separate entry; a Moon basename must not enable arbitrary commands.
-        // FIXME: Add other native children through Engine supervision when mixed
-        // execution is implemented, rather than sending them through handoff.
-        if !moonutil::constants::is_moonx_executable(&program) {
-            #[cfg(unix)]
-            return Err(AsyncHostError::Native(libc::ENOTSUP));
-            #[cfg(windows)]
-            return Err(AsyncHostError::Native(
-                windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED as i32,
-            ));
-        }
-        let cwd = PathBuf::from(cwd.ok_or(AsyncHostError::Inval)?);
-        if cwd.as_os_str().is_empty() {
-            return Err(AsyncHostError::Inval);
-        }
+            stdio,
+            options,
+        } = invocation;
         #[cfg(unix)]
         let executable = super::os::lookup::resolve_for_moon(&plan).map_err(io_error)?;
         #[cfg(windows)]
@@ -219,13 +101,17 @@ impl Spawn {
         let [stdin, stdout, stderr] = stdio;
         let mut run = RunOptions::default()
             .with_virtualize(true)
-            .with_environment(env)
+            .with_environment(environment)
             .with_working_directory(WorkingDirectory::Fixed(cwd))
             .with_stdio(
                 duplicate(stdin, StdioStream::Stdin)?,
                 duplicate(stdout, StdioStream::Stdout)?,
                 duplicate(stderr, StdioStream::Stderr)?,
             );
+        #[cfg(unix)]
+        {
+            run.runtime.preserved_child_signal_mask = Some(options.child_signal_mask);
+        }
         if let Some(policy) = policy {
             run = run.with_parent_policy(policy);
         }
@@ -235,7 +121,7 @@ impl Spawn {
             args,
             options: Some(run),
             #[cfg(windows)]
-            no_console_window: false,
+            no_console_window: options.no_console_window,
         })
     }
 

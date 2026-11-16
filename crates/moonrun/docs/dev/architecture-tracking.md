@@ -11,6 +11,8 @@ and [authority design](design/authority-closure.md), under
 - [x] Separate artifact preparation from execution admission and reaping.
 - [x] Carry Runtime construction inputs through one configuration.
 - [x] Unify execution and supervision in Engine.
+- [x] Separate Engine membership and reported guest identity from child control.
+- [x] Resolve command recognition before execution-specific resource binding.
 - [x] Separate host creation from guest child derivation, with explicit state
   and authority inputs.
 - [x] Prepare Host Process requests before execution, with single-use inputs.

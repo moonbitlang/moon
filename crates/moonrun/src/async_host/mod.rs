@@ -1521,7 +1521,7 @@ impl AsyncHost {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_register_pid(&self, poll_handle: u64, pid: i32) -> AsyncHostResult<i32> {
-        if let Some(context) = self.process.context() {
+        if let Some(context) = self.process.children.managed() {
             let mut polls = self.polls.borrow_mut();
             let poll = polls
                 .polls
@@ -2336,7 +2336,7 @@ impl AsyncHost {
         };
         let process_pid = job.ret() as i32;
         let fd = self.handles.borrow_mut().insert_resource(resource);
-        self.process.track_process_handle(fd, process_pid);
+        self.process.children.track_process_handle(fd, process_pid);
         job.process_mut()?
             .set_spawn_result(ResourcePublication::Published(fd))?;
         Ok(fd)
@@ -2545,17 +2545,12 @@ impl AsyncHost {
         &self.environment
     }
 
-    #[cfg(test)]
-    pub(crate) fn check_owned_child_pid(&self, pid: i32) -> AsyncHostResult<()> {
-        self.process.check_owned_child_pid(pid)
-    }
-
     pub(crate) fn with_owned_child_pid<T>(
         &self,
         pid: i32,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        self.process.with_owned_child_pid(pid, f)
+        self.process.children.with_owned_child_pid(pid, f)
     }
 
     #[cfg(unix)]
@@ -2565,7 +2560,7 @@ impl AsyncHost {
         handle: Option<HostHandle>,
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        self.process.finish_owned_child(pid, handle, f)
+        self.process.children.finish_owned_child(pid, handle, f)
     }
 
     #[cfg(windows)]
@@ -2577,6 +2572,7 @@ impl AsyncHost {
         f: impl FnOnce() -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
         self.process
+            .children
             .finish_process_handle(pid, handle, raw_handle, f)
     }
 
@@ -2584,14 +2580,14 @@ impl AsyncHost {
         if handle == self.invalid_fd() {
             return Ok(None);
         }
-        self.process.process_handle_pid(handle)
+        self.process.children.process_handle_pid(handle)
     }
 
     pub(crate) fn open_virtual_process_handle(
         &self,
         pid: i32,
     ) -> Option<AsyncHostResult<HostHandle>> {
-        let context = self.process.context()?;
+        let context = self.process.children.managed()?;
         Some((|| {
             #[cfg(unix)]
             {
@@ -2620,21 +2616,12 @@ impl AsyncHost {
         } else {
             Some(self.acquire_resource(handle)?)
         };
-        let job = self.process.wait_job(resource, tracked_pid, pid)?;
+        let job = self.process.children.wait_job(resource, tracked_pid, pid)?;
         self.insert_job(job)
     }
 
-    #[cfg(test)]
-    pub(crate) fn check_process_handle_pid(
-        &self,
-        handle: HostHandle,
-        pid: i32,
-    ) -> AsyncHostResult<()> {
-        self.process.check_process_handle_pid(handle, pid)
-    }
-
     fn untrack_process_handle(&self, handle: HostHandle) {
-        self.process.untrack_process_handle(handle);
+        self.process.children.untrack_process_handle(handle);
     }
 
     pub(crate) fn with_raw_resource_class<T>(
@@ -2673,7 +2660,7 @@ impl AsyncHost {
             .handles
             .borrow_mut()
             .insert_resource(Resource::new(raw_fd));
-        self.process.track_process_handle(handle, pid);
+        self.process.children.track_process_handle(handle, pid);
         handle
     }
 
@@ -4360,7 +4347,7 @@ mod tests {
             policy,
             working_directory,
             Arc::clone(&stdio),
-            None,
+            Default::default(),
             Arc::clone(&environment),
         );
         #[cfg(unix)]
@@ -4527,7 +4514,7 @@ mod tests {
     fn no_policy_leaves_unknown_child_access_unrestricted() {
         let host = default_host();
 
-        host.check_owned_child_pid(i32::MAX).unwrap();
+        host.with_owned_child_pid(i32::MAX, || Ok(())).unwrap();
     }
 
     #[test]
@@ -4598,7 +4585,7 @@ mod tests {
             AsyncHostError::PermissionDenied.errno()
         );
         assert_eq!(
-            host.check_owned_child_pid(i32::MAX),
+            host.with_owned_child_pid(i32::MAX, || Ok(())),
             Err(AsyncHostError::PermissionDenied)
         );
         host.free_job(job).unwrap();
@@ -4837,6 +4824,7 @@ mod tests {
         assert_eq!(spawn.err(), 0, "spawn must search the Runtime's owned PATH");
         let mut wait: Job = host
             .process
+            .children
             .wait_job(None, None, spawn.ret() as i32)
             .unwrap()
             .into();
@@ -4899,6 +4887,7 @@ mod tests {
             assert_eq!(spawn.err(), 0, "program={program}, child_cwd={child_cwd:?}");
             let mut wait: Job = host
                 .process
+                .children
                 .wait_job(None, None, spawn.ret() as i32)
                 .unwrap()
                 .into();
@@ -5047,7 +5036,7 @@ mod tests {
             };
             let mut wait: Job = host
                 .process
-                .wait_job(Some(Arc::new(handle)), None, spawn.ret() as i32)
+                .children.wait_job(Some(Arc::new(handle)), None, spawn.ret() as i32)
                 .unwrap()
                 .into();
             AsyncHost::run_policy_checked_job(&host.filesystem, &host.process, &mut wait);
@@ -5068,7 +5057,7 @@ mod tests {
 
         assert_eq!(host.with_job(spawn_job, |job| job.err()).unwrap(), 0);
         let pid = host.with_job(spawn_job, |job| job.ret()).unwrap() as i32;
-        host.check_owned_child_pid(pid).unwrap();
+        host.with_owned_child_pid(pid, || Ok(())).unwrap();
         let process_handle = host.get_spawn_job_result_handle(spawn_job).unwrap();
         let process_resource = if process_handle == host.invalid_fd() {
             None
@@ -5109,7 +5098,7 @@ mod tests {
 
         assert_eq!(host.with_job(wait_job, |job| job.err()).unwrap(), 0);
         assert_eq!(
-            host.check_owned_child_pid(pid),
+            host.with_owned_child_pid(pid, || Ok(())),
             Err(AsyncHostError::PermissionDenied)
         );
         host.free_job(wait_job).unwrap();
@@ -5124,17 +5113,14 @@ mod tests {
         let host = host_with_policy(&policy_file);
         let checked_pid = 1001;
         let tracked_pid = 1002;
-        host.process.track_owned_child(checked_pid);
-        host.process.track_owned_child(tracked_pid);
+        host.process.children.track_spawned_child(checked_pid);
+        host.process.children.track_spawned_child(tracked_pid);
         let [process_handle, other] = host.pipe(false, false).unwrap();
         host.process
+            .children
             .track_process_handle(process_handle, tracked_pid);
         let process_resource = host.acquire_resource(process_handle).unwrap();
 
-        assert_eq!(
-            host.check_process_handle_pid(process_handle, checked_pid),
-            Err(AsyncHostError::PermissionDenied)
-        );
         let wait_job = host
             .insert_job(
                 ProcessJob::wait_for_process(
@@ -5154,8 +5140,8 @@ mod tests {
             host.with_job(wait_job, |job| job.err()).unwrap(),
             AsyncHostError::PermissionDenied.errno()
         );
-        host.check_owned_child_pid(checked_pid).unwrap();
-        host.check_owned_child_pid(tracked_pid).unwrap();
+        host.with_owned_child_pid(checked_pid, || Ok(())).unwrap();
+        host.with_owned_child_pid(tracked_pid, || Ok(())).unwrap();
         host.free_job(wait_job).unwrap();
         host.close_fd(process_handle).unwrap();
         host.close_fd(other).unwrap();
@@ -5168,17 +5154,17 @@ mod tests {
         std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
         let host = host_with_policy(&policy_file);
         let pid = 1001;
-        host.process.track_owned_child(pid);
+        host.process.children.track_spawned_child(pid);
         let [first, second] = host.pipe(false, false).unwrap();
-        host.process.track_process_handle(first, pid);
-        host.process.track_process_handle(second, pid);
+        host.process.children.track_process_handle(first, pid);
+        host.process.children.track_process_handle(second, pid);
 
         host.close_fd(first).unwrap();
-        host.check_owned_child_pid(pid).unwrap();
+        host.with_owned_child_pid(pid, || Ok(())).unwrap();
         host.close_fd(second).unwrap();
 
         assert_eq!(
-            host.check_owned_child_pid(pid),
+            host.with_owned_child_pid(pid, || Ok(())),
             Err(AsyncHostError::PermissionDenied)
         );
     }
@@ -5195,13 +5181,13 @@ mod tests {
             .prepare_job(job.process_mut().unwrap())
             .unwrap();
         job.set_ret(i64::from(pid));
-        host.process.track_owned_child(pid);
+        host.process.children.track_spawned_child(pid);
         let job = host.insert_job(job).unwrap();
 
         host.free_job(job).unwrap();
 
         assert_eq!(
-            host.check_owned_child_pid(pid),
+            host.with_owned_child_pid(pid, || Ok(())),
             Err(AsyncHostError::PermissionDenied)
         );
     }
@@ -5559,7 +5545,7 @@ mod tests {
 
         AsyncHost::finish_process_job(&host.process, &job).unwrap();
 
-        host.check_owned_child_pid(i32::MIN).unwrap();
+        host.with_owned_child_pid(i32::MIN, || Ok(())).unwrap();
     }
 
     #[cfg(unix)]

@@ -346,6 +346,14 @@ operations use native identities and preserve Ambient defaults. This choice is
 independent of execution placement and native-launch authorization.
 _Avoid_: Execution placement, Engine Backend, sandbox mode
 
+**Execution Context**:
+The owning Engine and admitted identity of a supervised execution. Managed,
+IPC, and virtual Runs carry this context. Membership does not select the guest's
+process identity, child control, or command interception. Guest identity supplies
+the reported PID; ChildProcesses owns child authority and completion. Command
+recognition produces an invocation for execution-specific preparation.
+_Avoid_: Guest PID, virtual process mode, IPC connection
+
 **Supervisor**:
 The Engine's responsibility for process admission, identities, parent
 relationships, control, completion, adoption, and reaping. A process identity

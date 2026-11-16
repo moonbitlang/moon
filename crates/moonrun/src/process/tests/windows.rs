@@ -194,6 +194,7 @@ fn fixed_runtime_cwd_is_the_executable_lookup_caller() {
                     panic!("a native Windows child must return its process handle");
                 };
                 let mut wait = process
+                    .children
                     .wait_job(Some(Arc::new(handle)), None, pid as i32)
                     .unwrap();
                 process.prepare_job(&mut wait).unwrap();

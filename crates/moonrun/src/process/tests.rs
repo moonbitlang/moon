@@ -36,7 +36,7 @@ fn host_process(cwd: WorkingDirectory, env: Env) -> HostProcess {
         None,
         Arc::new(cwd),
         Arc::new(Stdio::Ambient),
-        None,
+        Default::default(),
         Arc::new(env),
     )
 }
