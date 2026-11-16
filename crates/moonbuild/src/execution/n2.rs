@@ -28,7 +28,10 @@ use anyhow::Context;
 use moonbuild_rupes_recta::execution_plan::{ActionOutputKind, LoweredCommandExecution};
 
 use super::resolve_parallelism;
-use super::{BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution, ResultCatcher};
+use super::{
+    ActionFailureKind, BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution,
+    ResultCatcher,
+};
 
 // Progress and compiler diagnostics share terminal setup, including enabling
 // virtual terminal processing on Windows.
@@ -131,7 +134,6 @@ pub(super) fn execute<'a>(
 
     let (sender, receiver) = mpsc::channel();
     let output_style = cfg.output_style;
-    let verbose = cfg.verbose;
     let callback: Box<n2::progress::BuildResultCallback> =
         Box::new(move |build_id, termination, output: &str| {
             if termination == n2::progress::Termination::Success && output.is_empty() {
@@ -171,9 +173,15 @@ pub(super) fn execute<'a>(
                     target_backend: *target_backend,
                     output_kind: *output_kind,
                     content: captured,
+                    failure: match termination {
+                        n2::progress::Termination::Success => None,
+                        n2::progress::Termination::Failure => Some(ActionFailureKind::Failed),
+                        n2::progress::Termination::Interrupted => {
+                            Some(ActionFailureKind::Interrupted)
+                        }
+                    },
                     error,
-                    failed_command: (verbose
-                        && termination == n2::progress::Termination::Failure
+                    failed_command: (termination == n2::progress::Termination::Failure
                         && has_failure_output)
                         .then(|| command.clone()),
                 })

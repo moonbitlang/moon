@@ -295,14 +295,41 @@ struct CapturedBuildExecution {
     action_outputs: Vec<CapturedActionOutput>,
 }
 
+// TODO: Keep the owning BuildInput alive through result processing, then retain
+// only ActionId, termination, and output here. Resolve action metadata and
+// construct failure messages there instead of copying them in the n2 callback.
 struct CapturedActionOutput {
     target_backend: Option<TargetBackend>,
     output_kind: ActionOutputKind,
     content: ResultCatcher,
+    /// Executor status, independent of whether an additional message is needed.
+    failure: Option<ActionFailureKind>,
     /// Failure context when tool output does not explain the failure.
     error: Option<String>,
-    /// Verbose context for failures already explained by tool output.
+    /// Command context for failures already explained by tool output.
+    /// UserLog controls its visibility, independently of capture.
     failed_command: Option<String>,
+}
+
+/// The unsuccessful termination reported by the executor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionFailureKind {
+    /// A nonzero exit, abnormal termination, or per-task execution error. This
+    /// does not establish that the compiler completed normally, even when it
+    /// emitted error diagnostics.
+    // TODO: Preserve exit codes and signals when n2 exposes them separately.
+    Failed,
+    Interrupted,
+}
+
+/// One failed execution action, retained independently of diagnostic rendering.
+/// Ordinary compiler errors also produce a failed action. A diagnostic that
+/// explains a failure does not turn it into a successful action.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ActionFailure {
+    pub kind: ActionFailureKind,
+    pub target_backend: Option<TargetBackend>,
+    pub output_kind: ActionOutputKind,
 }
 
 impl CapturedBuildExecution {
@@ -370,9 +397,16 @@ pub struct JsonBuildOutput {
     pub hidden_errors: usize,
     pub hidden_warnings: usize,
     pub diagnostics: Vec<JsonBuildDiagnostic>,
+    /// All unsuccessful actions, including compiler errors that do not need an
+    /// additional Moon-authored error message. Independent of diagnostic limits
+    /// and verbosity. An empty list does not establish build success; use
+    /// `successful()`. Graph setup and scheduling errors are returned through
+    /// `Result`.
+    pub action_failures: Vec<ActionFailure>,
     /// Moon-authored task failures, separate from compiler diagnostics.
     pub action_errors: Vec<String>,
-    /// Failed commands requested by verbose mode, not additional errors.
+    /// Commands for failures already explained by tool output. Log at info
+    /// level so UserLog determines their visibility.
     pub failed_commands: Vec<String>,
     pub non_diagnostic_output: Vec<String>,
 }
@@ -398,6 +432,13 @@ pub fn execute_build_json(
     target_dir: &Path,
 ) -> anyhow::Result<JsonBuildOutput> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
+    Ok(collect_captured_build_json(cfg, execution))
+}
+
+fn collect_captured_build_json(
+    cfg: &BuildConfig,
+    execution: CapturedBuildExecution,
+) -> JsonBuildOutput {
     // Keep the existing per-backend diagnostic-limit semantics while all
     // backends execute in one n2 graph. Shared actions have no backend and are
     // collected in their own group.
@@ -436,13 +477,24 @@ pub fn execute_build_json(
         non_diagnostic_output.extend(collected.non_diagnostic_output);
     }
 
-    Ok(JsonBuildOutput {
+    JsonBuildOutput {
         n_tasks_executed: execution.n_tasks_executed,
         n_errors,
         n_warnings,
         hidden_errors,
         hidden_warnings,
         diagnostics,
+        action_failures: execution
+            .action_outputs
+            .iter()
+            .filter_map(|output| {
+                output.failure.map(|kind| ActionFailure {
+                    kind,
+                    target_backend: output.target_backend,
+                    output_kind: output.output_kind,
+                })
+            })
+            .collect(),
         failed_commands: execution
             .action_outputs
             .iter()
@@ -454,7 +506,7 @@ pub fn execute_build_json(
             .filter_map(|output| output.error)
             .collect(),
         non_diagnostic_output,
-    })
+    }
 }
 
 /// Execute a test build.
@@ -946,6 +998,126 @@ mod tests {
             error_code: 0,
             children: Vec::new(),
         }
+    }
+
+    #[test]
+    fn action_failures_are_independent_of_diagnostic_limits_and_messages() {
+        // The compiler failure needs no extra error message. The tool emits
+        // compiler-shaped JSON, and the interrupted action emits no output.
+        // None of these presentation differences may erase the task result.
+        for diagnostic_limit in [None, Some(0)] {
+            let cfg = BuildConfig {
+                output_style: OutputStyle::Json,
+                diagnostic_limit,
+                ..Default::default()
+            };
+            let compiler_error = serde_json::to_string(&diagnostic("main.mbt", "error")).unwrap();
+            let action_outputs = [
+                (
+                    Some(TargetBackend::WasmGC),
+                    ActionOutputKind::Compiler,
+                    ActionFailureKind::Failed,
+                    Some(compiler_error.clone()),
+                    None,
+                ),
+                (
+                    None,
+                    ActionOutputKind::Tool,
+                    ActionFailureKind::Failed,
+                    Some(compiler_error.clone()),
+                    Some("generator failed"),
+                ),
+                (
+                    Some(TargetBackend::Js),
+                    ActionOutputKind::Compiler,
+                    ActionFailureKind::Interrupted,
+                    None,
+                    Some("interrupted"),
+                ),
+            ]
+            .map(
+                |(target_backend, output_kind, failure, output, error)| CapturedActionOutput {
+                    target_backend,
+                    output_kind,
+                    failure: Some(failure),
+                    content: ResultCatcher {
+                        content_writer: output.into_iter().collect(),
+                        ..Default::default()
+                    },
+                    error: error.map(str::to_owned),
+                    failed_command: None,
+                },
+            );
+            let result = collect_captured_build_json(
+                &cfg,
+                CapturedBuildExecution {
+                    n_tasks_executed: None,
+                    action_outputs: action_outputs.into(),
+                },
+            );
+            assert!(!result.successful());
+            assert_eq!(result.n_errors, 1);
+            assert_eq!(
+                result.hidden_errors,
+                usize::from(diagnostic_limit == Some(0))
+            );
+            assert_eq!(
+                result.diagnostics.len(),
+                usize::from(diagnostic_limit.is_none())
+            );
+            assert_eq!(result.action_errors, ["generator failed", "interrupted"]);
+            assert_eq!(result.non_diagnostic_output, [compiler_error]);
+            assert_eq!(
+                result.action_failures,
+                [
+                    ActionFailure {
+                        kind: ActionFailureKind::Failed,
+                        target_backend: Some(TargetBackend::WasmGC),
+                        output_kind: ActionOutputKind::Compiler
+                    },
+                    ActionFailure {
+                        kind: ActionFailureKind::Failed,
+                        target_backend: None,
+                        output_kind: ActionOutputKind::Tool
+                    },
+                    ActionFailure {
+                        kind: ActionFailureKind::Interrupted,
+                        target_backend: Some(TargetBackend::Js),
+                        output_kind: ActionOutputKind::Compiler
+                    },
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn diagnostic_output_does_not_create_an_action_failure() {
+        let cfg = BuildConfig {
+            output_style: OutputStyle::Json,
+            ..Default::default()
+        };
+        let result = collect_captured_build_json(
+            &cfg,
+            CapturedBuildExecution {
+                n_tasks_executed: Some(1),
+                action_outputs: vec![CapturedActionOutput {
+                    target_backend: Some(TargetBackend::WasmGC),
+                    output_kind: ActionOutputKind::Compiler,
+                    content: ResultCatcher {
+                        content_writer: vec![
+                            serde_json::to_string(&diagnostic("main.mbt", "error")).unwrap(),
+                        ],
+                        ..Default::default()
+                    },
+                    failure: None,
+                    error: None,
+                    failed_command: None,
+                }],
+            },
+        );
+        assert!(result.successful());
+        assert_eq!(result.n_errors, 1);
+        assert!(result.action_failures.is_empty());
     }
 
     #[test]
