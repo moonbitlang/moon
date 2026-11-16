@@ -30,6 +30,11 @@ use std::path::Path;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Also serve as a portable prebuild generator for generated-source tests.
+    if args.first().map(String::as_str) == Some("copy") {
+        std::fs::copy(&args[1], &args[2]).unwrap();
+        return;
+    }
     if args.first().map(String::as_str) != Some("check") {
         return;
     }
@@ -43,16 +48,26 @@ fn main() {
         std::fs::create_dir_all(output.parent().unwrap()).unwrap();
         std::fs::write(output, "").unwrap();
     }
-    if args.iter().any(|arg| arg == "-doctest-only") {
-        return;
-    }
+    let doctest_only = args.iter().any(|arg| arg == "-doctest-only");
     let target = value_of("-target").cloned().unwrap_or_default();
     let mut failed = false;
-    for source in args.iter().filter(|arg| arg.ends_with(".mbt")) {
+    for source in args
+        .iter()
+        .filter(|arg| arg.ends_with(".mbt.md") || (!doctest_only && (arg.ends_with(".mbt") || arg.ends_with(".mbtx"))))
+    {
+        let text = std::fs::read_to_string(source).unwrap();
+        if let Ok(log) = std::env::var("FIX_MOONC_CHECKED_SOURCES") {
+            use std::io::Write;
+            let mut log = std::fs::OpenOptions::new().create(true).append(true).open(log).unwrap();
+            writeln!(log, "{text}").unwrap();
+        }
+        if std::env::var("FIX_MOONC_FAIL_WHEN").is_ok_and(|needle| text.contains(&needle)) {
+            eprintln!("compiler stopped");
+            std::process::exit(7);
+        }
         let Ok(canned) = std::fs::read_to_string(format!("{source}.diagnostics")) else {
             continue;
         };
-        let text = std::fs::read_to_string(source).unwrap();
         // Like moonc, report the path as moon passed it.
         let absolute = std::env::current_dir().unwrap().join(source);
         let escaped = absolute.to_str().unwrap().replace('\\', "\\\\");
@@ -68,6 +83,11 @@ fn main() {
                 eprintln!("{}", json.replace("$FILE", &escaped));
             }
         }
+    }
+    #[cfg(unix)]
+    if std::env::var_os("FIX_MOONC_INTERRUPT").is_some() {
+        extern "C" { fn raise(signal: i32) -> i32; }
+        unsafe { raise(2); } // SIGINT: exercise n2's interruption result.
     }
     if failed {
         std::process::exit(1);

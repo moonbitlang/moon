@@ -711,8 +711,10 @@ Shared artifact paths remain in Rupes Recta's `target_layout` module.
 Dry-run and planner snapshots traverse the Execution Plan directly, without
 constructing an n2 graph or copying command arguments into a second map.
 
-Captured action failures retain their Target Backend, output kind, and the
-executor's failure or interruption result independently of diagnostic rendering.
+Captured action failures retain their Target Backend, output kind, the
+executor's failure or interruption result, and whether structured compiler error
+diagnostics were captured before filtering. These facts are independent of
+diagnostic rendering.
 Structured execution results include these failures even when compiler
 diagnostics already explain them or a diagnostic limit hides those diagnostics.
 Failure messages remain a separate projection, with visibility controlled by

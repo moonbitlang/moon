@@ -92,7 +92,7 @@ impl Fix {
 pub(crate) enum SkipReason {
     /// A target backend that compiled an edited file did not propose it.
     NotProposedByEveryTarget,
-    /// No check compiled an edited file.
+    /// An edited file is not an eligible local compiler input.
     NotCompiled,
     /// An edited file could not be read.
     Unreadable,
@@ -124,7 +124,9 @@ impl std::fmt::Display for SkipReason {
             SkipReason::NotProposedByEveryTarget => {
                 "not proposed by every target backend that compiles the file"
             }
-            SkipReason::NotCompiled => "the file is not a source file compiled by the check",
+            SkipReason::NotCompiled => {
+                "the file is not an editable source file compiled by the check"
+            }
             SkipReason::Unreadable => "the file cannot be read",
             SkipReason::NoEdits => "the fix has no edits",
             SkipReason::UnreliablePositions => {

@@ -304,6 +304,8 @@ struct CapturedActionOutput {
     content: ResultCatcher,
     /// Executor status, independent of whether an additional message is needed.
     failure: Option<ActionFailureKind>,
+    /// Whether this action emitted a structured compiler error diagnostic.
+    has_error_diagnostics: bool,
     /// Failure context when tool output does not explain the failure.
     error: Option<String>,
     /// Command context for failures already explained by tool output.
@@ -330,6 +332,9 @@ pub struct ActionFailure {
     pub kind: ActionFailureKind,
     pub target_backend: Option<TargetBackend>,
     pub output_kind: ActionOutputKind,
+    /// A parsed compiler error was captured before any diagnostic filtering.
+    /// This does not prove the compiler completed normally after emitting it.
+    pub has_error_diagnostics: bool,
 }
 
 impl CapturedBuildExecution {
@@ -492,6 +497,7 @@ fn collect_captured_build_json(
                     kind,
                     target_backend: output.target_backend,
                     output_kind: output.output_kind,
+                    has_error_diagnostics: output.has_error_diagnostics,
                 })
             })
             .collect(),
@@ -1040,6 +1046,8 @@ mod tests {
                     target_backend,
                     output_kind,
                     failure: Some(failure),
+                    has_error_diagnostics: output_kind == ActionOutputKind::Compiler
+                        && output.is_some(),
                     content: ResultCatcher {
                         content_writer: output.into_iter().collect(),
                         ..Default::default()
@@ -1073,17 +1081,20 @@ mod tests {
                     ActionFailure {
                         kind: ActionFailureKind::Failed,
                         target_backend: Some(TargetBackend::WasmGC),
-                        output_kind: ActionOutputKind::Compiler
+                        output_kind: ActionOutputKind::Compiler,
+                        has_error_diagnostics: true,
                     },
                     ActionFailure {
                         kind: ActionFailureKind::Failed,
                         target_backend: None,
-                        output_kind: ActionOutputKind::Tool
+                        output_kind: ActionOutputKind::Tool,
+                        has_error_diagnostics: false,
                     },
                     ActionFailure {
                         kind: ActionFailureKind::Interrupted,
                         target_backend: Some(TargetBackend::Js),
-                        output_kind: ActionOutputKind::Compiler
+                        output_kind: ActionOutputKind::Compiler,
+                        has_error_diagnostics: false,
                     },
                 ]
             );
@@ -1110,6 +1121,7 @@ mod tests {
                         ..Default::default()
                     },
                     failure: None,
+                    has_error_diagnostics: true,
                     error: None,
                     failed_command: None,
                 }],

@@ -27,9 +27,13 @@
 //! Applying a fix can make others applicable: one skipped because it touched
 //! an applied fix, or one in a package that failed to check before. Rounds
 //! therefore repeat, each with a fresh check, until a round applies nothing
-//! or `MAX_ROUNDS` is reached. `--diff` writes nothing and so runs one round.
+//! or `MAX_ROUNDS` is reached, followed by a check of the final contents.
+//! `--diff` previews only the first round without applying fixes.
 
 mod driver;
+
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -47,16 +51,22 @@ use driver::{Fix, FixPlan, plan_fixes};
 
 const MAX_ROUNDS: usize = 4;
 
-/// Apply the machine-applicable fixes that check diagnostics propose
+/// Apply compiler-proposed source fixes (experimental)
 ///
 /// Runs the same check as `moon check` and applies the fixes attached to its
 /// diagnostics, but only those that still match the files and pass the fix
 /// checks; any other fix is skipped as a whole. A fix is applied only if every
 /// target backend that compiles its file proposes it. Pass `--verbose` to see
 /// why a fix was skipped.
+///
+/// Files select only themselves; directories select their package. Declared
+/// prebuild outputs are excluded. Writes are atomic per file; a failed run may
+/// retain files changed earlier. Exit 0 means the fix workflow completed, even
+/// if compiler diagnostics remain. At most four rounds write files, followed
+/// by a check of the final contents.
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct FixSubcommand {
-    /// Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
+    /// Package directory or source file to fix (file paths restrict edits to that file)
     #[clap(name = "PATH")]
     pub path: Vec<PathBuf>,
 
@@ -75,7 +85,7 @@ pub(crate) struct FixSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
-    /// Print the changes as a unified diff instead of writing them
+    /// Preview only the first round as a unified diff; later rounds may propose further changes
     #[clap(long)]
     pub diff: bool,
 }
@@ -113,44 +123,61 @@ pub(crate) fn run_fix(
     let user_log = output.user_log();
     let check = cmd.check_command();
     let base = std::env::current_dir().context("failed to get the current directory")?;
-    let rounds = if cmd.diff || cli.dry_run {
-        1
-    } else {
-        MAX_ROUNDS
-    };
-
     let mut applied = 0;
     let mut files = BTreeSet::new();
+    let mut failed = false;
     let mut last = None;
-    for _ in 0..rounds {
-        let collected = run_check_collecting(cli, &check, output)?;
-        let plan = plan_collected_fixes(&collected);
-        let round_applied = if cmd.diff {
-            output.write_result(|writer| write_diff(writer, &plan, &base))?;
-            files.extend(plan.changes.keys().cloned());
-            plan.applied_fix_count()
-        } else {
-            let written = write_changes(&plan, user_log);
-            output.write_result(|writer| write_applied(writer, &plan, &written, &base))?;
-            let n = written
-                .iter()
-                .map(|path| plan.changes[path].fixes.len())
-                .sum();
-            files.extend(written);
-            n
+    // The extra iteration is check-only: every write, including the last
+    // allowed round or a partially failed batch, gets a fresh validation.
+    for round in 0..=MAX_ROUNDS {
+        let collected = match run_check_collecting(cli, &check, output) {
+            Ok(collected) => collected,
+            Err(error) => {
+                user_log.error(format!("failed to check for fixes: {error:#}"));
+                failed = true;
+                break;
+            }
         };
-        applied += round_applied;
-        last = Some((collected, plan, round_applied));
-        if round_applied == 0 {
+        if cli.dry_run {
+            return Ok(0);
+        }
+        if collected.execution_failed {
+            user_log.error("check execution failed; no fixes from this check were applied");
+            failed = true;
             break;
         }
+        let plan = plan_collected_fixes(&collected);
+        if cmd.diff {
+            output.write_result(|writer| write_diff(writer, &plan, &base))?;
+            files.extend(plan.changes.keys().cloned());
+            applied = plan.applied_fix_count();
+            last = Some((collected, plan));
+            break;
+        }
+        if round == MAX_ROUNDS || failed || plan.changes.is_empty() {
+            last = Some((collected, plan));
+            break;
+        }
+        let outcome = write_changes(&plan, user_log);
+        output.write_result(|writer| write_applied(writer, &plan, &outcome.written, &base))?;
+        applied += outcome
+            .written
+            .iter()
+            .map(|path| plan.changes[path].fixes.len())
+            .sum::<usize>();
+        failed |= outcome.failed;
+        if outcome.written.is_empty() {
+            // No source was changed in this round, so do not repeat the check.
+            // A failed write is reported below without claiming final diagnostics.
+            last = Some((collected, plan));
+            break;
+        }
+        files.extend(outcome.written);
     }
-    if cli.dry_run {
-        return Ok(0);
-    }
-    let (collected, plan, last_applied) = last.expect("at least one round runs");
+    let plan = last.as_ref().map(|(_, plan)| plan);
+    let skipped = plan.map(|plan| plan.skipped.as_slice()).unwrap_or_default();
 
-    for skipped in &plan.skipped {
+    for skipped in skipped {
         user_log.info(format!(
             "skipped fix `{}`{}: {}",
             skipped.fix.title,
@@ -163,6 +190,7 @@ pub(crate) fn run_fix(
     let fixes = |n: usize| if n == 1 { "fix" } else { "fixes" };
     let in_files = |n: usize| if n == 1 { "file" } else { "files" };
     user_log.status(match (applied, cmd.diff) {
+        (0, _) if failed => "No fixes applied".to_owned(),
         (0, _) => "No fixes to apply".to_owned(),
         (n, true) => format!(
             "Would apply {n} {} to {} {}",
@@ -177,8 +205,8 @@ pub(crate) fn run_fix(
             in_files(files.len())
         ),
     });
-    if !plan.skipped.is_empty() {
-        let n = plan.skipped.len();
+    if !skipped.is_empty() {
+        let n = skipped.len();
         let hint = if user_log.is_enabled(log::Level::Info) {
             ""
         } else {
@@ -186,20 +214,21 @@ pub(crate) fn run_fix(
         };
         user_log.status(format!("Skipped {n} {}{hint}", fixes(n)));
     }
-    if cmd.diff {
-        // The check saw the files before the diff.
-    } else if last_applied == 0 {
-        // The last check saw the files as they are now.
+    if !cmd.diff
+        && !failed
+        && let Some((collected, plan)) = last
+    {
         let (errors, warnings) = count_levels(&collected);
         if errors + warnings > 0 {
             user_log.status(format!(
                 "{errors} errors and {warnings} warnings remain; run `moon check` to see them"
             ));
         }
-    } else {
-        user_log.status("More fixes may apply; run `moon fix` again");
+        if !plan.changes.is_empty() {
+            user_log.status("More fixes may apply; run `moon fix` again");
+        }
     }
-    Ok(0)
+    Ok(i32::from(failed))
 }
 
 /// Run the fix driver on the diagnostics of one check.
@@ -213,36 +242,65 @@ fn plan_collected_fixes(collected: &CollectedCheck) -> FixPlan {
                 .insert(fix);
         }
     }
-    plan_fixes(&proposals, &collected.compiled_sources, |path| {
+    plan_fixes(&proposals, &collected.editable_sources, |path| {
         std::fs::read_to_string(path)
     })
 }
 
-/// Write the changed files and return those written.
-///
-/// A file that changed since the driver read it is left alone; the next check
-/// sees it as it is.
-fn write_changes(plan: &FixPlan, user_log: &moonutil::user_log::UserLog) -> BTreeSet<PathBuf> {
-    let mut written = BTreeSet::new();
+struct WriteOutcome {
+    written: BTreeSet<PathBuf>,
+    failed: bool,
+}
+
+/// Commit one complete file at a time and stop on the first failure. Files
+/// committed before it are retained and reported; the batch is not a transaction.
+fn write_changes(plan: &FixPlan, user_log: &moonutil::user_log::UserLog) -> WriteOutcome {
+    let mut outcome = WriteOutcome {
+        written: BTreeSet::new(),
+        failed: false,
+    };
     for (path, change) in &plan.changes {
-        let result = std::fs::read_to_string(path).and_then(|current| {
-            if current != change.original {
-                return Ok(false);
+        let result = (|| -> std::io::Result<()> {
+            if std::fs::read_to_string(path)? != change.original {
+                return Err(std::io::Error::other("source changed during the check"));
             }
-            std::fs::write(path, &change.fixed).map(|()| true)
-        });
+            // Follow a source symlink without replacing the link itself.
+            // Opening without truncation checks write access before staging;
+            // rename alone could otherwise overwrite a read-only source.
+            let destination = std::fs::canonicalize(path)?;
+            let original = std::fs::OpenOptions::new().write(true).open(&destination)?;
+            let permissions = original.metadata()?.permissions();
+            if permissions.readonly() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "source is read-only",
+                ));
+            }
+            drop(original);
+            let mut staged = tempfile::NamedTempFile::new_in(
+                destination.parent().expect("source file has a parent"),
+            )?;
+            staged.write_all(change.fixed.as_bytes())?;
+            staged.as_file().set_permissions(permissions)?;
+            staged.as_file().sync_all()?;
+            if std::fs::read_to_string(&destination)? != change.original {
+                return Err(std::io::Error::other("source changed during the check"));
+            }
+            staged.persist(&destination).map_err(|error| error.error)?;
+            Ok(())
+        })();
         match result {
-            Ok(true) => {
-                written.insert(path.clone());
+            Ok(()) => {
+                outcome.written.insert(path.clone());
             }
-            Ok(false) => user_log.warn(format!(
-                "not fixing `{}`: it changed during the check",
-                path.display()
-            )),
-            Err(e) => user_log.warn(format!("failed to fix `{}`: {e}", path.display())),
+            Err(error) => {
+                user_log.error(format!("failed to fix `{}`: {error}", path.display()));
+                outcome.failed = true;
+                break;
+            }
         }
     }
-    written
+    outcome
 }
 
 /// The Command Result of a round that writes: one line per applied fix.
@@ -295,21 +353,18 @@ fn display_path(path: &Path, base: &Path) -> String {
 }
 
 fn count_levels(collected: &CollectedCheck) -> (usize, usize) {
-    let level = |d: &moonbuild::execution::JsonBuildDiagnostic| {
-        d.value
-            .get("level")
-            .and_then(|level| level.as_str())
-            .map(str::to_owned)
-    };
-    let errors = collected
+    collected
         .diagnostics
         .iter()
-        .filter(|d| level(d).as_deref() == Some("error"))
-        .count();
-    let warnings = collected
-        .diagnostics
-        .iter()
-        .filter(|d| level(d).as_deref() == Some("warning"))
-        .count();
-    (errors, warnings)
+        .fold((0, 0), |(errors, warnings), diagnostic| {
+            match diagnostic
+                .value
+                .get("level")
+                .and_then(|level| level.as_str())
+            {
+                Some("error") => (errors + 1, warnings),
+                Some("warn" | "warning") => (errors, warnings + 1),
+                _ => (errors, warnings),
+            }
+        })
 }

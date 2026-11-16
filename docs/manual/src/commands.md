@@ -55,7 +55,7 @@ This document contains the help content for the `moon` command-line program.
 * `new` — Create a new MoonBit module
 * `build` — Build the current package
 * `check` — Check the current package, but don't build object files
-* `fix` — Apply the machine-applicable fixes that check diagnostics propose
+* `fix` — Apply compiler-proposed source fixes (experimental)
 * `prove` — Prove the current package
 * `run` — Run a main package
 * `test` — Test the current package
@@ -197,15 +197,17 @@ A successful check also updates `pkg.generated.mbti` of the checked local packag
 
 ## `moon fix`
 
-Apply the machine-applicable fixes that check diagnostics propose
+Apply compiler-proposed source fixes (experimental)
 
 Runs the same check as `moon check` and applies the fixes attached to its diagnostics, but only those that still match the files and pass the fix checks; any other fix is skipped as a whole. A fix is applied only if every target backend that compiles its file proposes it. Pass `--verbose` to see why a fix was skipped.
+
+Files select only themselves; directories select their package. Declared prebuild outputs are excluded. Writes are atomic per file; a failed run may retain files changed earlier. Exit 0 means the fix workflow completed, even if compiler diagnostics remain. At most four rounds write files, followed by a check of the final contents.
 
 **Usage:** `moon fix [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — Filesystem path to a package directory, `.mbt` / `.mbt.md` selector, or standalone `.mbtx` file
+* `<PATH>` — Package directory or source file to fix (file paths restrict edits to that file)
 
 ###### **Options:**
 
@@ -216,7 +218,7 @@ Runs the same check as `moon check` and applies the fixes attached to its diagno
 * `--warn-list <WARN_LIST>` — Warn list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
-* `--diff` — Print the changes as a unified diff instead of writing them
+* `--diff` — Preview only the first round as a unified diff; later rounds may propose further changes
 
 
 

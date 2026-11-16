@@ -40,7 +40,7 @@
 use anyhow::Context;
 use log::LevelFilter;
 use moonbuild::BuildMeta;
-use moonbuild::execution::BuildInput;
+use moonbuild::execution::{ActionFailureKind, BuildInput};
 use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
@@ -118,8 +118,11 @@ struct CheckJsonReport {
 #[derive(Default)]
 struct CheckJsonAccumulator {
     diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
-    /// The local source files each Target Backend's compiler actions read.
-    compiled_sources: CompiledSources,
+    /// Source collection is enabled only for consumers that may edit files.
+    /// Empty selectors allow all local packages; a file selector allows only that file.
+    source_selection: Option<Vec<(PathBuf, Option<String>)>>,
+    editable_sources: EditableSources,
+    execution_failed: bool,
     messages: Vec<MoonMessage>,
     tasks_executed: Option<usize>,
     build_failed: bool,
@@ -132,6 +135,12 @@ struct CheckJsonAccumulator {
 impl CheckJsonAccumulator {
     fn append_build(&mut self, result: moonbuild::execution::JsonBuildOutput, user_log: &UserLog) {
         let successful = result.successful();
+        self.execution_failed |= (!successful && result.action_failures.is_empty())
+            || result.action_failures.iter().any(|failure| {
+                failure.kind == ActionFailureKind::Interrupted
+                    || failure.output_kind == ActionOutputKind::Tool
+                    || !failure.has_error_diagnostics
+            });
         self.diagnostics.extend(result.diagnostics);
         self.diagnostic_errors += result.n_errors;
         self.diagnostic_warnings += result.n_warnings;
@@ -165,9 +174,13 @@ impl CheckJsonAccumulator {
         }
     }
 
-    /// Record which local source files each backend's compiler actions read.
-    fn record_compiled_sources(&mut self, build_metas: &[BuildMeta], build_input: &BuildInput) {
-        let local_sources = build_metas
+    /// Collect the editable subset of planned compiler inputs. Checking a
+    /// dependency does not authorize edits to it.
+    fn record_editable_sources(&mut self, build_metas: &[BuildMeta], build_input: &BuildInput) {
+        let Some(selection) = &self.source_selection else {
+            return;
+        };
+        let local_packages = build_metas
             .iter()
             .flat_map(|meta| {
                 let resolved = &meta.resolved_project;
@@ -178,10 +191,39 @@ impl CheckJsonAccumulator {
                         .into_iter()
                         .flat_map(|packages| packages.values())
                         .map(|&package| resolved.pkg_dirs.get_package(package))
-                        .flat_map(|package| {
-                            package.source_files.iter().chain(&package.mbt_md_files)
-                        })
                 })
+            })
+            .collect::<Vec<_>>();
+        // A rule may write into another package. Declarations still exclude
+        // existing outputs when generation is disabled or not scheduled.
+        let generated = local_packages
+            .iter()
+            .flat_map(|package| package.prebuild_output_paths())
+            .flat_map(|path| {
+                let canonical = std::fs::canonicalize(&path).ok();
+                std::iter::once(path).chain(canonical)
+            })
+            .collect::<HashSet<_>>();
+        let editable = local_packages
+            .iter()
+            .flat_map(|package| {
+                package
+                    .source_files
+                    .iter()
+                    .chain(&package.mbt_md_files)
+                    .filter(|path| {
+                        !generated.contains(*path)
+                            && (generated.is_empty()
+                                || !std::fs::canonicalize(path)
+                                    .is_ok_and(|canonical| generated.contains(&canonical)))
+                            && (selection.is_empty()
+                                || selection.iter().any(|(dir, file)| {
+                                    dunce::simplified(dir) == dunce::simplified(&package.root_path)
+                                        && file.as_ref().is_none_or(|file| {
+                                            path.file_name() == Some(std::ffi::OsStr::new(file))
+                                        })
+                                }))
+                    })
             })
             .collect::<HashSet<_>>();
         let plan = build_input.execution_plan();
@@ -191,8 +233,8 @@ impl CheckJsonAccumulator {
                 continue;
             }
             for input in action.inputs() {
-                if local_sources.contains(input) {
-                    self.compiled_sources
+                if editable.contains(input) {
+                    self.editable_sources
                         .entry(input.clone())
                         .or_default()
                         .insert(build_input.action_backend(id));
@@ -386,15 +428,16 @@ fn project_check_json_diagnostic(
     value
 }
 
-/// Local source files mapped to the Target Backends whose compiler actions
-/// read them; `None` stands for an action shared by several backends.
-pub(crate) type CompiledSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
+/// Selected, non-generated local sources mapped to the Target Backends whose
+/// planned compiler actions read them; shared actions have no single backend.
+pub(crate) type EditableSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
 
 /// The structured result of one check, for commands that consume its
 /// diagnostics instead of reporting them.
 pub(crate) struct CollectedCheck {
     pub diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
-    pub compiled_sources: CompiledSources,
+    pub editable_sources: EditableSources,
+    pub execution_failed: bool,
 }
 
 /// Run a check with JSON diagnostics and return them with the sources each
@@ -413,12 +456,22 @@ pub(crate) fn run_check_collecting(
     cmd.build_flags.output_json = true;
     cmd.build_flags.no_render = false;
     cmd.build_flags.diagnostic_limit = None;
-    let mut accumulator = CheckJsonAccumulator::default();
-    // A failed check still proposes fixes, e.g. for warnings denied as errors.
-    run_check_impl(cli, &cmd, output, Some(&mut accumulator))?;
+    let mut accumulator = CheckJsonAccumulator {
+        source_selection: Some(
+            cmd.path
+                .iter()
+                .map(|path| canonicalize_with_filename(path))
+                .collect::<anyhow::Result<_>>()?,
+        ),
+        ..Default::default()
+    };
+    // Ordinary compiler errors may propose fixes; execution failures may not.
+    let exit_code = run_check_impl(cli, &cmd, output, Some(&mut accumulator))?;
     Ok(CollectedCheck {
         diagnostics: accumulator.diagnostics,
-        compiled_sources: accumulator.compiled_sources,
+        editable_sources: accumulator.editable_sources,
+        execution_failed: accumulator.execution_failed
+            || (exit_code != 0 && !accumulator.build_failed),
     })
 }
 
@@ -908,7 +961,7 @@ fn run_planned_checks(
     let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
     let build_input = BuildInput::compose(build_inputs)?;
     let successful = if let Some(json) = json {
-        json.record_compiled_sources(&build_metas, &build_input);
+        json.record_editable_sources(&build_metas, &build_input);
         let result = moonbuild::execution::execute_build_json(
             &cfg.with_suppressed_progress(true),
             build_input,
