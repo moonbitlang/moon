@@ -527,10 +527,6 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
 
-    /// Compiler flags for C++ stubs (whitespace-separated). When absent, uses stub-cc-flags.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stub_cxx_flags: Option<String>,
-
     /// Legacy linker flags for C stubs, retained for manifest compatibility
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_link_flags: Option<String>,
@@ -1318,20 +1314,6 @@ fn assert_pkg_dsl_matches_json(source: &str, json: Value) {
             "{source}",
         );
     }
-}
-
-#[test]
-fn native_stub_language_flags_match_between_manifests() {
-    assert_pkg_dsl_matches_json(
-        r#"options(link: { "native": {
-          "stub-cc-flags": "-std=c11",
-          "stub-cxx-flags": "-std=c++20",
-        } })"#,
-        serde_json_lenient::json!({ "link": { "native": {
-            "stub-cc-flags": "-std=c11",
-            "stub-cxx-flags": "-std=c++20",
-        } } }),
-    );
 }
 
 #[test]

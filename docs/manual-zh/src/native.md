@@ -12,25 +12,12 @@
 Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
 `clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
 
-## C 和 C++ stub 编译参数
+## Native stub 语言标准
 
-混合语言的包可通过 `link.native.stub-cc-flags` 配置 C 参数，通过
-`stub-cxx-flags` 配置 C++ 参数。例如，使用 `cl` 或 `clang-cl` 时：
-
-```moonbit
-options(
-  "native-stub": ["helper.c", "wrapper.cpp"],
-  link: { "native": {
-    "stub-cc-flags": "/std:c11",
-    "stub-cxx-flags": "/std:c++20 /EHsc",
-  } },
-)
-```
-
-C++ 扩展名包括 `.cc`、`.cpp`、`.cxx`、`.c++` 和 `.C`。未设置
-`stub-cxx-flags` 时，C++ 沿用 `stub-cc-flags`；显式设为空字符串则不继承。
-两个字段都支持 `${build.NAME}` 变量和 shell 风格的引号。用户参数位于默认参数
-之后，因此 `/std:c17` 可以覆盖默认的 C11。
+Native stub 默认使用编译器的语言标准。可通过 `link.native.stub-cc-flags`
+显式选择，例如 MSVC 兼容编译器的 `/std:c11` 或 `/std:c++20`。这些参数适用于
+包内所有 stub。此前依赖 Moon 自动添加 `/std:c11` 的 C stub，现在需要自行
+指定；Moon 生成的 C 和运行时源码仍使用 C11。
 
 ## C 编译缓存
 

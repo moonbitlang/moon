@@ -202,19 +202,14 @@ pub(super) fn add_linker_runtime<P: AsRef<Path>>(
 pub(super) fn add_cc_specific_flags(
     cc: &CC,
     buf: &mut Vec<String>,
-    is_cpp: bool,
+    c11: bool,
     has_user_flags: bool,
 ) {
     if !cc.uses_msvc_cli() {
         return;
     }
 
-    // cl rejects combining C and C++ standards. Select defaults by source
-    // language, leaving later user flags free to override the same-language default.
-    if is_cpp {
-        // cl does not recognize .cc (unlike clang-cl); both drivers support /TP.
-        buf.push("/TP".to_string());
-    } else {
+    if c11 {
         buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
     }
     // Large generated C files can exceed the default COFF section limit.

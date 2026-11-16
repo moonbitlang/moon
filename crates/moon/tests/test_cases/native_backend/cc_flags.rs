@@ -14,7 +14,7 @@ use expect_test::expect_file;
 use super::unix_graph::assert_native_backend_graph;
 
 #[test]
-fn mixed_c_and_cpp_stubs_use_separate_flags() {
+fn cpp_stubs_use_the_user_selected_standard() {
     let compilers: &[&str] = if cfg!(windows) {
         &["cl", "clang-cl"]
     } else {
@@ -23,7 +23,7 @@ fn mixed_c_and_cpp_stubs_use_separate_flags() {
     for compiler in compilers {
         if *compiler == "clang-cl" && which::which(compiler).is_err() {
             assert!(std::env::var_os("CI").is_none(), "clang-cl missing in CI");
-            eprintln!("skipping mixed stub test for unavailable clang-cl");
+            eprintln!("skipping C++ stub test for unavailable clang-cl");
             continue;
         }
         let dir = TestDir::new("native_backend/msvc_cpp_stubs");
@@ -31,7 +31,7 @@ fn mixed_c_and_cpp_stubs_use_separate_flags() {
             let manifest = std::fs::read_to_string(dir.join("moon.pkg")).unwrap();
             std::fs::write(dir.join("moon.pkg"), manifest.replace("/std:", "-std=")).unwrap();
         }
-        // C11 _Generic and C++20 consteval must compile in the same package.
+        // The stub uses C++20 consteval. MSVC rejects adding /std:c11 to this command.
         moon_cmd(&dir)
             .env("MOON_CC", compiler)
             .env_remove("MOON_AR")
@@ -41,44 +41,6 @@ fn mixed_c_and_cpp_stubs_use_separate_flags() {
             .success()
             .stdout_eq("42\n");
     }
-}
-
-#[test]
-fn cpp_stubs_keep_legacy_cc_flags() {
-    let dir = TestDir::new("native_backend/msvc_cpp_stubs");
-    let (compiler, flags) = if cfg!(windows) {
-        ("cl", "/std:c++20")
-    } else {
-        ("clang", "-std=c++20")
-    };
-    // Existing C++ packages can keep their standard in stub-cc-flags.
-    std::fs::write(
-        dir.join("moon.pkg"),
-        format!(
-            r#"options(
-      "is-main": true,
-      "native-stub": ["cpp_stub.cpp"],
-      link: {{ "native": {{ "stub-cc-flags": "{flags}" }} }},
-    )"#
-        ),
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("main.mbt"),
-        r#"
-extern "C" fn cpp_answer() -> Int = "cpp_answer"
-fn main { println(cpp_answer()) }
-"#,
-    )
-    .unwrap();
-    moon_cmd(&dir)
-        .env("MOON_CC", compiler)
-        .env_remove("MOON_AR")
-        .env_remove("MOON_CC_WRAPPER")
-        .args(["run", ".", "--target", "native"])
-        .assert()
-        .success()
-        .stdout_eq("13\n");
 }
 
 #[cfg(windows)]

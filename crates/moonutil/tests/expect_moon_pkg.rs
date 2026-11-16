@@ -695,7 +695,6 @@ fn expect_options() {
                             cc_link_flags: None,
                             stub_cc: None,
                             stub_cc_flags: None,
-                            stub_cxx_flags: None,
                             stub_cc_link_flags: None,
                             stub_lib_deps: None,
                         },

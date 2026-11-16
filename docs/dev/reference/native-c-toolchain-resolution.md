@@ -141,26 +141,17 @@ do not enable it.
 
 This is why Moon needs both a compiler driver and an archiver.
 
-## Native stub language flags
+## Native stub language standards
 
-`link.native.stub-cc-flags` configures C stub compilation.
-`link.native.stub-cxx-flags` selects independent flags for C++ stubs with `.cc`,
-`.cpp`, `.cxx`, `.c++`, or `.C` extensions. Both fields expand build variables
-before splitting shell-style arguments. When `stub-cxx-flags` is absent, C++
-stubs continue to use `stub-cc-flags` for compatibility; an explicit empty string
-selects compiler defaults without inheriting the C flags. `stub-cc` selects the
-compiler driver for both languages.
+Native stubs use the selected compiler's default language standard unless the
+package sets one through `link.native.stub-cc-flags`. For example, C stubs that
+need C11 with MSVC can specify `/std:c11`; C++ stubs can specify `/std:c++20`.
+These flags apply to every stub in the package, with source language selection
+left to the compiler. Build variables expand before shell-style argument splitting.
 
-MSVC-compatible drivers receive `/std:c11` for C compilation, including the
-runtime and MoonBit-generated C. C++ stubs instead receive `/TP`, which also
-lets `cl` compile `.cc` files. Moon leaves the default C++ standard to the
-driver. These rules apply to both `cl` and `clang-cl`.
-
-User flags follow Moon's defaults. For example, a later `/std:c17` overrides
-`/std:c11` for C, while `/std:c++20` belongs in `stub-cxx-flags`. MSVC rejects
-mixing C and C++ standard flags in a single command. Flags are selected by
-source extension; forcing another language in raw compiler flags does not
-change which manifest field Moon selects.
+Moon requests `/std:c11` for its generated C and runtime sources when using
+`cl` or `clang-cl`. User stubs control their own standard, avoiding conflicts
+between Moon's C11 setting and an explicitly requested C++ standard.
 
 ## Debug information and optimization
 
@@ -520,9 +511,10 @@ the script's responsibility and must match the selected driver.
 ### Compile
 
 `make_cc_command*` uses `cc_path` for compile steps (`-c` or `/c`) and backend-specific flags.
-MSVC-style compile commands pass `/std:c11` and `/bigobj`. The latter raises the
-object-file section limit for large generated C files. Both flags apply to
-generated C, C stubs, and runtime C, including when user compiler flags are set.
+MSVC-style compilation of Moon-generated C and runtime sources uses `/std:c11`.
+All MSVC-style compile commands pass `/bigobj`, which raises the
+object-file section limit for large generated C files. `/bigobj` applies to
+generated C, user stubs, and runtime C, including when user compiler flags are set.
 For TCC on macOS, Moon also passes the active SDK `usr/lib` path reported by
 `xcrun --sdk macosx --show-sdk-path` when it resolves to an existing directory.
 If `xcrun` is missing or returns an unusable path, Moon omits the extra `-L` flag instead of
