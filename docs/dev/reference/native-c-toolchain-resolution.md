@@ -422,18 +422,17 @@ candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
 Direct object output is enabled by default on macOS AArch64, Linux x86_64,
 and Windows x86_64 unless `MOONBIT_NEW_NATIVE=0` is set. Other values, including
 `1`, preserve that default; unsupported hosts still use generated C. Release
-builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set. Direct
-objects are emitted for the host, so a `MOON_CC` compiler that does not target
-the host (see `CC::targets_host()`) also selects generated C. The CLI checks
-this after it expands the user intent to requested artifacts, and only for a
-debug build that has a direct-object candidate and requests a native
-executable. It then clears the candidate. Other commands, such as `moon check`,
-library-only builds, and `moon test --outline`, do not probe the compiler.
-Callers do not supply the final payload
-mode. The planner derives it from requested artifacts, the build profile, and
-that explicit candidate, without reading the process environment. It stores the
-mode once in its private Backend Plan metadata; toolchain selection and lowering
-consume that same derived value.
+builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set.
+
+After the user intent is expanded to requested artifacts, build planning resolves
+the required runtime, program, and C-stub toolchain bindings. Payload selection
+then uses those bindings together with the requested artifacts, build profile,
+and direct-object candidate. This selection does not read the process environment
+or probe compilers; it consumes the earlier resolution result. The planner stores
+the final mode once in its Backend Plan, and action construction and lowering
+consume that mode. Commands without native toolchain actions, including
+`moon check`, builds requesting only `.core`/`.mi` artifacts, and `moon test --outline`,
+do not probe compilers.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 They also remain on the compiler-driver link invocation for compatibility with
@@ -442,9 +441,9 @@ only to linking. The package's native settings are resolved once during planning
 and shared by its compilation and linking actions.
 If any selected executable package sets these flags, Moon uses the generated-C native backend
 instead of direct object output so the configured flags are not skipped.
-This native payload form is currently selected once per invocation, so one such package makes every
-selected executable in that invocation use generated C. This scope also keeps the invocation-wide
-runtime product and package-wide C-stub products on one compatible native toolchain and realization.
+This native payload form is currently selected once per Build Plan, so one such package makes every
+selected executable in that plan use generated C. Runtime and C-stub products can be shared
+within that payload mode; their compiler bindings remain independent.
 Selecting the payload form per executable requires those shared products to be keyed by their
 effective native toolchain and realization; changing only `LinkCore` and `MakeExecutable` would
 allow incompatible shared artifacts in mixed-mode builds.
