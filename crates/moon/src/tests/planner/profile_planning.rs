@@ -16,10 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use expect_test::expect_file;
-
 use super::fixture::{
-    PlanningFixture, parse_bench_command, parse_build_command, parse_check_command,
+    PlanningFixture, graph_actions, parse_bench_command, parse_build_command, parse_check_command,
     parse_run_command, parse_test_command,
 };
 
@@ -139,22 +137,119 @@ fn bench_graph_uses_selected_codegen_profile() {
     assert!(debug_graph.contains("-O0"));
 }
 
-#[test]
-fn default_test_graph_matches_snapshot() {
-    let fixture = PlanningFixture::new("test_release").expect("fixture should resolve");
-    let (cli, cmd) =
-        parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
+fn assert_test_profile(graph: &str, profile: &str) {
+    let actions = graph_actions(graph);
+    let root = format!("./_build/wasm-gc/{profile}/test/");
 
-    expect_file!["./snapshots/test_profile_default_graph.jsonl.snap"].assert_eq(
-        &fixture
-            .plan_test_with_cli(&cli, &cmd)
-            .expect("default test graph should plan"),
+    // Both profiles must retain the same source, inline, whitebox and blackbox
+    // targets. Compare project artifacts, not the installed core's package graph.
+    let mut artifacts: Vec<_> = actions
+        .iter()
+        .flat_map(|action| &action.outputs)
+        .filter(|path| path.ends_with(".core") || path.ends_with(".wasm"))
+        .map(|path| {
+            path.strip_prefix(&root)
+                .unwrap_or_else(|| panic!("wrong profile: {path}"))
+        })
+        .collect();
+    artifacts.sort_unstable();
+    assert_eq!(
+        artifacts,
+        [
+            "lib/lib.blackbox_test.core",
+            "lib/lib.blackbox_test.wasm",
+            "lib/lib.core",
+            "lib/lib.internal_test.core",
+            "lib/lib.internal_test.wasm",
+            "lib/lib.whitebox_test.core",
+            "lib/lib.whitebox_test.wasm",
+            "main/main.blackbox_test.core",
+            "main/main.blackbox_test.wasm",
+            "main/main.core",
+            "main/main.internal_test.core",
+            "main/main.internal_test.wasm",
+        ]
+    );
+
+    let mut drivers = Vec::new();
+    for action in &actions {
+        let args = shlex::split(&action.command).unwrap();
+        // Generated drivers, metadata, interface inputs and command paths must
+        // agree on the profile too; checking only the executable path is insufficient.
+        for path in action
+            .inputs
+            .iter()
+            .chain(&action.outputs)
+            .chain(&args)
+            .filter(|path| path.starts_with("./_build/"))
+        {
+            assert!(path.starts_with(&root), "wrong profile: {path}");
+        }
+        match args[1].as_str() {
+            "generate-test-driver" => {
+                let package = args
+                    .windows(2)
+                    .find(|pair| pair[0] == "--pkg-name")
+                    .unwrap();
+                let kind = args
+                    .windows(2)
+                    .find(|pair| pair[0] == "--driver-kind")
+                    .unwrap();
+                drivers.push((package[1].clone(), kind[1].clone()));
+            }
+            "build-package" | "link-core" => {
+                // Default test builds are unoptimized with debug information;
+                // release changes code generation as well as the output directory.
+                for flag in ["-g", "-O0", "-source-map"] {
+                    assert_eq!(
+                        args.iter().any(|arg| arg == flag),
+                        profile == "debug",
+                        "{}: {flag}",
+                        action.command
+                    );
+                }
+                if args[1] == "link-core" {
+                    assert!(args.iter().any(|arg| arg == "-test-mode"));
+                    assert_eq!(
+                        args.iter().any(|arg| arg == "-wasm-module-name"),
+                        profile == "release"
+                    );
+                }
+            }
+            other => panic!("unexpected test planning action: {other}"),
+        }
+    }
+    drivers.sort();
+    assert_eq!(
+        drivers,
+        [
+            ("username/hello/lib", "blackbox"),
+            ("username/hello/lib", "internal"),
+            ("username/hello/lib", "whitebox"),
+            ("username/hello/main", "blackbox"),
+            ("username/hello/main", "internal"),
+        ]
+        .map(|(package, kind)| (package.to_owned(), kind.to_owned()))
     );
 }
 
 #[test]
-fn release_test_graph_matches_snapshot() {
-    let fixture = PlanningFixture::new("test_release").expect("fixture should resolve");
+fn test_defaults_to_debug_codegen_and_artifacts() {
+    // Given an ordinary project with inline, whitebox and blackbox test targets.
+    let fixture = PlanningFixture::with_core_dependency("test_release").unwrap();
+    // When no profile flag is passed to test.
+    let (cli, cmd) =
+        parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
+    let graph = fixture.plan_test_with_cli(&cli, &cmd).unwrap();
+    // Then every target uses the debug profile, including generated drivers.
+    assert_test_profile(&graph, "debug");
+}
+
+#[test]
+fn release_test_keeps_test_targets_with_release_codegen_and_artifacts() {
+    // Given the same ordinary project, changing the profile must not drop tests.
+    let fixture = PlanningFixture::with_core_dependency("test_release").unwrap();
+    // When test is planned with --release.
     let (cli, cmd) = parse_test_command(&[
         "test",
         "--target",
@@ -163,12 +258,9 @@ fn release_test_graph_matches_snapshot() {
         "--sort-input",
         "--dry-run",
     ]);
-
-    expect_file!["./snapshots/test_profile_release_graph.jsonl.snap"].assert_eq(
-        &fixture
-            .plan_test_with_cli(&cli, &cmd)
-            .expect("release test graph should plan"),
-    );
+    let graph = fixture.plan_test_with_cli(&cli, &cmd).unwrap();
+    // Then the same test targets use release artifacts and code generation.
+    assert_test_profile(&graph, "release");
 }
 
 #[test]

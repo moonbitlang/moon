@@ -19,7 +19,7 @@
 use clap::Parser;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use moonbuild_rupes_recta::{
     DiscoveredProject, ResolvedProject, build_plan::ArtifactKey, model::PackageId,
@@ -27,7 +27,9 @@ use moonbuild_rupes_recta::{
 use moonutil::{
     cli_support::UniversalFlags,
     cond_expr::OptLevel,
+    manifest::read_module_desc_file_in_dir,
     project::{SourceTargetDirs, WorkspaceEnv},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -46,6 +48,21 @@ pub(super) struct PlanningFixture {
 pub(super) struct PlannedGraph {
     build_meta: BuildMeta,
     build_graph: BuildInput,
+}
+
+/// The command and declared file dependencies in a dumped execution action.
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GraphAction {
+    pub(super) command: String,
+    pub(super) inputs: Vec<String>,
+    pub(super) outputs: Vec<String>,
+}
+
+pub(super) fn graph_actions(graph: &str) -> Vec<GraphAction> {
+    graph
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("planner dump action should be valid JSON"))
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -71,6 +88,51 @@ impl PlannedGraph {
 }
 
 impl PlanningFixture {
+    /// Plan a non-core module with no declared module dependencies against fixed core.
+    /// Module acquisition and SDK compatibility belong to separate tests; package
+    /// discovery, import resolution, and lowering still use their production paths.
+    pub(super) fn with_core_dependency(case: &str) -> anyhow::Result<Self> {
+        let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let source_dir = dunce::canonicalize(crate_root.join("tests/test_cases").join(case))?;
+        let module = read_module_desc_file_in_dir(&source_dir)?;
+        anyhow::ensure!(
+            module.name != moonutil::constants::MOONBITLANG_CORE,
+            "use PlanningFixture::new to plan core as a project"
+        );
+        anyhow::ensure!(
+            module.deps.is_empty(),
+            "core-dependency planning fixtures must not require module dependency resolution"
+        );
+        let (mut module_graph, root_id) = ModuleDependencyGraph::only_one_module(
+            ModuleSource::from_local_module(&module, &source_dir)?,
+            module,
+        );
+        let core_dir =
+            dunce::canonicalize(crate_root.join("src/tests/planner/fixtures/core_dependency"))?;
+        let core = read_module_desc_file_in_dir(&core_dir)?;
+        let core_id =
+            module_graph.add_module(ModuleSource::from_stdlib(&core, &core_dir)?, Arc::new(core));
+        module_graph.register_stdlib(core_id);
+        let mut module_dirs = DirSyncResult::default();
+        module_dirs.insert(root_id, source_dir.clone());
+        module_dirs.insert(core_id, core_dir);
+        let preparation = moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+            true,
+            false,
+            WorkspaceEnv::Off,
+        );
+        let discovered = moonbuild_rupes_recta::discover_synced_project(
+            &preparation,
+            (module_graph, module_dirs),
+            &UserLog::new(log::LevelFilter::Error),
+        )?;
+        Ok(Self {
+            target_dir: source_dir.join("_build"),
+            source_dir,
+            discovered,
+        })
+    }
+
     pub(super) fn new(case: &str) -> anyhow::Result<Self> {
         let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
         // These planner tests only inspect graph construction, so they can use
@@ -107,7 +169,7 @@ impl PlanningFixture {
     }
 
     /// Select one backend before resolution, as production project-wide plans do.
-    fn select_and_resolve(
+    pub(super) fn select_and_resolve(
         &self,
         selected_target_backend: Option<TargetBackend>,
         user_log: &UserLog,
