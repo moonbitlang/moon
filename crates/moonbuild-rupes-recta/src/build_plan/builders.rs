@@ -20,7 +20,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -133,9 +133,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 // once native toolchain discovery moves to command orchestration.
                 // Keep this lazy: an empty role set must not probe MOON_CC.
                 let env_cc = compiler_flags::ENV_CC.as_ref();
-                let request = match role {
-                    Runtime => None,
-                    Program(package) | CStubs(package) => {
+                let request = match (env_cc, role) {
+                    (Some(_), _) | (_, Runtime) => None,
+                    (None, Program(package) | CStubs(package)) => {
                         let pkg = self.input.pkg_dirs.get_package(package);
                         pkg.raw
                             .link
@@ -153,28 +153,29 @@ impl<'a> BuildPlanConstructor<'a> {
                                     .into_owned()
                             })
                     }
-                }
-                .filter(|_| env_cc.is_none());
-                let toolchain = if let Some(toolchain) = cache.get(&request) {
-                    toolchain.clone()
-                } else {
-                    let toolchain =
-                        compiler_flags::effective_native_toolchain(env_cc, request.as_deref())
-                            .map_err(|error| match role {
-                                Runtime => BuildPlanConstructError::FailedToSetRuntimeCC(error),
-                                Program(package) => BuildPlanConstructError::FailedToSetCC(
-                                    error,
-                                    self.input.pkg_dirs.fqn(package).clone().into(),
-                                ),
-                                CStubs(package) => BuildPlanConstructError::FailedToSetStubCC(
-                                    error,
-                                    self.input.pkg_dirs.fqn(package).clone().into(),
-                                ),
-                            })?;
-                    cache.insert(request, toolchain.clone());
-                    toolchain
                 };
-                Ok((role, toolchain))
+                let toolchain = match cache.entry(request) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        let toolchain = compiler_flags::effective_native_toolchain(
+                            env_cc,
+                            entry.key().as_deref(),
+                        )
+                        .map_err(|error| match role {
+                            Runtime => BuildPlanConstructError::FailedToSetRuntimeCC(error),
+                            Program(package) => BuildPlanConstructError::FailedToSetCC(
+                                error,
+                                self.input.pkg_dirs.fqn(package).clone().into(),
+                            ),
+                            CStubs(package) => BuildPlanConstructError::FailedToSetStubCC(
+                                error,
+                                self.input.pkg_dirs.fqn(package).clone().into(),
+                            ),
+                        })?;
+                        entry.insert(toolchain)
+                    }
+                };
+                Ok((role, toolchain.clone()))
             })
             .collect()
     }
