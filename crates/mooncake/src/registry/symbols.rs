@@ -62,7 +62,7 @@ impl SymbolsSyncState {
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-pub(super) fn sync(
+pub(super) async fn sync(
     home: &MoonHomeLayout,
     config: &RegistryConfig,
     user_log: &UserLog,
@@ -72,6 +72,8 @@ pub(super) fn sync(
     let registry_dir = home.registry_dir();
     std::fs::create_dir_all(&registry_dir)
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
+    // FIXME: Make lock acquisition yield before allowing concurrent updates on
+    // one runtime. A blocking waiter can prevent the async holder from finishing.
     let _lock = lock_directory(&registry_dir, user_log)
         .context("failed to lock registry update directory")?;
     let current = SymbolsSyncState::read(&state_path);
@@ -97,7 +99,8 @@ pub(super) fn sync(
         &url,
         previous_etag,
         user_log,
-    )?;
+    )
+    .await?;
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -132,10 +135,13 @@ enum SymbolsDownload {
     skip_all,
     fields(has_previous_etag = previous_etag.is_some())
 )]
-fn download_symbols_zip(
+async fn download_symbols_zip(
     symbols_url: &str,
     previous_etag: Option<&str>,
 ) -> anyhow::Result<SymbolsDownload> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
     let client = download::client_with_retry()?;
     let conditional_etag = previous_etag.and_then(|etag| {
         HeaderValue::from_bytes(etag.as_bytes())
@@ -150,7 +156,12 @@ fn download_symbols_zip(
     if let Some((_, value)) = &conditional_etag {
         request = request.header(IF_NONE_MATCH, value.clone());
     }
-    let response = request.send().context("failed to fetch symbols.zip")?;
+    // Preserve the blocking client's separate 30-second waits for response
+    // headers and body, rather than imposing one deadline on the whole download.
+    let response = timeout(Duration::from_secs(30), request.send())
+        .await
+        .context("timed out fetching symbols.zip")?
+        .context("failed to fetch symbols.zip")?;
     let response_etag = response
         .headers()
         .get(ETAG)
@@ -168,10 +179,12 @@ fn download_symbols_zip(
         return Ok(SymbolsDownload::NotModified { etag });
     }
 
-    let data = response
+    let response = response
         .error_for_status()
-        .context("symbols.zip download returned error status")?
-        .bytes()
+        .context("symbols.zip download returned error status")?;
+    let data = timeout(Duration::from_secs(30), response.bytes())
+        .await
+        .context("timed out reading symbols.zip response body")?
         .context("failed to read symbols.zip response body")?;
     Ok(SymbolsDownload::Modified {
         data,
@@ -179,7 +192,7 @@ fn download_symbols_zip(
     })
 }
 
-fn update_symbols_from_url(
+async fn update_symbols_from_url(
     registry_dir: &Path,
     target_dir: &Path,
     symbols_url: &str,
@@ -190,11 +203,12 @@ fn update_symbols_from_url(
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
 
     let previous_etag = target_dir.is_dir().then_some(previous_etag).flatten();
-    let download = download_symbols_zip(symbols_url, previous_etag)?;
+    let download = download_symbols_zip(symbols_url, previous_etag).await?;
     let (data, etag) = match download {
         SymbolsDownload::Modified { data, etag } => (data, etag),
         SymbolsDownload::NotModified { etag } if target_dir.is_dir() => return Ok(Some(etag)),
-        SymbolsDownload::NotModified { .. } => match download_symbols_zip(symbols_url, None)? {
+        SymbolsDownload::NotModified { .. } => match download_symbols_zip(symbols_url, None).await?
+        {
             SymbolsDownload::Modified { data, etag } => (data, etag),
             SymbolsDownload::NotModified { .. } => {
                 anyhow::bail!("symbols.zip returned 304 but local symbols are missing")
@@ -321,8 +335,40 @@ mod tests {
         archive.finish().unwrap().into_inner()
     }
 
-    #[test]
-    fn symbols_update_reuses_an_etag_on_not_modified() {
+    #[tokio::test]
+    async fn stalled_symbols_download_times_out() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/symbols.zip", listener.local_addr().unwrap());
+        let server = async {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                assert_ne!(socket.read_buf(&mut request).await.unwrap(), 0);
+            }
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nP")
+                .await
+                .unwrap();
+            // Keep the incomplete response open beyond the download timeout.
+            tokio::time::pause();
+            tokio::time::advance(Duration::from_secs(31)).await;
+            socket
+        };
+        // Allow both deadlines even if headers become readable after the jump.
+        let download =
+            tokio::time::timeout(Duration::from_secs(65), download_symbols_zip(&url, None));
+        let (_connection, result) = tokio::join!(server, download);
+        let error = result
+            .expect("the download must time out before the test deadline")
+            .unwrap_err();
+        assert!(error.is::<tokio::time::error::Elapsed>());
+    }
+
+    #[tokio::test]
+    async fn symbols_update_reuses_an_etag_on_not_modified() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
         let (url, server) = serve_http(vec![
@@ -348,14 +394,14 @@ mod tests {
             ..RegistryConfig::default()
         };
         std::fs::write(home.registry_update_state_path(), "index state").unwrap();
-        sync(&home, &config, &quiet_user_log()).unwrap();
+        sync(&home, &config, &quiet_user_log()).await.unwrap();
         let state = SymbolsSyncState::read(&home.registry_symbols_update_state_path())
             .unwrap()
             .unwrap();
         assert_eq!(state.etag.as_deref(), Some("\"symbols-v1\""));
         std::fs::write(home.registry_symbols_dir().join("symbol.txt"), "local").unwrap();
 
-        sync(&home, &config, &quiet_user_log()).unwrap();
+        sync(&home, &config, &quiet_user_log()).await.unwrap();
         let refreshed = SymbolsSyncState::read(&home.registry_symbols_update_state_path())
             .unwrap()
             .unwrap();
@@ -393,9 +439,19 @@ mod tests {
         };
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
         let lock = lock_directory(&home.registry_dir(), &quiet_user_log()).unwrap();
+        let update = || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .unwrap()
+                .block_on(sync(&home, &config, &user_log))
+        };
+        // Model independent callers. Until the file lock yields, sharing one
+        // runtime thread would let a lock waiter block the update holding it.
         std::thread::scope(|scope| {
-            let first = scope.spawn(|| sync(&home, &config, &user_log));
-            let second = scope.spawn(|| sync(&home, &config, &user_log));
+            let first = scope.spawn(update);
+            let second = scope.spawn(update);
             // Release the lock only after both callers observed the old state.
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
             let mut waiting = 0;
@@ -416,8 +472,8 @@ mod tests {
         assert!(capture.take().iter().any(|entry| entry.message == "Symbols update already completed by another process"));
     }
 
-    #[test]
-    fn symbols_sync_does_not_reuse_another_urls_etag() {
+    #[tokio::test]
+    async fn symbols_sync_does_not_reuse_another_urls_etag() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
         std::fs::create_dir(home.registry_symbols_dir()).unwrap();
@@ -437,7 +493,7 @@ mod tests {
             symbols: Some(url),
             ..RegistryConfig::default()
         };
-        sync(&home, &config, &quiet_user_log()).unwrap();
+        sync(&home, &config, &quiet_user_log()).await.unwrap();
         let requests = server.join().unwrap();
         assert!(!requests[0].to_ascii_lowercase().contains("if-none-match"));
         assert_eq!(
@@ -449,8 +505,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn failed_symbols_sync_is_retried_without_publishing_its_etag() {
+    #[tokio::test]
+    async fn failed_symbols_sync_is_retried_without_publishing_its_etag() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
         let (url, server) = serve_http(vec![
@@ -469,10 +525,10 @@ mod tests {
             symbols: Some(url),
             ..RegistryConfig::default()
         };
-        assert!(sync(&home, &config, &quiet_user_log()).is_err());
+        assert!(sync(&home, &config, &quiet_user_log()).await.is_err());
         assert!(!home.registry_symbols_update_state_path().exists());
         assert!(!home.registry_symbols_dir().exists());
-        sync(&home, &config, &quiet_user_log()).unwrap();
+        sync(&home, &config, &quiet_user_log()).await.unwrap();
         let requests = server.join().unwrap();
         assert!(!requests[1].to_ascii_lowercase().contains("if-none-match"));
         assert_eq!(
@@ -485,8 +541,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn symbols_update_ignores_an_etag_when_local_symbols_are_missing() {
+    #[tokio::test]
+    async fn symbols_update_ignores_an_etag_when_local_symbols_are_missing() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
         let (url, server) = serve_http(vec![TestHttpResponse {
@@ -503,6 +559,7 @@ mod tests {
             Some(&etag),
             &quiet_user_log(),
         )
+        .await
         .unwrap()
         .unwrap();
 
@@ -515,8 +572,8 @@ mod tests {
         assert!(!requests[0].to_ascii_lowercase().contains("if-none-match"));
     }
 
-    #[test]
-    fn symbols_update_ignores_an_invalid_etag() {
+    #[tokio::test]
+    async fn symbols_update_ignores_an_invalid_etag() {
         let root = tempfile::tempdir().unwrap();
         let home = test_moon_home(&root);
         std::fs::create_dir(home.registry_symbols_dir()).unwrap();
@@ -534,6 +591,7 @@ mod tests {
             Some(&etag),
             &quiet_user_log(),
         )
+        .await
         .unwrap();
 
         assert_eq!(updated, None);

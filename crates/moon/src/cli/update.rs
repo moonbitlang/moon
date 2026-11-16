@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use mooncake::registry::RegistryClient;
 use moonutil::command_output::CommandOutput;
 
@@ -46,7 +46,13 @@ pub(crate) fn update_cli(
     let registry = RegistryClient::configured(output.user_log());
     if !registry.uses_http_metadata() {
         registry.sync_index(output.user_log())?;
-        if let Err(error) = registry.sync_symbols(output.user_log()) {
+        let symbols = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .context("failed to start symbols download runtime")
+            .and_then(|runtime| runtime.block_on(registry.sync_symbols(output.user_log())));
+        if let Err(error) = symbols {
             output
                 .user_log()
                 .warn(format!("failed to update symbols: {error:#}"));

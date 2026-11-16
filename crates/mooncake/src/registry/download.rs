@@ -18,20 +18,10 @@
 
 use anyhow::Context;
 
-/// Used by the synchronous symbols and prebuilt Wasm asset downloads.
-pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-        .retry(retry_policy())
-        .build()
-        .context("failed to create HTTP client")
-}
-
-// Source downloads share this client's connection pool within one batch.
+// Resource downloads share this client's connection pool within one operation.
 // FIXME: Measure negotiated HTTP versions and connection reuse separately from
-// concurrency before tuning HTTP/2 or extending pool lifetime across batches.
-// HTTP/2 support predates this change; the benchmark did not isolate its effect.
-pub(crate) fn async_client_with_retry() -> anyhow::Result<reqwest::Client> {
+// concurrency before tuning HTTP/2 or extending pool lifetime across operations.
+pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
         .retry(retry_policy())
@@ -108,8 +98,8 @@ mod tests {
         net::TcpListener,
     };
 
-    #[test]
-    fn retries_after_cross_host_redirect() {
+    #[tokio::test]
+    async fn retries_after_cross_host_redirect() {
         for (status, attempts) in [("503 Service Unavailable", 4), ("404 Not Found", 1)] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
@@ -138,8 +128,9 @@ mod tests {
                 .unwrap()
                 .get(format!("http://{address}/download"))
                 .send()
+                .await
                 .unwrap();
-            assert_eq!(response.text().unwrap(), attempts.to_string());
+            assert_eq!(response.text().await.unwrap(), attempts.to_string());
             server.join().unwrap();
         }
     }

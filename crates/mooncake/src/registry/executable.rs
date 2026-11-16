@@ -61,7 +61,7 @@ enum LatestVersionResolutionPolicy {
 
 impl RegistryClient {
     /// Resolve an Executable Package Coordinate to one exact main package.
-    pub fn resolve_executable_package(
+    pub async fn resolve_executable_package(
         &self,
         coordinate: &str,
         user_log: &UserLog,
@@ -70,18 +70,22 @@ impl RegistryClient {
             parse_executable_package_coordinate(coordinate)?;
         let module = match requested_version {
             ExecutablePackageVersionSelector::Exact(module) => module,
-            ExecutablePackageVersionSelector::LocallyKnownLatest => self
-                .resolve_latest_executable_module(
+            ExecutablePackageVersionSelector::LocallyKnownLatest => {
+                self.resolve_latest_executable_module(
                     &module_name,
                     LatestVersionResolutionPolicy::PreferLocal,
                     user_log,
-                )?,
-            ExecutablePackageVersionSelector::RefreshLatest => self
-                .resolve_latest_executable_module(
+                )
+                .await?
+            }
+            ExecutablePackageVersionSelector::RefreshLatest => {
+                self.resolve_latest_executable_module(
                     &module_name,
                     LatestVersionResolutionPolicy::Refresh,
                     user_log,
-                )?,
+                )
+                .await?
+            }
         };
         Ok(ResolvedExecutablePackage {
             module,
@@ -90,16 +94,19 @@ impl RegistryClient {
     }
 
     /// Resolve an Executable Package Coordinate and acquire its cached Wasm artifact.
-    pub fn acquire_executable_wasm(
+    pub async fn acquire_executable_wasm(
         &self,
         coordinate: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
-        let package = self.resolve_executable_package(coordinate, user_log)?;
+        let package = self
+            .resolve_executable_package(coordinate, user_log)
+            .await?;
         self.acquire_wasm_asset(&package.module, &package.package_path, user_log)
+            .await
     }
 
-    fn resolve_latest_executable_module(
+    async fn resolve_latest_executable_module(
         &self,
         module_name: &ModuleName,
         policy: LatestVersionResolutionPolicy,
@@ -110,24 +117,25 @@ impl RegistryClient {
             user_log,
             policy,
             || self.cached_latest_version(module_name),
-            || self.query_latest_version(module_name, user_log),
+            async || self.query_latest_version_async(module_name, user_log).await,
         )
+        .await
     }
 }
 
-fn resolve_latest_module_with(
+async fn resolve_latest_module_with(
     module_name: &ModuleName,
     user_log: &UserLog,
     policy: LatestVersionResolutionPolicy,
     mut cached_latest_version: impl FnMut() -> anyhow::Result<Option<Version>>,
-    mut query_latest_version: impl FnMut() -> anyhow::Result<Version>,
+    mut query_latest_version: impl AsyncFnMut() -> anyhow::Result<Version>,
 ) -> anyhow::Result<ModuleSource> {
     let version = match policy {
         LatestVersionResolutionPolicy::PreferLocal => match cached_latest_version()? {
             Some(version) => version,
-            None => query_latest_version()?,
+            None => query_latest_version().await?,
         },
-        LatestVersionResolutionPolicy::Refresh => query_latest_version()?,
+        LatestVersionResolutionPolicy::Refresh => query_latest_version().await?,
     };
     let module = ModuleSource::from_version(module_name.clone(), version)?;
     user_log.info(format!(
@@ -215,8 +223,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn major_version_coordinates_reject_mismatches() {
+    #[tokio::test]
+    async fn major_version_coordinates_reject_mismatches() {
         for coordinate in ["a/b/v2@1.5.0", "a/b/v2@1.5.0/tool", "a/b/v2/tool@1.5.0"] {
             let error = parse_executable_package_coordinate(coordinate).unwrap_err();
             assert!(format!("{error:#}").contains("requires major version 2, but got 1.5.0"));
@@ -230,8 +238,9 @@ mod tests {
                 &UserLog::new(log::LevelFilter::Error),
                 policy,
                 || Ok(Some(Version::new(1, 5, 0))),
-                || Ok(Version::new(1, 5, 0)),
+                async || Ok(Version::new(1, 5, 0)),
             )
+            .await
             .unwrap_err();
             assert_eq!(
                 error.to_string(),
@@ -286,21 +295,22 @@ mod tests {
         assert_eq!(version, ExecutablePackageVersionSelector::RefreshLatest);
     }
 
-    #[test]
-    fn unpinned_coordinate_uses_cached_latest_without_querying() {
+    #[tokio::test]
+    async fn unpinned_coordinate_uses_cached_latest_without_querying() {
         let module = resolve_latest_module_with(
             &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
             LatestVersionResolutionPolicy::PreferLocal,
             || Ok(Some(Version::new(0, 3, 3))),
-            || panic!("cached latest should satisfy an unpinned coordinate"),
+            async || panic!("cached latest should satisfy an unpinned coordinate"),
         )
+        .await
         .unwrap();
         assert_eq!(module.version(), &Version::new(0, 3, 3));
     }
 
-    #[test]
-    fn unpinned_coordinate_queries_latest_after_cache_miss() {
+    #[tokio::test]
+    async fn unpinned_coordinate_queries_latest_after_cache_miss() {
         let mut cached_reads = 0;
         let mut queries = 0;
         let module = resolve_latest_module_with(
@@ -311,46 +321,49 @@ mod tests {
                 cached_reads += 1;
                 Ok(None)
             },
-            || {
+            async || {
                 queries += 1;
                 Ok(Version::new(0, 3, 3))
             },
         )
+        .await
         .unwrap();
         assert_eq!(module.version(), &Version::new(0, 3, 3));
         assert_eq!(cached_reads, 1);
         assert_eq!(queries, 1);
     }
 
-    #[test]
-    fn explicit_latest_queries_without_reading_cached_latest() {
+    #[tokio::test]
+    async fn explicit_latest_queries_without_reading_cached_latest() {
         let module = resolve_latest_module_with(
             &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
             LatestVersionResolutionPolicy::Refresh,
             || panic!("explicit latest must query the registry"),
-            || Ok(Version::new(0, 4, 0)),
+            async || Ok(Version::new(0, 4, 0)),
         )
+        .await
         .unwrap();
         assert_eq!(module.version(), &Version::new(0, 4, 0));
     }
 
-    #[test]
-    fn explicit_latest_preserves_query_failure_without_stale_fallback() {
+    #[tokio::test]
+    async fn explicit_latest_preserves_query_failure_without_stale_fallback() {
         let error = resolve_latest_module_with(
             &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
             LatestVersionResolutionPolicy::Refresh,
             || panic!("a failed query must not fall back to cached latest"),
-            || Err(anyhow::anyhow!("offline").context("Failed to update registry index")),
+            async || Err(anyhow::anyhow!("offline").context("Failed to update registry index")),
         )
+        .await
         .unwrap_err();
         assert_eq!(error.to_string(), "Failed to update registry index");
         assert_eq!(error.source().unwrap().to_string(), "offline");
     }
 
-    #[test]
-    fn unpinned_coordinate_preserves_query_errors_after_cache_miss() {
+    #[tokio::test]
+    async fn unpinned_coordinate_preserves_query_errors_after_cache_miss() {
         for message in [
             "offline",
             "Module `moonbitlang/parser` has no version information",
@@ -361,22 +374,24 @@ mod tests {
                 &UserLog::new(log::LevelFilter::Warn),
                 LatestVersionResolutionPolicy::PreferLocal,
                 || Ok(None),
-                || Err(anyhow::anyhow!("{message}")),
+                async || Err(anyhow::anyhow!("{message}")),
             )
+            .await
             .unwrap_err();
             assert_eq!(error.to_string(), message);
         }
     }
 
-    #[test]
-    fn cached_read_error_does_not_trigger_a_query() {
+    #[tokio::test]
+    async fn cached_read_error_does_not_trigger_a_query() {
         let error = resolve_latest_module_with(
             &"moonbitlang/parser".into(),
             &UserLog::new(log::LevelFilter::Warn),
             LatestVersionResolutionPolicy::PreferLocal,
             || Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into()),
-            || panic!("an unreadable cache is not a cache miss"),
+            async || panic!("an unreadable cache is not a cache miss"),
         )
+        .await
         .unwrap_err();
         assert_eq!(
             error.downcast_ref::<std::io::Error>().unwrap().kind(),

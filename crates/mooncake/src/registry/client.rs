@@ -283,11 +283,11 @@ impl RegistryClient {
     }
 
     /// Synchronize the symbols archive independently of registry metadata.
-    pub fn sync_symbols(&self, user_log: &UserLog) -> anyhow::Result<()> {
+    pub async fn sync_symbols(&self, user_log: &UserLog) -> anyhow::Result<()> {
         if self.frozen_dependencies {
             bail!("frozen mode cannot synchronize registry symbols");
         }
-        super::symbols::sync(&self.home, &self.config, user_log)
+        super::symbols::sync(&self.home, &self.config, user_log).await
     }
 
     /// Read an exact release without network access. `None` means no local record.
@@ -419,14 +419,14 @@ impl RegistryClient {
     }
 
     /// Return a verified, locally cached prebuilt wasm asset.
-    pub fn acquire_wasm_asset(
+    pub async fn acquire_wasm_asset(
         &self,
         module: &ModuleSource,
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
         let mut http = None;
-        self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
+        self.acquire_wasm_asset_with(module, package_path, user_log, async |url| {
             // Already materialized artifacts remain usable offline. Only a
             // cache miss needs to construct the download client.
             if http.is_none() {
@@ -437,15 +437,17 @@ impl RegistryClient {
                 url,
                 user_log,
             )
+            .await
         })
+        .await
     }
 
-    fn acquire_wasm_asset_with(
+    async fn acquire_wasm_asset_with(
         &self,
         module: &ModuleSource,
         package_path: &str,
         user_log: &UserLog,
-        mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
+        mut download: impl AsyncFnMut(&str) -> anyhow::Result<Vec<u8>>,
     ) -> anyhow::Result<std::path::PathBuf> {
         let name = module.name();
         let version = module.version();
@@ -460,19 +462,22 @@ impl RegistryClient {
             &wasm_artifact_name(name, package_path),
         );
 
-        ensure_cached_wasm(&cache_path, user_log, |staged| {
+        ensure_cached_wasm(&cache_path, user_log, async |staged| {
             // Private prebuilt downloads are not implemented yet, so existing
             // artifacts came from public downloads. Check visibility on misses;
             // cache hits must survive disabled or cleared metadata persistence.
             if let MetadataBackend::Http(metadata) = &self.metadata
-                && metadata.is_restricted(name, version, self.frozen_dependencies)?
+                && metadata
+                    .version_reader(self.frozen_dependencies)
+                    .is_restricted(name, version)
+                    .await?
             {
                 bail!("Prebuilt artifacts are not available for restricted modules");
             }
-            let checksum_bytes = download(&checksum_url)?;
+            let checksum_bytes = download(&checksum_url).await?;
             let expected_checksum = parse_sha256_checksum(&checksum_bytes)
                 .with_context(|| format!("invalid SHA-256 checksum from {checksum_url}"))?;
-            let bytes = download(&url)?;
+            let bytes = download(&url).await?;
             let actual_checksum = sha256_hex(&bytes);
             if actual_checksum != expected_checksum {
                 bail!(
@@ -483,6 +488,24 @@ impl RegistryClient {
                 .with_context(|| format!("failed to write cache file {}", staged.display()))?;
             Ok(())
         })
+        .await
+    }
+
+    // FIXME: Replace the synchronous query entry point when the remaining
+    // registry commands have asynchronous orchestration.
+    pub(super) async fn query_latest_version_async(
+        &self,
+        name: &ModuleName,
+        user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        match &self.metadata {
+            MetadataBackend::Http(http) => {
+                http.version_reader(self.frozen_dependencies)
+                    .query_latest_version(name)
+                    .await
+            }
+            MetadataBackend::Git(_) => super::Registry::query_latest_version(self, name, user_log),
+        }
     }
 }
 
@@ -523,31 +546,38 @@ fn validate_registry_module_name(name: &ModuleName) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn download_registry_asset(
-    http: &reqwest::blocking::Client,
+async fn download_registry_asset(
+    http: &reqwest::Client,
     url: &str,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<u8>> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
     user_log.info(format!("Downloading {url}"));
-    let response = http
-        .get(url)
-        .send()
+    // Preserve the blocking client's separate 30-second waits for response
+    // headers and body, rather than imposing one deadline on the whole download.
+    let response = timeout(Duration::from_secs(30), http.get(url).send())
+        .await
+        .with_context(|| format!("timed out downloading registry asset from {url}"))?
         .with_context(|| format!("failed to download registry asset from {url}"))?;
     if response.status() == StatusCode::NOT_FOUND {
         bail!("Prebuilt wasm asset does not exist");
     }
-    let data = response
+    let response = response
         .error_for_status()
-        .with_context(|| format!("registry asset download returned error status for {url}"))?
-        .bytes()
+        .with_context(|| format!("registry asset download returned error status for {url}"))?;
+    let data = timeout(Duration::from_secs(30), response.bytes())
+        .await
+        .with_context(|| format!("timed out reading registry asset response from {url}"))?
         .with_context(|| format!("failed to read registry asset response from {url}"))?;
     Ok(data.to_vec())
 }
 
-fn ensure_cached_wasm(
+async fn ensure_cached_wasm(
     cache_path: &Path,
     user_log: &UserLog,
-    produce: impl FnOnce(&Path) -> anyhow::Result<()>,
+    produce: impl AsyncFnOnce(&Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<std::path::PathBuf> {
     if cache_path.exists() {
         user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
@@ -563,6 +593,8 @@ fn ensure_cached_wasm(
             parent.display()
         )
     })?;
+    // FIXME: Make lock acquisition yield before allowing concurrent acquisitions
+    // on one runtime. A blocking waiter can prevent the async holder from finishing.
     let _lock = lock_directory(parent, user_log)
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
@@ -573,7 +605,7 @@ fn ensure_cached_wasm(
 
     let staged = tempfile::NamedTempFile::new_in(parent)
         .with_context(|| format!("failed to create cache file in {}", parent.display()))?;
-    produce(staged.path())?;
+    produce(staged.path()).await?;
     staged
         .as_file()
         .sync_all()
@@ -796,7 +828,7 @@ impl RegistryClient {
                 .enable_time()
                 .build()
                 .context("failed to start source download runtime")?;
-            let client = download::async_client_with_retry()?;
+            let client = download::client_with_retry()?;
             runtime.block_on(async {
                 let mut downloads = tokio::task::JoinSet::new();
                 for (index, cache_file, restricted) in pending {
@@ -1092,7 +1124,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = api_test_server(listener, vec![(200, String::new(), bytes.clone()); 2]);
-        let client = download::async_client_with_retry().unwrap();
+        let client = download::client_with_retry().unwrap();
         for _ in 0..2 {
             let response = client.get(&url).send().await.unwrap();
             let mut archive =
@@ -2131,15 +2163,20 @@ mod tests {
         .unwrap();
         let registry = api_test_registry(sandbox.path(), &api);
         let server = api_test_server(listener, vec![(200, String::new(), "artifact".to_owned())]);
-        download_registry_asset(
-            &download::client_with_retry().unwrap(),
-            &format!(
-                "{}/prebuild/alice/tools@0.1.0/main.wasm",
-                registry.endpoints.download
-            ),
-            &quiet_user_log(),
-        )
-        .unwrap();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(download_registry_asset(
+                &download::client_with_retry().unwrap(),
+                &format!(
+                    "{}/prebuild/alice/tools@0.1.0/main.wasm",
+                    registry.endpoints.download
+                ),
+                &quiet_user_log(),
+            ))
+            .unwrap();
         assert!(
             !server.join().unwrap()[0]
                 .to_ascii_lowercase()
@@ -2474,8 +2511,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wasm_assets_preserve_major_version_module_boundaries() {
+    #[tokio::test]
+    async fn wasm_assets_preserve_major_version_module_boundaries() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let wasm = b"\0asmtest";
@@ -2507,7 +2544,7 @@ mod tests {
                     &ModuleSource::from_version(name.into(), Version::new(2, 0, 0)).unwrap(),
                     package,
                     &quiet_user_log(),
-                    |url| {
+                    async |url| {
                         urls.push(url.to_owned());
                         if url.ends_with(".sha256") {
                             Ok(checksum.as_bytes().to_vec())
@@ -2516,6 +2553,7 @@ mod tests {
                         }
                     },
                 )
+                .await
                 .unwrap();
             assert_eq!(urls, [format!("{url}.sha256"), url.to_owned()]);
             assert_eq!(path, registry.home.registry_assets_dir().join(cache_suffix));
@@ -2534,8 +2572,8 @@ mod tests {
         assert!(parse_sha256_checksum(b"").is_err());
     }
 
-    #[test]
-    fn wasm_asset_cache_miss_downloads_checksum_and_wasm() {
+    #[tokio::test]
+    async fn wasm_asset_cache_miss_downloads_checksum_and_wasm() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let wasm = b"\0asmtest".to_vec();
@@ -2546,7 +2584,7 @@ mod tests {
                 &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3)).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
-                |url| {
+                async |url| {
                     urls.push(url.to_owned());
                     if url.ends_with(".wasm.sha256") {
                         Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
@@ -2555,6 +2593,7 @@ mod tests {
                     }
                 },
             )
+            .await
             .unwrap();
 
         assert_eq!(std::fs::read(path).unwrap(), b"\0asmtest");
@@ -2567,8 +2606,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wasm_asset_cache_hit_does_not_download() {
+    #[tokio::test]
+    async fn wasm_asset_cache_hit_does_not_download() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let name = parser_module();
@@ -2587,8 +2626,9 @@ mod tests {
                 &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
-                |_| bail!("cache hit should not download"),
+                async |_| bail!("cache hit should not download"),
             )
+            .await
             .unwrap();
 
         assert_eq!(path, cache_path);
@@ -2605,13 +2645,14 @@ mod tests {
         assert_eq!(
             registry
                 .acquire_executable_wasm("moonbitlang/parser/cmd/moonfmt@0.3.3", &quiet_user_log())
+                .await
                 .unwrap(),
             cache_path
         );
     }
 
-    #[test]
-    fn public_wasm_cache_survives_removing_http_metadata() {
+    #[tokio::test]
+    async fn public_wasm_cache_survives_removing_http_metadata() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -2630,10 +2671,15 @@ mod tests {
         );
         let registry = http_test_registry(home.path(), &api);
         let path = registry
-            .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .acquire_executable_wasm("alice/tool", &quiet_user_log())
+            .await
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), wasm);
-        assert_eq!(server.join().unwrap().len(), 3);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        // The latest response also supplies visibility; no second metadata
+        // request is needed before downloading the checksum and Wasm.
+        assert!(requests[0].starts_with("GET /api/v0/registry/modules/alice/tool "));
         let metadata = registry.home.registry_metadata_cache_dir();
         if metadata.exists() {
             std::fs::remove_dir_all(metadata).unwrap();
@@ -2644,13 +2690,14 @@ mod tests {
         assert_eq!(
             fresh
                 .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+                .await
                 .unwrap(),
             path
         );
     }
 
-    #[test]
-    fn private_prebuilt_wasm_download_remains_unsupported() {
+    #[tokio::test]
+    async fn private_prebuilt_wasm_download_remains_unsupported() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -2666,6 +2713,7 @@ mod tests {
         let registry = http_test_registry(home.path(), &api);
         let error = registry
             .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .await
             .unwrap_err();
         assert_eq!(
             error.to_string(),
@@ -2694,6 +2742,8 @@ mod tests {
         let wasm = b"\0asmtest".to_vec();
         let checksum = sha256_hex(&wasm);
 
+        // Model independent callers. Until the file lock yields, sharing one
+        // runtime thread would let a lock waiter block the download holding it.
         let threads = (0..2)
             .map(|_| {
                 let registry = RegistryClient::with_home(
@@ -2713,20 +2763,27 @@ mod tests {
                 let checksum = checksum.clone();
                 std::thread::spawn(move || {
                     start.wait();
-                    registry.acquire_wasm_asset_with(
-                        &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3))
-                            .unwrap(),
-                        "cmd/moonfmt",
-                        &quiet_user_log(),
-                        |url| {
-                            if url.ends_with(".wasm.sha256") {
-                                download_count.fetch_add(1, Ordering::SeqCst);
-                                std::thread::sleep(Duration::from_millis(50));
-                                Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
-                            } else {
-                                Ok(wasm.clone())
-                            }
-                        },
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_io()
+                        .enable_time()
+                        .build()
+                        .unwrap();
+                    runtime.block_on(
+                        registry.acquire_wasm_asset_with(
+                            &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3))
+                                .unwrap(),
+                            "cmd/moonfmt",
+                            &quiet_user_log(),
+                            async |url| {
+                                if url.ends_with(".wasm.sha256") {
+                                    download_count.fetch_add(1, Ordering::SeqCst);
+                                    tokio::time::sleep(Duration::from_millis(50)).await;
+                                    Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
+                                } else {
+                                    Ok(wasm.clone())
+                                }
+                            },
+                        ),
                     )
                 })
             })
@@ -2742,8 +2799,8 @@ mod tests {
         assert_eq!(download_count.load(Ordering::SeqCst), 1);
     }
 
-    #[test]
-    fn wasm_asset_checksum_mismatch_is_not_cached() {
+    #[tokio::test]
+    async fn wasm_asset_checksum_mismatch_is_not_cached() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let name = parser_module();
@@ -2755,7 +2812,7 @@ mod tests {
                 &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
-                |url| {
+                async |url| {
                     if url.ends_with(".wasm.sha256") {
                         Ok(format!("{expected_checksum}\n").into_bytes())
                     } else {
@@ -2763,6 +2820,7 @@ mod tests {
                     }
                 },
             )
+            .await
             .unwrap_err();
 
         assert!(
@@ -2778,8 +2836,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wasm_asset_rejects_unvalidated_package_paths() {
+    #[tokio::test]
+    async fn wasm_asset_rejects_unvalidated_package_paths() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let error = registry
@@ -2787,8 +2845,9 @@ mod tests {
                 &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3)).unwrap(),
                 "../escape",
                 &quiet_user_log(),
-                |_| bail!("invalid paths must fail before downloading"),
+                async |_| bail!("invalid paths must fail before downloading"),
             )
+            .await
             .unwrap_err();
 
         assert!(
@@ -3104,7 +3163,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = api_test_server(listener, vec![(200, String::new(), test_archive())]);
-        let response = download::async_client_with_retry()
+        let response = download::client_with_retry()
             .unwrap()
             .get(url)
             .send()
@@ -3242,8 +3301,8 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn registry_path_resolution_preserves_index_io_errors() {
+    #[tokio::test]
+    async fn registry_path_resolution_preserves_index_io_errors() {
         let dir = tempfile::tempdir().unwrap();
         let registry = api_test_registry(dir.path(), "https://registry.example.test");
         let module: ModuleName = "test/module".into();
@@ -3258,6 +3317,7 @@ mod tests {
         assert!(error.is::<std::io::Error>(), "{error:#}");
         let error = registry
             .resolve_executable_package("test/module", &quiet_user_log())
+            .await
             .unwrap_err();
         assert!(error.is::<std::io::Error>(), "{error:#}");
     }
@@ -3285,8 +3345,8 @@ mod tests {
         assert!(error.is::<semver::Error>());
     }
 
-    #[test]
-    fn git_latest_queries_distinguish_cached_answers_from_current_answers() {
+    #[tokio::test]
+    async fn git_latest_queries_distinguish_cached_answers_from_current_answers() {
         let run_git = |args: &[&str]| {
             let output = std::process::Command::new("git")
                 .args(args)
@@ -3388,6 +3448,7 @@ mod tests {
             // current query for an unpinned executable coordinate.
             let package = registry
                 .resolve_executable_package("alice/tool", &user_log)
+                .await
                 .unwrap();
             assert_eq!(package.module.name().to_string(), "alice/tool");
             assert_eq!(package.module.version().to_string(), "1.2.3");
