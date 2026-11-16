@@ -38,6 +38,7 @@ pub use client::{
     RegistryRelease, RegistrySearchResult, RegistrySummaryFragment, RegistryUserModules,
 };
 pub use executable::ResolvedExecutablePackage;
+pub use http::HttpVersionReader;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
 use moonutil::resolution::{ModuleName, ModuleSource};

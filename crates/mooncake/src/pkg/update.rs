@@ -30,7 +30,7 @@ use tokio::task::JoinSet;
 use tracing::Instrument;
 
 use crate::{
-    registry::{RegistryClient, RegistryVersionInfo},
+    registry::{HttpVersionReader, RegistryClient, RegistryVersionInfo},
     resolver::{ModuleResolutionConfig, MvsSolver, resolve_modules_with_solver},
 };
 
@@ -42,13 +42,14 @@ pub struct DependencyUpdate {
     pub latest: anyhow::Result<Version>,
 }
 
-/// Refresh the selected dependency graph without acquiring sources or changing
-/// declarations. Git index synchronization is handled before project discovery.
+/// Refresh the selected dependency graph with this registry's HTTP reader,
+/// without acquiring sources or changing declarations.
 /// The caller owns the Tokio runtime and LocalSet for resolution and refresh.
 #[tracing::instrument(skip_all)]
 pub async fn update(
     project: &ProjectManifest,
     registry: &RegistryClient,
+    reader: HttpVersionReader,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<DependencyUpdate>> {
     let module_dirs = match project {
@@ -82,7 +83,7 @@ pub async fn update(
     // Resolution produces one selected version per module identity, including
     // shared workspace dependencies. Refresh old selected versions separately
     // from latest: a healthy latest release says nothing about the old one.
-    let reader = Rc::new(registry.http_version_reader()?);
+    let reader = Rc::new(reader);
     let mut refreshes = JoinSet::new();
     for module in selected {
         let module = module.clone();

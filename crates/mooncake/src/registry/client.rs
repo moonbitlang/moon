@@ -327,12 +327,12 @@ impl RegistryClient {
         }
     }
 
-    /// Share one asynchronous HTTP connection pool throughout a metadata refresh.
-    /// Git mode synchronizes the complete index instead of refreshing per module.
-    pub(crate) fn http_version_reader(&self) -> anyhow::Result<super::http::HttpVersionReader> {
+    /// Start an HTTP metadata session, or return `None` for a Git registry.
+    /// Callers can select per-module refresh or whole-index synchronization here.
+    pub fn http_version_reader(&self) -> Option<super::http::HttpVersionReader> {
         match &self.metadata {
-            MetadataBackend::Http(http) => Ok(http.version_reader(self.frozen_dependencies)),
-            MetadataBackend::Git(_) => bail!("per-module refresh requires HTTP registry metadata"),
+            MetadataBackend::Http(http) => Some(http.version_reader(self.frozen_dependencies)),
+            MetadataBackend::Git(_) => None,
         }
     }
 

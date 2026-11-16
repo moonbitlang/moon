@@ -90,7 +90,7 @@ struct HttpMetadataState {
 
 /// The asynchronous connection pool belongs to the caller's operation runtime.
 /// It shares metadata with synchronous registry and source-acquisition callers.
-pub(crate) struct HttpVersionReader {
+pub struct HttpVersionReader {
     state: Arc<HttpMetadataState>,
     client: OnceCell<reqwest::Client>,
     frozen: bool,
