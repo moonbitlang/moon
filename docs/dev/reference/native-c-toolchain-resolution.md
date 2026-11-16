@@ -108,7 +108,8 @@ compares the architecture, operating system, and ABI of the probed target
 triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
 targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
 require no ABI component. Windows does not compare the ABI, because the shipped
-objects are not used there and the MSVC toolchain policy selects the ABI.
+objects are not used there. Windows direct object selection separately requires
+a cl-compatible driver.
 When they differ, Moon does not link `libmoonbitrun.o` or `libbacktrace.a`,
 and it does not define `MOONBIT_USE_SIMDUTF` or archive the SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
 backtraces depend on `libbacktrace.a`, so Moon also does not define
@@ -221,9 +222,25 @@ errors. `detected_default_native_toolchain()` tries Windows MSVC discovery befor
 the cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in
 `detect_cc_on_path()`.
 
-The Windows MSVC direct object native target uses the same resolver with an MSVC
-compatibility requirement. It warns and ignores an incompatible `MOON_CC`, rejects
-an incompatible package request, and has no GCC-like fallback.
+For Native and LLVM requests, build planning first resolves toolchains into
+bindings for the shared runtime, each requested program package's `cc`, and each
+package's `stub-cc` whose C stubs will be linked. Repeated compiler requests share
+resolution within this step, but the returned bindings retain each consumer's
+role. Payload selection reads these bindings, and action construction looks them
+up by role without reading compiler requests or resolving executables again.
+Unused packages and commands without native toolchain actions do not trigger
+compiler resolution.
+
+The program binding supplies both generated-C compilation and final linking (or
+foreign-library archiving). Runtime and C-stub compilation and archiving consume
+their own bindings, which can select different toolchains.
+
+Automatic Native payload selection then checks those selected toolchains. A
+compiler targeting another platform requires generated C. The Windows direct
+object target also requires every selected driver to be cl-compatible; a selected
+GCC-style driver therefore uses generated C. Debug/profile and package C-flag
+constraints still apply. An explicit compiler request is honored or produces an
+error; payload selection never substitutes another compiler to keep direct objects.
 
 ## Global Environment Override
 

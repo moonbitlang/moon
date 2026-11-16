@@ -1,6 +1,92 @@
 use crate::{TestDir, moon_cmd};
 
 #[test]
+fn missing_compiler_override_is_not_replaced_by_msvc() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    moon_cmd(&dir)
+        .env("MOON_CC", "moon-missing-gcc")
+        .env("MOONBIT_NEW_NATIVE", "1")
+        .args(["build", "--target", "native", "--debug", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+[..]native compiler executable `moon-missing-gcc`[..]
+...
+"#]]);
+}
+
+// Real Clang and Windows SDK are required. The C stub reports its compiler;
+// the generated file additionally proves that the payload switched to C.
+fn assert_clang_run_uses_generated_c(dir: &TestDir, env_cc: Option<&str>) {
+    if which::which("clang").is_err() {
+        assert!(std::env::var_os("CI").is_none(), "clang missing in CI");
+        eprintln!("skipping compiler selection test: clang is unavailable");
+        return;
+    }
+    let sdk = moonutil::compiler_flags::resolve_windows_msvc_toolchain().unwrap();
+    moon_cmd(dir)
+        .envs(
+            sdk.msvc_environment()
+                .unwrap()
+                .command_env()
+                .iter()
+                .cloned(),
+        )
+        .env_remove("MOON_CC")
+        .env_remove("MOON_AR")
+        .env_remove("MOON_CC_WRAPPER")
+        .envs(env_cc.map(|cc| ("MOON_CC", cc)))
+        .env("MOONBIT_NEW_NATIVE", "1")
+        .args(["run", "main", "--target", "native", "--debug"])
+        .assert()
+        .success()
+        .stdout_eq("1\n");
+    assert!(dir.join("_build/native/debug/build/main/main.c").is_file());
+}
+
+#[test]
+fn env_clang_builds_and_runs_generated_c() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    assert_clang_run_uses_generated_c(&dir, Some("clang"));
+}
+
+#[test]
+fn package_clang_builds_and_runs_generated_c() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+options(
+  "is-main": true,
+  "native-stub": ["stub.c"],
+  link: { "native": { "cc": "clang", "stub-cc": "clang" } },
+)
+"#,
+    )
+    .unwrap();
+    assert_clang_run_uses_generated_c(&dir, None);
+}
+
+#[test]
+fn stub_clang_builds_and_runs_generated_c() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    // The program uses the default compiler; only its stub requests Clang.
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+options(
+  "is-main": true,
+  "native-stub": ["stub.c"],
+  link: { "native": { "stub-cc": "clang" } },
+)
+"#,
+    )
+    .unwrap();
+    assert_clang_run_uses_generated_c(&dir, None);
+}
+
+#[test]
 fn bare_clang_cl_overrides_run_the_requested_compiler() {
     if which::which("clang-cl").is_err() {
         assert!(std::env::var_os("CI").is_none(), "clang-cl missing in CI");

@@ -1,0 +1,5 @@
+options(
+  "is-main": true,
+  "native-stub": ["stub.c"],
+  link: { "native": { "cc": "first-gcc", "stub-cc": "stub-gcc" } },
+)
