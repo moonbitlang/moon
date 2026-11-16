@@ -1,5 +1,10 @@
 options(
   "is-main": true,
-  "native-stub": ["stub.c", "stub.cpp"],
-  link: { "native": { "stub-cc-flags": "/std:c++20" } },
+  "native-stub": ["stub.c", "cpp_stub.cpp", "other.cc"],
+  link: {
+    "native": {
+      "stub-cc-flags": "/std:c11",
+      "stub-cxx-flags": "/std:c++20",
+    },
+  },
 )

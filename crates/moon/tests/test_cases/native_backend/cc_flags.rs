@@ -2,7 +2,9 @@
 use std::process::Command;
 
 #[cfg(not(windows))]
-use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs};
+use crate::{
+    TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs, moon_cmd,
+};
 #[cfg(windows)]
 use crate::{TestDir, get_stdout_with_envs, moon_cmd};
 #[cfg(unix)]
@@ -12,21 +14,33 @@ use expect_test::expect_file;
 use super::unix_graph::assert_native_backend_graph;
 
 #[test]
-#[cfg(windows)]
-fn msvc_runs_mixed_c_and_cpp_stubs_with_explicit_standard() {
-    // Given C and C++ stubs sharing package flags, including C++20 consteval.
-    // Requires real MSVC and the Windows SDK.
-    let dir = TestDir::new("native_backend/msvc_cpp_stubs");
-    // When Moon compiles both stubs and links them into a native program.
-    moon_cmd(&dir)
-        .env("MOON_CC", "cl")
-        .env_remove("MOON_AR")
-        .env_remove("MOON_CC_WRAPPER")
-        .args(["run", "--target", "native"])
-        .assert()
-        .success()
-        // Then both implementations contribute to the result.
-        .stdout_eq("42\n");
+fn mixed_c_and_cpp_stubs_use_separate_flags() {
+    let compilers: &[&str] = if cfg!(windows) {
+        &["cl", "clang-cl"]
+    } else {
+        &["clang"]
+    };
+    for compiler in compilers {
+        if *compiler == "clang-cl" && which::which(compiler).is_err() {
+            assert!(std::env::var_os("CI").is_none(), "clang-cl missing in CI");
+            eprintln!("skipping mixed stub test for unavailable clang-cl");
+            continue;
+        }
+        let dir = TestDir::new("native_backend/msvc_cpp_stubs");
+        if !cfg!(windows) {
+            let manifest = std::fs::read_to_string(dir.join("moon.pkg")).unwrap();
+            std::fs::write(dir.join("moon.pkg"), manifest.replace("/std:", "-std=")).unwrap();
+        }
+        // C11 _Generic and C++20 consteval must compile in the same package.
+        moon_cmd(&dir)
+            .env("MOON_CC", compiler)
+            .env_remove("MOON_AR")
+            .env_remove("MOON_CC_WRAPPER")
+            .args(["run", ".", "--target", "native"])
+            .assert()
+            .success()
+            .stdout_eq("42\n");
+    }
 }
 
 #[cfg(windows)]
