@@ -89,8 +89,8 @@ struct HttpMetadataState {
 }
 
 /// The asynchronous connection pool belongs to the caller's operation runtime.
-/// It shares metadata with synchronous update and source-acquisition callers.
-pub(super) struct HttpVersionReader {
+/// It shares metadata with synchronous registry and source-acquisition callers.
+pub(crate) struct HttpVersionReader {
     state: Arc<HttpMetadataState>,
     client: OnceCell<reqwest::Client>,
     frozen: bool,
@@ -295,6 +295,18 @@ impl HttpMetadataState {
 }
 
 impl HttpVersionReader {
+    pub(crate) async fn refresh_version_info(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        if self.frozen {
+            bail!("frozen mode cannot refresh registry metadata for {name}@{version}");
+        }
+        super::path::parse_module_path(&name.to_string())?;
+        Ok(self.fetch_release(name, Some(version)).await?.into())
+    }
+
     pub(super) async fn is_restricted(
         &self,
         name: &ModuleName,
@@ -303,7 +315,7 @@ impl HttpVersionReader {
         Ok(self.exact_release(name, version).await?.visibility == ModuleVisibility::Private)
     }
 
-    pub(super) async fn query_latest_version(&self, name: &ModuleName) -> anyhow::Result<Version> {
+    pub(crate) async fn query_latest_version(&self, name: &ModuleName) -> anyhow::Result<Version> {
         if self.frozen {
             bail!("frozen mode cannot query the latest registry version for {name}");
         }

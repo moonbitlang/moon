@@ -503,6 +503,94 @@ fn no_update_allows_acquiring_missing_exact_metadata() {
 }
 
 #[test]
+fn update_overlaps_refreshes_and_reports_results_in_module_order() {
+    let home = tempfile::tempdir().unwrap();
+    let project = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/test_cases/registry_update_concurrent.in");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    configure(
+        home.path(),
+        &format!("http://{}", listener.local_addr().unwrap()),
+    );
+    let server = std::thread::spawn(move || {
+        // Seed exact metadata through `tree`, then require overlapping exact
+        // and latest refreshes. Neither response is sent until both arrive.
+        for phase in 0..3 {
+            let mut waiting = Vec::new();
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            for _ in 0..2 {
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "both metadata requests must arrive before either response"
+                            );
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("{error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(10)))
+                    .unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut request = String::new();
+                reader.read_line(&mut request).unwrap();
+                loop {
+                    let mut line = String::new();
+                    assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+                let target = request.split_whitespace().nth(1).unwrap();
+                let module = target.strip_prefix("/api/v0/registry/modules/").unwrap();
+                let module = if phase == 2 {
+                    assert!(!module.contains('?'));
+                    module
+                } else {
+                    module.strip_suffix("?version=0.1.0").unwrap()
+                };
+                waiting.push((module.to_owned(), stream));
+            }
+            // Reply in reverse module order; the command still prints a, b.
+            waiting.sort_unstable_by(|(a, _), (b, _)| b.cmp(a));
+            assert_eq!(waiting[0].0, "alice/b");
+            assert_eq!(waiting[1].0, "alice/a");
+            for (module, mut stream) in waiting {
+                let body = serde_json::json!({
+                    "module": module, "visibility": "PUBLIC",
+                    "version": if phase == 2 { "0.2.0" } else { "0.1.0" },
+                    "deps": {}, "checksum": "a".repeat(64),
+                    "yanked": phase == 1 && module == "alice/b",
+                })
+                .to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        }
+    });
+    moon(&project, home.path(), true)
+        .args(["tree"])
+        .assert()
+        .success();
+    let result = moon(&project, home.path(), true).args(["update"]).assert();
+    server.join().unwrap();
+    result.success()
+        .stdout_eq("alice/a@0.1.0: latest 0.2.0 (update available)\nalice/b@0.1.0: latest 0.2.0 (update available); deprecated\n")
+        .stderr_eq("");
+    assert!(!project.join(".mooncakes").exists());
+}
+
+#[test]
 fn update_refreshes_selected_status_and_latest_without_changing_the_project() {
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();

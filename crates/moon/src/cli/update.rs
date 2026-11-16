@@ -64,8 +64,17 @@ pub(crate) fn update_cli(
         .query(cli.workspace_env.clone())?
         .select(output.user_log())?
         .package_dirs()?;
-    let updates =
-        mooncake::pkg::update::update(&project.project_manifest, &registry, output.user_log())?;
+    let updates = {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .context("failed to start registry update runtime")?;
+        tokio::task::LocalSet::new().block_on(
+            &runtime,
+            mooncake::pkg::update::update(&project.project_manifest, &registry, output.user_log()),
+        )?
+    };
     let mut failures = Vec::new();
     output.write_result(|writer| -> anyhow::Result<()> {
         if updates.is_empty() {

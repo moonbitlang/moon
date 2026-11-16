@@ -327,6 +327,15 @@ impl RegistryClient {
         }
     }
 
+    /// Share one asynchronous HTTP connection pool throughout a metadata refresh.
+    /// Git mode synchronizes the complete index instead of refreshing per module.
+    pub(crate) fn http_version_reader(&self) -> anyhow::Result<super::http::HttpVersionReader> {
+        match &self.metadata {
+            MetadataBackend::Http(http) => Ok(http.version_reader(self.frozen_dependencies)),
+            MetadataBackend::Git(_) => bail!("per-module refresh requires HTTP registry metadata"),
+        }
+    }
+
     /// Search the configured registry for published modules.
     #[tracing::instrument(skip(self), fields(api = %self.config.api))]
     pub fn search(&self, keyword: &str, limit: u32) -> anyhow::Result<Vec<RegistrySearchResult>> {

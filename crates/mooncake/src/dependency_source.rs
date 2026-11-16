@@ -18,6 +18,12 @@
 
 //! Selection of dependency sources used by one resolution.
 
+// TODO: Separate source availability from installation completion. Cache original
+// sources even when they declare postadd, but run hooks in writable installation
+// directories. Persist pending/completed/skipped hook state instead of inferring
+// completion from a manifest, then schedule hooks according to dependencies with
+// bounded concurrency. Caching hook outputs needs separately defined build inputs.
+
 mod global;
 mod project;
 

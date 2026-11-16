@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use anyhow::{Context, bail};
 use moonutil::{
@@ -26,10 +26,12 @@ use moonutil::{
     user_log::UserLog,
 };
 use semver::Version;
+use tokio::task::JoinSet;
+use tracing::Instrument;
 
 use crate::{
-    registry::{Registry, RegistryClient, RegistryVersionInfo},
-    resolver::{ModuleResolutionConfig, resolve_modules},
+    registry::{RegistryClient, RegistryVersionInfo},
+    resolver::{ModuleResolutionConfig, MvsSolver, resolve_modules_with_solver},
 };
 
 /// Independent refresh outcomes for one selected dependency. Keeping failures
@@ -42,8 +44,9 @@ pub struct DependencyUpdate {
 
 /// Refresh the selected dependency graph without acquiring sources or changing
 /// declarations. Git index synchronization is handled before project discovery.
+/// The caller owns the Tokio runtime and LocalSet for resolution and refresh.
 #[tracing::instrument(skip_all)]
-pub fn update(
+pub async fn update(
     project: &ProjectManifest,
     registry: &RegistryClient,
     user_log: &UserLog,
@@ -70,25 +73,41 @@ pub fn update(
         inject_std: false,
         warn_deprecated: false,
     };
-    let graph = resolve_modules(&config, roots, user_log)?;
-    let mut selected = graph
+    let graph = resolve_modules_with_solver(&config, &mut MvsSolver, roots, user_log).await?;
+    let selected = graph
         .all_modules_and_id()
         .map(|(_, module)| module)
-        .filter(|module| matches!(module.source(), ModuleSourceKind::Registry))
-        .collect::<Vec<_>>();
-    selected.sort_unstable_by(|a, b| a.name().cmp(b.name()));
+        .filter(|module| matches!(module.source(), ModuleSourceKind::Registry));
 
     // Resolution produces one selected version per module identity, including
     // shared workspace dependencies. Refresh old selected versions separately
     // from latest: a healthy latest release says nothing about the old one.
-    Ok(selected
-        .into_iter()
-        .map(|module| DependencyUpdate {
-            status: registry
-                .refresh_version_info(module.name(), module.version(), user_log)
-                .and_then(|info| info.with_context(|| format!("release {module} is missing"))),
-            latest: registry.query_latest_version(module.name(), user_log),
-            module: module.clone(),
-        })
-        .collect())
+    let reader = Rc::new(registry.http_version_reader()?);
+    let mut refreshes = JoinSet::new();
+    for module in selected {
+        let module = module.clone();
+        let reader = Rc::clone(&reader);
+        let span = tracing::debug_span!("refresh_dependency", module = %module);
+        refreshes.spawn_local(
+            async move {
+                let status = reader
+                    .refresh_version_info(module.name(), module.version())
+                    .await;
+                // Attempt latest even if refreshing the selected version failed.
+                let latest = reader.query_latest_version(module.name()).await;
+                DependencyUpdate {
+                    module,
+                    status,
+                    latest,
+                }
+            }
+            .instrument(span),
+        );
+    }
+    let mut updates = Vec::new();
+    while let Some(update) = refreshes.join_next().await {
+        updates.push(update.context("registry refresh task failed")?);
+    }
+    updates.sort_unstable_by(|a, b| a.module.name().cmp(b.module.name()));
+    Ok(updates)
 }
