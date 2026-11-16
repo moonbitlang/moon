@@ -14,6 +14,26 @@ On Windows, the new native backend requires a cl-compatible MSVC toolchain,
 such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
 the executable.
 
+## C and C++ stub flags
+
+Use `link.native.stub-cc-flags` for C and `stub-cxx-flags` for C++ in a mixed
+package. For example, with `cl` or `clang-cl`:
+
+```moonbit
+options(
+  "native-stub": ["helper.c", "wrapper.cpp"],
+  link: { "native": {
+    "stub-cc-flags": "/std:c11",
+    "stub-cxx-flags": "/std:c++20 /EHsc",
+  } },
+)
+```
+
+C++ extensions are `.cc`, `.cpp`, `.cxx`, `.c++`, and `.C`. When omitted,
+`stub-cxx-flags` falls back to `stub-cc-flags`; an empty string opts out of that
+fallback. Both fields support `${build.NAME}` variables and shell-style quoting.
+User flags follow compiler defaults, so `/std:c17` can override the C11 default.
+
 ## C compiler caching
 
 Set `MOON_CC_WRAPPER` to use a compiler cache such as ccache or sccache:

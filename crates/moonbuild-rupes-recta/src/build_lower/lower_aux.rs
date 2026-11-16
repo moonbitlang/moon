@@ -183,6 +183,7 @@ impl<'a> super::LoweringContext<'a> {
             make_cc_command_resolved(
                 resolved_cc,
                 CCConfig {
+                    is_cpp: false,
                     debug_info: true,
                     link_moonbitrun: true,
                     link_libbacktrace: false,

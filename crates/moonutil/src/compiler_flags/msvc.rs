@@ -199,18 +199,22 @@ pub(super) fn add_linker_runtime<P: AsRef<Path>>(
     }
 }
 
-pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, cc_flags: &[impl AsRef<str>]) {
+pub(super) fn add_cc_specific_flags(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    is_cpp: bool,
+    has_user_flags: bool,
+) {
     if !cc.uses_msvc_cli() {
         return;
     }
 
-    // A user-selected standard replaces the C11 default: cl rejects mixing
-    // /std:c11 with /std:c++20, even when the latter appears last.
-    let has_standard = cc_flags.iter().any(|flag| {
-        let flag = flag.as_ref();
-        flag.starts_with("/std:") || flag.starts_with("-std:")
-    });
-    if !has_standard {
+    // cl rejects combining C and C++ standards. Select defaults by source
+    // language, leaving later user flags free to override the same-language default.
+    if is_cpp {
+        // cl does not recognize .cc (unlike clang-cl); both drivers support /TP.
+        buf.push("/TP".to_string());
+    } else {
         buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
     }
     // Large generated C files can exceed the default COFF section limit.
@@ -222,7 +226,7 @@ pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, cc_flags: &[
         buf.push("/clang:-fwrapv".to_string());
     }
 
-    if cc_flags.is_empty() {
+    if !has_user_flags {
         buf.push("/utf-8".to_string());
         buf.push("/wd4819".to_string());
     }

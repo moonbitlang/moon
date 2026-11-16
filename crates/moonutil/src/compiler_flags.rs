@@ -836,6 +836,8 @@ pub enum OptLevel {
 
 #[derive(Clone)]
 pub struct CCConfig {
+    /// Compile C++ sources, selecting language-appropriate defaults for MSVC drivers.
+    pub is_cpp: bool,
     // indicates -g for gcc-like compilers
     // we don't set /Zi as it will have concurrency problem
     // like multiple msvc instances race to write the same .pdb file
@@ -1411,7 +1413,7 @@ where
     add_cc_compile_only_flags(&cc, &mut buf, &config);
 
     // Compiler-specific flags
-    add_cc_msvc_specific_flags(&cc, &mut buf, cc_flags);
+    add_cc_msvc_specific_flags(&cc, &mut buf, config.is_cpp, has_user_flags);
     add_cc_gcc_like_specific_flags(&cc, &mut buf);
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
@@ -1494,6 +1496,7 @@ mod tests {
 
     fn executable_cc_config() -> CCConfig {
         CCConfig {
+            is_cpp: false,
             debug_info: false,
             link_moonbitrun: false,
             link_libbacktrace: false,
@@ -2185,6 +2188,7 @@ mod tests {
         let command = make_cc_command_resolved_for_toolchain(
             &toolchain,
             CCConfig {
+                is_cpp: false,
                 debug_info: false,
                 link_moonbitrun: false,
                 link_libbacktrace: false,
@@ -2512,35 +2516,47 @@ mod tests {
     }
 
     #[test]
-    fn msvc_explicit_language_standard_replaces_default() {
+    fn msvc_language_defaults_precede_user_flags() {
         let paths = CompilerPaths {
             include_path: "include".into(),
             lib_path: "lib".into(),
         };
         for kind in [CCKind::Msvc, CCKind::ClangCl] {
-            for (source, standard) in [
-                ("stub.cpp", "/std:c++20"),
-                ("stub.c", "/std:c17"),
-                ("stub.cpp", "-std:c++20"),
-                ("stub.c", "-std:c17"),
+            for (source, is_cpp, user_flags, expected) in [
+                ("stub.c", false, vec![], vec!["/std:c11"]),
+                (
+                    "stub.c",
+                    false,
+                    vec!["/std:c17"],
+                    vec!["/std:c11", "/std:c17"],
+                ),
+                ("stub.cpp", true, vec![], vec!["/TP"]),
+                (
+                    "stub.cc",
+                    true,
+                    vec!["/std:c++20"],
+                    vec!["/TP", "/std:c++20"],
+                ),
             ] {
                 let command = make_cc_command_resolved_with_link_args(
                     fake_cc(kind, None),
-                    executable_cc_config(),
-                    &[standard],
+                    CCConfig {
+                        is_cpp,
+                        ..executable_cc_config()
+                    },
+                    &user_flags,
                     &[],
                     [source],
                     "build",
                     Some("build/main.exe"),
                     &paths,
                 );
-                assert!(command.iter().any(|arg| arg == standard));
-                assert!(
-                    !command
-                        .iter()
-                        .any(|arg| arg == WINDOWS_MSVC_C_STANDARD_FLAG),
-                    "{kind:?}: {command:?}"
-                );
+                let language_flags: Vec<_> = command
+                    .iter()
+                    .filter(|arg| arg.starts_with("/std:") || *arg == "/TP")
+                    .map(String::as_str)
+                    .collect();
+                assert_eq!(language_flags, expected, "{kind:?}: {command:?}");
             }
         }
     }

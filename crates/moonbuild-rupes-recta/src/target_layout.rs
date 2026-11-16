@@ -1311,6 +1311,7 @@ mod tests {
             debug_info: false,
             opt_level: moonutil::compiler_flags::OptLevel::None,
             cc_flags: Vec::new(),
+            cxx_flags: None,
             link_args: Vec::new(),
         }
     }

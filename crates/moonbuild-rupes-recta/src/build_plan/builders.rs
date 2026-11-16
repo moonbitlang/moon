@@ -946,6 +946,16 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
+        let cxx_flags = native_config
+            .and_then(|native| native.stub_cxx_flags.as_ref())
+            .map(|s| self.replace_build_vars(target, pkg.module, s))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedStubCxxFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?;
+
         let mut link_args = native_config
             .and_then(|native| native.stub_cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
@@ -985,6 +995,7 @@ impl<'a> BuildPlanConstructor<'a> {
             debug_info,
             opt_level,
             cc_flags,
+            cxx_flags,
             link_args,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);

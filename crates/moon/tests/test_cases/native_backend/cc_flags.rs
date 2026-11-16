@@ -43,6 +43,44 @@ fn mixed_c_and_cpp_stubs_use_separate_flags() {
     }
 }
 
+#[test]
+fn cpp_stubs_keep_legacy_cc_flags() {
+    let dir = TestDir::new("native_backend/msvc_cpp_stubs");
+    let (compiler, flags) = if cfg!(windows) {
+        ("cl", "/std:c++20")
+    } else {
+        ("clang", "-std=c++20")
+    };
+    // Existing C++ packages can keep their standard in stub-cc-flags.
+    std::fs::write(
+        dir.join("moon.pkg"),
+        format!(
+            r#"options(
+      "is-main": true,
+      "native-stub": ["cpp_stub.cpp"],
+      link: {{ "native": {{ "stub-cc-flags": "{flags}" }} }},
+    )"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.mbt"),
+        r#"
+extern "C" fn cpp_answer() -> Int = "cpp_answer"
+fn main { println(cpp_answer()) }
+"#,
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .env("MOON_CC", compiler)
+        .env_remove("MOON_AR")
+        .env_remove("MOON_CC_WRAPPER")
+        .args(["run", ".", "--target", "native"])
+        .assert()
+        .success()
+        .stdout_eq("13\n");
+}
+
 #[cfg(windows)]
 fn link_commands_with_compiler(output: &str, compiler_path: &str) -> Vec<String> {
     let compiler_path = compiler_path.replace('\\', "/").to_ascii_lowercase();

@@ -1050,7 +1050,18 @@ impl<'a> LoweringContext<'a> {
             )
         });
 
+        let is_cpp = matches!(
+            input_file.extension().and_then(|ext| ext.to_str()),
+            Some("cc" | "cpp" | "cxx" | "c++" | "C")
+        );
+        let cc_flags = if is_cpp {
+            // TODO: Remove this fallback when stub-cc-flags becomes C-only.
+            info.cxx_flags.as_deref().unwrap_or(&info.cc_flags)
+        } else {
+            &info.cc_flags
+        };
         let config = CCConfig {
+            is_cpp,
             debug_info: info.debug_info,
             link_moonbitrun: true,
             link_libbacktrace: false,
@@ -1074,7 +1085,7 @@ impl<'a> LoweringContext<'a> {
         let cc_cmd = make_cc_command_resolved_for_toolchain(
             &info.effective_native_toolchain,
             config,
-            &info.cc_flags,
+            cc_flags,
             &[],
             [input_file.display().to_string()],
             &intermediate_dir,
@@ -1210,6 +1221,7 @@ impl<'a> LoweringContext<'a> {
         // Compile with the settings an executable link would use for the
         // same generated C, so the object matches the runtime it links with.
         let config = CCConfig {
+            is_cpp: false,
             debug_info: info.c_debug_info,
             link_moonbitrun: true,
             link_libbacktrace: false,

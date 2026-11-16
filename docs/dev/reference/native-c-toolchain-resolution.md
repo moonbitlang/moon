@@ -141,15 +141,26 @@ do not enable it.
 
 This is why Moon needs both a compiler driver and an archiver.
 
-## Language standards
+## Native stub language flags
 
-MSVC-compatible drivers receive `/std:c11` by default. An explicit `/std:` or
-`-std:` in the action's compiler flags replaces this default; MSVC rejects a
-command containing both `/std:c11` and `/std:c++20`. Other flags do not suppress
-the C11 default. Package `stub-cc-flags` apply to every stub, so an explicit C++
-standard also suppresses the C11 default for C files in a mixed package. Moon
-preserves these user flags without choosing a different standard for each file;
-source language selection remains the compiler's responsibility.
+`link.native.stub-cc-flags` configures C stub compilation.
+`link.native.stub-cxx-flags` selects independent flags for C++ stubs with `.cc`,
+`.cpp`, `.cxx`, `.c++`, or `.C` extensions. Both fields expand build variables
+before splitting shell-style arguments. When `stub-cxx-flags` is absent, C++
+stubs continue to use `stub-cc-flags` for compatibility; an explicit empty string
+selects compiler defaults without inheriting the C flags. `stub-cc` selects the
+compiler driver for both languages.
+
+MSVC-compatible drivers receive `/std:c11` for C compilation, including the
+runtime and MoonBit-generated C. C++ stubs instead receive `/TP`, which also
+lets `cl` compile `.cc` files. Moon leaves the default C++ standard to the
+driver. These rules apply to both `cl` and `clang-cl`.
+
+User flags follow Moon's defaults. For example, a later `/std:c17` overrides
+`/std:c11` for C, while `/std:c++20` belongs in `stub-cxx-flags`. MSVC rejects
+mixing C and C++ standard flags in a single command. Flags are selected by
+source extension; forcing another language in raw compiler flags does not
+change which manifest field Moon selects.
 
 ## Debug information and optimization
 
