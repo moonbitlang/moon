@@ -141,6 +141,16 @@ do not enable it.
 
 This is why Moon needs both a compiler driver and an archiver.
 
+## Language standards
+
+MSVC-compatible drivers receive `/std:c11` by default. An explicit `/std:` or
+`-std:` in the action's compiler flags replaces this default; MSVC rejects a
+command containing both `/std:c11` and `/std:c++20`. Other flags do not suppress
+the C11 default. Package `stub-cc-flags` apply to every stub, so an explicit C++
+standard also suppresses the C11 default for C files in a mixed package. Moon
+preserves these user flags without choosing a different standard for each file;
+source language selection remains the compiler's responsibility.
+
 ## Debug information and optimization
 
 Generated C relies on wrapping signed integer addition, subtraction, and

@@ -1411,7 +1411,7 @@ where
     add_cc_compile_only_flags(&cc, &mut buf, &config);
 
     // Compiler-specific flags
-    add_cc_msvc_specific_flags(&cc, &mut buf, has_user_flags);
+    add_cc_msvc_specific_flags(&cc, &mut buf, cc_flags);
     add_cc_gcc_like_specific_flags(&cc, &mut buf);
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
