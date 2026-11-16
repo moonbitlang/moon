@@ -151,6 +151,36 @@ fn fix_package_selector_does_not_edit_checked_dependencies() {
     assert_eq!(read_file(&dir, "dep/a.mbt"), UNUSED_MUT_SOURCE);
 }
 
+#[cfg(unix)]
+#[test]
+fn fix_standalone_symlinks_preserve_the_invoked_source_identity() {
+    use std::os::unix::fs::symlink;
+
+    for (alias, target) in [
+        ("alias.mbtx", "source.mbt"),
+        ("alias.mbt", "nested/source.mbt"),
+    ] {
+        let (dir, moonc) = project(&[
+            (target, UNUSED_MUT_SOURCE),
+            (&format!("{alias}.diagnostics"), &unused_mut("*", 2)),
+        ]);
+        // Exercise explicit .mbtx mode and the .mbt fallback outside a project.
+        std::fs::remove_file(dir.join("project/moon.mod")).unwrap();
+        std::fs::remove_file(dir.join("project/moon.pkg")).unwrap();
+        symlink(target, dir.join("project").join(alias)).unwrap();
+        fix_cmd(&dir, &moonc)
+            .arg(alias)
+            .assert()
+            .success()
+            .stdout_eq(format!("{alias}:2:3: Remove `mut`\n"));
+        assert_eq!(read_file(&dir, target), FIXED_SOURCE);
+        assert_eq!(
+            std::fs::read_link(dir.join("project").join(alias)).unwrap(),
+            PathBuf::from(target)
+        );
+    }
+}
+
 #[test]
 fn fix_prebuild_failure_is_not_a_successful_fix_run() {
     let (dir, moonc) = project(&[

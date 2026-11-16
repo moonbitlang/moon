@@ -152,6 +152,20 @@ fn reads_the_first_fix_of_a_diagnostic() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn diagnostic_paths_use_the_same_identity_with_or_without_a_verbatim_prefix() {
+    let diagnostic = |path: &str| serde_json::json!({
+        "fixes": [{"title": "rename", "edits": [{
+            "path": path, "loc": "1:1-1:2", "expect": "x", "new_text": "y"
+        }]}]
+    });
+    let plain = Fix::preferred_of_diagnostic(&diagnostic(r"C:\p\a.mbt")).unwrap();
+    let verbatim = Fix::preferred_of_diagnostic(&diagnostic(r"\\?\C:\p\a.mbt")).unwrap();
+    assert_eq!(plain.edits[0].path, PathBuf::from(r"C:\p\a.mbt"));
+    assert_eq!(plain, verbatim);
+}
+
 #[test]
 fn counts_columns_in_code_points_and_applies_edits_right_to_left() {
     // `é` and `😀` take several bytes but one column each.
@@ -266,6 +280,23 @@ fn checks_touching_edits_of_one_fix_on_their_combined_result() {
 }
 
 #[test]
+fn checks_complete_touching_groups_instead_of_intermediate_prefixes() {
+    // The first two deletions alone join `a` and `b`; the third edit restores
+    // their separator. The whole fix is safe, regardless of proposal order.
+    let edits = vec![
+        edit("1:2-1:3", " ", ""),
+        edit("1:3-1:4", "-", ""),
+        edit("1:4-1:5", "b", " b"),
+    ];
+    for edits in [edits.clone(), edits.into_iter().rev().collect()] {
+        assert_eq!(
+            plan_one("a -b\n", vec![fix("apart", edits)]),
+            applied("a b\n")
+        );
+    }
+}
+
+#[test]
 fn combined_touching_edits_skip_the_adjacency_check_only_if_all_are_literal() {
     let literal = |loc, expect, new_text| {
         let mut e = edit(loc, expect, new_text);
@@ -289,6 +320,66 @@ fn combined_touching_edits_skip_the_adjacency_check_only_if_all_are_literal() {
 }
 
 // Check 3: `fresh` names.
+
+#[test]
+fn rejects_fresh_names_introduced_by_another_fix_in_either_order() {
+    // Even an edit without its own freshness constraint can invalidate the
+    // other fix's constraint. Selection must protect both directions.
+    for (first_fresh, second_fresh) in [(true, true), (true, false), (false, true)] {
+        let mut first = edit("1:5-1:6", "x", "y");
+        let mut second = edit("2:5-2:6", "z", "y");
+        if first_fresh {
+            first.fresh.push("y".to_owned());
+        }
+        if second_fresh {
+            second.fresh.push("y".to_owned());
+        }
+        assert_eq!(
+            plan_one(
+                "let x = 1\nlet z = 2\n",
+                vec![fix("first", vec![first]), fix("second", vec![second])]
+            ),
+            Outcome {
+                fixed: vec![(FILE.to_owned(), "let y = 1\nlet z = 2\n".to_owned())],
+                skipped: vec![("second".to_owned(), SkipReason::ConflictsWithSelectedFix)],
+            }
+        );
+    }
+}
+
+#[test]
+fn fresh_names_remain_local_to_a_file_and_may_be_reused_within_one_fix() {
+    let mut first = edit("1:5-1:6", "x", "y");
+    first.fresh.push("y".to_owned());
+    let mut second = edit("2:1-2:2", "x", "y");
+    second.fresh.push("y".to_owned());
+    assert_eq!(
+        plan_one(
+            "let x = 1\nx\n",
+            vec![fix("rename", vec![first.clone(), second])]
+        ),
+        applied("let y = 1\ny\n")
+    );
+    let mut other_file = first.clone();
+    other_file.path = PathBuf::from("/p/b.mbt");
+    assert_eq!(
+        plan_with(
+            &[(FILE, "let x = 1\n"), ("/p/b.mbt", "let x = 1\n")],
+            &[(
+                "wasm-gc",
+                vec![fix("first", vec![first]), fix("second", vec![other_file])]
+            )],
+            &[(FILE, &["wasm-gc"]), ("/p/b.mbt", &["wasm-gc"])],
+        ),
+        Outcome {
+            fixed: vec![
+                (FILE.to_owned(), "let y = 1\n".to_owned()),
+                ("/p/b.mbt".to_owned(), "let y = 1\n".to_owned())
+            ],
+            skipped: vec![],
+        }
+    );
+}
 
 #[test]
 fn skips_a_fix_whose_fresh_name_occurs_as_an_identifier() {
