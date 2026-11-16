@@ -110,7 +110,9 @@ $MOON_HOME/
   refreshes advisory status for each selected exact registry version, and queries
   each module identity's current latest version. It reports available updates
   without changing manifests, downloading sources, or running hooks. Shared
-  dependencies are refreshed once. Partial refresh failures preserve successful
+  dependencies are refreshed once. Different modules refresh concurrently;
+  each module's exact refresh precedes its latest query, and results are reported
+  in module-name order. Partial refresh failures preserve successful
   writes and return a nonzero status instead of reporting stale cached answers
   as current. A failure to resolve the graph stops the operation before refresh.
   Git mode retains whole-index and symbols synchronization, including outside

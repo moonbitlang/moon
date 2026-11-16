@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use mooncake::registry::RegistryClient;
+use mooncake::registry::{HttpVersionReader, RegistryClient};
 use moonutil::command_output::CommandOutput;
 
 use super::UniversalFlags;
@@ -44,28 +44,48 @@ pub(crate) fn update_cli(
         bail!("dry-run is not supported for update")
     }
     let registry = RegistryClient::configured(output.user_log());
-    if !registry.uses_http_metadata() {
-        registry.sync_index(output.user_log())?;
-        let symbols = tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .enable_time()
-            .build()
-            .context("failed to start symbols download runtime")
-            .and_then(|runtime| runtime.block_on(registry.sync_symbols(output.user_log())));
-        if let Err(error) = symbols {
-            output
-                .user_log()
-                .warn(format!("failed to update symbols: {error:#}"));
-        }
-        return Ok(0);
+    // Defer a runtime error to the selected operation: Git synchronization
+    // must still run even if its best-effort symbols download cannot start.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .context("failed to start registry update runtime");
+    if let Some(reader) = registry.http_version_reader() {
+        let runtime = runtime?;
+        return tokio::task::LocalSet::new()
+            .block_on(&runtime, update_http(cli, &registry, reader, output));
     }
+
+    registry.sync_index(output.user_log())?;
+    let symbols =
+        runtime.and_then(|runtime| runtime.block_on(registry.sync_symbols(output.user_log())));
+    if let Err(error) = symbols {
+        output
+            .user_log()
+            .warn(format!("failed to update symbols: {error:#}"));
+    }
+    Ok(0)
+}
+
+async fn update_http(
+    cli: UniversalFlags,
+    registry: &RegistryClient,
+    reader: HttpVersionReader,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     let project = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .select(output.user_log())?
         .package_dirs()?;
-    let updates =
-        mooncake::pkg::update::update(&project.project_manifest, &registry, output.user_log())?;
+    let updates = mooncake::pkg::update::update(
+        &project.project_manifest,
+        registry,
+        reader,
+        output.user_log(),
+    )
+    .await?;
     let mut failures = Vec::new();
     output.write_result(|writer| -> anyhow::Result<()> {
         if updates.is_empty() {

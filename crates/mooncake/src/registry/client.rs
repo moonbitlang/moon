@@ -327,6 +327,15 @@ impl RegistryClient {
         }
     }
 
+    /// Start an HTTP metadata session, or return `None` for a Git registry.
+    /// Callers can select per-module refresh or whole-index synchronization here.
+    pub fn http_version_reader(&self) -> Option<super::http::HttpVersionReader> {
+        match &self.metadata {
+            MetadataBackend::Http(http) => Some(http.version_reader(self.frozen_dependencies)),
+            MetadataBackend::Git(_) => None,
+        }
+    }
+
     /// Search the configured registry for published modules.
     #[tracing::instrument(skip(self), fields(api = %self.config.api))]
     pub fn search(&self, keyword: &str, limit: u32) -> anyhow::Result<Vec<RegistrySearchResult>> {
