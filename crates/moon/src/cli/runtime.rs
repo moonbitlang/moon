@@ -243,6 +243,7 @@ fn dispatch(
         Build(command) => super::run_build(&flags, command, output).map(Into::into),
         Bundle(command) => super::run_bundle(flags, command, output).map(Into::into),
         Check(command) => super::run_check(&flags, &command, output).map(Into::into),
+        Fix(command) => super::run_fix(&flags, &command, output).map(Into::into),
         Prove(command) => super::run_prove(&flags, &command, output).map(Into::into),
         Clean(command) => super::run_clean(&flags, &command, output.user_log()).map(Into::into),
         Cram(command) => super::run_cram(&flags, command, output),

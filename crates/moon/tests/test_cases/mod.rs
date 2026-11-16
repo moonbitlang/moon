@@ -74,6 +74,7 @@ mod moon_build_package;
 mod moon_bundle;
 mod moon_commands;
 mod moon_coverage;
+mod moon_fix;
 mod moon_info_001;
 mod moon_info_002;
 mod moon_info_compare_backends;

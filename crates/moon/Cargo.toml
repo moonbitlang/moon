@@ -42,6 +42,7 @@ colored.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 dunce.workspace = true
 ctrlc.workspace = true
 home.workspace = true
@@ -91,7 +92,6 @@ snapbox = { workspace = true, features = ["cmd", "regex"] }
 expect-test.workspace = true
 escargot.workspace = true
 clap-markdown.workspace = true
-similar.workspace = true
 libc.workspace = true
 moon-test-util.workspace = true
 zip.workspace = true

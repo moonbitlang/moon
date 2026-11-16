@@ -711,6 +711,19 @@ Shared artifact paths remain in Rupes Recta's `target_layout` module.
 Dry-run and planner snapshots traverse the Execution Plan directly, without
 constructing an n2 graph or copying command arguments into a second map.
 
+Captured action failures retain their Target Backend, output kind, the
+executor's failure or interruption result, and whether structured compiler error
+diagnostics were captured before filtering. These facts are independent of
+diagnostic rendering.
+Structured execution results include these failures even when compiler
+diagnostics already explain them or a diagnostic limit hides those diagnostics.
+Failure messages remain a separate projection, with visibility controlled by
+UserLog; their absence does not imply that an action succeeded. The current n2 API
+collapses nonzero exits, most abnormal terminations, and per-task execution
+errors into the same failure result, so these records cannot distinguish
+ordinary compiler errors from a compiler that emitted diagnostics and then
+crashed.
+
 Human-readable diagnostic rendering shares source text, character-based line
 offsets, and Ariadne sources across each diagnostic batch. Source maps are
 also loaded once per batch, including cached misses. Source loading keeps the

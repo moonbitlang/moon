@@ -29,6 +29,7 @@ pub(crate) mod doc;
 pub(crate) mod explain;
 pub(crate) mod external;
 pub(crate) mod fetch;
+pub(crate) mod fix;
 pub(crate) mod fmt;
 pub(crate) mod generate_test_driver;
 pub(crate) mod info;
@@ -71,6 +72,7 @@ pub(crate) use deps::*;
 pub(crate) use doc::*;
 pub(crate) use explain::*;
 pub(crate) use fetch::*;
+pub(crate) use fix::*;
 pub(crate) use fmt::*;
 pub(crate) use generate_test_driver::*;
 pub(crate) use info::*;
@@ -140,6 +142,7 @@ pub(crate) enum MoonBuildSubcommands {
     Bundle(BundleSubcommand),
     Build(BuildSubcommand),
     Check(CheckSubcommand),
+    Fix(FixSubcommand),
     Prove(ProveSubcommand),
     Run(RunSubcommand),
     Test(TestSubcommand),

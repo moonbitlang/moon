@@ -28,7 +28,10 @@ use anyhow::Context;
 use moonbuild_rupes_recta::execution_plan::{ActionOutputKind, LoweredCommandExecution};
 
 use super::resolve_parallelism;
-use super::{BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution, ResultCatcher};
+use super::{
+    ActionFailureKind, BuildConfig, BuildInput, CapturedActionOutput, CapturedBuildExecution,
+    ResultCatcher,
+};
 
 // Progress and compiler diagnostics share terminal setup, including enabling
 // virtual terminal processing on Windows.
@@ -131,7 +134,6 @@ pub(super) fn execute<'a>(
 
     let (sender, receiver) = mpsc::channel();
     let output_style = cfg.output_style;
-    let verbose = cfg.verbose;
     let callback: Box<n2::progress::BuildResultCallback> =
         Box::new(move |build_id, termination, output: &str| {
             if termination == n2::progress::Termination::Success && output.is_empty() {
@@ -148,12 +150,14 @@ pub(super) fn execute<'a>(
             // trying to classify it as JSON or adding a duplicate error.
             // Structured compiler errors explain failures even when hidden by
             // the diagnostic limit. Silent failures always need action context.
+            let has_error_diagnostics = output_style.needs_moonc_json()
+                && *output_kind == ActionOutputKind::Compiler
+                && captured.content_writer.iter().any(|line| {
+                    serde_json::from_str::<moonutil::render::MooncDiagnostic>(line)
+                        .is_ok_and(|diagnostic| diagnostic.level == "error")
+                });
             let has_failure_output = if output_style.needs_moonc_json() {
-                *output_kind == ActionOutputKind::Compiler
-                    && captured.content_writer.iter().any(|line| {
-                        serde_json::from_str::<moonutil::render::MooncDiagnostic>(line)
-                            .is_ok_and(|diagnostic| diagnostic.level == "error")
-                    })
+                has_error_diagnostics
             } else {
                 !output.trim().is_empty()
             };
@@ -171,9 +175,16 @@ pub(super) fn execute<'a>(
                     target_backend: *target_backend,
                     output_kind: *output_kind,
                     content: captured,
+                    has_error_diagnostics,
+                    failure: match termination {
+                        n2::progress::Termination::Success => None,
+                        n2::progress::Termination::Failure => Some(ActionFailureKind::Failed),
+                        n2::progress::Termination::Interrupted => {
+                            Some(ActionFailureKind::Interrupted)
+                        }
+                    },
                     error,
-                    failed_command: (verbose
-                        && termination == n2::progress::Termination::Failure
+                    failed_command: (termination == n2::progress::Termination::Failure
                         && has_failure_output)
                         .then(|| command.clone()),
                 })

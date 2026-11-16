@@ -30,5 +30,6 @@ For contributor procedures, use the [developer guide](../README.md) or
 * [`moonx` executable package runner behavior](./moonx.md)
 * [Rupes Recta special cases](./rr-special-cases.md)
 * [`moon test` execution flow](./tests.md)
+* [`moon fix` fix driver](./fix.md)
 * [`supported_targets` behavior](./supported-targets.md)
 * [Dry-run behavior (UB)](./dry-run.md)

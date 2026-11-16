@@ -173,6 +173,17 @@ pub struct DiscoveredPackage {
 }
 
 impl DiscoveredPackage {
+    /// Declared prebuild outputs in the same path identity as discovered files.
+    /// These remain generated files even when prebuild execution is disabled.
+    pub fn prebuild_output_paths(&self) -> impl Iterator<Item = PathBuf> + '_ {
+        self.raw
+            .pre_build
+            .iter()
+            .flatten()
+            .flat_map(|rule| rule.output().iter())
+            .map(|path| resolve_prebuild_path(&self.root_path, path))
+    }
+
     pub fn is_single_file(&self) -> bool {
         self.single_file_source_kind.is_some()
     }
