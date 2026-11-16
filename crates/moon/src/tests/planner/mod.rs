@@ -18,6 +18,8 @@
 
 mod backend_selection;
 mod cli_to_planner;
+mod core_dependency;
+mod core_project;
 mod dummy_core_planning;
 mod fixture;
 mod foreign_library_planning;

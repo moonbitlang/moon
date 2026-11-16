@@ -73,22 +73,27 @@ impl PlannedGraph {
 }
 
 impl PlanningFixture {
-    /// Plan a dependency-free module against checked-in core declarations.
+    /// Plan a non-core module with no declared module dependencies against fixed core.
     /// Module acquisition and SDK compatibility belong to separate tests; package
     /// discovery, import resolution, and lowering still use their production paths.
-    pub(super) fn with_fixed_core(case: &str) -> anyhow::Result<Self> {
+    pub(super) fn with_core_dependency(case: &str) -> anyhow::Result<Self> {
         let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let source_dir = dunce::canonicalize(crate_root.join("tests/test_cases").join(case))?;
         let module = read_module_desc_file_in_dir(&source_dir)?;
         anyhow::ensure!(
+            module.name != moonutil::constants::MOONBITLANG_CORE,
+            "use PlanningFixture::new to plan core as a project"
+        );
+        anyhow::ensure!(
             module.deps.is_empty(),
-            "fixed-core planning fixtures must not require module dependency resolution"
+            "core-dependency planning fixtures must not require module dependency resolution"
         );
         let (mut module_graph, root_id) = ModuleDependencyGraph::only_one_module(
             ModuleSource::from_local_module(&module, &source_dir)?,
             module,
         );
-        let core_dir = dunce::canonicalize(crate_root.join("src/tests/planner/fixtures/core"))?;
+        let core_dir =
+            dunce::canonicalize(crate_root.join("src/tests/planner/fixtures/core_dependency"))?;
         let core = read_module_desc_file_in_dir(&core_dir)?;
         let core_id =
             module_graph.add_module(ModuleSource::from_stdlib(&core, &core_dir)?, Arc::new(core));
@@ -149,7 +154,7 @@ impl PlanningFixture {
     }
 
     /// Select one backend before resolution, as production project-wide plans do.
-    fn select_and_resolve(
+    pub(super) fn select_and_resolve(
         &self,
         selected_target_backend: Option<TargetBackend>,
         user_log: &UserLog,

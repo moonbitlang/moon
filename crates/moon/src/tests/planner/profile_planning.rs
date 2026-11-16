@@ -143,7 +143,8 @@ fn bench_graph_uses_selected_codegen_profile() {
 fn default_test_graph_matches_snapshot() {
     // The default test profile controls compile/link flags and output paths;
     // changes to the installed core dependency graph must not change this case.
-    let fixture = PlanningFixture::with_fixed_core("test_release").expect("fixture should resolve");
+    let fixture =
+        PlanningFixture::with_core_dependency("test_release").expect("fixture should resolve");
     let (cli, cmd) =
         parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 
@@ -158,7 +159,8 @@ fn default_test_graph_matches_snapshot() {
 fn release_test_graph_matches_snapshot() {
     // The same project with --release must retain its tests and use release
     // compile/link settings throughout the graph.
-    let fixture = PlanningFixture::with_fixed_core("test_release").expect("fixture should resolve");
+    let fixture =
+        PlanningFixture::with_core_dependency("test_release").expect("fixture should resolve");
     let (cli, cmd) = parse_test_command(&[
         "test",
         "--target",
