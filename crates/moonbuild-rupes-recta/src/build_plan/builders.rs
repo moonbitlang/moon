@@ -434,8 +434,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Specify a need on the proof artifacts of a dependency.
     ///
     /// Dependency proofs stay modular: dependents only require the dependency's
-    /// proof surface (`.mi` + `.mlw`). Provider selection decides whether an
-    /// explicit `Prove` or an internal `EmitProof` action supplies that surface.
+    /// proof surface (`.mi` + `.mlw`), prepared by `EmitProof`.
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
         // As with normal `.mi` dependencies, stdlib packages use installed
         // toolchain artifacts rather than planned local nodes.
@@ -788,8 +787,6 @@ impl<'a> BuildPlanConstructor<'a> {
             .as_ref()
             .filter(|(specify_target, _)| specify_target == &target)
             .map(|(_, path)| path.clone());
-        let why3_config = self.input_directive.prove_why3_config.clone();
-        let proof_prelude = self.input_directive.proof_prelude.clone();
 
         let mi_check_target = self.mi_check_target(target, pkg);
 
@@ -801,8 +798,6 @@ impl<'a> BuildPlanConstructor<'a> {
             warn_list,
             specified_no_mi,
             patch_file,
-            why3_config,
-            proof_prelude,
             check_mi_against: mi_check_target,
             value_tracing: self
                 .input_directive

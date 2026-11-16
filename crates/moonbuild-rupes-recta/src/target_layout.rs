@@ -845,13 +845,6 @@ impl ArtifactPathResolver {
                 self.target_layout
                     .emit_proof_whyml_path(packages, &package.build_target(*target_kind)),
             ],
-            ArtifactKey::ProofReport {
-                package,
-                target_kind,
-            } => vec![
-                self.target_layout
-                    .prove_report_path(packages, &package.build_target(*target_kind)),
-            ],
             ArtifactKey::CStubObject { package, source } => vec![
                 self.target_layout.c_stub_object_path(
                     packages,
@@ -1298,8 +1291,6 @@ mod tests {
             warn_list: None,
             specified_no_mi: false,
             patch_file: None,
-            why3_config: None,
-            proof_prelude: PathBuf::from("proof-prelude"),
             check_mi_against: None,
             value_tracing: false,
         }
@@ -1658,21 +1649,6 @@ mod tests {
                     .target_layout
                     .emit_proof_whyml_path(&packages, &target)
             ],
-        );
-        assert_eq!(
-            resolver.paths_for_artifact(
-                &ArtifactKey::ProofReport {
-                    package,
-                    target_kind: target.kind,
-                },
-                BuildAction::Prove {
-                    target,
-                    info: &info,
-                },
-                &packages,
-                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
-            ),
-            vec![resolver.target_layout.prove_report_path(&packages, &target)],
         );
     }
 

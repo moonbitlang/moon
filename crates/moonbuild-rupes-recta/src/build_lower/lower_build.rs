@@ -284,39 +284,6 @@ impl<'a> LoweringContext<'a> {
         deps
     }
 
-    fn proof_loadpaths_of(&self, target: BuildTarget, proof_prelude: &Path) -> Vec<PathBuf> {
-        let mut visited = HashSet::new();
-        let mut pending = vec![target];
-        let mut loadpaths = BTreeSet::new();
-
-        loadpaths.insert(proof_prelude.to_path_buf());
-
-        while let Some(current) = pending.pop() {
-            if !visited.insert(current) {
-                continue;
-            }
-
-            for dep in self
-                .rel
-                .dep_graph
-                .neighbors_directed(current, Direction::Outgoing)
-            {
-                if self.packages.is_stdlib_package(dep.package) {
-                    continue;
-                }
-
-                loadpaths.insert(
-                    self.artifact_paths
-                        .target_layout()
-                        .verif_package_dir(self.packages, &dep),
-                );
-                pending.push(dep);
-            }
-        }
-
-        loadpaths.into_iter().collect()
-    }
-
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_check(
         &mut self,
@@ -445,98 +412,13 @@ impl<'a> LoweringContext<'a> {
             ),
             defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
             whyml_out: whyml_output.clone().into(),
-            proof_report_out: None,
-            why3_config: None,
-            why3_loadpaths: Vec::new(),
             dep_proofs,
-            emit_only: true,
             single_file: package.is_single_file(),
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
 
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
-        if !package.is_single_file() {
-            extra_inputs.push(package.config_path());
-        }
-        self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
-
-        let commandline =
-            moonc_command::lower(cmd.build_command(&*BINARIES.moonc_prove), &whyml_output)?;
-
-        Ok(BuildCommand {
-            extra_inputs,
-            commandline,
-        })
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
-    pub(super) fn lower_prove(
-        &mut self,
-        artifacts: &ActionArtifacts,
-        target: BuildTarget,
-        info: &BuildTargetInfo,
-    ) -> Result<BuildCommand, LoweringError> {
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
-        let package = self.get_package(target);
-        let module = self.packages.module_info(package.module);
-
-        let files_vec = self.compiler_source_files(info);
-
-        let backend = self.opt.backend.target_backend();
-        let why3_config = info
-            .why3_config
-            .clone()
-            .unwrap_or_else(|| self.artifact_paths.target_layout().why3_config_path());
-        let whyml_output = artifacts.single_output_path_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::ProofWhyml { package, target_kind }
-                    if *package == target.package && *target_kind == target.kind
-            )
-        });
-        let proof_report_output = artifacts.single_output_path_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::ProofReport { package, target_kind }
-                    if *package == target.package && *target_kind == target.kind
-            )
-        });
-        let dep_proofs = self.dep_proofs_of(target);
-        let proof_prelude = info.proof_prelude.as_path();
-        // Why3 needs every reachable non-stdlib proof directory on its loadpath
-        // because emitted proof artifacts live alongside each package's
-        // verification outputs.
-        let why3_loadpaths = self.proof_loadpaths_of(target, proof_prelude);
-        let cmd = compiler::MooncProve {
-            required: BuildCommonInput::new(
-                &files_vec,
-                &info.doctest_files,
-                &mi_inputs.deps,
-                compiler::CompiledPackageName::new(&package.fqn, target.kind),
-                &package.root_path,
-                self.artifact_paths
-                    .target_layout()
-                    .all_pkgs_of_build_target(backend),
-                backend,
-                target.kind,
-            ),
-            defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
-            whyml_out: whyml_output.clone().into(),
-            proof_report_out: Some(proof_report_output.clone().into()),
-            why3_config: Some(why3_config.clone().into()),
-            why3_loadpaths: why3_loadpaths.clone(),
-            dep_proofs,
-            emit_only: false,
-            single_file: package.is_single_file(),
-            extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
-        };
-
-        let mut extra_inputs = files_vec.clone();
-        extra_inputs.extend(info.doctest_files.clone());
-        extra_inputs.push(why3_config);
-        extra_inputs.push(proof_prelude.join(moonutil::constants::PRELUDE_PROOF_FILE));
-        extra_inputs.extend(why3_loadpaths);
         if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }

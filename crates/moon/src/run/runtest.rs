@@ -89,9 +89,9 @@ use moonutil::{
     },
     test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
-use tokio::{sync::Semaphore, task::JoinSet};
-use tracing::{Instrument, debug, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
+use super::run_with_parallelism;
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
 pub(crate) use promotion::perform_promotion;
@@ -142,51 +142,6 @@ fn resolve_test_parallelism(no_parallelize: bool, jobs: Option<usize>, bench: bo
     } else {
         moonbuild::execution::resolve_parallelism(jobs).max(1)
     }
-}
-
-/// Await bounded concurrent work, then restore invocation order. Concurrent runs
-/// finish and are reaped before errors propagate; serial runs stop on the first error.
-async fn run_with_parallelism<R: Send + 'static, E: Send + 'static>(
-    runs: impl ExactSizeIterator<Item = impl Future<Output = Result<R, E>> + Send + 'static>,
-    parallelism: usize,
-) -> Result<Vec<R>, E> {
-    let parallelism = parallelism.max(1).min(runs.len().max(1));
-    if parallelism <= 1 {
-        let mut results = Vec::new();
-        for run in runs {
-            results.push(run.await?);
-        }
-        return Ok(results);
-    }
-
-    let slots = Arc::new(Semaphore::new(parallelism));
-    let mut tasks = JoinSet::new();
-    for (index, run) in runs.enumerate() {
-        let permit = Arc::clone(&slots)
-            .acquire_owned()
-            .await
-            .expect("test execution semaphore is never closed");
-        tasks.spawn(
-            async move {
-                // Keep the slot until execution and result collection finish.
-                let _permit = permit;
-                (index, run.await)
-            }
-            .in_current_span(),
-        );
-    }
-
-    let mut completed = Vec::new();
-    while let Some(result) = tasks.join_next().await {
-        completed.push(result);
-    }
-    // Drain all tasks before propagating either a test error or a task panic.
-    let mut results = completed
-        .into_iter()
-        .map(|result| result.expect("test execution task panicked"))
-        .collect::<Vec<_>>();
-    results.sort_unstable_by_key(|(index, _)| *index);
-    results.into_iter().map(|(_, result)| result).collect()
 }
 
 /// Run the tests compiled in this session. Does **not** print or update

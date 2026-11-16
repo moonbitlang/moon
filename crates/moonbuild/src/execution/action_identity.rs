@@ -266,9 +266,6 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::ProofWhyml { target_kind, .. } => {
                 (b"proof-whyml".as_slice(), Some(*target_kind), None)
             }
-            ArtifactKey::ProofReport { target_kind, .. } => {
-                (b"proof-report".as_slice(), Some(*target_kind), None)
-            }
             ArtifactKey::CStubObject { source, .. } => {
                 (b"c-stub-object".as_slice(), None, Some(source.clone()))
             }

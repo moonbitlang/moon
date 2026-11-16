@@ -244,7 +244,6 @@ pub fn build_patch_directive_for_package(
         specify_no_mi_for: no_mi.then_some(pkg),
         specify_patch_file: patch_directive,
         value_tracing,
-        ..Default::default()
     })
 }
 
