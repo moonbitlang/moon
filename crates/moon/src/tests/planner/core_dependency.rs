@@ -19,40 +19,42 @@
 use moonbuild_rupes_recta::model::TargetKind;
 use moonutil::{target::TargetBackend, user_log::UserLog};
 
-use super::fixture::{PlanningFixture, parse_build_command};
+use super::fixture::{GraphAction, PlanningFixture, graph_actions, parse_build_command};
+
+// These core rules are backend-independent. One explicit backend keeps paths
+// deterministic; conditional imports and backend layouts have their own tests.
 
 fn assert_implicit_import(package: &str, alias: &str) {
     // Given an ordinary project whose source and test manifests declare no core imports.
     let fixture = PlanningFixture::with_core_dependency("test_release").unwrap();
     let log = UserLog::new(log::LevelFilter::Error);
-    for backend in [TargetBackend::WasmGC, TargetBackend::Js] {
-        // When package imports are resolved for this backend.
-        let (_, resolved) = fixture.select_and_resolve(Some(backend), &log).unwrap();
-        let app = resolved
-            .pkg_dirs
-            .get_package_id_by_name("username/hello/lib")
-            .unwrap();
-        let core = resolved.pkg_dirs.get_package_id_by_name(package).unwrap();
-        let dependencies = &resolved.package_relations[&backend].dep_graph;
+    let backend = TargetBackend::WasmGC;
+    // When package imports are resolved for this backend.
+    let (_, resolved) = fixture.select_and_resolve(Some(backend), &log).unwrap();
+    let app = resolved
+        .pkg_dirs
+        .get_package_id_by_name("username/hello/lib")
+        .unwrap();
+    let core = resolved.pkg_dirs.get_package_id_by_name(package).unwrap();
+    let dependencies = &resolved.package_relations[&backend].dep_graph;
 
-        // Then source and every candidate test kind depend on the core source
-        // interface with the intended alias. Resolution creates these edges
-        // before the planner selects which test artifacts to build.
-        for kind in [
-            TargetKind::Source,
-            TargetKind::InlineTest,
-            TargetKind::WhiteboxTest,
-            TargetKind::BlackboxTest,
-        ] {
-            let edge = dependencies
-                .edge_weight(
-                    app.build_target(kind),
-                    core.build_target(TargetKind::Source),
-                )
-                .unwrap_or_else(|| panic!("{backend:?} {kind:?}: missing {package}"));
-            assert_eq!(edge.short_alias.as_str(), alias);
-            assert!(!edge.import_all);
-        }
+    // Then source and every candidate test kind depend on the core source
+    // interface with the intended alias. Resolution creates these edges
+    // before the planner selects which test artifacts to build.
+    for kind in [
+        TargetKind::Source,
+        TargetKind::InlineTest,
+        TargetKind::WhiteboxTest,
+        TargetKind::BlackboxTest,
+    ] {
+        let edge = dependencies
+            .edge_weight(
+                app.build_target(kind),
+                core.build_target(TargetKind::Source),
+            )
+            .unwrap_or_else(|| panic!("{backend:?} {kind:?}: missing {package}"));
+        assert_eq!(edge.short_alias.as_str(), alias);
+        assert!(!edge.import_all);
     }
 }
 
@@ -66,28 +68,16 @@ fn resolving_an_ordinary_package_adds_prelude_with_its_short_alias() {
     assert_implicit_import("moonbitlang/core/prelude", "prelude");
 }
 
-#[derive(serde::Deserialize)]
-struct Action {
-    command: String,
-    inputs: Vec<String>,
-    outputs: Vec<String>,
-}
-
-fn build_graph(backend: &str) -> Vec<Action> {
+fn build_graph() -> Vec<GraphAction> {
     // Given two ordinary app packages and fixed installed-core declarations.
     let fixture = PlanningFixture::with_core_dependency("test_release").unwrap();
     let (cli, cmd) =
-        parse_build_command(&["build", "--target", backend, "--sort-input", "--dry-run"]);
+        parse_build_command(&["build", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
     // When the real planner and lowering produce the executable build graph.
-    fixture
-        .plan_build_with_cli(&cli, &cmd)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+    graph_actions(&fixture.plan_build_with_cli(&cli, &cmd).unwrap())
 }
 
-fn application_compile_actions(graph: &[Action]) -> Vec<&Action> {
+fn application_compile_actions(graph: &[GraphAction]) -> Vec<&GraphAction> {
     let actions: Vec<_> = graph
         .iter()
         .filter(|action| action.command.starts_with("moonc build-package "))
@@ -102,185 +92,124 @@ fn application_compile_actions(graph: &[Action]) -> Vec<&Action> {
 
 #[test]
 fn compile_action_tracks_the_implicit_builtin_interface_input() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        // Then changing builtin's installed interface invalidates both app packages.
-        for action in application_compile_actions(&graph) {
-            assert!(
-                action.inputs.contains(&format!(
-                    "$MOON_HOME/lib/core/_build/{backend}/release/bundle/builtin/builtin.mi"
-                )),
-                "{}",
-                action.command
-            );
-        }
+    let graph = build_graph();
+    // Then changing builtin's installed interface invalidates both app packages.
+    for action in application_compile_actions(&graph) {
+        assert!(
+            action.inputs.iter().any(|path| path
+                == "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi"),
+            "{}",
+            action.command
+        );
     }
 }
 
 #[test]
 fn compile_action_tracks_the_implicit_prelude_interface_input() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        // Then changing prelude's installed interface invalidates both app packages.
-        for action in application_compile_actions(&graph) {
-            assert!(
-                action.inputs.contains(&format!(
-                    "$MOON_HOME/lib/core/_build/{backend}/release/bundle/prelude/prelude.mi"
-                )),
-                "{}",
-                action.command
-            );
-        }
+    let graph = build_graph();
+    // Then changing prelude's installed interface invalidates both app packages.
+    for action in application_compile_actions(&graph) {
+        assert!(
+            action.inputs.iter().any(|path| path
+                == "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi"),
+            "{}",
+            action.command
+        );
     }
 }
 
 #[test]
 fn compile_command_passes_builtin_with_its_full_alias() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        let interface =
-            format!("$MOON_HOME/lib/core/_build/{backend}/release/bundle/builtin/builtin.mi:");
-        for action in application_compile_actions(&graph) {
-            let args = shlex::split(&action.command).unwrap();
-            let aliases: Vec<_> = args
-                .windows(2)
-                .filter(|pair| pair[0] == "-i")
-                .filter_map(|pair| pair[1].strip_prefix(&interface))
-                .collect();
-            // Then builtin is passed exactly once, under its full alias only.
-            assert_eq!(aliases, ["moonbitlang/core/builtin"], "{}", action.command);
-        }
+    let graph = build_graph();
+    let interface = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:";
+    for action in application_compile_actions(&graph) {
+        let args = shlex::split(&action.command).unwrap();
+        let aliases: Vec<_> = args
+            .windows(2)
+            .filter(|pair| pair[0] == "-i")
+            .filter_map(|pair| pair[1].strip_prefix(interface))
+            .collect();
+        // Then builtin is passed exactly once, under its full alias only.
+        assert_eq!(aliases, ["moonbitlang/core/builtin"], "{}", action.command);
     }
 }
 
 #[test]
 fn compile_command_passes_prelude_with_its_short_alias() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        let interface =
-            format!("$MOON_HOME/lib/core/_build/{backend}/release/bundle/prelude/prelude.mi:");
-        for action in application_compile_actions(&graph) {
-            let args = shlex::split(&action.command).unwrap();
-            let aliases: Vec<_> = args
-                .windows(2)
-                .filter(|pair| pair[0] == "-i")
-                .filter_map(|pair| pair[1].strip_prefix(&interface))
-                .collect();
-            // Then prelude is passed exactly once, under its short alias only.
-            assert_eq!(aliases, ["prelude"], "{}", action.command);
-        }
+    let graph = build_graph();
+    let interface = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:";
+    for action in application_compile_actions(&graph) {
+        let args = shlex::split(&action.command).unwrap();
+        let aliases: Vec<_> = args
+            .windows(2)
+            .filter(|pair| pair[0] == "-i")
+            .filter_map(|pair| pair[1].strip_prefix(interface))
+            .collect();
+        // Then prelude is passed exactly once, under its short alias only.
+        assert_eq!(aliases, ["prelude"], "{}", action.command);
     }
 }
 
 #[test]
-fn compile_inputs_track_the_reachable_core_interface_closure_once() {
-    for backend in ["wasm-gc", "js"] {
-        // Given prelude -> builtin/test -> builtin, plus an unreachable package.
-        let graph = build_graph(backend);
-        let bundle = format!("$MOON_HOME/lib/core/_build/{backend}/release/bundle/");
-        for action in application_compile_actions(&graph) {
-            let mut core_inputs: Vec<_> = action
-                .inputs
-                .iter()
-                .filter_map(|path| path.strip_prefix(&bundle))
-                .collect();
-            core_inputs.sort_unstable();
-            // Then transitive test.mi is tracked, shared builtin.mi occurs once,
-            // and the unrelated package is excluded, for each app compile action.
-            assert_eq!(
-                core_inputs,
-                ["builtin/builtin.mi", "prelude/prelude.mi", "test/test.mi"],
-                "{}",
-                action.command
-            );
-
-            // Transitive invalidation inputs must not become direct compiler imports.
-            let args = shlex::split(&action.command).unwrap();
-            assert!(
-                !args
-                    .windows(2)
-                    .any(|pair| pair[0] == "-i" && pair[1].starts_with(&format!("{bundle}test/")))
-            );
-        }
-    }
+fn link_action_reads_prebuilt_core_artifacts() {
+    let graph = build_graph();
+    let links: Vec<_> = graph
+        .iter()
+        .filter(|action| action.command.starts_with("moonc link-core "))
+        .collect();
+    assert_eq!(links.len(), 1, "only the app main package should link");
+    let action = links[0];
+    let bundle = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/";
+    let mut core_inputs: Vec<_> = action
+        .inputs
+        .iter()
+        .filter_map(|path| path.strip_prefix(bundle))
+        .collect();
+    core_inputs.sort_unstable();
+    assert_eq!(
+        core_inputs,
+        ["builtin/builtin.core", "prelude/prelude.core",]
+    );
 }
 
 #[test]
-fn link_action_tracks_the_reachable_installed_core_artifact_inputs() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        let links: Vec<_> = graph
-            .iter()
-            .filter(|action| action.command.starts_with("moonc link-core "))
-            .collect();
-        assert_eq!(links.len(), 1, "only the app main package should link");
-        let action = links[0];
-        let bundle = format!("$MOON_HOME/lib/core/_build/{backend}/release/bundle/");
-        let mut core_inputs: Vec<_> = action
-            .inputs
-            .iter()
-            .filter_map(|path| path.strip_prefix(&bundle))
-            .collect();
-        core_inputs.sort_unstable();
-        assert_eq!(
-            core_inputs,
-            [
-                "builtin/builtin.core",
-                "prelude/prelude.core",
-                "test/test.core"
-            ]
-        );
-    }
-}
-
-#[test]
-fn link_command_passes_the_reachable_installed_core_artifacts_in_dependency_order() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        let links: Vec<_> = graph
-            .iter()
-            .filter(|action| action.command.starts_with("moonc link-core "))
-            .collect();
-        assert_eq!(links.len(), 1, "only the app main package should link");
-        let bundle = format!("$MOON_HOME/lib/core/_build/{backend}/release/bundle/");
-        // Then the linker receives each reachable installed artifact in
-        // dependency order; no locally built or unreachable core artifact enters.
-        let args = shlex::split(&links[0].command).unwrap();
-        let core_args: Vec<_> = args
-            .iter()
-            .filter_map(|arg| arg.strip_prefix(&bundle))
-            .collect();
-        assert_eq!(
-            core_args,
-            [
-                "builtin/builtin.core",
-                "test/test.core",
-                "prelude/prelude.core"
-            ]
-        );
-    }
+fn link_command_passes_prebuilt_core_artifacts() {
+    let graph = build_graph();
+    let links: Vec<_> = graph
+        .iter()
+        .filter(|action| action.command.starts_with("moonc link-core "))
+        .collect();
+    assert_eq!(links.len(), 1, "only the app main package should link");
+    let bundle = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/";
+    // Then the linker reads builtin/prelude from the installed bundle,
+    // rather than expecting the consumer to compile core locally.
+    let args = shlex::split(&links[0].command).unwrap();
+    let mut core_args: Vec<_> = args
+        .iter()
+        .filter_map(|arg| arg.strip_prefix(bundle))
+        .collect();
+    core_args.sort_unstable();
+    assert_eq!(core_args, ["builtin/builtin.core", "prelude/prelude.core"]);
 }
 
 #[test]
 fn installed_core_does_not_get_local_compile_actions() {
-    for backend in ["wasm-gc", "js"] {
-        let graph = build_graph(backend);
-        let mut packages: Vec<_> = graph
+    let graph = build_graph();
+    let mut packages: Vec<_> = graph
+        .iter()
+        .filter(|action| action.command.starts_with("moonc build-package "))
+        .map(|action| {
+            let args = shlex::split(&action.command).unwrap();
+            args.windows(2).find(|pair| pair[0] == "-pkg").unwrap()[1].clone()
+        })
+        .collect();
+    packages.sort_unstable();
+    // Then only app packages compile; installed core remains read-only input.
+    assert_eq!(packages, ["username/hello/lib", "username/hello/main"]);
+    assert!(
+        graph
             .iter()
-            .filter(|action| action.command.starts_with("moonc build-package "))
-            .map(|action| {
-                let args = shlex::split(&action.command).unwrap();
-                args.windows(2).find(|pair| pair[0] == "-pkg").unwrap()[1].clone()
-            })
-            .collect();
-        packages.sort_unstable();
-        // Then only app packages compile; installed core remains read-only input.
-        assert_eq!(packages, ["username/hello/lib", "username/hello/main"]);
-        assert!(
-            graph
-                .iter()
-                .flat_map(|action| &action.outputs)
-                .all(|path| !path.starts_with("$MOON_HOME/lib/core/"))
-        );
-    }
+            .flat_map(|action| &action.outputs)
+            .all(|path| !path.starts_with("$MOON_HOME/lib/core/"))
+    );
 }

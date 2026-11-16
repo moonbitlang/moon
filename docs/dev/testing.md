@@ -22,7 +22,7 @@ not by itself justify changing which boundaries they exercise.
 
 Reuse discovered packages for planner comparisons when discovery is not the
 contract. Select the backend before resolving backend-specific imports, as the
-command does. For full graph snapshots of dependency-free single-module cases,
+command does. For dependency-free single-module planning scenarios,
 use `PlanningFixture::with_core_dependency` to keep the standard-library input fixed.
 Its [core declarations](../../crates/moon/src/tests/planner/fixtures/core_dependency/README.md)
 exercise dependency edges without reading the installed SDK's core manifests.
@@ -58,7 +58,7 @@ Choose a fixture for its role and execution boundary:
 
 | Fixture | Contract and boundary |
 | --- | --- |
-| [core_dependency](../../crates/moon/src/tests/planner/fixtures/core_dependency/README.md) | Ordinary-project planning with fixed installed-core declarations: implicit imports, direct/transitive/shared dependencies, reachable artifact inputs, and no local core compilation. Used by the package-selection and profile snapshots. |
+| [core_dependency](../../crates/moon/src/tests/planner/fixtures/core_dependency/README.md) | Core-specific implicit imports, installed artifact paths, and no local core compilation. Also supplies a fixed environment for ordinary-project package-selection and profile tests. |
 | [core_project](../../crates/moon/tests/test_cases/core_project/README.md) | Core as the root module: module synchronization, coverage source merging and import exceptions, local artifact production, and source/blackbox compiler commands. No compiler execution. |
 | [dummy_core](../../crates/moon/tests/test_cases/dummy_core) | Existing core-project backend matrix: check/build/test planner snapshots, CLI bundle/coverage dry-runs, and package-index paths. Keep these assertions when adding smaller core cases. |
 | [query_symbol.in/core](../../crates/moon/tests/test_cases/query_symbol.in/core) | A compilable core project for the real IDE documentation query. Primitive declarations and `builtin.dummy` keep the queried project small; this is not a generic planner fixture. |
@@ -66,6 +66,13 @@ Choose a fixture for its role and execution boundary:
 Specialized core scenarios, such as blackbox driver rewriting and proof support,
 keep their own fixtures. A declaration-only core cannot replace a scenario that
 needs real compiler, runtime, or IDE behavior.
+
+Core scenarios should test rules specific to core. Test shared behavior such as
+package filtering, profile selection, or dependency-closure deduplication with
+ordinary projects or at the owning lower layer. Using core as the environment
+does not make its package composition part of that test's contract. Add a backend
+matrix only when the scenario distinguishes backend-dependent behavior; otherwise
+select one backend explicitly.
 
 ## Make the assertion explain the contract
 
@@ -106,9 +113,8 @@ boundary its own focused assertion: an implicit import must appear in the
 resolved dependency graph, its interface must be tracked as a compile input,
 and the generated compiler command must pass the intended `-i` alias. The
 [core dependency scenarios](../../crates/moon/src/tests/planner/core_dependency.rs)
-keep builtin and prelude separate at each boundary, alongside the complete
-planner snapshots. A correct command alone does not prove that changing its
-input will invalidate the build.
+keep builtin and prelude separate at each boundary. A correct command alone
+does not prove that changing its input will invalidate the build.
 
 For example, the [inline async fixture](../../crates/moon/tests/test_cases/moon_test/async_test_inline/inline_test_file.mbt)
 has one empty `async test {}` in an ordinary source file. Running

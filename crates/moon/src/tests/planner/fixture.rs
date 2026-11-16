@@ -50,6 +50,21 @@ pub(super) struct PlannedGraph {
     build_graph: BuildInput,
 }
 
+/// The command and declared file dependencies in a dumped execution action.
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GraphAction {
+    pub(super) command: String,
+    pub(super) inputs: Vec<String>,
+    pub(super) outputs: Vec<String>,
+}
+
+pub(super) fn graph_actions(graph: &str) -> Vec<GraphAction> {
+    graph
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("planner dump action should be valid JSON"))
+        .collect()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct PlannedPackageRun {
     pub(super) target_backend: TargetBackend,
