@@ -88,7 +88,7 @@ struct HttpMetadataState {
     cache: MetadataCache,
 }
 
-/// The asynchronous connection pool belongs to one resolution runtime.
+/// The asynchronous connection pool belongs to the caller's operation runtime.
 /// It shares metadata with synchronous update and source-acquisition callers.
 pub(super) struct HttpVersionReader {
     state: Arc<HttpMetadataState>,
@@ -294,12 +294,30 @@ impl HttpMetadataState {
     }
 }
 
-impl super::VersionReader for HttpVersionReader {
-    async fn read_version(
+impl HttpVersionReader {
+    pub(super) async fn is_restricted(
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<RegistryVersionInfo> {
+    ) -> anyhow::Result<bool> {
+        Ok(self.exact_release(name, version).await?.visibility == ModuleVisibility::Private)
+    }
+
+    pub(super) async fn query_latest_version(&self, name: &ModuleName) -> anyhow::Result<Version> {
+        if self.frozen {
+            bail!("frozen mode cannot query the latest registry version for {name}");
+        }
+        super::path::parse_module_path(&name.to_string())?;
+        let metadata = self.fetch_release(name, None).await?;
+        self.state.cache.store_latest(name, &metadata.version)?;
+        Ok(metadata.version)
+    }
+
+    async fn exact_release(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<ModuleMetadata> {
         super::path::parse_module_path(&name.to_string())?;
         let state = Arc::clone(&self.state);
         let owned_name = name.clone();
@@ -310,15 +328,23 @@ impl super::VersionReader for HttpVersionReader {
             tokio::task::spawn_blocking(move || state.cached_release(&owned_name, &owned_version))
                 .await??;
         if let Some(metadata) = cached {
-            return Ok(metadata.into());
+            return Ok(metadata);
         }
         if self.frozen {
             bail!("missing cached registry metadata for {name}; frozen mode cannot fetch it");
         }
+        self.fetch_release(name, Some(version)).await
+    }
+
+    async fn fetch_release(
+        &self,
+        name: &ModuleName,
+        version: Option<&Version>,
+    ) -> anyhow::Result<ModuleMetadata> {
         let client = self.client.get_or_try_init(|| {
             authentication::async_client(&self.state.api, self.state.credentials.as_deref())
         })?;
-        let url = self.state.release_url(name, Some(version))?;
+        let url = self.state.release_url(name, version)?;
         let response = client
             .get(url)
             .send()
@@ -330,13 +356,20 @@ impl super::VersionReader for HttpVersionReader {
             .await
             .map_err(|error| RegistryUnavailable(error.into()))
             .with_context(|| format!("failed to read registry metadata response for {name}"))?;
-        let metadata = self.state.decode_release(name, Some(version), &bytes)?;
+        let metadata = self.state.decode_release(name, version, &bytes)?;
         let state = Arc::clone(&self.state);
         let name = name.clone();
-        let metadata =
-            tokio::task::spawn_blocking(move || state.cache.store_release(&name, metadata))
-                .await??;
-        Ok(metadata.into())
+        tokio::task::spawn_blocking(move || state.cache.store_release(&name, metadata)).await?
+    }
+}
+
+impl super::VersionReader for HttpVersionReader {
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        Ok(self.exact_release(name, version).await?.into())
     }
 }
 

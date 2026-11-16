@@ -18,6 +18,7 @@
 
 use std::{ffi::OsString, path::Path, path::PathBuf};
 
+use anyhow::Context;
 use clap::Parser;
 use mooncake::registry::RegistryClient;
 use moonutil::cli_support::MoonxCli;
@@ -83,7 +84,15 @@ pub(crate) fn prepare(
     };
     let wasm_path = match &standalone {
         Some(built) => built.executable.clone(),
-        None => RegistryClient::configured(user_log).acquire_executable_wasm(&input, user_log)?,
+        None => {
+            let registry = RegistryClient::configured(user_log);
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .context("failed to start Wasm download runtime")?;
+            runtime.block_on(registry.acquire_executable_wasm(&input, user_log))?
+        }
     };
     let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
         experimental_policy.as_deref(),
