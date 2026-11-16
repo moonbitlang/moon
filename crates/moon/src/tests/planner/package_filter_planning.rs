@@ -25,7 +25,10 @@ use super::fixture::{PlanningFixture, parse_test_command};
 
 #[test]
 fn filtered_package_graph_matches_snapshot() {
-    let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
+    // Selecting A must retain its test drivers and dependencies without planning
+    // the sibling packages. Core's internal SDK dependencies are not the input.
+    let fixture = PlanningFixture::with_fixed_core("test_filter/test_filter")
+        .expect("fixture should resolve");
     let (cli, cmd) = parse_test_command(&[
         "test",
         "--target",
@@ -45,7 +48,9 @@ fn filtered_package_graph_matches_snapshot() {
 
 #[test]
 fn workspace_test_graph_matches_snapshot() {
-    let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
+    // Without a package selector, the same module must plan all its test packages.
+    let fixture = PlanningFixture::with_fixed_core("test_filter/test_filter")
+        .expect("fixture should resolve");
     let (cli, cmd) =
         parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 

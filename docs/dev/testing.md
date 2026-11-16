@@ -22,7 +22,12 @@ not by itself justify changing which boundaries they exercise.
 
 Reuse discovered packages for planner comparisons when discovery is not the
 contract. Select the backend before resolving backend-specific imports, as the
-command does. The [planning fixture](../../crates/moon/src/tests/planner/fixture.rs)
+command does. For full graph snapshots of dependency-free single-module cases,
+use `PlanningFixture::with_fixed_core` to keep the standard-library input fixed.
+Its [core declarations](../../crates/moon/src/tests/planner/fixtures/core/README.md)
+exercise dependency edges without reading the installed SDK's core manifests.
+Keep real SDK compatibility checks in tests that execute the compiler/runtime.
+The [planning fixture](../../crates/moon/src/tests/planner/fixture.rs)
 is not a substitute for testing CLI wiring, execution, or file mutation.
 
 These are testing responsibilities, not Cargo target names.
