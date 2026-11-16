@@ -2512,6 +2512,40 @@ mod tests {
     }
 
     #[test]
+    fn msvc_explicit_language_standard_replaces_default() {
+        let paths = CompilerPaths {
+            include_path: "include".into(),
+            lib_path: "lib".into(),
+        };
+        for kind in [CCKind::Msvc, CCKind::ClangCl] {
+            for (source, standard) in [
+                ("stub.cpp", "/std:c++20"),
+                ("stub.c", "/std:c17"),
+                ("stub.cpp", "-std:c++20"),
+                ("stub.c", "-std:c17"),
+            ] {
+                let command = make_cc_command_resolved_with_link_args(
+                    fake_cc(kind, None),
+                    executable_cc_config(),
+                    &[standard],
+                    &[],
+                    [source],
+                    "build",
+                    Some("build/main.exe"),
+                    &paths,
+                );
+                assert!(command.iter().any(|arg| arg == standard));
+                assert!(
+                    !command
+                        .iter()
+                        .any(|arg| arg == WINDOWS_MSVC_C_STANDARD_FLAG),
+                    "{kind:?}: {command:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn msvc_compile_flags_keep_nologo() {
         let paths = CompilerPaths {
             include_path: "include".to_string(),

@@ -4,12 +4,30 @@ use std::process::Command;
 #[cfg(not(windows))]
 use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs};
 #[cfg(windows)]
-use crate::{TestDir, get_stdout_with_envs};
+use crate::{TestDir, get_stdout_with_envs, moon_cmd};
 #[cfg(unix)]
 use expect_test::expect_file;
 
 #[cfg(unix)]
 use super::unix_graph::assert_native_backend_graph;
+
+#[test]
+#[cfg(windows)]
+fn msvc_runs_mixed_c_and_cpp_stubs_with_explicit_standard() {
+    // Given C and C++ stubs sharing package flags, including C++20 consteval.
+    // Requires real MSVC and the Windows SDK.
+    let dir = TestDir::new("native_backend/msvc_cpp_stubs");
+    // When Moon compiles both stubs and links them into a native program.
+    moon_cmd(&dir)
+        .env("MOON_CC", "cl")
+        .env_remove("MOON_AR")
+        .env_remove("MOON_CC_WRAPPER")
+        .args(["run", "--target", "native"])
+        .assert()
+        .success()
+        // Then both implementations contribute to the result.
+        .stdout_eq("42\n");
+}
 
 #[cfg(windows)]
 fn link_commands_with_compiler(output: &str, compiler_path: &str) -> Vec<String> {
