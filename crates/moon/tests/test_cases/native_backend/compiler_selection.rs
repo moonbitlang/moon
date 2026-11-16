@@ -16,51 +16,74 @@ fn missing_compiler_override_is_not_replaced_by_msvc() {
 "#]]);
 }
 
-#[test]
-fn plain_clang_overrides_select_generated_c() {
+// Real Clang and Windows SDK are required. The C stub reports its compiler;
+// the generated file additionally proves that the payload switched to C.
+fn assert_clang_run_uses_generated_c(dir: &TestDir, env_cc: Option<&str>) {
     if which::which("clang").is_err() {
         assert!(std::env::var_os("CI").is_none(), "clang missing in CI");
         eprintln!("skipping compiler selection test: clang is unavailable");
         return;
     }
     let sdk = moonutil::compiler_flags::resolve_windows_msvc_toolchain().unwrap();
-    for request in ["environment", "package", "stub"] {
-        let dir = TestDir::new("native_backend/compiler_selection");
-        // The existing stub recognizes Clang targeting MSVC with either CLI.
-        if request != "environment" {
-            let options = if request == "package" {
-                r#""cc": "clang", "stub-cc": "clang""#
-            } else {
-                r#""stub-cc": "clang""#
-            };
-            std::fs::write(dir.join("main/moon.pkg"), format!(
-                r#"options("is-main": true, "native-stub": ["stub.c"], link: {{ "native": {{ {options} }} }})"#,
-            )).unwrap();
-        }
-        let command = moon_cmd(&dir)
-            .envs(
-                sdk.msvc_environment()
-                    .unwrap()
-                    .command_env()
-                    .iter()
-                    .cloned(),
-            )
-            .env_remove("MOON_CC")
-            .env_remove("MOON_AR")
-            .env_remove("MOON_CC_WRAPPER")
-            .env("MOONBIT_NEW_NATIVE", "1");
-        let command = if request == "environment" {
-            command.env("MOON_CC", "clang")
-        } else {
-            command
-        };
-        command
-            .args(["run", "main", "--target", "native", "--debug"])
-            .assert()
-            .success()
-            .stdout_eq("1\n");
-        assert!(dir.join("_build/native/debug/build/main/main.c").is_file());
-    }
+    moon_cmd(dir)
+        .envs(
+            sdk.msvc_environment()
+                .unwrap()
+                .command_env()
+                .iter()
+                .cloned(),
+        )
+        .env_remove("MOON_CC")
+        .env_remove("MOON_AR")
+        .env_remove("MOON_CC_WRAPPER")
+        .envs(env_cc.map(|cc| ("MOON_CC", cc)))
+        .env("MOONBIT_NEW_NATIVE", "1")
+        .args(["run", "main", "--target", "native", "--debug"])
+        .assert()
+        .success()
+        .stdout_eq("1\n");
+    assert!(dir.join("_build/native/debug/build/main/main.c").is_file());
+}
+
+#[test]
+fn env_clang_builds_and_runs_generated_c() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    assert_clang_run_uses_generated_c(&dir, Some("clang"));
+}
+
+#[test]
+fn package_clang_builds_and_runs_generated_c() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+options(
+  "is-main": true,
+  "native-stub": ["stub.c"],
+  link: { "native": { "cc": "clang", "stub-cc": "clang" } },
+)
+"#,
+    )
+    .unwrap();
+    assert_clang_run_uses_generated_c(&dir, None);
+}
+
+#[test]
+fn stub_clang_builds_and_runs_generated_c() {
+    let dir = TestDir::new("native_backend/compiler_selection");
+    // The program uses the default compiler; only its stub requests Clang.
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"
+options(
+  "is-main": true,
+  "native-stub": ["stub.c"],
+  link: { "native": { "stub-cc": "clang" } },
+)
+"#,
+    )
+    .unwrap();
+    assert_clang_run_uses_generated_c(&dir, None);
 }
 
 #[test]

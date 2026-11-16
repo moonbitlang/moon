@@ -1,0 +1,4 @@
+options(
+  "is-main": true,
+  link: { "native": { "cc": "second-gcc" } },
+)
