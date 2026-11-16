@@ -11,8 +11,9 @@ the contract in `lib/xml/computil/diagnostic_fix.mli` of its repository.
    backends, with JSON diagnostics, no diagnostic limit, no patch file, and
    without publishing `pkg.generated.mbti` (it would describe the code before
    its fixes). Ordinary compiler errors may still propose fixes, such as an
-   unused `mut`. Tool failures, interruption, and compiler failures without
-   error diagnostics stop the run before applying any fixes from that check.
+   unused `mut`. Tool failures, executor-reported interruption, and compiler
+   failures without error diagnostics stop the run before applying any fixes
+   from that check.
 2. From the execution plan, record which editable local source files each
    Target Backend's compiler actions read. A file selector permits edits only
    to that file; a directory selector permits edits only to that package.
@@ -31,9 +32,11 @@ the contract in `lib/xml/computil/diagnostic_fix.mli` of its repository.
    and every edit still reads its `expect` text, joins no tokens, and so on. A
    fix that fails a check is skipped as a whole. Fixes are selected greedily
    in file order; a fix whose edits overlap or start at the same point as
-   those of a selected fix is skipped, and so is one whose edits touch them
-   (as adjacent escapes in one literal do) when their combined result joins
-   tokens.
+   those of a selected fix is skipped. Selected fixes must also preserve each
+   other's file-wide `fresh` constraints: neither may introduce a whole
+   identifier reserved by the other, including through an edit with no `fresh`
+   constraint of its own. Complete groups of touching edits are checked together
+   for joined tokens, after all their replacements have been accumulated.
 5. Stage the complete replacement in the source file's directory, preserving
    its permissions and following source symlinks. Recheck that the source still
    matches the driver's original content, then replace it. Failed staging or
@@ -66,5 +69,7 @@ commands and applies nothing.
 n2 distinguishes failure from interruption, but does not expose the specific
 exit code or most terminating signals. A compiler that emits an error diagnostic
 and then crashes can therefore look like an ordinary diagnostic failure. The
-current driver cannot reliably reject that case; retaining structured task
-results does not remove this limitation.
+current driver cannot reliably reject that case. In particular, a shell waiting
+for a compiler can turn a signal sent only to that child into an ordinary exit
+code; n2 then reports failure rather than interruption. Retaining structured
+task results does not remove this limitation.

@@ -28,7 +28,8 @@
 //! 2. no two identifier characters become adjacent that were not, checked per
 //!    edit and, for edits of one fix that touch, on their combined result,
 //!    except when every such edit is `inside_literal`;
-//! 3. no `fresh` name occurs in the file as a whole identifier;
+//! 3. no `fresh` name occurs in the file or in another selected fix's
+//!    replacement text as a whole identifier;
 //! 4. the rest of the line after a `followed_by` edit, past blanks, starts
 //!    with that text (`""`: is empty);
 //! 5. edits of one fix neither overlap nor start at the same point, and a fix
@@ -44,9 +45,8 @@
 //!
 //! The checks follow the compiler's reference driver
 //! (`test/fix_test/apply_fixes.js`) and contract
-//! (`lib/xml/computil/diagnostic_fix.mli`). The one deliberate difference is
-//! that the reference driver applies fixes whose edits touch without checking
-//! their combined result for joined tokens.
+//! (`lib/xml/computil/diagnostic_fix.mli`). Selection also protects freshness
+//! across fixes and checks touching edits together for joined tokens.
 
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::path::{Path, PathBuf};
@@ -83,7 +83,12 @@ impl Fix {
     /// proposes none.
     pub(crate) fn preferred_of_diagnostic(diagnostic: &serde_json::Value) -> Option<Fix> {
         let first = diagnostic.get("fixes")?.as_array()?.first()?;
-        Fix::deserialize(first).ok()
+        let mut fix = Fix::deserialize(first).ok()?;
+        for edit in &mut fix.edits {
+            // Match the editable-input keys without following source symlinks.
+            edit.path = dunce::simplified(&edit.path).to_owned();
+        }
+        Some(fix)
     }
 }
 
@@ -113,8 +118,8 @@ pub(crate) enum SkipReason {
     /// Two edits of the fix overlap or start at the same point.
     OverlappingEdits,
     /// An edit overlaps or starts at the same point as an edit of a fix
-    /// selected before it, or touches one and their combined result joins
-    /// tokens.
+    /// selected before it, invalidates freshness, or touches one and their
+    /// combined result joins tokens.
     ConflictsWithSelectedFix,
 }
 
@@ -334,12 +339,13 @@ struct ResolvedEdit {
     start: usize,
     end: usize,
     new_text: String,
+    fresh: Vec<String>,
     inside_literal: bool,
 }
 
 /// Whether the edits of a fix overlap or start at the same point as edits of
-/// fixes selected before it, or touch them with a combined result that joins
-/// tokens.
+/// fixes selected before it, invalidate each other's fresh names, or touch
+/// with a combined result that joins tokens.
 fn conflicts_with_selected(
     edits: &[ResolvedEdit],
     selected: &BTreeMap<PathBuf, Vec<ResolvedEdit>>,
@@ -352,6 +358,19 @@ fn conflicts_with_selected(
         let overlaps =
             |y: &ResolvedEdit| (x.start < y.end && y.start < x.end) || x.start == y.start;
         if taken.iter().any(overlaps) {
+            return true;
+        }
+        // Freshness is file-wide and must hold in both directions. A later
+        // replacement can invalidate a selected fix even without declaring
+        // any fresh names of its own. Edits within one fix remain a unit.
+        if taken.iter().any(|y| {
+            x.fresh
+                .iter()
+                .any(|name| y.fresh.contains(name) || occurs_as_identifier(&y.new_text, name))
+                || y.fresh
+                    .iter()
+                    .any(|name| occurs_as_identifier(&x.new_text, name))
+        }) {
             return true;
         }
         if !taken.iter().any(|y| y.end == x.start || x.end == y.start) {
@@ -479,6 +498,7 @@ fn resolve(
             start: byte_offset(start),
             end: byte_offset(end),
             new_text: edit.new_text.clone(),
+            fresh: edit.fresh.clone(),
             inside_literal: edit.inside_literal,
         });
         located.push(LineEdit {
@@ -501,25 +521,30 @@ fn resolve(
 /// result must not join tokens.
 fn check_touching_edits(mut edits: Vec<LineEdit<'_>>) -> Result<(), SkipReason> {
     edits.sort_by(|a, b| (a.path, a.line, a.start).cmp(&(b.path, b.line, b.start)));
-    let mut group: Option<LineEdit<'_>> = None;
-    let mut previous_start = None;
-    for edit in edits {
-        let edit_start = edit.start;
-        match &mut group {
-            Some(g) if g.path == edit.path && g.line == edit.line && edit.start <= g.end => {
-                if edit.start < g.end || Some(edit.start) == previous_start {
-                    return Err(SkipReason::OverlappingEdits);
-                }
-                g.end = edit.end;
-                g.new_text.push_str(&edit.new_text);
-                g.inside_literal &= edit.inside_literal;
-                if !g.inside_literal && joins_tokens(&g.chars, g.start, g.end, &g.new_text) {
-                    return Err(SkipReason::JoinsTokens);
-                }
+    let mut edits = edits.into_iter().peekable();
+    while let Some(mut group) = edits.next() {
+        let mut previous_start = group.start;
+        while let Some(edit) = edits.peek()
+            && group.path == edit.path
+            && group.line == edit.line
+            && edit.start <= group.end
+        {
+            if edit.start < group.end || edit.start == previous_start {
+                return Err(SkipReason::OverlappingEdits);
             }
-            _ => group = Some(edit),
+            previous_start = edit.start;
+            group.end = edit.end;
+            group.new_text.push_str(&edit.new_text);
+            group.inside_literal &= edit.inside_literal;
+            edits.next();
         }
-        previous_start = Some(edit_start);
+        // Only the complete replacement determines the final token boundary;
+        // a later touching edit can restore a separator removed by a prefix.
+        if !group.inside_literal
+            && joins_tokens(&group.chars, group.start, group.end, &group.new_text)
+        {
+            return Err(SkipReason::JoinsTokens);
+        }
     }
     Ok(())
 }

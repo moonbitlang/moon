@@ -85,9 +85,11 @@ fn main() {
         }
     }
     #[cfg(unix)]
-    if std::env::var_os("FIX_MOONC_INTERRUPT").is_some() {
-        extern "C" { fn raise(signal: i32) -> i32; }
-        unsafe { raise(2); } // SIGINT: exercise n2's interruption result.
+    if std::env::var_os("FIX_MOONC_INTERRUPT_GROUP").is_some() {
+        extern "C" { fn kill(pid: i32, signal: i32) -> i32; }
+        // The test launches moon in an isolated process group. Like Ctrl-C,
+        // interrupt the entire group, including any shell waiting for us.
+        unsafe { assert_eq!(kill(0, 2), 0); }
     }
     if failed {
         std::process::exit(1);

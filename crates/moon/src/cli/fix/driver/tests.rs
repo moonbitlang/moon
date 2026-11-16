@@ -155,11 +155,13 @@ fn reads_the_first_fix_of_a_diagnostic() {
 #[cfg(windows)]
 #[test]
 fn diagnostic_paths_use_the_same_identity_with_or_without_a_verbatim_prefix() {
-    let diagnostic = |path: &str| serde_json::json!({
-        "fixes": [{"title": "rename", "edits": [{
-            "path": path, "loc": "1:1-1:2", "expect": "x", "new_text": "y"
-        }]}]
-    });
+    let diagnostic = |path: &str| {
+        serde_json::json!({
+            "fixes": [{"title": "rename", "edits": [{
+                "path": path, "loc": "1:1-1:2", "expect": "x", "new_text": "y"
+            }]}]
+        })
+    };
     let plain = Fix::preferred_of_diagnostic(&diagnostic(r"C:\p\a.mbt")).unwrap();
     let verbatim = Fix::preferred_of_diagnostic(&diagnostic(r"\\?\C:\p\a.mbt")).unwrap();
     assert_eq!(plain.edits[0].path, PathBuf::from(r"C:\p\a.mbt"));

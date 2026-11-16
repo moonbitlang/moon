@@ -20,6 +20,16 @@ use super::*;
 use driver::FileChange;
 use moonutil::user_log::UserLog;
 
+#[cfg(windows)]
+#[test]
+fn display_path_relativizes_plain_and_verbatim_paths() {
+    for path in [r"C:\p\a.mbt", r"\\?\C:\p\a.mbt"] {
+        for base in [r"C:\p", r"\\?\C:\p"] {
+            assert_eq!(display_path(Path::new(path), Path::new(base)), "a.mbt");
+        }
+    }
+}
+
 fn file_change(path: &Path, original: &str, fixed: &str) -> FixPlan {
     FixPlan {
         changes: BTreeMap::from([(

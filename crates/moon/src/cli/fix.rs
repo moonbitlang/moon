@@ -122,7 +122,12 @@ pub(crate) fn run_fix(
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     let check = cmd.check_command();
-    let base = std::env::current_dir().context("failed to get the current directory")?;
+    // Discovery canonicalizes source directories. Resolve the display base
+    // the same way, including Windows directory aliases and casing.
+    let base = dunce::canonicalize(
+        std::env::current_dir().context("failed to get the current directory")?,
+    )
+    .context("failed to resolve the current directory")?;
     let mut applied = 0;
     let mut files = BTreeSet::new();
     let mut failed = false;
@@ -345,7 +350,8 @@ fn fix_location(fix: &Fix, base: &Path) -> Option<String> {
 }
 
 fn display_path(path: &Path, base: &Path) -> String {
-    path.strip_prefix(base)
+    let path = dunce::simplified(path);
+    path.strip_prefix(dunce::simplified(base))
         .unwrap_or(path)
         .display()
         .to_string()

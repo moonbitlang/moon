@@ -120,7 +120,7 @@ struct CheckJsonAccumulator {
     diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
     /// Source collection is enabled only for consumers that may edit files.
     /// Empty selectors allow all local packages; a file selector allows only that file.
-    source_selection: Option<Vec<(PathBuf, Option<String>)>>,
+    source_selection: Option<Vec<PathBuf>>,
     editable_sources: EditableSources,
     execution_failed: bool,
     messages: Vec<MoonMessage>,
@@ -217,11 +217,10 @@ impl CheckJsonAccumulator {
                                 || !std::fs::canonicalize(path)
                                     .is_ok_and(|canonical| generated.contains(&canonical)))
                             && (selection.is_empty()
-                                || selection.iter().any(|(dir, file)| {
-                                    dunce::simplified(dir) == dunce::simplified(&package.root_path)
-                                        && file.as_ref().is_none_or(|file| {
-                                            path.file_name() == Some(std::ffi::OsStr::new(file))
-                                        })
+                                || selection.iter().any(|selected| {
+                                    let selected = dunce::simplified(selected);
+                                    selected == dunce::simplified(&package.root_path)
+                                        || selected == dunce::simplified(path)
                                 }))
                     })
             })
@@ -235,7 +234,7 @@ impl CheckJsonAccumulator {
             for input in action.inputs() {
                 if editable.contains(input) {
                     self.editable_sources
-                        .entry(input.clone())
+                        .entry(dunce::simplified(input).to_owned())
                         .or_default()
                         .insert(build_input.action_backend(id));
                 }
@@ -457,12 +456,7 @@ pub(crate) fn run_check_collecting(
     cmd.build_flags.no_render = false;
     cmd.build_flags.diagnostic_limit = None;
     let mut accumulator = CheckJsonAccumulator {
-        source_selection: Some(
-            cmd.path
-                .iter()
-                .map(|path| canonicalize_with_filename(path))
-                .collect::<anyhow::Result<_>>()?,
-        ),
+        source_selection: Some(Vec::new()),
         ..Default::default()
     };
     // Ordinary compiler errors may propose fixes; execution failures may not.
@@ -576,6 +570,25 @@ fn run_check_impl(
             },
         }
     };
+    if let Some(selection) = json
+        .as_deref_mut()
+        .and_then(|json| json.source_selection.as_mut())
+    {
+        // Standalone discovery preserves the invoked filename (and its source
+        // format), even for a symlink. Use that same resolved input identity.
+        *selection = if let Some(path) = &single_file {
+            vec![path.clone()]
+        } else {
+            cmd.path
+                .iter()
+                .map(|path| {
+                    dunce::canonicalize(path).with_context(|| {
+                        format!("failed to resolve source selector `{}`", path.display())
+                    })
+                })
+                .collect::<anyhow::Result<_>>()?
+        };
+    }
     let watch_ignored_subtree = dirs.target_dir.clone();
     if cmd.watch {
         dirs.target_dir = dirs.target_dir.join(WATCH_MODE_DIR);

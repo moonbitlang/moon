@@ -80,6 +80,21 @@ fn unused_mut(target: &str, line: u32) -> String {
 const UNUSED_MUT_SOURCE: &str = "fn f() -> Int {\n  let mut x = 1\n  x\n}\n";
 const FIXED_SOURCE: &str = "fn f() -> Int {\n  let x = 1\n  x\n}\n";
 
+#[cfg(windows)]
+#[test]
+fn fix_displays_relative_paths_from_a_differently_cased_working_directory() {
+    let (dir, moonc) = project(&[
+        ("a.mbt", UNUSED_MUT_SOURCE),
+        ("a.mbt.diagnostics", &unused_mut("*", 2)),
+    ]);
+    fix_cmd(&dir, &moonc)
+        .current_dir(dir.join("project").to_str().unwrap().to_uppercase())
+        .assert()
+        .success()
+        .stdout_eq("a.mbt:2:3: Remove `mut`\n");
+    assert_eq!(read_file(&dir, "a.mbt"), FIXED_SOURCE);
+}
+
 #[test]
 fn fix_file_selector_only_changes_the_selected_file() {
     let (dir, moonc) = project(&[
@@ -271,15 +286,33 @@ Applied 1 fix to 1 file
 #[cfg(unix)]
 #[test]
 fn fix_does_not_apply_diagnostics_from_an_interrupted_check() {
+    use std::os::unix::process::CommandExt;
+
     let (dir, moonc) = project(&[
         ("a.mbt", UNUSED_MUT_SOURCE),
         ("a.mbt.diagnostics", &unused_mut("*", 2)),
     ]);
-    fix_cmd(&dir, &moonc)
-        .env("FIX_MOONC_INTERRUPT", "1")
+    // Ctrl-C targets the foreground process group. Isolate this command so
+    // the fixture can interrupt it without signalling the test runner.
+    // Signalling only the compiler is different: a waiting shell can turn
+    // SIGINT into exit 130, which n2 reports as an ordinary failure.
+    let checked = dir.join("checked-sources.txt");
+    let mut cmd = moon_process_cmd(&dir);
+    cmd.process_group(0)
+        .current_dir(dir.join("project"))
+        .env("MOONC_OVERRIDE", moonc)
+        .env("FIX_MOONC_CHECKED_SOURCES", &checked)
+        .env("FIX_MOONC_INTERRUPT_GROUP", "1")
+        .arg("fix");
+    snapbox::cmd::Command::from_std(cmd)
         .assert()
         .failure()
         .stdout_eq("");
+    assert!(
+        std::fs::read_to_string(checked)
+            .unwrap()
+            .contains(UNUSED_MUT_SOURCE)
+    );
     assert_eq!(read_file(&dir, "a.mbt"), UNUSED_MUT_SOURCE);
 }
 
