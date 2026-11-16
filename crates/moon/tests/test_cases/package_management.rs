@@ -706,6 +706,70 @@ fn test_postadd_script() {
 */
 
 #[test]
+fn test_postadd_failure_retries_unfinished_installations() {
+    let dir = TestDir::new("test_postadd_retry.in");
+    let moon_home = tempfile::tempdir().unwrap();
+    let moon_path = std::env::join_paths(
+        std::iter::once(moon_bin().parent().unwrap().to_path_buf()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .unwrap();
+    for name in ["first", "second"] {
+        cache_registry_package(
+            moon_home.path(),
+            &format!("testuser/{name}"),
+            "1.0.0",
+            &["moon.mod", "moon.pkg"].map(|file| {
+                (
+                    file,
+                    std::fs::read(dir.join(format!("registry/{name}/{file}"))).unwrap(),
+                )
+            }),
+        );
+    }
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
+        .env_remove("MOON_IGNORE_POSTADD")
+        .env("PATH", &moon_path)
+        .args(["tree", "--package"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+[..]failed to execute postadd script[..]
+...
+"#]]);
+    // Package iteration order is unspecified. Neither the failed package nor
+    // any later package may be mistaken for a completed installation.
+    for name in ["first", "second"] {
+        assert!(!dir.join(format!(".mooncakes/testuser/{name}")).exists());
+    }
+
+    std::fs::copy(
+        dir.join("hook-input.txt"),
+        dir.join(".mooncakes/testuser/hook-input.txt"),
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
+        .env_remove("MOON_IGNORE_POSTADD")
+        .env("PATH", &moon_path)
+        .args(["tree", "--package"])
+        .assert()
+        .success();
+    for name in ["first", "second"] {
+        assert!(
+            dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"))
+                .is_file()
+        );
+    }
+}
+
+#[test]
 fn test_fetch_and_binary_install_run_legacy_postadd() {
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");

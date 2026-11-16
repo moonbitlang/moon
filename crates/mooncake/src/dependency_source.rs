@@ -85,7 +85,7 @@ mod tests {
         cache::{CacheKind, CacheRoot},
         child_process::ChildOutputMode,
         manifest::MoonMod,
-        resolution::{ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind},
+        resolution::{ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
         user_log::UserLog,
     };
     use semver::Version;
@@ -128,45 +128,44 @@ mod tests {
             self.checksum_after_first_read = Some(checksum.to_string());
             self
         }
-
-        fn install_source(
-            &self,
-            name: &ModuleName,
-            version: &Version,
-            to: &Path,
-        ) -> anyhow::Result<()> {
-            self.installations.fetch_add(1, Ordering::SeqCst);
-            let scripts = if self.postadd {
-                r#"
-options(
-  "scripts": {
-    "postadd": "must-not-run",
-  },
-)
-"#
-            } else {
-                ""
-            };
-            std::fs::write(
-                to.join("moon.mod"),
-                format!("name = \"{name}\"\nversion = \"{version}\"\n{scripts}"),
-            )?;
-            Ok(())
-        }
     }
 
     impl RegistrySource for TestRegistry {
-        fn acquire_source_to(
+        fn download_archives(
             &self,
-            module: &ModuleSource,
-            expected_checksum: &str,
-            to: &Path,
+            sources: &[crate::registry::SourceRequest],
             _user_log: &UserLog,
-        ) -> anyhow::Result<()> {
-            std::fs::create_dir_all(to)?;
-            self.install_source(module.name(), module.version(), to)?;
-            std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;
-            Ok(())
+        ) -> anyhow::Result<Vec<std::fs::File>> {
+            use std::io::{Seek, Write};
+
+            sources
+                .iter()
+                .map(|source| {
+                    self.installations.fetch_add(1, Ordering::SeqCst);
+                    let mut archive = zip::ZipWriter::new(tempfile::tempfile()?);
+                    archive.start_file("moon.mod", zip::write::FileOptions::default())?;
+                    writeln!(
+                        archive,
+                        "name = {:?}\nversion = {:?}",
+                        source.module.name().to_string(),
+                        source.module.version().to_string()
+                    )?;
+                    if self.postadd {
+                        writeln!(
+                            archive,
+                            "options(scripts: {{ \"postadd\": \"must-not-run\" }})"
+                        )?;
+                    }
+                    archive.start_file(
+                        "acquired-archive-checksum",
+                        zip::write::FileOptions::default(),
+                    )?;
+                    archive.write_all(source.checksum.as_bytes())?;
+                    let mut archive = archive.finish()?;
+                    archive.rewind()?;
+                    Ok(archive)
+                })
+                .collect()
         }
 
         fn source_archive_checksum(&self, _module: &ModuleSource) -> anyhow::Result<String> {
