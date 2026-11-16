@@ -149,31 +149,21 @@ pub trait Registry {
     }
 }
 
-pub(crate) trait RegistrySource {
-    /// Materialize verified published source without executing package hooks.
-    fn materialize_source_to(
-        &self,
-        module: &ModuleSource,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        let checksum = self.source_archive_checksum(module)?;
-        self.acquire_source_to(module, &checksum, to, user_log)
-    }
+/// One selected source archive and its expected checksum.
+pub(crate) struct SourceRequest {
+    pub module: ModuleSource,
+    pub checksum: String,
+}
 
-    /// Ensure the published source archive is available, verify it against the
-    /// checksum selected by the caller, and extract it without executing
-    /// package-controlled hooks such as `scripts.postadd`.
-    ///
-    /// The registry adapter decides whether to reuse a downloaded archive or
-    /// acquire it remotely; callers do not need to prepare an archive first.
-    fn acquire_source_to(
+pub(crate) trait RegistrySource {
+    /// Return one verified ZIP handle per request, in request order. Downloads
+    /// may overlap; the caller owns extraction, publication and package hooks.
+    /// Keep these handles open through extraction to avoid reopening cache paths.
+    fn download_archives(
         &self,
-        module: &ModuleSource,
-        expected_checksum: &str,
-        to: &Path,
+        sources: &[SourceRequest],
         user_log: &UserLog,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<Vec<std::fs::File>>;
 
     /// Return the registry's SHA-256 checksum for the published source
     /// ZIP archive.

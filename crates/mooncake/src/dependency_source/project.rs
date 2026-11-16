@@ -35,7 +35,11 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::{pkg::legacy_postadd, registry::RegistrySource};
+use crate::{
+    pkg::legacy_postadd,
+    registry::{RegistrySource, SourceRequest},
+    zip_util::extract_zip_to_dir,
+};
 
 use super::DependencySource;
 
@@ -271,21 +275,40 @@ fn sync(
         log::info!("Creating user {} at {}", &user, user_path.display());
         std::fs::create_dir_all(user_path)?;
     }
-    // Finally, Download and install packages that are needed.
-    for (user, pkgs) in diff.add_pkg {
-        for (pkg, version) in pkgs {
-            let pkg_path = pkg_to_dir(dep_dir, &user, &pkg);
-            log::info!(
-                "Installing package {:?} at {}",
-                &version,
-                pkg_path.display()
-            );
-            let ModuleSourceKind::Registry = version.source() else {
-                unreachable!()
-            };
-            registry.materialize_source_to(version, &pkg_path, user_log)?;
-            legacy_postadd::run(&pkg_path, postadd_runner)?;
-            // TODO: parallelize this
+    // Download the missing archives together, then run legacy hooks serially.
+    let sources = diff
+        .add_pkg
+        .into_values()
+        .flat_map(|pkgs| pkgs.into_values())
+        .map(|module| {
+            Ok(SourceRequest {
+                module: module.clone(),
+                checksum: registry.source_archive_checksum(module)?,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let archives = registry.download_archives(&sources, user_log)?;
+    for (source, archive) in sources.into_iter().zip(archives) {
+        let name = source.module.name();
+        let directory = pkg_to_dir(dep_dir, &name.username, &name.unqual);
+        if directory.exists() {
+            std::fs::remove_dir_all(&directory)?;
+        }
+        std::fs::create_dir_all(&directory)?;
+        // A manifest is treated as installed on the next sync. Materialize only
+        // this package, and discard it on failure so retry still runs its hook.
+        if let Err(error) = extract_zip_to_dir(&directory, archive)
+            .and_then(|()| legacy_postadd::run(&directory, postadd_runner))
+        {
+            if let Err(cleanup_error) = std::fs::remove_dir_all(&directory)
+                && cleanup_error.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(error).context(format!(
+                    "Unable to remove incomplete package `{}`: {cleanup_error}",
+                    directory.display()
+                ));
+            }
+            return Err(error);
         }
     }
 

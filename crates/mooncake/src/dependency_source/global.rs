@@ -29,7 +29,10 @@ use moonutil::{
     user_log::UserLog,
 };
 
-use crate::registry::RegistrySource;
+use crate::{
+    registry::{RegistrySource, SourceRequest},
+    zip_util::extract_zip_to_dir,
+};
 
 use super::DependencySource;
 
@@ -59,18 +62,17 @@ impl<'a> ImmutableDependencySource<'a> {
             .join(module.version().to_string())
     }
 
-    fn prepare_source(
+    fn stage_source(
         &self,
-        registry: &dyn RegistrySource,
         module: &ModuleSource,
         checksum: &str,
         directory: &Path,
         frozen: bool,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<tempfile::TempDir>> {
         match std::fs::symlink_metadata(directory) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-                validate_cached_source(directory, module, checksum)
+                validate_cached_source(directory, module, checksum)?;
+                Ok(None)
             }
             Ok(_) => anyhow::bail!(
                 "Dependency source cache entry is not a directory: `{}`",
@@ -102,20 +104,7 @@ impl<'a> ImmutableDependencySource<'a> {
                     module.version(),
                     directory.display()
                 );
-                registry.acquire_source_to(module, checksum, staging.path(), user_log)?;
-                validate_source(staging.path(), module)?;
-                std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
-                let staging = staging.into_path();
-                if let Err(error) = std::fs::rename(&staging, directory) {
-                    let _ = std::fs::remove_dir_all(&staging);
-                    return Err(error).with_context(|| {
-                        format!(
-                            "Unable to publish dependency source cache entry `{}`",
-                            directory.display()
-                        )
-                    });
-                }
-                Ok(())
+                Ok(Some(staging))
             }
             Err(error) => Err(error.into()),
         }
@@ -137,6 +126,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
             )
         })?;
         let mut result = DirSyncResult::default();
+        let mut staged = Vec::new();
 
         for (id, module) in resolved.all_modules_and_id() {
             let directory = match module.source() {
@@ -153,7 +143,11 @@ impl DependencySource for ImmutableDependencySource<'_> {
                         );
                     }
                     let directory = self.source_dir(module);
-                    self.prepare_source(registry, module, &checksum, &directory, frozen, user_log)?;
+                    if let Some(staging) =
+                        self.stage_source(module, &checksum, &directory, frozen)?
+                    {
+                        staged.push((module, checksum, directory.clone(), staging));
+                    }
                     directory
                 }
                 ModuleSourceKind::Local(path)
@@ -161,6 +155,26 @@ impl DependencySource for ImmutableDependencySource<'_> {
                 | ModuleSourceKind::SingleFile(path) => path.clone(),
             };
             result.insert(id, directory);
+        }
+
+        let sources = staged
+            .iter()
+            .map(|(module, checksum, _, _)| SourceRequest {
+                module: (*module).clone(),
+                checksum: checksum.clone(),
+            })
+            .collect::<Vec<_>>();
+        let archives = registry.download_archives(&sources, user_log)?;
+        for ((module, checksum, directory, staging), archive) in staged.into_iter().zip(archives) {
+            extract_zip_to_dir(staging.path(), archive)?;
+            validate_source(staging.path(), module)?;
+            std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
+            std::fs::rename(staging.path(), &directory).with_context(|| {
+                format!(
+                    "Unable to publish dependency source cache entry `{}`",
+                    directory.display()
+                )
+            })?;
         }
 
         Ok(result)
