@@ -113,9 +113,9 @@ struct CheckJsonReport {
     summary: CheckJsonSummary,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct CheckJsonAccumulator {
-    diagnostics: Vec<serde_json::Value>,
+    diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
     messages: Vec<MoonMessage>,
     tasks_executed: Option<usize>,
     build_failed: bool,
@@ -128,20 +128,7 @@ struct CheckJsonAccumulator {
 impl CheckJsonAccumulator {
     fn append_build(&mut self, result: moonbuild::execution::JsonBuildOutput, user_log: &UserLog) {
         let successful = result.successful();
-        self.diagnostics
-            .extend(result.diagnostics.into_iter().map(|diagnostic| {
-                let mut value = diagnostic.value;
-                if let Some(target_backend) = diagnostic.target_backend {
-                    value
-                        .as_object_mut()
-                        .expect("Moonc diagnostic should be a JSON object")
-                        .insert(
-                            "target_backend".to_string(),
-                            serde_json::Value::String(target_backend.to_flag().to_string()),
-                        );
-                }
-                value
-            }));
+        self.diagnostics.extend(result.diagnostics);
         self.diagnostic_errors += result.n_errors;
         self.diagnostic_warnings += result.n_warnings;
         self.hidden_diagnostic_errors += result.hidden_errors;
@@ -315,7 +302,12 @@ fn write_check_json(
         } else {
             "failure"
         },
-        diagnostics: outcome.accumulator.diagnostics,
+        diagnostics: outcome
+            .accumulator
+            .diagnostics
+            .into_iter()
+            .map(project_check_json_diagnostic)
+            .collect(),
         messages: captured_messages,
         summary: CheckJsonSummary {
             tasks_executed: outcome.accumulator.tasks_executed,
@@ -334,6 +326,24 @@ fn write_check_json(
         writeln!(writer)?;
         Ok(())
     })
+}
+
+/// A Moonc diagnostic as `moon check --json` reports it: the compiler's
+/// object with the backend of the action that emitted it.
+fn project_check_json_diagnostic(
+    diagnostic: moonbuild::execution::JsonBuildDiagnostic,
+) -> serde_json::Value {
+    let mut value = diagnostic.value;
+    if let Some(target_backend) = diagnostic.target_backend {
+        value
+            .as_object_mut()
+            .expect("Moonc diagnostic should be a JSON object")
+            .insert(
+                "target_backend".to_string(),
+                serde_json::Value::String(target_backend.to_flag().to_string()),
+            );
+    }
+    value
 }
 
 fn run_check_json(
