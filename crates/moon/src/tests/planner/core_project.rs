@@ -105,25 +105,28 @@ fn coverage_sources_join_builtin_only_when_coverage_is_enabled() -> anyhow::Resu
     let without_coverage = discover_core(false)?;
     let with_coverage = discover_core(true)?;
     let root_id = with_coverage.local_modules()[0];
-    let root = with_coverage
-        .module_dirs
-        .get(root_id)
-        .expect("root module should have a synchronized directory");
+    // Match discovery's canonical paths, including Windows verbatim prefixes.
+    let root = std::fs::canonicalize(
+        with_coverage
+            .module_dirs
+            .get(root_id)
+            .expect("root module should have a synchronized directory"),
+    )?;
 
     // Then coverage source stays in its own package unless the root-core rule merges it.
     assert_eq!(
-        package_source_paths(&without_coverage, "moonbitlang/core/builtin", root),
+        package_source_paths(&without_coverage, "moonbitlang/core/builtin", &root),
         vec!["builtin/builtin.mbt".to_owned()]
     );
     assert_eq!(
-        package_source_paths(&with_coverage, "moonbitlang/core/builtin", root),
+        package_source_paths(&with_coverage, "moonbitlang/core/builtin", &root),
         vec![
             "builtin/builtin.mbt".to_owned(),
             "coverage/coverage.mbt".to_owned()
         ]
     );
     assert_eq!(
-        package_source_paths(&with_coverage, "moonbitlang/core/coverage", root),
+        package_source_paths(&with_coverage, "moonbitlang/core/coverage", &root),
         vec!["coverage/coverage.mbt".to_owned()]
     );
 
