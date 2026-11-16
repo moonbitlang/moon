@@ -32,7 +32,7 @@ use ariadne::ReportKind;
 use clap::ValueEnum;
 use colored::Colorize;
 use moonbuild_rupes_recta::{
-    execution_plan::{ActionId, ActionOutputKind, ExecutionPlan},
+    execution_plan::{ActionId, ActionOutputKind, ExecutionPlan, LoweredCommandExecution},
     target_layout::GENERATED_TEST_DRIVER_PREFIX,
 };
 use moonutil::{
@@ -290,27 +290,24 @@ impl BuildStats {
     }
 }
 
-struct CapturedBuildExecution {
+struct CapturedBuildExecution<'a> {
+    /// Action IDs are only meaningful within this input's execution plan.
+    input: &'a BuildInput,
     n_tasks_executed: Option<usize>,
     action_outputs: Vec<CapturedActionOutput>,
 }
 
-// TODO: Keep the owning BuildInput alive through result processing, then retain
-// only ActionId, termination, and output here. Resolve action metadata and
-// construct failure messages there instead of copying them in the n2 callback.
 struct CapturedActionOutput {
-    target_backend: Option<TargetBackend>,
-    output_kind: ActionOutputKind,
+    action_id: ActionId,
     content: ResultCatcher,
     /// Executor status, independent of whether an additional message is needed.
     failure: Option<ActionFailureKind>,
-    /// Whether this action emitted a structured compiler error diagnostic.
-    has_error_diagnostics: bool,
-    /// Failure context when tool output does not explain the failure.
-    error: Option<String>,
-    /// Command context for failures already explained by tool output.
-    /// UserLog controls its visibility, independently of capture.
-    failed_command: Option<String>,
+}
+
+/// Failure presentation is derived after capture; UserLog controls visibility.
+enum FailureMessage<'a> {
+    Error(String),
+    Command(&'a str),
 }
 
 /// The unsuccessful termination reported by the executor.
@@ -337,9 +334,59 @@ pub struct ActionFailure {
     pub has_error_diagnostics: bool,
 }
 
-impl CapturedBuildExecution {
+impl CapturedBuildExecution<'_> {
     fn successful(&self) -> bool {
         self.n_tasks_executed.is_some()
+    }
+
+    fn failures(
+        &self,
+        cfg: &BuildConfig,
+    ) -> impl Iterator<Item = (ActionFailure, FailureMessage<'_>)> {
+        self.action_outputs.iter().filter_map(|output| {
+            let kind = output.failure?;
+            let action = self.input.execution_plan.action(output.action_id);
+            // Classify the original output before diagnostic filtering. Raw
+            // output is opaque; only compiler actions can emit Moonc diagnostics.
+            let has_error_diagnostics = cfg.output_style.needs_moonc_json()
+                && action.output_kind() == ActionOutputKind::Compiler
+                && output.content.content_writer.iter().any(|line| {
+                    serde_json::from_str::<MooncDiagnostic>(line)
+                        .is_ok_and(|diagnostic| diagnostic.level == "error")
+                });
+            let has_failure_output = if cfg.output_style.needs_moonc_json() {
+                has_error_diagnostics
+            } else {
+                output
+                    .content
+                    .content_writer
+                    .iter()
+                    .any(|line| !line.trim().is_empty())
+            };
+            let command = match action.command().execution() {
+                LoweredCommandExecution::Inline(command)
+                | LoweredCommandExecution::ResponseFile { command, .. } => command,
+            };
+            let description = action.description();
+            let message = match kind {
+                ActionFailureKind::Failed if has_failure_output => FailureMessage::Command(command),
+                ActionFailureKind::Failed => {
+                    FailureMessage::Error(format!("failed to {description}: {command}"))
+                }
+                ActionFailureKind::Interrupted => FailureMessage::Error(format!(
+                    "Interrupted while attempting to {description}: {command}"
+                )),
+            };
+            Some((
+                ActionFailure {
+                    kind,
+                    target_backend: self.input.action_backend(output.action_id),
+                    output_kind: action.output_kind(),
+                    has_error_diagnostics,
+                },
+                message,
+            ))
+        })
     }
 
     fn diagnostic_sources<'a>(
@@ -354,8 +401,9 @@ impl CapturedBuildExecution {
         self.action_outputs
             .iter()
             .map(|output| {
-                let build_meta = output
-                    .target_backend
+                let build_meta = self
+                    .input
+                    .action_backend(output.action_id)
                     .and_then(|backend| {
                         build_metas
                             .iter()
@@ -365,7 +413,11 @@ impl CapturedBuildExecution {
                     .or(sole_build_meta);
                 CapturedDiagnosticSource {
                     diagnostics: &output.content,
-                    output_kind: output.output_kind,
+                    output_kind: self
+                        .input
+                        .execution_plan
+                        .action(output.action_id)
+                        .output_kind(),
                     build_succeeded: self.successful(),
                     build_meta,
                 }
@@ -389,7 +441,7 @@ pub fn execute_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<BuildStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let execution = execute_build_capturing(cfg, &input, target_dir)?;
     Ok(finish_captured_build(cfg, &execution, None, user_log))
 }
 
@@ -436,13 +488,13 @@ pub fn execute_build_json(
     input: BuildInput,
     target_dir: &Path,
 ) -> anyhow::Result<JsonBuildOutput> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let execution = execute_build_capturing(cfg, &input, target_dir)?;
     Ok(collect_captured_build_json(cfg, execution))
 }
 
 fn collect_captured_build_json(
     cfg: &BuildConfig,
-    execution: CapturedBuildExecution,
+    execution: CapturedBuildExecution<'_>,
 ) -> JsonBuildOutput {
     // Keep the existing per-backend diagnostic-limit semantics while all
     // backends execute in one n2 graph. Shared actions have no backend and are
@@ -450,11 +502,15 @@ fn collect_captured_build_json(
     let mut sources_by_backend = BTreeMap::new();
     for output in &execution.action_outputs {
         sources_by_backend
-            .entry(output.target_backend)
+            .entry(execution.input.action_backend(output.action_id))
             .or_insert_with(Vec::new)
             .push(CapturedDiagnosticSource {
                 diagnostics: &output.content,
-                output_kind: output.output_kind,
+                output_kind: execution
+                    .input
+                    .execution_plan
+                    .action(output.action_id)
+                    .output_kind(),
                 build_succeeded: execution.successful(),
                 build_meta: None,
             });
@@ -482,6 +538,17 @@ fn collect_captured_build_json(
         non_diagnostic_output.extend(collected.non_diagnostic_output);
     }
 
+    let mut action_failures = Vec::new();
+    let mut action_errors = Vec::new();
+    let mut failed_commands = Vec::new();
+    for (failure, message) in execution.failures(cfg) {
+        action_failures.push(failure);
+        match message {
+            FailureMessage::Error(error) => action_errors.push(error),
+            FailureMessage::Command(command) => failed_commands.push(command.to_owned()),
+        }
+    }
+
     JsonBuildOutput {
         n_tasks_executed: execution.n_tasks_executed,
         n_errors,
@@ -489,28 +556,9 @@ fn collect_captured_build_json(
         hidden_errors,
         hidden_warnings,
         diagnostics,
-        action_failures: execution
-            .action_outputs
-            .iter()
-            .filter_map(|output| {
-                output.failure.map(|kind| ActionFailure {
-                    kind,
-                    target_backend: output.target_backend,
-                    output_kind: output.output_kind,
-                    has_error_diagnostics: output.has_error_diagnostics,
-                })
-            })
-            .collect(),
-        failed_commands: execution
-            .action_outputs
-            .iter()
-            .filter_map(|output| output.failed_command.clone())
-            .collect(),
-        action_errors: execution
-            .action_outputs
-            .into_iter()
-            .filter_map(|output| output.error)
-            .collect(),
+        action_failures,
+        failed_commands,
+        action_errors,
         non_diagnostic_output,
     }
 }
@@ -527,7 +575,7 @@ pub fn execute_test_build(
     build_metas: &[&BuildMeta],
     user_log: &UserLog,
 ) -> anyhow::Result<BuildStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let execution = execute_build_capturing(cfg, &input, target_dir)?;
     Ok(finish_captured_build(
         cfg,
         &execution,
@@ -551,14 +599,14 @@ pub fn execute_build_partial<'a>(
     Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
 }
 
-fn execute_build_capturing(
+fn execute_build_capturing<'a>(
     cfg: &BuildConfig,
-    input: BuildInput,
+    input: &'a BuildInput,
     target_dir: &Path,
-) -> anyhow::Result<CapturedBuildExecution> {
+) -> anyhow::Result<CapturedBuildExecution<'a>> {
     n2::execute(
         cfg,
-        &input,
+        input,
         target_dir,
         input.execution_plan.default_output_paths(),
     )
@@ -566,16 +614,14 @@ fn execute_build_capturing(
 
 fn finish_captured_build<'a>(
     cfg: &BuildConfig,
-    execution: &'a CapturedBuildExecution,
+    execution: &'a CapturedBuildExecution<'_>,
     build_metas: impl IntoIterator<Item = &'a BuildMeta>,
     user_log: &UserLog,
 ) -> BuildStats {
-    for output in &execution.action_outputs {
-        if let Some(error) = &output.error {
-            user_log.error(error);
-        }
-        if let Some(command) = &output.failed_command {
-            user_log.info(format!("Failed command: {command}"));
+    for (_, message) in execution.failures(cfg) {
+        match message {
+            FailureMessage::Error(error) => user_log.error(error),
+            FailureMessage::Command(command) => user_log.info(format!("Failed command: {command}")),
         }
     }
     let sources = execution.diagnostic_sources(build_metas);
@@ -992,6 +1038,110 @@ mod tests {
     use super::*;
     use moonutil::render::{Loc, Position};
 
+    fn composed_build_input() -> BuildInput {
+        use moonbuild_rupes_recta::{
+            CompileConfig, ProjectPreparationConfig,
+            build_lower::WarningCondition,
+            build_plan::{ArtifactKey, InputDirective},
+            fmt::{FmtConfig, build_execution_plan_for_fmt_file},
+            model::{BackendConfig, TargetKind},
+            target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
+        };
+        use moonutil::{
+            build_options::RunMode,
+            cond_expr::OptLevel,
+            project::WorkspaceEnv,
+            resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
+            user_log::user_log_level,
+        };
+
+        // Use real plans so backend attribution is checked after composition
+        // remaps each plan's action IDs, rather than duplicating metadata in
+        // the captured-output fixture.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("moon.mod"), "name = \"test/capture\"\n").unwrap();
+        std::fs::write(dir.path().join("moon.pkg"), "").unwrap();
+        let source = dir.path().join("main.mbt");
+        std::fs::write(&source, "fn main() {}\n").unwrap();
+        let module = ModuleSource::local_path(
+            "test/capture".parse().unwrap(),
+            dir.path().to_owned(),
+            DEFAULT_VERSION.clone(),
+        )
+        .unwrap();
+        let (_, manifest) = moonutil::manifest::read_module_manifest(dir.path(), false).unwrap();
+        let (modules, module_id) = ModuleDependencyGraph::only_one_module(module, manifest);
+        let mut dirs = DirSyncResult::default();
+        dirs.insert(module_id, dir.path().to_owned());
+        let user_log = UserLog::new(user_log_level(false, true));
+        let resolved = moonbuild_rupes_recta::prepare_synced_project(
+            &ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto),
+            (modules, dirs),
+            &[TargetBackend::WasmGC, TargetBackend::Js],
+            &user_log,
+        )
+        .unwrap();
+        let package = resolved
+            .pkg_dirs
+            .get_package_id_by_name("test/capture")
+            .unwrap();
+        let target_dir = dir.path().join("_build");
+        let mut inputs = [BackendConfig::WasmGc { use_wat: false }, BackendConfig::Js]
+            .into_iter()
+            .map(|backend| {
+                let target = backend.target_backend();
+                let cfg = CompileConfig {
+                    target_dir: target_dir.clone(),
+                    backend,
+                    opt_level: OptLevel::Debug,
+                    action: RunMode::Check,
+                    debug_info: Default::default(),
+                    stdlib_path: None,
+                    artifact_paths: ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            target_dir.clone(),
+                            TargetLayoutMode::Workspace,
+                            OptLevel::Debug,
+                            RunMode::Check,
+                        ),
+                        None,
+                    ),
+                    debug_export_build_plan: false,
+                    enable_coverage: false,
+                    moonc_output_json: true,
+                    docs_serve: false,
+                    warning_condition: WarningCondition::Default,
+                    warn_list: None,
+                };
+                let compiled = moonbuild_rupes_recta::compile(
+                    &cfg,
+                    &resolved,
+                    &[ArtifactKey::CheckMi {
+                        package,
+                        target_kind: TargetKind::Source,
+                    }],
+                    &InputDirective::default(),
+                    None,
+                    &user_log,
+                )
+                .unwrap();
+                BuildInput::new(compiled.execution_plan, Some(target))
+            })
+            .collect::<Vec<_>>();
+        let tool = build_execution_plan_for_fmt_file(
+            &FmtConfig {
+                check_only: true,
+                extra_args: vec![],
+                warn_only: false,
+            },
+            &source,
+            &target_dir,
+        )
+        .unwrap();
+        inputs.insert(1, BuildInput::new(tool, None));
+        BuildInput::compose(inputs).unwrap()
+    }
+
     fn diagnostic(path: &str, level: &str) -> MooncDiagnostic {
         MooncDiagnostic {
             path: path.to_string(),
@@ -1011,6 +1161,9 @@ mod tests {
         // The compiler failure needs no extra error message. The tool emits
         // compiler-shaped JSON, and the interrupted action emits no output.
         // None of these presentation differences may erase the task result.
+        let input = composed_build_input();
+        let action_ids = input.execution_plan.action_ids().collect::<Vec<_>>();
+        assert_eq!(action_ids.len(), 3);
         for diagnostic_limit in [None, Some(0)] {
             let cfg = BuildConfig {
                 output_style: OutputStyle::Json,
@@ -1018,47 +1171,32 @@ mod tests {
                 ..Default::default()
             };
             let compiler_error = serde_json::to_string(&diagnostic("main.mbt", "error")).unwrap();
+            // Concurrent actions can finish in a different order from the plan.
             let action_outputs = [
                 (
-                    Some(TargetBackend::WasmGC),
-                    ActionOutputKind::Compiler,
+                    action_ids[1],
                     ActionFailureKind::Failed,
                     Some(compiler_error.clone()),
-                    None,
                 ),
                 (
-                    None,
-                    ActionOutputKind::Tool,
+                    action_ids[0],
                     ActionFailureKind::Failed,
                     Some(compiler_error.clone()),
-                    Some("generator failed"),
                 ),
-                (
-                    Some(TargetBackend::Js),
-                    ActionOutputKind::Compiler,
-                    ActionFailureKind::Interrupted,
-                    None,
-                    Some("interrupted"),
-                ),
+                (action_ids[2], ActionFailureKind::Interrupted, None),
             ]
-            .map(
-                |(target_backend, output_kind, failure, output, error)| CapturedActionOutput {
-                    target_backend,
-                    output_kind,
-                    failure: Some(failure),
-                    has_error_diagnostics: output_kind == ActionOutputKind::Compiler
-                        && output.is_some(),
-                    content: ResultCatcher {
-                        content_writer: output.into_iter().collect(),
-                        ..Default::default()
-                    },
-                    error: error.map(str::to_owned),
-                    failed_command: None,
+            .map(|(action_id, failure, output)| CapturedActionOutput {
+                action_id,
+                failure: Some(failure),
+                content: ResultCatcher {
+                    content_writer: output.into_iter().collect(),
+                    ..Default::default()
                 },
-            );
+            });
             let result = collect_captured_build_json(
                 &cfg,
                 CapturedBuildExecution {
+                    input: &input,
                     n_tasks_executed: None,
                     action_outputs: action_outputs.into(),
                 },
@@ -1073,22 +1211,26 @@ mod tests {
                 result.diagnostics.len(),
                 usize::from(diagnostic_limit.is_none())
             );
-            assert_eq!(result.action_errors, ["generator failed", "interrupted"]);
+            assert_eq!(result.action_errors.len(), 2);
+            assert!(result.action_errors[0].starts_with("failed to format "));
+            assert!(result.action_errors[1].starts_with("Interrupted while attempting to check "));
+            assert_eq!(result.failed_commands.len(), 1);
+            assert!(result.failed_commands[0].contains("-target wasm-gc"));
             assert_eq!(result.non_diagnostic_output, [compiler_error]);
             assert_eq!(
                 result.action_failures,
                 [
                     ActionFailure {
                         kind: ActionFailureKind::Failed,
-                        target_backend: Some(TargetBackend::WasmGC),
-                        output_kind: ActionOutputKind::Compiler,
-                        has_error_diagnostics: true,
-                    },
-                    ActionFailure {
-                        kind: ActionFailureKind::Failed,
                         target_backend: None,
                         output_kind: ActionOutputKind::Tool,
                         has_error_diagnostics: false,
+                    },
+                    ActionFailure {
+                        kind: ActionFailureKind::Failed,
+                        target_backend: Some(TargetBackend::WasmGC),
+                        output_kind: ActionOutputKind::Compiler,
+                        has_error_diagnostics: true,
                     },
                     ActionFailure {
                         kind: ActionFailureKind::Interrupted,
@@ -1103,6 +1245,7 @@ mod tests {
 
     #[test]
     fn diagnostic_output_does_not_create_an_action_failure() {
+        let input = composed_build_input();
         let cfg = BuildConfig {
             output_style: OutputStyle::Json,
             ..Default::default()
@@ -1110,10 +1253,10 @@ mod tests {
         let result = collect_captured_build_json(
             &cfg,
             CapturedBuildExecution {
+                input: &input,
                 n_tasks_executed: Some(1),
                 action_outputs: vec![CapturedActionOutput {
-                    target_backend: Some(TargetBackend::WasmGC),
-                    output_kind: ActionOutputKind::Compiler,
+                    action_id: input.execution_plan.action_ids().next().unwrap(),
                     content: ResultCatcher {
                         content_writer: vec![
                             serde_json::to_string(&diagnostic("main.mbt", "error")).unwrap(),
@@ -1121,9 +1264,6 @@ mod tests {
                         ..Default::default()
                     },
                     failure: None,
-                    has_error_diagnostics: true,
-                    error: None,
-                    failed_command: None,
                 }],
             },
         );

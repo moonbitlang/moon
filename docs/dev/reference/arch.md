@@ -99,7 +99,7 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - For a multi-backend invocation, compose the independently lowered
      Execution Plans into one executor graph, sharing compatible physical
      providers such as package prebuild actions. JSON-formatted checks retain
-     each diagnostic's backend through the originating n2 Build ID, so they use
+     each diagnostic's backend through the originating Action ID, so they use
      the same composed graph. Backend actions render their backend together
      with any applicable target kind, such as `(wasm, blackbox test)`;
      package-prebuild actions independently render `(prebuild)` before the
@@ -711,10 +711,13 @@ Shared artifact paths remain in Rupes Recta's `target_layout` module.
 Dry-run and planner snapshots traverse the Execution Plan directly, without
 constructing an n2 graph or copying command arguments into a second map.
 
-Captured action failures retain their Target Backend, output kind, the
-executor's failure or interruption result, and whether structured compiler error
-diagnostics were captured before filtering. These facts are independent of
-diagnostic rendering.
+Captured action output retains only its Action ID, executor termination, and
+output. The capture borrows its owning `BuildInput`, keeping the Execution Plan
+alive through result processing. The n2 callback maps its Build ID to the
+Action ID; it does not copy action metadata, classify diagnostics, or construct
+failure messages. Result processing resolves the Target Backend, output kind,
+description, and command from that input. It classifies compiler errors from
+the original output before diagnostic filtering.
 Structured execution results include these failures even when compiler
 diagnostics already explain them or a diagnostic limit hides those diagnostics.
 Failure messages remain a separate projection, with visibility controlled by
