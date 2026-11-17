@@ -24,14 +24,16 @@ use moonutil::{
     manifest::{
         convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
     },
-    moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::ProjectManifest,
     resolution::ModuleName,
     user_log::UserLog,
 };
 
 use crate::{
-    pkg::roots_for_selected_module,
+    pkg::{
+        manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
+        roots_for_selected_module,
+    },
     registry,
     resolver::{ModuleResolutionConfig, prepare_roots, resolve_modules},
 };

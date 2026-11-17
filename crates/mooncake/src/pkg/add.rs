@@ -23,14 +23,18 @@ use moonutil::dependency::SourceDependencyInfo;
 use moonutil::manifest::{
     convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
 };
-use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleSource;
 use moonutil::user_log::UserLog;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOutputOptions};
+use crate::pkg::{
+    install::install_impl,
+    manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
+    roots_for_selected_module,
+    sync::SyncOutputOptions,
+};
 
 /// Add a dependency
 #[derive(Debug, clap::Parser)]

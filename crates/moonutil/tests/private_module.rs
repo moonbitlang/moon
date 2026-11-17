@@ -20,7 +20,6 @@ use moonutil::manifest::{
     convert_module_to_mod_json, read_module_desc_file_in_dir,
     read_module_desc_file_in_dir_with_legacy, write_module_dsl_to_file,
 };
-use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use serde_json_lenient::{Value, json};
 
 #[test]
@@ -98,39 +97,6 @@ fn private_rejects_duplicate_declarations() {
         };
         std::fs::write(dir.path().join(file), contents).unwrap();
         assert!(read_module_desc_file_in_dir_with_legacy(dir.path(), true).is_err());
-    }
-}
-
-#[test]
-fn private_survives_dependency_edits() {
-    for private in [None, Some(true), Some(false)] {
-        let dir = tempfile::tempdir().unwrap();
-        let mut contents = "name = \"test/internal\"\n".to_owned();
-        if let Some(private) = private {
-            contents.push_str(&format!("// Publishing policy.\nprivate = {private}\n"));
-        }
-        std::fs::write(dir.path().join("moon.mod"), &contents).unwrap();
-        for patch in [
-            MoonModPatch::InsertImportItem {
-                name: "test/dep".into(),
-                version: "0.1.0".parse().unwrap(),
-            },
-            MoonModPatch::UpdateImportItems(indexmap::IndexMap::from([(
-                "test/dep".into(),
-                "0.2.0".parse().unwrap(),
-            )])),
-            MoonModPatch::RemoveImportItem {
-                name: "test/dep".into(),
-            },
-        ] {
-            patch_module_dsl_to_file(dir.path(), patch).unwrap();
-            let actual = std::fs::read_to_string(dir.path().join("moon.mod")).unwrap();
-            assert!(actual.starts_with(&contents));
-            assert_eq!(
-                read_module_desc_file_in_dir(dir.path()).unwrap().private,
-                private
-            );
-        }
     }
 }
 

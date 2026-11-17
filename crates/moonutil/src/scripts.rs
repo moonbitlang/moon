@@ -16,22 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub enum PrePostBuild {
-    PreBuild,
-}
-
-impl PrePostBuild {
-    pub fn name(&self) -> String {
-        match self {
-            PrePostBuild::PreBuild => "pre-build".into(),
-        }
-    }
-
-    pub fn dbname(&self) -> String {
-        format!("{}.db", self.name())
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum IgnoredMoonScript {
     Prebuild,

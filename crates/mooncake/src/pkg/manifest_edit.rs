@@ -31,13 +31,10 @@ use std::{ops::Range, path::Path};
 use anyhow::Context;
 use indexmap::IndexMap;
 
-use crate::{
-    constants::MOON_MOD, manifest::write_module_dsl_to_file, module::MoonModJSON, moon_pkg,
-};
+use moonutil::{constants::MOON_MOD, moon_pkg};
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub enum MoonModPatch {
+pub(super) enum MoonModPatch {
     InsertImportItem {
         name: String,
         version: semver::Version,
@@ -46,7 +43,6 @@ pub enum MoonModPatch {
         name: String,
     },
     UpdateImportItems(IndexMap<String, semver::Version>),
-    Rewrite(MoonModJSON),
 }
 
 #[derive(Debug)]
@@ -196,7 +192,7 @@ fn locate_import_items(contents: &str, names: Vec<String>) -> IndexMap<String, I
     items
 }
 
-pub fn patch_module_dsl(mut patched: String, patch: MoonModPatch) -> String {
+fn patch_module_dsl(mut patched: String, patch: MoonModPatch) -> String {
     match patch {
         MoonModPatch::InsertImportItem { name, version } => {
             let quoted = format!("\"{name}@{version}\"");
@@ -227,18 +223,14 @@ pub fn patch_module_dsl(mut patched: String, patch: MoonModPatch) -> String {
                 patched.replace_range(range, &quoted);
             }
         }
-        MoonModPatch::Rewrite(_) => {
-            unreachable!("rewrite patch must be handled by patch_module_dsl_to_file")
-        }
     }
     patched
 }
 
-pub fn patch_module_dsl_to_file(source_dir: &Path, patch: MoonModPatch) -> anyhow::Result<()> {
-    if let MoonModPatch::Rewrite(module) = patch {
-        return write_module_dsl_to_file(&module, source_dir);
-    }
-
+pub(super) fn patch_module_dsl_to_file(
+    source_dir: &Path,
+    patch: MoonModPatch,
+) -> anyhow::Result<()> {
     let path = source_dir.join(MOON_MOD);
     let contents = std::fs::read_to_string(&path)
         .with_context(|| format!("failed to load `{}`", path.display()))?;
@@ -251,6 +243,7 @@ pub fn patch_module_dsl_to_file(source_dir: &Path, patch: MoonModPatch) -> anyho
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
+    use moonutil::manifest::read_module_desc_file_in_dir;
     use semver::Version;
 
     use super::*;
@@ -568,5 +561,38 @@ import { "example/dep@1.0.0", "example/other@0.1.0", }
             }
         "#]]
         .assert_debug_eq(&output);
+    }
+
+    #[test]
+    fn private_survives_dependency_edits() {
+        for private in [None, Some(true), Some(false)] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut contents = "name = \"test/internal\"\n".to_owned();
+            if let Some(private) = private {
+                contents.push_str(&format!("// Publishing policy.\nprivate = {private}\n"));
+            }
+            std::fs::write(dir.path().join("moon.mod"), &contents).unwrap();
+            for patch in [
+                MoonModPatch::InsertImportItem {
+                    name: "test/dep".into(),
+                    version: "0.1.0".parse().unwrap(),
+                },
+                MoonModPatch::UpdateImportItems(indexmap::IndexMap::from([(
+                    "test/dep".into(),
+                    "0.2.0".parse().unwrap(),
+                )])),
+                MoonModPatch::RemoveImportItem {
+                    name: "test/dep".into(),
+                },
+            ] {
+                patch_module_dsl_to_file(dir.path(), patch).unwrap();
+                let actual = std::fs::read_to_string(dir.path().join("moon.mod")).unwrap();
+                assert!(actual.starts_with(&contents));
+                assert_eq!(
+                    read_module_desc_file_in_dir(dir.path()).unwrap().private,
+                    private
+                );
+            }
+        }
     }
 }
