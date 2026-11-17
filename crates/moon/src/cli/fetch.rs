@@ -21,11 +21,7 @@ use mooncake::{
     pkg::legacy_postadd,
     registry::{RegistryClient, path::parse_module_path},
 };
-use moonutil::{
-    child_process::{ChildOutputMode, ManagedChildRunner},
-    project::PackageDirs,
-    user_log::UserLog,
-};
+use moonutil::{project::PackageDirs, user_log::UserLog};
 
 use super::{UniversalFlags, registry_queries};
 
@@ -98,8 +94,8 @@ pub(crate) fn fetch_cli(
     }
 
     registry.materialize_source_to(&module, &pkg_dir, user_log)?;
-    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(&pkg_dir, &child)?;
+    let manifest = moonutil::manifest::read_module_desc_file_in_dir(&pkg_dir)?;
+    legacy_postadd::warn_skipped(&manifest, user_log);
 
     if !cli.quiet {
         println!(

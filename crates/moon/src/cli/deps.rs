@@ -25,13 +25,95 @@ use mooncake::{
     },
 };
 use moonutil::{
+    child_process::{ChildOutputMode, ManagedChildRunner},
+    command_output::CommandOutput,
     constants::MOD_NAME_STDLIB,
+    locks::lock_directory,
+    manifest::read_module_desc_file_in_dir,
     project::{PackageDirs, ProjectContext},
     user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
 
 use super::{UniversalFlags, registry_queries};
+
+/// Explicitly run a legacy postadd script (temporary compatibility command)
+///
+/// Dependencies no longer run postadd automatically. This command runs only
+/// the selected module's script, every time it is invoked. It does not download
+/// or reinstall sources. Without MODULE, use the current module, including
+/// sources selected with `moon -C <directory> run-postadd`.
+///
+/// Postadd is being retired. If you still need it, please open an issue at
+/// https://github.com/moonbitlang/moon/issues describing your use case.
+#[derive(Debug, clap::Parser)]
+pub(crate) struct RunPostaddSubcommand {
+    /// Installed dependency module name, without a version (defaults to the current module)
+    #[clap(value_name = "MODULE")]
+    pub module: Option<String>,
+}
+
+pub(crate) fn run_postadd_cli(
+    cli: UniversalFlags,
+    cmd: RunPostaddSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let selected = cmd.module.as_deref().map(parse_module_path).transpose()?;
+    if selected.as_ref().is_some_and(|path| path.version.is_some()) {
+        bail!("`moon run-postadd` expects an installed module name without a version");
+    }
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(output.user_log())?;
+    let (module_dir, _lock) = if let Some(path) = &selected {
+        let dirs = project.package_dirs()?;
+        let module_dir = dirs
+            .mooncakes_dir
+            .join(path.module.username.as_str())
+            .join(path.module.unqual.replace('/', "+"));
+        anyhow::ensure!(
+            module_dir.is_dir(),
+            "Module `{}` is not installed in this project's .mooncakes directory",
+            path.module
+        );
+        // Keep source synchronization from replacing the installation mid-script.
+        let lock = lock_directory(&dirs.mooncakes_dir, output.user_log())?;
+        (module_dir, Some(lock))
+    } else {
+        (
+            require_selected_module(project.context(), "run-postadd")?,
+            None,
+        )
+    };
+    let module = read_module_desc_file_in_dir(&module_dir)?;
+    if let Some(path) = selected {
+        anyhow::ensure!(
+            module.name == path.module.to_string(),
+            "Installed module does not match `{}`",
+            path.module
+        );
+    }
+    let postadd = module
+        .scripts
+        .as_ref()
+        .and_then(|scripts| scripts.get("postadd"))
+        .with_context(|| format!("Module `{}` does not declare a postadd script", module.name))?;
+    if cli.dry_run {
+        output.write_result(|writer| {
+            writeln!(
+                writer,
+                "cd {} && {postadd}",
+                shlex::try_quote(&module_dir.to_string_lossy())
+                    .expect("filesystem paths contain no NUL")
+            )
+        })?;
+    } else {
+        let runner = ManagedChildRunner::new(ChildOutputMode::Inherit, output.user_log());
+        mooncake::pkg::legacy_postadd::run(&module_dir, postadd, &runner)?;
+    }
+    Ok(0)
+}
 
 pub(crate) fn require_selected_module(
     project: &ProjectContext,
