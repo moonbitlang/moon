@@ -687,7 +687,7 @@ fn run_check_for_single_file_rr(
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     // Manually synthesize and resolve single file project
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
@@ -701,7 +701,7 @@ fn run_check_for_single_file_rr(
             ChildOutputMode::Inherit
         },
     });
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
@@ -1036,7 +1036,7 @@ fn sync_and_discover_check_project(
     user_log: &UserLog,
     json: bool,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),

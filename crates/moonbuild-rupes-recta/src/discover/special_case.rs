@@ -29,7 +29,10 @@ use crate::{discover::DiscoverResult, pkg_name::PackagePath};
 /// downstream compilation/linking sees coverage alongside builtin without
 /// additional per-target import wiring.
 #[instrument(skip_all)]
-pub fn inject_core_coverage_into_builtin(env: &ModuleDependencyGraph, res: &mut DiscoverResult) {
+pub(crate) fn inject_core_coverage_into_builtin(
+    env: &ModuleDependencyGraph,
+    res: &mut DiscoverResult,
+) {
     // Only proceed if we have a stdlib module locally
     let Some(&stdlib) = env
         .input_module_ids()

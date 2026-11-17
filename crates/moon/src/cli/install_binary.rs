@@ -18,8 +18,8 @@
 
 use anyhow::{Context, bail};
 use colored::Colorize;
+use moonbuild::prepare::ProjectPreparationConfig;
 use moonbuild_rupes_recta::{
-    ProjectPreparationConfig,
     build_plan::ArtifactKey,
     intent::UserIntent,
     model::{BuildTarget, PackageId, TargetKind},
@@ -556,13 +556,10 @@ fn prepare_native_build(
     let preparation_config =
         ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
             .with_sync_output(sync_output);
-    let synced_modules = moonbuild_rupes_recta::sync_module_dependencies(
-        &preparation_config,
-        &package_dirs,
-        user_log,
-    )?;
+    let synced_modules =
+        moonbuild::prepare::sync_module_dependencies(&preparation_config, &package_dirs, user_log)?;
     let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
-        &preparation_config,
+        &preparation_config.discovery,
         synced_modules,
         &[moonutil::target::TargetBackend::Native],
         user_log,

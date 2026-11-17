@@ -39,7 +39,7 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 ///
 /// Scripts are executable packages. Other single-file formats are marked as
 /// main packages only in `run_mode`.
-pub fn build_synth_single_file_package(
+pub(crate) fn build_synth_single_file_package(
     file: &Path,
     source_kind: SingleFileSourceKind,
     env: &ModuleDependencyGraph,

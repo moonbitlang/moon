@@ -599,9 +599,9 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
 mod tests {
     use super::{fuzzy_match, select_supported_packages};
     use log::LevelFilter;
+    use moonbuild::prepare::ProjectPreparationConfig;
     use moonbuild_rupes_recta::{
-        DiscoveredProject, ProjectPreparationConfig, pkg_solve::PackageResolutionError,
-        resolve::ProjectPreparationError,
+        DiscoveredProject, pkg_solve::PackageResolutionError, resolve::ProjectResolutionError,
     };
     use moonutil::{
         constants::{MOON_MOD, MOON_PKG, MOON_WORK},
@@ -671,8 +671,9 @@ mod tests {
         .package_dirs()
         .unwrap();
         let synced_modules =
-            moonbuild_rupes_recta::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
-        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_modules, &user_log).unwrap()
+            moonbuild::prepare::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
+        moonbuild_rupes_recta::discover_synced_project(&cfg.discovery, synced_modules, &user_log)
+            .unwrap()
     }
 
     #[test]
@@ -709,7 +710,7 @@ pkgtype(kind: "executable")"#,
             "test/app/main"
         );
 
-        let ProjectPreparationError::PackageResolutionError(error) = discovered
+        let ProjectResolutionError::PackageResolutionError(error) = discovered
             .resolve_packages(&[TargetBackend::default()], &user_log)
             .unwrap_err()
         else {

@@ -18,10 +18,9 @@
 
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
-use moonbuild_rupes_recta::{ProjectPreparationConfig, discover_synced_project};
+use moonbuild_rupes_recta::{DiscoveryConfig, discover_synced_project};
 use moonutil::{
     manifest::read_module_desc_file_in_dir,
-    project::WorkspaceEnv,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule},
     target::TargetBackend::{self, Js, Native},
     user_log::{UserLog, UserLogEntryLevel},
@@ -45,7 +44,7 @@ fn warnings(packages: &[(&str, &str)], backends: &[TargetBackend]) -> Vec<String
     let mut module_dirs = DirSyncResult::new();
     module_dirs.insert(mid, dir.path().to_owned());
     let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    let config = ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
+    let config = DiscoveryConfig::default();
     discover_synced_project(&config, (module_graph, module_dirs), &log)
         .unwrap()
         .resolve_packages(backends, &log)
@@ -219,8 +218,7 @@ fn experimental_warnings_only_report_imports_from_root_modules() {
             module_dirs.insert(app_id, app_dir.clone());
             module_dirs.insert(dep_id, dep_dir.clone());
             let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-            let config =
-                ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
+            let config = DiscoveryConfig::default();
             discover_synced_project(&config, (module_graph, module_dirs), &log)
                 .unwrap()
                 .resolve_packages(TargetBackend::all(), &log)

@@ -37,9 +37,10 @@ use anyhow::Context;
 use moonbuild::{
     BuildMeta,
     execution::{BuildInput, resolve_parallelism},
+    prepare::ProjectPreparationConfig,
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
+    CompileConfig, DiscoveredProject, ResolvedProject,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
     discover::FmtProject,
@@ -88,9 +89,9 @@ pub(crate) fn sync_and_discover_project(
         )
     })?;
     let synced_modules =
-        moonbuild_rupes_recta::sync_module_dependencies(preparation_config, dirs, user_log)?;
+        moonbuild::prepare::sync_module_dependencies(preparation_config, dirs, user_log)?;
     Ok(moonbuild_rupes_recta::discover_synced_project(
-        preparation_config,
+        &preparation_config.discovery,
         synced_modules,
         user_log,
     )?)

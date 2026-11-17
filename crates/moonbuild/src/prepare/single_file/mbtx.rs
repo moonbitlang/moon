@@ -123,9 +123,8 @@ mod tests {
     use mooncake::registry::RegistryClient;
     use moonutil::package::Import;
     use moonutil::resolution::DEFAULT_VERSION;
-    use moonutil::user_log::UserLog;
+    use moonutil::user_log::{UserLog, user_log_level};
 
-    #[allow(clippy::disallowed_methods)] // test fixture setup/cleanup on temp files.
     fn parse_imports_from_source(content: &str) -> anyhow::Result<MbtxFrontMatterImports> {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let suffix = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -134,7 +133,7 @@ mod tests {
             std::process::id()
         ));
         std::fs::write(&path, content)?;
-        let parsed = parse_mbtx_imports(&path, &UserLog::new(log::LevelFilter::Error));
+        let parsed = parse_mbtx_imports(&path, &UserLog::new(user_log_level(false, true)));
         let _ = std::fs::remove_file(&path);
         parsed
     }
@@ -179,7 +178,7 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_supports_module_package() {
-        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
+        let registry = RegistryClient::configured(&UserLog::new(user_log_level(false, true)));
         let (module, version, package) =
             split_mbtx_import_path("path/module@0.4.38/package/path", &registry)
                 .expect("module package import should parse");
@@ -190,7 +189,7 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_normalizes_relative_package_with_module_prefix() {
-        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
+        let registry = RegistryClient::configured(&UserLog::new(user_log_level(false, true)));
         let (module, version, package) = split_mbtx_import_path("a/b@version/c/d/e", &registry)
             .expect("module package import should parse");
         assert_eq!(module, "a/b");
@@ -200,7 +199,7 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_supports_module_root() {
-        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
+        let registry = RegistryClient::configured(&UserLog::new(user_log_level(false, true)));
         let (module, version, package) = split_mbtx_import_path("path/module@0.4.38", &registry)
             .expect("module root import should parse");
         assert_eq!(module, "path/module");
@@ -210,13 +209,13 @@ fn main {}
 
     #[test]
     fn split_mbtx_import_path_rejects_three_segment_module_with_version() {
-        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
+        let registry = RegistryClient::configured(&UserLog::new(user_log_level(false, true)));
         assert!(split_mbtx_import_path("moonbitlang/x/fs@0.4.39/path", &registry).is_err());
     }
 
     #[test]
     fn split_mbtx_import_path_supports_core_without_version() {
-        let registry = RegistryClient::configured(&UserLog::new(log::LevelFilter::Error));
+        let registry = RegistryClient::configured(&UserLog::new(user_log_level(false, true)));
         let (module, version, package) = split_mbtx_import_path("moonbitlang/core/env", &registry)
             .expect("core import without version should parse");
         assert_eq!(module, "moonbitlang/core");

@@ -19,20 +19,19 @@
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
+    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
     build_lower::{WarningCondition, lower_build_plan},
     build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
     metadata::{CheckCommandMap, gen_metadata_json},
     model::{BackendConfig, BuildTarget, DebugInfoRequest, TargetKind},
-    resolve::ProjectPreparationError,
+    resolve::ProjectResolutionError,
     target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
 };
 use moonutil::{
     build_options::RunMode,
     cond_expr::OptLevel,
     manifest::read_module_desc_file_in_dir,
-    project::WorkspaceEnv,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},
     target::TargetBackend::{self, Js, LLVM, Native},
     user_log::UserLog,
@@ -64,7 +63,7 @@ fn discover(packages: &[(&str, &str)]) -> (tempfile::TempDir, DiscoveredProject)
     let mut module_dirs = DirSyncResult::new();
     module_dirs.insert(mid, dir.path().to_owned());
     let log = UserLog::new(log::LevelFilter::Error);
-    let config = ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
+    let config = DiscoveryConfig::default();
     let discovered = discover_synced_project(&config, (module_graph, module_dirs), &log).unwrap();
     (dir, discovered)
 }
@@ -100,8 +99,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
     let mut module_dirs = DirSyncResult::new();
     module_dirs.insert(mid, root);
     let log = UserLog::new(log::LevelFilter::Error);
-    let preparation =
-        ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
+    let preparation = DiscoveryConfig::default();
     let resolved = discover_synced_project(&preparation, (module_graph, module_dirs), &log)
         .unwrap()
         .resolve_packages(&[Js, TargetBackend::WasmGC], &log)
@@ -510,7 +508,7 @@ import { "example/conditional/never" }
             .resolve_packages(backends, &log)
             .unwrap_err();
         assert!(
-            matches!(error, ProjectPreparationError::PackageResolutionError(source)
+            matches!(error, ProjectResolutionError::PackageResolutionError(source)
             if matches!(*source, moonbuild_rupes_recta::pkg_solve::PackageResolutionError::ImportNotFound { ref import, .. }
                 if import == "example/conditional/missing"))
         );
