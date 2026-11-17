@@ -30,7 +30,6 @@ use moonutil::{
         MoonMod, convert_module_to_mod_json, read_module_manifest, warn_module_manifest,
         write_module_json_to_file,
     },
-    moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::{
         MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
@@ -41,7 +40,10 @@ use moonutil::{
     user_log::UserLog,
 };
 
-use super::prepare::prepare_build_modules;
+use super::{
+    manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
+    prepare::prepare_build_modules,
+};
 
 use crate::{
     registry,

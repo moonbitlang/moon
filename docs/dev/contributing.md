@@ -32,6 +32,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
 | Test results and expect/snapshot promotion | [`moonbuild/src/runtest.rs`](../../crates/moonbuild/src/runtest.rs), [`expect.rs`](../../crates/moonbuild/src/expect.rs) |
 | Package management and registry access | [`mooncake/src/pkg`](../../crates/mooncake/src/pkg), [`resolver`](../../crates/mooncake/src/resolver), [`registry`](../../crates/mooncake/src/registry) |
+| Dependency edits preserving manifest comments | [`mooncake/src/pkg/manifest_edit.rs`](../../crates/mooncake/src/pkg/manifest_edit.rs) |
 | Paths, feature flags, and shared types | [`moonutil/src`](../../crates/moonutil/src) |
 | Wasm runtime | [Moonrun developer guide](../../crates/moonrun/docs/dev/README.md) |
 | Tests and their support code | [Test boundaries and examples](testing.md#choose-the-test-level) |
