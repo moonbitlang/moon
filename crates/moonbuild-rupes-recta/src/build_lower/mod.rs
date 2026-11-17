@@ -59,20 +59,19 @@ pub enum LoweringError {
 
     #[error("failed to parse built-in :embed prebuild arguments: unterminated quote or escape")]
     MalformedEmbedArguments,
-
-    #[error("failed to inspect MoonBit toolchain include directory {path}")]
-    ToolchainInclude {
-        path: PathBuf,
-        source: walkdir::Error,
-    },
 }
 
 /// Lower a normalized action plan into an executor-neutral Execution Plan.
+///
+/// When [`BuildPlan::requires_toolchain_headers`] is true, supply all files
+/// observed under the selected toolchain's include directory. Lowering attaches
+/// these paths to C compilation actions without inspecting the filesystem.
 #[instrument(skip_all)]
 pub fn lower_build_plan(
     resolved_project: &ResolvedProject,
     plan: &BuildPlan,
     opt: &CompileConfig,
+    toolchain_include_files: &[PathBuf],
 ) -> Result<ExecutionPlan, LoweringError> {
     info!("Starting action plan lowering to execution plan");
     debug!(
@@ -82,7 +81,7 @@ pub fn lower_build_plan(
         plan.backend_plan().moonc_debug_info()
     );
 
-    let mut ctx = LoweringContext::new(resolved_project, plan, opt);
+    let mut ctx = LoweringContext::new(resolved_project, plan, opt, toolchain_include_files);
     let mut execution = ExecutionPlanBuilder::default();
 
     for action_key in plan.all_actions() {
@@ -176,7 +175,7 @@ mod tests {
                 stdlib_path: None,
             };
 
-            let context = LoweringContext::new(&resolved_project, &plan, &options);
+            let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
             assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
         }
     }
@@ -445,7 +444,7 @@ mod tests {
                 warning_condition: WarningCondition::Default,
                 stdlib_path: Some(stdlib.clone()),
             };
-            let mut context = LoweringContext::new(&project, &plan, &options);
+            let mut context = LoweringContext::new(&project, &plan, &options, &[]);
             let mut execution = ExecutionPlanBuilder::default();
             let mut observations = Vec::new();
             for (target, expected) in [
@@ -547,7 +546,7 @@ mod tests {
             stdlib_path: None,
         };
 
-        let mut context = LoweringContext::new(&resolved_project, &plan, &options);
+        let mut context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
         let mut execution = ExecutionPlanBuilder::default();
         let nodes = [check_node, link_core_node];
         let actions = nodes
@@ -569,18 +568,15 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
     fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
         let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
         let include_dir = toolchain_dir.path().join("include");
-        std::fs::create_dir_all(include_dir.join("internal")).expect("create header directory");
+        // The supplied paths deliberately do not exist: lowering must consume
+        // the observation from preparation rather than repeat it.
         let toolchain_headers = [
             include_dir.join("moonbit.h"),
             include_dir.join("internal/runtime.h"),
         ];
-        for header in &toolchain_headers {
-            std::fs::write(header, "/* test header */").expect("write test header");
-        }
         let (resolved_project, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
@@ -730,8 +726,9 @@ mod tests {
             stdlib_path: None,
         };
 
-        let execution =
-            lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
+        assert!(plan.requires_toolchain_headers());
+        let execution = lower_build_plan(&resolved_project, &plan, &options, &toolchain_headers)
+            .expect("lowering should use supplied paths even when the include tree is absent");
         let custom_input_actions = execution
             .action_ids()
             .filter(|id| {
@@ -1009,9 +1006,9 @@ mod tests {
                 stdlib_path: None,
             };
 
-            let lowered = lower_build_plan(&resolved_project, &plan, &options)
+            let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])
                 .expect("lowering should succeed");
-            let context = LoweringContext::new(&resolved_project, &plan, &options);
+            let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolved_project.pkg_dirs,
                 &target,

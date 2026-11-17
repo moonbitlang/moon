@@ -113,6 +113,18 @@ pub(crate) enum BuildAction<'a> {
     },
 }
 
+impl BuildAction<'_> {
+    /// These actions compile C sources against the MoonBit toolchain headers.
+    pub(crate) fn uses_toolchain_headers(self) -> bool {
+        matches!(
+            self,
+            Self::BuildCStub { .. }
+                | Self::BuildRuntimeObject { .. }
+                | Self::CompileGeneratedC { .. }
+        )
+    }
+}
+
 impl BackendPlan {
     /// The native toolchain of the action that consumes `target`'s linked
     /// core: its executable, or, for a foreign library's source target, its

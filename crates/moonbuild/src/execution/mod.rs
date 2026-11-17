@@ -1113,7 +1113,7 @@ mod tests {
                     warning_condition: WarningCondition::Default,
                     warn_list: None,
                 };
-                let compiled = moonbuild_rupes_recta::compile(
+                let compiled = crate::compile::compile(
                     &cfg,
                     &resolved,
                     &[ArtifactKey::CheckMi {

@@ -35,6 +35,8 @@ disallowed-methods = [
     "std::fs::remove_dir_all",
     "std::fs::File::open",
     "std::fs::File::create",
+    # Directory traversal is also I/O; discovery opts out explicitly.
+    "walkdir::WalkDir::new",
     # Moonutil functions that perform file I/O
     "moonutil::manifest::read_module_from_json",
     "moonutil::manifest::write_module_json_to_file",

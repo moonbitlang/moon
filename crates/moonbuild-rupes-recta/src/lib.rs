@@ -21,16 +21,18 @@
 
     ## Quickstart
 
-    You can find the high-level compilation stages in [`resolve`] and [`compile`]:
+    Build orchestration lives in `moonbuild::compile`; RR exposes the individual
+    compilation stages:
 
     - [`resolve`] discovers modules and packages as [`DiscoveredProject`], then
       resolves the requested target backends. [`ResolvedProject`] contains complete
       [`pkg_solve::PackageRelations`] for each requested backend. Any resolution
       failure is returned immediately.
 
-    - [`compile`] takes in the project and its package relations and produces an
-      [`execution_plan::ExecutionPlan`]. This part converts the intent of the
-      user into concrete actions and declared outputs.
+    - [`build_plan`] converts requested artifacts into a semantic Build Plan.
+      After orchestration prepares the required external inputs, [`build_lower`]
+      produces an [`execution_plan::ExecutionPlan`] with concrete actions and
+      declared outputs. Both stages borrow the same [`CompileConfig`].
 
     Of all intents of the user, one is so different from the rest: `moon fmt`.
     The formatter only needs the list of files to run, regardless of whether the
@@ -103,7 +105,7 @@ pub mod pkg_name;
 pub mod pkg_solve;
 
 // High-level actions
-pub mod compile;
+mod compile;
 pub mod resolve;
 pub mod target_layout;
 
@@ -121,7 +123,7 @@ mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{CompileConfig, CompileOutput, compile};
+pub use compile::CompileConfig;
 pub use resolve::{
     DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
     prepare_synced_project, sync_module_dependencies,

@@ -2067,6 +2067,7 @@ dependencies = [
  "tempfile",
  "text-size",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]

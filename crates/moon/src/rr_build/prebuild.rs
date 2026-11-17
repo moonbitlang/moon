@@ -28,8 +28,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use log::warn;
 use moonbuild_rupes_recta::{
-    ResolvedProject,
-    compile::CompileConfig,
+    CompileConfig, ResolvedProject,
     prebuild::{ModulePrebuildOutput, PrebuildOutput},
 };
 use moonutil::{

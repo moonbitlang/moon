@@ -28,6 +28,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | CLI parsing and command orchestration | [`moon/src/cli`](../../crates/moon/src/cli), [`cli.rs`](../../crates/moon/src/cli.rs) |
 | CLI integration with Rupes Recta and dry-run rendering | [`moon/src/rr_build`](../../crates/moon/src/rr_build) |
 | Discovery, resolution, planning, and lowering | [`moonbuild-rupes-recta/src`](../../crates/moonbuild-rupes-recta/src/lib.rs) |
+| Build compilation orchestration and external-input preparation | [`moonbuild/src/compile.rs`](../../crates/moonbuild/src/compile.rs) |
 | Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
 | Test results and expect/snapshot promotion | [`moonbuild/src/runtest.rs`](../../crates/moonbuild/src/runtest.rs), [`expect.rs`](../../crates/moonbuild/src/expect.rs) |
 | Package management and registry access | [`mooncake/src/pkg`](../../crates/mooncake/src/pkg), [`resolver`](../../crates/mooncake/src/resolver), [`registry`](../../crates/mooncake/src/registry) |
