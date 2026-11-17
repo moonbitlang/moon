@@ -71,16 +71,6 @@ pub fn is_moonx_executable(path: &OsStr) -> bool {
     })
 }
 
-pub fn is_moonrun_executable(path: &OsStr) -> bool {
-    Path::new(path).file_name().is_some_and(|name| {
-        if cfg!(windows) {
-            name.eq_ignore_ascii_case("moonrun") || name.eq_ignore_ascii_case("moonrun.exe")
-        } else {
-            name == "moonrun" || name == "moonrun.exe"
-        }
-    })
-}
-
 pub const WATCH_MODE_DIR: &str = "watch";
 
 pub const TEST_INFO_FILE: &str = "test_info.json";

@@ -19,7 +19,6 @@
 use std::{collections::BTreeSet, ops::Range};
 
 use indexmap::IndexMap;
-use moonbuild::test_utils::indices_to_ranges;
 use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
@@ -299,6 +298,35 @@ impl FileFilter {
     }
 }
 
+/// Group selected test indices into consecutive ranges. Skipped tests can leave
+/// gaps, so the ranges must preserve the actual indices from test metadata.
+fn indices_to_ranges(mut indices: Vec<u32>) -> Vec<std::ops::Range<u32>> {
+    if indices.is_empty() {
+        return vec![];
+    }
+
+    indices.sort_unstable();
+    let mut ranges = vec![];
+    let mut start = indices[0];
+    let mut end = indices[0] + 1;
+
+    for &index in &indices[1..] {
+        if index == end {
+            // Consecutive index, extend current range
+            end = index + 1;
+        } else {
+            // Gap found, close current range and start new one
+            ranges.push(start..end);
+            start = index;
+            end = index + 1;
+        }
+    }
+
+    // Push the final range
+    ranges.push(start..end);
+    ranges
+}
+
 fn all_ranges(
     infos: &[MbtTestInfo],
     include_skipped: bool,
@@ -406,12 +434,42 @@ pub(crate) fn apply_filter(
 
 #[cfg(test)]
 mod test {
-    use super::GlobPatternMatcher;
+    use super::{GlobPatternMatcher, indices_to_ranges};
     use expect_test::expect;
     use moonutil::{
         build_options::TestIndexRange,
         test_metadata::{MbtTestInfo, MooncGenTestInfo},
     };
+
+    #[test]
+    fn test_indices_to_ranges() {
+        // Test empty input
+        assert_eq!(indices_to_ranges(vec![]), vec![]);
+
+        // Test single index
+        assert_eq!(indices_to_ranges(vec![5]), vec![5..6]);
+
+        // Test contiguous range
+        assert_eq!(indices_to_ranges(vec![0, 1, 2, 3]), vec![0..4]);
+
+        // Test non-contiguous indices (the main problem we're solving)
+        assert_eq!(
+            indices_to_ranges(vec![0, 2, 5, 6, 7, 10]),
+            vec![0..1, 2..3, 5..8, 10..11]
+        );
+
+        // Test unsorted input (should still work)
+        assert_eq!(
+            indices_to_ranges(vec![10, 0, 7, 5, 6, 2]),
+            vec![0..1, 2..3, 5..8, 10..11]
+        );
+
+        // Test large gap
+        assert_eq!(
+            indices_to_ranges(vec![1, 100, 101, 1000]),
+            vec![1..2, 100..102, 1000..1001]
+        );
+    }
 
     fn glob_match(pattern: &str, text: &str) -> bool {
         GlobPatternMatcher::new(pattern).is_match(text)

@@ -18,7 +18,7 @@
 
 use tokio::io::{AsyncBufRead, AsyncWriteExt};
 
-pub struct SectionCapture<'a> {
+pub(crate) struct SectionCapture<'a> {
     begin_delimiter: &'a str,
     end_delimiter: &'a str,
     capture_buffer: String,
@@ -33,14 +33,18 @@ enum SectionCaptureState {
     Complete,
 }
 
-pub enum LineCaptured {
+enum LineCaptured {
     All,
     Prefix(usize), // noncaptured start index
     Suffix(usize), // noncaptured end index
 }
 
 impl<'a> SectionCapture<'a> {
-    pub fn new(begin_delimiter: &'a str, end_delimiter: &'a str, include_delimiters: bool) -> Self {
+    pub(super) fn new(
+        begin_delimiter: &'a str,
+        end_delimiter: &'a str,
+        include_delimiters: bool,
+    ) -> Self {
         SectionCapture {
             begin_delimiter,
             end_delimiter,
@@ -83,7 +87,7 @@ impl<'a> SectionCapture<'a> {
     }
 
     /// Returns the captured section if the section is complete.
-    pub fn finish(self) -> Option<String> {
+    pub(super) fn finish(self) -> Option<String> {
         if matches!(self.state, SectionCaptureState::Complete) {
             Some(self.capture_buffer)
         } else {
@@ -124,7 +128,7 @@ fn handle_stdout<P: FnMut(&str)>(
 }
 
 /// Async version of [`handle_stdout`].
-pub async fn handle_stdout_async(
+pub(super) async fn handle_stdout_async(
     proc: impl AsyncBufRead,
     captures: &mut [&mut SectionCapture<'_>],
 ) -> anyhow::Result<()> {

@@ -77,7 +77,6 @@ use moonbuild::{
         render_snapshot_fail,
     },
     runtest::{TestDriverEvent, TestStatistics},
-    section_capture::SectionCapture,
 };
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey, discover::DiscoverResult, model::BuildTarget,
@@ -91,7 +90,7 @@ use moonutil::{
 };
 use tracing::{debug, info, instrument, trace, warn};
 
-use super::run_with_parallelism;
+use super::{run_with_parallelism, section_capture::SectionCapture};
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
 pub(crate) use promotion::perform_promotion;

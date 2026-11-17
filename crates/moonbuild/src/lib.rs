@@ -18,14 +18,11 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-pub mod bench;
 pub mod benchmark;
 pub mod entry;
 pub mod execution;
 pub mod expect;
 pub mod runtest;
-pub mod section_capture;
-pub mod test_utils;
 
 use indexmap::IndexMap;
 use moonbuild_rupes_recta::{

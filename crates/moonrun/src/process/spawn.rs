@@ -308,8 +308,17 @@ impl HostProcess {
 
 // moonrun consumes inherited restrictions directly; moonx relays them to moonrun.
 fn is_policy_recipient(program: &OsStr) -> bool {
-    moonutil::constants::is_moonx_executable(program)
-        || moonutil::constants::is_moonrun_executable(program)
+    moonutil::constants::is_moonx_executable(program) || is_moonrun_executable(program)
+}
+
+fn is_moonrun_executable(path: &OsStr) -> bool {
+    Path::new(path).file_name().is_some_and(|name| {
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("moonrun") || name.eq_ignore_ascii_case("moonrun.exe")
+        } else {
+            name == "moonrun" || name == "moonrun.exe"
+        }
+    })
 }
 
 fn lookup_error(error: lookup::LookupError) -> AsyncHostError {
