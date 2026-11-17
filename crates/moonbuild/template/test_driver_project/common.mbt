@@ -8,7 +8,7 @@ fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.t
 // cannot split a UTF-16 surrogate pair.
 fn moonbit_test_driver_internal_escape_json(value : String) -> String {
   let buf = @moonbitlang/core/prelude.StringBuilder(
-    size_hint=value.length() * 2 + 4,
+    capacity=value.length() * 2 + 4,
   )
   buf.write_char('"')
   let mut start = 0
@@ -182,7 +182,7 @@ fn moonbit_test_driver_internal_string_from_extern(
     }
   }
   moonbit_test_driver_internal_finish_read_string(handle)
-  fixedarray_to_bytes(buf).to_unchecked_string(offset=0, length=len).to_string()
+  fixedarray_to_bytes(buf).to_unchecked_string(offset=0, len~).to_string()
 }
 
 // =========================================================

@@ -1,6 +1,7 @@
 ----
 import {
   "moonbitlang/async@0.21.2",
+  "moonbitlang/async@0.21.2/io",
   "moonbitlang/async@0.21.2/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
@@ -9,7 +10,7 @@ import {
 
 ///|
 async fn main {
-  let input = @json.parse(@stdio.stdin.read_all().text())
+  let input = @json.parse(@io.Reader::read_all(@stdio.stdin).text())
   guard input is {
     "env": { "MOON_CC": String(cc), .. },
     "paths": {
@@ -48,5 +49,5 @@ async fn main {
       "link_search_paths": ["/my-search-path"],
     }],
   }
-  @stdio.stdout.write(output.stringify())
+  @io.Writer::write(@stdio.stdout, output.stringify())
 }
