@@ -24,7 +24,14 @@ use anyhow::{Context, bail};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
-use moonutil::registry::Credentials;
+/// Registry login payload, compatible with existing credentials files.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Credentials {
+    pub token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub username: Option<String>,
+}
 
 /// A saved login and the registry API that may receive its token.
 ///

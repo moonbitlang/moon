@@ -23,10 +23,10 @@ use std::{
 };
 
 use anyhow::{Context, bail};
+use mooncake::registry::{Credentials, validate_username};
 use moonutil::{
     MOON_HOME,
     constants::{is_moon_mod_exist, is_moon_pkg_exist},
-    registry::{Credentials, validate_username},
     toolchain,
     user_log::UserLog,
 };

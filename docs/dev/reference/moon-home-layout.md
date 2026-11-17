@@ -237,8 +237,9 @@ separate:
   compatibility, and API destination matching. Registry consumers share these
   operations; HTTP headers and redirect policy stay
   in the request layer. `registry_api_url` validates and normalizes their API
-  base URLs without selecting the configured registry. The shared account and
-  configuration types remain in `moonutil::registry`, without URL handling.
+  base URLs without selecting the configured registry. `mooncake::registry`
+  exports the shared credential and configuration types and username syntax
+  validation; configuration file compatibility stays private to that module.
 - `RegistryClient` owns the captured credentials and shares them immutably with
   its HTTP metadata backend. `registry::authentication` constructs API clients
   from those credentials without loading files or holding global state. The
