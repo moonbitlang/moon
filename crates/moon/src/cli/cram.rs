@@ -147,7 +147,7 @@ fn run_cram_test(
         package: None,
     };
 
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         build_cmd.auto_sync_flags.clone(),
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),

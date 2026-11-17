@@ -562,7 +562,7 @@ fn build_package_executable(
         ..
     } = &dirs;
 
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
@@ -764,7 +764,7 @@ fn build_single_file_executable(
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
 
     // Resolve single-file project (synthesized package around the file)
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
@@ -775,7 +775,7 @@ fn build_single_file_executable(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         &dirs,
         &input_path,

@@ -2058,6 +2058,7 @@ dependencies = [
  "json-structural-diff",
  "line-index",
  "moonbuild-rupes-recta",
+ "mooncake",
  "moonutil",
  "n2",
  "serde",
@@ -2066,6 +2067,7 @@ dependencies = [
  "similar",
  "tempfile",
  "text-size",
+ "thiserror 1.0.63",
  "tracing",
  "walkdir",
 ]
@@ -2081,7 +2083,6 @@ dependencies = [
  "ignore",
  "indexmap",
  "log",
- "mooncake",
  "moonutil",
  "petgraph",
  "regex",

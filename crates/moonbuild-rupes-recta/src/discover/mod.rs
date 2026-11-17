@@ -28,8 +28,8 @@
 mod model;
 mod prepare;
 mod scan;
-pub mod special_case;
-pub mod synth;
+pub(crate) mod special_case;
+pub(crate) mod synth;
 
 pub use model::{
     DiscoverError, DiscoverResult, DiscoveredPackage, FmtProject, SingleFileSourceKind,

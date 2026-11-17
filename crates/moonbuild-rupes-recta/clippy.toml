@@ -38,6 +38,8 @@ disallowed-methods = [
     # Directory traversal is also I/O; discovery opts out explicitly.
     "walkdir::WalkDir::new",
     # Moonutil functions that perform file I/O
+    "moonutil::front_matter::parse_front_matter_config",
+    "moonutil::front_matter::MbtxFrontMatter::from_file",
     "moonutil::manifest::read_module_from_json",
     "moonutil::manifest::write_module_json_to_file",
     "moonutil::manifest::write_package_json_to_file",

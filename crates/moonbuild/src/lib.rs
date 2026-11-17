@@ -23,6 +23,7 @@ pub mod compile;
 pub mod entry;
 pub mod execution;
 pub mod expect;
+pub mod prepare;
 pub mod runtest;
 
 use indexmap::IndexMap;

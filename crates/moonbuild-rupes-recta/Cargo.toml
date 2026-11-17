@@ -25,7 +25,6 @@ license.workspace = true
 
 [dependencies]
 moonutil.workspace = true
-mooncake.workspace = true
 
 anyhow.workspace = true
 arcstr.workspace = true

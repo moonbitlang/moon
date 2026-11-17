@@ -1040,7 +1040,7 @@ mod tests {
 
     fn composed_build_input() -> BuildInput {
         use moonbuild_rupes_recta::{
-            CompileConfig, ProjectPreparationConfig,
+            CompileConfig, DiscoveryConfig,
             build_lower::WarningCondition,
             build_plan::{ArtifactKey, InputDirective},
             fmt::{FmtConfig, build_execution_plan_for_fmt_file},
@@ -1050,7 +1050,6 @@ mod tests {
         use moonutil::{
             build_options::RunMode,
             cond_expr::OptLevel,
-            project::WorkspaceEnv,
             resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
             user_log::user_log_level,
         };
@@ -1075,7 +1074,7 @@ mod tests {
         dirs.insert(module_id, dir.path().to_owned());
         let user_log = UserLog::new(user_log_level(false, true));
         let resolved = moonbuild_rupes_recta::prepare_synced_project(
-            &ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto),
+            &DiscoveryConfig::default(),
             (modules, dirs),
             &[TargetBackend::WasmGC, TargetBackend::Js],
             &user_log,

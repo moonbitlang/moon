@@ -128,15 +128,15 @@ pub(crate) fn run_doc_rr(
 
     // Choose the member-scoped documentation backend before resolving packages.
     let build_flags = BuildFlags::default();
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
     let synced_modules =
-        moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
+        moonbuild::prepare::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
     let discovered = moonbuild_rupes_recta::discover_synced_project(
-        &preparation_config,
+        &preparation_config.discovery,
         synced_modules,
         user_log,
     )?;

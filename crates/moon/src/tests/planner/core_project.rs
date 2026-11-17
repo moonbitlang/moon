@@ -18,7 +18,8 @@
 
 use std::path::Path;
 
-use moonbuild_rupes_recta::{DiscoveredProject, ProjectPreparationConfig, model::TargetKind};
+use moonbuild::prepare::ProjectPreparationConfig;
+use moonbuild_rupes_recta::{DiscoveredProject, model::TargetKind};
 use moonutil::{
     constants::MOONBITLANG_CORE,
     project::{SourceTargetDirs, WorkspaceEnv},
@@ -44,9 +45,9 @@ fn discover_core(enable_coverage: bool) -> anyhow::Result<DiscoveredProject> {
     let preparation =
         ProjectPreparationConfig::new_with_load_defaults(true, enable_coverage, WorkspaceEnv::Off);
     let (module_graph, module_dirs) =
-        moonbuild_rupes_recta::sync_module_dependencies(&preparation, &dirs, &user_log)?;
+        moonbuild::prepare::sync_module_dependencies(&preparation, &dirs, &user_log)?;
     Ok(moonbuild_rupes_recta::discover_synced_project(
-        &preparation,
+        &preparation.discovery,
         (module_graph, module_dirs),
         &user_log,
     )?)

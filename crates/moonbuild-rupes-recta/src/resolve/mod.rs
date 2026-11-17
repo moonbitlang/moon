@@ -16,51 +16,34 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Project preparation: module dependency sync, package discovery, and package resolution.
+//! Package discovery and resolution from already synchronized modules.
 //!
-//! Module sync selects module sources and versions and makes them available on disk.
 //! Discovery produces [`DiscoveredProject`]; package resolution adds validated
-//! package relationships to produce [`ResolvedProject`].
-//! Dependency-directory mutation remains explicit in the sync step.
+//! package relationships to produce [`ResolvedProject`]. Dependency acquisition
+//! and script declaration preparation belong to `moonbuild::prepare`.
 
+use crate::{
+    discover::{
+        DiscoverError, DiscoverResult, SingleFileSourceKind, discover_for_build,
+        special_case::inject_core_coverage_into_builtin,
+    },
+    pkg_solve::{self, PackageRelations},
+    special_cases::CORE_MODULE_TUPLE,
+};
+use log::{debug, info};
+use moonutil::{
+    manifest::MoonMod,
+    package::Import,
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleId},
+    target::TargetBackend,
+    user_log::UserLog,
+};
 use std::{
     collections::{BTreeMap, HashSet},
     ops::Deref,
     path::Path,
 };
-
-use anyhow::Context;
-use indexmap::IndexMap;
-use log::{debug, info};
-use std::str::FromStr;
-
-use mooncake::{
-    pkg::sync::{SyncOutputOptions, auto_sync, auto_sync_for_single_file_rr},
-    registry::path as registry_path,
-};
-use moonutil::{
-    cache::CacheRoot,
-    cli_support::AutoSyncFlags,
-    constants::MOONBITLANG_CORE,
-    dependency::SourceDependencyInfo,
-    front_matter::{MbtMdHeader, parse_front_matter_config},
-    manifest::MoonMod,
-    package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
-    project::{PackageDirs, WorkspaceEnv},
-    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleId},
-    target::TargetBackend,
-    user_log::UserLog,
-};
 use tracing::instrument;
-
-use crate::mbtx::parse_mbtx_imports;
-
-use crate::discover::special_case::inject_core_coverage_into_builtin;
-use crate::special_cases::CORE_MODULE_TUPLE;
-use crate::{
-    discover::{DiscoverError, DiscoverResult, SingleFileSourceKind, discover_for_build},
-    pkg_solve::{self, PackageRelations},
-};
 
 /// A project's modules and packages before solving package dependencies.
 #[derive(Debug, Clone)]
@@ -102,7 +85,7 @@ impl DiscoveredProject {
         self,
         backends: &[TargetBackend],
         user_log: &UserLog,
-    ) -> Result<ResolvedProject, ProjectPreparationError> {
+    ) -> Result<ResolvedProject, ProjectResolutionError> {
         let mut package_relations = BTreeMap::new();
         let mut warnings = HashSet::new();
         let (graph_log, capture) = UserLog::captured(log::LevelFilter::Warn);
@@ -123,7 +106,7 @@ impl DiscoveredProject {
                 }
             }
             let relations =
-                result.map_err(|e| ProjectPreparationError::PackageResolutionError(Box::new(e)))?;
+                result.map_err(|e| ProjectResolutionError::PackageResolutionError(Box::new(e)))?;
             info!("Package dependency resolution completed successfully");
             debug!(
                 "Package dependency graph has {} nodes",
@@ -150,265 +133,32 @@ impl DiscoveredProject {
     }
 }
 
-/// Settings shared by module sync, package discovery, and package resolution.
-#[derive(Debug)]
-pub struct ProjectPreparationConfig {
-    sync_flags: AutoSyncFlags,
-    sync_output: SyncOutputOptions,
-    dependency_source_cache: CacheRoot,
-    /// Gate coverage injection in pkg_solve
+/// Settings for package discovery after module dependencies are synchronized.
+#[derive(Debug, Default)]
+pub struct DiscoveryConfig {
+    /// Keep discovery's coverage sources and package resolution's imports aligned.
     pub enable_coverage: bool,
-    workspace_env: WorkspaceEnv,
-    jobs: Option<usize>,
+    pub jobs: Option<usize>,
 }
 
-struct FrontMatterImports {
-    deps: IndexMap<String, SourceDependencyInfo>,
-    imports: Vec<Import>,
-}
-
-#[derive(Default)]
-struct FrontMatterConfig {
-    deps_to_sync: Option<IndexMap<String, SourceDependencyInfo>>,
-    package_imports: Vec<Import>,
-}
-
-fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<FrontMatterConfig> {
-    let mut config = FrontMatterConfig::default();
-
-    let Some(moonbit) = header.and_then(|h| h.moonbit.as_ref()) else {
-        return Ok(config);
-    };
-
-    match (moonbit.deps.as_ref(), moonbit.import.as_ref()) {
-        (Some(_), Some(_)) => {
-            anyhow::bail!("moonbit.deps and moonbit.import are mutually exclusive");
-        }
-        (Some(deps), None) => {
-            config.deps_to_sync = Some(deps.clone());
-        }
-        (None, Some(_)) => {
-            let imports = parse_front_matter_imports(moonbit.import.clone())?;
-            config.deps_to_sync = Some(imports.deps);
-            config.package_imports = imports.imports;
-        }
-        (None, None) => {}
-    }
-
-    Ok(config)
-}
-
-fn parse_front_matter_imports(
-    imports: Option<PkgJSONImport>,
-) -> anyhow::Result<FrontMatterImports> {
-    let imports = pkg_json_imports_to_imports(imports);
-    let mut deps = IndexMap::new();
-    let mut module_versions: IndexMap<String, Option<String>> = IndexMap::new();
-    let mut normalized_imports = Vec::with_capacity(imports.len());
-
-    for import in imports {
-        let (module, version, package) = split_import_path(import.get_path())?;
-        if module == MOONBITLANG_CORE && version.is_some() {
-            anyhow::bail!("moonbitlang/core imports must not specify a version");
-        }
-
-        let entry = module_versions.entry(module.clone()).or_insert(None);
-        if let Some(version) = version {
-            match entry {
-                Some(existing) if existing.as_str() != version => {
-                    anyhow::bail!(
-                        "multiple versions specified for module '{module}': '{existing}' and '{version}'"
-                    );
-                }
-                None => {
-                    *entry = Some(version.to_string());
-                }
-                _ => {}
-            }
-        }
-
-        let normalized_path = match package {
-            Some(package) => format!("{module}/{package}"),
-            None => module.clone(),
-        };
-        let normalized_import = match import {
-            Import::Simple(_) => Import::Simple(normalized_path),
-            Import::Alias {
-                path: _,
-                alias,
-                sub_package,
-                import_all,
-                targets,
-            } => Import::Alias {
-                path: normalized_path,
-                alias,
-                sub_package,
-                import_all,
-                targets,
-            },
-        };
-        normalized_imports.push(normalized_import);
-    }
-
-    for (module, version) in module_versions {
-        if module == MOONBITLANG_CORE {
-            continue;
-        }
-        let Some(version) = version else {
-            anyhow::bail!(
-                "module '{module}' must include a version in moonbit.import (e.g. {module}@0.4.40[/package])"
-            );
-        };
-        let version = SourceDependencyInfo::from_str(&version)?;
-        deps.insert(module, version);
-    }
-
-    Ok(FrontMatterImports {
-        deps,
-        imports: normalized_imports,
-    })
-}
-
-fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Option<String>)> {
-    let parsed = registry_path::parse_front_matter_import_path(path)?;
-    Ok((
-        parsed.module.to_string(),
-        parsed.version,
-        (!parsed.package.is_empty()).then_some(parsed.package),
-    ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::split_import_path;
-
-    #[test]
-    fn split_import_path_supports_module_root() {
-        let (module, version, package) =
-            split_import_path("moonbitlang/async@0.16.5").expect("module-root import should parse");
-        assert_eq!(module, "moonbitlang/async");
-        assert_eq!(version.as_deref(), Some("0.16.5"));
-        assert_eq!(package, None);
-    }
-
-    #[test]
-    fn split_import_path_supports_module_package() {
-        let (module, version, package) =
-            split_import_path("moonbitlang/x@0.4.38/stack").expect("module import should parse");
-        assert_eq!(module, "moonbitlang/x");
-        assert_eq!(version.as_deref(), Some("0.4.38"));
-        assert_eq!(package.as_deref(), Some("stack"));
-    }
-
-    #[test]
-    fn split_import_path_rejects_package_version_suffix() {
-        assert!(split_import_path("moonbitlang/x/stack@0.4.38").is_err());
-    }
-}
-
-impl ProjectPreparationConfig {
-    /// Create project preparation settings with the requested module sync policy
-    /// and defaults for the remaining options.
-    pub fn new_with_load_defaults(
-        frozen: bool,
-        enable_coverage: bool,
-        workspace_env: WorkspaceEnv,
-    ) -> Self {
-        Self {
-            sync_flags: AutoSyncFlags { frozen },
-            sync_output: SyncOutputOptions::default(),
-            dependency_source_cache: CacheRoot::Disabled,
-            jobs: None,
-            enable_coverage,
-            workspace_env,
-        }
-    }
-
-    /// Create project preparation settings with the given sync and build flags.
-    pub fn new(
-        sync_flags: AutoSyncFlags,
-        enable_coverage: bool,
-        workspace_env: WorkspaceEnv,
-    ) -> Self {
-        Self {
-            sync_flags,
-            sync_output: SyncOutputOptions::default(),
-            dependency_source_cache: CacheRoot::Disabled,
-            jobs: None,
-            enable_coverage,
-            workspace_env,
-        }
-    }
-
-    pub fn with_jobs(mut self, jobs: Option<usize>) -> Self {
-        self.jobs = jobs;
-        self
-    }
-
-    pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
-        self.sync_output = sync_output;
-        self
-    }
-
-    pub fn with_dependency_source_cache(mut self, cache: CacheRoot) -> Self {
-        self.dependency_source_cache = cache;
-        self
-    }
-}
-
-/// Failures from module sync, package discovery, or package resolution.
+/// Failures from package discovery or package relationship resolution.
 #[derive(Debug, thiserror::Error)]
-pub enum ProjectPreparationError {
-    #[error("Failed to resolve the module dependency graph")]
-    SyncModulesError(#[source] anyhow::Error),
-
+pub enum ProjectResolutionError {
     #[error("Failed when discovering packages")]
     DiscoverError(#[from] DiscoverError),
 
     #[error("Failed to solve package relationship")]
     PackageResolutionError(#[source] Box<pkg_solve::PackageResolutionError>),
-
-    #[error("Failed to parse single file front matter configuration")]
-    SingleFileParseError(#[source] anyhow::Error),
-}
-
-/// Resolve module sources and versions and synchronize their directories for
-/// package discovery. This does not resolve package imports.
-#[instrument(skip_all)]
-pub fn sync_module_dependencies(
-    cfg: &ProjectPreparationConfig,
-    dirs: &PackageDirs,
-    user_log: &UserLog,
-) -> Result<(ModuleDependencyGraph, DirSyncResult), ProjectPreparationError> {
-    info!(
-        "Starting dependency sync for source directory: {}",
-        dirs.source_dir.display()
-    );
-    debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
-
-    let (module_graph, dir_sync_result, _) = auto_sync(
-        dirs,
-        &cfg.sync_flags,
-        cfg.sync_output,
-        user_log,
-        cfg.workspace_env.clone(),
-        cfg.jobs,
-    )
-    .map_err(ProjectPreparationError::SyncModulesError)?;
-    info!("Module dependency resolution completed successfully");
-    debug!("Resolved {} modules", module_graph.module_count());
-
-    Ok((module_graph, dir_sync_result))
 }
 
 /// Resolve package relationships for the requested backends from synced dependencies.
 #[instrument(skip_all)]
 pub fn prepare_synced_project(
-    cfg: &ProjectPreparationConfig,
+    cfg: &DiscoveryConfig,
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     backends: &[TargetBackend],
     user_log: &UserLog,
-) -> Result<ResolvedProject, ProjectPreparationError> {
+) -> Result<ResolvedProject, ProjectResolutionError> {
     discover_synced_project(cfg, synced_dependencies, user_log)?
         .resolve_packages(backends, user_log)
 }
@@ -416,10 +166,10 @@ pub fn prepare_synced_project(
 /// Discover packages from already synced dependencies without solving imports.
 #[instrument(skip_all)]
 pub fn discover_synced_project(
-    cfg: &ProjectPreparationConfig,
+    cfg: &DiscoveryConfig,
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     user_log: &UserLog,
-) -> Result<DiscoveredProject, ProjectPreparationError> {
+) -> Result<DiscoveredProject, ProjectResolutionError> {
     let (module_graph, dir_sync_result) = synced_dependencies;
 
     let mut discover_result =
@@ -446,66 +196,20 @@ pub fn discover_synced_project(
     })
 }
 
-/// Discover a single-file project and read its preferred backend.
-/// The caller chooses explicit/header/default backends before package resolution.
-/// `source_file` must be the absolute invoked path from
-/// `SingleFilePackageDirs::input_path`, preserving a file symlink's own filename.
-#[instrument(skip_all, fields(run_mode = run_mode))]
+/// Discover the supplied modules and synthesize a package from a prepared
+/// single-file declaration. Dependencies must already be available on disk.
+/// `source_file` preserves the invoked filename, including symlinks.
+#[instrument(skip_all)]
 pub fn discover_single_file_project(
-    cfg: &ProjectPreparationConfig,
-    dirs: &PackageDirs,
+    cfg: &DiscoveryConfig,
+    synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
     source_file: &Path,
+    source_kind: SingleFileSourceKind,
     run_mode: bool,
+    imports: Vec<Import>,
     user_log: &UserLog,
-) -> Result<(DiscoveredProject, Option<TargetBackend>), ProjectPreparationError> {
-    let source_kind = if source_file.extension().is_some_and(|ext| ext == "mbtx") {
-        SingleFileSourceKind::Mbtx
-    } else if source_file.extension().is_some_and(|ext| ext == "md") {
-        SingleFileSourceKind::MbtMd
-    } else {
-        SingleFileSourceKind::Mbt
-    };
-    if source_kind == SingleFileSourceKind::Mbt {
-        user_log.warn(
-            "Standalone `.mbt` files are deprecated. Use `.mbtx` for scripts and declare imports in front matter.",
-        );
-    }
-    let (header, front_matter_config) = if source_kind == SingleFileSourceKind::Mbtx {
-        let imports = parse_mbtx_imports(source_file, user_log)
-            .map_err(ProjectPreparationError::SingleFileParseError)?;
-        let config = FrontMatterConfig {
-            deps_to_sync: Some(imports.deps),
-            package_imports: imports.imports,
-        };
-        (None, config)
-    } else {
-        let header = parse_front_matter_config(source_file)
-            .map_err(ProjectPreparationError::SingleFileParseError)?;
-        let config = extract_front_matter_config(header.as_ref())
-            .map_err(ProjectPreparationError::SingleFileParseError)?;
-        (header, config)
-    };
-
-    let backend = header
-        .as_ref()
-        .and_then(|h| h.moonbit.as_ref())
-        .and_then(|mb| mb.backend.as_ref())
-        .map(|b| TargetBackend::str_to_backend(b))
-        // Error handling
-        .transpose()
-        .context("Unable to parse target backend from front matter")
-        .map_err(ProjectPreparationError::SingleFileParseError)?;
-
-    let (module_graph, dir_sync_result) = auto_sync_for_single_file_rr(
-        dirs,
-        &cfg.sync_flags,
-        front_matter_config.deps_to_sync.as_ref(),
-        cfg.sync_output,
-        &cfg.dependency_source_cache,
-        cfg.jobs,
-        user_log,
-    )
-    .map_err(ProjectPreparationError::SyncModulesError)?;
+) -> Result<DiscoveredProject, ProjectResolutionError> {
+    let (module_graph, dir_sync_result) = synced_dependencies;
     // Discover all packages in resolved modules
     let mut discover_result =
         discover_for_build(&module_graph, &dir_sync_result, cfg.jobs, user_log)?;
@@ -516,7 +220,7 @@ pub fn discover_single_file_project(
         &module_graph,
         &mut discover_result,
         run_mode,
-        front_matter_config.package_imports,
+        imports,
     )?;
 
     let discovered = DiscoveredProject {
@@ -525,5 +229,5 @@ pub fn discover_single_file_project(
         pkg_dirs: discover_result,
         enable_coverage: cfg.enable_coverage,
     };
-    Ok((discovered, backend))
+    Ok(discovered)
 }

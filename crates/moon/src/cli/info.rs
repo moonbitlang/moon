@@ -23,9 +23,10 @@ use std::path::PathBuf;
 use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
+use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
-    intent::UserIntent, model::PackageId, sync_module_dependencies,
+    DiscoveredProject, ResolvedProject, discover_synced_project, intent::UserIntent,
+    model::PackageId,
 };
 use moonutil::{
     build_options::RunMode,
@@ -272,8 +273,11 @@ pub(crate) fn run_info(
         cli.workspace_env.clone(),
     );
     let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
-    let discovered =
-        discover_synced_project(&preparation_config, synced_modules, output.user_log())?;
+    let discovered = discover_synced_project(
+        &preparation_config.discovery,
+        synced_modules,
+        output.user_log(),
+    )?;
     let selection = PackageSelection::new(&cmd, &discovered, output.user_log())?;
 
     let requested_targets = cmd

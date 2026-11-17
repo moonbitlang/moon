@@ -103,7 +103,7 @@ pub fn compile(
 #[cfg(test)]
 mod tests {
     use moonbuild_rupes_recta::{
-        ProjectPreparationConfig,
+        DiscoveryConfig,
         build_lower::WarningCondition,
         model::TargetKind,
         prepare_synced_project,
@@ -114,7 +114,6 @@ mod tests {
         compiler_flags::{CompilerPaths, NativeAllocator},
         cond_expr::OptLevel,
         manifest::read_module_manifest,
-        project::WorkspaceEnv,
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
         target::TargetBackend,
         user_log::user_log_level,
@@ -142,7 +141,7 @@ mod tests {
         dirs.insert(module_id, dir.path().to_owned());
         let user_log = UserLog::new(user_log_level(false, true));
         let resolved = prepare_synced_project(
-            &ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto),
+            &DiscoveryConfig::default(),
             (modules, dirs),
             &[TargetBackend::Native],
             &user_log,

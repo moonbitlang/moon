@@ -116,13 +116,9 @@ impl PlanningFixture {
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(root_id, source_dir.clone());
         module_dirs.insert(core_id, core_dir);
-        let preparation = moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
-            true,
-            false,
-            WorkspaceEnv::Off,
-        );
+        let discovery = moonbuild_rupes_recta::DiscoveryConfig::default();
         let discovered = moonbuild_rupes_recta::discover_synced_project(
-            &preparation,
+            &discovery,
             (module_graph, module_dirs),
             &UserLog::new(log::LevelFilter::Error),
         )?;
@@ -147,15 +143,15 @@ impl PlanningFixture {
         .select(&user_log)?
         .package_dirs()?;
         let preparation_config =
-            moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
+            moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
                 true,
                 false,
                 WorkspaceEnv::Auto,
             );
         let synced_modules =
-            moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, &user_log)?;
+            moonbuild::prepare::sync_module_dependencies(&preparation_config, &dirs, &user_log)?;
         let discovered = moonbuild_rupes_recta::discover_synced_project(
-            &preparation_config,
+            &preparation_config.discovery,
             synced_modules,
             &user_log,
         )?;
