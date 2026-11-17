@@ -1,0 +1,4 @@
+///|
+predicate small(x : Int64) {
+  x < 100L
+}

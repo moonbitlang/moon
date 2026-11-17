@@ -95,7 +95,6 @@ pub enum ArtifactKey {
 
     ProofMi { package: PackageId, target_kind: TargetKind },
     ProofWhyml { package: PackageId, target_kind: TargetKind },
-    ProofReport { package: PackageId, target_kind: TargetKind },
 
     CStubObject { package: PackageId, source: PathBuf },
     CStubLibrary { package: PackageId },
@@ -119,9 +118,21 @@ is unrelated to the `moonbitlang/core` package.
 Artifact identity never contains an execution `ActionId` or `_build` root.
 `CheckMi`, `BuildMi`, and `VirtualContractMi` are distinct because they are not
 interchangeable compiler inputs even though they all currently use `.mi`.
-`EmitProof` and `Prove` are alternative providers of the same `ProofMi` and
-`ProofWhyml` artifacts; only `Prove` additionally provides `ProofReport`.
-Provider selection belongs to the invocation lifecycle, not artifact identity.
+`EmitProof` provides `ProofMi` and `ProofWhyml` through `moonc-prove -emit-only`.
+After all requested preparation succeeds, `moon prove` executes the prepared
+WhyML outside the build graph with `moonc-prove -prove-whyml`.
+Proof reports describe that invocation and are not Build Artifacts. Any
+compilation or lowering failure stops all proof execution and produces no proof
+summary. After preparation succeeds, the command removes selected reports before
+starting proof processes, so a startup failure cannot expose an old result. It
+holds the target lock through execution to protect the preparation artifacts and
+proof outputs.
+
+Incremental build reuse ends at the `.mi` and `.mlw` artifacts. Proof execution
+runs on every invocation and produces fresh reports, including detailed failures
+when goals cannot be proved. Why3's internal session caching is owned by the
+compiler. Missing or malformed reports and prover startup failures count as
+failed selected packages.
 
 C-stub, runtime, and native foreign-library artifacts are realized as static
 archives. A `ForeignLibrary` consumes C-stub and runtime objects directly
@@ -230,10 +241,8 @@ in a dependency edge.
 The same rule handles invocation roots. `UserIntent` names results such as
 `CheckMi`, `CoreIr`, or `Executable`; it does not construct provider actions.
 For example, `Executable` selects `LinkCore` for Wasm/JS backends and
-`MakeExecutable` for native/LLVM backends. The complete caller-requested
-artifact set is recorded before provider expansion, so proof-surface artifacts
-select `Prove` when the invocation also requests `ProofReport`, and otherwise
-select `EmitProof`.
+`MakeExecutable` for native/LLVM backends. Proof-surface artifacts select
+`EmitProof`, including those requested by `moon prove`.
 
 JavaScript test intents also request one `NodeTestPackageConfig` for each
 package. Its dedicated package-scoped `GenerateNodeTestPackageConfig` provider

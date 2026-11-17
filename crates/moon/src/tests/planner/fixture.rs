@@ -519,7 +519,6 @@ fn root_package_names(meta: &BuildMeta) -> Vec<String> {
         | ArtifactKey::CoreIr { package, .. }
         | ArtifactKey::ProofMi { package, .. }
         | ArtifactKey::ProofWhyml { package, .. }
-        | ArtifactKey::ProofReport { package, .. }
         | ArtifactKey::LinkedCore { package, .. }
         | ArtifactKey::Executable { package, .. }
         | ArtifactKey::ForeignLibrary { package }

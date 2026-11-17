@@ -134,10 +134,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let input = input.collect::<Vec<_>>();
         self.res.requested_artifacts.extend(input.iter().cloned());
 
-        // Record the complete caller-requested set before selecting providers.
-        // Some artifacts share a provider only for a particular request shape;
-        // for example, an explicit proof report makes `Prove` provide the proof
-        // surface that dependencies would otherwise get from `EmitProof`.
         for artifact in &input {
             self.need_artifact_provider(artifact);
         }
@@ -284,29 +280,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.res.artifacts.provide(
                     node,
                     ArtifactKey::ProofWhyml {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-            }
-            BuildPlanNode::Prove(target) => {
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::ProofMi {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::ProofWhyml {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::ProofReport {
                         package: target.package,
                         target_kind: target.kind,
                     },
@@ -463,25 +436,7 @@ impl<'a> BuildPlanConstructor<'a> {
             | ArtifactKey::ProofWhyml {
                 package,
                 target_kind,
-            } => {
-                let target = package.build_target(*target_kind);
-                if self
-                    .res
-                    .requested_artifacts
-                    .contains(&ArtifactKey::ProofReport {
-                        package: *package,
-                        target_kind: *target_kind,
-                    })
-                {
-                    BuildPlanNode::Prove(target)
-                } else {
-                    BuildPlanNode::EmitProof(target)
-                }
-            }
-            ArtifactKey::ProofReport {
-                package,
-                target_kind,
-            } => BuildPlanNode::Prove(package.build_target(*target_kind)),
+            } => BuildPlanNode::EmitProof(package.build_target(*target_kind)),
             ArtifactKey::CStubObject { package, source } => {
                 let pkg = self.input.pkg_dirs.get_package(*package);
                 let index = pkg
@@ -569,7 +524,6 @@ impl<'a> BuildPlanConstructor<'a> {
         match node {
             BuildPlanNode::Check(build_target)
             | BuildPlanNode::EmitProof(build_target)
-            | BuildPlanNode::Prove(build_target)
             | BuildPlanNode::BuildCore(build_target)
             | BuildPlanNode::GenerateTestInfo(build_target) => {
                 let pkg = self.input.pkg_dirs.get_package(build_target.package);
@@ -727,7 +681,6 @@ impl<'a> BuildPlanConstructor<'a> {
         match node {
             BuildPlanNode::Check(target) => self.build_check(node, target),
             BuildPlanNode::EmitProof(target) => self.build_proof_node(node, target),
-            BuildPlanNode::Prove(target) => self.build_proof_node(node, target),
             BuildPlanNode::BuildCore(target) => self.build_build(node, target),
             BuildPlanNode::BuildCStub(target, index) => {
                 self.build_build_c_stub(node, target, index)

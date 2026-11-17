@@ -40,10 +40,6 @@ pub(crate) enum BuildAction<'a> {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
     },
-    Prove {
-        target: BuildTarget,
-        info: &'a BuildTargetInfo,
-    },
     BuildCore {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
@@ -149,13 +145,6 @@ impl BackendPlan {
                     .build_target_infos
                     .get(&target)
                     .expect("Build target info should be present for EmitProof nodes"),
-            },
-            BuildPlanNode::Prove(target) => BuildAction::Prove {
-                target,
-                info: self
-                    .build_target_infos
-                    .get(&target)
-                    .expect("Build target info should be present for Prove nodes"),
             },
             BuildPlanNode::BuildCore(target) => BuildAction::BuildCore {
                 target,

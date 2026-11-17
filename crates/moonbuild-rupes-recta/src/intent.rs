@@ -174,10 +174,6 @@ impl UserIntent {
                     package: pkg,
                     target_kind: TargetKind::Source,
                 });
-                out.push(ArtifactKey::ProofReport {
-                    package: pkg,
-                    target_kind: TargetKind::Source,
-                });
             }
             UserIntent::Test(pkg) | UserIntent::TestOutline(pkg) | UserIntent::Bench(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);

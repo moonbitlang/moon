@@ -307,8 +307,6 @@ pub enum BuildPlanNode {
     Check(BuildTarget),
     /// Emit proof artifacts (`.mlw` + proof-aware `.mi`) without invoking Why3.
     EmitProof(BuildTarget),
-    /// Prove the given build target.
-    Prove(BuildTarget),
 
     /// Build the `.core` file from `.mbt` sources for the given target.
     BuildCore(BuildTarget),
@@ -397,7 +395,6 @@ impl BuildPlanNode {
         match *self {
             BuildPlanNode::Check(target)
             | BuildPlanNode::EmitProof(target)
-            | BuildPlanNode::Prove(target)
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::BuildWasmObject(WasmObject::Main(target))
@@ -451,10 +448,6 @@ impl BuildPlanNode {
             BuildPlanNode::EmitProof(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("emit proof {}{}", fqn, qualifier(build_target.kind))
-            }
-            BuildPlanNode::Prove(build_target) => {
-                let fqn = packages.fqn(build_target.package);
-                format!("prove {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::BuildCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -555,10 +548,6 @@ impl BuildPlanNode {
             BuildPlanNode::EmitProof(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@EmitProof", fqn, t.kind)
-            }
-            BuildPlanNode::Prove(t) => {
-                let fqn = packages.fqn(t.package);
-                format!("{}@{:?}@Prove", fqn, t.kind)
             }
             BuildPlanNode::BuildCore(t) => {
                 let fqn = packages.fqn(t.package);

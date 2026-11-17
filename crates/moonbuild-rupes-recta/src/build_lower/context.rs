@@ -351,9 +351,6 @@ impl<'a> LoweringContext<'a> {
             BuildAction::EmitProof { target, info } => {
                 self.lower_emit_proof(&action_artifacts, target, info)?
             }
-            BuildAction::Prove { target, info } => {
-                self.lower_prove(&action_artifacts, target, info)?
-            }
             BuildAction::BuildCore { target, info } => {
                 self.lower_build_mbt(&action_artifacts, target, info)?
             }
@@ -508,9 +505,7 @@ impl<'a> LoweringContext<'a> {
             | BuildAction::BuildRuntimeLib { .. } => true,
             // These actions still observe filesystem state that is broader
             // than the concrete files represented by the execution action.
-            BuildAction::Prove { .. }
-            | BuildAction::BuildDocs { .. }
-            | BuildAction::RunPrebuild { .. } => false,
+            BuildAction::BuildDocs { .. } | BuildAction::RunPrebuild { .. } => false,
         };
         let declared_outputs = match action {
             BuildAction::GenerateDsym { target, .. } => vec![
@@ -538,7 +533,6 @@ impl<'a> LoweringContext<'a> {
         let output_kind = match action {
             BuildAction::Check { .. }
             | BuildAction::EmitProof { .. }
-            | BuildAction::Prove { .. }
             | BuildAction::BuildCore { .. }
             | BuildAction::LinkCore { .. }
             | BuildAction::BuildWasmObject { .. }
@@ -569,9 +563,7 @@ impl<'a> LoweringContext<'a> {
         .with_cache_eligible(cache_eligible)
         .with_can_dirty_on_output(matches!(
             action_key,
-            BuildPlanActionKey::Backend(
-                BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
-            )
+            BuildPlanActionKey::Backend(BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_))
         ))
         .with_error_package(error_package);
 

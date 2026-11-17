@@ -887,7 +887,7 @@ mod tests {
     }
 
     #[test]
-    fn compile_uses_default_proof_prelude() {
+    fn compile_prepares_proof_without_running_solver() {
         let module_source = ModuleSource::local_path(
             "test/single"
                 .parse::<ModuleName>()
@@ -950,29 +950,22 @@ mod tests {
         let output = compile(
             &config,
             &resolved,
-            &[
-                ArtifactKey::ProofWhyml {
-                    package: target.package,
-                    target_kind: target.kind,
-                },
-                ArtifactKey::ProofReport {
-                    package: target.package,
-                    target_kind: target.kind,
-                },
-            ],
+            &[ArtifactKey::ProofWhyml {
+                package: target.package,
+                target_kind: target.kind,
+            }],
             &InputDirective::default(),
             None,
             &UserLog::new(log::LevelFilter::Error),
         )
-        .expect("the default directive should select the toolchain proof prelude");
+        .expect("proof preparation should compile");
 
-        let proof_prelude = dunce::simplified(&moonutil::toolchain::prelude_proof())
-            .display()
-            .to_string();
         assert!(output.execution_plan.action_ids().any(|id| {
             let args = output.execution_plan.action(id).command().args();
-            args.windows(2)
-                .any(|pair| pair[0] == "-why3-loadpath" && pair[1] == proof_prelude)
+            args.iter().any(|arg| arg == "-emit-only")
+                && !args
+                    .iter()
+                    .any(|arg| arg.starts_with("-why3") || arg == "-proof-report-output-path")
         }));
     }
 }

@@ -80,10 +80,6 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
-    ProofReport {
-        package: PackageId,
-        target_kind: TargetKind,
-    },
     CStubObject {
         package: PackageId,
         /// Normalized declaration path, relative to the package root.
@@ -189,10 +185,6 @@ impl ArtifactKey {
                 target_kind,
             }
             | Self::ProofWhyml {
-                package,
-                target_kind,
-            }
-            | Self::ProofReport {
                 package,
                 target_kind,
             }

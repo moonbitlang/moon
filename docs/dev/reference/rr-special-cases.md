@@ -78,12 +78,12 @@ important ones and why they exist.
   without a stdlib directory so package metadata and indirect dependency
   resolution use the locally built `.mi` files. For non-core projects, the
   stdlib directory is set so prebuilt artifacts can be used.
-- **The proof prelude is independent of stdlib injection.** Every `Prove`
-  action adds one proof prelude provider directory to the Why3 loadpath. It
+- **The proof prelude is independent of stdlib injection.** Every proof
+  execution adds one proof prelude provider directory to the Why3 loadpath. It
   defaults to the toolchain's `lib/prelude_proof`; when
   `MOON_PROVE_PRELUDE_OVERRIDE` is set, the command layer validates and selects
-  that directory instead. `InputDirective::default()` selects the same
-  toolchain provider for direct callers of the RR `compile` API. This also
+  that directory instead. This belongs to command execution; RR prepares
+  proof interfaces and WhyML without a solver configuration or prelude. This also
   applies when proving `moonbitlang/core`, where the installed stdlib is
   intentionally not injected; the proof prelude is a toolchain resource rather
   than a prebuilt stdlib package artifact.

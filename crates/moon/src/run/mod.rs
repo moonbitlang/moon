@@ -34,9 +34,10 @@ pub(crate) use runtime::{
     command_for_with_moonrun_policy_source_dir, moonrun_command,
 };
 
-use std::sync::OnceLock;
-
+use std::sync::{Arc, OnceLock};
+use tokio::{sync::Semaphore, task::JoinSet};
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 /// Process-wide cancellation token toggled when we observe a shutdown signal.
 static SHUTDOWN_TOKEN: OnceLock<CancellationToken> = OnceLock::new();
@@ -94,13 +95,58 @@ pub(crate) fn shutdown_requested() -> bool {
     shutdown_token().is_cancelled()
 }
 
-/// Build the test command's Tokio runtime and install the global shutdown
+/// Build the command's Tokio runtime and install the global shutdown
 /// listener. The caller must retain it across every backend and update pass,
-/// driving it whenever test children are running.
+/// driving it whenever children are running.
 pub(crate) fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     install_shutdown_handler(&runtime);
     Ok(runtime)
+}
+
+/// Await bounded concurrent work, then restore invocation order. Concurrent runs
+/// finish and are reaped before errors propagate; serial runs stop on the first error.
+pub(crate) async fn run_with_parallelism<R: Send + 'static, E: Send + 'static>(
+    runs: impl ExactSizeIterator<Item = impl Future<Output = Result<R, E>> + Send + 'static>,
+    parallelism: usize,
+) -> Result<Vec<R>, E> {
+    let parallelism = parallelism.max(1).min(runs.len().max(1));
+    if parallelism <= 1 {
+        let mut results = Vec::new();
+        for run in runs {
+            results.push(run.await?);
+        }
+        return Ok(results);
+    }
+
+    let slots = Arc::new(Semaphore::new(parallelism));
+    let mut tasks = JoinSet::new();
+    for (index, run) in runs.enumerate() {
+        let permit = Arc::clone(&slots)
+            .acquire_owned()
+            .await
+            .expect("execution semaphore is never closed");
+        tasks.spawn(
+            async move {
+                // Keep the slot until execution and result collection finish.
+                let _permit = permit;
+                (index, run.await)
+            }
+            .in_current_span(),
+        );
+    }
+
+    let mut completed = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        completed.push(result);
+    }
+    // Drain all tasks before propagating either an execution error or a task panic.
+    let mut results = completed
+        .into_iter()
+        .map(|result| result.expect("execution task panicked"))
+        .collect::<Vec<_>>();
+    results.sort_unstable_by_key(|(index, _)| *index);
+    results.into_iter().map(|(_, result)| result).collect()
 }

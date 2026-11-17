@@ -187,7 +187,6 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(target) => format!("{:?}@Check", target),
             BuildPlanNode::EmitProof(target) => format!("{:?}@EmitProof", target),
-            BuildPlanNode::Prove(target) => format!("{:?}@Prove", target),
             BuildPlanNode::BuildCore(target) => format!("{:?}@BuildCore", target),
             BuildPlanNode::BuildCStub(target, index) => {
                 format!("{:?}@BuildCStub_{}", target, index)
@@ -227,10 +226,6 @@ impl BuildPlanNode {
             BuildPlanNode::EmitProof(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nEmitProof", fqn)
-            }
-            BuildPlanNode::Prove(target) => {
-                let fqn = packages.fqn(target.package);
-                format!("{}\\nProve", fqn)
             }
             BuildPlanNode::BuildCore(target) => {
                 let fqn = packages.fqn(target.package);
@@ -307,7 +302,6 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(_) => "lightblue",
             BuildPlanNode::EmitProof(_) => "lightgoldenrod2",
-            BuildPlanNode::Prove(_) => "lightgoldenrod1",
             BuildPlanNode::BuildCore(_) => "lightgreen",
             BuildPlanNode::BuildCStub(_, _) => "lightsalmon",
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",
