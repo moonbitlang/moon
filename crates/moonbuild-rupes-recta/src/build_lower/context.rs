@@ -28,7 +28,6 @@ use moonutil::{
     target::TargetBackend,
 };
 use tracing::{Level, instrument};
-use walkdir::WalkDir;
 
 use super::LoweringError;
 use crate::{
@@ -60,9 +59,8 @@ pub(crate) struct LoweringContext<'a> {
     // Reuse requested stdlib targets' closures across compiler actions.
     pub(super) installed_stdlib_closures: HashMap<BuildTarget, BTreeMap<PackageId, PathBuf>>,
 
-    // Native compilation observes the selected Moon toolchain include tree.
-    // Discover it at most once for all actions lowered by this context.
-    toolchain_include_files: Option<Vec<PathBuf>>,
+    // Files observed by build preparation, shared by all C compilation actions.
+    toolchain_include_files: &'a [PathBuf],
 }
 
 pub(super) struct ActionArtifacts {
@@ -188,6 +186,7 @@ impl<'a> LoweringContext<'a> {
         resolved_project: &'a ResolvedProject,
         plan: &'a BuildPlan,
         opt: &'a CompileConfig,
+        toolchain_include_files: &'a [PathBuf],
     ) -> Self {
         Self {
             artifact_paths: &opt.artifact_paths,
@@ -198,7 +197,7 @@ impl<'a> LoweringContext<'a> {
             plan,
             opt,
             installed_stdlib_closures: HashMap::new(),
-            toolchain_include_files: None,
+            toolchain_include_files,
         }
     }
 
@@ -235,39 +234,6 @@ impl<'a> LoweringContext<'a> {
             executable,
             linked_core,
         }
-    }
-
-    fn toolchain_include_files(&mut self) -> Result<&[PathBuf], LoweringError> {
-        // TODO: Replace this walk with header paths observed by the toolchain
-        // module outside RR. Command orchestration should request that observation
-        // only when planned actions compile native sources; lowering then only
-        // attaches the supplied paths as inputs.
-        if self.toolchain_include_files.is_none() {
-            let root = PathBuf::from(
-                &self
-                    .opt
-                    .backend
-                    .compiler_paths()
-                    .expect("native lowering requires compiler paths")
-                    .include_path,
-            );
-            let mut files = Vec::new();
-            for entry in WalkDir::new(&root).follow_links(true).sort_by_file_name() {
-                let entry = entry.map_err(|source| LoweringError::ToolchainInclude {
-                    path: root.clone(),
-                    source,
-                })?;
-                if entry.file_type().is_file() {
-                    files.push(entry.into_path());
-                }
-            }
-            files.sort();
-            self.toolchain_include_files = Some(files);
-        }
-        Ok(self
-            .toolchain_include_files
-            .as_deref()
-            .expect("toolchain include files should be initialized"))
     }
 
     pub(super) fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
@@ -413,14 +379,8 @@ impl<'a> LoweringContext<'a> {
                 .iter()
                 .flat_map(|artifact| artifact.paths.iter().map(PathBuf::as_path)),
         );
-        let observes_toolchain_headers = matches!(
-            action,
-            BuildAction::BuildCStub { .. }
-                | BuildAction::BuildRuntimeObject { .. }
-                | BuildAction::CompileGeneratedC { .. }
-        );
-        if observes_toolchain_headers {
-            inputs.extend(self.toolchain_include_files()?.iter().cloned());
+        if action.uses_toolchain_headers() {
+            inputs.extend(self.toolchain_include_files.iter().cloned());
         }
 
         // These are the only Moon-owned libraries that command construction

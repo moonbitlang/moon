@@ -464,7 +464,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let requested_artifacts =
         intent.requested_artifacts(&resolved_project, user_log, cx.backend.target_backend());
     info!("Begin lowering to build graph");
-    let compile_output = moonbuild_rupes_recta::compile(
+    let compile_output = moonbuild::compile::compile(
         &cx,
         &resolved_project,
         &requested_artifacts,

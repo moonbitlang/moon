@@ -387,8 +387,9 @@ loads indirect dependencies through the paths in `all_pkgs.json`. A local
 indirect interface is covered by its producer, but an installed one has none.
 Compiler actions therefore observe every installed standard-library `.mi`
 reachable from their direct standard-library dependencies as an ordinary file
-input. Native lowering enumerates the chosen toolchain include tree and
-attaches its headers as ordinary inputs.
+input. After planning, `moonbuild::compile` enumerates the chosen toolchain
+include tree when C compilation is required. Native lowering attaches the
+supplied file paths as ordinary inputs without scanning the tree itself.
 
 Actions with broader unmodeled observations remain cache-ineligible. This
 includes proof execution, documentation generation, arbitrary prebuild shell

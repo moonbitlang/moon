@@ -296,6 +296,14 @@ impl BuildPlan {
     pub fn action_count(&self) -> usize {
         self.backend.action_count() + self.package_prebuild.action_count()
     }
+
+    /// Whether lowering needs the files under the selected toolchain's include
+    /// directory. Callers should observe that tree only when this returns true.
+    pub fn requires_toolchain_headers(&self) -> bool {
+        self.backend
+            .actions()
+            .any(|node| self.backend.action(node).uses_toolchain_headers())
+    }
 }
 
 #[cfg(test)]

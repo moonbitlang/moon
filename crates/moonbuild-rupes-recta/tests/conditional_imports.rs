@@ -20,9 +20,8 @@
 
 use moonbuild_rupes_recta::{
     CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
-    build_lower::WarningCondition,
-    build_plan::{ArtifactKey, InputDirective},
-    compile::compile,
+    build_lower::{WarningCondition, lower_build_plan},
+    build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
     metadata::{CheckCommandMap, gen_metadata_json},
     model::{BackendConfig, BuildTarget, DebugInfoRequest, TargetKind},
@@ -152,22 +151,23 @@ fn test_drivers_select_async_runtime_from_active_imports() {
             .into_iter()
             .zip(uses_legacy)
             {
-                let output = compile(
-                    &config,
+                let plan = build_plan(
                     &resolved,
-                    &[ArtifactKey::GeneratedTestDriver {
+                    &config,
+                    [ArtifactKey::GeneratedTestDriver {
                         package,
                         target_kind: kind,
-                    }],
+                    }]
+                    .into_iter(),
                     &InputDirective::default(),
                     None,
                     &log,
                 )
                 .unwrap();
-                let runtimes = output
-                    .execution_plan
+                let execution_plan = lower_build_plan(&resolved, &plan, &config, &[]).unwrap();
+                let runtimes = execution_plan
                     .action_ids()
-                    .flat_map(|id| output.execution_plan.action(id).command().args().windows(2))
+                    .flat_map(|id| execution_plan.action(id).command().args().windows(2))
                     .filter(|args| args[0] == "--async-runtime-package")
                     .map(|args| args[1].as_str())
                     .collect::<Vec<_>>();
@@ -271,22 +271,23 @@ import { "example/conditional/helper" } for "test"
             TargetKind::WhiteboxTest,
             TargetKind::BlackboxTest,
         ] {
-            let output = compile(
-                &config,
+            let plan = build_plan(
                 &resolved,
-                &[ArtifactKey::CheckMi {
+                &config,
+                [ArtifactKey::CheckMi {
                     package: app,
                     target_kind: kind,
-                }],
+                }]
+                .into_iter(),
                 &InputDirective::default(),
                 None,
                 &log,
             )
             .unwrap();
-            let commands = output
-                .execution_plan
+            let execution_plan = lower_build_plan(&resolved, &plan, &config, &[]).unwrap();
+            let commands = execution_plan
                 .action_ids()
-                .map(|id| output.execution_plan.action(id).command().args())
+                .map(|id| execution_plan.action(id).command().args())
                 .collect::<Vec<_>>();
             let package_name = if kind == TargetKind::BlackboxTest {
                 "example/conditional/app_blackbox_test"

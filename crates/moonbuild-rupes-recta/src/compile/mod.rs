@@ -16,22 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use log::{debug, info};
-use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
 use std::path::PathBuf;
-use tracing::instrument;
+
+use moonutil::{build_options::RunMode, cond_expr::OptLevel};
 
 use crate::{
-    build_lower::{self, WarningCondition},
-    build_plan::{self, ArtifactKey, InputDirective},
-    execution_plan::ExecutionPlan,
+    build_lower::WarningCondition,
     model::{BackendConfig, DebugInfoRequest},
-    prebuild::PrebuildOutput,
-    resolve::ResolvedProject,
     target_layout::ArtifactPathResolver,
 };
 
-/// The context that encapsulates all the data needed for the building process.
+/// Build configuration shared by planning and lowering.
 pub struct CompileConfig {
     /// Target directory, i.e. `_build/`
     pub target_dir: PathBuf,
@@ -65,71 +60,6 @@ pub struct CompileConfig {
     pub warn_list: Option<String>,
 }
 
-/// The output information of the compilation.
-pub struct CompileOutput {
-    /// Executor-neutral concrete actions and declared outputs.
-    pub execution_plan: ExecutionPlan,
-
-    /// The build plan, but only if we decided to export it.
-    pub build_plan: Option<Box<build_plan::BuildPlan>>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum CompileGraphError {
-    #[error("Failed to build a build plan for the modules")]
-    BuildPlanError(#[from] build_plan::BuildPlanConstructError),
-    #[error("Failed to lower the build plan")]
-    LowerError(#[from] build_lower::LoweringError),
-}
-
-#[instrument(skip_all)]
-pub fn compile(
-    cx: &CompileConfig,
-    resolved_project: &ResolvedProject,
-    requested_artifacts: &[ArtifactKey],
-    input_directive: &InputDirective,
-    prebuild_config: Option<&PrebuildOutput>,
-    user_log: &UserLog,
-) -> Result<CompileOutput, CompileGraphError> {
-    info!(
-        "Building compilation plan for {} requested artifacts",
-        requested_artifacts.len()
-    );
-
-    let plan = build_plan::build_plan(
-        resolved_project,
-        cx,
-        requested_artifacts.iter().cloned(),
-        input_directive,
-        prebuild_config,
-        user_log,
-    )?;
-
-    info!("Build plan created successfully");
-    debug!("Build plan contains {} actions", plan.action_count());
-
-    lower_plan(cx, resolved_project, plan)
-}
-
-fn lower_plan(
-    cx: &CompileConfig,
-    resolved_project: &ResolvedProject,
-    plan: build_plan::BuildPlan,
-) -> Result<CompileOutput, CompileGraphError> {
-    let execution_plan = build_lower::lower_build_plan(resolved_project, &plan, cx)?;
-
-    info!("Execution plan lowering completed successfully");
-
-    Ok(CompileOutput {
-        execution_plan,
-        build_plan: if cx.debug_export_build_plan {
-            Some(Box::new(plan))
-        } else {
-            None
-        },
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -147,9 +77,9 @@ mod tests {
     };
 
     use crate::{
-        ResolvedProject,
-        build_lower::WarningCondition,
-        build_plan::{ArtifactKey, InputDirective},
+        CompileConfig, ResolvedProject,
+        build_lower::{WarningCondition, lower_build_plan},
+        build_plan::{ArtifactKey, InputDirective, build_plan},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
         model::{
             BackendConfig, BuildPlanNode, DebugInfoRequest, DebugSymbols, NativeTarget, TargetKind,
@@ -158,8 +88,6 @@ mod tests {
         pkg_solve::{DepEdge, PackageRelations},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
-
-    use super::{CompileConfig, compile};
 
     fn moon_mod() -> MoonMod {
         MoonMod {
@@ -361,22 +289,41 @@ mod tests {
                     warning_condition: WarningCondition::Default,
                     warn_list: None,
                 };
-                let output = compile(
-                    &config,
+                let plan = build_plan(
                     &resolved,
-                    &[ArtifactKey::Executable {
+                    &config,
+                    [ArtifactKey::Executable {
                         package: main,
                         target_kind: TargetKind::Source,
-                    }],
+                    }]
+                    .into_iter(),
                     &InputDirective::default(),
                     None,
                     &UserLog::new(log::LevelFilter::Off),
                 )
-                .expect("native executable should plan and lower");
-                let commands = output
-                    .execution_plan
+                .expect("native executable should plan");
+                let headers = [PathBuf::from("/supplied/include/moonbit.h")];
+                let execution_plan = lower_build_plan(&resolved, &plan, &config, &headers)
+                    .expect("native executable should lower");
+                for id in execution_plan.action_ids() {
+                    let action = execution_plan.action(id);
+                    let compiles_c = action.outputs().iter().any(|path| {
+                        matches!(
+                            execution_plan
+                                .declared_output(path)
+                                .and_then(|output| output.artifact()),
+                            Some(
+                                ArtifactKey::GeneratedCObject { .. }
+                                    | ArtifactKey::CStubObject { .. }
+                                    | ArtifactKey::RuntimeObject { .. }
+                            )
+                        )
+                    });
+                    assert_eq!(action.inputs().contains(&headers[0]), compiles_c);
+                }
+                let commands = execution_plan
                     .action_ids()
-                    .map(|id| output.execution_plan.action(id).command().args())
+                    .map(|id| execution_plan.action(id).command().args())
                     .collect::<Vec<_>>();
                 let moonc_debug = symbols == DebugSymbols::Full
                     || (symbols == DebugSymbols::Backtrace && generated_c);
@@ -435,7 +382,7 @@ mod tests {
                         program.iter().any(|arg| arg == "-c" || arg == "/c"),
                         "generated C must compile separately so compiler wrappers can cache it: {program:?}"
                     );
-                    let execution = &output.execution_plan;
+                    let execution = &execution_plan;
                     let link = execution
                         .action_ids()
                         .map(|id| execution.action(id))
@@ -836,21 +783,22 @@ mod tests {
         }];
         let input_directive = InputDirective::default();
         let user_log = UserLog::new(log::LevelFilter::Error);
-        let output = compile(
-            &config,
+        let plan = build_plan(
             &resolved,
-            &requested_artifacts,
+            &config,
+            requested_artifacts.into_iter(),
             &input_directive,
             None,
             &user_log,
         )
-        .expect("ordinary compile should lower one graph");
-        assert_eq!(output.execution_plan.action_ids().count(), 3);
+        .expect("ordinary compile should plan one graph");
+        let execution_plan = lower_build_plan(&resolved, &plan, &config, &[])
+            .expect("ordinary compile should lower one graph");
+        assert_eq!(execution_plan.action_ids().count(), 3);
         // The marker is already present before any scheduling policy reads it.
-        for id in output.execution_plan.action_ids() {
-            for path in output.execution_plan.action(id).outputs() {
-                let declared = output
-                    .execution_plan
+        for id in execution_plan.action_ids() {
+            for path in execution_plan.action(id).outputs() {
+                let declared = execution_plan
                     .declared_output(path)
                     .expect("output should be declared");
                 let belongs_to_dependency =
@@ -861,10 +809,6 @@ mod tests {
                 );
             }
         }
-        let plan = output
-            .build_plan
-            .as_deref()
-            .expect("standalone should retain one logical plan for debug export");
         assert_eq!(plan.action_count(), 3);
         assert!(
             !plan
@@ -883,7 +827,7 @@ mod tests {
                 .any(|action| action == BuildPlanNode::BuildCore(dependency_target).into())
         );
 
-        assert_eq!(output.execution_plan.action_ids().count(), 3);
+        assert_eq!(execution_plan.action_ids().count(), 3);
     }
 
     #[test]
@@ -947,21 +891,24 @@ mod tests {
             warn_list: None,
         };
 
-        let output = compile(
-            &config,
+        let plan = build_plan(
             &resolved,
-            &[ArtifactKey::ProofWhyml {
+            &config,
+            [ArtifactKey::ProofWhyml {
                 package: target.package,
                 target_kind: target.kind,
-            }],
+            }]
+            .into_iter(),
             &InputDirective::default(),
             None,
             &UserLog::new(log::LevelFilter::Error),
         )
-        .expect("proof preparation should compile");
+        .expect("proof preparation should plan");
+        let execution_plan = lower_build_plan(&resolved, &plan, &config, &[])
+            .expect("proof preparation should lower");
 
-        assert!(output.execution_plan.action_ids().any(|id| {
-            let args = output.execution_plan.action(id).command().args();
+        assert!(execution_plan.action_ids().any(|id| {
+            let args = execution_plan.action(id).command().args();
             args.iter().any(|arg| arg == "-emit-only")
                 && !args
                     .iter()

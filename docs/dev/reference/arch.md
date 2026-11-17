@@ -232,6 +232,14 @@ and lowering borrow that same configuration, so planning can select optional
 runtime members such as SIMDUTF objects and lowering can consume the same paths
 without rediscovery or a copied planning configuration.
 
+`moonbuild::compile` orchestrates planning and lowering. Once a Build Plan is
+complete, it scans the selected toolchain include directory only if the plan
+contains C-stub, runtime-object, or generated-C compilation. The scan follows
+symlinks and supplies sorted file paths to RR lowering, which attaches them to
+those actions as inputs. Native checks and plans without C compilation do not
+observe the include tree. This preparation uses the existing compiler paths;
+it does not select another toolchain or rebuild the plan.
+
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment
 explicitly and passes it to prebuild execution. Commands that skip prebuild
