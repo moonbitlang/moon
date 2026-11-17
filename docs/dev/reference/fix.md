@@ -21,6 +21,13 @@ the contract in `lib/xml/computil/diagnostic_fix.mli` of its repository.
    all local packages are eligible. Declared prebuild outputs are excluded,
    including outputs declared by another package, outputs already on disk,
    outputs whose generation is disabled, and symlink aliases of existing outputs.
+   File symlinks are also excluded: compiling a link in one package does not
+   authorize changing a target shared with other packages or outside the project.
+   Explicit file-symlink selectors are skipped with a warning before package
+   selection can follow them. If every explicit selector is skipped, the command
+   stops without falling back to the whole project. Directory aliases remain
+   supported. Fixes involving file symlinks are skipped as a whole, including in
+   `--diff` previews; `--verbose` explains these skipped fixes.
    A file of a backend may be read by several actions (the library check, the
    whitebox test check, a doctest-only check);
    their diagnostics are deduplicated, so a backend proposes the union of the
@@ -38,8 +45,9 @@ the contract in `lib/xml/computil/diagnostic_fix.mli` of its repository.
    constraint of its own. Complete groups of touching edits are checked together
    for joined tokens, after all their replacements have been accumulated.
 5. Stage the complete replacement in the source file's directory, preserving
-   its permissions and following source symlinks. Recheck that the source still
-   matches the driver's original content, then replace it. Failed staging or
+   its permissions. Reject files that became symlinks after planning. Recheck
+   that the source still matches the driver's original content, then replace it
+   without resolving the final path component. Failed staging or
    replacement leaves that file intact. Stop on a write failure or changed
    source; files committed earlier are retained and reported. Replacement is
    atomic per file, not across the entire batch.

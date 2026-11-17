@@ -99,6 +99,8 @@ pub(crate) enum SkipReason {
     NotProposedByEveryTarget,
     /// An edited file is not an eligible local compiler input.
     NotCompiled,
+    /// An edited source file is a symbolic link.
+    Symlink,
     /// An edited file could not be read.
     Unreadable,
     /// The fix has no edits.
@@ -132,6 +134,7 @@ impl std::fmt::Display for SkipReason {
             SkipReason::NotCompiled => {
                 "the file is not an editable source file compiled by the check"
             }
+            SkipReason::Symlink => "the source file is a symlink",
             SkipReason::Unreadable => "the file cannot be read",
             SkipReason::NoEdits => "the fix has no edits",
             SkipReason::UnreliablePositions => {
