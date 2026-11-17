@@ -527,8 +527,10 @@ Add a dependency
 
 **Usage:** `moon add [OPTIONS] <MODULE>`
 
-Dependency postadd scripts are skipped by default. Use --allow-postadd to permit
-scripts during installation. Permission applies only to this command.
+Dependency postadd scripts are skipped by default. Use --allow-postadd to run
+pending scripts during this command. To reinstall a dependency and rerun its
+script, use moon add MODULE --force --allow-postadd. --force does not upgrade
+the declared version; use --upgrade to change it.
 
 ###### **Arguments:**
 
@@ -538,6 +540,7 @@ scripts during installation. Permission applies only to this command.
 
 * `-u`, `--upgrade` — Allow changing the version of an existing dependency
 * `--no-update` — Do not refresh registry metadata before adding the dependency
+* `--force` — Reinstall this dependency, even if the selected version is already present
 
 
 

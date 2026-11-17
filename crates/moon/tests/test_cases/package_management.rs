@@ -700,7 +700,7 @@ fn test_postadd_script() {
 */
 
 #[test]
-fn test_postadd_requires_explicit_permission() {
+fn test_postadd_requires_permission_and_can_be_reinstalled() {
     let dir = TestDir::new("test_postadd_retry.in");
     let moon_home = tempfile::tempdir().unwrap();
     let moon_path = std::env::join_paths(
@@ -735,7 +735,7 @@ fn test_postadd_requires_explicit_permission() {
         .success()
         .stderr_eq(snapbox::str![[r#"
 ...
-Warning: Skipped postadd for testuser/[..]; pass --allow-postadd when installing to execute it.
+Warning: Skipped postadd for testuser/[..]; rerun with --allow-postadd to execute it.
 ...
 "#]]);
     for name in ["first", "second"] {
@@ -748,26 +748,62 @@ Warning: Skipped postadd for testuser/[..]; pass --allow-postadd when installing
                 .exists()
         );
     }
-    // Permission is checked on fresh installations. Retrying an existing
-    // skipped installation is covered by the follow-up change.
-    for name in ["first", "second"] {
-        std::fs::remove_dir_all(dir.join(format!(".mooncakes/testuser/{name}"))).unwrap();
-    }
+    command()
+        .args(["check", "--frozen", "--allow-postadd"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to calculate build plan
+
+Caused by:
+    0: Failed to resolve the module dependency graph
+    1: When installing packages
+    2: cannot execute pending postadd scripts with --frozen
+
+"#]]);
     std::fs::copy(
         dir.join("hook-input.txt"),
         dir.join(".mooncakes/testuser/hook-input.txt"),
     )
     .unwrap();
     command()
-        .args(["tree", "--package", "--allow-postadd"])
+        .args([
+            "add",
+            "testuser/first@1.0.0",
+            "--no-update",
+            "--allow-postadd",
+        ])
         .assert()
         .success();
     for name in ["first", "second"] {
-        assert!(
-            dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"))
-                .is_file()
-        );
+        let generated = dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"));
+        assert!(generated.is_file());
+        std::fs::remove_file(generated).unwrap();
     }
+    // A completed hook is not run on every authorized invocation.
+    command()
+        .args(["tree", "--package", "--allow-postadd"])
+        .assert()
+        .success();
+    assert!(!dir.join(".mooncakes/testuser/first/generated.mbt").exists());
+    command()
+        .args([
+            "add",
+            "testuser/first@1.0.0",
+            "--no-update",
+            "--force",
+            "--allow-postadd",
+        ])
+        .assert()
+        .success();
+    assert!(
+        dir.join(".mooncakes/testuser/first/generated.mbt")
+            .is_file()
+    );
+    assert!(
+        !dir.join(".mooncakes/testuser/second/generated.mbt")
+            .exists()
+    );
 }
 
 #[test]

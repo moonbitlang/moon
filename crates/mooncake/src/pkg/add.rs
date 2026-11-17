@@ -35,7 +35,7 @@ use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOut
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
 #[clap(
-    after_help = "Dependency postadd scripts are skipped by default. Use --allow-postadd to permit\nscripts during installation. Permission applies only to this command."
+    after_help = "Dependency postadd scripts are skipped by default. Use --allow-postadd to run\npending scripts during this command. To reinstall a dependency and rerun its\nscript, use moon add MODULE --force --allow-postadd. --force does not upgrade\nthe declared version; use --upgrade to change it."
 )]
 pub struct AddSubcommand {
     /// The registry module name to add
@@ -49,6 +49,10 @@ pub struct AddSubcommand {
     /// Do not refresh registry metadata before adding the dependency
     #[clap(long)]
     pub no_update: bool,
+
+    /// Reinstall this dependency, even if the selected version is already present
+    #[clap(long)]
+    pub force: bool,
 }
 
 pub fn add(
@@ -56,6 +60,7 @@ pub fn add(
     dirs: &PackageDirs,
     module: &ModuleSource,
     upgrade: bool,
+    force: bool,
     allow_postadd: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
@@ -65,7 +70,7 @@ pub fn add(
 
     let pkg_name_str = pkg_name.to_string();
     let patch = if let Some(dep) = m.deps.get_mut(&pkg_name_str) {
-        if !upgrade {
+        if !upgrade && !force && !allow_postadd {
             user_log.warn(format!(
                 "dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
                  To update the dependency, run `moon add --upgrade {pkg_name_str}@<version>` or \
@@ -78,24 +83,31 @@ pub fn add(
             bail!("dependency `{pkg_name_str}` is not a registry dependency");
         }
 
-        if dep.version() == Some(version) {
-            user_log.warn(format!(
-                "dependency `{pkg_name_str}` is already at version {version}"
-            ));
-            return Ok(0);
+        if !upgrade || dep.version() == Some(version) {
+            if force || allow_postadd {
+                None
+            } else {
+                user_log.warn(format!(
+                    "dependency `{pkg_name_str}` is already at version {version}"
+                ));
+                return Ok(0);
+            }
+        } else {
+            dep.set_version(Some(version.clone()));
+            Some(MoonModPatch::UpdateImportItems(IndexMap::from([(
+                pkg_name_str,
+                version.clone(),
+            )])))
         }
-
-        dep.set_version(Some(version.clone()));
-        MoonModPatch::UpdateImportItems(IndexMap::from([(pkg_name_str, version.clone())]))
     } else {
         m.deps.insert(
             pkg_name_str.clone(),
             SourceDependencyInfo::Simple(version.clone()),
         );
-        MoonModPatch::InsertImportItem {
+        Some(MoonModPatch::InsertImportItem {
             name: pkg_name_str,
             version: version.clone(),
-        }
+        })
     };
 
     // Resolve and acquire dependencies before persisting either an addition or
@@ -111,10 +123,14 @@ pub fn add(
         &moonutil::cache::CacheRoot::Disabled,
         &super::install::SourceInstallOptions {
             allow_postadd,
+            reinstall: force.then(|| pkg_name.clone()),
             ..Default::default()
         },
     )?;
 
+    let Some(patch) = patch else {
+        return Ok(0);
+    };
     if module_dir.join(MOON_MOD).exists() {
         patch_module_dsl_to_file(module_dir, patch)?;
     } else {

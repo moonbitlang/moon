@@ -285,7 +285,8 @@ source and asks the user to run `moon clean --dep-cache` explicitly.
 Project-local installation extracts archives in parallel into staging
 directories, then publishes packages and handles permitted hooks serially.
 Failed extraction or hooks discard incomplete installations so a later sync
-retries them. Skipped hooks leave a pending marker for later retry support.
+retries them. Skipped hooks leave a pending marker; a later authorized command
+can finish them without downloading the source again.
 Source acquisition reads the archive checksum once and uses that value for
 both archive verification and the published metadata. Verification and
 extraction consume the same open archive handle, so replacing the

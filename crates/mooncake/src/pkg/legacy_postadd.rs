@@ -20,15 +20,13 @@
 //!
 //! Registry source acquisition deliberately does not call this module.
 //! Installation requires explicit permission after materializing writable
-//! sources. A pending marker records skipped or failed hooks.
+//! sources. A pending marker lets later authorized commands finish skipped hooks.
 
 use std::path::Path;
 
 use anyhow::bail;
 use moonutil::{child_process::ManagedChildRunner, manifest::read_module_desc_file_in_dir};
 
-// TODO: Resume pending hooks in existing installations once explicit retry
-// support is available; manifest presence alone does not imply hook completion.
 pub const PENDING_FILE: &str = ".moon-postadd-pending";
 
 /// Run the legacy hook declared by the materialized module at `module_dir`.
@@ -55,7 +53,7 @@ pub fn run(
     }
     if !allow || std::env::var_os("MOON_IGNORE_POSTADD").is_some() {
         user_log.warn(format!(
-            "Skipped postadd for {}; pass --allow-postadd when installing to execute it.",
+            "Skipped postadd for {}; rerun with --allow-postadd to execute it.",
             module.name
         ));
         return Ok(());

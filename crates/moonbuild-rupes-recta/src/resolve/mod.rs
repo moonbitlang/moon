@@ -403,6 +403,7 @@ pub fn sync_module_dependencies(
         &mooncake::pkg::install::SourceInstallOptions {
             jobs: cfg.jobs,
             allow_postadd: cfg.allow_postadd,
+            ..Default::default()
         },
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
@@ -516,6 +517,7 @@ pub fn discover_single_file_project(
         &mooncake::pkg::install::SourceInstallOptions {
             jobs: cfg.jobs,
             allow_postadd: cfg.allow_postadd,
+            ..Default::default()
         },
         user_log,
     )

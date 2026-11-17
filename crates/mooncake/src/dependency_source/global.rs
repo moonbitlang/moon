@@ -254,7 +254,7 @@ fn validate_source(
         .is_some_and(|scripts| scripts.contains_key("postadd"))
     {
         user_log.warn(format!(
-            "Skipped postadd for {}; pass --allow-postadd when installing to execute it.",
+            "Skipped postadd for {}; rerun with --allow-postadd to execute it.",
             module.name()
         ));
     }

@@ -246,6 +246,7 @@ pub(crate) fn add_cli(
         &dirs,
         &module,
         cmd.upgrade,
+        cmd.force,
         cli.allow_postadd,
         user_log,
     )

@@ -35,6 +35,8 @@ use std::path::PathBuf;
 pub struct SourceInstallOptions {
     pub jobs: Option<usize>,
     pub allow_postadd: bool,
+    /// Re-extract this module even when its selected version is installed.
+    pub reinstall: Option<moonutil::resolution::ModuleName>,
 }
 
 /// Install a binary package globally

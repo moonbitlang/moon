@@ -82,6 +82,10 @@ pub(crate) fn fetch_cli(
         .join(version.to_string());
 
     if pkg_dir.exists() {
+        if pkg_dir.join(legacy_postadd::PENDING_FILE).exists() {
+            let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
+            legacy_postadd::run(&pkg_dir, &child, cli.allow_postadd, user_log)?;
+        }
         if !cli.quiet {
             println!(
                 "{}: {}@{version} already exists at {}",

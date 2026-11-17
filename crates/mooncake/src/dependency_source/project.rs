@@ -81,9 +81,10 @@ impl ProjectDependencySource {
     }
 
     /// Returns a list of currently installed packages.
-    fn get_current_state(&self) -> std::io::Result<DepDirState> {
+    fn get_current_state(&self) -> std::io::Result<(DepDirState, Vec<PathBuf>)> {
         let it = self.path().read_dir()?;
         let mut user_list = HashMap::new();
+        let mut pending = Vec::new();
         for entry in it {
             let entry = entry?;
             // Ignore all non-directory entries.
@@ -103,13 +104,25 @@ impl ProjectDependencySource {
                 }
                 let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/").into();
                 let module = moonutil::manifest::read_module_desc_file_in_dir(&pkg.path());
-                let version = module.map(|m| m.version).ok().flatten();
+                let version = module
+                    .map(|m| {
+                        if m.scripts
+                            .as_ref()
+                            .is_some_and(|scripts| scripts.contains_key("postadd"))
+                            && pkg.path().join(legacy_postadd::PENDING_FILE).exists()
+                        {
+                            pending.push(pkg.path());
+                        }
+                        m.version
+                    })
+                    .ok()
+                    .flatten();
                 pkg_list.insert(pkg_name, version);
             }
             user_list.insert(entry.file_name().to_string_lossy().into(), pkg_list);
         }
 
-        Ok(user_list)
+        Ok((user_list, pending))
     }
 }
 
@@ -251,7 +264,12 @@ fn sync(
         )
     })?;
 
-    let current_dep_dir = dep_dir.get_current_state()?;
+    let (mut current_dep_dir, mut pending_hooks) = dep_dir.get_current_state()?;
+    if let Some(module) = &dep_dir.options.reinstall
+        && let Some(packages) = current_dep_dir.get_mut(&module.username)
+    {
+        packages.remove(&module.unqual);
+    }
 
     let diff = diff_dep_dir_state(&current_dep_dir, &target_dep_dir);
 
@@ -316,6 +334,7 @@ fn sync(
     for (source, staging) in sources.into_iter().zip(staged) {
         let name = source.module.name();
         let directory = pkg_to_dir(dep_dir, &name.username, &name.unqual);
+        pending_hooks.retain(|pending| pending != &directory);
         if directory.exists() {
             std::fs::remove_dir_all(&directory)?;
         }
@@ -336,6 +355,27 @@ fn sync(
                     directory.display()
                 ));
             }
+            return Err(error);
+        }
+    }
+
+    // Existing sources may have been installed without script permission.
+    // Successful hooks remove their marker, so repeated syncs do not rerun them.
+    for directory in pending_hooks {
+        if !directory.join(legacy_postadd::PENDING_FILE).exists() {
+            continue;
+        }
+        if frozen && dep_dir.options.allow_postadd {
+            anyhow::bail!("cannot execute pending postadd scripts with --frozen");
+        }
+        if let Err(error) = legacy_postadd::run(
+            &directory,
+            postadd_runner,
+            dep_dir.options.allow_postadd,
+            user_log,
+        ) {
+            std::fs::remove_dir_all(&directory)
+                .context("Unable to remove incomplete installation")?;
             return Err(error);
         }
     }
