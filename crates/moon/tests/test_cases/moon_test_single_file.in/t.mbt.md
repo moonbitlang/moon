@@ -1,7 +1,7 @@
 ---
 moonbit:
   import:
-    - moonbitlang/async@0.20.0
+    - moonbitlang/async@0.21.2
     - path: moonbitlang/async/aqueue
       alias: aaqueue
   backend:

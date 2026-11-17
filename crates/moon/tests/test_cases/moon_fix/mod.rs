@@ -16,13 +16,76 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! CLI tests for `moon fix`. The released compiler does not attach fixes yet,
-//! so a stand-in `moonc` (`tests/fixtures/fix_moonc.rs`) replays the
-//! diagnostics written next to each source file. Every check the fix driver
-//! makes has unit tests beside it; these tests cover the command: running the
-//! check, agreeing across backends, writing files, rounds, and output.
+//! A real-compiler E2E scenario covers the diagnostic-to-source-edit contract.
+//! The remaining CLI tests use a stand-in `moonc` (`tests/fixtures/fix_moonc.rs`)
+//! to exercise controlled diagnostics across backends, writes, rounds, and
+//! failures. Every check the fix driver makes also has unit tests beside it.
 
 use super::*;
+
+#[test]
+fn fix_applies_real_compiler_suggestions() {
+    // Given a real project rejected for unused mutability, the installed
+    // compiler must supply the fix instead of a canned diagnostic.
+    let dir = TestDir::new_empty();
+    let source = "test {\n  let mut x = 1\n  inspect(x, content=\"1\")\n}\n";
+    let fixed = "test {\n  let x = 1\n  inspect(x, content=\"1\")\n}\n";
+    std::fs::write(dir.join("moon.mod"), "name = \"u/p\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(dir.join("a.mbt"), source).unwrap();
+    moon_cmd(&dir)
+        .args(["check", "--no-render"])
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
+[..]/a.mbt:2:11-2:12 [E0015] Error Warning (unused_mut): The mutability of 'x' is never used, try remove `mut`.
+
+"#]])
+        .stderr_eq("Error: failed when checking project\n");
+
+    // Preview the compiler's edit without changing the source.
+    moon_cmd(&dir)
+        .args(["fix", "--diff"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+--- a/a.mbt
++++ b/a.mbt
+@@ -1,4 +1,4 @@
+ test {
+-  let mut x = 1
++  let x = 1
+   inspect(x, content="1")
+ }
+
+"#]])
+        .stderr_eq("Would apply 1 fix to 1 file\n");
+    assert_eq!(std::fs::read_to_string(dir.join("a.mbt")).unwrap(), source);
+
+    // Applying it must produce the expected source and pass a fresh check.
+    moon_cmd(&dir)
+        .arg("fix")
+        .assert()
+        .success()
+        .stdout_eq("a.mbt:2:3: Remove `mut`\n")
+        .stderr_eq("Applied 1 fix to 1 file\n");
+    assert_eq!(std::fs::read_to_string(dir.join("a.mbt")).unwrap(), fixed);
+    moon_cmd(&dir)
+        .args(["check", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    // Once fixed, repeating the workflow must leave the file intact.
+    moon_cmd(&dir)
+        .arg("fix")
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("No fixes to apply\n");
+    assert_eq!(std::fs::read_to_string(dir.join("a.mbt")).unwrap(), fixed);
+}
 
 /// The stand-in moonc, compiled once per test process.
 static FAKE_MOONC: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
