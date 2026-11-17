@@ -201,7 +201,7 @@ Apply compiler-proposed source fixes (experimental)
 
 Runs the same check as `moon check` and applies the fixes attached to its diagnostics, but only those that still match the files and pass the fix checks; any other fix is skipped as a whole. A fix is applied only if every target backend that compiles its file proposes it. Pass `--verbose` to see why a fix was skipped.
 
-Files select only themselves; directories select their package. Declared prebuild outputs are excluded. Writes are atomic per file; a failed run may retain files changed earlier. Exit 0 means the fix workflow completed, even if compiler diagnostics remain. At most four rounds write files, followed by a check of the final contents.
+Files select only themselves; directories select their package. Declared prebuild outputs and file symlinks are excluded. Writes are atomic per file; a failed run may retain files changed earlier. Exit 0 means the fix workflow completed, even if compiler diagnostics remain. At most four rounds write files, followed by a check of the final contents.
 
 **Usage:** `moon fix [OPTIONS] [PATH]...`
 

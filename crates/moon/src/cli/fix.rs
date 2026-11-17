@@ -47,7 +47,7 @@ use tracing::instrument;
 
 use super::BuildFlags;
 use super::check::{CheckSubcommand, CollectedCheck, run_check_collecting};
-use driver::{Fix, FixPlan, plan_fixes};
+use driver::{Fix, FixPlan, SkipReason, SkippedFix, plan_fixes};
 
 const MAX_ROUNDS: usize = 4;
 
@@ -60,8 +60,8 @@ const MAX_ROUNDS: usize = 4;
 /// why a fix was skipped.
 ///
 /// Files select only themselves; directories select their package. Declared
-/// prebuild outputs are excluded. Writes are atomic per file; a failed run may
-/// retain files changed earlier. Exit 0 means the fix workflow completed, even
+/// prebuild outputs and file symlinks are excluded. Writes are atomic per file;
+/// a failed run may retain files changed earlier. Exit 0 means the fix workflow completed, even
 /// if compiler diagnostics remain. At most four rounds write files, followed
 /// by a check of the final contents.
 #[derive(Debug, clap::Parser, Clone)]
@@ -121,7 +121,23 @@ pub(crate) fn run_fix(
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
-    let check = cmd.check_command();
+    let mut check = cmd.check_command();
+    // Package selection follows final symlinks. Reject explicit file links
+    // before that step can turn their targets into ordinary editable inputs.
+    // Directory aliases still select the same project/package.
+    check.path.retain(|path| {
+        if path.is_symlink() && !path.is_dir() {
+            user_log.warn(format!("skipping source symlink `{}`", path.display()));
+            false
+        } else {
+            true
+        }
+    });
+    if !cmd.path.is_empty() && check.path.is_empty() {
+        // An empty selector normally means the entire project.
+        user_log.status("No fixes to apply");
+        return Ok(0);
+    }
     // Discovery canonicalizes source directories. Resolve the display base
     // the same way, including Windows directory aliases and casing.
     let base = dunce::canonicalize(
@@ -239,17 +255,31 @@ pub(crate) fn run_fix(
 /// Run the fix driver on the diagnostics of one check.
 fn plan_collected_fixes(collected: &CollectedCheck) -> FixPlan {
     let mut proposals: BTreeMap<_, BTreeSet<Fix>> = BTreeMap::new();
+    let mut symlink_fixes = BTreeSet::new();
     for diagnostic in &collected.diagnostics {
         if let Some(fix) = Fix::preferred_of_diagnostic(&diagnostic.value) {
+            // Reading a link in a package does not authorize changing its
+            // target, which may also be used in a different package context.
+            // Skip the whole fix, including in --diff previews.
+            if fix.edits.iter().any(|edit| edit.path.is_symlink()) {
+                symlink_fixes.insert(fix);
+                continue;
+            }
             proposals
                 .entry(diagnostic.target_backend)
                 .or_default()
                 .insert(fix);
         }
     }
-    plan_fixes(&proposals, &collected.editable_sources, |path| {
+    let mut plan = plan_fixes(&proposals, &collected.editable_sources, |path| {
         std::fs::read_to_string(path)
-    })
+    });
+    plan.skipped
+        .extend(symlink_fixes.into_iter().map(|fix| SkippedFix {
+            fix,
+            reason: SkipReason::Symlink,
+        }));
+    plan
 }
 
 struct WriteOutcome {
@@ -266,14 +296,15 @@ fn write_changes(plan: &FixPlan, user_log: &moonutil::user_log::UserLog) -> Writ
     };
     for (path, change) in &plan.changes {
         let result = (|| -> std::io::Result<()> {
+            if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
+                return Err(std::io::Error::other("source file is a symlink"));
+            }
             if std::fs::read_to_string(path)? != change.original {
                 return Err(std::io::Error::other("source changed during the check"));
             }
-            // Follow a source symlink without replacing the link itself.
             // Opening without truncation checks write access before staging;
             // rename alone could otherwise overwrite a read-only source.
-            let destination = std::fs::canonicalize(path)?;
-            let original = std::fs::OpenOptions::new().write(true).open(&destination)?;
+            let original = std::fs::OpenOptions::new().write(true).open(path)?;
             let permissions = original.metadata()?.permissions();
             if permissions.readonly() {
                 return Err(std::io::Error::new(
@@ -282,16 +313,19 @@ fn write_changes(plan: &FixPlan, user_log: &moonutil::user_log::UserLog) -> Writ
                 ));
             }
             drop(original);
-            let mut staged = tempfile::NamedTempFile::new_in(
-                destination.parent().expect("source file has a parent"),
-            )?;
+            // Do not canonicalize the final component: replacement must never
+            // be redirected to a newly introduced symlink's target.
+            let mut staged =
+                tempfile::NamedTempFile::new_in(path.parent().expect("source file has a parent"))?;
             staged.write_all(change.fixed.as_bytes())?;
             staged.as_file().set_permissions(permissions)?;
             staged.as_file().sync_all()?;
-            if std::fs::read_to_string(&destination)? != change.original {
+            if std::fs::symlink_metadata(path)?.file_type().is_symlink()
+                || std::fs::read_to_string(path)? != change.original
+            {
                 return Err(std::io::Error::other("source changed during the check"));
             }
-            staged.persist(&destination).map_err(|error| error.error)?;
+            staged.persist(path).map_err(|error| error.error)?;
             Ok(())
         })();
         match result {

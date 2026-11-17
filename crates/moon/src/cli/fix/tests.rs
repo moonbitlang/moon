@@ -58,25 +58,49 @@ fn write_leaves_changed_source_alone() {
 
 #[cfg(unix)]
 #[test]
-fn write_preserves_permissions_and_symlinks() {
-    use std::os::unix::fs::{PermissionsExt, symlink};
+fn write_preserves_permissions() {
+    use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("a.mbt");
-    let link = dir.path().join("link.mbt");
     std::fs::write(&path, "original").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
-    symlink(&path, &link).unwrap();
     let (log, _) = UserLog::captured(log::LevelFilter::Warn);
     assert_eq!(
-        write_changes(&file_change(&link, "original", "fixed"), &log).written,
-        BTreeSet::from([link.clone()])
+        write_changes(&file_change(&path, "original", "fixed"), &log).written,
+        BTreeSet::from([path.clone()])
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "fixed");
-    assert_eq!(std::fs::read_link(link).unwrap(), path);
     assert_eq!(
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
         0o640
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn write_rejects_a_source_replaced_by_a_symlink_after_planning() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.mbt");
+    let target = dir.path().join("target.mbt");
+    std::fs::write(&path, "original").unwrap();
+    std::fs::write(&target, "original").unwrap();
+    let plan = file_change(&path, "original", "fixed");
+    std::fs::remove_file(&path).unwrap();
+    symlink(&target, &path).unwrap();
+    let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+
+    let outcome = write_changes(&plan, &log);
+    assert!(outcome.failed);
+    assert!(outcome.written.is_empty());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "original");
+    assert_eq!(std::fs::read_link(path).unwrap(), target);
+    assert!(
+        capture.take()[0]
+            .message
+            .contains("source file is a symlink")
     );
 }
 
