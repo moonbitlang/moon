@@ -317,7 +317,7 @@ pub(crate) fn run_info(
     }
 
     for (_, meta, _) in &planned_runs {
-        rr_build::generate_all_pkgs_json(meta)?;
+        moonbuild::metadata::generate_all_pkgs_json(meta)?;
     }
     let (all_meta, build_inputs): (Vec<_>, Vec<_>) = planned_runs
         .into_iter()

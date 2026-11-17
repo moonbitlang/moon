@@ -222,7 +222,7 @@ pub(crate) fn run_prove(
         return Ok(0);
     }
 
-    rr_build::generate_all_pkgs_json(&build_meta)?;
+    moonbuild::metadata::generate_all_pkgs_json(&build_meta)?;
     let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
     let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
     if result.return_code_for_success() != 0 {

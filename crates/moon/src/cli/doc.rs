@@ -177,9 +177,9 @@ pub(crate) fn run_doc_rr(
     let lock = lock_directory(target_dir, user_log)?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
-    rr_build::generate_all_pkgs_json(&build_meta)?;
+    moonbuild::metadata::generate_all_pkgs_json(&build_meta)?;
     // Generate metadata for `moondoc`
-    rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
+    moonbuild::metadata::generate_metadata(source_dir, &build_meta, &build_graph)?;
 
     // Execute the build
     let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);

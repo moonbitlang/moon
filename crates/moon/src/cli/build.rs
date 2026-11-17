@@ -362,7 +362,7 @@ fn execute_planned_builds(
     }
 
     for build_meta in &build_metas {
-        rr_build::generate_all_pkgs_json(build_meta)?;
+        moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
     }
     let build_input = BuildInput::compose(build_inputs)?;
     let config = cmd

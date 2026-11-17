@@ -30,6 +30,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | Dependency sync and script declaration preparation | [`moonbuild/src/prepare`](../../crates/moonbuild/src/prepare) |
 | Package discovery, package resolution, planning, and lowering | [`moonbuild-rupes-recta/src`](../../crates/moonbuild-rupes-recta/src/lib.rs) |
 | Build compilation orchestration and external-input preparation | [`moonbuild/src/compile.rs`](../../crates/moonbuild/src/compile.rs) |
+| Build metadata publication | [`moonbuild/src/metadata.rs`](../../crates/moonbuild/src/metadata.rs) |
 | Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
 | Test invocation and result reporting | [`moon/src/run/runtime.rs`](../../crates/moon/src/run/runtime.rs), [`run/runtest/report.rs`](../../crates/moon/src/run/runtest/report.rs) |
 | Test result data and expect/snapshot promotion | [`moonbuild/src/runtest.rs`](../../crates/moonbuild/src/runtest.rs), [`expect.rs`](../../crates/moonbuild/src/expect.rs) |

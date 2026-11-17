@@ -886,7 +886,7 @@ fn build_executable_from_plan(
     }
 
     // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(build_meta)?;
+    moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
 
     let build_config = cmd
         .build_flags
