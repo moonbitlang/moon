@@ -19,7 +19,7 @@
 //! Lowering context and core implementation.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
 };
 
@@ -36,7 +36,7 @@ use crate::{
     build_plan::{ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder},
-    model::{BackendConfig, BuildPlanNode, BuildTarget},
+    model::{BackendConfig, BuildPlanNode, BuildTarget, PackageId},
     pkg_solve::PackageRelations,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -58,7 +58,7 @@ pub(crate) struct LoweringContext<'a> {
 
     // The graph, backend and toolchain paths are fixed for this lowering.
     // Reuse requested stdlib targets' closures across compiler actions.
-    pub(super) installed_stdlib_closures: HashMap<BuildTarget, Vec<PathBuf>>,
+    pub(super) installed_stdlib_closures: HashMap<BuildTarget, BTreeMap<PackageId, PathBuf>>,
 
     // Native compilation observes the selected Moon toolchain include tree.
     // Discover it at most once for all actions lowered by this context.
