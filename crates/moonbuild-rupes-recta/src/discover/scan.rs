@@ -133,7 +133,7 @@ pub(crate) fn scan_packages(
             mut files,
             manifests,
         } = listing;
-        children.sort();
+        sort_by_file_name(&mut children);
         directories.extend(children.into_iter().rev());
 
         let Some((path, manifest_format)) = preferred_manifest(
@@ -172,8 +172,7 @@ pub(crate) fn scan_packages(
                 inner,
             })?
         };
-        let _sort = tracing::debug_span!("sorting_files").entered();
-        files.sort();
+        sort_by_file_name(&mut files);
         packages.push(PackageInput {
             root_path: dir.to_owned(),
             fqn: PackageFQN::new(source.clone(), package),
@@ -275,4 +274,10 @@ fn package_path(dir: &Path, root: &Path) -> PackagePath {
         .expect("scanned directory is within module");
     PackagePath::new_from_rel_path(&relative)
         .expect("directory relative to module is a valid package path")
+}
+
+/// Entries of one listing share their parent, so ordering them by name is
+/// ordering them by path, without comparing the shared prefix.
+fn sort_by_file_name(paths: &mut [PathBuf]) {
+    paths.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()));
 }
