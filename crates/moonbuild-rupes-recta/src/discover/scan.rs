@@ -18,13 +18,17 @@
 
 //! Shared filesystem scanning for formatting and build preparation.
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    fs::FileType,
+    path::{Path, PathBuf},
+};
 
 use log::{debug, trace};
 use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, is_ignored_directory_name},
     manifest::{
-        ManifestFormat, MoonMod, preferred_manifest_in_dir,
+        ManifestFormat, MoonMod, preferred_manifest,
         read_package_desc_file_from_path_with_supported_targets_decl, warn_known_shadowed_manifest,
     },
     package::{MoonPkg, SupportedTargetsDeclKind},
@@ -93,61 +97,57 @@ pub(crate) fn scan_packages(
     let mut packages = Vec::new();
     while let Some(directory) = directories.pop() {
         let dir = crate::util::strip_trailing_slash(&directory);
-        if dir != root && (dir.join(MOON_MOD).exists() || dir.join(MOON_MOD_JSON).exists()) {
-            debug!(
-                "Skipping {} recursively because it contains a module configuration file",
-                dir.display()
-            );
+        let is_root = dir == root;
+        // One enumeration supplies child directories, package files and the
+        // manifests present in the directory.
+        let listing = match list_directory(dir) {
+            Ok(listing) => listing,
+            // Nested modules are skipped without reading them, as before
+            // the listing answered the check.
+            Err(_) if !is_root && declares_module_on_disk(dir) => {
+                skip_nested_module(dir);
+                continue;
+            }
+            Err(ListError::Read(inner)) => {
+                return Err(DiscoverError::CantReadModulePackages {
+                    module: source.clone(),
+                    inner: inner.into(),
+                });
+            }
+            Err(ListError::FileType(file, inner)) => {
+                return Err(DiscoverError::CantReadFileInfo {
+                    module: source.clone(),
+                    package: package_path(dir, &root),
+                    file,
+                    inner: inner.into(),
+                });
+            }
+        };
+        if !is_root && listing.manifests.declares_module() {
+            skip_nested_module(dir);
             continue;
         }
-        let relative = dir
-            .relative_to(&root)
-            .expect("scanned directory is within module");
-        let package = PackagePath::new_from_rel_path(&relative)
-            .expect("directory relative to module is a valid package path");
-
-        // One enumeration supplies both child directories and package files.
-        let entries =
-            std::fs::read_dir(dir).map_err(|inner| DiscoverError::CantReadModulePackages {
-                module: source.clone(),
-                inner: inner.into(),
-            })?;
-        let mut children = Vec::new();
-        let mut files = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|inner| DiscoverError::CantReadModulePackages {
-                module: source.clone(),
-                inner: inner.into(),
-            })?;
-            let path = entry.path();
-            let kind = entry
-                .file_type()
-                .map_err(|inner| DiscoverError::CantReadFileInfo {
-                    module: source.clone(),
-                    package: package.clone(),
-                    file: path.clone(),
-                    inner: inner.into(),
-                })?;
-            if kind.is_dir() {
-                // The explicit source root itself is never filtered.
-                if !is_ignored_directory_name(&entry.file_name()) {
-                    children.push(path);
-                }
-            } else if kind.is_file() || kind.is_symlink() {
-                trace!("Found file {}", path.display());
-                files.push(path);
-            }
-        }
+        let package = package_path(dir, &root);
+        let DirectoryListing {
+            mut children,
+            mut files,
+            manifests,
+        } = listing;
         children.sort();
         directories.extend(children.into_iter().rev());
 
-        let Some((path, manifest_format)) = preferred_manifest_in_dir(dir, MOON_PKG, MOON_PKG_JSON)
-        else {
+        let Some((path, manifest_format)) = preferred_manifest(
+            dir,
+            MOON_PKG,
+            MOON_PKG_JSON,
+            manifests.moon_pkg,
+            manifests.moon_pkg_json,
+        ) else {
             continue;
         };
         if emit_warnings
             && matches!(manifest_format, ManifestFormat::New)
-            && dir.join(MOON_PKG_JSON).exists()
+            && manifests.moon_pkg_json
         {
             warn_known_shadowed_manifest(
                 MOON_PKG_JSON,
@@ -184,4 +184,95 @@ pub(crate) fn scan_packages(
         });
     }
     Ok(packages)
+}
+
+/// The immediate contents of one scanned directory.
+struct DirectoryListing {
+    /// Child directories, excluding ignored names.
+    children: Vec<PathBuf>,
+    /// Regular files and symlinks.
+    files: Vec<PathBuf>,
+    manifests: ListedManifests,
+}
+
+/// Manifest names found in a directory listing. A name counts as present
+/// under the rule of [`Path::exists`]: a symlink counts only when its target
+/// exists.
+#[derive(Default)]
+struct ListedManifests {
+    moon_mod: bool,
+    moon_mod_json: bool,
+    moon_pkg: bool,
+    moon_pkg_json: bool,
+}
+
+impl ListedManifests {
+    fn observe(&mut self, name: &OsStr, kind: FileType, path: &Path) {
+        let present = match name.to_str() {
+            Some(MOON_MOD) => &mut self.moon_mod,
+            Some(MOON_MOD_JSON) => &mut self.moon_mod_json,
+            Some(MOON_PKG) => &mut self.moon_pkg,
+            Some(MOON_PKG_JSON) => &mut self.moon_pkg_json,
+            _ => return,
+        };
+        *present = !kind.is_symlink() || path.exists();
+    }
+
+    fn declares_module(&self) -> bool {
+        self.moon_mod || self.moon_mod_json
+    }
+}
+
+enum ListError {
+    Read(std::io::Error),
+    FileType(PathBuf, std::io::Error),
+}
+
+fn list_directory(dir: &Path) -> Result<DirectoryListing, ListError> {
+    let mut listing = DirectoryListing {
+        children: Vec::new(),
+        files: Vec::new(),
+        manifests: ListedManifests::default(),
+    };
+    for entry in std::fs::read_dir(dir).map_err(ListError::Read)? {
+        let entry = entry.map_err(ListError::Read)?;
+        let path = entry.path();
+        let kind = match entry.file_type() {
+            Ok(kind) => kind,
+            Err(inner) => return Err(ListError::FileType(path, inner)),
+        };
+        let name = entry.file_name();
+        listing.manifests.observe(&name, kind, &path);
+        if kind.is_dir() {
+            // The explicit source root itself is never filtered.
+            if !is_ignored_directory_name(&name) {
+                listing.children.push(path);
+            }
+        } else if kind.is_file() || kind.is_symlink() {
+            trace!("Found file {}", path.display());
+            listing.files.push(path);
+        }
+    }
+    Ok(listing)
+}
+
+/// Answer the nested-module check from the filesystem when the directory
+/// cannot be listed.
+fn declares_module_on_disk(dir: &Path) -> bool {
+    dir.join(MOON_MOD).exists() || dir.join(MOON_MOD_JSON).exists()
+}
+
+fn skip_nested_module(dir: &Path) {
+    debug!(
+        "Skipping {} recursively because it contains a module configuration file",
+        dir.display()
+    );
+}
+
+fn package_path(dir: &Path, root: &Path) -> PackagePath {
+    let relative = dir
+        .relative_to(root)
+        .expect("scanned directory is within module");
+    PackagePath::new_from_rel_path(&relative)
+        .expect("directory relative to module is a valid package path")
 }

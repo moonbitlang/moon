@@ -388,11 +388,27 @@ pub fn preferred_manifest_in_dir(
     new_manifest: &'static str,
     legacy_manifest: &'static str,
 ) -> Option<(PathBuf, ManifestFormat)> {
-    let new_path = dir.join(new_manifest);
-    let legacy_path = dir.join(legacy_manifest);
-    match (new_path.exists(), legacy_path.exists()) {
-        (true, _) => Some((new_path, ManifestFormat::New)),
-        (false, true) => Some((legacy_path, ManifestFormat::Legacy)),
+    preferred_manifest(
+        dir,
+        new_manifest,
+        legacy_manifest,
+        dir.join(new_manifest).exists(),
+        dir.join(legacy_manifest).exists(),
+    )
+}
+
+/// Choose between manifests whose presence the caller already knows, for
+/// example from a directory listing. The new format wins over the legacy one.
+pub fn preferred_manifest(
+    dir: &Path,
+    new_manifest: &'static str,
+    legacy_manifest: &'static str,
+    has_new: bool,
+    has_legacy: bool,
+) -> Option<(PathBuf, ManifestFormat)> {
+    match (has_new, has_legacy) {
+        (true, _) => Some((dir.join(new_manifest), ManifestFormat::New)),
+        (false, true) => Some((dir.join(legacy_manifest), ManifestFormat::Legacy)),
         (false, false) => None,
     }
 }
