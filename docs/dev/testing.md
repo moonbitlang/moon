@@ -116,6 +116,15 @@ and the generated compiler command must pass the intended `-i` alias. The
 keep builtin and prelude separate at each boundary. A correct command alone
 does not prove that changing its input will invalidate the build.
 
+Group phase tests for the same rule under a named scenario, so the fixture's
+important preconditions and expected behavior can be read together. For example,
+`core_dependency::ordinary_packages_without_a_prelude_import` checks one scenario
+at three phases, with an independent Rust test for each. Its setup verifies that
+neither app package explicitly imports prelude: otherwise the tests could pass
+without exercising the implicit-import rule. Keep expected aliases, inputs, and
+arguments visible beside the assertions. Describe only the observed outcome;
+declaring an execution input does not itself test incremental rebuilds.
+
 For example, the [inline async fixture](../../crates/moon/tests/test_cases/moon_test/async_test_inline/inline_test_file.mbt)
 has one empty `async test {}` in an ordinary source file. Running
 `moon -C async_test_inline test` must exit successfully and report one passing
