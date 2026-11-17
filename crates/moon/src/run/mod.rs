@@ -21,6 +21,7 @@
 mod child;
 mod runtest;
 mod runtime;
+mod section_capture;
 
 #[cfg(windows)]
 pub(crate) use child::assign_process_to_job;

@@ -43,7 +43,6 @@ dunce.workspace = true
 indexmap.workspace = true
 similar.workspace = true
 line-index.workspace = true
-tokio.workspace = true
 text-size.workspace = true
 json-structural-diff.workspace = true
 base64.workspace = true

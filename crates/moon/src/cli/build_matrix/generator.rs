@@ -24,16 +24,16 @@ use moonutil::package::{MoonPkgJSON, PkgJSONImport};
 use std::fs;
 use std::path::Path;
 
-pub struct Config {
-    pub dir_rows: u32,
-    pub dir_cols: u32,
-    pub mod_rows: u32,
-    pub mod_cols: u32,
+pub(super) struct Config {
+    pub(super) dir_rows: u32,
+    pub(super) dir_cols: u32,
+    pub(super) mod_rows: u32,
+    pub(super) mod_cols: u32,
     comment_size: u32,
 }
 
 impl Config {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Config {
             dir_rows: 1,
             dir_cols: 1,
@@ -136,7 +136,7 @@ pub fn f() -> Unit {{
     }
 }
 
-pub fn write(config: &Config, base_dir: &Path) {
+pub(super) fn write(config: &Config, base_dir: &Path) {
     for row in 0..config.dir_rows {
         for col in 0..config.dir_cols {
             write_directory(config, base_dir, row, col);

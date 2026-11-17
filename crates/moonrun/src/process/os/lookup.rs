@@ -67,6 +67,41 @@ pub(in crate::process) fn resolve_for_moon(plan: &LookupPlan) -> io::Result<Path
     }))
 }
 
+/// Parse native Windows arguments without losing unpaired UTF-16 surrogates.
+#[cfg(windows)]
+fn split_windows_os(args: &std::ffi::OsStr) -> std::io::Result<Vec<std::ffi::OsString>> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let mut wide: Vec<_> = args.encode_wide().collect();
+    // CommandLineToArgvW treats empty input as the host executable. That is not
+    // a guest spawn request, and embedded NULs must not truncate the request.
+    if wide.is_empty() || wide.contains(&0) {
+        return Err(std::io::Error::from_raw_os_error(
+            windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER as i32,
+        ));
+    }
+    wide.push(0);
+    let mut count = 0;
+    // The API owns one allocation containing the pointer array and terminated
+    // arguments. Copy the code units before releasing that whole allocation.
+    let argv =
+        unsafe { windows_sys::Win32::UI::Shell::CommandLineToArgvW(wide.as_ptr(), &mut count) };
+    if argv.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = unsafe { std::slice::from_raw_parts(argv, count as usize) }
+        .iter()
+        .map(|arg| {
+            let mut len = 0;
+            while unsafe { *(*arg).add(len) } != 0 {
+                len += 1;
+            }
+            std::ffi::OsString::from_wide(unsafe { std::slice::from_raw_parts(*arg, len) })
+        })
+        .collect();
+    unsafe { windows_sys::Win32::Foundation::LocalFree(argv.cast()) };
+    Ok(result)
+}
+
 #[cfg(windows)]
 pub(in crate::process) fn parse_command_line(command_line: &OsStr) -> io::Result<Vec<OsString>> {
     use std::os::windows::ffi::OsStrExt;
@@ -79,7 +114,7 @@ pub(in crate::process) fn parse_command_line(command_line: &OsStr) -> io::Result
             "the process command line is empty or contains NUL",
         ));
     }
-    let arguments = moonutil::shlex::split_windows_os(command_line)?;
+    let arguments = split_windows_os(command_line)?;
     if arguments.first().is_none_or(|program| program.is_empty()) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -143,4 +178,38 @@ pub(in crate::process) fn select_image(plan: &LookupPlan) -> io::Result<PathBuf>
         }
     }
     Err(io::Error::from_raw_os_error(ERROR_FILE_NOT_FOUND as i32))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::split_windows_os;
+
+    #[test]
+    fn native_windows_arguments_preserve_unpaired_surrogates() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+        let program: Vec<_> = "C:\\Moon "
+            .encode_utf16()
+            .chain([0xd800])
+            .chain("\\moon.exe".encode_utf16())
+            .collect();
+        let argument = [b'x' as u16, 0xdc00, b' ' as u16, b'y' as u16];
+        let command = [b'"' as u16]
+            .into_iter()
+            .chain(program.iter().copied())
+            .chain("\" \"".encode_utf16())
+            .chain(argument)
+            .chain([b'"' as u16])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            split_windows_os(&OsString::from_wide(&command)).unwrap(),
+            [
+                OsString::from_wide(&program),
+                OsString::from_wide(&argument)
+            ]
+        );
+        for value in ["", "moon\0ignored"] {
+            assert!(split_windows_os(value.as_ref()).is_err());
+        }
+    }
 }
