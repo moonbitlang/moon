@@ -279,9 +279,9 @@ manifest (`moon.mod` or `moon.mod.json`). If a registry republishes the same
 version with another checksum, Moon refuses to replace or coexist with the new
 source and asks the user to run `moon clean --dep-cache` explicitly.
 
-Project-local installation extracts each package and runs its hook before
-extracting the next package. Failed extraction or hooks remove the incomplete
-package directory so a later sync retries it.
+Project-local installation extracts archives in parallel into staging
+directories, then publishes packages and runs hooks serially. Failed extraction
+or hooks discard incomplete installations so a later sync retries them.
 Source acquisition reads the archive checksum once and uses that value for
 both archive verification and the published metadata. Verification and
 extraction consume the same open archive handle, so replacing the

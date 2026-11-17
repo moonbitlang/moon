@@ -109,6 +109,7 @@ pub fn add(
         user_log,
         false,
         &moonutil::cache::CacheRoot::Disabled,
+        None,
     )?;
 
     if module_dir.join(MOON_MOD).exists() {

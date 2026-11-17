@@ -134,6 +134,9 @@ $MOON_HOME/
 - Verified source archives use
   `registry/cache/<username>/<module>/<version>.zip`. The adjacent
   `.zip.lock` serializes publication of one module version.
+- Source archives are extracted concurrently, with CPU concurrency controlled by
+  `-j` where available (otherwise available CPU parallelism). Publication and
+  `postadd` hooks remain serial.
 - Cached executable artifacts use a separate `assets` namespace. Module,
   version, and package segments form directories below it; `.moon-lock`
   serializes publication within one package directory.

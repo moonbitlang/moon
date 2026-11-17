@@ -97,6 +97,7 @@ pub(crate) fn install_impl(
     user_log: &UserLog,
     dont_sync: bool,
     source_cache: &CacheRoot,
+    jobs: Option<usize>,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let module_graph = prepare_build_modules(roots)?;
 
@@ -121,6 +122,7 @@ pub(crate) fn install_impl(
         source_cache,
         &res,
         output_options.child_output,
+        jobs,
     )?;
     let dependency_paths =
         dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;

@@ -31,7 +31,7 @@ use moonutil::{
 
 use crate::{
     registry::{RegistrySource, SourceRequest},
-    zip_util::extract_zip_to_dir,
+    zip_util::extract_archives,
 };
 
 use super::DependencySource;
@@ -46,11 +46,12 @@ pub(super) const SOURCE_ARCHIVE_CHECKSUM_FILE: &str = ".moon-source-archive-chec
 /// caller only asks for the resolved module directories returned by `ensure`.
 pub(super) struct ImmutableDependencySource<'a> {
     root: &'a Path,
+    jobs: Option<usize>,
 }
 
 impl<'a> ImmutableDependencySource<'a> {
-    pub(super) fn new(root: &'a Path) -> Self {
-        Self { root }
+    pub(super) fn new(root: &'a Path, jobs: Option<usize>) -> Self {
+        Self { root, jobs }
     }
 
     pub(super) fn source_dir(&self, module: &ModuleSource) -> PathBuf {
@@ -165,8 +166,15 @@ impl DependencySource for ImmutableDependencySource<'_> {
             })
             .collect::<Vec<_>>();
         let archives = registry.download_archives(&sources, user_log)?;
-        for ((module, checksum, directory, staging), archive) in staged.into_iter().zip(archives) {
-            extract_zip_to_dir(staging.path(), archive)?;
+        extract_archives(
+            archives
+                .into_iter()
+                .zip(&staged)
+                .map(|(archive, (_, _, _, staging))| (archive, staging.path().to_owned()))
+                .collect(),
+            self.jobs,
+        )?;
+        for (module, checksum, directory, staging) in staged {
             validate_source(staging.path(), module)?;
             std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
             std::fs::rename(staging.path(), &directory).with_context(|| {
