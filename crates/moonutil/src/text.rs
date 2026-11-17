@@ -16,18 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub fn line_col_to_byte_idx(
-    line_index: &line_index::LineIndex,
-    line: u32,
-    col: u32,
-) -> Option<usize> {
-    let offset = line_index.offset(line_index.to_utf8(
-        line_index::WideEncoding::Utf32,
-        line_index::WideLineCol { line, col },
-    )?)?;
-    Some(usize::from(offset))
-}
-
 pub trait StringExt {
     fn replace_crlf_to_lf(&self) -> String;
 }

@@ -44,7 +44,7 @@ async fn handle_request<B>(req: Request<B>, static_: Static) -> Result<Response<
     }
 }
 
-pub fn start_server(
+pub(super) fn start_server(
     root_dir: impl Into<PathBuf>,
     cake_full_name: &str,
     bind: String,

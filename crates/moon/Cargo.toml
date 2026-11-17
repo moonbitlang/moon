@@ -37,6 +37,7 @@ moonbuild-rupes-recta.workspace = true
 
 semver.workspace = true
 clap.workspace = true
+dialoguer.workspace = true
 anyhow.workspace = true
 colored.workspace = true
 serde.workspace = true
@@ -53,6 +54,12 @@ walkdir.workspace = true
 notify.workspace = true
 tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+hyper-staticfile.workspace = true
+http.workspace = true
+globset.workspace = true
+nucleo-matcher.workspace = true
 clap_complete.workspace = true
 indexmap.workspace = true
 petgraph.workspace = true
@@ -75,6 +82,9 @@ tracing-chrome.workspace = true
 
 [target."cfg(target_os = \"macos\")".dependencies]
 libc.workspace = true
+
+[target."cfg(windows)".dependencies]
+self-replace.workspace = true
 
 [target."cfg(windows)".dependencies.windows-sys]
 workspace = true

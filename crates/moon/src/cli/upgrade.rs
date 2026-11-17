@@ -16,14 +16,32 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
-use moonbuild::upgrade::UpgradeSubcommand;
+mod installer;
+
+use anyhow::{Result, bail};
 
 use super::UniversalFlags;
 
-pub(crate) fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> anyhow::Result<i32> {
+#[derive(Debug, clap::Parser, Clone)]
+pub(crate) struct UpgradeSubcommand {
+    /// Force upgrade
+    #[clap(long, short)]
+    force: bool,
+
+    /// Install the latest development version
+    #[clap(long)]
+    dev: bool,
+
+    #[clap(long, hide = true)]
+    non_interactive: bool,
+
+    #[clap(long, hide = true)]
+    base_url: Option<String>,
+}
+
+pub(crate) fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for upgrade")
     }
-    moonbuild::upgrade::upgrade(cmd)
+    installer::upgrade(cmd)
 }

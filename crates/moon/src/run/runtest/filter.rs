@@ -26,9 +26,37 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::TestIndexRange,
-    glob::GlobPatternMatcher,
     test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
+
+/// Glob pattern matching supporting `*` (any sequence), `?` (any single character),
+/// and other glob patterns. Uses the `globset` crate for robust matching.
+enum GlobPatternMatcher<'a> {
+    Compiled(globset::GlobMatcher),
+    Literal(&'a str),
+}
+
+impl<'a> GlobPatternMatcher<'a> {
+    fn new(pattern: &'a str) -> Self {
+        use globset::GlobBuilder;
+        let glob = GlobBuilder::new(pattern)
+            .case_insensitive(false)
+            .literal_separator(false)
+            .build();
+        match glob {
+            Ok(glob) => Self::Compiled(glob.compile_matcher()),
+            // If pattern is invalid, fall back to literal comparison
+            Err(_) => Self::Literal(pattern),
+        }
+    }
+
+    fn is_match(&self, text: &str) -> bool {
+        match self {
+            Self::Compiled(matcher) => matcher.is_match(text),
+            Self::Literal(pattern) => pattern == &text,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TestIndex {
@@ -378,12 +406,16 @@ pub(crate) fn apply_filter(
 
 #[cfg(test)]
 mod test {
+    use super::GlobPatternMatcher;
     use expect_test::expect;
     use moonutil::{
         build_options::TestIndexRange,
-        glob::glob_match,
         test_metadata::{MbtTestInfo, MooncGenTestInfo},
     };
+
+    fn glob_match(pattern: &str, text: &str) -> bool {
+        GlobPatternMatcher::new(pattern).is_match(text)
+    }
 
     fn example_meta() -> MooncGenTestInfo {
         MooncGenTestInfo {

@@ -101,6 +101,29 @@ where
     Ok(selected)
 }
 
+fn fuzzy_match<T: AsRef<str>>(
+    needle: impl AsRef<str>,
+    haystack: impl IntoIterator<Item = T>,
+) -> Option<Vec<String>> {
+    let mut matcher = nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT.match_paths());
+    let matches = nucleo_matcher::pattern::Pattern::parse(
+        needle.as_ref(),
+        nucleo_matcher::pattern::CaseMatching::Ignore,
+        nucleo_matcher::pattern::Normalization::Smart,
+    )
+    .match_list(haystack, &mut matcher);
+    if matches.is_empty() {
+        None
+    } else {
+        Some(
+            matches
+                .into_iter()
+                .map(|m| m.0.as_ref().to_string())
+                .collect(),
+        )
+    }
+}
+
 trait AsNameMap<T> {
     fn all_names(&self) -> impl Iterator<Item = impl AsRef<str>>;
     fn get(&self, name: &str) -> Option<T>;
@@ -121,7 +144,7 @@ where
 
     let mut result = Vec::new();
 
-    if let Some(matches) = moonutil::fuzzy_match::fuzzy_match(needle, name_map.all_names()) {
+    if let Some(matches) = fuzzy_match(needle, name_map.all_names()) {
         for m in matches {
             if let Some(value) = name_map.get(m.as_str())
                 && result.iter().all(|existing| *existing != value)
@@ -528,7 +551,7 @@ where
         }
 
         let haystack = name_map.keys().map(|k| k.as_str());
-        match moonutil::fuzzy_match::fuzzy_match(needle, haystack) {
+        match fuzzy_match(needle, haystack) {
             Some(candidates) => {
                 let mut found = false;
                 for candidate in candidates {
@@ -574,7 +597,7 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
 
 #[cfg(test)]
 mod tests {
-    use super::select_supported_packages;
+    use super::{fuzzy_match, select_supported_packages};
     use log::LevelFilter;
     use moonbuild_rupes_recta::{
         DiscoveredProject, ProjectPreparationConfig, pkg_solve::PackageResolutionError,
@@ -587,6 +610,40 @@ mod tests {
         user_log::UserLog,
     };
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn test_fuzzy() {
+        let haystack = [
+            "moonbitlang/core/builtin",
+            "moonbitlang/core/int",
+            "moonbitlang/core/list",
+            "moonbitlang/core/list/internal",
+            "moonbitlang/core/hashmap",
+        ];
+        let result = fuzzy_match("mci", haystack);
+        expect_test::expect![[r#"
+            Some(
+                [
+                    "moonbitlang/core/int",
+                    "moonbitlang/core/list/internal",
+                    "moonbitlang/core/list",
+                    "moonbitlang/core/builtin",
+                ],
+            )
+        "#]]
+        .assert_debug_eq(&result);
+
+        let result = fuzzy_match("moonbitlang/core/list", haystack);
+        expect_test::expect![[r#"
+            Some(
+                [
+                    "moonbitlang/core/list",
+                    "moonbitlang/core/list/internal",
+                ],
+            )
+        "#]]
+        .assert_debug_eq(&result);
+    }
 
     fn write_file(path: &Path, content: &str) {
         if let Some(parent) = path.parent() {

@@ -22,28 +22,12 @@ use dialoguer::Confirm;
 use moonutil::MOON_HOME;
 use moonutil::toolchain;
 use moonutil::version::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
-use reqwest;
 use reqwest::Client;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::time::timeout;
 
-#[derive(Debug, clap::Parser, Clone)]
-pub struct UpgradeSubcommand {
-    /// Force upgrade
-    #[clap(long, short)]
-    pub force: bool,
-
-    /// Install the latest development version
-    #[clap(long)]
-    pub dev: bool,
-
-    #[clap(long, hide = true)]
-    pub non_interactive: bool,
-
-    #[clap(long, hide = true)]
-    pub base_url: Option<String>,
-}
+use super::UpgradeSubcommand;
 
 async fn check_latency(url: &str, client: &Client) -> Option<u128> {
     let start = Instant::now();
@@ -153,7 +137,7 @@ fn upgrade_home() -> Result<PathBuf> {
     Ok(home.to_path_buf())
 }
 
-pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
+pub(super) fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     let h = upgrade_home()?;
     ctrlc::set_handler(upgrade_dialoguer_ctrlc_handler)?;
 
@@ -254,8 +238,8 @@ fn upgrade_dialoguer_ctrlc_handler() {
 #[cfg(windows)]
 mod windows {
     use super::*;
-    pub static MOON_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    pub static TEMP_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    static MOON_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    static TEMP_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
     pub(super) fn copy_moon_back() {
         if TEMP_EXE_PATH.get().is_some() && MOON_EXE_PATH.get().is_some() {
