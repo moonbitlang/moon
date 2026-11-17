@@ -24,7 +24,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use moonutil::{
-    constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
+    constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK},
     dependency::SourceDependencyInfo,
     manifest::{
         MoonMod, convert_module_to_mod_json, read_module_manifest, warn_module_manifest,
@@ -40,6 +40,8 @@ use moonutil::{
     },
     user_log::UserLog,
 };
+
+use super::prepare::prepare_build_modules;
 
 use crate::{
     registry,
@@ -183,25 +185,14 @@ fn resolve_workspace(
     roots: ResolvedRootModules,
     user_log: &UserLog,
 ) -> anyhow::Result<ModuleDependencyGraph> {
-    let mut includes_core = false;
-    for (_, module) in roots.iter() {
-        if module.module_info().name == MOONBITLANG_CORE {
-            includes_core = true;
-            break;
-        }
-    }
-
-    if includes_core && roots.len() != 1 {
-        anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
-    }
+    let module_graph = prepare_build_modules(roots)?;
 
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
-        inject_std: !includes_core,
         warn_deprecated: true,
     };
-    resolve_modules(&module_resolution_config, roots, user_log).map_err(Into::into)
+    resolve_modules(&module_resolution_config, module_graph, user_log).map_err(Into::into)
 }
 
 fn workspace_roots(

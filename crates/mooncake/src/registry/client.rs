@@ -1199,10 +1199,9 @@ mod tests {
             let graph = crate::resolver::resolve_modules(
                 &crate::resolver::ModuleResolutionConfig {
                     registry: &registry,
-                    inject_std: false,
                     warn_deprecated: false,
                 },
-                roots,
+                crate::resolver::prepare_roots(roots).unwrap(),
                 &quiet_user_log(),
             )
             .unwrap();
@@ -3588,7 +3587,7 @@ mod tests {
     #[test]
     fn deprecated_dependencies_warn_after_mvs_selection() {
         use crate::registry::mock::create_mock_module;
-        use crate::resolver::{ModuleResolutionConfig, resolve_modules};
+        use crate::resolver::{ModuleResolutionConfig, prepare_roots, resolve_modules};
         use moonutil::resolution::{ModuleSource, ResolvedModule, ResolvedRootModules};
         use serde_json::json;
         let dir = tempfile::tempdir().unwrap();
@@ -3680,12 +3679,12 @@ mod tests {
         }
         let config = ModuleResolutionConfig {
             registry: &registry,
-            inject_std: false,
             warn_deprecated: true,
         };
         for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
             let (user_log, capture) = UserLog::captured(level);
-            let resolved = resolve_modules(&config, roots.clone(), &user_log).unwrap();
+            let resolved =
+                resolve_modules(&config, prepare_roots(roots.clone()).unwrap(), &user_log).unwrap();
             let selected = resolved
                 .all_modules()
                 .map(|source| (source.name().to_string(), source.version().to_string()))
