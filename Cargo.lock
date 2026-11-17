@@ -2078,6 +2078,7 @@ dependencies = [
  "arcstr",
  "dunce",
  "expect-test",
+ "ignore",
  "indexmap",
  "log",
  "mooncake",

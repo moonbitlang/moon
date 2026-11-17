@@ -396,6 +396,9 @@ impl DiscoverResult {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DiscoverError {
+    #[error("Unable to scan package directories: {0}")]
+    CantScanPackages(#[from] ignore::Error),
+
     #[error("Unable to load local workspace rooted at path '{path}', error: {inner}")]
     CantReadLocalWorkspace { path: PathBuf, inner: anyhow::Error },
 
@@ -443,16 +446,6 @@ pub enum DiscoverError {
         module: ModuleSource,
         package: PackagePath,
         path: PathBuf,
-        inner: anyhow::Error,
-    },
-
-    #[error(
-        "Unable to read file info for file '{file}' in package '{package}' of module '{module}', error: {inner}"
-    )]
-    CantReadFileInfo {
-        module: ModuleSource,
-        package: PackagePath,
-        file: PathBuf,
         inner: anyhow::Error,
     },
 

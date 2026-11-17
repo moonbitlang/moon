@@ -34,6 +34,7 @@ relative-path.workspace = true
 slotmap.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
+ignore.workspace = true
 petgraph.workspace = true
 indexmap.workspace = true
 shlex.workspace = true

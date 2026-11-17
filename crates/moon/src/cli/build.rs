@@ -172,6 +172,7 @@ fn run_build_for_single_file_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_dependency_source_cache(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
@@ -253,7 +254,8 @@ fn sync_and_discover_build_project(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 

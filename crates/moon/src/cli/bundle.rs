@@ -187,7 +187,8 @@ fn sync_and_discover_bundle_project(
             cmd.auto_sync_flags.frozen,
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
-        );
+        )
+        .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
