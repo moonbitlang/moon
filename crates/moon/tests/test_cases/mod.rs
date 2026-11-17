@@ -74,6 +74,7 @@ mod moon_build_package;
 mod moon_bundle;
 mod moon_commands;
 mod moon_coverage;
+mod moon_fix;
 mod moon_info_001;
 mod moon_info_002;
 mod moon_info_compare_backends;
@@ -133,6 +134,7 @@ mod test_moon_info;
 mod test_moonbitlang_x;
 mod test_outline;
 mod test_release;
+mod testcli;
 // TODO: Re-enable when a published lijunchen/hello18 version uses
 // moon.mod and moon.pkg instead of JSON manifests.
 // mod third_party;
@@ -145,6 +147,7 @@ mod virtual_pkg_test;
 mod warns;
 mod wasm_memory;
 mod wasm_module_name;
+mod wasm_separate_compilation;
 mod wbtest_coverage;
 mod whitespace_test;
 #[cfg(windows)]

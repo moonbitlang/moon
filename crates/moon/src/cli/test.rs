@@ -550,13 +550,13 @@ fn run_test_in_single_file_rr(
     };
 
     // Resolve synthesized single-file project
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    )
+    .with_jobs(cmd.build_flags.jobs);
+    let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
@@ -915,13 +915,12 @@ pub(crate) fn sync_and_discover_test_or_bench_project(
     dirs: &PackageDirs,
     user_log: &UserLog,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
-    let preparation_config =
-        moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
-            cmd.auto_sync_flags.frozen,
-            !cmd.build_flags.std(),
-            cmd.build_flags.enable_coverage,
-            cli.workspace_env.clone(),
-        );
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    )
+    .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
@@ -1690,13 +1689,10 @@ fn print_test_artifacts(
         for invocation in
             crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
         {
-            // JS build-only output carries the serialized filter beside the executable.
+            // JS build-only output carries the same argument used by `moon test`.
             if matches!(build_meta.target_backend(), TargetBackend::Js) {
-                let filter_arg = serde_json::to_string(&invocation.args)
-                    .context("failed to serialize JS test filter args")?;
-
                 artifacts_path.push(invocation.executable);
-                test_filter_args.push(filter_arg);
+                test_filter_args.push(invocation.args.to_cli_args());
             } else {
                 artifacts_path.push(invocation.executable);
             }

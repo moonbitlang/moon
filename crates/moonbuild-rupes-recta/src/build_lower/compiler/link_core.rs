@@ -44,18 +44,24 @@ pub(crate) struct MooncLinkCore<'a> {
     /// THe main package to link. This package should contain the `main`
     /// function/entry point, if applicable.
     pub main_package: CompiledPackageName<'a>,
+    /// Compile the main package into a library object (`-pkg-type library`):
+    /// a relocatable wasm1 object that defines all of the package's
+    /// non-generic functions and values for `moonc wasm-ld`. Requires a `.o`
+    /// output on the wasm target.
+    pub library_object: bool,
     /// The linked output file's path.
     ///
     /// This should be the `.wasm`/`.wat`/`.js`/`.c`/`.o`/`.obj` file depending
     /// on the target backend and platform.
     pub output_path: Cow<'a, Path>,
-    /// The path to the `moon.pkg.json` file of the main package.
-    pub pkg_config_path: Cow<'a, Path>,
+    /// The path to the `moon.pkg.json` file of the main package, whose link
+    /// configuration applies to the output.
+    pub pkg_config_path: Option<Cow<'a, Path>>,
 
     // Package configuration
     /// The package name to source path mapping of all packages involved in the build.
     pub package_sources: &'a [PackageSource<'a>],
-    /// Pass [None] for no_std, otherwise provide PackageSource for core
+    /// Source mapping for the prebuilt standard library, absent when building core itself.
     pub stdlib_core_source: Option<PackageSource<'a>>,
 
     // Target and compilation configuration
@@ -146,6 +152,10 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
         // Main package specification
         args.push("-main".to_string());
         args.push(self.main_package.to_string());
+        if self.library_object {
+            args.push("-pkg-type".to_string());
+            args.push("library".to_string());
+        }
 
         // Output file
         args.push("-o".to_string());
@@ -156,12 +166,10 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
         }
 
         // Package configuration path
-        args.push("-pkg-config-path".to_string());
-        args.push(
-            dunce::simplified(&self.pkg_config_path)
-                .display()
-                .to_string(),
-        );
+        if let Some(pkg_config_path) = &self.pkg_config_path {
+            args.push("-pkg-config-path".to_string());
+            args.push(dunce::simplified(pkg_config_path).display().to_string());
+        }
 
         // Package sources (using existing to_arg method)
         for pkg_source in self.package_sources {
@@ -169,7 +177,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
             args.push(pkg_source.to_arg());
         }
 
-        // Standard library (if not no_std)
+        // Source mapping for the prebuilt standard library.
         if let Some(ref stdlib_core) = self.stdlib_core_source {
             args.push("-pkg-sources".to_string());
             args.push(stdlib_core.to_arg());

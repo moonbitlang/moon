@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeSet, HashSet},
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{Context, bail};
 use moonbuild::BuildMeta;
@@ -149,14 +153,13 @@ pub(crate) fn run_prove(
     let generated_why3_config_path = verif_dir.join("why3.conf");
 
     let path_filter = cmd.path.as_deref();
-    let prove_why3_config = why3_config_path.clone();
 
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_jobs(build_flags.jobs);
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let target_backend =
         rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
@@ -165,11 +168,10 @@ pub(crate) fn run_prove(
         module_dir.as_deref(),
         &discovered,
         target_backend,
-        prove_why3_config.as_deref(),
-        &proof_prelude,
         user_log,
     )?;
     let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
+    // Hold the target lock through both preparation and proof execution.
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(target_dir, user_log)?;
@@ -197,21 +199,72 @@ pub(crate) fn run_prove(
         cmd.auto_sync_flags.frozen,
         cli.dry_run,
     )?;
-    let proof_reports = planned_proof_reports(&build_meta);
+    let proofs = collect_proof_invocations(
+        &build_meta,
+        why3_config_path
+            .as_deref()
+            .unwrap_or(&generated_why3_config_path),
+        &proof_prelude,
+    );
 
     if cli.dry_run {
-        output
-            .write_result(|writer| rr_build::write_dry_run(writer, &build_graph, project_root))?;
+        output.write_result(|writer| -> std::io::Result<()> {
+            rr_build::write_dry_run(writer, &build_graph, project_root)?;
+            for proof in &proofs {
+                writeln!(
+                    writer,
+                    "{}",
+                    rr_build::format_dry_run_command(&proof.command, project_root)
+                )?;
+            }
+            Ok(())
+        })?;
         return Ok(0);
     }
 
     rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
     let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
-    if !cli.quiet && !build_flags.output_json {
-        let _ = print_prove_summary(project_root, &proof_reports);
+    if result.return_code_for_success() != 0 {
+        return Ok(result.return_code_for_success());
     }
-    Ok(result.return_code_for_success())
+
+    // Reports describe this invocation, independently of cached preparation artifacts.
+    // A proof process that fails before writing its report must not leave an old
+    // result for the summary to read.
+    for proof in &proofs {
+        match std::fs::remove_file(&proof.path) {
+            Ok(()) => (),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (),
+            Err(err) => {
+                return Err(err).with_context(|| {
+                    format!("failed to remove proof report `{}`", proof.path.display())
+                });
+            }
+        }
+    }
+    let parallelism = moonbuild::execution::resolve_parallelism(cmd.jobs).max(1);
+    let package_reports = crate::run::default_rt()?
+        .block_on(crate::run::run_with_parallelism(
+            proofs.into_iter().map(|proof| async move {
+                let report = execute_proof(proof).await;
+                Ok::<_, std::convert::Infallible>(report)
+            }),
+            parallelism,
+        ))
+        .unwrap();
+    let succeeded = package_reports
+        .iter()
+        .all(|summary| matches!(summary.report, ProofReport::Success { .. }));
+    if !cli.quiet && !build_flags.output_json {
+        output.write_result(|writer| -> std::io::Result<()> {
+            for line in format_prove_summary(project_root, &package_reports) {
+                writeln!(writer, "{line}")?;
+            }
+            Ok(())
+        })?;
+    }
+    Ok(if succeeded { 0 } else { 1 })
 }
 
 fn calc_user_intent(
@@ -219,15 +272,9 @@ fn calc_user_intent(
     selected_module_dir: Option<&Path>,
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
-    prove_why3_config: Option<&Path>,
-    proof_prelude: &Path,
     user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let directive = moonbuild_rupes_recta::build_plan::InputDirective {
-        prove_why3_config: prove_why3_config.map(Path::to_path_buf),
-        proof_prelude: proof_prelude.to_path_buf(),
-        ..Default::default()
-    };
+    let directive = moonbuild_rupes_recta::build_plan::InputDirective::default();
 
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
@@ -546,18 +593,27 @@ fn parse_solver_version(stdout: &str) -> Option<&str> {
 }
 
 #[derive(Debug)]
-struct PlannedProofReport {
+struct ProofInvocation {
     package: String,
     whyml_path: PathBuf,
     path: PathBuf,
+    command: Command,
 }
 
 #[derive(Debug, Deserialize)]
-struct ProofReport {
-    result: String,
-    summary: ProofReportSummary,
-    #[serde(default)]
-    failures: Vec<serde_json::Value>,
+#[serde(tag = "result", rename_all = "snake_case")]
+enum ProofReport {
+    Success {
+        summary: ProofReportSummary,
+    },
+    ProofFailure {
+        summary: ProofReportSummary,
+        #[serde(default)]
+        failures: Vec<serde_json::Value>,
+    },
+    HarnessError {
+        message: String,
+    },
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -583,108 +639,113 @@ impl ProofReportSummary {
     }
 }
 
-fn planned_proof_reports(build_meta: &BuildMeta) -> Vec<PlannedProofReport> {
-    let mut paths_by_target =
-        std::collections::HashMap::<BuildTarget, (Option<PathBuf>, Option<PathBuf>)>::new();
+fn collect_proof_invocations(
+    build_meta: &BuildMeta,
+    why3_config: &Path,
+    proof_prelude: &Path,
+) -> Vec<ProofInvocation> {
+    let packages = &build_meta.resolved_project.pkg_dirs;
+    let relations = &build_meta.resolved_project.package_relations[&build_meta.target_backend()];
+    let layout = build_meta.artifact_paths.target_layout();
+    let mut proofs = Vec::new();
     for (artifact, paths) in &build_meta.artifacts {
-        let (target, is_report) = match artifact {
-            ArtifactKey::ProofReport {
-                package,
-                target_kind,
-            } => (package.build_target(*target_kind), true),
-            ArtifactKey::ProofWhyml {
-                package,
-                target_kind,
-            } => (package.build_target(*target_kind), false),
-            _ => continue,
+        let ArtifactKey::ProofWhyml {
+            package,
+            target_kind,
+        } = artifact
+        else {
+            continue;
         };
-        let path = paths
+        let target = package.build_target(*target_kind);
+        let whyml_path = paths
             .first()
-            .expect("proof result artifacts should resolve to one path")
+            .expect("proof preparation produces one WhyML file")
             .clone();
-        let entry = paths_by_target.entry(target).or_default();
-        if is_report {
-            entry.0 = Some(path);
-        } else {
-            entry.1 = Some(path);
-        }
-    }
-    let mut reports = paths_by_target
-        .into_iter()
-        .map(|(target, (path, whyml_path))| PlannedProofReport {
-            package: build_meta
-                .resolved_project
-                .pkg_dirs
-                .get_package(target.package)
-                .fqn
-                .to_string(),
-            path: path.expect("prove planning should request a proof report"),
-            whyml_path: whyml_path.expect("prove planning should request WhyML output"),
-        })
-        .collect::<Vec<_>>();
-    reports.sort_by(|a, b| a.package.cmp(&b.package));
-    reports
-}
+        let path = layout.prove_report_path(packages, &target);
+        let mut command = Command::new(&*moonutil::toolchain::BINARIES.moonc_prove);
+        command
+            .arg("-prove-whyml")
+            .arg(&whyml_path)
+            .arg("-proof-report-output-path")
+            .arg(&path)
+            .arg("-why3-config")
+            .arg(why3_config);
 
-fn print_prove_summary(
-    workspace_root: &Path,
-    proof_reports: &[PlannedProofReport],
-) -> anyhow::Result<()> {
-    if proof_reports.is_empty() {
-        return Ok(());
-    }
-
-    let mut package_reports = Vec::with_capacity(proof_reports.len());
-    for proof_report in proof_reports {
-        let content = match std::fs::read_to_string(&proof_report.path) {
-            Ok(content) => content,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(err) => {
-                return Err(err).with_context(|| {
-                    format!(
-                        "failed to read proof report for `{}` from `{}`",
-                        proof_report.package,
-                        proof_report.path.display()
-                    )
-                });
+        // WhyML imports can reach transitive dependencies. Stdlib interfaces
+        // injected from the toolchain have no locally emitted proof modules.
+        let mut visited = HashSet::<BuildTarget>::new();
+        let mut pending = vec![target];
+        let mut loadpaths = BTreeSet::from([proof_prelude.to_path_buf()]);
+        while let Some(current) = pending.pop() {
+            if !visited.insert(current) {
+                continue;
             }
-        };
-        let report: ProofReport = serde_json::from_str(&content).with_context(|| {
-            format!(
-                "failed to parse proof report for `{}` from `{}`",
-                proof_report.package,
-                proof_report.path.display()
-            )
-        })?;
-        package_reports.push(PackageProofSummary {
-            package: proof_report.package.as_str(),
-            whyml_path: &proof_report.whyml_path,
-            report_path: &proof_report.path,
-            report,
+            for dep in relations
+                .dep_graph
+                .neighbors_directed(current, petgraph::Direction::Outgoing)
+            {
+                if packages.is_stdlib_package(dep.package) {
+                    continue;
+                }
+                loadpaths.insert(layout.verif_package_dir(packages, &dep));
+                pending.push(dep);
+            }
+        }
+        for loadpath in loadpaths {
+            command.arg("-why3-loadpath").arg(loadpath);
+        }
+        proofs.push(ProofInvocation {
+            package: packages.get_package(*package).fqn.to_string(),
+            whyml_path,
+            path,
+            command,
         });
     }
+    proofs.sort_by(|a, b| a.package.cmp(&b.package));
+    proofs
+}
 
-    if package_reports.is_empty() {
-        return Ok(());
+async fn execute_proof(proof: ProofInvocation) -> PackageProofSummary {
+    let result = async {
+        anyhow::ensure!(
+            !crate::run::shutdown_requested(),
+            "proof execution interrupted"
+        );
+        let status = crate::run::run(&mut [], false, proof.command).await?;
+        let content = std::fs::read_to_string(&proof.path)
+            .with_context(|| format!("failed to read proof report for `{}`", proof.package))?;
+        let report: ProofReport = serde_json::from_str(&content)
+            .with_context(|| format!("failed to parse proof report for `{}`", proof.package))?;
+        anyhow::ensure!(
+            status.success() == matches!(report, ProofReport::Success { .. }),
+            "proof process exited with {status}, inconsistent with its report for `{}`",
+            proof.package
+        );
+        Ok::<_, anyhow::Error>(report)
     }
-
-    for line in format_prove_summary(workspace_root, &package_reports) {
-        println!("{line}");
+    .await;
+    let report = result.unwrap_or_else(|error| ProofReport::HarnessError {
+        message: format!("{error:#}"),
+    });
+    PackageProofSummary {
+        package: proof.package,
+        whyml_path: proof.whyml_path,
+        report_path: proof.path,
+        report,
     }
-    Ok(())
 }
 
 #[derive(Debug)]
-struct PackageProofSummary<'a> {
-    package: &'a str,
-    whyml_path: &'a Path,
-    report_path: &'a Path,
+struct PackageProofSummary {
+    package: String,
+    whyml_path: PathBuf,
+    report_path: PathBuf,
     report: ProofReport,
 }
 
 fn format_prove_summary(
     workspace_root: &Path,
-    package_reports: &[PackageProofSummary<'_>],
+    package_reports: &[PackageProofSummary],
 ) -> Vec<String> {
     if package_reports.is_empty() {
         return Vec::new();
@@ -694,9 +755,13 @@ fn format_prove_summary(
     let mut succeeded = 0usize;
 
     for summary in package_reports {
-        total.add_assign(&summary.report.summary);
-        if summary.report.result == "success" {
-            succeeded += 1;
+        match &summary.report {
+            ProofReport::Success { summary } => {
+                total.add_assign(summary);
+                succeeded += 1;
+            }
+            ProofReport::ProofFailure { summary, .. } => total.add_assign(summary),
+            ProofReport::HarnessError { .. } => (),
         }
     }
 
@@ -706,27 +771,28 @@ fn format_prove_summary(
             lines.push(String::new());
         }
         lines.push(summary.package.to_string());
-        if summary.report.result == "success" {
-            lines.push(format!(
-                "  Succeeded: {} goals proved",
-                summary.report.summary.valid
-            ));
-        } else {
-            lines.push(format!(
-                "  Failed: {}",
-                format_goal_counts(&summary.report.summary)
-            ));
-            lines.push(format!(
-                "  WhyML: {}",
-                display_path(workspace_root, summary.whyml_path)
-            ));
-            lines.push(format!(
-                "  Report: {}",
-                display_path(workspace_root, summary.report_path)
-            ));
-            if !summary.report.failures.is_empty() {
-                lines.push(format!("  Failed goals: {}", summary.report.failures.len()));
+        match &summary.report {
+            ProofReport::Success { summary } => {
+                lines.push(format!("  Succeeded: {} goals proved", summary.valid))
             }
+            ProofReport::ProofFailure {
+                summary: counts,
+                failures,
+            } => {
+                lines.push(format!("  Failed: {}", format_goal_counts(counts)));
+                lines.push(format!(
+                    "  WhyML: {}",
+                    display_path(workspace_root, &summary.whyml_path)
+                ));
+                lines.push(format!(
+                    "  Report: {}",
+                    display_path(workspace_root, &summary.report_path)
+                ));
+                if !failures.is_empty() {
+                    lines.push(format!("  Failed goals: {}", failures.len()));
+                }
+            }
+            ProofReport::HarnessError { message } => lines.push(format!("  Failed: {message}")),
         }
     }
 
@@ -774,6 +840,55 @@ fn display_path(workspace_root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn execution_errors_count_as_failed_packages() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let summary =
+            r#"{"valid":1,"invalid":0,"timeout":0,"oom":0,"step_limit":0,"unknown":0,"failure":0}"#;
+        let success = format!(r#"{{"result":"success","summary":{summary}}}"#);
+        for (content, exit_code, expected_error) in [
+            (None, "0", "failed to read proof report"),
+            (Some("invalid JSON"), "0", "failed to parse proof report"),
+            (Some(success.as_str()), "1", "inconsistent with its report"),
+        ] {
+            let path = dir.path().join("proof.json");
+            if let Some(content) = content {
+                std::fs::write(&path, content).unwrap();
+            }
+            let mut command = Command::new("sh");
+            command.args(["-c", &format!("exit {exit_code}")]);
+            let failed = rt.block_on(execute_proof(ProofInvocation {
+                package: "failed".into(),
+                whyml_path: dir.path().join("failed.mlw"),
+                path,
+                command,
+            }));
+            let ProofReport::HarnessError { message } = &failed.report else {
+                panic!("missing failure: {failed:?}")
+            };
+            assert!(message.contains(expected_error), "{message}");
+            let reports = [
+                failed,
+                PackageProofSummary {
+                    package: "passed".into(),
+                    whyml_path: dir.path().join("passed.mlw"),
+                    report_path: dir.path().join("passed.json"),
+                    report: serde_json::from_str(&success).unwrap(),
+                },
+            ];
+            assert!(
+                format_prove_summary(dir.path(), &reports)
+                    .iter()
+                    .any(|line| line == "  1 of 2 packages proved")
+            );
+        }
+    }
 
     #[test]
     fn test_parse_solver_version_z3() {

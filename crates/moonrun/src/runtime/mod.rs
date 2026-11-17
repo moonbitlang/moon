@@ -23,11 +23,12 @@ mod environment_provisioning;
 mod executable;
 mod handles;
 mod stdio;
+#[cfg(windows)]
+pub(crate) mod windows_time;
 mod working_directory;
 
 use std::cell::RefCell;
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -43,7 +44,9 @@ use crate::process::HostProcess;
 use crate::run_signal::SignalReceiver;
 use crate::sqlite::SqliteHost;
 
-pub(crate) use environment::Env;
+pub(crate) use environment::{Env, EnvError};
+pub(crate) use environment_provisioning::EnvConfig;
+#[cfg(test)]
 pub(crate) use environment_provisioning::EnvProvisioning;
 pub(crate) use executable::Executable;
 pub(crate) use handles::Handles;
@@ -75,6 +78,8 @@ pub(crate) enum HostResourceKind {
     CBuffer,
     #[cfg(windows)]
     WindowsWatcherBuffer,
+    #[cfg(windows)]
+    WindowsTimeZone,
     #[cfg(unix)]
     ProcessArgv,
     ProcessEnv,
@@ -124,6 +129,8 @@ impl HostKeys {
 /// realizes them once, distributes domain policy together with shared Runtime
 /// State, wires host domain state to one key namespace, and owns it until teardown.
 pub(crate) struct Runtime {
+    // Stop IPC admission and finish delegated Runs before releasing host state.
+    _ipc_server: Option<crate::ipc::server::IpcServer>,
     environment: Arc<Env>,
     executable: Executable,
     working_directory: Arc<WorkingDirectory>,
@@ -132,17 +139,19 @@ pub(crate) struct Runtime {
     // Field order is significant: join workers and drop their SQLite payloads
     // before destroying the Database and Statement tables they refer to.
     async_host: AsyncHost,
+    #[cfg(windows)]
+    windows_time_zones: windows_time::TimeZones,
     sqlite: SqliteHost,
 }
 
 /// Construction input shared by artifact preparation and its eventual Runtime.
 /// Moving these inputs transfers ownership; only Runtime realizes the state
-/// and loads the policy sources into domain authorization rules.
+/// and provisions Env while composing the already resolved policy rules.
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeConfig {
-    pub(crate) policy_file: Option<PathBuf>,
-    pub(crate) policy_source_dir: Option<PathBuf>,
-    pub(crate) inherited_policy: Option<Vec<u8>>,
+    pub(crate) ipc_engine: Option<crate::Engine>,
+    pub(crate) selected_policy: Option<policy::LoadedPolicy>,
+    pub(crate) inherited_policy: Option<policy::InheritedPolicyInput>,
     pub(crate) working_directory: WorkingDirectory,
     pub(crate) stdio: Stdio,
     // Explicit policy provisioning takes precedence over the source environment.
@@ -153,9 +162,33 @@ pub(crate) struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Compose resolved restrictions and provision Env; composition only
+    /// joins compiled rules and never observes host state.
+    pub(crate) fn realize_policy(&self, source: Env) -> anyhow::Result<(Option<Policy>, Env)> {
+        let mut policy = match &self.inherited_policy {
+            Some(policy::InheritedPolicyInput::Resolved(inherited)) => Some(inherited.clone()),
+            Some(policy::InheritedPolicyInput::Transfer(contents)) => {
+                Some(policy::Policy::from_transfer(contents)?)
+            }
+            None => None,
+        };
+        let environment = match &self.selected_policy {
+            Some(selected) => {
+                let child = selected.policy.clone();
+                policy = Some(match policy {
+                    Some(parent) => parent.intersect(child),
+                    None => child,
+                });
+                selected.environment.clone().provision(&source)?
+            }
+            None => source,
+        };
+        Ok((policy, environment))
+    }
+
     /// Capture missing host state before creating a virtual root.
     /// Guest children already carry state derived by their Host Process and
-    /// must not use this host fallback. Policy is realized by Runtime later.
+    /// must not use this host fallback. Policy Env provisioning is applied by Runtime later.
     pub(crate) fn capture_host_state(&mut self) -> std::io::Result<()> {
         self.default_environment
             .get_or_insert_with(|| std::env::vars_os().collect());
@@ -179,7 +212,7 @@ pub(crate) fn current_signal_mask() -> anyhow::Result<libc::sigset_t> {
 
 impl Runtime {
     pub(crate) fn new(
-        config: RuntimeConfig,
+        mut config: RuntimeConfig,
         executable: Executable,
         signals: SignalReceiver,
     ) -> anyhow::Result<Self> {
@@ -188,44 +221,22 @@ impl Runtime {
             Some(mask) => mask,
             None => current_signal_mask()?,
         };
-        let source_environment = config
-            .default_environment
-            .map(Env::owned)
-            .transpose()?
-            .unwrap_or_else(Env::ambient);
-        let (mut policy, env_provisioning) = match (
-            config.inherited_policy.as_deref(),
-            config.policy_file.as_deref(),
-        ) {
-            (Some(contents), _) => {
-                let (policy, env) = policy::load_inherited_json(contents, &source_environment)
-                    .context("failed to load inherited sandbox policy (experimental)")?;
-                (policy, Some(env))
+        let source_environment = match (config.default_environment.take(), &config.inherited_policy)
+        {
+            (Some(entries), _) => Env::owned(entries)?,
+            // An external child receives its values through the OS environment.
+            // Own that snapshot so guest mutations cannot alter the embedding host.
+            (None, Some(policy::InheritedPolicyInput::Transfer(_))) => {
+                Env::owned(Env::ambient().entries())?
             }
-            (None, Some(path)) => {
-                let loaded = policy::load_file_with_source_dir(
-                    path,
-                    config.policy_source_dir.as_deref(),
-                    &source_environment,
-                );
-                let (policy, env) = loaded.context(
-                    "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
-                )?;
-                (policy, Some(env))
-            }
-            (None, None) => (Policy::allow_all(), None),
+            (None, _) => Env::ambient(),
         };
-        let environment = Arc::new(
-            match env_provisioning {
-                Some(provisioning) => provisioning.realize(),
-                None => Ok(source_environment),
-            }
-            .context("failed to construct the Runtime environment")?,
-        );
-        let filesystem_policy = policy.take_filesystem_policy();
-        let network_policy = policy.take_network_policy();
-        let process_policy = policy.take_process_policy();
-        let policy_inheritance = policy.take_policy_inheritance();
+        let (policy, environment) = config.realize_policy(source_environment)
+            .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?;
+        let environment = Arc::new(environment);
+
+        let filesystem_policy = policy.as_ref().map(Policy::filesystem);
+        let network_policy = policy.as_ref().map(Policy::network);
         let working_directory = Arc::new(match config.working_directory {
             WorkingDirectory::Ambient => WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(path) => {
@@ -243,14 +254,27 @@ impl Runtime {
             Arc::clone(&working_directory),
         ));
         let network = HostNetwork::new(network_policy);
+        let ipc_server = config
+            .ipc_engine
+            .take()
+            .map(|engine| {
+                crate::ipc::server::IpcServer::start(
+                    engine,
+                    policy.clone(),
+                    #[cfg(unix)]
+                    child_signal_mask,
+                )
+            })
+            .transpose()?;
         let process = HostProcess::new(
-            process_policy,
-            policy_inheritance,
+            policy,
             Arc::clone(&working_directory),
             Arc::clone(&stdio),
             config.process_context,
             Arc::clone(&environment),
         );
+        let process =
+            process.with_ipc_endpoint(ipc_server.as_ref().map(|server| server.endpoint()));
         let async_host = AsyncHost::new(
             Arc::clone(&environment),
             &stdio,
@@ -262,14 +286,19 @@ impl Runtime {
             #[cfg(unix)]
             child_signal_mask,
         );
+        #[cfg(windows)]
+        let windows_time_zones = windows_time::TimeZones::new(Rc::clone(&keys));
         let sqlite = SqliteHost::new(Arc::clone(&filesystem), keys);
         Ok(Self {
+            _ipc_server: ipc_server,
             environment,
             executable,
             working_directory,
             stdio,
             filesystem,
             async_host,
+            #[cfg(windows)]
+            windows_time_zones,
             sqlite,
         })
     }
@@ -305,11 +334,17 @@ impl Runtime {
     pub(crate) fn sqlite(&self) -> &SqliteHost {
         &self.sqlite
     }
+
+    #[cfg(windows)]
+    pub(crate) fn windows_time_zones(&self) -> &windows_time::TimeZones {
+        &self.windows_time_zones
+    }
 }
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        // Async Host is dropped first and joins workers that can use SQLite.
+        // Field order drains IPC delegates, then Async Host joins its workers
+        // before SQLite state is released.
         // Release guest-held recursive mutex entries before any worker join.
         self.sqlite.release_entered_mutexes();
         // Keep the historical opt-in name for compatibility even though the
@@ -319,6 +354,10 @@ impl Drop for Runtime {
         }
 
         let mut leaks = Vec::new();
+        #[cfg(windows)]
+        if let Some(summary) = self.windows_time_zones.leak_summary() {
+            leaks.push(summary);
+        }
         if let Some(summary) = self.async_host.leak_summary() {
             leaks.push(format!("async({summary})"));
         }
@@ -334,15 +373,58 @@ impl Drop for Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn resolved_inheritance_uses_child_state_without_replaying_parent_provisioning() {
+        let source = tempfile::tempdir().unwrap();
+        let file = source.path().join("policy.json");
+        std::fs::write(
+            &file,
+            r#"{"env":{"set":{"VALUE":"parent"}},"process":{"spawn":true}}"#,
+        )
+        .unwrap();
+        let inherited = policy::read_file(&file, None).unwrap().policy;
+        std::fs::remove_file(file).unwrap();
+        let config = crate::RunOptions::default()
+            .with_environment([("VALUE", "child")])
+            .with_parent_policy(inherited)
+            .runtime;
+        let (_, signals) = crate::run_signal::signal_channel();
+        let runtime = Runtime::new(config, Executable::unavailable(), signals).unwrap();
+        assert_eq!(
+            runtime.environment().get("VALUE".as_ref()),
+            Some("child".into())
+        );
+        assert!(!runtime.environment().is_ambient());
+    }
+
+    #[test]
+    fn transferred_restrictions_keep_environment_mutations_runtime_owned() {
+        let key = "MOONRUN_TRANSFER_ENV_ISOLATION_TEST";
+        let before = std::env::var_os(key);
+        let config = crate::RunOptions::default()
+            .with_inherited_policy(
+                include_bytes!("../../tests/fixtures/deny_restrictions.json").to_vec(),
+            )
+            .runtime;
+        let (_, signals) = crate::run_signal::signal_channel();
+        let runtime = Runtime::new(config, Executable::unavailable(), signals).unwrap();
+        assert!(!runtime.environment().is_ambient());
+        assert_eq!(runtime.environment().get(key.as_ref()), before);
+        runtime
+            .environment()
+            .set(key.into(), "child".into())
+            .unwrap();
+        assert_eq!(std::env::var_os(key), before);
+    }
 
     #[test]
     fn host_capture_preserves_explicit_empty_environment_and_fixed_directory() {
         let directory = PathBuf::from("unresolved-directory");
-        let policy = PathBuf::from("unloaded-policy.json");
         let mut config = RuntimeConfig {
             default_environment: Some(Vec::new()),
             working_directory: WorkingDirectory::Fixed(directory.clone()),
-            policy_file: Some(policy.clone()),
             ..Default::default()
         };
 
@@ -350,7 +432,6 @@ mod tests {
 
         assert_eq!(config.default_environment, Some(Vec::new()));
         assert_eq!(config.working_directory, WorkingDirectory::Fixed(directory));
-        assert_eq!(config.policy_file, Some(policy));
     }
 
     #[test]

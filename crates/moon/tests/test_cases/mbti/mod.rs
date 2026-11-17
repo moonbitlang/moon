@@ -50,45 +50,23 @@ fn test_mbti() {
 }
 
 #[test]
-fn test_mbti_no_alias() {
-    let dir = TestDir::new("mbti");
-    let _ = get_stdout(&dir, ["info", "--no-alias"]);
-    let lib_mi_out = &std::fs::read_to_string(dir.join("lib").join(MBTI_GENERATED)).unwrap();
-    expect![[r#"
-        // Generated using `moon info`, DON'T EDIT IT
-        package "username/hello/lib"
+fn test_info_rejects_removed_no_alias_flag() {
+    let dir = TestDir::new_empty();
+    moon_cmd(&dir)
+        .args(["info", "--no-alias"])
+        .assert()
+        .code(2)
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+error: unexpected argument '--no-alias' found
 
-        // Values
-        pub fn hello() -> String
+  tip: to pass '--no-alias' as a value, use '-- --no-alias'
 
-        pub let hello_list : @moonbitlang/core/list.List[String]
+Usage: moon info [OPTIONS] [PATH]...
 
-        // Errors
+For more information, try '--help'.
 
-        // Types and methods
-
-        // Type aliases
-
-        // Traits
-    "#]]
-    .assert_eq(lib_mi_out);
-
-    let main_mi_out = &std::fs::read_to_string(dir.join("main").join(MBTI_GENERATED)).unwrap();
-    expect![[r#"
-        // Generated using `moon info`, DON'T EDIT IT
-        package "username/hello/main"
-
-        // Values
-
-        // Errors
-
-        // Types and methods
-
-        // Type aliases
-
-        // Traits
-    "#]]
-    .assert_eq(main_mi_out);
+"#]]);
 }
 
 fn modified_time(path: &std::path::Path) -> std::time::SystemTime {

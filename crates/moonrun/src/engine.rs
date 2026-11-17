@@ -27,10 +27,11 @@ use crate::wasmtime as backend;
 #[cfg(all(feature = "wee8", not(feature = "v8")))]
 use crate::wee8 as backend;
 use anyhow::Context;
+use clap::Parser;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub(crate) use backend::SUPPORTS_RUN_TERMINATION;
@@ -47,27 +48,46 @@ pub struct EngineConfig {
 
 impl EngineConfig {
     /// Set the maximum guest stack size in KiB.
+    ///
+    /// V8 counts existing native caller frames against this budget. Compilation
+    /// and execution reject a budget already exhausted by those frames.
     pub fn with_stack_size(mut self, stack_size: usize) -> Self {
         self.stack_size = Some(stack_size);
         self
     }
 }
 
-/// How guest process operations are routed within one execution.
+/// Initialize the selected backend's process-wide state on the calling thread.
 ///
-/// This choice is independent of whether the host calls [`Engine::run`] or
-/// [`Engine::spawn`]. Neither mode provides an operating-system sandbox.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum GuestProcessMode {
-    /// Preserve native child-process operations and ambient defaults.
-    #[default]
-    Native,
-    /// Use this Engine's virtual process identities and child control.
-    ///
-    /// Roots capture an owned environment and fixed cwd unless supplied by the
-    /// caller. Recursive Moon children derive their state from their Runtime.
-    /// Currently requires V8 and supports only recursive Moon children.
-    Virtual,
+/// With V8, call this before creating any threads that will compile or execute
+/// Wasm, on their common ancestor thread (usually the application's main thread).
+/// Linux memory protection keys are inherited when threads are created. Calling
+/// this again from an existing thread does not repair that thread's permissions.
+/// Moonrun does not check this ancestry or move execution to another thread.
+///
+/// Repeated calls with the same V8 configuration succeed; a different
+/// configuration returns an error. Use the same configuration for every Engine.
+/// Existing compile/run entry points still initialize lazily when necessary,
+/// but multi-threaded embedders must arrange initialization explicitly.
+///
+/// wee8 initializes its global backend here; its stack size remains per Engine.
+/// Wasmtime has no process-wide initialization here and configures each Engine
+/// separately. Initialization lasts for the lifetime of the process.
+pub fn initialize(config: EngineConfig) -> anyhow::Result<()> {
+    #[cfg(feature = "v8")]
+    {
+        backend::initialize(&config)
+    }
+    #[cfg(all(feature = "wee8", not(feature = "v8")))]
+    {
+        let _ = config;
+        ::wee8::initialize().map_err(Into::into)
+    }
+    #[cfg(all(feature = "wasmtime", not(any(feature = "v8", feature = "wee8"))))]
+    {
+        let _ = config;
+        Ok(())
+    }
 }
 
 /// Configuration for one execution, independent of thread placement.
@@ -77,23 +97,84 @@ pub struct RunOptions {
     pub(crate) no_stack_trace: bool,
     pub(crate) test_args: Option<String>,
     pub(crate) runtime: RuntimeConfig,
-    pub(crate) guest_process_mode: GuestProcessMode,
+    pub(crate) virtualize: Option<bool>,
+    pub(crate) ipc: Option<bool>,
     // Required guest headroom in bytes for a supervisor-owned execution thread.
     // Ordinary Runs leave native stack placement and sizing to the caller.
     pub(crate) native_stack_budget: Option<usize>,
     pub(crate) termination_receiver: Option<RunTerminationReceiver>,
 }
 
-#[derive(serde::Deserialize)]
 pub(crate) struct TestArgs {
-    pub(crate) package: String,
     pub(crate) file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
 }
 
+impl std::str::FromStr for TestArgs {
+    type Err = anyhow::Error;
+
+    fn from_str(input: &str) -> anyhow::Result<Self> {
+        let file_and_index = if input.is_empty() {
+            Vec::new()
+        } else {
+            input
+                .split('/')
+                .map(|entry| {
+                    // Compiler metadata contains basenames, not directory paths.
+                    // Only the final colon separates the name from its ranges.
+                    let (file, ranges) = entry.rsplit_once(':').context("missing test ranges")?;
+                    let ranges = ranges
+                        .split(',')
+                        .map(|range| {
+                            let (start, end) = range
+                                .split_once('-')
+                                .with_context(|| format!("invalid test range {range:?}"))?;
+                            Ok(start.parse()?..end.parse()?)
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    Ok((file.to_owned(), ranges))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
+        Ok(Self { file_and_index })
+    }
+}
+
 impl RunOptions {
-    pub fn with_guest_process_mode(mut self, mode: GuestProcessMode) -> Self {
-        self.guest_process_mode = mode;
+    /// Use Engine-managed process identities and internal child execution.
+    /// Also captures owned root environment/cwd; IPC and explicit Runtime
+    /// configuration can select owned state without virtual process identities.
+    /// Requires V8 and supports only internal moonx children.
+    /// The existing process policy authorizes those invocations; virtualization
+    /// does not grant additional permissions or sandbox preparation helpers.
+    pub fn with_virtualize(mut self, virtualize: bool) -> Self {
+        self.virtualize = Some(virtualize);
         self
+    }
+
+    /// Effective execution behavior: an explicit embedding choice takes
+    /// precedence over the selected policy, which otherwise defaults to false.
+    pub fn virtualize(&self) -> bool {
+        self.virtualize.unwrap_or_else(|| {
+            self.runtime
+                .selected_policy
+                .as_ref()
+                .is_some_and(|policy| policy.virtualize)
+        })
+    }
+
+    /// Offer this Run's native descendants an IPC entry into the same Engine.
+    /// IPC-enabled Runs participate in Engine shutdown supervision without
+    /// changing guest process identity. Normal completion joins their delegates.
+    /// Each entry retains the Run's effective policy ceiling. V8 only;
+    /// guest PID routing remains native. Disabled unless selected explicitly.
+    pub fn with_ipc(mut self, enabled: bool) -> Self {
+        self.ipc = Some(enabled);
+        self
+    }
+
+    pub fn ipc(&self) -> bool {
+        self.ipc
+            .unwrap_or_else(|| self.runtime.selected_policy.as_ref().is_some_and(|p| p.ipc))
     }
 
     /// Supply an owned environment. An empty iterator means an empty environment.
@@ -117,7 +198,7 @@ impl RunOptions {
     // Only host-facing entries may fill absent root inputs from ambient state.
     // Guest derivation supplies complete inputs before process admission.
     pub(crate) fn prepare_root(&mut self) -> std::io::Result<()> {
-        if self.guest_process_mode == GuestProcessMode::Virtual {
+        if self.virtualize() || self.ipc() {
             self.runtime.capture_host_state()?;
         }
         Ok(())
@@ -146,6 +227,7 @@ impl RunOptions {
         self
     }
 
+    /// Select tests with `filename:start-end,start-end/...` (half-open ranges).
     pub fn with_test_args(mut self, test_args: impl Into<String>) -> Self {
         self.test_args = Some(test_args.into());
         self
@@ -154,35 +236,39 @@ impl RunOptions {
     pub(crate) fn parsed_test_args(&self) -> anyhow::Result<Option<TestArgs>> {
         self.test_args
             .as_deref()
-            .map(serde_json_lenient::from_str)
+            .map(str::parse)
             .transpose()
             .context("invalid MoonBit test arguments")
     }
 
-    pub fn with_policy_file(mut self, policy_file: impl Into<PathBuf>) -> Self {
-        self.runtime.policy_file = Some(policy_file.into());
-        self.runtime.policy_source_dir = None;
-        self.runtime.inherited_policy = None;
-        self
+    /// Read and resolve a selected policy once. Its restrictions are additional
+    /// to any inherited ceiling; its Env provisioning uses the Run's source Env.
+    pub fn with_policy_file(self, policy_file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        self.with_policy_file_source_dir(policy_file, None)
     }
 
     #[doc(hidden)]
     pub fn with_policy_file_source_dir(
         mut self,
-        policy_file: impl Into<PathBuf>,
-        source_dir: impl Into<PathBuf>,
-    ) -> Self {
-        self.runtime.policy_file = Some(policy_file.into());
-        self.runtime.policy_source_dir = Some(source_dir.into());
-        self.runtime.inherited_policy = None;
+        policy_file: impl AsRef<Path>,
+        source_dir: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        self.runtime.selected_policy = Some(
+            crate::policy::read_file(policy_file.as_ref(), source_dir)
+                .context("failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes")?,
+        );
+        Ok(self)
+    }
+
+    /// Receive the internal restriction transfer format, not a user policy document.
+    #[doc(hidden)]
+    pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
+        self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Transfer(policy));
         self
     }
 
-    #[doc(hidden)]
-    pub fn with_inherited_policy(mut self, policy: Vec<u8>) -> Self {
-        self.runtime.policy_file = None;
-        self.runtime.policy_source_dir = None;
-        self.runtime.inherited_policy = Some(policy);
+    pub(crate) fn with_parent_policy(mut self, policy: crate::policy::Policy) -> Self {
+        self.runtime.inherited_policy = Some(crate::policy::InheritedPolicyInput::Resolved(policy));
         self
     }
 
@@ -294,10 +380,7 @@ pub(crate) fn run_test_driver<D>(
         BackendCallOutcome::Completed => {}
         outcome => return complete_run_call(outcome, stdio),
     }
-    let TestArgs {
-        package: _package,
-        file_and_index,
-    } = test_args;
+    let TestArgs { file_and_index } = test_args;
     for (file, ranges) in file_and_index {
         for index in ranges.into_iter().flatten() {
             match execute(driver, &file, index)? {
@@ -372,14 +455,17 @@ impl fmt::Debug for Module {
 /// [`Engine::run`] executes on the calling thread; [`Engine::spawn`] creates a
 /// managed thread whose result is consumed by [`Engine::wait`]. Clones share
 /// the backend and process table; a new Engine creates a separate namespace.
+/// Call [`initialize`] before creating threads that will use V8-backed Engines.
 ///
 /// Environment, cwd and stdio default to ambient process state; callers can
 /// bind an owned environment, owned streams and a fixed cwd. Ambient guest
 /// environment mutations must not race other process-environment access.
-/// [`GuestProcessMode::Virtual`] provides owned root state and guest process
+/// [`RunOptions::with_virtualize`] provides owned root state and guest process
 /// control. Parent links alone do not imply state or permission inheritance.
 /// Dropping an Engine does not terminate or join its executions; callers must
-/// explicitly terminate and wait when required.
+/// explicitly terminate and wait when required. [`Engine::request_shutdown`]
+/// closes managed, virtualized and IPC-enabled admission and requests termination of
+/// all admitted members. Ordinary native caller-thread Runs retain independent control.
 /// OS signal capture is left to the caller; a signal channel can direct
 /// cooperative delivery to one Run.
 #[derive(Clone, Debug)]
@@ -470,8 +556,8 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        self.run_inline(options, signals, |engine, options, signals, termination| {
-            engine.run_in_scope(module, options, signals, termination)
+        self.run_inline(options, signals, |engine, options, signals, scope| {
+            engine.run_in_scope(module, options, signals, scope.termination())
         })
     }
 
@@ -486,6 +572,15 @@ impl Engine {
         termination: &TerminationRequest,
     ) -> anyhow::Result<RunOutcome> {
         debug_assert!(options.termination_receiver.is_none());
+        let mut options = options;
+        if options.ipc() {
+            anyhow::ensure!(SUPPORTS_RUN_TERMINATION, "IPC sessions require V8");
+            anyhow::ensure!(
+                !options.virtualize(),
+                "IPC virtual process sessions are not supported yet"
+            );
+            options.runtime.ipc_engine = Some(self.clone());
+        }
         let outcome = (|| {
             if let Some(outcome) = termination.get() {
                 return Ok(BackendRunOutcome::Terminated(outcome));
@@ -513,9 +608,12 @@ impl Engine {
         })
     }
 
-    /// Prepare a program with a host-selected Moon or moonx executable, then
-    /// execute it on the calling thread. Program arguments belong in `args`.
-    /// The preparation helper still runs as an external process with host access.
+    /// Prepare and execute Wasm using a host-selected Moon or moonx helper.
+    /// Program arguments belong in `args`. Moonx frontend responses (including
+    /// help/version and parse errors) use the embedded grammar and bound stdio,
+    /// without launching the selected executable. Execution requests prepare
+    /// Wasm through an external helper with host access, then run it here.
+    /// Native/JS targets use ordinary OS process execution, not this handoff.
     pub fn run_moon(
         &self,
         executable: &Path,
@@ -528,13 +626,13 @@ impl Engine {
         self.run_inline(
             options,
             signal_channel().1,
-            |engine, options, signals, termination| {
+            |engine, options, signals, scope| {
                 engine.execute_moon_in_scope(
                     executable,
                     args,
                     options,
                     signals,
-                    termination,
+                    scope,
                     #[cfg(windows)]
                     false,
                 )
@@ -548,76 +646,81 @@ impl Engine {
         args: &[std::ffi::OsString],
         mut options: RunOptions,
         signals: crate::SignalReceiver,
-        termination: &TerminationRequest,
+        scope: &mut crate::process_tree::ExecutionScope<'_>,
         #[cfg(windows)] no_console_window: bool,
     ) -> anyhow::Result<RunOutcome> {
-        let (program, _directory) = match crate::prepare_artifact::prepare_moon(
+        if let Some(outcome) = scope.termination().get() {
+            return Ok(outcome.into());
+        }
+        // Select the invocation before entering artifact preparation. A frontend
+        // response is already complete: it needs neither a helper nor handoff
+        // storage. Parsing also keeps private handoff flags out of the frontend
+        // position without interpreting the program's opaque argument tail.
+        if moonutil::constants::is_moonx_executable(executable.as_os_str()) {
+            match moonutil::cli_support::MoonxCli::try_parse_from(
+                std::iter::once(executable.as_os_str()).chain(args.iter().map(OsString::as_os_str)),
+            ) {
+                Ok(frontend) => {
+                    if frontend.daemon {
+                        anyhow::ensure!(
+                            !options.virtualize(),
+                            "IPC virtual process sessions are not supported yet"
+                        );
+                        options = options.with_ipc(true);
+                        // This choice is already known: include preparation in
+                        // Engine shutdown just as with_ipc(true) does at entry.
+                        scope.bind_supervision(self, &mut options, &signals)?;
+                    }
+                }
+                Err(response) => {
+                    let output = response.render().to_string();
+                    // Mirror Clap's CLI exit: output failure does not change the exit
+                    // code. Use plain text on the bound streams, never the host's TTY
+                    // detection or process-wide print/exit functions.
+                    if response.use_stderr() {
+                        let _ = options
+                            .runtime
+                            .stdio
+                            .with_stderr(|out| out.write_all(output.as_bytes()));
+                    } else {
+                        let _ = options
+                            .runtime
+                            .stdio
+                            .with_stdout(|out| out.write_all(output.as_bytes()));
+                    }
+                    return Ok(RunOutcome::Exited(response.exit_code()));
+                }
+            }
+        }
+        let (program, _directory) = match crate::process::prepare_moon(
             executable,
             args,
             &options.runtime,
-            termination,
+            scope.termination(),
             #[cfg(windows)]
             no_console_window,
         )? {
-            crate::prepare_artifact::Preparation::Ready { program, directory } => {
-                (*program, directory)
-            }
-            crate::prepare_artifact::Preparation::Exited(outcome) => return Ok(outcome),
+            crate::process::Preparation::Ready { program, directory } => (*program, directory),
+            crate::process::Preparation::Exited(outcome) => return Ok(outcome),
         };
         options.args = program.args;
         options.runtime.working_directory = WorkingDirectory::Fixed(program.working_directory);
-        if options.runtime.inherited_policy.is_none()
-            && options.runtime.policy_file.is_none()
+        if options.runtime.selected_policy.is_none()
             && let Some((policy, source_dir)) = program.policy
         {
-            options = options.with_policy_file_source_dir(policy, source_dir);
+            options = options.with_policy_file_source_dir(policy, Some(&source_dir))?;
         }
+        scope.bind_supervision(self, &mut options, &signals)?;
         // The delivery directory outlives Runtime construction and execution. Its
         // cleanup finishes before the Engine finalizes the execution result.
-        self.execute_artifact_in_scope(
-            program.execution_kind,
-            &program.artifact,
-            &program.executable,
-            |_| {
-                program
-                    .source_map
-                    .as_deref()
-                    .and_then(crate::source_map::SourceMap::parse)
-            },
-            options,
-            signals,
-            termination,
-        )
-    }
-
-    // Root executables and Moon delivery results share dispatch. Keep artifact
-    // location and original identity explicit; they differ after a handoff.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn execute_artifact_in_scope(
-        &self,
-        kind: moonutil::run_handoff::ExecutionKind,
-        artifact: &Path,
-        origin: &Path,
-        source_map: impl FnOnce(&[u8]) -> Option<crate::source_map::SourceMap>,
-        options: RunOptions,
-        signals: crate::SignalReceiver,
-        termination: &TerminationRequest,
-    ) -> anyhow::Result<RunOutcome> {
-        match kind {
-            moonutil::run_handoff::ExecutionKind::Wasm => {
-                let bytes = std::fs::read(artifact)?;
-                let module = self.compile_file(origin, &bytes, || source_map(&bytes))?;
-                self.run_in_scope(&module, options, signals, termination)
-            }
-            moonutil::run_handoff::ExecutionKind::Native
-            | moonutil::run_handoff::ExecutionKind::Js => {
-                // FIXME: Admit native executables and Node through the Engine's native
-                // process nodes, sharing PID, wait, cancellation and reaping ownership.
-                anyhow::bail!(
-                    "native process nodes (including Node) are not yet supported in virtual process trees"
-                )
-            }
-        }
+        let bytes = std::fs::read(&program.artifact)?;
+        let module = self.compile_file(&program.executable, &bytes, || {
+            program
+                .source_map
+                .as_deref()
+                .and_then(crate::source_map::SourceMap::parse)
+        })?;
+        self.run_in_scope(&module, options, signals, scope.termination())
     }
 
     /// Load and synchronously execute one Wasm file.
@@ -637,9 +740,9 @@ impl Engine {
         options: RunOptions,
         signals: SignalReceiver,
     ) -> anyhow::Result<RunOutcome> {
-        self.run_inline(options, signals, |engine, options, signals, termination| {
+        self.run_inline(options, signals, |engine, options, signals, scope| {
             let module = engine.load_file(file)?;
-            engine.run_in_scope(&module, options, signals, termination)
+            engine.run_in_scope(&module, options, signals, scope.termination())
         })
     }
 }
@@ -653,6 +756,64 @@ impl Default for Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn test_harness_initializes_v8_before_test_threads() {
+        // Isolate the check so other tests cannot initialize V8 first and
+        // conceal a missing startup hook.
+        if std::env::var_os("MOONRUN_TEST_INITIALIZATION_PROBE").is_none() {
+            snapbox::cmd::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "engine::tests::test_harness_initializes_v8_before_test_threads",
+                    "--nocapture",
+                ])
+                .env("MOONRUN_TEST_INITIALIZATION_PROBE", "1")
+                .timeout(std::time::Duration::from_secs(15))
+                .assert()
+                .success();
+            return;
+        }
+        assert!(
+            initialize(EngineConfig::default().with_stack_size(512)).is_err(),
+            "the test harness must initialize V8 before starting test threads"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn test_args_preserve_names_and_selection_order() {
+        let expected = vec![
+            (
+                "{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt".to_owned(),
+                vec![7..9, 0..2, 7..8],
+            ),
+            ("-other.mbt".to_owned(), vec![1..2]),
+            (
+                "{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt".to_owned(),
+                vec![3..3],
+            ),
+        ];
+        assert_eq!(
+            RunOptions::default()
+                .with_test_args("{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt:7-9,0-2,7-8/-other.mbt:1-2/{Case:测试,e\u{301}😀\"\\\n\t%2F.mbt:3-3")
+                .parsed_test_args()
+                .unwrap()
+                .unwrap()
+                .file_and_index,
+            expected
+        );
+        assert!(
+            RunOptions::default()
+                .with_test_args("")
+                .parsed_test_args()
+                .unwrap()
+                .unwrap()
+                .file_and_index
+                .is_empty()
+        );
+    }
 
     #[test]
     fn run_options_default_to_ambient_working_directory() {

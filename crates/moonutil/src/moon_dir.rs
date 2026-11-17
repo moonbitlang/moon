@@ -139,9 +139,14 @@ impl MoonHomeLayout {
         self.registry_dir().join("symbols")
     }
 
-    /// State used to coalesce concurrent registry updates.
+    /// State used to coalesce concurrent Git index updates.
     pub fn registry_update_state_path(&self) -> PathBuf {
         self.registry_dir().join(".registry-update-state.json")
+    }
+
+    /// State used to coalesce concurrent symbols updates and retain their ETag.
+    pub fn registry_symbols_update_state_path(&self) -> PathBuf {
+        self.registry_dir().join(".symbols-update-state.json")
     }
 
     /// Moon-owned global caches selected by `MOON_DEP_CACHE` and
@@ -285,33 +290,42 @@ pub fn core_bundle(backend: TargetBackend) -> PathBuf {
     core_bundle_in(&core(), backend)
 }
 
-pub fn abort_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    core_bundle_in(core_root, backend)
-        .join("abort")
-        .join("abort.core")
-}
-
-pub fn core_core_in(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    core_bundle_in(core_root, backend).join("core.core")
-}
-
+/// Path to the prebuilt `.mi` of one stdlib package.
 pub fn core_package_mi_in(
     core_root: &Path,
     backend: TargetBackend,
     package_path: &str,
     package_last_segment: &str,
 ) -> PathBuf {
-    core_bundle_in(core_root, backend)
-        .join(package_path)
-        .join(format!("{package_last_segment}.mi"))
+    core_package_artifact_in(core_root, backend, package_path, package_last_segment, "mi")
 }
 
-// core.core & abort.core(virtual pkg default impl)
-pub fn core_core(backend: TargetBackend) -> Vec<String> {
-    vec![
-        abort_core_in(&core(), backend).display().to_string(),
-        core_core_in(&core(), backend).display().to_string(),
-    ]
+/// Path to the prebuilt `.core` of one stdlib package.
+pub fn core_package_core_in(
+    core_root: &Path,
+    backend: TargetBackend,
+    package_path: &str,
+    package_last_segment: &str,
+) -> PathBuf {
+    core_package_artifact_in(
+        core_root,
+        backend,
+        package_path,
+        package_last_segment,
+        "core",
+    )
+}
+
+fn core_package_artifact_in(
+    core_root: &Path,
+    backend: TargetBackend,
+    package_path: &str,
+    package_last_segment: &str,
+    extension: &str,
+) -> PathBuf {
+    core_bundle_in(core_root, backend)
+        .join(package_path)
+        .join(format!("{package_last_segment}.{extension}"))
 }
 
 #[test]
@@ -357,6 +371,10 @@ fn derives_paths_from_one_home_root() {
     assert_eq!(
         layout.registry_update_state_path(),
         Path::new("moon-home/registry/.registry-update-state.json")
+    );
+    assert_eq!(
+        layout.registry_symbols_update_state_path(),
+        Path::new("moon-home/registry/.symbols-update-state.json")
     );
     assert_eq!(layout.cache_dir(), Path::new("moon-home/cache"));
     assert_eq!(

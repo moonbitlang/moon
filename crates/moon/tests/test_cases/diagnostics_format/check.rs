@@ -413,23 +413,6 @@ fn test_moon_check_complete_json_project_not_found() {
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_moon_warnings() {
-    let dir = TestDir::new("fmt_moon_work_existing.in");
-    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
-
-    assert_eq!(report["status"], "success");
-    assert_eq!(report["messages"][0]["$message_type"], "moon");
-    assert_eq!(report["messages"][0]["level"], "warning");
-    assert!(
-        report["messages"][0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("preferred_target")
-    );
-    assert_eq!(report["summary"]["moon_warnings"], 1);
-}
-
-#[test]
 fn test_moon_check_complete_json_captures_resolution_failure() {
     let dir = TestDir::new_empty();
     std::fs::write(
@@ -551,18 +534,10 @@ fn test_moon_check_complete_json_captures_workspace_override_warning() {
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_workspace_deprecation_once() {
-    let dir = TestDir::new("workspace_basic.in");
-    std::fs::write(
-        dir.join("moon.work"),
-        r#"members = [
-  "./app",
-  "./liba",
-]
-preferred_target = "wasm-gc"
-"#,
-    )
-    .unwrap();
+fn test_moon_check_complete_json_captures_workspace_warning_once() {
+    // A single-member workspace isolates this warning from dependency overrides.
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+    std::fs::write(dir.join("moon.mod"), "name = \"workspace/root\"\n").unwrap();
 
     let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
     let warnings = report["messages"]
@@ -572,12 +547,15 @@ preferred_target = "wasm-gc"
         .filter(|message| {
             message["message"]
                 .as_str()
-                .is_some_and(|message| message.contains("`preferred_target` in `moon.work`"))
+                .is_some_and(|message| message.contains("not listed as a workspace member"))
         })
         .collect::<Vec<_>>();
 
+    assert_eq!(report["status"], "success");
     assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0]["$message_type"], "moon");
     assert_eq!(warnings[0]["level"], "warning");
+    assert_eq!(report["summary"]["moon_warnings"], 1);
 }
 
 #[test]
@@ -662,10 +640,10 @@ fn test_moon_check_json_output() {
             ["check", "--output-json", "--sort-input", "-j1", "-q"],
         ),
         expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"4:7-4:8","message":"Warning (unused_value): Unused variable 'a'","context":"3 |fn _a() -> Unit {/n4 |  let a = 1;/n5 |  // 中文中文中文中文中文中文/n"}
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"11:7-11:9","message":"Warning (unused_value): Unused variable '中文'","context":"10 |  // 🤣😭🤣😭🤣😭🤣😭🤣😭/n11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n"}
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"12:7-12:12","message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'","context":"11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n13 |  alert_1();/n"}
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/main/main.mbt","loc":"2:7-2:8","message":"Warning (unused_value): Unused variable 'a'","context":"1 |fn main {/n2 |  let a = 0/n3 |  @lib.hello()/n"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"4:7-4:8","message":"Warning (unused_value): Unused variable 'a'","context":"3 |fn _a() -> Unit {/n4 |  let a = 1;/n5 |  // 中文中文中文中文中文中文/n","fixes":[{"title":"Rename `a` to `_a`","edits":[{"path":"$ROOT/lib/hello.mbt","loc":"4:7-4:8","expect":"a","new_text":"_a","fresh":["_a"]}]}]}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"11:7-11:9","message":"Warning (unused_value): Unused variable '中文'","context":"10 |  // 🤣😭🤣😭🤣😭🤣😭🤣😭/n11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n","fixes":[{"title":"Rename `中文` to `_中文`","edits":[{"path":"$ROOT/lib/hello.mbt","loc":"11:7-11:9","expect":"中文","new_text":"_中文","fresh":["_中文"]}]}]}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"12:7-12:12","message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'","context":"11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n13 |  alert_1();/n","fixes":[{"title":"Rename `🤣😭🤣😭🤣` to `_🤣😭🤣😭🤣`","edits":[{"path":"$ROOT/lib/hello.mbt","loc":"12:7-12:12","expect":"🤣😭🤣😭🤣","new_text":"_🤣😭🤣😭🤣","fresh":["_🤣😭🤣😭🤣"]}]}]}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/main/main.mbt","loc":"2:7-2:8","message":"Warning (unused_value): Unused variable 'a'","context":"1 |fn main {/n2 |  let a = 0/n3 |  @lib.hello()/n","fixes":[{"title":"Rename `a` to `_a`","edits":[{"path":"$ROOT/main/main.mbt","loc":"2:7-2:8","expect":"a","new_text":"_a","fresh":["_a"]}]}]}
         "#]],
     );
 }

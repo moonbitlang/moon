@@ -18,7 +18,6 @@
 
 use clap::Parser;
 use std::path::PathBuf;
-mod bundle_template;
 mod ci;
 mod sync_docs;
 
@@ -33,9 +32,6 @@ enum XSubcommands {
     #[command(name = "sync-docs")]
     SyncDocs(SyncDocs),
 
-    #[command(name = "bundle-template")]
-    BundleTemplate(BundleTemplate),
-
     #[command(name = "ci")]
     Ci(Ci),
 }
@@ -46,9 +42,6 @@ struct SyncDocs {
     moonbit_docs_dir: PathBuf,
 }
 
-#[derive(Debug, clap::Parser)]
-struct BundleTemplate {}
-
 #[derive(Debug, Clone, clap::Parser, Default)]
 struct Ci {}
 
@@ -56,7 +49,6 @@ fn main() {
     let cli = Cli::parse();
     let code = match cli.subcommand {
         Some(XSubcommands::SyncDocs(t)) => sync_docs::run(&t.moonbit_docs_dir).map_or(1, |_| 0),
-        Some(XSubcommands::BundleTemplate(_)) => bundle_template::run().map_or(1, |_| 0),
         Some(XSubcommands::Ci(t)) => ci::run(&t).map_or(1, |_| 0),
         None => ci::run(&Ci::default()).map_or(1, |_| 0),
     };

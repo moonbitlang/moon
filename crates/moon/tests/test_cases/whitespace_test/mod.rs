@@ -11,7 +11,7 @@ fn whitespace_test() {
 
     // unstable test
     // check(
-    //     &get_stdout_with_args(&dir, ["check", "--dry-run", "--nostd"]),
+    //     &get_stdout_with_args(&dir, ["check", "--dry-run"]),
     //     expect![[r#"
     //         moonc check './main lib/hello.mbt' './main lib/hello_test.mbt' -o './_build/check/main lib/main lib.underscore_test.mi' -pkg 'username/hello/main lib' -pkg-sources 'username/hello/main lib:./main lib'
     //         moonc check './main lib/hello.mbt' -o './_build/check/main lib/main lib.mi' -pkg 'username/hello/main lib' -pkg-sources 'username/hello/main lib:./main lib'
@@ -19,7 +19,7 @@ fn whitespace_test() {
     //     "#]],
     // );
     build_graph::assert(
-        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run", "--nostd"]),
+        moon_cmd(&dir).args(["build", "--target", "wasm-gc", "--dry-run"]),
         expect_file!["../whitespace_test.in/build_graph.jsonl.snap"],
     );
 

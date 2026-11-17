@@ -77,9 +77,8 @@ fn push_prebuild_paths(
 mod tests {
     use super::*;
 
-    use moonbuild_rupes_recta::resolve::{
-        ProjectPreparationConfig, prepare_synced_project, sync_module_dependencies,
-    };
+    use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
+    use moonbuild_rupes_recta::resolve::prepare_synced_project;
     use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
 
     #[test]
@@ -95,12 +94,8 @@ name = "user/empty"
         )
         .unwrap();
 
-        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
-            false,
-            false,
-            false,
-            WorkspaceEnv::Auto,
-        );
+        let preparation_config =
+            ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
         let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -115,7 +110,7 @@ name = "user/empty"
         let synced_modules =
             sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
         let resolved = prepare_synced_project(
-            &preparation_config,
+            &preparation_config.discovery,
             synced_modules,
             moonutil::target::TargetBackend::all(),
             &user_log,
@@ -155,12 +150,8 @@ dev_build(
         )
         .unwrap();
 
-        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
-            false,
-            false,
-            false,
-            WorkspaceEnv::Auto,
-        );
+        let preparation_config =
+            ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
         let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -175,7 +166,7 @@ dev_build(
         let synced_modules =
             sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
         let resolved = prepare_synced_project(
-            &preparation_config,
+            &preparation_config.discovery,
             synced_modules,
             moonutil::target::TargetBackend::all(),
             &user_log,

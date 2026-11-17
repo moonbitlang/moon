@@ -34,6 +34,10 @@ compile_error!(
 mod async_api;
 mod async_host;
 mod async_sys;
+// The binary and internal invocation adapters share this grammar. It is not
+// part of the stable embedding interface.
+#[doc(hidden)]
+pub mod cli_support;
 mod core_api;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod engine;
@@ -41,7 +45,7 @@ mod engine;
 mod filesystem;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod guest_memory;
-mod host_imports;
+pub mod ipc;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod memory_sanitizer;
 mod native_stack;
@@ -49,7 +53,6 @@ mod native_stack;
 mod network;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod policy;
-mod prepare_artifact;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod process;
 mod process_tree;
@@ -63,6 +66,7 @@ mod runtime;
 #[cfg_attr(feature = "wee8", allow(dead_code))]
 mod source_map;
 mod sqlite;
+mod unstable_api;
 #[cfg(feature = "v8")]
 mod util;
 #[cfg(feature = "v8")]
@@ -78,10 +82,27 @@ mod wasmtime;
 #[cfg(feature = "wee8")]
 mod wee8;
 
-pub use engine::{Engine, EngineConfig, GuestProcessMode, Module, RunOptions, RunOutcome};
+pub use engine::{Engine, EngineConfig, Module, RunOptions, RunOutcome, initialize};
 pub use process_tree::{ProcessError, ProcessInfo, ProcessState, VirtualPid};
 pub use run_signal::{SignalReceiver, SignalSendError, SignalSender, signal_channel};
 pub use run_termination::{
     RunTermination, RunTerminationReceiver, RunTerminator, termination_channel,
 };
 pub use runtime::WorkingDirectory;
+
+// libtest creates sibling threads, which cannot inherit Linux protection-key
+// permissions from a test that initializes V8 lazily. Initialize the production
+// platform on their ancestor instead. Integration tests have a separate hook.
+#[cfg(all(test, feature = "v8"))]
+ctor_lite::ctor! {
+    // SAFETY: this is the only V8 startup hook in this binary. The default
+    // path uses initially unlocked OnceLock/Mutex globals (with no prior
+    // panic), allocation, and V8's C++ API; none need Rust runtime setup.
+    // Keep Rust arguments, env, stdio, and thread APIs out of this path.
+    // Abort on returned errors without running Rust cleanup.
+    unsafe fn initialize_test_engine() {
+        if initialize(EngineConfig::default()).is_err() {
+            std::process::abort();
+        }
+    }
+}

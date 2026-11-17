@@ -49,7 +49,7 @@ pub enum UserIntent {
     TestOutline(PackageId),
     /// Bench a package (same artifact set as Test; runtime behavior differs elsewhere).
     Bench(PackageId),
-    /// Bundle all non-virtual packages in a module.
+    /// Build per-package artifacts for module packaging.
     Bundle(ModuleId),
     /// Build docs for a single module.
     Doc(ModuleId),
@@ -117,7 +117,7 @@ impl UserIntent {
                     // make whitebox/blackbox unrealizable even when the source
                     // target is still valid for the selected backend.
                     let source_supports_backend =
-                        target_realizes_backend(resolved, source_target, target_backend);
+                        target_supports_backend(resolved, source_target, target_backend);
 
                     // - Always check Source.
                     // - If this package is not a virtual implementation, we can
@@ -174,10 +174,6 @@ impl UserIntent {
                     package: pkg,
                     target_kind: TargetKind::Source,
                 });
-                out.push(ArtifactKey::ProofReport {
-                    package: pkg,
-                    target_kind: TargetKind::Source,
-                });
             }
             UserIntent::Test(pkg) | UserIntent::TestOutline(pkg) | UserIntent::Bench(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
@@ -189,7 +185,7 @@ impl UserIntent {
                     // `moon test` should still run realizable targets of the
                     // package even if test-only imports make some test targets
                     // backend-incompatible.
-                    let source_supports_backend = target_realizes_backend(
+                    let source_supports_backend = target_supports_backend(
                         resolved,
                         pkg.build_target(TargetKind::Source),
                         target_backend,
@@ -237,8 +233,25 @@ impl UserIntent {
                     }
                 }
             }
-            UserIntent::Bundle(m) => {
-                out.push(ArtifactKey::BundleResult { module: m });
+            UserIntent::Bundle(module) => {
+                // Request each package directly, including orphan packages. The
+                // build graph orders dependencies; no aggregate core is needed.
+                let packages = resolved
+                    .pkg_dirs
+                    .packages_for_module(module)
+                    .expect("bundle module should exist");
+                // TODO(bundle-virtual): Request the contract as a bundle root
+                // when the stdlib gains a pure virtual package, and cover its
+                // installed interface in a bundle fixture.
+                out.extend(packages.values().filter_map(|&package| {
+                    let pkg = resolved.pkg_dirs.get_package(package);
+                    (pkg.effective_supported_targets.contains(&target_backend)
+                        && pkg.has_implementation())
+                    .then_some(ArtifactKey::CoreIr {
+                        package,
+                        target_kind: TargetKind::Source,
+                    })
+                }));
             }
             UserIntent::Doc(module_id) => {
                 out.push(ArtifactKey::DocsDir { module: module_id });
@@ -299,72 +312,39 @@ fn should_skip_test_target(
     target_backend: TargetBackend,
     user_log: &UserLog,
 ) -> bool {
-    if !source_supports_backend || target_realizes_backend(resolved, target, target_backend) {
+    if !source_supports_backend || target_supports_backend(resolved, target, target_backend) {
         return false;
     }
-
-    warn_or_info_test_target_skip(resolved, target, target_backend, user_log);
-    true
-}
-
-fn target_realizes_backend(
-    resolved: &ResolvedProject,
-    target: BuildTarget,
-    target_backend: TargetBackend,
-) -> bool {
-    realizable_supported_backends(resolved, target, target_backend).contains(&target_backend)
-}
-
-fn realizable_supported_backends(
-    resolved: &ResolvedProject,
-    target: BuildTarget,
-    target_backend: TargetBackend,
-) -> &indexmap::IndexSet<TargetBackend> {
-    resolved.package_relations[&target_backend]
-        .realizable_supported_targets
-        .get(&target)
-        // Targets without edges are absent from the graph; in that case their
-        // realizable support is just the package-level support.
-        .unwrap_or(
-            &resolved
-                .pkg_dirs
-                .get_package(target.package)
-                .effective_supported_targets,
-        )
-}
-
-fn warn_or_info_test_target_skip(
-    resolved: &ResolvedProject,
-    target: BuildTarget,
-    target_backend: TargetBackend,
-    user_log: &UserLog,
-) {
-    let realizable = realizable_supported_backends(resolved, target, target_backend);
 
     let pkg = resolved.pkg_dirs.get_package(target.package);
     let test_kind = match target.kind {
         TargetKind::WhiteboxTest => "whitebox",
         TargetKind::BlackboxTest => "blackbox",
-        _ => return,
+        _ => return true,
     };
-
-    if realizable.is_empty() {
-        user_log.warn(format!(
-            "Skipping {test_kind} tests for package `{}`: the active dependency graph has no supported backend intersection",
-            pkg.fqn
-        ));
-        return;
-    }
-
-    let mut supported_backends = realizable
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    supported_backends.sort();
+    // This graph only decides compatibility for the selected backend. A
+    // different backend can activate different imports, so do not infer that
+    // these tests are unsupported everywhere.
     user_log.info(format!(
-        "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Supported backend intersection of active dependencies: [{}]",
-        pkg.fqn,
-        target_backend,
-        supported_backends.join(", ")
+        "Skipping {test_kind} tests for package `{}` on backend `{}`: its active dependency graph does not support this backend",
+        pkg.fqn, target_backend,
     ));
+    true
+}
+
+fn target_supports_backend(
+    resolved: &ResolvedProject,
+    target: BuildTarget,
+    target_backend: TargetBackend,
+) -> bool {
+    // Targets without edges may be absent from the graph, so check the package
+    // declaration as well as the propagated incompatibilities.
+    resolved
+        .pkg_dirs
+        .get_package(target.package)
+        .effective_supported_targets
+        .contains(&target_backend)
+        && !resolved.package_relations[&target_backend]
+            .unsupported_targets
+            .contains(&target)
 }

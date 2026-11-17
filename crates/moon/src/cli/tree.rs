@@ -21,14 +21,12 @@ use std::hash::Hash;
 use std::path::PathBuf;
 
 use anyhow::Context;
+use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
 use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
-    resolve::{
-        DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
-        sync_module_dependencies,
-    },
+    resolve::{DiscoveredProject, ResolvedProject, discover_synced_project},
 };
 use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
 use moonutil::{
@@ -153,18 +151,14 @@ fn resolve_selected_package_graph(
     child_output: ChildOutputMode,
 ) -> anyhow::Result<ResolvedPackageTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
-    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
-        false,
-        false,
-        false,
-        cli.workspace_env.clone(),
-    )
-    .with_sync_output(SyncOutputOptions {
-        quiet: false,
-        child_output,
-    });
+    let preparation_config =
+        ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
+            .with_sync_output(SyncOutputOptions {
+                quiet: false,
+                child_output,
+            });
     let synced = sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let discovered = discover_synced_project(&preparation_config, synced, user_log)?;
+    let discovered = discover_synced_project(&preparation_config.discovery, synced, user_log)?;
     let selected_module = discovered
         .local_modules()
         .iter()

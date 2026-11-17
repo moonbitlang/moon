@@ -2,20 +2,31 @@
 
 ## Developer workflows
 
+- [IPC execution](design/ipc-execution.md): CLI session discovery, native descendant delegation,
+  caller-state transfer, authority and per-Run teardown.
+
 - [Runtime architecture](design/runtime-architecture.md): read before changing
   embedding interfaces, host imports, virtualized state, or authorization. It
   defines ownership, the three host-operation layers, authority mapping, and
-  current enforcement gaps under [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
+  enforcement limits under [ADR 0012](../adr/0012-preserve-embeddability-and-runtime-owned-host-semantics.md).
 - [Process preparation](design/runtime-architecture.md#virtualization-and-inheritance):
   caller versus child lookup inputs, frozen Unix search, explicit Windows images,
-  and the current limits of lexical process authorization.
-- [Architecture tracking](architecture-tracking.md): the current ownership and
-  execution milestone after recursive virtual process trees, and deferred work.
+  and the limits of lexical process authorization.
+- [Architecture tracking](architecture-tracking.md): completion status, open
+  tasks, and dependencies for execution, authority, and embedding work.
+- [Authority closure](design/authority-closure.md): cross-surface filesystem
+  enforcement, restriction composition, resource grants, and acceptance criteria.
+- [Built-in system access](system-access.md) lists the Unix timezone files guests can
+  read under a restricted policy and describes certificate-provider activity.
 - [Host handles](host-handles.md): registration, validation, owning tables, and
   operation-specific ownership rules.
 - [Current executable path semantics](current-exe-semantics.md): load-time path
   capture, mutation behavior, executable-directory lookup, and guest-visible
   errors for file-backed and in-memory modules.
+- [Windows timezone imports](windows-timezone-abi.md) describes the timezone
+  handle and the queries available to linear Wasm guests.
+- [Core environment snapshot ABI](core-environment-abi.md): native-string cwd and
+  environment snapshots, native OS errors, buffer ownership and a compiled MoonBit example.
 - [SQLite jobs](sqlite-jobs.md): SQLite payloads in the shared async pool,
   result ownership, asynchronous discard, and upstream Wasm wrapper integration.
 - [Porting `moonbitlang/async` changes](async-upstream-porting.md): audit the
@@ -26,8 +37,8 @@
 ## Shared Wasm import registration
 
 `wasm_imports::ImportRegistry` defines synchronous imports once for V8,
-Wasmtime and wee8. WASIp1, async, SQLite, core executable paths, and the legacy
-filesystem/environment/value/stdio/random/time/process imports supply shared
+Wasmtime and wee8. WASIp1, async, SQLite, core environment/executable paths, and
+the legacy filesystem/environment/value/stdio/random/time/process imports supply shared
 registrations. Backend setup supplies per-run state, memory access, native value
 representation and callback retention.
 
@@ -110,7 +121,8 @@ before the host can access exported Guest Memory.
 
 The imports are grouped by their guest ABI:
 
-- `host_imports.rs` registers the legacy host ABI once for all adapters;
+- `unstable_api.rs` registers the legacy `__moonbit_*_unstable` ABI once for all
+  adapters, separately from the `moonbitlang/core` imports in `core_api/registry.rs`;
   `v8/values.rs` supplies V8's native string/array/builder/reader representation.
 - `wasm_imports/payload.rs` shares the typed Rust payload representation used by
   Wasmtime and wee8. String conversion belongs to each adapter: Wasmtime uses
@@ -195,21 +207,24 @@ See `run_termination.rs` for the control contract and
 has its own process namespace; clones share the backend and process table.
 `run` executes on the calling thread. `spawn(parent, module, options)` executes
 on a managed thread and returns an identity for host control through `wait`,
-`terminate`, and `snapshot`. `GuestProcessMode` independently selects Native
-compatibility or Virtual guest process operations. Engine construction remains
-available on every backend; Virtual execution, managed spawning, and external
+`terminate`, and `snapshot`. `virtualize` independently selects native or
+Engine-managed guest identities. The existing process policy authorizes all
+spawns, including internal moonx, in either case. Engine construction remains available on every backend;
+virtualized execution, managed spawning, and external
 termination currently require V8 and are checked at those operations.
 
-In Virtual mode, guests see virtual PIDs and can signal themselves or children
+With virtualization enabled, guests see virtual PIDs and can signal themselves or children
 and wait for direct children through existing async APIs. Unix supports
 SIGINT/SIGTERM/SIGHUP, SIGKILL and the signal-zero probe; Windows uses Ctrl-Break
 for graceful cancellation and exit code 1 for hard cancellation. Unhandled soft
 signals terminate only the target Run; accepted signals leave the grace period
 to the guest caller. Windows handles retain the exit status after reaping.
 
-`run_moon` and `spawn_moon` ask a host-selected Moon/moonx helper to hand off
-Wasm, source map, arguments, cwd and optional policy, then use the same Engine
-artifact execution flow. `prepare_artifact` only prepares the artifact and
+`run_moon` and `spawn_moon` classify moonx through the shared frontend first.
+Help/version and parse errors complete with bound stdio and CLI status, without
+a helper or handoff directory. Execution requests ask a host-selected Moon/moonx
+helper to hand off Wasm, source map, arguments, cwd and optional policy, then use
+the same Engine artifact execution flow. `process::prepare_artifact` only prepares the artifact and
 borrows termination control. Engine retains its private delivery directory
 through Runtime teardown and cleanup; normal build caches stay with Moon.
 `run_file` also places file loading inside its execution scope. A Run borrows
@@ -217,17 +232,37 @@ that scope's termination request and cannot finalize it when Wasm returns.
 Accepted termination overrides a normal result or execution error until the
 scope closes. A panic unwinds caller-thread execution; a managed-thread panic
 is reported as process failure. Managed completion is published only after
-thread reaping. Caller-thread Virtual execution reserves its result for the
+thread reaping. Caller-thread virtualized execution reserves its result for the
 calling method, then removes its identity and adopts remaining children.
+
+Policy builders read the selected file and resolve its domain rules once before
+admission. Engine uses `process.virtualize` (or an explicit Rust override) to
+select execution behavior; Runtime intersects the selected rules with inherited
+restrictions and provisions Env from the supplied source. Execution configuration
+and Env provisioning are absent from inherited restriction transport.
+The CLI resolves the policy before installing its `CliSession` signal target.
+The canonical `cli_support::MoonrunCli` grammar lives in the library; it only
+interprets arguments and returns frontend errors/help. The binary still owns
+policy loading, inherited IPC discovery and OS signal installation. Explicit
+`--virtual-process` or `--daemon` enables the corresponding RunOptions setting
+after configuration loading without replacing inherited or selected authority.
+The flags are mutually exclusive; effective combinations from configuration and
+IPC discovery are also rejected. Sharing grammar does not enable moonrun guest
+interception, which remains separate work.
+A policy delivered by Moon can select virtualization before Wasm begins:
+managed execution binds its existing PID; inline execution admits at that point.
+An inline preparation whose policy is not yet known is not an Engine member.
+Caller termination still covers preparation, and shutdown blocks subsequent
+virtual admission. Runtime never changes mode after construction.
 
 `RuntimeConfig` carries the single set of environment, cwd, stdio, policy and
 process configuration inputs through preparation to Runtime construction.
 `RunOptions::with_environment` supplies an owned source, including an explicit
-empty environment. Host-facing Virtual entries capture only missing root Env
+empty environment. Host-facing virtualized entries capture only missing root Env
 and cwd values. Guest Host Process derives complete child inputs from current
-Runtime state and the guest request, selects Virtual mode, and submits them
+Runtime state and the guest request, preserves the parent's virtualization and policy, and submits them
 without host fallback. Policy provisioning reads the supplied environment;
-policy inheritance retains its existing precedence. Parentage never selects
+inherited and selected child policies both constrain domain operations. Parentage never selects
 state or authority. Native mode preserves Ambient defaults unless the caller
 supplies owned state.
 
@@ -240,14 +275,32 @@ through a weak `Waker`; the table neither owns the parent poll nor knows its
 transport. Guest wait Jobs are cancellable and consume a result only when the
 guest reads it. Dropping an unread Job preserves that result. Exiting parents
 leave children with the Engine. Dropping Engine does not stop or join them; the
-embedding caller owns shutdown. The CLI's `--virtual-process-tree` mode waits
-for adopted descendants before exiting with the root outcome.
+embedding caller owns shutdown. `Engine::request_shutdown(outcome)` closes
+managed, virtualized and IPC-enabled admission under the same lock as spawning,
+then requests termination of every admitted member, including adopted descendants. Clones
+share this irreversible state; independent Engines do not. It does not join,
+reap results, or affect Native caller-thread Runs without IPC outside the process table.
+Existing per-process termination requests keep their first outcome.
+
+With `process.virtualize = true`, the CLI normally waits for adopted descendants
+and presents the root outcome. A signal the root does not accept instead closes
+the namespace and requests termination of all members. This covers signals
+before root admission and after root exit. The CLI retains the first unhandled
+signal, drains adopted roots, and only then presents signal termination;
+repeated signals during teardown cannot force an early host exit. Session
+finalization retires this target so later signals use the process fallback.
+An IPC host CLI uses the same session teardown but immediately requests whole-Engine
+shutdown, independent of individual guest signal handlers. IPC clients retain
+per-Run signal control. Ordinary CLI execution keeps its existing signal behavior. Windows console
+close/logoff/shutdown deadlines and synchronous host calls can still limit or
+block cleanup; this interface does not promise bounded termination.
 
 Current permission coverage is unchanged. Helpers retain host access, and
 cancellation during preparation waits for helper exit before preventing Wasm
-startup; helper-group cancellation remains a FIXME. Prepared native/Node
-artifacts and ordinary native guest spawning in Virtual mode remain
-unsupported. `Terminating` does not promise bounded teardown. See
+startup; helper-group cancellation remains a FIXME. Handoff carries Wasm only;
+native/JS targets are rejected by the helper before building. Ordinary native
+guest spawning with virtualization enabled remains unsupported. A spawn denied
+by the process policy returns a permission error before lookup or resource acquisition. `Terminating` does not promise bounded teardown. See
 `tests/process_tree.rs`, `tests/guest_process_control.rs`, `tests/recursive_moon.rs`
 and `tests/moon_handoff.rs`.
 
@@ -360,6 +413,21 @@ cargo build
 cargo test
 cargo test -p moonrun --no-default-features --features wasmtime
 ```
+
+V8 tests must initialize the default platform before libtest creates its test
+threads, so those threads inherit Linux protection-key permissions. The library
+unit tests have a startup hook in `src/lib.rs`. Integration tests that use V8 in
+the test process must include `tests/common/test_init.rs` with a
+`#[cfg(feature = "v8")]` module declaration; integration tests link the normal
+library and do not run its unit-test hook. Keep these pre-main hooks limited to
+engine initialization, without Rust arguments, environment access, or stdio.
+
+Tests that select a different `EngineConfig`, such as `initialization.rs` and
+`process_tree.rs`, use separate processes and initialize their configuration
+before creating execution threads. They must not include the default startup
+hook. Tests that only spawn the Moonrun CLI rely on its existing initialization.
+Serializing libtest does not replace startup initialization: even with
+`--test-threads=1`, test functions run on separate threads.
 
 ## Before PR
 

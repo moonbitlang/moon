@@ -6,21 +6,21 @@ const PREFERRED_TARGET_CONFLICT_WARNING: &str = "Multiple local modules specify 
 fn test_target_backend_cli_wiring_smoke() {
     let dir = TestDir::new("target_backend");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
+        get_stdout(&dir, ["build", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
+            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.core' ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm -g -O0 -wasi
         "#]],
     );
     moon_cmd(&dir)
-        .args(["run", "main", "--dry-run", "--target", "js", "--nostd"])
+        .args(["run", "main", "--dry-run", "--target", "js"])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
+moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/js/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/js/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/js/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
+moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/js/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/js/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/js/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/js/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/js/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/js/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/js/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/js/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/js/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/js/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/js/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/js/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/js/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/js/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/js/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/js/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/js/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/js/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/js/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/js/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/js/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.core' ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
 [..]node[..] --enable-source-maps ./_build/js/debug/build/main/main.js
 
 "#]],
@@ -99,7 +99,7 @@ fn assert_conflicting_workspace_preferred_targets_build_uses_module_backends(
 
 #[test]
 fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let check_err = get_err_stderr(&dir, ["check", "server", "--target", "js", "--dry-run"]);
     assert!(
@@ -110,7 +110,7 @@ fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
 
 #[test]
 fn test_mixed_backend_explicit_multi_path_selection_filters_unsupported_packages() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let check_out = get_stdout(
         &dir,
@@ -159,7 +159,7 @@ fn test_mixed_backend_explicit_multi_path_selection_filters_unsupported_packages
 
 #[test]
 fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let stderr = get_stderr(
         &dir,
@@ -191,7 +191,7 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
 
 #[test]
 fn test_moon_build_package_selection_uses_user_log_policy() {
-    let dir = TestDir::new("supported_targets_empty.in");
+    let dir = Fixture::readonly("supported_targets_empty.in");
     let assert = moon_cmd(&dir)
         .args([
             "build",
@@ -225,7 +225,7 @@ fn test_moon_build_package_selection_uses_user_log_policy() {
 
 #[test]
 fn test_moon_build_package_selection_preserves_warning_labels() {
-    let dir = TestDir::new("hello");
+    let dir = Fixture::readonly("hello");
 
     moon_cmd(&dir)
         .args([
@@ -244,7 +244,7 @@ Warning: Package 'moonbitlang/core/array' matched by name 'moonbitlang/core/arra
 
 #[test]
 fn test_mixed_backend_split_check_keeps_single_package_patch_file_rule() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let dir = Fixture::readonly("mixed_backend_local_dep.in");
 
     let stderr = get_err_stderr(
         &dir,
@@ -331,7 +331,7 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
 
 #[test]
 fn test_build_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["build", "--dry-run", "--sort-input"]);
     assert!(
@@ -387,7 +387,7 @@ fn test_build_paths_split_by_module_preferred_targets() {
 
 #[test]
 fn test_supported_targets_empty_list_is_never_selected() {
-    let dir = TestDir::new("supported_targets_empty.in");
+    let dir = Fixture::readonly("supported_targets_empty.in");
 
     let explicit_err = get_err_stderr(&dir, ["check", "never", "--target", "js", "--dry-run"]);
     assert!(
@@ -422,7 +422,7 @@ fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
 fn test_moon_info_quiet_keeps_command_result_and_suppresses_user_log() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
     let assert = moon_cmd(&dir)
-        .args(["info", "--target", "js", "--no-alias", "--quiet"])
+        .args(["info", "--target", "js", "--quiet"])
         .assert()
         .success()
         .stderr_eq("");
@@ -442,7 +442,7 @@ fn test_moon_info_quiet_keeps_command_result_and_suppresses_user_log() {
 
 #[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
-    let dir = TestDir::new("supported_targets_module_intersection.in");
+    let dir = Fixture::readonly("supported_targets_module_intersection.in");
 
     let js_err = get_err_stderr(&dir, ["check", "lib", "--target", "js", "--dry-run"]);
     assert!(
@@ -488,7 +488,7 @@ fn test_packages_json_contains_computed_supported_targets() {
 
 #[test]
 fn test_supported_targets_transitive_mismatch_fails_fast() {
-    let dir = TestDir::new("supported_targets_transitive_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_transitive_mismatch.in");
 
     let check_err = get_err_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(check_err.contains("Failed to calculate build plan"));
@@ -496,19 +496,19 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
     assert!(check_err.contains("incompatible with the dependency graph"));
     assert!(check_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(check_err.contains("requires 'supported/mismatch/lib'"));
-    assert!(check_err.contains("supports [native]"));
+    assert!(check_err.contains("active dependency graph does not support this backend"));
 
     let build_err = get_err_stderr(&dir, ["build", "--target", "js", "--dry-run"]);
     assert!(build_err.contains("incompatible with the dependency graph"));
     assert!(build_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(build_err.contains("requires 'supported/mismatch/lib'"));
-    assert!(build_err.contains("supports [native]"));
+    assert!(build_err.contains("active dependency graph does not support this backend"));
 
     let run_err = get_err_stderr(&dir, ["run", "main", "--target", "js", "--dry-run"]);
     assert!(run_err.contains("incompatible with the dependency graph"));
     assert!(run_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("requires 'supported/mismatch/lib'"));
-    assert!(run_err.contains("supports [native]"));
+    assert!(run_err.contains("active dependency graph does not support this backend"));
 }
 
 #[test]
@@ -517,23 +517,11 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
 
     let js_stdout = get_stdout(
         &dir,
-        [
-            "run",
-            "js_preferred/src/main",
-            "--dry-run",
-            "--sort-input",
-            "--nostd",
-        ],
+        ["run", "js_preferred/src/main", "--dry-run", "--sort-input"],
     );
     let js_stderr = get_stderr(
         &dir,
-        [
-            "run",
-            "js_preferred/src/main",
-            "--dry-run",
-            "--sort-input",
-            "--nostd",
-        ],
+        ["run", "js_preferred/src/main", "--dry-run", "--sort-input"],
     );
     assert!(
         !js_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
@@ -552,7 +540,6 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
             "native_preferred/src/main",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ],
     );
     let native_stderr = get_stderr(
@@ -562,7 +549,6 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
             "native_preferred/src/main",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ],
     );
     assert!(
@@ -580,16 +566,7 @@ fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend
 fn test_run_without_module_preference_ignores_unrelated_module_preference() {
     let dir = TestDir::new("workspace_run_default_target_with_unrelated_preference.in");
 
-    let stdout = get_stdout(
-        &dir,
-        [
-            "run",
-            "app/src/main",
-            "--dry-run",
-            "--sort-input",
-            "--nostd",
-        ],
-    );
+    let stdout = get_stdout(&dir, ["run", "app/src/main", "--dry-run", "--sort-input"]);
 
     assert_contains_and_absent(
         &stdout,
@@ -600,7 +577,7 @@ fn test_run_without_module_preference_ignores_unrelated_module_preference() {
 
 #[test]
 fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
-    let dir = TestDir::new("supported_targets_virtual_root_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_virtual_root_mismatch.in");
 
     let check_err = get_err_stderr(&dir, ["check", "virtual", "--target", "js", "--dry-run"]);
     assert!(check_err.contains("incompatible with the dependency graph"));
@@ -608,7 +585,7 @@ fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
         check_err
             .contains("'supported/virtual-root/virtual' requires 'supported/virtual-root/lib'")
     );
-    assert!(check_err.contains("supports [native]"));
+    assert!(check_err.contains("active dependency graph does not support this backend"));
 
     let build_err = get_err_stderr(&dir, ["build", "virtual", "--target", "js", "--dry-run"]);
     assert!(build_err.contains("incompatible with the dependency graph"));
@@ -616,12 +593,12 @@ fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
         build_err
             .contains("'supported/virtual-root/virtual' requires 'supported/virtual-root/lib'")
     );
-    assert!(build_err.contains("supports [native]"));
+    assert!(build_err.contains("active dependency graph does not support this backend"));
 }
 
 #[test]
 fn test_check_skips_unrealizable_test_targets_when_source_supports_backend() {
-    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_test_target_mismatch.in");
 
     let check_out = get_stdout(
         &dir,
@@ -636,7 +613,7 @@ fn test_check_skips_unrealizable_test_targets_when_source_supports_backend() {
 
 #[test]
 fn test_test_skips_unrealizable_test_targets_when_source_supports_backend() {
-    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+    let dir = Fixture::readonly("supported_targets_test_target_mismatch.in");
 
     let test_out = get_stdout(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
     assert_contains_and_absent(
@@ -647,44 +624,43 @@ fn test_test_skips_unrealizable_test_targets_when_source_supports_backend() {
 }
 
 #[test]
-fn test_check_warns_when_test_target_is_never_realizable() {
-    let dir = TestDir::new("supported_targets_test_target_unrealizable.in");
-
-    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
-    assert!(stderr.contains("Skipping whitebox tests for package"));
-    assert!(stderr.contains("Skipping blackbox tests for package"));
-    assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
-}
-
-#[test]
-fn test_test_warns_when_test_target_is_never_realizable() {
-    let dir = TestDir::new("supported_targets_test_target_unrealizable.in");
+fn test_test_reports_backend_incompatible_test_targets_as_info() {
+    let dir = Fixture::readonly("supported_targets_test_target_unrealizable.in");
 
     let stderr = get_stderr(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
     assert!(stderr.contains("Skipping whitebox tests for package"));
     assert!(stderr.contains("Skipping blackbox tests for package"));
     assert!(stderr.contains("supported/test-target-unrealizable/lib"));
-    assert!(stderr.contains("the active dependency graph has no supported backend intersection"));
+    assert!(stderr.contains("its active dependency graph does not support this backend"));
+    assert!(!stderr.contains("Warning: Skipping"));
 }
 
 #[test]
 fn test_check_skips_backend_mismatched_tests_as_info() {
-    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+    // Empty and nonempty cross-backend intersections both mean only that this
+    // backend cannot run the tests. Neither case should produce a warning.
+    for fixture in [
+        "supported_targets_test_target_mismatch.in",
+        "supported_targets_test_target_unrealizable.in",
+    ] {
+        let dir = Fixture::readonly(fixture);
+        let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
+        assert!(!stderr.contains("Skipping"), "{stderr}");
 
-    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
-    assert!(!stderr.contains("target is not realizable for this backend"));
-
-    let verbose_stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run", "-v"]);
-    assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
-    assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
-    assert!(verbose_stderr.contains("target is not realizable for this backend"));
-    assert!(!verbose_stderr.contains("Info: Skipping"));
+        let verbose_stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run", "-v"]);
+        assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
+        assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
+        assert!(
+            verbose_stderr.contains("its active dependency graph does not support this backend")
+        );
+        assert!(!verbose_stderr.contains("Warning: Skipping"));
+        assert!(!verbose_stderr.contains("Info: Skipping"));
+    }
 }
 
 #[test]
 fn test_missing_supported_targets_root_warns_when_dep_declares() {
-    let dir = TestDir::new("supported_targets_missing_root_warning.in");
+    let dir = Fixture::readonly("supported_targets_missing_root_warning.in");
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(stderr.contains("does not declare `supported_targets`"));
     assert!(stderr.contains("supported/missing-root/main"));
@@ -709,7 +685,7 @@ fn test_legacy_supported_targets_warning_is_local_only() {
 
 #[test]
 fn test_check_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["check", "--dry-run", "--sort-input"]);
     assert!(
@@ -834,7 +810,7 @@ fn test_conflicting_workspace_preferred_targets_default_to_wasm_across_other_com
 
 #[test]
 fn test_test_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["test", "--dry-run", "--sort-input"]);
     assert!(
@@ -854,7 +830,7 @@ fn test_test_conflicting_workspace_preferred_targets_do_not_warn() {
 
 #[test]
 fn test_bench_conflicting_workspace_preferred_targets_do_not_warn() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["bench", "--dry-run", "--sort-input"]);
     assert!(
@@ -932,7 +908,7 @@ fn test_test_without_target_respects_module_preferred_targets() {
 
 #[test]
 fn test_test_split_package_selection_keeps_multi_package_file_guard() {
-    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let dir = Fixture::readonly("workspace_conflicting_preferred_targets.in");
 
     let stderr = get_err_stderr(
         &dir,

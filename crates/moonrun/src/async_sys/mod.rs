@@ -31,12 +31,35 @@ pub(crate) mod signal;
 pub(crate) mod socket;
 
 #[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum SourceRoot {
+    MoonbitAsync,
+    // Native primitives shared with core/async and shipped with the toolchain.
+    MoonbitRuntime,
+}
+
+#[cfg(test)]
+impl SourceRoot {
+    pub(crate) fn path(self, source: &str) -> std::path::PathBuf {
+        match self {
+            Self::MoonbitAsync => std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../third_party/moonbitlang_async")
+                .join(source),
+            Self::MoonbitRuntime => moonutil::toolchain::toolchain_root()
+                .join("lib/runtime")
+                .join(source),
+        }
+    }
+}
+
+#[cfg(test)]
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct PortedSymbol {
     pub(crate) rust_module: &'static str,
     pub(crate) rust_symbol: &'static str,
     pub(crate) native_symbol: &'static str,
+    pub(crate) root: SourceRoot,
     pub(crate) source: &'static str,
 }
 
@@ -52,6 +75,8 @@ pub(crate) struct CompatSymbol {
 }
 
 macro_rules! ported_fns {
+    (@root source) => { crate::async_sys::SourceRoot::MoonbitAsync };
+    (@root runtime) => { crate::async_sys::SourceRoot::MoonbitRuntime };
     (@collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]) => {
         #[cfg(test)]
         pub(crate) const PORTED_SYMBOLS: &[crate::async_sys::PortedSymbol] = &[
@@ -68,7 +93,7 @@ macro_rules! ported_fns {
     };
     (
         @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported(source = $source:literal, original = $original:literal)]
+        #[ported($source_root:ident = $source:literal, original = $original:literal)]
         #[cfg($($cfg:tt)*)]
         $(#[$meta:meta])*
         $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
@@ -82,6 +107,7 @@ macro_rules! ported_fns {
                     rust_module: module_path!(),
                     rust_symbol: stringify!($name),
                     native_symbol: $original,
+                    root: ported_fns!(@root $source_root),
                     source: $source,
                 },
             ] [$($compat_entries)*] [
@@ -95,7 +121,7 @@ macro_rules! ported_fns {
     };
     (
         @collect [$($entries:tt)*] [$($compat_entries:tt)*] [$($out:tt)*]
-        #[ported(source = $source:literal, original = $original:literal)]
+        #[ported($source_root:ident = $source:literal, original = $original:literal)]
         $(#[$meta:meta])*
         $vis:vis fn $name:ident($($args:tt)*) $(-> $ret:ty)? $body:block
         $($rest:tt)*
@@ -107,6 +133,7 @@ macro_rules! ported_fns {
                     rust_module: module_path!(),
                     rust_symbol: stringify!($name),
                     native_symbol: $original,
+                    root: ported_fns!(@root $source_root),
                     source: $source,
                 },
             ] [$($compat_entries)*] [

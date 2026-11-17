@@ -1,8 +1,9 @@
 # `moon test` execution flow
 
 This document summarizes what the current `moon test` implementation does. The behavior is
-based on `crates/moon/src/run/runtest.rs`, `crates/moon/src/run/runtime.rs`, and
-`crates/moon/src/cli/test.rs`. Treat this as internal documentation: user-facing
+based on `crates/moon/src/run/runtest.rs`, its private `report` module,
+`crates/moon/src/run/runtime.rs`, and `crates/moon/src/cli/test.rs`.
+Treat this as internal documentation: user-facing
 behavior can change.
 
 ## Build + run pipeline
@@ -59,7 +60,10 @@ metadata directly and does not require executable artifacts.
    then turns each pair into a `TestInvocation`: it parses the metadata
    (`MooncGenTestInfo`) to know which files and indices exist, applies the CLI filter to
    build the `TestArgs` payload listing the ranges to execute, and drops binaries for
-   which nothing is selected.
+   which nothing is selected. The payload omits entries with no selected ranges,
+   including empty metadata groups and files excluded by name, index, or skip
+   filtering. Explicit index selections coalesce consecutive indices without
+   changing execution order. Build-only output uses the same selection.
 4. Benchmarks are then isolated. When `bench` is true, `isolate_invocations` splits
    every invocation into one invocation per selected case, so no benchmark shares a
    process with another. Cases that share a process share a runtime that the earlier
@@ -80,11 +84,8 @@ metadata directly and does not require executable artifacts.
    final report is rendered either as compact text (default) or JSON lines (when
    `--test-failure-json` is on).
 
-Coverage runs `moonrun <toolchain-root>/bin/moon_cove.wasm -- ...` by default,
-without registry access or a separate version selection. Only
-`MOON_COVE_REPORT_ENABLED=0` (or case-insensitive `false`) selects the legacy
-`moon_cove_report`, whose executable can be selected with
-`MOON_COVE_REPORT_OVERRIDE`.
+Coverage runs `moonrun <toolchain-root>/bin/moon_cove.wasm -- ...`, using the
+reporter bundled with the selected toolchain.
 
 ## Test execution parallelism
 
@@ -109,6 +110,10 @@ Collected test results are reported in invocation order, regardless of completio
 order. Output printed directly by test programs may interleave. Selected Target
 Backends still execute one after another, and this scheduling does not split
 individual test cases into separate processes or change async-test concurrency.
+
+The private `runtest::report` module owns per-test text and JSON output, including
+benchmark summary decoding and formatting. Test result data and expect/snapshot
+promotion remain in `moonbuild`.
 
 `moon bench` remains sequential by default to avoid contention affecting
 measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
@@ -213,22 +218,39 @@ cannot be used unconditionally. Core blackbox tests receive an injected prelude
 import; that injection does not extend to whitebox or inline tests.
 
 For async tests, lowering selects the runtime package passed to the private
-test-driver generator from the current test target's effective imports. A
-package that imports `moonbitlang/async` (or is that package itself) keeps the
-legacy runtime; otherwise the generated driver uses
-`moonbitlang/core/async_io`.
+test-driver generator from the current test target's active imports for the
+selected backend. A package that imports `moonbitlang/async` (or is that package
+itself) keeps the legacy runtime; otherwise the generated driver uses
+`moonbitlang/core/async`.
 
 ## Commands per backend (and how to specify test cases)
 
-`command_for` (in `runtime.rs`) hides the differences between target backends. The
-runner always records a `CommandGuard` that cleans up temporary drivers when necessary.
+`command_for` (in `runtime.rs`) hides the differences between target backends.
+The same module owns `TestArgs` and its command-line encoding.
+All backends receive `TestArgs::to_cli_args()` selections in the form
+`filename:start-end,start-end/...`, for example `math.mbt:0-5,7-9/io.mbt:2-3`.
+Ranges are half-open, and their order and duplicates are preserved. Grouping
+ranges avoids repeating long filenames for sparse selections.
+
+Names are compiler metadata basenames, not paths, so `/` cannot occur in a name.
+The final `:` separates each name from its ranges; earlier colons, commas,
+quotes, backslashes, whitespace, Unicode spelling and case are preserved exactly.
+Backslashes are literal characters on Unix, not escape or path separators.
+Moon passes the selection as one process argument, without shell interpolation.
+Generated MoonBit string literals escape these names separately from the wire format.
+This is an internal protocol
+between Moon and its test runtimes, with no filesystem lookup or name normalization.
+Encoding and range parsing are linear in the payload size. JavaScript and native
+drivers additionally expand ranges into individual test entries, as before.
+The existing execution interfaces and generated test maps remain unchanged.
 
 ### Wasm and WasmGC
 
 - Runner: `moonrun` binary from the active toolchain.
-- Invocation: `moonrun --test-args <json> [--policy <path>] <artifact>.wasm --`.
-- The JSON payload is a serialized `TestArgs`, so the runtime knows which files and
-  indices to execute. Everything after `--` is forwarded to the MoonBit program.
+- Invocation: `moonrun --test-args=<selection> [--policy <path>] <artifact>.wasm --`.
+- Moonrun decodes the selection into filenames and index ranges before invoking
+  the existing test-driver exports.
+  Everything after `--` is forwarded to the MoonBit program.
 - The runtime initializes test modules before invoking test exports and the
   test-driver finalizer. It prefers `_initialize`, falling back to `_start` when
   `_initialize` is absent. The selected export is called once, including when no
@@ -242,22 +264,19 @@ runner always records a `CommandGuard` that cleans up temporary drivers when nec
 
 ### JavaScript
 
-- For plain `moon run`, Node reads the emitted `.js`. For tests, the runner synthesizes
-  a temporary CommonJS driver next to the compiled `.cjs` file.
-- The driver imports the original artifact, sets `testParams` and `packageName`, and
-  then invokes the generated test harness.
-- Execution command: `node --enable-source-maps <temp_dir>/driver.cjs '<TestArgs JSON>'`.
-  The temporary directory also contains a throwaway `package.json` so Node does not try
-  to interpret surrounding workspace settings (`type: module`). The directory is deleted
-  once the command finishes.
+- Execution command: `node --enable-source-maps <artifact>.js '<selection>'`.
+- The generated driver accepts the compact selection format.
+  `moon test --build-only --target js` reports the same compact argument in
+  `test_filter_args`. The outer artifact listing remains JSON; its strings must
+  be decoded before passing the argument directly to the emitted artifact.
+- The build emits a `package.json` beside the artifact so Node does not inherit
+  surrounding workspace module settings.
 
 ### Native and LLVM
 
 - The compiled executable is run directly.
-- Test selection is encoded via `TestArgs::to_cli_args_for_native`, which produces a
-  `/`-separated list of `filename:start-end` segments. Each range follows half-open
-  semantics (`start` inclusive, `end` exclusive) just like the metadata indices.
-- Example argument: `math.mbt:0-5/io.mbt:2-3`.
+- The generated driver accepts the common compact selection format. The previous
+  `/`-separated `filename:start-end` format remains valid as its single-range case.
 
 ## Narrowing which tests run
 

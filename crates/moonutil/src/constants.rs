@@ -27,7 +27,7 @@ pub const MOON_WORK: &str = "moon.work";
 pub const MOON_WORK_ENV: &str = "MOON_WORK";
 pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
 /// Carries a process-local policy-copy handle identifier from a policy-bearing
-/// moonrun through moonx to the moonrun that executes the resolved Wasm artifact.
+/// moonrun to a child moonrun, directly or through moonx.
 pub const MOONRUN_INHERITED_POLICY: &str = "MOONRUN_INHERITED_POLICY";
 pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
@@ -36,7 +36,6 @@ pub const MOONBITLANG_CORE: &str = "moonbitlang/core";
 pub const MOONBITLANG_CORE_BUILTIN: &str = "moonbitlang/core/builtin";
 pub const MOONBITLANG_CORE_PRELUDE: &str = "moonbitlang/core/prelude";
 pub const MOONBITLANG_COVERAGE: &str = "moonbitlang/core/coverage";
-pub const MOONBITLANG_ABORT: &str = "moonbitlang/core/abort";
 
 pub static MOD_NAME_STDLIB: ModuleName = ModuleName {
     username: arcstr::literal!("moonbitlang"),

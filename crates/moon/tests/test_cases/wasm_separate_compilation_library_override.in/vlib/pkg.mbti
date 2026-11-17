@@ -1,0 +1,3 @@
+package "username/vo/vlib"
+
+fn value() -> Int

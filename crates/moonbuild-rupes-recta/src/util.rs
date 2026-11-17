@@ -22,27 +22,11 @@ use crate::discover::DiscoverResult;
 use crate::pkg_solve::PackageRelations;
 use crate::{
     build_plan::{BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
-    model::BuildPlanNode,
+    model::{BuildPlanNode, WasmObject},
 };
 use moonutil::resolution::ModuleDependencyGraph;
 use petgraph::Direction;
 use std::io::{self, Write};
-use std::path::Path;
-
-/// Strip trailing slashes from a path.
-///
-/// # Note
-///
-/// This is a **workaround** as there's no a stdlib function to do this
-/// directly. It's abusing the behavior of `strip_prefix` which removes trailing
-/// slash by forcing removal of an empty prefix (which does nothing to the path).
-///
-/// Related issues:
-/// - `strip_prefix` behavior: https://github.com/rust-lang/rust/issues/148267
-/// - Methods for normalizing paths: https://github.com/rust-lang/rust/issues/142503
-pub(crate) fn strip_trailing_slash(path: &Path) -> &Path {
-    path.strip_prefix("").unwrap_or(path)
-}
 
 /// Print a module dependency graph as a DOT graph.
 pub fn print_module_graph_dot(
@@ -187,13 +171,14 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(target) => format!("{:?}@Check", target),
             BuildPlanNode::EmitProof(target) => format!("{:?}@EmitProof", target),
-            BuildPlanNode::Prove(target) => format!("{:?}@Prove", target),
             BuildPlanNode::BuildCore(target) => format!("{:?}@BuildCore", target),
             BuildPlanNode::BuildCStub(target, index) => {
                 format!("{:?}@BuildCStub_{}", target, index)
             }
             BuildPlanNode::ArchiveOrLinkCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
+            BuildPlanNode::BuildWasmObject(object) => format!("{:?}@BuildWasmObject", object),
+            BuildPlanNode::LinkWasmObjects(target) => format!("{:?}@LinkWasmObjects", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::CompileGeneratedC(target) => {
                 format!("{:?}@CompileGeneratedC", target)
@@ -206,7 +191,6 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateNodeTestPackageConfig(package) => {
                 format!("{:?}@GenerateNodeTestPackageConfig", package)
             }
-            BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("BuildRuntimeObject_{index}")
@@ -227,10 +211,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nEmitProof", fqn)
             }
-            BuildPlanNode::Prove(target) => {
-                let fqn = packages.fqn(target.package);
-                format!("{}\\nProve", fqn)
-            }
             BuildPlanNode::BuildCore(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nBuildCore", fqn)
@@ -246,6 +226,18 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nLinkCore", fqn)
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Main(target)) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nBuildWasmMainObject", fqn)
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(package)) => {
+                let fqn = packages.fqn(*package);
+                format!("{}\\nBuildWasmLibraryObject", fqn)
+            }
+            BuildPlanNode::LinkWasmObjects(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nLinkWasmObjects", fqn)
             }
             BuildPlanNode::MakeExecutable(target) => {
                 let fqn = packages.fqn(target.package);
@@ -271,10 +263,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(*package);
                 format!("{}\\nGenerateNodeTestPackageConfig", fqn)
             }
-            BuildPlanNode::Bundle(module_id) => {
-                let src = module_graph.module_source(*module_id);
-                format!("{}\\nBundle", src)
-            }
             BuildPlanNode::GenerateMbti(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("{}\\nGenerateMbti", fqn)
@@ -298,18 +286,18 @@ impl BuildPlanNode {
         match self {
             BuildPlanNode::Check(_) => "lightblue",
             BuildPlanNode::EmitProof(_) => "lightgoldenrod2",
-            BuildPlanNode::Prove(_) => "lightgoldenrod1",
             BuildPlanNode::BuildCore(_) => "lightgreen",
             BuildPlanNode::BuildCStub(_, _) => "lightsalmon",
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
+            BuildPlanNode::BuildWasmObject(_) => "lightcoral",
+            BuildPlanNode::LinkWasmObjects(_) => "lightpink",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::CompileGeneratedC(_) => "lightcoral",
             BuildPlanNode::ArchiveForeignLibrary(_) => "lightpink",
             BuildPlanNode::GenerateDsym(_) => "pink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
             BuildPlanNode::GenerateNodeTestPackageConfig(_) => "lightgray",
-            BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::BuildRuntimeObject(_) => "orange",
             BuildPlanNode::BuildRuntimeLib => "orange",

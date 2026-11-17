@@ -29,6 +29,7 @@ pub(crate) mod doc;
 pub(crate) mod explain;
 pub(crate) mod external;
 pub(crate) mod fetch;
+pub(crate) mod fix;
 pub(crate) mod fmt;
 pub(crate) mod generate_test_driver;
 pub(crate) mod info;
@@ -46,10 +47,10 @@ mod registry_queries;
 pub(crate) mod registry_runner;
 pub(crate) mod run;
 pub(crate) mod runtime;
-pub(crate) mod runwasm;
 pub(crate) mod search;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
+pub(crate) mod testcli;
 pub(crate) mod tool;
 pub(crate) mod tree;
 pub(crate) mod update;
@@ -71,10 +72,10 @@ pub(crate) use deps::*;
 pub(crate) use doc::*;
 pub(crate) use explain::*;
 pub(crate) use fetch::*;
+pub(crate) use fix::*;
 pub(crate) use fmt::*;
 pub(crate) use generate_test_driver::*;
 pub(crate) use info::*;
-use moonbuild::upgrade::UpgradeSubcommand;
 use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
 use moonutil::cli_support::{
     DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
@@ -83,7 +84,6 @@ use moonutil::cli_support::{
 pub(crate) use new::*;
 pub(crate) use prove::*;
 pub(crate) use run::*;
-pub(crate) use runwasm::*;
 pub(crate) use search::*;
 pub(crate) use shell_completion::*;
 pub(crate) use test::*;
@@ -141,13 +141,29 @@ pub(crate) enum MoonBuildSubcommands {
     Bundle(BundleSubcommand),
     Build(BuildSubcommand),
     Check(CheckSubcommand),
+    Fix(FixSubcommand),
     Prove(ProveSubcommand),
     Run(RunSubcommand),
-    // TODO(2026-09-14): Remove `moon runwasm` after the two-week deprecation
-    // window; its replacements depend on whether the input is local or remote.
-    #[clap(name = "runwasm")]
-    RunWasm(RunWasmSubcommand),
     Test(TestSubcommand),
+    /// Run CLI tests with the current toolchain's mooncram
+    ///
+    /// Executes `moonrun <toolchain>/bin/mooncram.wasm -- [ARGS]...` without
+    /// loading a MoonBit project. All arguments after `testcli`, including
+    /// `--help`, `--version`, and `--`, are forwarded unchanged.
+    ///
+    /// Uses the current toolchain, including MOON_TOOLCHAIN_ROOT and
+    /// MOONRUN_OVERRIDE. Moon options such as `-C` must appear before `testcli`;
+    /// `--trace` is not supported before this command.
+    // Invocation selection retains this opaque tail before Clap runs. The
+    // argument declaration supplies help and completion metadata only.
+    #[clap(
+        name = "testcli",
+        arg = clap::Arg::new("args")
+            .value_name("ARGS")
+            .num_args(0..)
+            .help("Arguments forwarded to mooncram")
+    )]
+    TestCli,
     #[clap(hide = true)]
     Cram(CramSubcommand),
     #[clap(hide = true)]

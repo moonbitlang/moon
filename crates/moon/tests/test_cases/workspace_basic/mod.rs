@@ -213,7 +213,7 @@ fn test_workspace_commands() {
         expect![[r#"
             moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core -pkg alice/liba/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/app/main/main.core -pkg alice/app/main -pkg-type executable -i ./_build/wasm-gc/debug/build/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core ./_build/wasm-gc/debug/build/alice/app/main/main.core -main alice/app/main -o ./_build/wasm-gc/debug/build/alice/app/main/main.wasm -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.core' ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core ./_build/wasm-gc/debug/build/alice/app/main/main.core -main alice/app/main -o ./_build/wasm-gc/debug/build/alice/app/main/main.wasm -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
         "#]],
     );
 
@@ -226,17 +226,17 @@ fn test_workspace_commands() {
             moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core -pkg alice/liba/lib -pkg-type library -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
             moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__internal_test_info.json ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --async-runtime-package moonbitlang/core/async --driver-kind internal
             moonc build-package ./app/src/main/main.mbt ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -pkg alice/app/main -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -main alice/app/main -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.core -main alice/app/main -o ./_build/wasm-gc/debug/test/alice/app/main/main.internal_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
             moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.core -pkg alice/app/main -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
             moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__blackbox_test_info.json ./app/src/main/main_test.mbt --doctest-only ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --async-runtime-package moonbitlang/core/async --driver-kind blackbox
             moonc build-package ./app/src/main/main_test.mbt ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -pkg alice/app/main_blackbox_test -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i ./_build/wasm-gc/debug/test/alice/app/main/main.mi:main -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main_blackbox_test:./app/src/main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.core ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -main alice/app/main_blackbox_test -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources alice/app/main_blackbox_test:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/app/main/main.core ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.core -main alice/app/main_blackbox_test -o ./_build/wasm-gc/debug/test/alice/app/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./app/src/main/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/app/main:./app/src/main -pkg-sources alice/app/main_blackbox_test:./app/src/main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
             moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/liba/lib/__internal_test_info.json ./liba/src/lib/lib.mbt --target wasm-gc --pkg-name alice/liba/lib --async-runtime-package moonbitlang/core/async --driver-kind internal
             moonc build-package ./liba/src/lib/lib.mbt ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_internal_test.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -pkg alice/liba/lib -pkg-type executable -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -main alice/liba/lib -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.core -main alice/liba/lib -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
             moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/liba/lib/__blackbox_test_info.json ./liba/src/lib/lib_test.mbt --doctest-only ./liba/src/lib/lib.mbt --target wasm-gc --pkg-name alice/liba/lib --async-runtime-package moonbitlang/core/async --driver-kind blackbox
             moonc build-package ./liba/src/lib/lib_test.mbt ./_build/wasm-gc/debug/test/alice/liba/lib/__generated_driver_for_blackbox_test.mbt -doctest-only ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -pkg alice/liba/lib_blackbox_test -pkg-type executable -i ./_build/wasm-gc/debug/test/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -main alice/liba/lib_blackbox_test -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.core' ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.core -main alice/liba/lib_blackbox_test -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./liba/src/lib/moon.pkg -pkg-sources alice/liba/lib:./liba/src/lib -pkg-sources alice/liba/lib_blackbox_test:./liba/src/lib -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish' -target wasm-gc -g -O0 -source-map
         "#]],
     );
 
@@ -377,63 +377,33 @@ fn test_empty_workspace_fmt_formats_workspace_manifest() {
 }
 
 #[test]
-fn test_workspace_preferred_target_warns() {
+fn test_workspace_rejects_removed_preferred_target() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::write(
         dir.join("moon.work"),
-        r#"members = [
-  "./app",
-  "./liba",
-]
+        r#"members = ["./app", "./liba"]
 preferred_target = "wasm-gc"
 "#,
     )
     .unwrap();
 
-    check(
-        get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
+    moon_cmd(&dir)
+        .args(["build", "--dry-run"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to parse workspace file `[..]/moon.work`
 
-    check(
-        get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
+Caused by:
+    unknown field `preferred_target`, expected `members`
 
-    check(
-        get_stderr(&dir, ["-C", "app", "clean"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["work", "use", "app"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["--quiet", "build", "--dry-run"]),
-        expect![[r#""#]],
-    );
+"#]]);
 }
 
 #[test]
-fn test_workspace_fmt_removes_deprecated_preferred_target() {
+fn test_workspace_fmt_formats_existing_manifest() {
     let dir = TestDir::new("fmt_moon_work_existing.in");
-
-    check(
-        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-        "#]],
-    );
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -656,7 +626,7 @@ fn test_work_init_creates_empty_workspace() {
 }
 
 #[test]
-fn test_work_use_updates_workspace_and_preserves_deprecated_preferred_target() {
+fn test_work_use_appends_members_to_existing_workspace() {
     let dir = TestDir::new("workspace_basic.in");
 
     std::fs::write(
@@ -664,7 +634,6 @@ fn test_work_use_updates_workspace_and_preserves_deprecated_preferred_target() {
         r#"members = [
   "./liba",
 ]
-preferred_target = "wasm-gc"
 "#,
     )
     .unwrap();
@@ -677,14 +646,6 @@ preferred_target = "wasm-gc"
     );
 
     let moon_work = std::fs::read_to_string(dir.join("moon.work")).unwrap();
-    let preferred_target = moon_work
-        .lines()
-        .find(|line| line.starts_with("preferred_target"))
-        .unwrap_or("");
-    check(
-        preferred_target,
-        expect![[r#"preferred_target = "wasm-gc""#]],
-    );
     check(
         moon_work,
         expect![[r#"
@@ -692,7 +653,6 @@ preferred_target = "wasm-gc"
               "./liba",
               "./app",
             ]
-            preferred_target = "wasm-gc"
         "#]],
     );
 }
@@ -958,7 +918,7 @@ fn test_single_member_workspace_tree_json_marks_member() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[{"level":"warning","message":"`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead."}]}
+{"version":1,"status":"success","error":null,"root":0,"modules":[{"name":"fmt/workspace/app","version":"0.1.0","source":{"kind":"local","path":"[..]/app"},"workspace_member":true}],"edges":[],"logs":[]}
 
 "#]]);
 }
@@ -971,10 +931,7 @@ fn test_single_member_workspace_tree_text_omits_member_marker() {
         .args(["-C", "app", "tree"])
         .assert()
         .success()
-        .stderr_eq(snapbox::str![[r#"
-Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-
-"#]])
+        .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
 fmt/workspace/app@0.1.0 (local [..]/app):
   (no dependencies)

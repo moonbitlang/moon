@@ -181,13 +181,6 @@
         }
       ]
     },
-    "test-import-all": {
-      "description": "Whether to import all definitions from the package being tested",
-      "type": [
-        "boolean",
-        "null"
-      ]
-    },
     "virtual": {
       "anyOf": [
         {

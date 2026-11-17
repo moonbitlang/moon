@@ -1,0 +1,1 @@
+options("supported-targets": "js")

@@ -32,15 +32,8 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     };
 
     for args in [
-        &["build", "--dry-run", "--target", "wasm-gc", "--nostd"][..],
-        &[
-            "build",
-            "--dry-run",
-            "--target",
-            "wasm-gc",
-            "--debug",
-            "--nostd",
-        ],
+        &["build", "--dry-run", "--target", "wasm-gc"][..],
+        &["build", "--dry-run", "--target", "wasm-gc", "--debug"],
     ] {
         let (cli, cmd) = parse_build_command(args);
         let actual = fixture
@@ -51,14 +44,7 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     }
 
     for args in [
-        &[
-            "run",
-            "main exe",
-            "--dry-run",
-            "--target",
-            "wasm-gc",
-            "--nostd",
-        ][..],
+        &["run", "main exe", "--dry-run", "--target", "wasm-gc"][..],
         &[
             "run",
             "main exe",
@@ -66,7 +52,6 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
             "--target",
             "wasm-gc",
             "--debug",
-            "--nostd",
         ],
     ] {
         let (cli, cmd) = parse_run_command(args);

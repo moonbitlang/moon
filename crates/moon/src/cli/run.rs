@@ -112,10 +112,6 @@ pub(crate) struct RunSubcommand {
     #[clap(long = "wasm-policy", value_name = "PATH")]
     pub(crate) moonrun_policy: Option<PathBuf>,
 
-    /// Run Wasm descendants in the same virtual process tree (experimental)
-    #[clap(long, conflicts_with = "profile")]
-    pub virtual_process_tree: bool,
-
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -303,7 +299,6 @@ fn run_source_as_single_file(
         build_flags,
         args,
         moonrun_policy,
-        virtual_process_tree,
         auto_sync_flags,
         build_only,
         profile,
@@ -316,7 +311,6 @@ fn run_source_as_single_file(
         build_flags,
         args,
         moonrun_policy,
-        virtual_process_tree,
         auto_sync_flags,
         build_only,
         profile,
@@ -363,7 +357,6 @@ fn build_wasm_file_executable_from_arg(
             None,
             cmd.moonrun_policy.as_deref(),
             None,
-            cmd.virtual_process_tree,
         );
         run_cmd.args(&cmd.args);
         let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
@@ -391,8 +384,20 @@ pub(crate) fn run_run(
     if cmd.handoff.is_some() && (cli.dry_run || cmd.build_only || cmd.profile) {
         bail!("Moonrun handoff cannot be combined with --dry-run, --build-only, or --profile");
     }
-    if (cmd.handoff.is_some() || cmd.virtual_process_tree) && cmd.build_flags.target.is_empty() {
-        cmd.build_flags.target.push(SurfaceTarget::Wasm);
+    if cmd.handoff.is_some() {
+        if cmd.build_flags.target.is_empty() {
+            cmd.build_flags.target.push(SurfaceTarget::Wasm);
+        }
+        // Handoff keeps Wasm inside the embedding Engine. Native and JS use
+        // ordinary Moon process execution; reject before consuming stdin or building.
+        if cmd
+            .build_flags
+            .target
+            .iter()
+            .any(|target| !matches!(target, SurfaceTarget::Wasm | SurfaceTarget::WasmGC))
+        {
+            bail!("Moonrun handoff only supports Wasm targets");
+        }
     }
     if cmd.profile {
         return super::profile::run_profiled_run(cli, cmd, output);
@@ -509,7 +514,6 @@ pub(crate) fn build_standalone_wasm(
         },
         args: Vec::new(),
         moonrun_policy: None,
-        virtual_process_tree: false,
         auto_sync_flags: AutoSyncFlags { frozen },
         build_only: false,
         profile: false,
@@ -558,12 +562,12 @@ fn build_package_executable(
         ..
     } = &dirs;
 
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output());
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let lock = if cli.dry_run {
@@ -644,7 +648,6 @@ fn get_run_cmd(
     argv: &[String],
     moonrun_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
-    virtual_process_tree: bool,
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy_source_dir(
@@ -653,7 +656,6 @@ fn get_run_cmd(
         None,
         moonrun_policy,
         policy_source_dir,
-        virtual_process_tree,
     );
     cmd.args(argv);
     cmd
@@ -762,18 +764,18 @@ fn build_single_file_executable(
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
 
     // Resolve single-file project (synthesized package around the file)
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output())
     .with_dependency_source_cache(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         &dirs,
         &input_path,
@@ -862,13 +864,7 @@ fn build_executable_from_plan(
             rr_build::write_dry_run(writer, &build_graph, source_dir)?;
 
             if options.print_dry_run_run_command {
-                let run_cmd = get_run_cmd(
-                    build_meta,
-                    &cmd.args,
-                    moonrun_policy,
-                    policy_source_dir,
-                    cmd.virtual_process_tree,
-                );
+                let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
                 writeln!(
                     writer,
                     "{}",
@@ -940,7 +936,6 @@ fn run_executable(
     if let Some(handoff) = &cmd.handoff {
         handoff.publish(
             &executable.executable,
-            crate::run::ExecutionMode::from(&executable.backend).into(),
             &cmd.args,
             moonrun_policy,
             policy_source_dir,
@@ -953,7 +948,6 @@ fn run_executable(
         None,
         moonrun_policy,
         policy_source_dir,
-        cmd.virtual_process_tree,
     );
     run_cmd.args(&cmd.args);
     let user_log = output.user_log();

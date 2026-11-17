@@ -31,24 +31,83 @@ Host Domains for async operations, filesystem and environment access, SQLite,
 memory-sanitizer state, policy, and termination. Wasmtime supports both `wasm`
 and `wasm-gc`, including JS-string builtins with `_` imported string constants,
 the MoonBit test driver, and the same Moonrun-owned WASIp1 capability surface
-as V8. WASIp1 descriptors and preopens remain separate from Moonrun Policy;
-both engine adapters invoke the same shared WASIp1 host operations.
+as V8. WASIp1 descriptor rights and preopen containment remain required in
+addition to Moonrun filesystem policy; all engine adapters invoke the same
+shared WASIp1 host operations.
+
+On Unix, guests can read the installed timezone data under a restricted policy.
+See [built-in system access](docs/dev/system-access.md) for the allowed files and operations.
+
+## Experimental IPC sessions
+
+`moonrun --daemon program.wasm` or `moonx --daemon script.mbtx` (or a registry package) shares one execution host
+with native descendants that invoke moonrun. The session ends with the owning
+Run; this does not start a persistent daemon. Existing and inherited permission
+rules still apply. Place `--daemon` before the input. To select a policy, add
+`--policy policy.toml` for moonrun or `--experimental-policy policy.toml` for moonx.
+
+The same behavior is available through `process.ipc = true` in a moonrun policy
+or `RunOptions::with_ipc(true)` when embedding. It currently requires V8 and
+`process.virtualize = false`. See [IPC sessions](docs/dev/design/ipc-execution.md)
+for discovery, signals, teardown and platform limitations.
 
 ## Experimental virtual process tree
 
-Use `moonx --virtual-process-tree script.mbtx` (or a registry package),
-`moon run --virtual-process-tree <input>`, or
-`moonrun --virtual-process-tree program.wasm`. The root and its recursive
-`moon run` / `moonx` children run in one host process, with separate virtual PIDs,
-Run state, cwd and environments. Existing async process APIs provide spawning,
-waiting and signals. The CLI waits for descendants and returns the root's status.
-This mode currently requires V8; ordinary invocation keeps native spawning.
+`moonrun --virtual-process program.wasm` enables virtual identities and internal
+moonx execution. It selects the same behavior as `process.virtualize = true` or
+`RunOptions::with_virtualize(true)`; it does not add moonrun interception or native
+child support. The `--daemon` and `--virtual-process` flags enable their respective
+settings explicitly, overriding a false value in the selected policy. Omitted
+flags leave policy choices intact. Neither flag changes permissions. IPC and
+virtualization cannot currently be combined, including through configuration or
+inherited IPC discovery. Use `--` before program arguments that resemble runner
+options, for example `moonrun --daemon app.wasm -- --daemon`.
 
-Moon helpers still build or download artifacts with host access, then hand Wasm
-back to the Engine. Child Runs inherit the parent's policy and requested
-environment/stdio. Other native commands are not yet supported in virtual mode.
-Cancellation during a build waits for the helper to exit; blocking host I/O can
-also delay teardown.
+Alternatively, select execution behavior in a Moonrun policy file. For a moonx-only virtual
+tree, use:
+
+```toml
+[process]
+virtualize = true
+allow = [{ program = "moonx" }]
+
+[env]
+from_host = ["*"]
+```
+
+Pass this file through `moonx --experimental-policy policy.toml script.mbtx`
+(or a registry package), `moon run --target wasm --wasm-policy policy.toml <input>`,
+or `moonrun --policy policy.toml program.wasm`. A `.mbtx` permission block can
+supply the same `process` fields. Files retain their existing deny-by-default
+semantics for omitted filesystem, network, environment and process rules.
+
+Virtualization gives the root and internal moonx descendants separate virtual
+PIDs, Env and cwd in one Engine. Guest spawn currently supports only moonx;
+other commands remain unsupported even when authorized. Existing async APIs provide spawning, waiting,
+and signals. The CLI waits for descendants and returns the root's status.
+Virtualization currently requires V8; it defaults to `false`.
+
+Authorization uses the existing `process.spawn` / `process.allow` rules in both
+execution modes, including internal moonx. Use `spawn = true` to allow all
+commands, or `allow` entries with program names and optional `args_prefix` to
+permit selected invocations. The two forms cannot be combined. An omitted or
+empty rule set in a policy denies spawning. With no policy, the existing
+unrestricted behavior is preserved. There is no separate native allowance.
+
+Lists authorize logical requests rather than resolved executable identities.
+Inherited and selected child policies both restrict operations; children cannot
+replace the inherited ceiling with broader rules. Internal descendants stay in
+the parent's virtual namespace. `moon run --wasm-policy` applies only to Wasm
+execution; native and Node roots retain their existing behavior outside Moonrun.
+
+Moon helpers build or download artifacts with host access, then hand Wasm
+back to Engine. Guest process rules do not gate these host-owned helpers.
+Moonx help/version and argument errors finish through the embedded frontend
+without a preparation helper.
+
+Ordinary native children, internal moonrun execution, helper-tree cancellation,
+and blocking host-I/O cancellation remain follow-up work.
+Preparation cancellation still waits for the helper to exit.
 
 ## Experimental wee8 backend
 
@@ -192,7 +251,10 @@ file with fresh per-run state and returns guest termination as data instead of
 terminating the embedding process:
 
 ```rust
-use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
+use moonrun::{Engine, EngineConfig, RunOptions, RunOutcome, WorkingDirectory};
+
+// Call on the main thread before creating threads that will use Moonrun.
+moonrun::initialize(EngineConfig::default()).unwrap();
 
 let outcome = Engine::default()
     .run_file(
@@ -216,6 +278,16 @@ calling thread; `spawn` creates a managed thread and returns an identity whose
 result is consumed by `wait`. A new Engine has an independent process namespace;
 clones share its backend and process table.
 
+With V8, call `moonrun::initialize(config)` on the common ancestor of all
+execution threads before creating them. This includes threads that only compile
+modules. Linux memory protection keys are inherited at thread creation; an
+initialization call from a pre-existing thread pool does not repair its workers'
+permissions. Moonrun does not enforce thread ancestry. Repeated initialization
+with the same V8 configuration succeeds; conflicting configurations return an
+error. Use the same configuration when constructing Engines. Existing entry
+points retain lazy initialization, but multi-threaded embedding requires this
+explicit ordering. The CLI initializes before starting execution threads.
+
 ```rust
 let engine = Engine::default();
 let module = engine.load_file("path/to/server.wasm").unwrap();
@@ -229,14 +301,15 @@ the stable program name used for guest arguments and diagnostics:
 let module = engine.compile("server.wasm", wasm_bytes).unwrap();
 ```
 
-Guest process behavior is independent of thread placement.
-`GuestProcessMode::Native` is the default and preserves native child operations
-and Ambient defaults. `GuestProcessMode::Virtual` gives guest code virtual PIDs
-and child control, with owned root Env and fixed cwd. Either mode can be chosen
-for `run` or `spawn`; neither mode grants additional host permissions.
+Guest process virtualization is independent of thread placement and process
+permission. `with_virtualize(false)` preserves native child operations and
+Ambient defaults. `with_virtualize(true)` uses virtual identities and owned
+root Env/cwd. This explicit embedding choice overrides the selected policy's
+`process.virtualize`. `with_policy_file` reads and parses a file once and returns
+`Result`; its process rules authorize commands in either mode.
 
 ```rust
-use moonrun::{Engine, GuestProcessMode, RunOptions};
+use moonrun::{Engine, RunOptions};
 
 let engine = Engine::default();
 let module = engine.load_file("agent.wasm")?;
@@ -244,7 +317,7 @@ let pid = engine.spawn(
     None,
     &module,
     RunOptions::default()
-        .with_guest_process_mode(GuestProcessMode::Virtual)
+        .with_virtualize(true)
         .with_environment([("APP_MODE", "worker")]),
 )?;
 let outcome = engine.clone().wait(pid)?;
@@ -252,9 +325,9 @@ let outcome = engine.clone().wait(pid)?;
 
 The optional parent passed to `spawn` records a relationship; it does not
 inherit that parent's state or policy. Guest-initiated children instead derive
-their inputs through their own Runtime's Host Process. Virtual host entries
+their inputs through their own Runtime's Host Process. Virtualized host entries
 capture missing Env and cwd values once; explicit values, including an empty
-environment, remain authoritative. Native mode retains Ambient defaults on
+environment, remain authoritative. With virtualization off, Runs retain Ambient defaults on
 managed threads too, so embedding callers must coordinate any process-global
 environment access or supply owned environments.
 
@@ -264,20 +337,26 @@ Virtual run returns its own result and removes its identity; it does not wait
 for surviving children. Exiting parents leave children with the Engine.
 Dropping Engine does not terminate or join work: callers own shutdown and must
 wait for remaining executions when required. The CLI performs this descendant
-waiting for `--virtual-process-tree`.
+waiting when `process.virtualize = true`.
 
-To prepare a program with Moon or moonx, `run_moon(executable, args, options)`
+To prepare Wasm with Moon or moonx, `run_moon(executable, args, options)`
 prepares and executes on the calling thread; `spawn_moon(parent, executable,
 args, options)` provides the same flow on a managed thread. Pass program
 arguments in the Moon invocation's `args`, not `RunOptions::with_args`.
-Preparation still starts an external helper with host access. The helper only
-delivers the artifact; Engine executes Wasm and owns cleanup. Native/Node
-artifact execution and delegation of the whole invocation to another process
-remain unsupported by this flow.
+These host-selected preparation entries also accept `moon run`; the moonx-only
+restriction applies to guest spawn, not to trusted embedding callers.
+Moonx help/version and argument errors use Moonrun's embedded frontend and
+plain-text output on the supplied streams, without requiring the selected
+helper executable or handoff storage. Guest spawn still performs executable
+lookup and authorization before admission. Valid execution requests start an
+external preparation helper with host access. The helper delivers Wasm; Engine
+executes it and owns cleanup. Native/JS targets are rejected before building in
+this handoff mode. Ordinary native/Node commands use the OS process path,
+including `moon run --target native` and `moon run --target js`.
 
 The shipping configuration remains V8-backed; the Wasmtime feature provides
 the same library surface at compile time. Engine construction and ordinary
-caller-thread Runs work on every supported backend. Virtual mode, managed
+caller-thread Runs work on every supported backend. virtualized execution, managed
 spawning, and external forced termination currently require V8; unsupported
 operations return an error rather than changing modes. Defaults preserve
 process stdio, environment, and working-directory behavior in Native mode.
@@ -393,12 +472,17 @@ system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
 deny that surface, and process spawning is disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
-`moonbitlang/async` and moonrun's own non-WASI `__moonbit_*_unstable` FFI
-surfaces. WASI operations generally remain outside Moonrun Policy
-(`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`), with one shared-state
-exception: `environ_get` and `environ_sizes_get` expose the Runtime environment
-realized from the `env` policy. WASI descriptors, preopens, and other WASI
-operations are still configured separately from Moonrun Policy.
+`moonbitlang/async`, moonrun's `__moonbit_*_unstable` filesystem imports, and
+supported WASIp1 filesystem operations. WASI retains descriptor rights and
+preopen containment, and its path operations additionally require the Runtime's
+filesystem grants. Open checks cover native access and creation/truncation;
+readlink and removal check the link entry, with directory traversal required
+by suffixes such as `link/` checked against the traversed target. I/O on an
+already-acquired file uses its grant and descriptor rights without reopening or
+reauthorizing the original pathname. WASI environment calls expose the same
+Runtime Env realized from `env` provisioning. Bound stdio remains an explicit
+resource grant; filesystem policy does not disable it. Other WASI facilities,
+such as randomness, are not controlled by `fs` or `net` rules.
 
 An empty JSON object denies all policy-covered filesystem, network, and
 environment access:
@@ -432,12 +516,64 @@ file during migration or debugging.
 The filesystem policy restricts native host paths. It does not create a virtual
 guest filesystem, mount table, or portable `/` namespace. Relative filesystem
 roots are resolved relative to the policy file. Guest relative paths are
-resolved using the Runtime Working Directory; its only current mode observes the
-process current directory at policy-check time. Paths use the host platform's
+resolved using the Runtime Working Directory. Paths use the host platform's
 path syntax; Windows policies may use normal Windows paths such as `C:\work` or
 `C:/work`; JSON strings must escape backslashes as `C:\\work`. The filesystem
 wildcard `"*"` allows every host path on every platform. List a root in both
 `read` and `write` to allow read-write filesystem access.
+
+An explicit glob object matches selected paths without granting an entire
+directory subtree. Ordinary strings remain literal file or directory roots;
+their names may contain glob metacharacters.
+
+```toml
+[fs]
+read = ["assets", { glob = "logs/**/*.txt" }]
+write = [{ glob = "logs/*.txt" }]
+```
+
+JSON uses the same object form: `{ "glob": "logs/**/*.txt" }`. Relative globs
+are anchored at the policy source directory. Absolute globs use the host's root
+or volume; leading `../` selects a parent of the source directory. Parent
+traversal inside the pattern, such as `logs/**/../*`, is rejected.
+
+Matching is case-sensitive over the whole resolved target path: `*` and `?` do
+not cross directory separators; `**` matches recursively. Character classes
+(`[ab]`) and alternatives (`{a,b}`) use `globset` syntax. Backslash is a separator
+on Windows and a literal character on Unix; use `[*]` to match a literal star.
+`dir/**` grants descendants, not `dir` itself. A glob does not enumerate files
+and can match files created after policy loading. Literal components inside
+the pattern are not separately canonicalized: a symlink under `logs` does not
+grant its target unless that resolved target also matches. Link inspection,
+unlink, and rename match the link entry. Directory operations
+require their own matching rule.
+
+Prefix a glob with `!` to exclude matching paths from that access list. For
+example, allow reads throughout `src` and writes except to `.mbt` files:
+
+```toml
+[fs]
+read = ["src"]
+write = ["src", { glob = "!src/**/*.mbt" }]
+```
+
+Each list requires a matching positive rule and no matching exclusion, regardless
+of rule order. Exclusions alone grant nothing. Read and write lists are independent.
+The `!` is removed before resolving the glob's anchor, so `!../src/**/*.mbt` and
+absolute exclusions are supported. To match a literal leading `!`, use a glob
+such as `./!notes.txt`; ordinary string paths remain literal. Character classes
+such as `[!ab]` retain their usual glob meaning.
+
+Globs match whole paths: `!a/b` excludes that entry, while `!a/b/**` excludes its
+descendants. Use both to exclude the entry and its subtree. These checks apply
+to the paths authorized by an operation; recursive directory removal and
+directory rename currently check directory endpoints, not every descendant.
+Excluding descendants therefore does not protect them from an allowed operation
+on an ancestor directory.
+
+Inherited policy groups remain independent: every group must allow the operation,
+including both read and write when needed. A child cannot override an inherited
+exclusion with a positive rule.
 
 The `env` section provisions the guest environment. Use `from_host` to copy
 selected host variables if present, `required_from_host` to require selected

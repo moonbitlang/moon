@@ -19,75 +19,22 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use moonutil::toolchain::BINARIES;
+use crate::build_lower::compiler::{
+    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof,
+};
 
-use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, DepProof};
-
-/// The program that runs the prover.
-///
-/// The prover is migrating from the `moonc prove` subcommand to a standalone
-/// `moonc-prove` executable that accepts the same arguments.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum ProveDriver<'a> {
-    /// The standalone `moonc-prove` executable.
-    Standalone(&'a Path),
-    /// The legacy `moonc prove` subcommand.
-    MooncSubcommand(&'a Path),
-}
-
-impl ProveDriver<'static> {
-    /// Prefer `moonc-prove` when the toolchain provides it, otherwise fall back
-    /// to `moonc prove`.
-    pub fn from_toolchain() -> Self {
-        match BINARIES.moonc_prove.as_deref() {
-            Some(moonc_prove) => Self::Standalone(moonc_prove),
-            None => Self::MooncSubcommand(&BINARIES.moonc),
-        }
-    }
-}
-
-impl ProveDriver<'_> {
-    /// The leading arguments that invoke the prover.
-    fn program_args(self) -> Vec<String> {
-        match self {
-            Self::Standalone(moonc_prove) => vec![
-                dunce::simplified(moonc_prove)
-                    .to_string_lossy()
-                    .into_owned(),
-            ],
-            Self::MooncSubcommand(moonc) => {
-                vec![
-                    dunce::simplified(moonc).to_string_lossy().into_owned(),
-                    "prove".to_string(),
-                ]
-            }
-        }
-    }
-}
-
-/// Abstraction for `moonc-prove`, or `moonc prove` on older toolchains.
+/// Prepare WhyML and proof interfaces with `moonc-prove -emit-only`.
 #[derive(Debug)]
 pub(crate) struct MooncProve<'a> {
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,
     pub whyml_out: Cow<'a, Path>,
-    pub proof_report_out: Option<Cow<'a, Path>>,
-    pub why3_config: Option<Cow<'a, Path>>,
-    pub why3_loadpaths: Vec<std::path::PathBuf>,
     pub dep_proofs: Vec<DepProof<'a>>,
-    pub emit_only: bool,
     pub single_file: bool,
     pub extra_flags: &'a [String],
 }
 
-impl<'a> MooncProve<'a> {
-    /// Build the full command, including the program selected by `driver`.
-    pub fn build_command(&self, driver: ProveDriver<'_>) -> Vec<String> {
-        let mut args = driver.program_args();
-        self.to_args(&mut args);
-        args
-    }
-
+impl CmdlineAbstraction for MooncProve<'_> {
     fn to_args(&self, args: &mut Vec<String>) {
         self.defaults.add_patch_file_moonc(args);
         self.defaults.add_error_format(args);
@@ -99,30 +46,10 @@ impl<'a> MooncProve<'a> {
             "-whyml-output-path".to_string(),
             dunce::simplified(&self.whyml_out).display().to_string(),
         ]);
-        if let Some(proof_report_out) = &self.proof_report_out {
-            args.extend([
-                "-proof-report-output-path".to_string(),
-                dunce::simplified(proof_report_out).display().to_string(),
-            ]);
-        }
-        if let Some(why3_config) = &self.why3_config {
-            args.extend([
-                "-why3-config".to_string(),
-                dunce::simplified(why3_config).display().to_string(),
-            ]);
-        }
-        for loadpath in &self.why3_loadpaths {
-            args.extend([
-                "-why3-loadpath".to_string(),
-                dunce::simplified(loadpath).display().to_string(),
-            ]);
-        }
         for dep_proof in &self.dep_proofs {
             args.extend(["-dep-proof".to_string(), dep_proof.to_arg()]);
         }
-        if self.emit_only {
-            args.push("-emit-only".to_string());
-        }
+        args.push("-emit-only".to_string());
         self.required.add_package_config(args);
         self.defaults.add_pkgtype(args);
         if self.single_file {
@@ -139,24 +66,5 @@ impl<'a> MooncProve<'a> {
         for flag in self.extra_flags {
             args.push(flag.to_string());
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::ProveDriver;
-
-    #[test]
-    fn standalone_driver_invokes_moonc_prove_directly() {
-        let args = ProveDriver::Standalone(Path::new("bin/moonc-prove")).program_args();
-        assert_eq!(args, ["bin/moonc-prove"]);
-    }
-
-    #[test]
-    fn legacy_driver_invokes_moonc_prove_subcommand() {
-        let args = ProveDriver::MooncSubcommand(Path::new("bin/moonc")).program_args();
-        assert_eq!(args, ["bin/moonc", "prove"]);
     }
 }

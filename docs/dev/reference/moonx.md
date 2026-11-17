@@ -23,7 +23,7 @@ The supported options are:
 
 ```text
 --experimental-policy <PATH>
---virtual-process-tree
+--daemon
 -v, --verbose
 -h, --help
 -V, --version
@@ -37,9 +37,24 @@ the input.
 The child process inherits the caller's working directory, environment,
 standard streams, and signal behavior. `moonx` returns the child's exit code.
 
-`--virtual-process-tree` starts moonrun's experimental virtual supervision for
-the resolved Wasm and its recursive Moon/moonx children. Acquisition and building
-stay in Moon; the switch precedes the input. See [moonrun](../../../../crates/moonrun/README.md#experimental-virtual-process-tree).
+`--daemon` enables a session IPC execution host for this invocation, for both
+standalone scripts and registry packages. Native descendants that invoke moonrun
+reuse that host; if a session is already inherited, the invocation joins it.
+The session ends with its owning Run: no persistent or detached daemon starts.
+The flag overrides `process.ipc = false` as an execution setting, without changing
+selected or inherited permissions. It requires V8 and `process.virtualize = false`.
+The same selection applies to `Engine::run_moon` artifact handoff. Options after
+the input remain program arguments, so `moonx script.mbtx --daemon` does not
+enable a session. See [IPC sessions](../../../crates/moonrun/docs/dev/design/ipc-execution.md).
+
+The selected policy's `process.virtualize = true` enables Moonrun's experimental
+virtual supervision for the resolved Wasm and recursive moonx children. Guest
+spawn currently accepts only moonx; other commands remain unsupported.
+Virtualization defaults to false. The existing `process.spawn` / `process.allow`
+rules authorize guest launches in either mode, including internal moonx. For a
+moonx-only tree, use `virtualize = true` and `allow = [{ program = "moonx" }]`.
+Acquisition and building stay in Moon. See
+[moonrun](../../../crates/moonrun/README.md#experimental-virtual-process-tree).
 
 By default, `moonx` emits no informational output of its own. With `--verbose`,
 registry or script dependency acquisition, build progress, and execution
@@ -64,16 +79,32 @@ Policy publication and handle setup run as part of the direct `moonx` spawn
 job. If either fails, the job reports the corresponding OS error and no child
 process is created or registered.
 
-The inherited policy takes precedence over an explicit
-`--experimental-policy`; the child may not replace or widen it. This applies to
-both registry packages and standalone `.mbtx` files.
+An inherited policy and the selected child policy both constrain filesystem,
+network, and process operations. An explicit `--experimental-policy` adds
+restrictions; the child may not replace or widen the inherited policy. This
+applies to registry packages and standalone `.mbtx` files. Missing or invalid
+selected policies fail execution.
 
 For host-supervised execution, the private prefix
 `--moonrun-artifact-handoff <directory>` selects artifact delivery instead of
 launching moonrun. Registry acquisition and standalone builds keep their normal
-caches. The helper copies the Wasm and optional source map/policy, then returns
-arguments and cwd in a manifest. The supervisor's policy takes precedence.
+caches. Handoff carries only Wasm: the helper copies the module and optional
+source map/policy, then returns arguments and cwd in a manifest. An explicit
+supervisor policy file selects the child policy; inherited restrictions also apply.
 See [artifact delivery](../design/moon-run-process-lifecycle.md#supervised-artifact-delivery).
+
+Moon and Moonrun share the moonx grammar in `moonutil::cli_support`. Moonrun
+classifies the invocation before artifact preparation. Help/version and parse
+errors complete inside the Engine using this embedded frontend, with plain-text
+output on the bound stdout/stderr and Clap's exit status. No helper or handoff
+directory is created for those responses. Guest spawn still resolves and
+authorizes its executable before admission; direct embedding calls need no
+helper executable to produce a frontend response.
+
+Only valid execution requests enter artifact preparation, and successful helper
+exit still requires a delivered artifact. Options after the input remain opaque
+program arguments. A frontend-position private handoff prefix is rejected by the
+shared grammar; the host adds its own prefix only when starting preparation.
 
 ## Standalone `.mbtx`
 
@@ -139,13 +170,13 @@ The `.mbtx` path itself is passed to Moonrun as the policy source, so relative
 filesystem roots are resolved from the script's directory. For `moon run -`
 and `moon run -e`, Moon writes the source to a temporary `.mbtx` but retains the
 invocation directory as the logical policy source directory. An explicit
-`--experimental-policy` takes precedence over embedded policy. An inherited
-policy remains host-owned and takes precedence over both. Front matter syntax is
+`--experimental-policy` selects the child policy instead of embedded policy.
+Inherited restrictions apply in addition to the selected child policy. Front matter syntax is
 validated during dependency resolution. Permission fields are decoded only when
 the declaration is the effective policy for Wasm execution; overridden,
 non-Wasm, and build-only paths do not validate the permission schema. Legacy
-YAML is also parsed only when selected, so an explicit or inherited policy can
-override malformed legacy YAML.
+YAML is parsed only when selected, so an explicit policy can override malformed
+legacy YAML. Inheritance does not skip validation of the selected child policy.
 
 Moonx consumes an inherited policy handle before resolving `.mbtx`
 dependencies and relays it only to the final `moonrun` process. Registry and
@@ -177,12 +208,18 @@ Documentation should prefer the first form. `@latest` refreshes the registry
 index before resolving the newest version and fails if the refresh fails.
 Unpinned coordinates resolve the latest version already known to the local
 registry index. The index is updated only when the module cannot be resolved
-locally, matching `moon runwasm`.
+locally.
+
+Pinned coordinates use the supplied version without querying the index for
+version selection. For unpinned coordinates, Moon retries local resolution
+after one registry refresh when no cached latest answer is available. Registry
+read errors remain errors; a missing module and a module with no version
+metadata produce distinct diagnostics. Package-path existence does not trigger
+a search for a different module version.
 
 ## Registry package execution
 
-Registry packages run as linear-memory Wasm artifacts, using the same
-acquisition and execution path as registry-backed `moon runwasm`:
+Registry packages run as linear-memory Wasm artifacts:
 
 1. Resolve the exact module version.
 2. Compute the published linear-Wasm asset URL and cache path.
@@ -192,9 +229,16 @@ acquisition and execution path as registry-backed `moon runwasm`:
 A missing published Wasm asset is an error. Version 1 does not fall back to
 downloading source and building Wasm locally.
 
-Registry-backed `moon runwasm` must use the linear Wasm backend consistently.
-Tests for its cached-asset mode must use linear-Wasm fixtures rather than
-WasmGC fixtures.
+The registry client owns asset URLs, checksum verification, and publication
+under `$MOON_HOME/registry/cache/assets`. Once a version is resolved, an artifact
+cache hit does not read registry metadata, including when
+`MOON_REGISTRY_CACHE=off` or after `moon clean --registry-cache`.
+
+Private prebuilt downloads are not implemented. In HTTP mode, a cache miss
+checks the selected release's visibility and rejects private releases. Existing
+cached artifacts come from public downloads, and the artifact cache is not
+partitioned by visibility. The Git backend does not update its index on an
+asset cache miss.
 
 ## Distribution
 

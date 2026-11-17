@@ -24,13 +24,12 @@ use std::{
 
 use anyhow::{Context, bail};
 use moonutil::{
-    constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
+    constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK},
     dependency::SourceDependencyInfo,
     manifest::{
-        MoonMod, convert_module_to_mod_json, read_module_desc_file_in_dir, warn_module_manifest,
+        MoonMod, convert_module_to_mod_json, read_module_manifest, warn_module_manifest,
         write_module_json_to_file,
     },
-    moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::{
         MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
@@ -39,6 +38,11 @@ use moonutil::{
         ModuleSourceKind, ResolvedModule, ResolvedRootModules,
     },
     user_log::UserLog,
+};
+
+use super::{
+    manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
+    prepare::prepare_build_modules,
 };
 
 use crate::{
@@ -69,10 +73,7 @@ pub fn init_workspace(
         }
         use_paths.into_iter().collect()
     };
-    let workspace = MoonWork {
-        use_paths,
-        preferred_target: None,
-    };
+    let workspace = MoonWork { use_paths };
     write_workspace(workspace_root, &workspace).context(format!(
         "failed to write `{}`",
         workspace_root.join(MOON_WORK).display()
@@ -91,11 +92,10 @@ pub fn use_workspace(
     quiet: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let (workspace_root, preferred_target, mut use_paths, mut member_dirs, existed) = match target {
-        WorkspaceEditTarget::CreateAt(root) => (root, None, Vec::new(), BTreeSet::new(), false),
+    let (workspace_root, mut use_paths, mut member_dirs, existed) = match target {
+        WorkspaceEditTarget::CreateAt(root) => (root, Vec::new(), BTreeSet::new(), false),
         WorkspaceEditTarget::Existing(workspace) => (
             workspace.root().to_path_buf(),
-            workspace.manifest().preferred_target,
             workspace.manifest().use_paths.clone(),
             workspace.members().iter().cloned().collect(),
             true,
@@ -110,10 +110,7 @@ pub fn use_workspace(
         }
     }
 
-    let workspace = MoonWork {
-        use_paths,
-        preferred_target,
-    };
+    let workspace = MoonWork { use_paths };
     write_workspace(&workspace_root, &workspace).context(format!(
         "failed to write `{}`",
         workspace_root.join(MOON_WORK).display()
@@ -162,12 +159,7 @@ fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<P
     if !member_dir.is_dir() {
         bail!("workspace member `{}` is not a directory", path.display());
     }
-    warn_module_manifest(
-        &member_dir,
-        &format!("at module root '{}'", member_dir.display()),
-        user_log,
-    );
-    read_module_desc_file_in_dir(&member_dir).with_context(|| {
+    let (format, module) = read_module_manifest(&member_dir, false).with_context(|| {
         format!(
             "workspace member `{}` does not contain `{}` or `{}`",
             path.display(),
@@ -175,6 +167,7 @@ fn resolve_workspace_member(path: &Path, user_log: &UserLog) -> anyhow::Result<P
             MOON_MOD_JSON
         )
     })?;
+    warn_module_manifest(&member_dir, format, &module, user_log);
     Ok(member_dir)
 }
 
@@ -194,25 +187,14 @@ fn resolve_workspace(
     roots: ResolvedRootModules,
     user_log: &UserLog,
 ) -> anyhow::Result<ModuleDependencyGraph> {
-    let mut includes_core = false;
-    for (_, module) in roots.iter() {
-        if module.module_info().name == MOONBITLANG_CORE {
-            includes_core = true;
-            break;
-        }
-    }
-
-    if includes_core && roots.len() != 1 {
-        anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
-    }
+    let module_graph = prepare_build_modules(roots)?;
 
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
-        inject_std: !includes_core,
         warn_deprecated: true,
     };
-    resolve_modules(&module_resolution_config, roots, user_log).map_err(Into::into)
+    resolve_modules(&module_resolution_config, module_graph, user_log).map_err(Into::into)
 }
 
 fn workspace_roots(
@@ -222,12 +204,9 @@ fn workspace_roots(
     let mut roots = ResolvedRootModules::with_key();
 
     for member_dir in member_dirs {
-        warn_module_manifest(
-            member_dir,
-            &format!("at module root '{}'", member_dir.display()),
-            user_log,
-        );
-        let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
+        let (format, module) = read_module_manifest(member_dir, false)?;
+        warn_module_manifest(member_dir, format, &module, user_log);
+        let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, member_dir)?;
         roots.insert(ResolvedModule::new(source, module));
     }

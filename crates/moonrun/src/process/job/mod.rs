@@ -32,17 +32,7 @@ use crate::runtime::Stdio;
 use crate::runtime::StdioStream;
 
 use super::spawn::{NativeSpawn, PreparedSpawn, SpawnRequest};
-use super::{HostProcess, ambient};
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SpawnOptions {
-    #[cfg(unix)]
-    pub(crate) child_signal_mask: libc::sigset_t,
-    #[cfg(windows)]
-    pub(crate) no_console_window: bool,
-    #[cfg(windows)]
-    pub(crate) is_orphan: bool,
-}
+use super::{HostProcess, SpawnOptions, native};
 
 #[derive(Debug)]
 pub(crate) struct Job {
@@ -157,7 +147,7 @@ impl Job {
                 #[cfg(unix)]
                 defer_reap,
                 #[cfg(windows)]
-                cancel: Some(Arc::new(ambient::make_wait_for_process_cancel()?)),
+                cancel: Some(Arc::new(native::make_wait_for_process_cancel()?)),
             },
         })
     }
@@ -238,7 +228,7 @@ impl Job {
                     policy_inheritance,
                 } = *spawn.take().ok_or(AsyncHostError::Inval)?;
                 #[cfg(unix)]
-                return ambient::run_spawn_job_unix(
+                return native::run_spawn_job_unix(
                     executable,
                     request.args,
                     request.env,
@@ -249,7 +239,7 @@ impl Job {
                     result,
                 );
                 #[cfg(windows)]
-                return ambient::run_spawn_job_windows(
+                return native::run_spawn_job_windows(
                     executable,
                     request.command_line,
                     request.env,
@@ -270,7 +260,7 @@ impl Job {
                 defer_reap,
                 #[cfg(windows)]
                 cancel,
-            } => ambient::run_wait_for_process_job(
+            } => native::run_wait_for_process_job(
                 handle.take(),
                 *pid,
                 #[cfg(unix)]
@@ -347,7 +337,7 @@ impl Job {
 
 #[cfg(test)]
 fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    ambient::PORTED_SYMBOLS.to_vec()
+    native::PORTED_SYMBOLS.to_vec()
 }
 
 #[cfg(test)]
@@ -358,7 +348,6 @@ mod tests {
     #[cfg(unix)]
     fn host(working_directory: WorkingDirectory, stdio: Stdio) -> HostProcess {
         HostProcess::new(
-            None,
             None,
             Arc::new(working_directory),
             Arc::new(stdio),
@@ -537,7 +526,6 @@ mod tests {
         let environment = Arc::new(Env::owned([("PATH".into(), "first".into())]).unwrap());
         let process = HostProcess::new(
             None,
-            None,
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
             Arc::new(Stdio::Ambient),
             None,
@@ -555,22 +543,20 @@ mod tests {
     }
 
     #[test]
-    fn only_direct_moonx_invocations_prepare_policy_inheritance() {
+    fn direct_moonx_and_moonrun_invocations_prepare_policy_inheritance() {
         let directory = tempfile::tempdir().unwrap();
         let environment =
             Env::owned([("PATH".into(), directory.path().as_os_str().to_owned())]).unwrap();
-        let (mut policy, _) =
-            crate::policy::load_inherited_json(br#"{"process":{"spawn":true}}"#, &environment)
-                .unwrap();
+        let (policy, _) =
+            crate::policy::load_json(br#"{"process":{"spawn":true}}"#, &environment).unwrap();
         let process = HostProcess::new(
-            policy.take_process_policy(),
-            policy.take_policy_inheritance(),
+            Some(policy),
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
             Arc::new(Stdio::Ambient),
             None,
             Arc::new(environment),
         );
-        for program in ["moonx", "moon"] {
+        for program in ["moonx", "moonrun", "moon"] {
             #[cfg(windows)]
             std::fs::copy(
                 std::env::current_exe().unwrap(),
@@ -604,7 +590,7 @@ mod tests {
             else {
                 panic!("expected native spawn")
             };
-            assert_eq!(spawn.policy_inheritance.is_some(), program == "moonx");
+            assert_eq!(spawn.policy_inheritance.is_some(), program != "moon");
             assert_eq!(job.set_cwd("changed".into()), Err(AsyncHostError::Badf));
         }
     }
@@ -660,10 +646,8 @@ mod tests {
 
     #[test]
     fn job_executors_reference_native_worker_symbols() {
-        let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../third_party/moonbitlang_async");
         for symbol in ported_symbols() {
-            let source_path = async_root.join(symbol.source);
+            let source_path = symbol.root.path(symbol.source);
             let contents = std::fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
             assert!(

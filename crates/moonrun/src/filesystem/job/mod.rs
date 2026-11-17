@@ -28,11 +28,24 @@ use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
-use crate::filesystem::HostFs;
+use crate::filesystem::{FsOperation, FsPath, FsTarget, HostFs};
 use crate::guest_memory::GuestMemory;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 use stat::{PackedStat, STAT_DEVICE_ID, STAT_FILE_ID, STAT_FILE_KIND, StatRequest};
+
+struct CancellableIo;
+
+impl super::os::BlockingIo for CancellableIo {
+    fn run<T>(&self, operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+        // Keep the worker's region scoped to each syscall, including a named-pipe
+        // retry, rather than exposing its thread-local cancellation guard.
+        crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region(|| {
+            Ok(operation())
+        })
+        .map_err(|error| std::io::Error::from_raw_os_error(error.errno()))?
+    }
+}
 
 pub(crate) const STAT_OPEN_IDENTITY: u32 = stat::STAT_OPEN_IDENTITY;
 
@@ -77,6 +90,7 @@ pub(crate) struct Job {
 #[derive(Debug)]
 enum Kind {
     Open {
+        parent: Option<ResourceRef>,
         filename: OsString,
         access: i32,
         create_mode: i32,
@@ -155,6 +169,10 @@ enum Kind {
     Remove {
         path: OsString,
     },
+    RemoveAt {
+        parent: Option<ResourceRef>,
+        path: OsString,
+    },
     Rename {
         old_path: OsString,
         new_path: OsString,
@@ -196,7 +214,11 @@ impl Job {
             *p = filesystem.resolve_path(p);
         };
         match &mut self.kind {
-            Kind::Open { filename, .. } => resolve(filename),
+            Kind::Open {
+                parent: None,
+                filename,
+                ..
+            } => resolve(filename),
             Kind::Statx {
                 parent: None, path, ..
             }
@@ -206,6 +228,7 @@ impl Job {
             | Kind::FileTimeByPath { path, .. }
             | Kind::Access { path, .. }
             | Kind::Chmod { path, .. }
+            | Kind::RemoveAt { parent: None, path }
             | Kind::Remove { path, .. }
             | Kind::Symlink { path, .. }
             | Kind::Mkdir { path, .. }
@@ -223,11 +246,12 @@ impl Job {
         };
     }
 
-    // Generic-stat validation belongs to the Filesystem Job so every adapter
-    // constructs the same valid payload. The outer adapter converts rejection
-    // into the native failed-Job representation.
+    // Unlike native, validate the stat layout before opening can create or
+    // truncate a file. Adapters preserve the Job-error protocol by turning
+    // rejection into an already-failed Job.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn open(
+        parent: Option<ResourceRef>,
         filename: OsString,
         access: i32,
         create_mode: i32,
@@ -239,7 +263,8 @@ impl Job {
     ) -> AsyncHostResult<Self> {
         Ok(Self {
             kind: Kind::Open {
-                filename,
+                parent,
+                filename: truncate_at_nul(filename),
                 access,
                 create_mode,
                 append,
@@ -261,7 +286,8 @@ impl Job {
     ) -> Self {
         Self {
             kind: Kind::Open {
-                filename,
+                parent: None,
+                filename: truncate_at_nul(filename),
                 access,
                 create_mode,
                 append,
@@ -423,6 +449,15 @@ impl Job {
         }
     }
 
+    pub(crate) fn remove_at(parent: Option<ResourceRef>, path: OsString) -> Self {
+        Self {
+            kind: Kind::RemoveAt {
+                parent,
+                path: truncate_at_nul(path),
+            },
+        }
+    }
+
     pub(crate) fn rename(old_path: OsString, new_path: OsString, replace: bool) -> Self {
         Self {
             kind: Kind::Rename {
@@ -486,20 +521,32 @@ impl Job {
     pub(crate) fn check_policy(&self, filesystem: &HostFs) -> AsyncHostResult<()> {
         match &self.kind {
             Kind::Open {
+                parent,
                 filename,
                 access,
                 create_mode,
-                append,
                 request,
                 ..
             } => {
-                filesystem.authorize_open(filename, *access, *create_mode, *append)?;
-                if request.mask() & !STAT_OPEN_IDENTITY != 0 {
-                    filesystem.authorize_metadata(filename)?;
-                }
+                filesystem.authorize(FsOperation::OpenAsync {
+                    path: job_path(parent.as_deref(), filename)?,
+                    access: *access,
+                    create_mode: *create_mode,
+                    read_metadata: request.mask() & !STAT_OPEN_IDENTITY != 0,
+                })?;
                 Ok(())
             }
-            Kind::Fstatx { file, .. } => check_file_metadata_policy(filesystem, file.as_deref()),
+            Kind::Fstatx { file, request, .. } => {
+                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
+                let target = FsTarget::File(file.file_grant());
+                filesystem
+                    .authorize(if request.mask() == STAT_FILE_KIND {
+                        FsOperation::Kind(target)
+                    } else {
+                        FsOperation::Metadata(target)
+                    })
+                    .map_err(Into::into)
+            }
             Kind::Statx {
                 parent,
                 path,
@@ -510,29 +557,76 @@ impl Job {
                 parent,
                 path,
                 follow_symlink,
-            } => check_path_metadata_policy(filesystem, parent.as_deref(), path, *follow_symlink),
+            } => {
+                let path = job_path(parent.as_deref(), path)?;
+                filesystem
+                    .authorize(if *follow_symlink {
+                        FsOperation::Metadata(FsTarget::Path(path))
+                    } else {
+                        FsOperation::InspectEntry(path)
+                    })
+                    .map_err(Into::into)
+            }
             Kind::FileSize { file, .. } | Kind::FileTime { file, .. } => {
-                check_file_metadata_policy(filesystem, file.as_deref())
+                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
+                filesystem
+                    .authorize(FsOperation::Metadata(FsTarget::File(file.file_grant())))
+                    .map_err(Into::into)
             }
             Kind::FileTimeByPath {
                 path,
                 follow_symlink,
                 ..
-            } => check_path_metadata_policy(filesystem, None, path, *follow_symlink),
-            Kind::Realpath { path, .. } => filesystem.authorize_metadata(path),
+            } => filesystem
+                .authorize(if *follow_symlink {
+                    FsOperation::Metadata(FsTarget::Path(FsPath::Cwd(path)))
+                } else {
+                    FsOperation::InspectEntry(FsPath::Cwd(path))
+                })
+                .map_err(Into::into),
+            Kind::Realpath { path, .. } => filesystem
+                .authorize(FsOperation::Read(FsPath::Cwd(path)))
+                .map_err(Into::into),
             #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => filesystem.authorize_metadata(path),
-            Kind::Access { path, access } => filesystem.authorize_access(path, *access),
-            Kind::Chmod { path, .. } => filesystem.authorize_write(path),
+            Kind::InotifyAddWatch { path, .. } => filesystem
+                .authorize(FsOperation::Watch(FsTarget::Path(FsPath::Cwd(path))))
+                .map_err(Into::into),
+            Kind::Access { path, access } => filesystem
+                .authorize(FsOperation::AccessCheck {
+                    path: FsPath::Cwd(path),
+                    access: *access,
+                })
+                .map_err(Into::into),
+            Kind::Chmod { path, .. } => filesystem
+                .authorize(FsOperation::Write(FsPath::Cwd(path)))
+                .map_err(Into::into),
             Kind::Flock { file, exclusive } => {
-                check_file_lock_policy(filesystem, file.as_deref(), *exclusive)
+                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
+                filesystem
+                    .authorize(FsOperation::Lock {
+                        file: file.file_grant(),
+                        exclusive: *exclusive,
+                    })
+                    .map_err(Into::into)
             }
-            Kind::Remove { path } => filesystem.authorize_remove(path),
+            Kind::Remove { path } => filesystem
+                .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
+                .map_err(Into::into),
+            Kind::RemoveAt { parent, path } => filesystem
+                .authorize(FsOperation::ChangeEntry(job_path(parent.as_deref(), path)?))
+                .map_err(Into::into),
             Kind::Rename {
                 old_path, new_path, ..
-            } => filesystem.authorize_rename(old_path, new_path),
+            } => filesystem
+                .authorize(FsOperation::Rename {
+                    source: FsPath::Cwd(old_path),
+                    destination: FsPath::Cwd(new_path),
+                })
+                .map_err(Into::into),
             Kind::Symlink { path, .. } | Kind::Mkdir { path, .. } | Kind::Rmdir { path } => {
-                filesystem.authorize_write_entry(path)
+                filesystem
+                    .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
+                    .map_err(Into::into)
             }
             Kind::Read { .. }
             | Kind::Write { .. }
@@ -546,6 +640,7 @@ impl Job {
     pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
         match &mut self.kind {
             Kind::Open {
+                parent,
                 filename,
                 access,
                 create_mode,
@@ -554,16 +649,20 @@ impl Job {
                 mode,
                 request,
                 result,
-            } => runner::run_open_job(
-                result,
-                std::mem::take(filename),
-                *access,
-                *create_mode,
-                *append,
-                *sync,
-                *mode,
-                *request,
-            ),
+            } => {
+                let parent = parent.take();
+                runner::run_open_job(
+                    parent.as_deref(),
+                    result,
+                    std::mem::take(filename),
+                    *access,
+                    *create_mode,
+                    *append,
+                    *sync,
+                    *mode,
+                    *request,
+                )
+            }
             Kind::Fstatx {
                 file,
                 request,
@@ -649,6 +748,10 @@ impl Job {
                 None => Err(AsyncHostError::Badf),
             },
             Kind::Remove { path } => runner::run_remove_job(std::mem::take(path)),
+            Kind::RemoveAt { parent, path } => {
+                let parent = parent.take();
+                runner::run_removeat_job(parent.as_deref(), std::mem::take(path))
+            }
             Kind::Rename {
                 old_path,
                 new_path,
@@ -928,34 +1031,42 @@ impl OpenJobResult {
     }
 }
 
-fn check_file_metadata_policy(filesystem: &HostFs, file: Option<&Resource>) -> AsyncHostResult<()> {
-    let file = file.ok_or(AsyncHostError::Badf)?;
-    filesystem.authorize_resource_metadata(file.canonical_path())
-}
-
-fn check_path_metadata_policy(
-    filesystem: &HostFs,
-    parent: Option<&Resource>,
-    path: &OsStr,
-    follow_symlink: bool,
-) -> AsyncHostResult<()> {
-    match (parent, follow_symlink) {
-        (None, true) => filesystem.authorize_metadata(path),
-        (None, false) => filesystem.authorize_entry_metadata(path),
-        (Some(parent), true) => filesystem.authorize_metadata_at(parent.canonical_path(), path),
-        (Some(parent), false) => {
-            filesystem.authorize_entry_metadata_at(parent.canonical_path(), path)
+// Native open/remove paths end at the first NUL. Interpret that prefix before
+// cwd resolution and authorization so policy checks cover the actual OS path.
+fn truncate_at_nul(path: OsString) -> OsString {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let mut bytes = path.into_vec();
+        if let Some(end) = bytes.iter().position(|byte| *byte == 0) {
+            bytes.truncate(end);
         }
+        OsString::from_vec(bytes)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let units: Vec<u16> = path.encode_wide().take_while(|unit| *unit != 0).collect();
+        OsString::from_wide(&units)
     }
 }
 
-fn check_file_lock_policy(
-    filesystem: &HostFs,
-    file: Option<&Resource>,
-    exclusive: bool,
-) -> AsyncHostResult<()> {
-    let file = file.ok_or(AsyncHostError::Badf)?;
-    filesystem.authorize_resource_lock(file.canonical_path(), exclusive)
+fn last_native_error() -> AsyncHostError {
+    AsyncHostError::Native(
+        std::io::Error::last_os_error()
+            .raw_os_error()
+            .expect("OS error code"),
+    )
+}
+
+fn job_path<'a>(parent: Option<&Resource>, path: &'a OsStr) -> AsyncHostResult<FsPath<'a>> {
+    match parent {
+        None => Ok(FsPath::Cwd(path)),
+        Some(parent) => Ok(FsPath::AtHandle {
+            directory: runner::raw_file_handle(parent)?,
+            path,
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -1008,6 +1119,54 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn stdio_directory_grant_does_not_authorize_child_metadata() {
+        use crate::filesystem::FileGrant;
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::os::fd::IntoRawFd;
+        use std::sync::Arc;
+
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("child"), []).unwrap();
+        let parent = Resource::new_with_file_grant(
+            std::fs::File::open(directory.path()).unwrap().into_raw_fd(),
+            FileGrant::STDIO,
+        );
+        let filesystem = HostFs::new(
+            Some(crate::policy::FsPolicy::default()),
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let job = Job::file_kind_by_path(Some(Arc::new(parent)), "child".into(), true);
+
+        assert_eq!(
+            job.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn inotify_watch_requires_read_policy() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::sync::Arc;
+
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let filesystem = HostFs::new(
+            Some(crate::policy::FsPolicy::default()),
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let watcher = Resource::new(crate::async_sys::fs::watch_inotify::create().unwrap());
+        let job = Job::inotify_add_watch(Arc::new(watcher), file.path().into(), false);
+
+        assert_eq!(
+            job.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
     #[test]
     fn fixed_cwd_preserves_policy_denial_errors() {
         use crate::policy;
@@ -1021,10 +1180,9 @@ mod tests {
             WorkingDirectory::Ambient,
             WorkingDirectory::Fixed(directory.path().to_owned()),
         ] {
-            let (mut policy, _) =
-                policy::load_inherited_json(b"{}", &crate::runtime::Env::ambient()).unwrap();
+            let (policy, _) = policy::load_json(b"{}", &crate::runtime::Env::ambient()).unwrap();
             let filesystem = HostFs::new(
-                policy.take_filesystem_policy(),
+                Some(policy.filesystem()),
                 Arc::new(Env::ambient()),
                 Arc::new(cwd),
             );
@@ -1040,6 +1198,116 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn removed_directory_cannot_borrow_replacement_path_authority() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::os::fd::IntoRawFd;
+        use std::sync::Arc;
+
+        let root = tempfile::tempdir().unwrap();
+        let allowed = root.path().join("allowed");
+        let held = root.path().join("denied/held");
+        std::fs::create_dir_all(allowed.join("anchor")).unwrap();
+        std::fs::create_dir_all(&held).unwrap();
+        std::fs::write(allowed.join("secret"), b"allowed").unwrap();
+        std::fs::write(root.path().join("denied/secret"), b"DENIED").unwrap();
+        let environment = Arc::new(Env::ambient());
+        let config = serde_json::json!({"fs": {"read": [&allowed, &held], "write": [&held]}});
+        let (policy, _) =
+            crate::policy::load_json(&serde_json::to_vec(&config).unwrap(), &environment).unwrap();
+        let filesystem = HostFs::new(
+            Some(policy.filesystem()),
+            environment,
+            Arc::new(WorkingDirectory::Ambient),
+        );
+        let parent = Arc::new(Resource::new(
+            std::fs::File::open(&held).unwrap().into_raw_fd(),
+        ));
+        let open = Job::open(Some(parent), "../secret".into(), 0, 0, false, 0, 0, 0, 8).unwrap();
+        assert_eq!(
+            open.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied)
+        );
+
+        filesystem.remove_directory_all(&held).unwrap();
+        let mut replace = Job::symlink(
+            allowed.join("anchor").into_os_string(),
+            held.into_os_string(),
+            false,
+        );
+        replace.check_policy(&filesystem).unwrap();
+        replace.run().unwrap();
+
+        assert_eq!(
+            open.check_policy(&filesystem),
+            Err(AsyncHostError::PermissionDenied),
+        );
+    }
+
+    #[test]
+    fn relative_job_authority_tracks_the_directory_after_rename() {
+        use crate::runtime::{Env, WorkingDirectory};
+        use std::sync::Arc;
+
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original");
+        let moved = root.path().join("moved");
+        std::fs::create_dir(&original).unwrap();
+        std::fs::write(original.join("file"), b"keep").unwrap();
+        let environment = Arc::new(Env::ambient());
+        let config = serde_json::json!({"fs": {"read": [&original], "write": [&original]}});
+        let (policy, _) =
+            crate::policy::load_json(&serde_json::to_vec(&config).unwrap(), &environment).unwrap();
+        let filesystem = HostFs::new(
+            Some(policy.filesystem()),
+            environment,
+            Arc::new(WorkingDirectory::Fixed(root.path().to_owned())),
+        );
+        let mut open = Job::open_legacy(original.clone().into_os_string(), 3, 0, false, 0, 0);
+        open.run().unwrap();
+        let Kind::Open {
+            result: Some(result),
+            ..
+        } = open.kind
+        else {
+            panic!("open result")
+        };
+        let ResourcePublication::Unpublished(parent) = result.resource else {
+            panic!("unpublished resource")
+        };
+        let parent = Arc::new(parent);
+        let jobs = [
+            Job::open(
+                Some(Arc::clone(&parent)),
+                "file".into(),
+                0,
+                0,
+                false,
+                0,
+                0,
+                0,
+                8,
+            )
+            .unwrap(),
+            Job::remove_at(Some(Arc::clone(&parent)), "file".into()),
+            Job::file_kind_by_path(Some(parent), "file".into(), true),
+        ];
+        for job in &jobs {
+            job.check_policy(&filesystem).unwrap();
+        }
+        std::fs::rename(&original, &moved).unwrap();
+        std::fs::create_dir(&original).unwrap();
+        std::fs::write(original.join("file"), b"replacement").unwrap();
+        for job in &jobs {
+            assert_eq!(
+                job.check_policy(&filesystem),
+                Err(AsyncHostError::PermissionDenied)
+            );
+        }
+        assert_eq!(std::fs::read(moved.join("file")).unwrap(), b"keep");
     }
 
     #[test]
@@ -1064,10 +1332,8 @@ mod tests {
 
     #[test]
     fn job_executors_reference_native_worker_symbols() {
-        let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../third_party/moonbitlang_async");
         for symbol in ported_symbols() {
-            let source_path = async_root.join(symbol.source);
+            let source_path = symbol.root.path(symbol.source);
             let contents = std::fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
             assert!(
@@ -1107,6 +1373,7 @@ mod tests {
 
         match &job.kind {
             Kind::Open {
+                parent: None,
                 filename,
                 access,
                 create_mode,
@@ -1122,7 +1389,7 @@ mod tests {
                 assert!(*append);
                 assert_eq!(*sync, 1);
                 assert_eq!(*mode, 0o644);
-                assert_eq!(request.mask(), STAT_OPEN_IDENTITY);
+                assert_eq!(*request, StatRequest::open_identity());
             }
             other => panic!("unexpected payload: {other:?}"),
         }

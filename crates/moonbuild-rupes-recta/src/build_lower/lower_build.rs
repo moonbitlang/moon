@@ -19,15 +19,16 @@
 //! Lowering implementation for build actions.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use moonutil::{
     build_options::RunMode,
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OutputType as CCOutputType,
-        Toolchain, make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
+        ArchiverConfig, CCConfig, LinkerConfig, OutputType as CCOutputType, Toolchain,
+        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     package::JsFormat,
@@ -48,12 +49,12 @@ use crate::{
     },
     build_plan::{
         ArtifactKey, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
+        ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, WasmLinkInfo,
     },
     discover::DiscoveredPackage,
-    model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind},
+    model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind, WasmObject},
     pkg_name::{PackageFQN, PackagePath},
-    special_cases::{is_self_coverage_lib, should_skip_coverage},
+    special_cases::is_self_coverage_lib,
     target_layout::proof_artifact_stem,
 };
 
@@ -62,6 +63,21 @@ use super::{
     context::{ActionArtifacts, LoweringContext},
     moonc_command,
 };
+
+/// The package name under which `link-core` receives the stdlib source root.
+static STDLIB_PACKAGE: LazyLock<PackageFQN> =
+    LazyLock::new(|| PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty()));
+
+/// The Core IR closure of a compilation: every `.core` file it loads, in
+/// initialization order, and the source roots of their packages.
+struct CoreIrClosure<'a> {
+    /// The installed stdlib `.core` files, which n2 must observe explicitly.
+    stdlib_inputs: Vec<PathBuf>,
+    /// Every `.core` input in initialization order.
+    core_deps: Vec<PathBuf>,
+    /// The source root of each linked package, and of the stdlib.
+    package_sources: Vec<PackageSource<'a>>,
+}
 
 impl<'a> LoweringContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
@@ -105,7 +121,6 @@ impl<'a> LoweringContext<'a> {
     ) -> (bool, bool) {
         let enable_coverage = self.opt.enable_coverage
             && (!is_build || target.kind != TargetKind::BlackboxTest)
-            && !should_skip_coverage(fqn)
             && !self.is_module_third_party(package.module);
         let self_coverage = enable_coverage && is_self_coverage_lib(fqn);
         (enable_coverage, self_coverage)
@@ -157,9 +172,7 @@ impl<'a> LoweringContext<'a> {
         let no_mi = info.no_mi();
 
         if let Some(v_target) = info.check_mi_against {
-            let mi_path = if self.opt.stdlib_path.is_some()
-                && self.packages.is_stdlib_package(v_target.package)
-            {
+            let mi_path = if self.packages.is_stdlib_package(v_target.package) {
                 // Installed stdlib virtual contracts are known toolchain
                 // inputs, not artifacts produced by this Build Plan.
                 self.artifact_paths.mi_of_build_target(
@@ -215,7 +228,6 @@ impl<'a> LoweringContext<'a> {
             no_mi,
             workspace_root,
             pkgtype,
-            use_async_io: pkg.raw.use_async_io,
 
             check_mi,
             virtual_implementation,
@@ -235,7 +247,6 @@ impl<'a> LoweringContext<'a> {
         // dependency. Installed stdlib contracts have no provider in this
         // plan, so observe the exact `-check-mi`/`-impl-virtual` file.
         if let Some(target) = info.check_mi_against
-            && self.opt.stdlib_path.is_some()
             && self.packages.is_stdlib_package(target.package)
         {
             let path = match (&commons.check_mi, &commons.virtual_implementation) {
@@ -263,9 +274,7 @@ impl<'a> LoweringContext<'a> {
             // `_build/verif`. If stdlib later grows proof-related artifacts of
             // its own, this filter and the surrounding lowering logic should be
             // revisited.
-            .filter(|(_, dep, _)| {
-                !(self.opt.stdlib_path.is_some() && self.packages.is_stdlib_package(dep.package))
-            })
+            .filter(|(_, dep, _)| !self.packages.is_stdlib_package(dep.package))
             .map(|(_, dep, _)| {
                 let pkg = self.packages.get_package(dep.package);
                 compiler::DepProof::new(pkg.fqn.to_string(), proof_artifact_stem(&pkg.fqn))
@@ -275,46 +284,14 @@ impl<'a> LoweringContext<'a> {
         deps
     }
 
-    fn proof_loadpaths_of(&self, target: BuildTarget, proof_prelude: &Path) -> Vec<PathBuf> {
-        let mut visited = HashSet::new();
-        let mut pending = vec![target];
-        let mut loadpaths = BTreeSet::new();
-
-        loadpaths.insert(proof_prelude.to_path_buf());
-
-        while let Some(current) = pending.pop() {
-            if !visited.insert(current) {
-                continue;
-            }
-
-            for dep in self
-                .rel
-                .dep_graph
-                .neighbors_directed(current, Direction::Outgoing)
-            {
-                if self.opt.stdlib_path.is_some() && self.packages.is_stdlib_package(dep.package) {
-                    continue;
-                }
-
-                loadpaths.insert(
-                    self.artifact_paths
-                        .target_layout()
-                        .verif_package_dir(self.packages, &dep),
-                );
-                pending.push(dep);
-            }
-        }
-
-        loadpaths.into_iter().collect()
-    }
-
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_check(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
@@ -341,8 +318,6 @@ impl<'a> LoweringContext<'a> {
                     unreachable!("regular Check actions should have one package interface artifact")
                 }
             });
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
-
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = self.compiler_source_files(info);
 
@@ -402,14 +377,14 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_emit_proof(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let files_vec = self.compiler_source_files(info);
 
@@ -437,11 +412,7 @@ impl<'a> LoweringContext<'a> {
             ),
             defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
             whyml_out: whyml_output.clone().into(),
-            proof_report_out: None,
-            why3_config: None,
-            why3_loadpaths: Vec::new(),
             dep_proofs,
-            emit_only: true,
             single_file: package.is_single_file(),
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
@@ -453,93 +424,8 @@ impl<'a> LoweringContext<'a> {
         }
         self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
 
-        let commandline = moonc_command::lower(
-            cmd.build_command(compiler::ProveDriver::from_toolchain()),
-            &whyml_output,
-        )?;
-
-        Ok(BuildCommand {
-            extra_inputs,
-            commandline,
-        })
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
-    pub(super) fn lower_prove(
-        &self,
-        artifacts: &ActionArtifacts,
-        target: BuildTarget,
-        info: &BuildTargetInfo,
-    ) -> Result<BuildCommand, LoweringError> {
-        let package = self.get_package(target);
-        let module = self.packages.module_info(package.module);
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
-
-        let files_vec = self.compiler_source_files(info);
-
-        let backend = self.opt.backend.target_backend();
-        let why3_config = info
-            .why3_config
-            .clone()
-            .unwrap_or_else(|| self.artifact_paths.target_layout().why3_config_path());
-        let whyml_output = artifacts.single_output_path_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::ProofWhyml { package, target_kind }
-                    if *package == target.package && *target_kind == target.kind
-            )
-        });
-        let proof_report_output = artifacts.single_output_path_matching(|artifact| {
-            matches!(
-                artifact,
-                ArtifactKey::ProofReport { package, target_kind }
-                    if *package == target.package && *target_kind == target.kind
-            )
-        });
-        let dep_proofs = self.dep_proofs_of(target);
-        let proof_prelude = info.proof_prelude.as_path();
-        // Why3 needs every reachable non-stdlib proof directory on its loadpath
-        // because emitted proof artifacts live alongside each package's
-        // verification outputs.
-        let why3_loadpaths = self.proof_loadpaths_of(target, proof_prelude);
-        let cmd = compiler::MooncProve {
-            required: BuildCommonInput::new(
-                &files_vec,
-                &info.doctest_files,
-                &mi_inputs.deps,
-                compiler::CompiledPackageName::new(&package.fqn, target.kind),
-                &package.root_path,
-                self.artifact_paths
-                    .target_layout()
-                    .all_pkgs_of_build_target(backend),
-                backend,
-                target.kind,
-            ),
-            defaults: self.set_build_commons(artifacts, package, info, package.raw.is_main),
-            whyml_out: whyml_output.clone().into(),
-            proof_report_out: Some(proof_report_output.clone().into()),
-            why3_config: Some(why3_config.clone().into()),
-            why3_loadpaths: why3_loadpaths.clone(),
-            dep_proofs,
-            emit_only: false,
-            single_file: package.is_single_file(),
-            extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
-        };
-
-        let mut extra_inputs = files_vec.clone();
-        extra_inputs.extend(info.doctest_files.clone());
-        extra_inputs.push(why3_config);
-        extra_inputs.push(proof_prelude.join(moonutil::constants::PRELUDE_PROOF_FILE));
-        extra_inputs.extend(why3_loadpaths);
-        if !package.is_single_file() {
-            extra_inputs.push(package.config_path());
-        }
-        self.extend_extra_inputs(info, &cmd.defaults, &mi_inputs, &mut extra_inputs);
-
-        let commandline = moonc_command::lower(
-            cmd.build_command(compiler::ProveDriver::from_toolchain()),
-            &whyml_output,
-        )?;
+        let commandline =
+            moonc_command::lower(cmd.build_command(&*BINARIES.moonc_prove), &whyml_output)?;
 
         Ok(BuildCommand {
             extra_inputs,
@@ -549,11 +435,12 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
     pub(super) fn lower_build_mbt(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> Result<BuildCommand, LoweringError> {
+        let mi_inputs = self.mi_inputs_of(artifacts, target);
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
@@ -583,8 +470,6 @@ impl<'a> LoweringContext<'a> {
                     self.opt.backend.target_backend(),
                 )
             });
-
-        let mi_inputs = self.mi_inputs_of(artifacts, target);
 
         let mut files = self.compiler_source_files(info);
         match target.kind {
@@ -668,65 +553,24 @@ impl<'a> LoweringContext<'a> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
-        let mut stdlib_inputs = Vec::new();
-        // Add core for the standard library
-        if let Some(stdlib) = &self.opt.stdlib_path {
-            // When present, the abort default must precede core.core to
-            // preserve initialization order.
-            if info.link_stdlib_abort {
-                stdlib_inputs.push(moonutil::toolchain::abort_core_in(
-                    stdlib,
-                    self.opt.backend.target_backend(),
-                ));
-            }
-            stdlib_inputs.push(moonutil::toolchain::core_core_in(
-                stdlib,
-                self.opt.backend.target_backend(),
-            ));
-        }
-        let mut core_input_files = stdlib_inputs.clone();
-        // Linked core targets
-        for target in &info.linked_order {
-            let core_path = artifacts.single_dependency_path_matching(|artifact| {
-                matches!(
-                    artifact,
-                    ArtifactKey::CoreIr {
-                        package,
-                        target_kind,
-                    } if *package == target.package && *target_kind == target.kind
-                )
-            });
-            core_input_files.push(core_path);
-        }
+        let CoreIrClosure {
+            stdlib_inputs,
+            core_deps,
+            package_sources,
+        } = self.core_ir_closure(artifacts, info);
 
         let out_file = artifacts.single_output_path();
 
-        let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
-        let package_sources = info
-            .linked_order
-            .iter()
-            .map(|target| {
-                let pkg = self.packages.get_package(target.package);
-                PackageSource {
-                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, target.kind),
-                    source_dir: pkg.root_path.as_path().into(),
-                }
-            })
-            .chain(self.opt.stdlib_path.as_ref().map(|p| PackageSource {
-                package_name: compiler::CompiledPackageName::new(&core_fqn, TargetKind::Source),
-                source_dir: p.into(),
-            }))
-            .collect::<Vec<_>>();
-
         let config_path = package.config_path();
         let cmd = compiler::MooncLinkCore {
-            core_deps: &core_input_files,
+            core_deps: &core_deps,
             main_package: compiler::CompiledPackageName {
                 fqn: &package.fqn,
                 kind: target.kind,
             },
+            library_object: false,
             output_path: out_file.clone().into(),
-            pkg_config_path: config_path.clone().into(),
+            pkg_config_path: Some(config_path.clone().into()),
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.backend.target_backend(),
@@ -742,7 +586,6 @@ impl<'a> LoweringContext<'a> {
                 .is_some_and(|toolchain| toolchain.uses_msvc_abi()),
         };
 
-        // Ensure n2 sees stdlib core bundle changes as inputs
         let mut extra_inputs = stdlib_inputs;
         if !package.is_single_file() {
             extra_inputs.push(config_path);
@@ -754,6 +597,204 @@ impl<'a> LoweringContext<'a> {
             extra_inputs,
             commandline,
         })
+    }
+
+    /// Lower a wasm1 object: `link-core` of the target it compiles, with the
+    /// settings every object of a program shares.
+    ///
+    /// A main object also carries what applies to its executable alone: the
+    /// package's link configuration, the program's exports, and the test
+    /// driver's entry points. A library object is compiled with
+    /// `-pkg-type library` and none of them, since every executable using
+    /// the package shares it.
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
+    pub(super) fn lower_build_wasm_object(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        object: WasmObject,
+        info: &LinkCoreInfo,
+    ) -> Result<BuildCommand, LoweringError> {
+        let CoreIrClosure {
+            stdlib_inputs,
+            core_deps,
+            package_sources,
+        } = self.core_ir_closure(artifacts, info);
+        let out_file = artifacts.single_output_path();
+        let mut extra_inputs = stdlib_inputs;
+
+        let (target, library_object) = match object {
+            WasmObject::Main(target) => (target, false),
+            WasmObject::Library(package) => (package.build_target(TargetKind::Source), true),
+        };
+        let package = self.get_package(target);
+        // Only a main object reads the package's manifest and exports the
+        // program's functions; `links_wasm_objects` keeps packages with
+        // `link.wasm` settings whole, so the manifest adds no Wasm settings.
+        let (pkg_config_path, exports) = if library_object {
+            (None, None)
+        } else {
+            let config_path = package.config_path();
+            if !package.is_single_file() {
+                extra_inputs.push(config_path.clone());
+            }
+            let exports = package.exported_functions(TargetBackend::Wasm);
+            (Some(config_path), exports)
+        };
+
+        let cmd = compiler::MooncLinkCore {
+            core_deps: &core_deps,
+            main_package: compiler::CompiledPackageName {
+                fqn: &package.fqn,
+                kind: target.kind,
+            },
+            library_object,
+            output_path: out_file.as_path().into(),
+            pkg_config_path: pkg_config_path.map(Into::into),
+            package_sources: &package_sources,
+            stdlib_core_source: None,
+            target_backend: TargetBackend::Wasm,
+            native_target: None,
+            flags: self.set_flags(),
+            test_mode: target.kind.is_test(),
+            wasm_config: self.wasm_object_config(),
+            js_config: None,
+            exports,
+            // `links_wasm_objects` keeps modules with link flags whole.
+            extra_link_opts: &[],
+            #[cfg(target_os = "windows")]
+            native_toolchain_is_msvc: false,
+        };
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
+
+        Ok(BuildCommand {
+            extra_inputs,
+            commandline,
+        })
+    }
+
+    /// Lower the `moonc wasm-ld` link of an executable from its main
+    /// package's object and its library objects, in initialization order.
+    #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
+    pub(super) fn lower_link_wasm_objects(
+        &mut self,
+        artifacts: &ActionArtifacts,
+        target: BuildTarget,
+        info: &WasmLinkInfo,
+    ) -> Result<BuildCommand, LoweringError> {
+        let mut objects = info
+            .library_objects
+            .iter()
+            .map(|&object| {
+                artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(artifact, ArtifactKey::WasmLibraryObject { package } if *package == object)
+                })
+            })
+            .collect::<Vec<_>>();
+        objects.push(artifacts.single_dependency_path_matching(|artifact| {
+            matches!(artifact, ArtifactKey::WasmMainObject { .. })
+        }));
+        let out_file = artifacts.single_output_path();
+
+        let config = self.wasm_object_config();
+        let cmd = compiler::MooncWasmLd {
+            objects: &objects,
+            output_path: out_file.as_path().into(),
+            symbols: self.set_flags().symbols,
+            wasi: config.wasi,
+            new_allocator: config.new_allocator,
+            collect_ref_cycle: config.collect_ref_cycle,
+        };
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
+
+        Ok(BuildCommand {
+            extra_inputs: Vec::new(),
+            commandline,
+        })
+    }
+
+    /// The Wasm settings of every wasm1 object and of the `moonc wasm-ld`
+    /// link that combines them, taken from the backend alone: a library
+    /// object is shared by every executable using it, and the linker
+    /// generates a runtime matching the objects.
+    fn wasm_object_config(&self) -> WasmConfig<'static> {
+        WasmConfig {
+            wasi: self.opt.backend.wasi_link(),
+            new_allocator: self.uses_moonbit_tlsf_allocator(),
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            ..Default::default()
+        }
+    }
+
+    /// Whether the backend selects the MoonBit TLSF allocator (`tlsf-mbt`).
+    fn uses_moonbit_tlsf_allocator(&self) -> bool {
+        matches!(
+            self.opt.backend,
+            BackendConfig::Wasm {
+                new_allocator: true,
+                ..
+            }
+        )
+    }
+
+    /// Collect the Core IR closure of the packages `info` links.
+    fn core_ir_closure(
+        &self,
+        artifacts: &ActionArtifacts,
+        info: &LinkCoreInfo,
+    ) -> CoreIrClosure<'a> {
+        let backend = self.opt.backend.target_backend();
+        // Installed stdlib `.core` files are not produced by any action, so
+        // n2 must observe them as extra inputs.
+        let mut stdlib_inputs = Vec::new();
+        let mut core_deps = Vec::new();
+        // Linked core targets, including the stdlib packages they reach
+        for target in &info.linked_order {
+            let core_path = if self.packages.is_stdlib_package(target.package) {
+                let path = self
+                    .artifact_paths
+                    .core_of_build_target(self.packages, target, backend);
+                stdlib_inputs.push(path.clone());
+                path
+            } else {
+                artifacts.single_dependency_path_matching(|artifact| {
+                    matches!(
+                        artifact,
+                        ArtifactKey::CoreIr {
+                            package,
+                            target_kind,
+                        } if *package == target.package && *target_kind == target.kind
+                    )
+                })
+            };
+            core_deps.push(core_path);
+        }
+
+        // The stdlib module is described by a single source entry below.
+        let package_sources = info
+            .linked_order
+            .iter()
+            .filter(|target| !self.packages.is_stdlib_package(target.package))
+            .map(|target| {
+                let pkg = self.packages.get_package(target.package);
+                PackageSource {
+                    package_name: compiler::CompiledPackageName::new(&pkg.fqn, target.kind),
+                    source_dir: pkg.root_path.as_path().into(),
+                }
+            })
+            .chain(self.opt.stdlib_path.as_ref().map(|p| PackageSource {
+                package_name: compiler::CompiledPackageName::new(
+                    &STDLIB_PACKAGE,
+                    TargetKind::Source,
+                ),
+                source_dir: p.as_path().into(),
+            }))
+            .collect();
+
+        CoreIrClosure {
+            stdlib_inputs,
+            core_deps,
+            package_sources,
+        }
     }
 
     fn get_wasm_config<'b>(
@@ -891,16 +932,19 @@ impl<'a> LoweringContext<'a> {
             )
         });
 
-        let config = CCConfigBuilder::default()
-            .no_sys_header(true)
-            .output_ty(CCOutputType::Object)
-            .opt_level(info.opt_level)
-            .debug_info(info.debug_info)
-            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
-            .link_moonbitrun(true)
-            .define_use_shared_runtime_macro(false)
-            .build()
-            .expect("Failed to build CC configuration for C stub");
+        let config = CCConfig {
+            debug_info: info.debug_info,
+            link_moonbitrun: true,
+            link_libbacktrace: false,
+            no_sys_header: true,
+            output_ty: CCOutputType::Object,
+            opt_level: info.opt_level,
+            allow_stacktrace: false,
+            define_use_shared_runtime_macro: false,
+            use_simdutf: false,
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            native_allocator: None,
+        };
 
         let intermediate_dir = self
             .artifact_paths
@@ -961,10 +1005,7 @@ impl<'a> LoweringContext<'a> {
         object_files: &[PathBuf],
         archive: PathBuf,
     ) -> BuildCommand {
-        let config = ArchiverConfigBuilder::default()
-            .archive_moonbitrun(false)
-            .build()
-            .expect("Failed to build archiver configuration");
+        let config = ArchiverConfig::default();
         BuildCommand::archive(
             &info.effective_native_toolchain,
             config,
@@ -1050,17 +1091,19 @@ impl<'a> LoweringContext<'a> {
 
         // Compile with the settings an executable link would use for the
         // same generated C, so the object matches the runtime it links with.
-        let config = CCConfigBuilder::default()
-            .no_sys_header(true)
-            .output_ty(CCOutputType::Object)
-            .opt_level(info.c_opt_level)
-            .debug_info(info.c_debug_info)
-            .link_moonbitrun(true)
-            .define_use_shared_runtime_macro(false)
-            .native_allocator(info.native_allocator)
-            .collect_ref_cycle(self.opt.backend.collect_ref_cycle())
-            .build()
-            .expect("Failed to build CC configuration for linked core object");
+        let config = CCConfig {
+            debug_info: info.c_debug_info,
+            link_moonbitrun: true,
+            link_libbacktrace: false,
+            no_sys_header: true,
+            output_ty: CCOutputType::Object,
+            opt_level: info.c_opt_level,
+            allow_stacktrace: false,
+            define_use_shared_runtime_macro: false,
+            use_simdutf: false,
+            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            native_allocator: Some(info.native_allocator),
+        };
 
         let pkg_dir = self
             .artifact_paths
@@ -1134,11 +1177,10 @@ impl<'a> LoweringContext<'a> {
         }));
         members.extend(runtime.simdutf_objects.iter().cloned());
 
-        let config = ArchiverConfigBuilder::default()
-            .archive_moonbitrun(true)
-            .native_allocator(info.native_allocator)
-            .build()
-            .expect("Failed to build archiver configuration");
+        let config = ArchiverConfig {
+            archive_moonbitrun: true,
+            native_allocator: info.native_allocator,
+        };
         let mut command = BuildCommand::archive(
             &info.effective_native_toolchain,
             config,
@@ -1220,15 +1262,15 @@ impl<'a> LoweringContext<'a> {
 
         let sources = self.native_executable_dependency_paths(artifacts, info);
 
-        let config = LinkerConfigBuilder::<&Path>::default()
-            .driver_flags(info.c_flags.clone())
-            .opt_level(Some(info.c_opt_level))
-            .debug_info(info.c_debug_info)
-            .link_moonbitrun(true)
-            .link_libbacktrace(true)
-            .native_allocator(info.native_allocator)
-            .build()
-            .expect("Failed to build linker configuration for executable");
+        let config = LinkerConfig::<&Path> {
+            driver_flags: info.c_flags.clone(),
+            opt_level: Some(info.c_opt_level),
+            debug_info: info.c_debug_info,
+            link_moonbitrun: true,
+            link_libbacktrace: true,
+            native_allocator: info.native_allocator,
+            ..Default::default()
+        };
 
         let dest = artifacts.single_output_path().display().to_string();
 
@@ -1295,13 +1337,13 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let config = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(true)
-            .link_libbacktrace(true)
-            .output_ty(CCOutputType::Executable)
-            .native_allocator(info.native_allocator)
-            .build()
-            .expect("Failed to build LinkerConfig for new native executable");
+        let config = LinkerConfig::<&Path> {
+            link_moonbitrun: true,
+            link_libbacktrace: true,
+            output_ty: CCOutputType::Executable,
+            native_allocator: info.native_allocator,
+            ..Default::default()
+        };
 
         let source_args = sources
             .iter()
@@ -1379,7 +1421,7 @@ impl<'a> LoweringContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]
     pub(super) fn mi_inputs_of(
-        &self,
+        &mut self,
         artifacts: &ActionArtifacts,
         target: BuildTarget,
     ) -> MiInputs<'a> {
@@ -1391,9 +1433,7 @@ impl<'a> LoweringContext<'a> {
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
             .map(|(_, dep, w)| {
-                let in_file = if self.opt.stdlib_path.is_some()
-                    && self.packages.is_stdlib_package(dep.package)
-                {
+                let in_file = if self.packages.is_stdlib_package(dep.package) {
                     // Installed stdlib interfaces are selected by the known
                     // toolchain layout, outside this Build Plan's providers.
                     stdlib_deps.push(dep);
@@ -1430,39 +1470,64 @@ impl<'a> LoweringContext<'a> {
             })
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
+        // Each installed stdlib package has one interface path in this lowering.
+        // Merge by identity, cloning each cached path only once per action.
+        // The common action-lowering boundary sorts the final input paths.
+        let mut installed_stdlib = BTreeMap::new();
+        for root in stdlib_deps {
+            for (&package, path) in self.installed_stdlib_closure(root) {
+                installed_stdlib
+                    .entry(package)
+                    .or_insert_with(|| path.clone());
+            }
+        }
         MiInputs {
             deps,
-            installed_stdlib: self.installed_stdlib_closure(stdlib_deps),
+            installed_stdlib: installed_stdlib.into_values().collect(),
         }
     }
 
-    /// Installed stdlib interfaces that `moonc` may read when importing `roots`.
+    /// Installed stdlib interfaces that `moonc` may read when importing `root`.
     ///
     /// Besides each `-i` file, `moonc` loads the interfaces of indirect
     /// dependencies through the paths listed in `all_pkgs.json`. Local
     /// interfaces are covered by their producers, but installed stdlib
     /// interfaces have none, so the whole reachable stdlib closure is observed.
-    fn installed_stdlib_closure(&self, roots: Vec<BuildTarget>) -> Vec<PathBuf> {
-        let mut visited = HashSet::new();
-        let mut pending = roots;
-        let mut paths = BTreeSet::new();
-        while let Some(current) = pending.pop() {
-            if !visited.insert(current) {
-                continue;
+    fn installed_stdlib_closure(&mut self, root: BuildTarget) -> &BTreeMap<PackageId, PathBuf> {
+        if !self.installed_stdlib_closures.contains_key(&root) {
+            let mut visited = HashSet::new();
+            let mut pending = vec![root];
+            let mut paths = BTreeMap::new();
+            while let Some(current) = pending.pop() {
+                if !visited.insert(current) {
+                    continue;
+                }
+                if let Some(cached) = self.installed_stdlib_closures.get(&current) {
+                    for (&package, path) in cached {
+                        paths.entry(package).or_insert_with(|| path.clone());
+                    }
+                    continue;
+                }
+                paths.insert(
+                    current.package,
+                    self.artifact_paths.mi_of_build_target(
+                        self.packages,
+                        &current,
+                        self.opt.backend.target_backend(),
+                    ),
+                );
+                pending.extend(
+                    self.rel
+                        .dep_graph
+                        .neighbors_directed(current, Direction::Outgoing)
+                        .filter(|dep| self.packages.is_stdlib_package(dep.package)),
+                );
             }
-            paths.insert(self.artifact_paths.mi_of_build_target(
-                self.packages,
-                &current,
-                self.opt.backend.target_backend(),
-            ));
-            pending.extend(
-                self.rel
-                    .dep_graph
-                    .neighbors_directed(current, Direction::Outgoing)
-                    .filter(|dep| self.packages.is_stdlib_package(dep.package)),
-            );
+            // Cache only roots requested by compiler actions. Materializing
+            // every intermediate closure costs more for small import sets.
+            self.installed_stdlib_closures.insert(root, paths);
         }
-        paths.into_iter().collect()
+        &self.installed_stdlib_closures[&root]
     }
 }
 

@@ -118,7 +118,7 @@ fn test_indirect_dep_bundle() {
         ),
         expect![[r#"
             Using cached username/sub@0.1.0
-            Finished. moon: ran 7 tasks, now up to date
+            Finished. moon: ran 6 tasks, now up to date
         "#]],
     );
     assert_eq!(

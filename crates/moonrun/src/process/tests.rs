@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 //! Runtime state through the HostProcess interface. Native-primitive controls
-//! live in ambient's tests; pure candidate rules live in lookup's tests.
+//! live in native and os tests; pure candidate rules live in lookup's tests.
 
 #[cfg(windows)]
 mod windows;
@@ -33,7 +33,6 @@ use crate::runtime::{Env, Stdio, WorkingDirectory};
 
 fn host_process(cwd: WorkingDirectory, env: Env) -> HostProcess {
     HostProcess::new(
-        None,
         None,
         Arc::new(cwd),
         Arc::new(Stdio::Ambient),

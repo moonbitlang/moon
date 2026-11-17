@@ -18,7 +18,18 @@
 
 use anyhow::Context;
 
-pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::blocking::Client> {
+// Resource downloads share this client's connection pool within one operation.
+// FIXME: Measure negotiated HTTP versions and connection reuse separately from
+// concurrency before tuning HTTP/2 or extending pool lifetime across operations.
+pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
+        .retry(retry_policy())
+        .build()
+        .context("failed to create HTTP client")
+}
+
+fn retry_policy() -> reqwest::retry::Builder {
     // Retry across redirects to other hosts.
     // Reqwest has no public all-hosts retry scope, so use this wrapper.
     struct AnyHost;
@@ -28,7 +39,7 @@ pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::blocking::Client> {
         }
     }
 
-    let retry = reqwest::retry::for_host(AnyHost)
+    reqwest::retry::for_host(AnyHost)
         .max_retries_per_request(3)
         .classify_fn(|response| {
             if response.error().is_some()
@@ -41,12 +52,43 @@ pub(crate) fn client_with_retry() -> anyhow::Result<reqwest::blocking::Client> {
             } else {
                 response.success()
             }
-        });
-    reqwest::blocking::Client::builder()
-        .user_agent(format!("mooncake/{}", env!("CARGO_PKG_VERSION")))
-        .retry(retry)
-        .build()
-        .context("failed to create HTTP client")
+        })
+}
+
+/// Wait for an archive lock without blocking the thread driving downloads.
+/// Like `lock_file`, the returned open file owns the lock and the lock file
+/// remains on disk. Contention must yield so other downloads can finish and
+/// release their own locks, including when processes request different orders.
+pub(super) async fn lock_archive(
+    path: &std::path::Path,
+    user_log: &moonutil::user_log::UserLog,
+) -> std::io::Result<std::fs::File> {
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".lock");
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    let started = std::time::Instant::now();
+    let mut reported = false;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                if !reported && started.elapsed() >= std::time::Duration::from_secs(1) {
+                    user_log.status(format!(
+                        "Blocking waiting for file lock {} ...",
+                        std::path::Path::new(&lock_path).display()
+                    ));
+                    reported = true;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+            Err(std::fs::TryLockError::Error(error)) => return Err(error),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -56,8 +98,8 @@ mod tests {
         net::TcpListener,
     };
 
-    #[test]
-    fn retries_after_cross_host_redirect() {
+    #[tokio::test]
+    async fn retries_after_cross_host_redirect() {
         for (status, attempts) in [("503 Service Unavailable", 4), ("404 Not Found", 1)] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
@@ -86,8 +128,9 @@ mod tests {
                 .unwrap()
                 .get(format!("http://{address}/download"))
                 .send()
+                .await
                 .unwrap();
-            assert_eq!(response.text().unwrap(), attempts.to_string());
+            assert_eq!(response.text().await.unwrap(), attempts.to_string());
             server.join().unwrap();
         }
     }

@@ -219,6 +219,136 @@ fn test_moon_new_rejects_invalid_pkg_id_project_names() {
 }
 
 #[test]
+fn test_moon_new_delegates_arguments_and_exit_status() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    let bin = toolchain.join("bin");
+    let workdir = dir.join("working directory");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir(&workdir).unwrap();
+    std::fs::write(bin.join("moon_new.wasm"), []).unwrap();
+    let runner = dir.join(format!("new-runner{}", std::env::consts::EXE_SUFFIX));
+    snapbox::cmd::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/moon_new_runner.rs"))
+        .arg("-o")
+        .arg(&runner)
+        .assert()
+        .success();
+
+    // A controlled runner checks the SDK artifact, both argument separators,
+    // and effective -C directory. Its status and streams must pass through,
+    // and neither successful nor failed delegation may run the Rust fallback.
+    for code in [0, 37] {
+        moon_cmd(&dir)
+            .env("MOON_TOOLCHAIN_ROOT", &toolchain)
+            .env("MOONRUN_OVERRIDE", &runner)
+            .env("MOON_NEW_EXPECTED_CWD", &workdir)
+            .env("MOON_NEW_EXIT_CODE", code.to_string())
+            .args([
+                "-C",
+                "working directory",
+                "new",
+                "--user",
+                "moonbitlang",
+                "--name",
+                "hello",
+                "--",
+                "-new project",
+            ])
+            .assert()
+            .code(code)
+            .stdout_eq("generator stdout\n")
+            .stderr_eq("generator stderr\n");
+        assert!(!workdir.join("-new project").exists());
+    }
+}
+
+#[test]
+fn test_moon_new_falls_back_to_a_minimal_runnable_project() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    std::fs::create_dir(&toolchain).unwrap();
+
+    // Given an older SDK without the generator or runner, scaffolding must
+    // still produce only the three files needed for a runnable project.
+    moon_cmd(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", &toolchain)
+        .env("MOONRUN_OVERRIDE", toolchain.join("missing-moonrun"))
+        .args(["new", "hello", "--user", "moonbitlang"])
+        .assert()
+        .success();
+    let project = dir.join("hello");
+    let mut files = std::fs::read_dir(&project)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    files.sort();
+    assert_eq!(files, ["main.mbt", "moon.mod", "moon.pkg"]);
+    assert_eq!(
+        read(project.join("moon.mod")),
+        "name = \"moonbitlang/hello\"\n"
+    );
+    assert_eq!(
+        read(project.join("moon.pkg")),
+        "pkgtype(kind: \"executable\")\n"
+    );
+
+    // Then the real compiler and runtime can run the root package directly.
+    moon_cmd(&project)
+        .args(["run", "."])
+        .assert()
+        .success()
+        .stdout_eq("Hello\n");
+}
+
+#[test]
+fn test_moon_new_fallback_does_not_overwrite_main() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    let project = dir.join("hello");
+    std::fs::create_dir(&toolchain).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("main.mbt"), "// existing program\n").unwrap();
+
+    // Refusing an occupied entry point must leave both it and the project
+    // manifests untouched, rather than partially scaffolding over user code.
+    moon_cmd(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", &toolchain)
+        .args(["new", "hello", "--user", "moonbitlang"])
+        .assert()
+        .failure();
+    assert_eq!(read(project.join("main.mbt")), "// existing program\n");
+    assert!(!project.join("moon.mod").exists());
+    assert!(!project.join("moon.pkg").exists());
+}
+
+#[test]
+fn test_moon_new_reports_a_broken_bundled_generator() {
+    let dir = TestDir::new_empty();
+    let toolchain = dir.join("sdk");
+    let bin = toolchain.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("moon_new.wasm"), b"invalid wasm").unwrap();
+
+    // Use the real moonrun to prove an installed but invalid artifact fails
+    // without creating a project through the Rust fallback.
+    moon_cmd(&dir)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain)
+        .args(["new", "hello", "--user", "moonbitlang"])
+        .assert()
+        .code(1)
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: failed to compile `[..]/sdk/bin/moon_new.wasm`
+
+Caused by:
+    Uncaught CompileError: WebAssembly.Module(): expected magic word 00 61 73 6d, found 69 6e 76 61 @+0
+
+"#]]);
+    assert!(!dir.join("hello").exists());
+}
+
+#[test]
 fn test_moon_new_exist() {
     let dir = TestDir::new("moon_new/exist");
     dir.join("hello").rm_rf();

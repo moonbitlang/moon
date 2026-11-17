@@ -182,13 +182,12 @@ fn sync_and_discover_bundle_project(
     dirs: &PackageDirs,
     user_log: &UserLog,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
-    let preparation_config =
-        moonbuild_rupes_recta::ProjectPreparationConfig::new_with_load_defaults(
-            cmd.auto_sync_flags.frozen,
-            !cmd.build_flags.std(),
-            cmd.build_flags.enable_coverage,
-            cli.workspace_env.clone(),
-        );
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    )
+    .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 

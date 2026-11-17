@@ -31,6 +31,7 @@ use semver::Version;
 use super::{Registry, RegistryVersionInfo};
 
 /// A mock registry, primarily used in tests.
+#[derive(Clone)]
 pub struct MockRegistry {
     modules: HashMap<ModuleName, Arc<BTreeMap<Version, Arc<MoonMod>>>>,
 }
@@ -149,19 +150,29 @@ impl Default for MockRegistry {
 }
 
 impl Registry for MockRegistry {
+    fn version_reader(&self) -> impl super::VersionReader + 'static {
+        self.clone()
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         let versions = self
             .modules
             .get(name)
             .ok_or_else(|| anyhow::Error::new(super::RegistryModuleNotFound(name.clone())))?;
-        Ok(versions.get(version).map(|module| RegistryVersionInfo {
+        let module = versions
+            .get(version)
+            .ok_or_else(|| super::RegistryVersionNotFound {
+                name: name.clone(),
+                version: version.clone(),
+            })?;
+        Ok(RegistryVersionInfo {
             deps: module.deps.clone(),
             ..Default::default()
-        }))
+        })
     }
 
     fn cached_latest_version(&self, name: &ModuleName) -> anyhow::Result<Option<Version>> {
@@ -183,6 +194,16 @@ impl Registry for MockRegistry {
     }
 }
 
+impl super::VersionReader for MockRegistry {
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        Registry::version_info(self, name, version)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -199,15 +220,14 @@ mod test {
             assert!(
                 registry
                     .version_info(&name, &version.parse().unwrap())
-                    .unwrap()
-                    .is_some()
+                    .is_ok()
             );
         }
         assert!(
             registry
                 .version_info(&name, &Version::new(0, 1, 1))
-                .unwrap()
-                .is_none()
+                .unwrap_err()
+                .is::<crate::registry::RegistryVersionNotFound>()
         );
         assert_eq!(
             registry.cached_latest_version(&name).unwrap(),

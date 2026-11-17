@@ -96,6 +96,10 @@ pub(crate) enum DelegatedInvocation {
         current_dir: Option<PathBuf>,
         args: Vec<OsString>,
     },
+    TestCli {
+        current_dir: Option<PathBuf>,
+        args: Vec<OsString>,
+    },
     Login {
         current_dir: Option<PathBuf>,
     },
@@ -183,7 +187,24 @@ fn select_command(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::E
             .map(SelectedInvocation::Delegate);
     }
     let external_cram = select_external_cram(&raw_args);
-    let parsed = match MoonBuildCli::try_parse_from(&raw_args) {
+    // Clap validates only the Moon-owned prefix. Ask it to identify the
+    // command boundary too, since `testcli` can be an option value or a path
+    // under another command. This also preserves non-UTF-8 paths in the prefix.
+    let testcli = raw_args
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter(|(_, arg)| *arg == OsStr::new("testcli"))
+        .find_map(|(index, _)| {
+            let parsed = MoonBuildCli::try_parse_from(&raw_args[..=index]).ok()?;
+            matches!(parsed.subcommand, Some(MoonBuildSubcommands::TestCli))
+                .then_some((parsed, &raw_args[index + 1..]))
+        });
+    let (parsed, testcli_args) = match testcli {
+        Some((parsed, tail)) => (Ok(parsed), tail),
+        None => (MoonBuildCli::try_parse_from(&raw_args), [].as_slice()),
+    };
+    let parsed = match parsed {
         Ok(parsed) => parsed,
         Err(error) => {
             let delegated = match error.kind() {
@@ -223,6 +244,14 @@ fn select_command(raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::E
 
     let current_dir = flags.source_tgt_dir.cwd.clone();
     match command {
+        MoonBuildSubcommands::TestCli => select_transparent_delegate(
+            "testcli",
+            flags.trace,
+            DelegatedInvocation::TestCli {
+                current_dir,
+                args: testcli_args.to_vec(),
+            },
+        ),
         MoonBuildSubcommands::External(args) => {
             let name = args
                 .first()
@@ -554,6 +583,127 @@ mod tests {
         };
         assert_eq!(current_dir, Some(PathBuf::from("sub")));
         assert_eq!(delegated, args(&["doc", "--help"]));
+    }
+
+    #[test]
+    fn testcli_preserves_the_opaque_argument_tail() {
+        for tail in [
+            vec![],
+            args(&["--help"]),
+            args(&["-h"]),
+            args(&["--version"]),
+            args(&["-V"]),
+            args(&["--trace", "--quiet", "-q", "--verbose", "-v", "--dry-run"]),
+            args(&["-C", "elsewhere", "--target-dir", "output", "-Z", "unknown"]),
+            args(&["--unstable-feature=unknown", "--unknown-option", "value"]),
+            args(&["--", "", "two words", "--", "--help"]),
+        ] {
+            let raw = args(&["moon", "testcli"])
+                .into_iter()
+                .chain(tail.clone())
+                .collect();
+            let SelectedInvocation::Delegate(DelegatedInvocation::TestCli {
+                current_dir,
+                args: delegated,
+            }) = select(raw).unwrap()
+            else {
+                panic!("testcli should select transparent delegation for {tail:?}")
+            };
+            assert_eq!(current_dir, None);
+            assert_eq!(delegated, tail);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn testcli_preserves_non_utf8_arguments() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let tail = vec![OsString::from_vec(b"non-utf8-\xff".to_vec())];
+        let raw = args(&["moon", "testcli"])
+            .into_iter()
+            .chain(tail.clone())
+            .collect();
+        let SelectedInvocation::Delegate(DelegatedInvocation::TestCli {
+            args: delegated, ..
+        }) = select(raw).unwrap()
+        else {
+            panic!("testcli should preserve OS strings")
+        };
+        assert_eq!(delegated, tail);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn testcli_keeps_non_utf8_prefix_paths_in_moon() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let directory = OsString::from_vec(b"directory-\xff".to_vec());
+        let mut option = OsString::from("-qC");
+        option.push(&directory);
+        let raw = vec!["moon".into(), option, "testcli".into(), "--help".into()];
+        let SelectedInvocation::Delegate(DelegatedInvocation::TestCli {
+            current_dir,
+            args: delegated,
+        }) = select(raw).unwrap()
+        else {
+            panic!("testcli should preserve OS strings in the Moon prefix")
+        };
+        assert_eq!(current_dir, Some(PathBuf::from(directory)));
+        assert_eq!(delegated, args(&["--help"]));
+    }
+
+    #[test]
+    fn testcli_validates_only_the_moon_prefix() {
+        for prefix in [
+            args(&["-C", "subdir"]),
+            args(&["-Csubdir"]),
+            args(&["-C=subdir"]),
+            args(&["-qvCsubdir"]),
+            args(&["--target-dir", "testcli", "-C", "subdir"]),
+        ] {
+            let raw = args(&["moon"])
+                .into_iter()
+                .chain(prefix)
+                .chain(args(&["testcli", "-C", "guest directory", "--trace"]))
+                .collect();
+            let SelectedInvocation::Delegate(DelegatedInvocation::TestCli {
+                current_dir,
+                args: delegated,
+            }) = select(raw).unwrap()
+            else {
+                panic!("testcli should select transparent delegation")
+            };
+            assert_eq!(current_dir, Some(PathBuf::from("subdir")));
+            assert_eq!(delegated, args(&["-C", "guest directory", "--trace"]));
+        }
+
+        for (raw, kind) in [
+            (
+                args(&["moon", "--trace", "testcli", "--help"]),
+                ErrorKind::ArgumentConflict,
+            ),
+            (args(&["moon", "--help", "testcli"]), ErrorKind::DisplayHelp),
+            (args(&["moon", "help", "testcli"]), ErrorKind::DisplayHelp),
+            (
+                args(&["moon", "--unknown", "testcli"]),
+                ErrorKind::UnknownArgument,
+            ),
+            (
+                args(&["moon", "build", "testcli", "--unknown"]),
+                ErrorKind::UnknownArgument,
+            ),
+        ] {
+            assert_eq!(select(raw).unwrap_err().kind(), kind);
+        }
+
+        let SelectedInvocation::Moon(invocation) =
+            select(args(&["moon", "--version", "testcli", "--unknown"])).unwrap()
+        else {
+            panic!("version before testcli should belong to Moon")
+        };
+        assert!(matches!(invocation.command, MoonCommand::Human(command)
+            if matches!(*command, MoonBuildSubcommands::Version(_))));
     }
 
     #[test]

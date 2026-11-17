@@ -59,6 +59,7 @@
 
 mod filter;
 mod promotion;
+mod report;
 
 use std::{
     collections::HashMap,
@@ -70,14 +71,8 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
 use moonbuild::{
-    benchmark::{BATCHBENCH, render_batch_bench_summary},
-    entry::{CompactTestFormatter, TestArgs},
-    expect::{
-        ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, render_expect_fail,
-        render_snapshot_fail,
-    },
+    expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING},
     runtest::{TestDriverEvent, TestStatistics},
-    section_capture::SectionCapture,
 };
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey, discover::DiscoverResult, model::BuildTarget,
@@ -89,12 +84,13 @@ use moonutil::{
     },
     test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
-use tokio::{sync::Semaphore, task::JoinSet};
-use tracing::{Instrument, debug, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
+use super::{run_with_parallelism, runtime::TestArgs, section_capture::SectionCapture};
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
 pub(crate) use promotion::perform_promotion;
+use report::{BATCHBENCH, print_test_result};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TestOutlineEntry {
@@ -142,51 +138,6 @@ fn resolve_test_parallelism(no_parallelize: bool, jobs: Option<usize>, bench: bo
     } else {
         moonbuild::execution::resolve_parallelism(jobs).max(1)
     }
-}
-
-/// Await bounded concurrent work, then restore invocation order. Concurrent runs
-/// finish and are reaped before errors propagate; serial runs stop on the first error.
-async fn run_with_parallelism<R: Send + 'static, E: Send + 'static>(
-    runs: impl ExactSizeIterator<Item = impl Future<Output = Result<R, E>> + Send + 'static>,
-    parallelism: usize,
-) -> Result<Vec<R>, E> {
-    let parallelism = parallelism.max(1).min(runs.len().max(1));
-    if parallelism <= 1 {
-        let mut results = Vec::new();
-        for run in runs {
-            results.push(run.await?);
-        }
-        return Ok(results);
-    }
-
-    let slots = Arc::new(Semaphore::new(parallelism));
-    let mut tasks = JoinSet::new();
-    for (index, run) in runs.enumerate() {
-        let permit = Arc::clone(&slots)
-            .acquire_owned()
-            .await
-            .expect("test execution semaphore is never closed");
-        tasks.spawn(
-            async move {
-                // Keep the slot until execution and result collection finish.
-                let _permit = permit;
-                (index, run.await)
-            }
-            .in_current_span(),
-        );
-    }
-
-    let mut completed = Vec::new();
-    while let Some(result) = tasks.join_next().await {
-        completed.push(result);
-    }
-    // Drain all tasks before propagating either a test error or a task panic.
-    let mut results = completed
-        .into_iter()
-        .map(|result| result.expect("test execution task panicked"))
-        .collect::<Vec<_>>();
-    results.sort_unstable_by_key(|(index, _)| *index);
-    results.into_iter().map(|(_, result)| result).collect()
 }
 
 /// Run the tests compiled in this session. Does **not** print or update
@@ -279,8 +230,7 @@ pub(crate) async fn run_tests(
     Ok(stats)
 }
 
-#[derive(derive_builder::Builder, Debug)]
-#[builder(derive(Debug))]
+#[derive(Debug)]
 struct TestExecutableToRun<'a> {
     target: BuildTarget,
     executable: &'a Path,
@@ -700,7 +650,8 @@ pub(crate) fn collect_test_outline(
 /// Gather tests executables from the build metadata.
 #[instrument(level = "trace", skip(build_meta))]
 fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
-    let mut pending = HashMap::with_capacity(build_meta.artifacts.len());
+    let mut pending: HashMap<BuildTarget, (Option<&Path>, Option<&Path>)> =
+        HashMap::with_capacity(build_meta.artifacts.len());
     let mut results = vec![];
 
     for (artifact, paths) in &build_meta.artifacts {
@@ -720,22 +671,26 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
             .expect("test result artifacts should resolve to one path");
         trace!(?target, ?artifact, "processing test artifact");
 
-        let working = pending.entry(target).or_insert_with(|| {
-            let mut res = TestExecutableToRunBuilder::create_empty();
-            res.target(target);
-            res
-        });
-
+        let (executable, meta) = pending.entry(target).or_insert((None, None));
         if is_executable {
-            working.executable(path);
+            *executable = Some(path);
         } else {
-            working.meta(path);
+            *meta = Some(path);
         }
 
-        if let Ok(tgt) = working.build() {
+        if let (Some(executable), Some(meta)) = (*executable, *meta) {
             pending.remove(&target);
-            debug!(target = ?tgt.target, executable = %tgt.executable.display(), meta = %tgt.meta.display(), "assembled test executable");
-            results.push(tgt);
+            debug!(
+                target = ?target,
+                executable = %executable.display(),
+                meta = %meta.display(),
+                "assembled test executable"
+            );
+            results.push(TestExecutableToRun {
+                target,
+                executable,
+                meta,
+            });
         }
     }
 
@@ -781,11 +736,7 @@ pub(crate) fn collect_test_invocations(
             debug!(target = ?test.target, "skipping test executable due to filter");
             continue;
         };
-        if args
-            .file_and_index
-            .iter()
-            .all(|(_, ranges)| ranges.is_empty())
-        {
+        if args.file_and_index.is_empty() {
             debug!(target = ?test.target, "skipping test executable with no selected cases");
             continue;
         }
@@ -1086,105 +1037,6 @@ fn parse_one_test_result(
         Failed
     };
     Ok(res)
-}
-
-fn print_test_result(
-    res: &TestCaseResult,
-    module_name: &str,
-    verbose: bool,
-    json: bool,
-    pkg_src: &DiscoverResult,
-) {
-    if json {
-        print_test_result_json(res);
-    } else {
-        print_test_result_normal(res, module_name, verbose, pkg_src);
-    }
-}
-
-fn print_test_result_json(res: &TestCaseResult) {
-    use TestResultKind::*;
-
-    match res.kind {
-        Passed => {
-            // In JSON mode, do not emit anything for successful tests.
-            // If verbose success output is desired, callers should disable json.
-        }
-        Failed | RuntimeError | ExpectTestFailed | SnapshotTestFailed | ExpectPanic => {
-            // Repopulate test_name from metadata when available
-            let test_name = res
-                .meta
-                .name
-                .as_ref()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| res.raw.test_name.clone());
-
-            // Normalize message: for ExpectPanic with empty message, align with legacy output
-            let mut message = res.raw.message.clone();
-            if matches!(res.kind, ExpectPanic) && message.is_empty() {
-                message = "panic is expected".to_string();
-            }
-
-            let obj = moonbuild::runtest::TestStatistics {
-                package: res.raw.package.clone(),
-                filename: res.raw.filename.clone(),
-                index: res.raw.index.clone(),
-                test_name,
-                message,
-            };
-
-            // Print compact JSON line
-            println!("{}", serde_json_lenient::to_string(&obj).unwrap());
-        }
-    }
-}
-
-fn print_test_result_normal(
-    res: &TestCaseResult,
-    module_name: &str,
-    verbose: bool,
-    pkg_src: &DiscoverResult,
-) {
-    let output = &res.raw;
-    let message = &output.message;
-    let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
-
-    match res.kind {
-        TestResultKind::Passed => {
-            if message.starts_with(BATCHBENCH) {
-                let _ = formatter.write_bench(&mut std::io::stdout());
-                println!();
-                render_batch_bench_summary(message);
-            } else if verbose {
-                let _ = formatter.write_success(&mut std::io::stdout());
-                println!();
-            }
-        }
-
-        TestResultKind::Failed | TestResultKind::RuntimeError => {
-            if message.is_empty() {
-                let _ = formatter.write_failure(&mut std::io::stdout());
-            } else {
-                let _ = formatter.write_failure_with_message(&mut std::io::stdout(), message);
-            }
-            println!();
-        }
-        TestResultKind::ExpectTestFailed => {
-            let _ = formatter.write_failure(&mut std::io::stdout());
-            println!();
-            let _ = render_expect_fail(pkg_src, output);
-        }
-        TestResultKind::SnapshotTestFailed => {
-            let _ = formatter.write_failure(&mut std::io::stdout());
-            println!();
-            let _ = render_snapshot_fail(pkg_src, output);
-        }
-        TestResultKind::ExpectPanic => {
-            let _ =
-                formatter.write_failure_with_message(&mut std::io::stdout(), "panic is expected");
-            println!();
-        }
-    }
 }
 
 #[cfg(test)]

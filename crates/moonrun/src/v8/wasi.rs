@@ -30,7 +30,7 @@ pub(super) fn init_env<'s>(
     run_context: &V8RunContext,
     values: Rc<super::values::State>,
     dtors: &mut Vec<Box<dyn Any>>,
-) {
+) -> anyhow::Result<()> {
     wasi::imports::register(&mut super::wasm_imports::Registry {
         object: obj,
         scope,
@@ -39,11 +39,12 @@ pub(super) fn init_env<'s>(
             args,
             run_context.runtime(),
             run_context.termination_request().clone(),
-        )),
+        )?),
         memory: Rc::clone(run_context.memory_binding()),
         termination: run_context.termination_request().clone(),
         values,
         retained: dtors,
     })
     .unwrap();
+    Ok(())
 }

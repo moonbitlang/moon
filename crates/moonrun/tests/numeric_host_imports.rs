@@ -16,6 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 #[test]
 fn async_resource_spawn_requires_reserved_absence_sentinel() {
     #[cfg(unix)]

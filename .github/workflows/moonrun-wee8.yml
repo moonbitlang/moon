@@ -21,10 +21,26 @@ name: Moonrun wee8
 on:
   push:
     branches: [main]
-    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
+    paths:
+      - 'crates/moonrun/**'
+      - 'third_party/moonbitlang_async'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/moonrun-wee8.yml'
+      - '.github/scripts/prune-rust-toolchains.sh'
+      - '.github/actions/setup-wee8/**'
+      - '.github/scripts/prepare-wee8.py'
   pull_request:
     branches: [main]
-    paths: ['crates/moonrun/**', 'third_party/moonbitlang_async', 'Cargo.toml', 'Cargo.lock', '.github/workflows/moonrun-wee8.yml', '.github/scripts/prune-rust-toolchains.sh']
+    paths:
+      - 'crates/moonrun/**'
+      - 'third_party/moonbitlang_async'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/moonrun-wee8.yml'
+      - '.github/scripts/prune-rust-toolchains.sh'
+      - '.github/actions/setup-wee8/**'
+      - '.github/scripts/prepare-wee8.py'
 
 permissions:
   contents: read
@@ -63,6 +79,7 @@ jobs:
           shared-key: moonrun-wee8
           cache-targets: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/setup-wee8
       - name: Install MoonBit (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -79,9 +96,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cargo fmt --all --check
-          cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test -- -D warnings
+          cargo clippy --locked -p moonrun --no-default-features --features wee8 --lib --bins --test wee8 --test wasi_imports --test filesystem_authority --test policy_composition --test stdio --test numeric_host_imports --test legacy_host_imports --test core_environment --test local_timezone --test test -- -D warnings
       - name: Test shared host definitions and all Moonrun integration cases
-        run: cargo test --locked -p moonrun --no-default-features --features wee8 --lib --test wee8 --test wasi_imports --test stdio --test numeric_host_imports --test legacy_host_imports --test test
+        run: cargo test --locked -p moonrun --no-default-features --features wee8 --lib --test wee8 --test wasi_imports --test filesystem_authority --test policy_composition --test stdio --test numeric_host_imports --test legacy_host_imports --test core_environment --test local_timezone --test test
       - name: Build Moon and bundle core (Unix)
         if: runner.os != 'Windows'
         run: cargo run --locked --bin moon -- -C "$HOME/.moon/lib/core" bundle --all

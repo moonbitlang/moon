@@ -9,20 +9,19 @@ virtual metadata and existing contract files without selecting an invocation's
 final contract input:
 
 - Each `moon.pkg` is parsed.
-- If a package declares `virtual_pkg`, discovery records each existing
-  `pkg.mbti` (new) and `<package_short_name>.mbti` (old) candidate. It does not
-  choose between them or treat an absent declared prebuild output as an
+- If a package declares `virtual_pkg`, discovery records its existing
+  `pkg.mbti`. An absent declared prebuild output is not recorded as an
   existing file.
 - Packages with `implement = "<virtual>"` are tagged as implementations of that virtual package.
 - Any package that lists `overrides` gets a consumer-local mapping `<virtual> → <implementation>`.
 
 When `BuildVirtual` is requested, Build Plan construction first plans package
-prebuild for that package. File Interpretation then selects `pkg.mbti`, falling
-back to `<package_short_name>.mbti`, from either the Package File Set or the
-outputs of actual actions in the current `PackagePrebuildPlan`. If neither is
-available, Build Plan construction reports the missing contract. The selected
-path is stored with the `BuildVirtual` action, and n2 connects a prebuild
-provider through the matching concrete path when applicable.
+prebuild for that package. File Interpretation requires `pkg.mbti` from either
+the Package File Set or the outputs of actual actions in the current
+`PackagePrebuildPlan`. If it is unavailable, Build Plan construction reports
+the missing contract. The contract path is stored with the `BuildVirtual`
+action, and n2 connects a prebuild provider through the matching concrete path
+when applicable.
 
 This separation keeps Package File Set discovery independent of
 the selected prebuild actions. A declaration alone cannot make an absent
@@ -30,9 +29,9 @@ contract available when no action will generate it.
 
 When Moon injects a prebuilt standard library, its virtual contracts are
 external compiler inputs rather than artifacts produced by the current Build
-Plan. For example, an implementation of `moonbitlang/core/abort` is checked
-against the `abort.mi` in the installed bundle; planning does not create a
-local `BuildVirtual(abort)` action. Lowering retains that exact contract as an
+Plan. An implementation is checked against the virtual package's `.mi` in
+the installed bundle; planning does not create a local `BuildVirtual` action
+for that package. Lowering retains that exact contract as an
 ordinary file input, like the installed interfaces passed through `-i`.
 Building the standard library itself does not inject those artifacts and
 therefore uses the ordinary local virtual-package pipeline. An implementation

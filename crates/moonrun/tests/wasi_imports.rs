@@ -18,6 +18,10 @@
 
 //! Exercise the same shared registrations through each selected engine.
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 use moonrun::{Engine, RunOptions, RunOutcome};
 
 #[test]
@@ -229,7 +233,7 @@ fn engines_share_the_full_wasi_surface() {
     )
     .unwrap();
     let policy = dir.path().join("policy.json");
-    std::fs::write(&policy, "{}").unwrap();
+    std::fs::write(&policy, r#"{"fs":{"read":["."],"write":["."]}}"#).unwrap();
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
         .arg("--policy")

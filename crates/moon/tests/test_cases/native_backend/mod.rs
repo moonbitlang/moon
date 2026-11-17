@@ -1,8 +1,11 @@
 mod cc_flags;
+#[cfg(windows)]
+mod compiler_selection;
 #[cfg(unix)]
 mod compiler_wrapper;
 #[cfg(unix)]
 mod cross_compiler;
+mod integer_semantics;
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
     all(target_os = "linux", target_arch = "x86_64"),
@@ -36,6 +39,9 @@ mod unix_graph {
         let uses_host_archiver = !envs
             .iter()
             .any(|(name, _)| matches!(*name, "MOON_CC" | "MOON_AR"));
+        // The transform visits every command, input, and output in the graph.
+        // Resolve the SDK once per assertion using the test process environment.
+        let sdk_link_flag = macos_sdk_path().map(|root| format!("-L{root}/usr/lib"));
         build_graph::assert_with_replacements(
             moon_cmd(dir).args(args).envs(envs.iter().copied()),
             expected,
@@ -46,7 +52,9 @@ mod unix_graph {
                 if uses_host_archiver {
                     crate::util::normalize_host_archiver(s);
                 }
-                normalize_macos_sdk_path(s);
+                if let Some(flag) = &sdk_link_flag {
+                    *s = s.replace(flag, "-L$MACOSX_SDK/usr/lib");
+                }
                 normalize_fake_toolchain_path(s, dir);
             },
         );
@@ -67,30 +75,24 @@ mod unix_graph {
     }
 
     #[cfg(target_os = "macos")]
-    fn normalize_macos_sdk_path(s: &mut String) {
-        let Ok(output) = std::process::Command::new("xcrun")
+    fn macos_sdk_path() -> Option<String> {
+        let output = std::process::Command::new("xcrun")
             .args(["--sdk", "macosx", "--show-sdk-path"])
             .output()
-        else {
-            return;
-        };
+            .ok()?;
         if !output.status.success() {
-            return;
+            return None;
         }
 
         let sdk_root = String::from_utf8_lossy(&output.stdout);
-        let Some(sdk_root) = sdk_root.lines().next().map(str::trim) else {
-            return;
-        };
-        if sdk_root.is_empty() {
-            return;
-        }
-
-        *s = s.replace(&format!("-L{sdk_root}/usr/lib"), "-L$MACOSX_SDK/usr/lib");
+        let sdk_root = sdk_root.lines().next()?.trim();
+        (!sdk_root.is_empty()).then(|| sdk_root.to_owned())
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn normalize_macos_sdk_path(_s: &mut String) {}
+    fn macos_sdk_path() -> Option<String> {
+        None
+    }
 
     fn normalize_fake_toolchain_path(s: &mut String, dir: &TestDir) {
         let root = dir.join("fake-toolchain");

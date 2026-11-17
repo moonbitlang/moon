@@ -1,0 +1,281 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use tokio::io::{AsyncBufRead, AsyncWriteExt};
+
+pub(crate) struct SectionCapture<'a> {
+    begin_delimiter: &'a str,
+    end_delimiter: &'a str,
+    capture_buffer: String,
+    include_delimiters: bool,
+    state: SectionCaptureState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SectionCaptureState {
+    Outside,
+    Capturing,
+    Complete,
+}
+
+enum LineCaptured {
+    All,
+    Prefix(usize), // noncaptured start index
+    Suffix(usize), // noncaptured end index
+}
+
+impl<'a> SectionCapture<'a> {
+    pub(super) fn new(
+        begin_delimiter: &'a str,
+        end_delimiter: &'a str,
+        include_delimiters: bool,
+    ) -> Self {
+        SectionCapture {
+            begin_delimiter,
+            end_delimiter,
+            capture_buffer: String::new(),
+            include_delimiters,
+            state: SectionCaptureState::Outside,
+        }
+    }
+
+    /// Feed a line into the capture buffer. The line should contain the newline character.
+    fn feed_line(&mut self, line: &str) -> Option<LineCaptured> {
+        if line.trim_end().ends_with(self.begin_delimiter) {
+            self.state = SectionCaptureState::Capturing;
+            if self.include_delimiters {
+                self.capture_buffer.push_str(line);
+            }
+            let end_index = line.trim_end().len() - self.begin_delimiter.len();
+            return Some(LineCaptured::Suffix(end_index));
+        }
+        if matches!(self.state, SectionCaptureState::Capturing)
+            && line.starts_with(self.end_delimiter)
+        {
+            self.state = SectionCaptureState::Complete;
+            if self.include_delimiters {
+                self.capture_buffer.push_str(line);
+            }
+            let start_index = self.end_delimiter.len();
+            if line.trim().len() == self.end_delimiter.len() {
+                // The whole line is just the end delimiter.
+                return Some(LineCaptured::All);
+            } else {
+                return Some(LineCaptured::Prefix(start_index));
+            }
+        }
+        if matches!(self.state, SectionCaptureState::Capturing) {
+            self.capture_buffer.push_str(line);
+            return Some(LineCaptured::All);
+        }
+        None
+    }
+
+    /// Returns the captured section if the section is complete.
+    pub(super) fn finish(self) -> Option<String> {
+        if matches!(self.state, SectionCaptureState::Complete) {
+            Some(self.capture_buffer)
+        } else {
+            None
+        }
+    }
+}
+
+/// Pipes the child stdout to stdout, with the ability to capture sections of the output.
+/// If any of the captures captures a line, the line will not be printed to stdout.
+/// The captures are processed in order: a line is captured by the first capture that captures it.
+/// The program should not print overlapping sections, as the captures are not aware of each other.
+#[cfg(test)]
+fn handle_stdout<P: FnMut(&str)>(
+    stdout: &mut impl std::io::BufRead,
+    captures: &mut [&mut SectionCapture<'_>],
+    mut print: P,
+) -> anyhow::Result<()> {
+    let mut buf = String::new();
+
+    loop {
+        buf.clear();
+        let n = stdout.read_line(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let capture_status = captures
+            .iter_mut()
+            .find_map(|capture| capture.feed_line(&buf));
+        match capture_status {
+            None => print(&buf),
+            Some(LineCaptured::All) => {}
+            Some(LineCaptured::Prefix(start_index)) => print(&buf[start_index..]),
+            Some(LineCaptured::Suffix(end_index)) => print(&buf[..end_index]),
+        }
+    }
+    Ok(())
+}
+
+/// Async version of [`handle_stdout`].
+pub(super) async fn handle_stdout_async(
+    proc: impl AsyncBufRead,
+    captures: &mut [&mut SectionCapture<'_>],
+) -> anyhow::Result<()> {
+    use tokio::io::AsyncBufReadExt;
+    let mut buf = String::new();
+
+    tokio::pin!(proc);
+    let mut stdout = tokio::io::stdout();
+
+    loop {
+        buf.clear();
+        let n = proc.read_line(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        let capture_status = captures
+            .iter_mut()
+            .find_map(|capture| capture.feed_line(&buf));
+        match capture_status {
+            None => {
+                stdout.write_all(buf.as_bytes()).await?;
+                stdout.flush().await?;
+            }
+            Some(LineCaptured::All) => {}
+            Some(LineCaptured::Prefix(start_index)) => {
+                stdout.write_all(&buf.as_bytes()[start_index..]).await?;
+                stdout.flush().await?;
+            }
+            Some(LineCaptured::Suffix(end_index)) => {
+                stdout.write_all(&buf.as_bytes()[..end_index]).await?;
+                stdout.flush().await?;
+            }
+        }
+    }
+    Ok(())
+}
+#[test]
+fn test_handle_output() {
+    let out = "abcde
+---begin---
+text
+---end---
+fghij";
+    let expected_out = "abcde
+fghij";
+    let mut capture = SectionCapture::new("---begin---", "---end---", false);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, expected_out);
+    assert_eq!(capture.finish().unwrap(), "text\n");
+}
+
+#[test]
+fn test_handle_intermixed_output() {
+    let out = "abcde
+blahblah---begin---
+text
+---end---blahblah
+fghij";
+    let expected_out = "abcde
+blahblahblahblah
+fghij";
+    let mut capture = SectionCapture::new("---begin---", "---end---", false);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, expected_out);
+    assert_eq!(capture.finish().unwrap(), "text\n");
+}
+
+#[test]
+fn test_handle_section_with_delimiters() {
+    let out = "abcde
+---begin---
+text
+---end---
+fghij";
+    let expected_out = "abcde
+fghij";
+    let mut capture = SectionCapture::new("---begin---", "---end---", true);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, expected_out);
+    assert_eq!(capture.finish().unwrap(), "---begin---\ntext\n---end---\n");
+}
+
+#[test]
+fn test_handle_multiple_sections() {
+    let out = "abcde
+---begin---
+one
+---end---
+middle
+---begin---
+two
+---end---
+fghij";
+    let expected_out = "abcde
+middle
+fghij";
+    let mut capture = SectionCapture::new("---begin---", "---end---", false);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, expected_out);
+    assert_eq!(capture.finish().unwrap(), "one\ntwo\n");
+}
+
+#[test]
+fn test_handle_wrong_output() {
+    let out = "abcde
+blahblah---begin--
+text
+---end---blahblah
+fghij";
+
+    let mut capture = SectionCapture::new("---begin---", "---end---", false);
+    let mut buf = String::new();
+    let mut captures = [&mut capture];
+    handle_stdout(
+        &mut std::io::BufReader::new(out.as_bytes()),
+        &mut captures,
+        |line| buf.push_str(line),
+    )
+    .unwrap();
+    assert_eq!(buf, out);
+    assert!(capture.finish().is_none());
+}

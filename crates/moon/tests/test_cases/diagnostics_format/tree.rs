@@ -81,7 +81,7 @@ fn test_moon_tree_package_json_captures_postadd_output() {
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]/n/nFeature flags enabled: rr_moon_mod,rr_moon_pkg"}]}
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]"}]}
 
 "#]]);
 }

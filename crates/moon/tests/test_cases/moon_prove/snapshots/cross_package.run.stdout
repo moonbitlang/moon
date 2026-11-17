@@ -4,6 +4,9 @@ username/prove_cross/dep
   Report: _build/verif/dep/dep.proof.json
   Failed goals: 1
 
+username/prove_cross/downstream
+  Succeeded: 1 goals proved
+
 Summary:
-  0 of 1 packages proved
-  0 goals proved, 1 timeout
+  1 of 2 packages proved
+  1 goals proved, 1 timeout

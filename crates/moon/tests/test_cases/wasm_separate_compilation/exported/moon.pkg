@@ -1,0 +1,9 @@
+import {
+  "username/sep/lib",
+}
+
+pkgtype(kind: "executable")
+
+options(
+  link: { "wasm": { "export-memory-name": "memory" } },
+)

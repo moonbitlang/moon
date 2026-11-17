@@ -1,6 +1,6 @@
 use crate::{
     TestDir, assert_success, get_err_stderr, get_err_stderr_with_envs, get_stderr, get_stdout,
-    get_stdout_with_envs, scoped_packages_json_path,
+    get_stdout_with_envs, moon_cmd, scoped_packages_json_path,
     util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
@@ -293,8 +293,7 @@ fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
         "proof-enabled packages should pass proof warning suppressions, got:\n{dry_run}"
     );
 
-    let output = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
+    let output = moon_cmd(&dir)
         .args(["test", "lib", "--sort-input", "--no-parallelize"])
         .assert()
         .success()
@@ -350,6 +349,117 @@ Summary:
 
     assert_is_file(&dir.join("_build/verif/zzok/pkg_8_username_5_prove_4_zzok.mlw"));
     assert_is_file(&dir.join("_build/verif/zzok/zzok.proof.json"));
+}
+
+#[test]
+fn test_moon_prove_compile_failures_do_not_reuse_reports() {
+    if skip_unless_verification_tests_enabled(
+        "test_moon_prove_compile_failures_do_not_reuse_reports",
+    ) {
+        return;
+    }
+    let Some(z3_path) = z3_path() else {
+        eprintln!("skipping proof report freshness test: z3 is not available");
+        return;
+    };
+
+    for warm_cache in [false, true] {
+        for lowering_error in [false, true] {
+            let dir = TestDir::new("moon_prove/report_freshness.in");
+            if warm_cache {
+                snapbox::cmd::Command::new(moon_bin())
+                    .env("Z3PATH", &z3_path)
+                    .current_dir(&dir)
+                    .arg("prove")
+                    .assert()
+                    .success()
+                    .stdout_eq(snapbox::str![[r#"
+repro/prove_stale/lib
+  Succeeded: 1 goals proved
+
+repro/prove_stale/lib2
+  Succeeded: 1 goals proved
+
+Summary:
+  2 of 2 packages proved
+  2 goals proved
+
+"#]]);
+            }
+
+            if lowering_error {
+                let path = dir.join("lib/lib.mbt");
+                let source = std::fs::read_to_string(&path).unwrap();
+                std::fs::write(path, source.replace("  x + 1L", "  let _ = [1]\n  x + 1L"))
+                    .unwrap();
+                snapbox::cmd::Command::new(moon_bin())
+                    .current_dir(&dir)
+                    .arg("check")
+                    .assert()
+                    .success();
+            } else {
+                let path = dir.join("lib/lib.mbtp");
+                let source = std::fs::read_to_string(&path).unwrap();
+                std::fs::write(path, source.replace("x : Int64", "x : Int")).unwrap();
+            }
+
+            snapbox::cmd::Command::new(moon_bin())
+                .env("Z3PATH", &z3_path)
+                .current_dir(&dir)
+                .arg("prove")
+                .assert()
+                .code(1)
+                .stdout_eq("");
+        }
+    }
+}
+
+#[test]
+fn test_moon_prove_reuses_preparation_with_fresh_reports() {
+    if skip_unless_verification_tests_enabled(
+        "test_moon_prove_reuses_preparation_with_fresh_reports",
+    ) {
+        return;
+    }
+    let Some(z3_path) = z3_path() else { return };
+    let dir = TestDir::new("moon_prove/report_freshness.in");
+    let whyml = dir.join("_build/verif/lib/pkg_5_repro_12_prove_ustale_3_lib.mlw");
+    let mi = whyml.with_extension("mi");
+    let report = dir.join("_build/verif/lib/lib.proof.json");
+    let mut preparation_times = None;
+    for cached in [false, true] {
+        if cached {
+            // Proving must recreate reports even when preparation is up to date.
+            std::fs::remove_file(&report).unwrap();
+        }
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&dir)
+            .env("Z3PATH", &z3_path)
+            .args(["prove", "lib"])
+            .assert()
+            .success()
+            .stdout_eq(snapbox::str![[r#"
+repro/prove_stale/lib
+  Succeeded: 1 goals proved
+
+Summary:
+  1 of 1 packages proved
+  1 goals proved
+
+"#]]);
+        let current_times = (
+            std::fs::metadata(&whyml).unwrap().modified().unwrap(),
+            std::fs::metadata(&mi).unwrap().modified().unwrap(),
+        );
+        if let Some(previous) = preparation_times {
+            assert_eq!(
+                previous, current_times,
+                "unchanged inputs must skip preparation"
+            );
+        }
+        preparation_times = Some(current_times);
+        assert_is_file(&report);
+    }
 }
 
 #[test]

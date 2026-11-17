@@ -43,6 +43,11 @@ pub enum BackendConfig {
         /// Select the MoonBit TLSF allocator when linking linear-memory Wasm.
         new_allocator: bool,
         collect_ref_cycle: bool,
+        /// Experimental: link executables from one relocatable wasm1 object
+        /// per package (`MOON_SEPARATE_COMPILATION=1`), so that an edit only
+        /// recompiles the objects it affects. Planning keeps a whole-program
+        /// link for executables that need it.
+        separate_compilation: bool,
     },
     WasmGc {
         use_wat: bool,
@@ -302,8 +307,6 @@ pub enum BuildPlanNode {
     Check(BuildTarget),
     /// Emit proof artifacts (`.mlw` + proof-aware `.mi`) without invoking Why3.
     EmitProof(BuildTarget),
-    /// Prove the given build target.
-    Prove(BuildTarget),
 
     /// Build the `.core` file from `.mbt` sources for the given target.
     BuildCore(BuildTarget),
@@ -317,12 +320,21 @@ pub enum BuildPlanNode {
     /// Link the `.core` file into an executable or library for the given target.
     LinkCore(BuildTarget),
 
+    /// Compile a relocatable wasm1 object of a Wasm program (separate
+    /// compilation), which `LinkWasmObjects` links.
+    BuildWasmObject(WasmObject),
+
+    /// Link a target's wasm1 main object with the library objects of the
+    /// packages it loads into its executable (separate compilation).
+    LinkWasmObjects(BuildTarget),
+
     /// The final runnable artifact for a target.
     ///
     /// This action exists only for native and LLVM targets, where the output
     /// from `LinkCore` needs native linking. Generated C first passes through
     /// `CompileGeneratedC`. Wasm and JavaScript `LinkCore` actions provide the final
-    /// executable artifact directly.
+    /// executable artifact directly, except for executables that Wasm separate
+    /// compilation links with `LinkWasmObjects`.
     MakeExecutable(BuildTarget),
 
     /// Compile generated-C `LinkCore` output into a native object.
@@ -348,12 +360,6 @@ pub enum BuildPlanNode {
     /// This does not promote the `.mbti` into the source directory.
     GenerateMbti(BuildTarget),
 
-    /// Bundle all non-virtual packages in the given module. This produces a
-    /// `.core` file containing all packages.
-    ///
-    /// This is only used in the standard library `moonbitlang/core` currently.
-    Bundle(ModuleId),
-
     /// Build the i-th runtime C translation unit.
     BuildRuntimeObject(u32),
 
@@ -371,15 +377,28 @@ pub enum BuildPlanNode {
     BuildDocs(ModuleId),
 }
 
+/// A relocatable wasm1 object under Wasm separate compilation.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum WasmObject {
+    /// The object of an executable's main package target: the program's
+    /// entry, exports and link settings, with the package's own code.
+    Main(BuildTarget),
+    /// The library object of a package, which defines every non-generic
+    /// function and value of the package and is shared by every executable
+    /// using it.
+    Library(PackageId),
+}
+
 impl BuildPlanNode {
     /// Extract the target from a BuildPlanNode, if it has one
     pub fn extract_target(&self) -> Option<BuildTarget> {
         match *self {
             BuildPlanNode::Check(target)
             | BuildPlanNode::EmitProof(target)
-            | BuildPlanNode::Prove(target)
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
+            | BuildPlanNode::BuildWasmObject(WasmObject::Main(target))
+            | BuildPlanNode::LinkWasmObjects(target)
             | BuildPlanNode::MakeExecutable(target)
             | BuildPlanNode::CompileGeneratedC(target)
             | BuildPlanNode::GenerateDsym(target)
@@ -388,9 +407,9 @@ impl BuildPlanNode {
             BuildPlanNode::BuildCStub(_, _)
             | BuildPlanNode::BuildRuntimeObject(_)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
+            | BuildPlanNode::BuildWasmObject(WasmObject::Library(_))
             | BuildPlanNode::ArchiveForeignLibrary(_)
             | BuildPlanNode::GenerateNodeTestPackageConfig(_)
-            | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs(_)
             | BuildPlanNode::BuildVirtual(_) => None,
@@ -430,10 +449,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(build_target.package);
                 format!("emit proof {}{}", fqn, qualifier(build_target.kind))
             }
-            BuildPlanNode::Prove(build_target) => {
-                let fqn = packages.fqn(build_target.package);
-                format!("prove {}{}", fqn, qualifier(build_target.kind))
-            }
             BuildPlanNode::BuildCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("build {}{}", fqn, qualifier(build_target.kind))
@@ -449,6 +464,21 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("link {}{}", fqn, qualifier(build_target.kind))
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Main(build_target)) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "build wasm main object {}{}",
+                    fqn,
+                    qualifier(build_target.kind)
+                )
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(package_id)) => {
+                format!("build wasm library object {}", packages.fqn(*package_id))
+            }
+            BuildPlanNode::LinkWasmObjects(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("link wasm objects {}{}", fqn, qualifier(build_target.kind))
             }
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -487,14 +517,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(build_target.package);
                 format!("generate mbti for {}{}", fqn, qualifier(build_target.kind))
             }
-            BuildPlanNode::Bundle(module_id) => {
-                let module_src = env.module_source(*module_id);
-                format!(
-                    "bundle module {}@{}",
-                    module_src.name(),
-                    module_src.version()
-                )
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("build runtime object {index}")
             }
@@ -527,10 +549,6 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@EmitProof", fqn, t.kind)
             }
-            BuildPlanNode::Prove(t) => {
-                let fqn = packages.fqn(t.package);
-                format!("{}@{:?}@Prove", fqn, t.kind)
-            }
             BuildPlanNode::BuildCore(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@BuildCore", fqn, t.kind)
@@ -546,6 +564,18 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@LinkCore", fqn, t.kind)
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Main(t)) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@BuildWasmMainObject", fqn, t.kind)
+            }
+            BuildPlanNode::BuildWasmObject(WasmObject::Library(pkg)) => {
+                let fqn = packages.fqn(*pkg);
+                format!("{}@BuildWasmLibraryObject", fqn)
+            }
+            BuildPlanNode::LinkWasmObjects(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@LinkWasmObjects", fqn, t.kind)
             }
             BuildPlanNode::MakeExecutable(t) => {
                 let fqn = packages.fqn(t.package);
@@ -574,10 +604,6 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateMbti(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@GenerateMbti", fqn, t.kind)
-            }
-            BuildPlanNode::Bundle(mid) => {
-                let src = env.module_source(*mid);
-                format!("{}@Bundle", src)
             }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 format!("BuildRuntimeObject_{index}")

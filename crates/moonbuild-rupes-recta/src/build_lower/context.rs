@@ -18,14 +18,16 @@
 
 //! Lowering context and core implementation.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+};
 
 use moonutil::{
     resolution::{DirSyncResult, ModuleDependencyGraph},
     target::TargetBackend,
 };
 use tracing::{Level, instrument};
-use walkdir::WalkDir;
 
 use super::LoweringError;
 use crate::{
@@ -33,7 +35,7 @@ use crate::{
     build_plan::{ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder},
-    model::{BackendConfig, BuildPlanNode, BuildTarget},
+    model::{BackendConfig, BuildPlanNode, BuildTarget, PackageId},
     pkg_solve::PackageRelations,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -53,9 +55,12 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) plan: &'a BuildPlan,
     pub(crate) opt: &'a CompileConfig,
 
-    // Native compilation observes the selected Moon toolchain include tree.
-    // Discover it at most once for all actions lowered by this context.
-    toolchain_include_files: Option<Vec<PathBuf>>,
+    // The graph, backend and toolchain paths are fixed for this lowering.
+    // Reuse requested stdlib targets' closures across compiler actions.
+    pub(super) installed_stdlib_closures: HashMap<BuildTarget, BTreeMap<PackageId, PathBuf>>,
+
+    // Files observed by build preparation, shared by all C compilation actions.
+    toolchain_include_files: &'a [PathBuf],
 }
 
 pub(super) struct ActionArtifacts {
@@ -95,7 +100,6 @@ impl ActionArtifacts {
             &artifact,
             ctx.action(provider_action),
             ctx.packages,
-            ctx.modules,
             ctx.artifact_path_options(),
         );
         RealizedArtifact { artifact, paths }
@@ -182,6 +186,7 @@ impl<'a> LoweringContext<'a> {
         resolved_project: &'a ResolvedProject,
         plan: &'a BuildPlan,
         opt: &'a CompileConfig,
+        toolchain_include_files: &'a [PathBuf],
     ) -> Self {
         Self {
             artifact_paths: &opt.artifact_paths,
@@ -191,7 +196,8 @@ impl<'a> LoweringContext<'a> {
             module_dirs: &resolved_project.module_dirs,
             plan,
             opt,
-            toolchain_include_files: None,
+            installed_stdlib_closures: HashMap::new(),
+            toolchain_include_files,
         }
     }
 
@@ -228,39 +234,6 @@ impl<'a> LoweringContext<'a> {
             executable,
             linked_core,
         }
-    }
-
-    fn toolchain_include_files(&mut self) -> Result<&[PathBuf], LoweringError> {
-        // TODO: Replace this walk with header paths observed by the toolchain
-        // module outside RR. Command orchestration should request that observation
-        // only when planned actions compile native sources; lowering then only
-        // attaches the supplied paths as inputs.
-        if self.toolchain_include_files.is_none() {
-            let root = PathBuf::from(
-                &self
-                    .opt
-                    .backend
-                    .compiler_paths()
-                    .expect("native lowering requires compiler paths")
-                    .include_path,
-            );
-            let mut files = Vec::new();
-            for entry in WalkDir::new(&root).follow_links(true).sort_by_file_name() {
-                let entry = entry.map_err(|source| LoweringError::ToolchainInclude {
-                    path: root.clone(),
-                    source,
-                })?;
-                if entry.file_type().is_file() {
-                    files.push(entry.into_path());
-                }
-            }
-            files.sort();
-            self.toolchain_include_files = Some(files);
-        }
-        Ok(self
-            .toolchain_include_files
-            .as_deref()
-            .expect("toolchain include files should be initialized"))
     }
 
     pub(super) fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
@@ -344,9 +317,6 @@ impl<'a> LoweringContext<'a> {
             BuildAction::EmitProof { target, info } => {
                 self.lower_emit_proof(&action_artifacts, target, info)?
             }
-            BuildAction::Prove { target, info } => {
-                self.lower_prove(&action_artifacts, target, info)?
-            }
             BuildAction::BuildCore { target, info } => {
                 self.lower_build_mbt(&action_artifacts, target, info)?
             }
@@ -363,6 +333,12 @@ impl<'a> LoweringContext<'a> {
                 info,
                 native_toolchain,
             } => self.lower_link_core(&action_artifacts, target, info, native_toolchain)?,
+            BuildAction::BuildWasmObject { object, info } => {
+                self.lower_build_wasm_object(&action_artifacts, object, info)?
+            }
+            BuildAction::LinkWasmObjects { target, info } => {
+                self.lower_link_wasm_objects(&action_artifacts, target, info)?
+            }
             BuildAction::MakeExecutable { target, info } => {
                 self.lower_make_exe(&action_artifacts, target, info)
             }
@@ -387,9 +363,6 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildVirtual { package, input } => {
                 self.lower_parse_mbti(&action_artifacts, package, input)?
             }
-            BuildAction::Bundle { module, targets } => {
-                self.lower_bundle(&action_artifacts, module, targets)?
-            }
             BuildAction::BuildRuntimeObject { index, info } => {
                 self.lower_compile_runtime_object(&action_artifacts, index, info)
             }
@@ -406,14 +379,8 @@ impl<'a> LoweringContext<'a> {
                 .iter()
                 .flat_map(|artifact| artifact.paths.iter().map(PathBuf::as_path)),
         );
-        let observes_toolchain_headers = matches!(
-            action,
-            BuildAction::BuildCStub { .. }
-                | BuildAction::BuildRuntimeObject { .. }
-                | BuildAction::CompileGeneratedC { .. }
-        );
-        if observes_toolchain_headers {
-            inputs.extend(self.toolchain_include_files()?.iter().cloned());
+        if action.uses_toolchain_headers() {
+            inputs.extend(self.toolchain_include_files.iter().cloned());
         }
 
         // These are the only Moon-owned libraries that command construction
@@ -484,20 +451,21 @@ impl<'a> LoweringContext<'a> {
                 info.c_flags.is_empty() && info.link_args.is_empty()
             }
             BuildAction::CompileGeneratedC { info, .. } => info.c_flags.is_empty(),
-            BuildAction::ArchiveForeignLibrary { .. }
+            // Objects carry no package or module link flags; see
+            // `links_wasm_objects`.
+            BuildAction::BuildWasmObject { .. }
+            | BuildAction::LinkWasmObjects { .. }
+            | BuildAction::ArchiveForeignLibrary { .. }
             | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateNodeTestPackageConfig { .. }
             | BuildAction::GenerateMbti { .. }
             | BuildAction::BuildVirtual { .. }
-            | BuildAction::Bundle { .. }
             | BuildAction::BuildRuntimeObject { .. }
             | BuildAction::BuildRuntimeLib { .. } => true,
             // These actions still observe filesystem state that is broader
             // than the concrete files represented by the execution action.
-            BuildAction::Prove { .. }
-            | BuildAction::BuildDocs { .. }
-            | BuildAction::RunPrebuild { .. } => false,
+            BuildAction::BuildDocs { .. } | BuildAction::RunPrebuild { .. } => false,
         };
         let declared_outputs = match action {
             BuildAction::GenerateDsym { target, .. } => vec![
@@ -525,13 +493,13 @@ impl<'a> LoweringContext<'a> {
         let output_kind = match action {
             BuildAction::Check { .. }
             | BuildAction::EmitProof { .. }
-            | BuildAction::Prove { .. }
             | BuildAction::BuildCore { .. }
             | BuildAction::LinkCore { .. }
-            | BuildAction::BuildVirtual { .. }
-            | BuildAction::Bundle { .. } => ActionOutputKind::Compiler,
+            | BuildAction::BuildWasmObject { .. }
+            | BuildAction::BuildVirtual { .. } => ActionOutputKind::Compiler,
             BuildAction::BuildCStub { .. }
             | BuildAction::ArchiveOrLinkCStubs { .. }
+            | BuildAction::LinkWasmObjects { .. }
             | BuildAction::MakeExecutable { .. }
             | BuildAction::CompileGeneratedC { .. }
             | BuildAction::ArchiveForeignLibrary { .. }
@@ -555,9 +523,7 @@ impl<'a> LoweringContext<'a> {
         .with_cache_eligible(cache_eligible)
         .with_can_dirty_on_output(matches!(
             action_key,
-            BuildPlanActionKey::Backend(
-                BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
-            )
+            BuildPlanActionKey::Backend(BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_))
         ))
         .with_error_package(error_package);
 

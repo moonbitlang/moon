@@ -1,1 +1,0 @@
-name = "moonbitlang/profile-test-cwd"

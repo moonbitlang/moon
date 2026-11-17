@@ -30,16 +30,13 @@ use std::{
 };
 
 use moonutil::{
-    build_options::RunMode,
-    cond_expr::OptLevel,
-    resolution::{ModuleDependencyGraph, ModuleName, ModuleSource},
-    target::TargetBackend,
+    build_options::RunMode, cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend,
 };
 
 use crate::{
     ResolvedProject,
     build_plan::{ArtifactKey, BuildAction},
-    discover::{DiscoverResult, DiscoveredLocalProject},
+    discover::DiscoverResult,
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
 };
@@ -138,15 +135,6 @@ impl TargetLayoutMode {
             _ => Self::Workspace,
         }
     }
-
-    pub fn from_fmt_resolve_output(resolved: &DiscoveredLocalProject) -> Self {
-        match resolved.root_module_ids.as_slice() {
-            &[module_id] => Self::Mono {
-                main_module: resolved.root_modules[module_id].source().clone(),
-            },
-            _ => Self::Workspace,
-        }
-    }
 }
 
 /// Target folder layout for generated artifacts.
@@ -191,19 +179,6 @@ impl TargetLayout {
             TargetLayoutMode::from_resolved_project(resolved_project),
             opt_level,
             run_mode,
-        )
-    }
-
-    pub fn from_fmt_resolve_output(
-        target_base_dir: PathBuf,
-        resolved: &DiscoveredLocalProject,
-        opt_level: OptLevel,
-    ) -> Self {
-        Self::new(
-            target_base_dir,
-            TargetLayoutMode::from_fmt_resolve_output(resolved),
-            opt_level,
-            RunMode::Format,
         )
     }
 
@@ -324,6 +299,7 @@ impl TargetLayout {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let backend = linked_core.target_backend();
         let mut base_dir = self.package_dir(pkg_fqn, backend);
+        // Keep main-package objects apart from the package's other objects.
         if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
             base_dir.push(LINKED_CORE_OBJECT_DIR);
         }
@@ -369,6 +345,45 @@ impl TargetLayout {
             "{}{}",
             artifact(pkg_fqn, target.kind),
             object_file_ext(os)
+        ));
+        base_dir
+    }
+
+    /// Returns the wasm1 object of an executable's main package under Wasm
+    /// separate compilation, kept apart from the package's library object.
+    ///
+    /// Format: `_build/wasm/{opt_level}/build/{package_path}/__moonbit_link_core__/{artifact}.o`
+    pub fn wasm_main_object_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        base_dir.push(LINKED_CORE_OBJECT_DIR);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            WASM_OBJECT_EXTENSION
+        ));
+        base_dir
+    }
+
+    /// Returns the wasm1 library object of a package under Wasm separate
+    /// compilation. `moonc` writes an object for a `.o` output on every host.
+    ///
+    /// Format: `_build/wasm/{opt_level}/build/{package_path}/{artifact}.o`
+    pub fn wasm_library_object_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        package: PackageId,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, TargetKind::Source),
+            WASM_OBJECT_EXTENSION
         ));
         base_dir
     }
@@ -463,12 +478,6 @@ impl TargetLayout {
             build_kind_suffix_filename(target.kind)
         ));
         base_dir
-    }
-
-    pub fn bundle_result_path(&self, backend: TargetBackend, module: &ModuleName) -> PathBuf {
-        let mut result = self.run_mode_dir(backend);
-        result.push(format!("{}.core", module.last_segment()));
-        result
     }
 
     pub fn runtime_output_dir(&self, backend: TargetBackend) -> PathBuf {
@@ -687,16 +696,17 @@ impl ArtifactPathResolver {
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
-        // Special case: `abort` lives in core.
-        // Only redirect abort to prebuilt stdlib artifacts when stdlib is injected.
-        if let Some(stdlib_dir) = self.stdlib_dir()
-            && let Some(abort) = pkg_list.abort_pkg()
-            && abort == target.package
-        {
-            if target.kind == TargetKind::Source {
-                return moonutil::toolchain::abort_core_in(stdlib_dir, backend);
-            } else {
-                panic!("Cannot import `.mi` for moonbitlang/core/abort");
+        // Injected stdlib packages are linked from their installed `.core`.
+        if let Some(stdlib_dir) = self.stdlib_dir() {
+            let pkg = pkg_list.get_package(target.package);
+            if pkg.is_stdlib {
+                assert_eq!(
+                    target.kind,
+                    TargetKind::Source,
+                    "only the source target of injected stdlib package {} can be linked",
+                    pkg.fqn
+                );
+                return stdlib_core_path(stdlib_dir, backend, &pkg.fqn);
             }
         }
 
@@ -778,9 +788,6 @@ impl ArtifactPathResolver {
         // installed stdlib artifact.
         if let Some(stdlib_dir) = self.stdlib_dir() {
             let pkg = pkg_list.get_package(target.package);
-            if pkg_list.abort_pkg() == Some(target.package) && target.kind != TargetKind::Source {
-                panic!("Cannot import `.mi` for moonbitlang/core/abort");
-            }
             if pkg.is_stdlib {
                 return Some(MiPathResult::Std(stdlib_mi_path(
                     stdlib_dir, backend, &pkg.fqn,
@@ -796,7 +803,6 @@ impl ArtifactPathResolver {
         artifact: &ArtifactKey,
         action_context: BuildAction<'_>,
         packages: &DiscoverResult,
-        modules: &ModuleDependencyGraph,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         match artifact {
@@ -839,13 +845,6 @@ impl ArtifactPathResolver {
                 self.target_layout
                     .emit_proof_whyml_path(packages, &package.build_target(*target_kind)),
             ],
-            ArtifactKey::ProofReport {
-                package,
-                target_kind,
-            } => vec![
-                self.target_layout
-                    .prove_report_path(packages, &package.build_target(*target_kind)),
-            ],
             ArtifactKey::CStubObject { package, source } => vec![
                 self.target_layout.c_stub_object_path(
                     packages,
@@ -875,6 +874,19 @@ impl ArtifactPathResolver {
                     &target,
                     options.linked_core,
                 )]
+            }
+            ArtifactKey::WasmMainObject {
+                package,
+                target_kind,
+            } => vec![
+                self.target_layout
+                    .wasm_main_object_path(packages, &package.build_target(*target_kind)),
+            ],
+            ArtifactKey::WasmLibraryObject { package } => {
+                vec![
+                    self.target_layout
+                        .wasm_library_object_path(packages, *package),
+                ]
             }
             ArtifactKey::GeneratedCObject {
                 package,
@@ -932,13 +944,6 @@ impl ArtifactPathResolver {
                     self.target_layout
                         .package_dir(pkg, options.target_backend())
                         .join("package.json"),
-                ]
-            }
-            ArtifactKey::BundleResult { module } => {
-                let module_name = modules.module_source(*module);
-                vec![
-                    self.target_layout
-                        .bundle_result_path(options.target_backend(), module_name.name()),
                 ]
             }
             ArtifactKey::RuntimeObject { .. } => {
@@ -1042,6 +1047,7 @@ struct PackageArtifactName<'a> {
 
 /// The package-relative directory holding object-form linked Core payloads.
 const LINKED_CORE_OBJECT_DIR: &str = "__moonbit_link_core__";
+const WASM_OBJECT_EXTENSION: &str = ".o";
 
 fn artifact(fqn: &'_ PackageFQN, kind: TargetKind) -> PackageArtifactName<'_> {
     PackageArtifactName { fqn, kind }
@@ -1132,13 +1138,27 @@ fn object_file_ext(os: OperatingSystem) -> &'static str {
 }
 
 pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
-    let package_name = fqn.package().as_str();
+    let (package_name, package_last_segment) = stdlib_package_path_parts(fqn);
+    moonutil::toolchain::core_package_mi_in(core_root, backend, package_name, package_last_segment)
+}
+
+pub fn stdlib_core_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
+    let (package_name, package_last_segment) = stdlib_package_path_parts(fqn);
+    moonutil::toolchain::core_package_core_in(
+        core_root,
+        backend,
+        package_name,
+        package_last_segment,
+    )
+}
+
+fn stdlib_package_path_parts(fqn: &PackageFQN) -> (&str, &str) {
     let package_last_segment = fqn
         .package()
         .segments()
         .next_back()
         .expect("Package must have at least one segment");
-    moonutil::toolchain::core_package_mi_in(core_root, backend, package_name, package_last_segment)
+    (fqn.package().as_str(), package_last_segment)
 }
 
 #[cfg(test)]
@@ -1150,7 +1170,7 @@ mod tests {
         compiler_flags::{ARKind, CC, CCKind, NativeAllocator, Toolchain},
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::ModuleSource,
+        resolution::{ModuleDependencyGraph, ModuleSource},
     };
 
     use super::*;
@@ -1220,7 +1240,6 @@ mod tests {
             link: None,
             warn_list: None,
             proof_enabled: false,
-            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -1272,8 +1291,6 @@ mod tests {
             warn_list: None,
             specified_no_mi: false,
             patch_file: None,
-            why3_config: None,
-            proof_prelude: PathBuf::from("proof-prelude"),
             check_mi_against: None,
             value_tracing: false,
         }
@@ -1524,7 +1541,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
@@ -1554,7 +1570,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
@@ -1585,7 +1600,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.impl.mi")],
@@ -1612,7 +1626,7 @@ mod tests {
 
     #[test]
     fn artifact_resolver_resolves_proof_artifacts_with_matching_context() {
-        let (packages, modules, package) = package_fixture("username/hello", "ffi");
+        let (packages, _, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
@@ -1628,7 +1642,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![
@@ -1637,27 +1650,11 @@ mod tests {
                     .emit_proof_whyml_path(&packages, &target)
             ],
         );
-        assert_eq!(
-            resolver.paths_for_artifact(
-                &ArtifactKey::ProofReport {
-                    package,
-                    target_kind: target.kind,
-                },
-                BuildAction::Prove {
-                    target,
-                    info: &info,
-                },
-                &packages,
-                &modules,
-                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
-            ),
-            vec![resolver.target_layout.prove_report_path(&packages, &target)],
-        );
     }
 
     #[test]
     fn prove_virtual_contract_and_proof_interfaces_have_distinct_paths() {
-        let (packages, modules, package) = package_fixture("username/hello", "ffi");
+        let (packages, _, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
             TargetLayout::new(
                 PathBuf::from("_build"),
@@ -1678,7 +1675,6 @@ mod tests {
                 input: Path::new("pkg.mbti"),
             },
             &packages,
-            &modules,
             options,
         );
         let proof_interface = resolver.paths_for_artifact(
@@ -1691,7 +1687,6 @@ mod tests {
                 info: &info,
             },
             &packages,
-            &modules,
             options,
         );
 
@@ -1733,7 +1728,6 @@ mod tests {
                     info: &info,
                 },
                 &packages,
-                &modules,
                 artifact_options(ExecutableArtifact::NativeExecutable),
             ),
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
@@ -1758,7 +1752,6 @@ mod tests {
                     info: &runtime_info(),
                 },
                 &packages,
-                &modules,
                 options,
             ),
             vec![PathBuf::from("_build/native/debug/build/libruntime.a")],
@@ -1768,7 +1761,6 @@ mod tests {
                 &ArtifactKey::DocsDir { module },
                 BuildAction::BuildDocs { module },
                 &packages,
-                &modules,
                 options,
             ),
             vec![PathBuf::from("_build/doc")],

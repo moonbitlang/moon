@@ -18,15 +18,11 @@
 
 ///|
 async test "ambient cwd is observed by each process" {
-  let input = @fs.read_file("input.txt").text()
+  let input = @fs.read_text("input.txt")
   let output = if input == "first" { b"first" } else { b"second" }
-  @fs.write_file("output.txt", output, create_mode=CreateOrTruncate)
+  @fs.write_binary("output.txt", output, create_mode=CreateOrTruncate)
   match @env.current_dir() {
-    Some(cwd) => @fs.write_file(
-      "cwd.txt",
-      cwd,
-      create_mode=CreateOrTruncate,
-    )
+    Some(cwd) => @fs.write_text("cwd.txt", cwd, create_mode=CreateOrTruncate)
     None => abort("current directory is unavailable")
   }
 }

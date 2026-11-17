@@ -23,7 +23,6 @@ use base64::Engine;
 use colored::Colorize;
 use core::fmt;
 use moonbuild_rupes_recta::discover::DiscoverResult;
-use moonutil::text::line_col_to_byte_idx;
 use similar::DiffOp;
 use similar::DiffTag;
 use similar::TextDiff;
@@ -408,6 +407,14 @@ fn collect<'a>(
             .insert(rep.guess_target());
     }
     Ok(targets)
+}
+
+fn line_col_to_byte_idx(line_index: &line_index::LineIndex, line: u32, col: u32) -> Option<usize> {
+    let offset = line_index.offset(line_index.to_utf8(
+        line_index::WideEncoding::Utf32,
+        line_index::WideLineCol { line, col },
+    )?)?;
+    Some(usize::from(offset))
 }
 
 fn gen_patch(targets: HashMap<String, BTreeSet<Target>>) -> anyhow::Result<PackagePatch> {

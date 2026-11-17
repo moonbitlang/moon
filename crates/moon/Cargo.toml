@@ -37,28 +37,35 @@ moonbuild-rupes-recta.workspace = true
 
 semver.workspace = true
 clap.workspace = true
+dialoguer.workspace = true
 anyhow.workspace = true
 colored.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 dunce.workspace = true
 ctrlc.workspace = true
 home.workspace = true
 which.workspace = true
-chrono.workspace = true
+chrono = { workspace = true, features = ["clock"] }
 log.workspace = true
 walkdir.workspace = true
 notify.workspace = true
 tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+hyper-staticfile.workspace = true
+http.workspace = true
+globset.workspace = true
+nucleo-matcher.workspace = true
 clap_complete.workspace = true
 indexmap.workspace = true
 petgraph.workspace = true
 rand.workspace = true
 tempfile.workspace = true
 shlex.workspace = true
-derive_builder.workspace = true
 sha2.workspace = true
 blake3.workspace = true
 percent-encoding.workspace = true
@@ -76,6 +83,9 @@ tracing-chrome.workspace = true
 [target."cfg(target_os = \"macos\")".dependencies]
 libc.workspace = true
 
+[target."cfg(windows)".dependencies]
+self-replace.workspace = true
+
 [target."cfg(windows)".dependencies.windows-sys]
 workspace = true
 features = [
@@ -88,11 +98,10 @@ features = [
 
 [dev-dependencies]
 regex.workspace = true
-snapbox = { workspace = true, features = ["regex"] }
+snapbox = { workspace = true, features = ["cmd", "regex"] }
 expect-test.workspace = true
 escargot.workspace = true
 clap-markdown.workspace = true
-similar.workspace = true
 libc.workspace = true
 moon-test-util.workspace = true
 zip.workspace = true

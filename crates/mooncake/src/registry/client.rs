@@ -26,8 +26,7 @@ use std::{
 use anyhow::{Context, bail};
 use moonutil::{
     MOON_HOME, MoonHomeLayout,
-    locks::{lock_directory, lock_file},
-    registry::{RegistryConfig, RegistryCredentials, RegistryDownloadRequest},
+    locks::lock_directory,
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
@@ -41,13 +40,14 @@ use crate::{
 };
 
 use super::{
-    authentication, encode_path_segment, git::GitIndex, http::HttpMetadata, sha256_hex,
-    stage_registry_cache_file,
+    RegistryConfig, SourceRequest, authentication, credentials::RegistryCredentials,
+    encode_path_segment, external::RegistryDownloadRequest, git::GitIndex, http::HttpMetadata,
+    sha256_hex, stage_registry_cache_file,
 };
 
 /// Select the metadata implementation once, when constructing the client.
 enum MetadataBackend {
-    Git(GitIndex),
+    Git(Arc<GitIndex>),
     Http(HttpMetadata),
 }
 
@@ -243,7 +243,7 @@ impl RegistryClient {
                 credentials.clone(),
             ))
         } else {
-            MetadataBackend::Git(GitIndex::new(home.clone()))
+            MetadataBackend::Git(Arc::new(GitIndex::new(home.clone())))
         };
         Self {
             config,
@@ -267,9 +267,9 @@ impl RegistryClient {
         self
     }
 
-    /// Synchronize the complete Git index and symbols archive.
+    /// Synchronize the complete Git index.
     /// HTTP metadata is refreshed per module through the query APIs instead.
-    pub fn sync(&self, user_log: &UserLog) -> anyhow::Result<()> {
+    pub fn sync_index(&self, user_log: &UserLog) -> anyhow::Result<()> {
         if self.frozen_dependencies {
             bail!("frozen mode cannot synchronize registry metadata");
         }
@@ -279,6 +279,14 @@ impl RegistryClient {
                 bail!("HTTP registry metadata must be refreshed per module")
             }
         }
+    }
+
+    /// Synchronize the symbols archive independently of registry metadata.
+    pub async fn sync_symbols(&self, user_log: &UserLog) -> anyhow::Result<()> {
+        if self.frozen_dependencies {
+            bail!("frozen mode cannot synchronize registry symbols");
+        }
+        super::symbols::sync(&self.home, &self.config, user_log).await
     }
 
     /// Read an exact release without network access. `None` means no local record.
@@ -310,10 +318,20 @@ impl RegistryClient {
         }
         match &self.metadata {
             MetadataBackend::Git(index) => {
-                self.sync(user_log).map_err(super::RegistryUnavailable)?;
+                self.sync_index(user_log)
+                    .map_err(super::RegistryUnavailable)?;
                 index.version_info(name, version)
             }
             MetadataBackend::Http(http) => http.refresh_version_info(name, version).map(Some),
+        }
+    }
+
+    /// Start an HTTP metadata session, or return `None` for a Git registry.
+    /// Callers can select per-module refresh or whole-index synchronization here.
+    pub fn http_version_reader(&self) -> Option<super::http::HttpVersionReader> {
+        match &self.metadata {
+            MetadataBackend::Http(http) => Some(http.version_reader(self.frozen_dependencies)),
+            MetadataBackend::Git(_) => None,
         }
     }
 
@@ -377,7 +395,7 @@ impl RegistryClient {
     /// List a user's published modules, including deprecated modules.
     #[tracing::instrument(skip(self), fields(api = %self.config.api))]
     pub fn user_modules(&self, username: &str) -> anyhow::Result<RegistryUserModules> {
-        moonutil::registry::validate_username(username).map_err(anyhow::Error::msg)?;
+        super::validate_username(username).map_err(anyhow::Error::msg)?;
         let url = format!(
             "{}/api/v0/user/{}",
             self.endpoints.api,
@@ -409,14 +427,14 @@ impl RegistryClient {
     }
 
     /// Return a verified, locally cached prebuilt wasm asset.
-    pub fn acquire_wasm_asset(
+    pub async fn acquire_wasm_asset(
         &self,
         module: &ModuleSource,
         package_path: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<std::path::PathBuf> {
         let mut http = None;
-        self.acquire_wasm_asset_with(module, package_path, user_log, |url| {
+        self.acquire_wasm_asset_with(module, package_path, user_log, async |url| {
             // Already materialized artifacts remain usable offline. Only a
             // cache miss needs to construct the download client.
             if http.is_none() {
@@ -427,15 +445,17 @@ impl RegistryClient {
                 url,
                 user_log,
             )
+            .await
         })
+        .await
     }
 
-    fn acquire_wasm_asset_with(
+    async fn acquire_wasm_asset_with(
         &self,
         module: &ModuleSource,
         package_path: &str,
         user_log: &UserLog,
-        mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
+        mut download: impl AsyncFnMut(&str) -> anyhow::Result<Vec<u8>>,
     ) -> anyhow::Result<std::path::PathBuf> {
         let name = module.name();
         let version = module.version();
@@ -450,19 +470,22 @@ impl RegistryClient {
             &wasm_artifact_name(name, package_path),
         );
 
-        ensure_cached_wasm(&cache_path, user_log, |staged| {
+        ensure_cached_wasm(&cache_path, user_log, async |staged| {
             // Private prebuilt downloads are not implemented yet, so existing
             // artifacts came from public downloads. Check visibility on misses;
             // cache hits must survive disabled or cleared metadata persistence.
             if let MetadataBackend::Http(metadata) = &self.metadata
-                && metadata.is_restricted(name, version, self.frozen_dependencies)?
+                && metadata
+                    .version_reader(self.frozen_dependencies)
+                    .is_restricted(name, version)
+                    .await?
             {
                 bail!("Prebuilt artifacts are not available for restricted modules");
             }
-            let checksum_bytes = download(&checksum_url)?;
+            let checksum_bytes = download(&checksum_url).await?;
             let expected_checksum = parse_sha256_checksum(&checksum_bytes)
                 .with_context(|| format!("invalid SHA-256 checksum from {checksum_url}"))?;
-            let bytes = download(&url)?;
+            let bytes = download(&url).await?;
             let actual_checksum = sha256_hex(&bytes);
             if actual_checksum != expected_checksum {
                 bail!(
@@ -473,6 +496,24 @@ impl RegistryClient {
                 .with_context(|| format!("failed to write cache file {}", staged.display()))?;
             Ok(())
         })
+        .await
+    }
+
+    // FIXME: Replace the synchronous query entry point when the remaining
+    // registry commands have asynchronous orchestration.
+    pub(super) async fn query_latest_version_async(
+        &self,
+        name: &ModuleName,
+        user_log: &UserLog,
+    ) -> anyhow::Result<Version> {
+        match &self.metadata {
+            MetadataBackend::Http(http) => {
+                http.version_reader(self.frozen_dependencies)
+                    .query_latest_version(name)
+                    .await
+            }
+            MetadataBackend::Git(_) => super::Registry::query_latest_version(self, name, user_log),
+        }
     }
 }
 
@@ -513,31 +554,38 @@ fn validate_registry_module_name(name: &ModuleName) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn download_registry_asset(
-    http: &reqwest::blocking::Client,
+async fn download_registry_asset(
+    http: &reqwest::Client,
     url: &str,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<u8>> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
     user_log.info(format!("Downloading {url}"));
-    let response = http
-        .get(url)
-        .send()
+    // Preserve the blocking client's separate 30-second waits for response
+    // headers and body, rather than imposing one deadline on the whole download.
+    let response = timeout(Duration::from_secs(30), http.get(url).send())
+        .await
+        .with_context(|| format!("timed out downloading registry asset from {url}"))?
         .with_context(|| format!("failed to download registry asset from {url}"))?;
     if response.status() == StatusCode::NOT_FOUND {
         bail!("Prebuilt wasm asset does not exist");
     }
-    let data = response
+    let response = response
         .error_for_status()
-        .with_context(|| format!("registry asset download returned error status for {url}"))?
-        .bytes()
+        .with_context(|| format!("registry asset download returned error status for {url}"))?;
+    let data = timeout(Duration::from_secs(30), response.bytes())
+        .await
+        .with_context(|| format!("timed out reading registry asset response from {url}"))?
         .with_context(|| format!("failed to read registry asset response from {url}"))?;
     Ok(data.to_vec())
 }
 
-fn ensure_cached_wasm(
+async fn ensure_cached_wasm(
     cache_path: &Path,
     user_log: &UserLog,
-    produce: impl FnOnce(&Path) -> anyhow::Result<()>,
+    produce: impl AsyncFnOnce(&Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<std::path::PathBuf> {
     if cache_path.exists() {
         user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
@@ -553,6 +601,8 @@ fn ensure_cached_wasm(
             parent.display()
         )
     })?;
+    // FIXME: Make lock acquisition yield before allowing concurrent acquisitions
+    // on one runtime. A blocking waiter can prevent the async holder from finishing.
     let _lock = lock_directory(parent, user_log)
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
@@ -563,7 +613,7 @@ fn ensure_cached_wasm(
 
     let staged = tempfile::NamedTempFile::new_in(parent)
         .with_context(|| format!("failed to create cache file in {}", parent.display()))?;
-    produce(staged.path())?;
+    produce(staged.path()).await?;
     staged
         .as_file()
         .sync_all()
@@ -589,17 +639,50 @@ fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
     Ok(checksum.to_ascii_lowercase())
 }
 
+enum RegistryVersionReader {
+    Git(Arc<GitIndex>),
+    Http(super::http::HttpVersionReader),
+}
+
+impl super::VersionReader for RegistryVersionReader {
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo> {
+        match self {
+            Self::Git(index) => index.version_info_async(name, version).await,
+            Self::Http(reader) => reader.read_version(name, version).await,
+        }
+    }
+}
+
 impl super::Registry for RegistryClient {
+    fn version_reader(&self) -> impl super::VersionReader + 'static {
+        match &self.metadata {
+            MetadataBackend::Git(index) => RegistryVersionReader::Git(Arc::clone(index)),
+            MetadataBackend::Http(http) => {
+                RegistryVersionReader::Http(http.version_reader(self.frozen_dependencies))
+            }
+        }
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         match &self.metadata {
-            MetadataBackend::Git(index) => index.version_info(name, version),
-            MetadataBackend::Http(http) => http
-                .version_info(name, version, self.frozen_dependencies)
-                .map(Some),
+            MetadataBackend::Git(index) => index.version_info(name, version)?.ok_or_else(|| {
+                super::RegistryVersionNotFound {
+                    name: name.clone(),
+                    version: version.clone(),
+                }
+                .into()
+            }),
+            MetadataBackend::Http(http) => {
+                http.version_info(name, version, self.frozen_dependencies)
+            }
         }
     }
 
@@ -626,14 +709,12 @@ impl super::Registry for RegistryClient {
 }
 
 impl super::RegistrySource for RegistryClient {
-    fn acquire_source_to(
+    fn download_archives(
         &self,
-        module: &ModuleSource,
-        expected_checksum: &str,
-        to: &Path,
+        sources: &[SourceRequest],
         user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        RegistryClient::acquire_source_to(self, module, expected_checksum, to, user_log)
+    ) -> anyhow::Result<Vec<File>> {
+        RegistryClient::download_archives(self, sources, user_log)
     }
 
     fn source_archive_checksum(&self, module: &ModuleSource) -> anyhow::Result<String> {
@@ -683,48 +764,27 @@ fn open_cached_archive(path: &Path, expected_checksum: &str) -> anyhow::Result<O
     }
 }
 
-fn copy_archive_and_verify_checksum(
-    source: &mut impl Read,
-    destination: &mut impl Write,
+async fn persist_verified_archive(
+    mut response: reqwest::Response,
+    cache_file: &Path,
     name: &ModuleName,
     version: &Version,
     expected_checksum: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<File> {
     use sha2::Digest;
 
+    let (mut archive, cache_file) = stage_registry_cache_file(cache_file)?;
     let mut hasher = sha2::Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let bytes_read = source.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-        destination.write_all(&buffer[..bytes_read])?;
+    while let Some(chunk) = response.chunk().await? {
+        hasher.update(&chunk);
+        archive.write_all(&chunk)?;
     }
-
     let actual_checksum = format!("{:x}", hasher.finalize());
     if actual_checksum != expected_checksum {
         bail!(
             "Checksum mismatch for {name}@{version}: expected {expected_checksum}, got {actual_checksum}"
         );
     }
-    Ok(())
-}
-
-fn persist_verified_archive(
-    source: &mut impl Read,
-    cache_file: &Path,
-    name: &ModuleName,
-    version: &Version,
-    expected_checksum: &str,
-) -> anyhow::Result<File> {
-    let parent = cache_file
-        .parent()
-        .expect("registry cache file has a parent");
-    std::fs::create_dir_all(parent)?;
-    let (mut archive, cache_file) = stage_registry_cache_file(cache_file)?;
-    copy_archive_and_verify_checksum(source, &mut archive, name, version, expected_checksum)?;
     archive.flush()?;
     archive.as_file_mut().sync_all()?;
     let mut archive = archive.persist(cache_file).map_err(|error| error.error)?;
@@ -733,6 +793,137 @@ fn persist_verified_archive(
 }
 
 impl RegistryClient {
+    #[tracing::instrument(skip_all, fields(count = sources.len()))]
+    fn download_archives(
+        &self,
+        sources: &[SourceRequest],
+        user_log: &UserLog,
+    ) -> anyhow::Result<Vec<File>> {
+        let mut archives = Vec::with_capacity(sources.len());
+        let mut pending = Vec::new();
+        for (index, source) in sources.iter().enumerate() {
+            let name = source.module.name();
+            let version = source.module.version();
+            validate_registry_module_name(name)?;
+            // Metadata access may use a synchronous entry point. Resolve the
+            // access policy before entering the download runtime.
+            let restricted = match &self.metadata {
+                MetadataBackend::Git(_) => {
+                    if !self.home.registry_index_file(name).exists() {
+                        bail!("Module {name}@{version} not found");
+                    }
+                    false
+                }
+                MetadataBackend::Http(http) => {
+                    http.is_restricted(name, version, self.frozen_dependencies)?
+                }
+            };
+            let cache_file = self.home.registry_source_archive_path(name, version);
+            let archive = open_cached_archive(&cache_file, &source.checksum)?;
+            if archive.is_some() {
+                user_log.status(format!("Using cached {name}@{version}"));
+            } else {
+                if self.frozen_dependencies {
+                    bail!("Source for {name}@{version} is not cached in frozen mode");
+                }
+                pending.push((index, cache_file, restricted));
+            }
+            archives.push(archive);
+        }
+        if !pending.is_empty() {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .context("failed to start source download runtime")?;
+            let client = download::client_with_retry()?;
+            runtime.block_on(async {
+                let mut downloads = tokio::task::JoinSet::new();
+                for (index, cache_file, restricted) in pending {
+                    let source = &sources[index];
+                    let module = source.module.clone();
+                    let checksum = source.checksum.clone();
+                    let url = self
+                        .endpoints
+                        .package_archive(module.name(), module.version());
+                    let api = self.endpoints.api.clone();
+                    let credentials = self.credentials.clone();
+                    let client = client.clone();
+                    let user_log = user_log.clone();
+                    downloads.spawn(async move {
+                        let name = module.name();
+                        let version = module.version();
+                        std::fs::create_dir_all(
+                            cache_file.parent().expect("archive has a parent"),
+                        )?;
+                        let _lock = download::lock_archive(&cache_file, &user_log)
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Unable to lock registry archive cache file `{}`",
+                                    cache_file.display()
+                                )
+                            })?;
+                        // Another process may have published it while we waited.
+                        if let Some(archive) = open_cached_archive(&cache_file, &checksum)? {
+                            user_log.status(format!("Using cached {name}@{version}"));
+                            return Ok::<_, anyhow::Error>((index, archive));
+                        }
+                        user_log.status(format!("Downloading {name}@{version}"));
+                        let archive = if restricted {
+                            let (staged, cache_file) = stage_registry_cache_file(&cache_file)?;
+                            let credentials = credentials
+                                .as_deref()
+                                .context("Registry login is required")?
+                                .clone();
+                            super::external::download_archive(&RegistryDownloadRequest {
+                                api,
+                                module: name.to_string(),
+                                version: version.clone(),
+                                checksum: checksum.clone(),
+                                destination: staged.path().into(),
+                                credentials,
+                            })
+                            .await?;
+                            // Recheck bytes at the process boundary before publication.
+                            let archive = open_verified_archive(staged.path(), &checksum)?
+                                .context(
+                                    "mooncake returned a source archive with an invalid checksum",
+                                )?;
+                            drop(archive);
+                            staged.as_file().sync_all()?;
+                            let mut archive =
+                                staged.persist(cache_file).map_err(|error| error.error)?;
+                            archive.rewind()?;
+                            archive
+                        } else {
+                            let response = client.get(url).send().await?.error_for_status()?;
+                            persist_verified_archive(
+                                response,
+                                &cache_file,
+                                name,
+                                version,
+                                &checksum,
+                            )
+                            .await?
+                        };
+                        Ok((index, archive))
+                    });
+                }
+                while let Some(completed) = downloads.join_next().await {
+                    let (index, archive) = completed??;
+                    archives[index] = Some(archive);
+                }
+                Ok::<_, anyhow::Error>(())
+            })?;
+        }
+        Ok(archives
+            .into_iter()
+            .map(|archive| archive.expect("all downloads completed"))
+            .collect())
+    }
+
+    #[cfg(test)]
     fn download_or_use_cache(
         &self,
         name: &ModuleName,
@@ -740,73 +931,16 @@ impl RegistryClient {
         expected_checksum: &str,
         user_log: &UserLog,
     ) -> anyhow::Result<File> {
-        validate_registry_module_name(name)?;
-        let restricted = match &self.metadata {
-            MetadataBackend::Git(_) => {
-                if !self.home.registry_index_file(name).exists() {
-                    bail!("Module {name}@{version} not found");
-                }
-                false
-            }
-            MetadataBackend::Http(http) => {
-                http.is_restricted(name, version, self.frozen_dependencies)?
-            }
-        };
-        let cache_file = self.home.registry_source_archive_path(name, version);
-        if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
-            user_log.status(format!("Using cached {name}@{version}"));
-            return Ok(archive);
-        }
-        if self.frozen_dependencies {
-            bail!("Source for {name}@{version} is not cached in frozen mode");
-        }
-
-        let cache_dir = cache_file
-            .parent()
-            .expect("registry cache file has a parent");
-        std::fs::create_dir_all(cache_dir)?;
-        let _cache_lock = lock_file(&cache_file, user_log).with_context(|| {
-            format!(
-                "Unable to lock registry archive cache file `{}`",
-                cache_file.display()
-            )
-        })?;
-        if let Some(archive) = open_cached_archive(&cache_file, expected_checksum)? {
-            user_log.status(format!("Using cached {name}@{version}"));
-            return Ok(archive);
-        }
-        user_log.status(format!("Downloading {name}@{version}"));
-        if restricted {
-            let (staged, cache_file) = stage_registry_cache_file(&cache_file)?;
-            let credentials = self
-                .credentials
-                .as_deref()
-                .context("Registry login is required")?
-                .clone();
-            super::external::download_archive(&RegistryDownloadRequest {
-                api: self.endpoints.api.clone(),
-                module: name.to_string(),
-                version: version.clone(),
-                checksum: expected_checksum.into(),
-                destination: staged.path().into(),
-                credentials,
-            })?;
-            // Recheck the bytes at the process boundary before publishing them.
-            let archive = open_verified_archive(staged.path(), expected_checksum)?
-                .context("mooncake returned a source archive with an invalid checksum")?;
-            drop(archive);
-            staged.as_file().sync_all()?;
-            let mut archive = staged.persist(cache_file).map_err(|error| error.error)?;
-            archive.rewind()?;
-            return Ok(archive);
-        }
-        let url = self.endpoints.package_archive(name, version);
-        let mut response = download::client_with_retry()?
-            .get(url)
-            .send()?
-            .error_for_status()?;
-
-        persist_verified_archive(&mut response, &cache_file, name, version, expected_checksum)
+        Ok(self
+            .download_archives(
+                &[SourceRequest {
+                    module: ModuleSource::from_version(name.clone(), version.clone())?,
+                    checksum: expected_checksum.to_owned(),
+                }],
+                user_log,
+            )?
+            .pop()
+            .expect("one requested archive"))
     }
 
     /// Return the registry's SHA-256 checksum for a published source archive.
@@ -843,19 +977,21 @@ impl RegistryClient {
         pkg_install_dir: &Path,
         user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        let name = module.name();
-        let version = module.version();
-        // ensure dir exists and is empty
-        if !pkg_install_dir.exists() {
-            std::fs::create_dir_all(pkg_install_dir).unwrap();
-        } else {
-            std::fs::remove_dir_all(pkg_install_dir).unwrap();
-            std::fs::create_dir_all(pkg_install_dir).unwrap();
+        let archive = self
+            .download_archives(
+                &[SourceRequest {
+                    module: module.clone(),
+                    checksum: expected_checksum.to_owned(),
+                }],
+                user_log,
+            )?
+            .pop()
+            .expect("one requested archive");
+        if pkg_install_dir.exists() {
+            std::fs::remove_dir_all(pkg_install_dir)?;
         }
-
-        let archive = self.download_or_use_cache(name, version, expected_checksum, user_log)?;
-        extract_zip_to_dir(pkg_install_dir, archive)?;
-        Ok(())
+        std::fs::create_dir_all(pkg_install_dir)?;
+        extract_zip_to_dir(pkg_install_dir, archive)
     }
 }
 
@@ -883,8 +1019,9 @@ mod tests {
     use moonutil::{constants::MOON_LOCK, locks::lock_file};
 
     use super::*;
-    use crate::registry::{Registry, authentication::registry_authorization};
-    use moonutil::registry::{RegistryCredentials, registry_api_url};
+    use crate::registry::{
+        Registry, authentication::registry_authorization, credentials::registry_api_url,
+    };
 
     fn quiet_user_log() -> UserLog {
         UserLog::new(log::LevelFilter::Error)
@@ -902,7 +1039,7 @@ mod tests {
             MoonHomeLayout::new(home.to_owned()),
             &quiet_user_log(),
         );
-        registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
+        registry.metadata = MetadataBackend::Git(Arc::new(GitIndex::new(registry.home.clone())));
         registry
     }
 
@@ -971,7 +1108,7 @@ mod tests {
     fn save_test_login(home: &Path, api: &str, username: &str, token: &str) {
         RegistryCredentials::save(
             &home.join("credentials.json"),
-            moonutil::registry::Credentials {
+            crate::registry::Credentials {
                 username: Some(username.to_owned()),
                 token: token.to_owned(),
             },
@@ -980,8 +1117,8 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn registry_archive_cache_supports_long_paths() {
+    #[tokio::test]
+    async fn registry_archive_cache_supports_long_paths() {
         let sandbox = tempfile::tempdir().unwrap();
         let home = sandbox.path().join("archive-cache-home/".repeat(18));
         assert!(home.to_string_lossy().len() > 260);
@@ -991,15 +1128,17 @@ mod tests {
         let archive_path = home.join("archives/0.1.0.zip");
         let bytes = test_archive();
         let checksum = sha256_hex(&bytes);
+        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(listener, vec![(200, String::new(), bytes.clone()); 2]);
+        let client = download::client_with_retry().unwrap();
         for _ in 0..2 {
-            let mut archive = persist_verified_archive(
-                &mut Cursor::new(&bytes),
-                &archive_path,
-                &name,
-                &version,
-                &checksum,
-            )
-            .unwrap();
+            let response = client.get(&url).send().await.unwrap();
+            let mut archive =
+                persist_verified_archive(response, &archive_path, &name, &version, &checksum)
+                    .await
+                    .unwrap();
             let mut contents = Vec::new();
             archive.read_to_end(&mut contents).unwrap();
             assert_eq!(contents, bytes);
@@ -1009,6 +1148,7 @@ mod tests {
                     .is_some()
             );
         }
+        server.join().unwrap();
     }
 
     #[test]
@@ -1016,32 +1156,89 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
+        save_test_login(home.path(), &api, "alice", "secret-token");
         let server = api_test_server(
             listener,
-            vec![(
-                200,
-                String::new(),
-                resolver_response("alice/secret", "PUBLIC", "0.1.0"),
-            )],
+            vec![
+                (
+                    200,
+                    String::new(),
+                    resolver_response("alice/secret", "PRIVATE", "0.1.0"),
+                ),
+                (
+                    200,
+                    String::new(),
+                    serde_json::json!({
+                        "module": "alice/public", "visibility": "PUBLIC", "version": "0.1.0",
+                        "deps": {}, "checksum": "a".repeat(64), "yanked": false
+                    })
+                    .to_string(),
+                ),
+            ],
         );
 
         let registry = http_test_registry(home.path(), &api);
         let name: ModuleName = "alice/secret".into();
         let version = Version::new(0, 1, 0);
-        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        // Each resolution owns a new runtime and reader; both share the registry
+        // metadata with the later synchronous checksum lookup.
+        for _ in 0..2 {
+            let root = crate::registry::mock::create_mock_module(
+                "test/root",
+                "1.0.0",
+                [("alice/secret", "0.1.0")],
+            );
+            let source = ModuleSource::local_path(
+                "test/root".into(),
+                dunce::canonicalize(home.path()).unwrap(),
+                Version::new(1, 0, 0),
+            )
+            .unwrap();
+            let roots =
+                moonutil::resolution::ResolvedModule::only_one_module(source, Arc::new(root)).0;
+            let graph = crate::resolver::resolve_modules(
+                &crate::resolver::ModuleResolutionConfig {
+                    registry: &registry,
+                    warn_deprecated: false,
+                },
+                crate::resolver::prepare_roots(roots).unwrap(),
+                &quiet_user_log(),
+            )
+            .unwrap();
+            assert_eq!(graph.all_modules().count(), 3);
+        }
         let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
         assert_eq!(
             registry.source_archive_checksum(&source).unwrap(),
             "b".repeat(64)
         );
         let requests = server.join().unwrap();
-        assert_eq!(requests.len(), 1);
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer secret-token")
+        }));
         assert!(
             requests[0].starts_with("GET /api/v0/registry/modules/alice/secret?version=0.1.0 ")
         );
         let cached = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(cached.version_info(&name, &version).unwrap().is_some());
-        assert!(cached.version_info(&name, &Version::new(0, 1, 1)).is_err());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let reader = cached.version_reader();
+        use crate::registry::VersionReader;
+        assert!(
+            runtime
+                .block_on(reader.read_version(&name, &version))
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .block_on(reader.read_version(&name, &Version::new(0, 1, 1)))
+                .is_err()
+        );
         assert!(cached.cached_latest_version(&name).unwrap().is_none());
     }
 
@@ -1075,8 +1272,7 @@ mod tests {
         assert!(
             registry
                 .version_info(&name, &"0.1.0+01".parse().unwrap())
-                .unwrap()
-                .is_some()
+                .is_ok()
         );
         assert!(
             registry
@@ -1121,17 +1317,12 @@ mod tests {
             registry.cached_latest_version(&name).unwrap(),
             Some(Version::new(0, 1, 0))
         );
-        assert!(
-            registry
-                .version_info(&name, &Version::new(0, 1, 0))
-                .unwrap()
-                .is_some()
-        );
+        assert!(registry.version_info(&name, &Version::new(0, 1, 0)).is_ok());
         assert!(
             registry
                 .version_info(&name, &Version::new(0, 2, 0))
-                .unwrap()
-                .is_none()
+                .unwrap_err()
+                .is::<crate::registry::RegistryVersionNotFound>()
         );
         assert_eq!(
             registry
@@ -1168,7 +1359,7 @@ mod tests {
                 (200, String::new(), archive),
             ],
         );
-        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        assert!(registry.version_info(&name, &version).is_ok());
         let module = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
         assert_eq!(registry.source_archive_checksum(&module).unwrap(), checksum);
         registry
@@ -1226,7 +1417,7 @@ mod tests {
         let version = registry
             .query_latest_version(&name, &quiet_user_log())
             .unwrap();
-        assert!(registry.version_info(&name, &version).unwrap().is_some());
+        assert!(registry.version_info(&name, &version).is_ok());
         registry
             .refresh_version_info(&name, &version, &quiet_user_log())
             .unwrap();
@@ -1269,7 +1460,7 @@ mod tests {
         );
         save_test_login(home.path(), &api, "alice", "rotated-token");
         let alice = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(alice.version_info(&name, &version).unwrap().is_some());
+        assert!(alice.version_info(&name, &version).is_ok());
         assert_eq!(
             alice.cached_latest_version(&name).unwrap(),
             Some(version.clone())
@@ -1365,24 +1556,14 @@ mod tests {
                 .unwrap(),
             Version::new(0, 1, 1)
         );
-        assert!(
-            registry
-                .version_info(&name, &Version::new(0, 1, 0))
-                .unwrap()
-                .is_some()
-        );
+        assert!(registry.version_info(&name, &Version::new(0, 1, 0)).is_ok());
         assert_eq!(server.join().unwrap().len(), 2);
         let cached = http_test_registry(home.path(), &api).for_frozen_dependencies();
         assert_eq!(
             cached.cached_latest_version(&name).unwrap(),
             Some(Version::new(0, 1, 1))
         );
-        assert!(
-            cached
-                .version_info(&name, &Version::new(0, 1, 0))
-                .unwrap()
-                .is_some()
-        );
+        assert!(cached.version_info(&name, &Version::new(0, 1, 0)).is_ok());
         assert!(cached.version_info(&name, &Version::new(0, 1, 2)).is_err());
     }
 
@@ -1412,7 +1593,7 @@ mod tests {
             let version = Version::new(0, 1, 0);
             let source = ModuleSource::from_version(name.clone(), version.clone()).unwrap();
             let registry = http_test_registry(home.path(), &api);
-            let expected = registry.version_info(&name, &version).unwrap().unwrap();
+            let expected = registry.version_info(&name, &version).unwrap();
             let error = registry
                 .query_latest_version(&name, &quiet_user_log())
                 .unwrap_err();
@@ -1425,10 +1606,8 @@ mod tests {
                 http_test_registry(home.path(), &api).for_frozen_dependencies(),
             ] {
                 assert_eq!(
-                    serde_json::to_value(
-                        cached.version_info(&name, &version).unwrap().unwrap().deps
-                    )
-                    .unwrap(),
+                    serde_json::to_value(cached.version_info(&name, &version).unwrap().deps)
+                        .unwrap(),
                     serde_json::to_value(&expected.deps).unwrap()
                 );
                 assert_eq!(
@@ -1463,7 +1642,7 @@ mod tests {
         let name: ModuleName = "alice/public".into();
         let version = Version::new(0, 1, 0);
         let registry = http_test_registry(home.path(), &api);
-        let expected = registry.version_info(&name, &version).unwrap().unwrap();
+        let expected = registry.version_info(&name, &version).unwrap();
         assert_eq!(
             registry
                 .query_latest_version(&name, &quiet_user_log())
@@ -1474,7 +1653,7 @@ mod tests {
             registry.for_frozen_dependencies(),
             http_test_registry(home.path(), &api).for_frozen_dependencies(),
         ] {
-            let release = cached.version_info(&name, &version).unwrap().unwrap();
+            let release = cached.version_info(&name, &version).unwrap();
             assert_eq!(
                 serde_json::to_value(release.deps).unwrap(),
                 serde_json::to_value(&expected.deps).unwrap()
@@ -1652,13 +1831,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert!(
-            !registry
-                .version_info(&name, &version)
-                .unwrap()
-                .unwrap()
-                .yanked
-        );
+        assert!(!registry.version_info(&name, &version).unwrap().yanked);
         assert!(
             !registry
                 .cached_version_info(&name, &version)
@@ -1677,7 +1850,7 @@ mod tests {
         }
         assert!(registry.cached_latest_version(&name).unwrap().is_none());
         let fresh = http_test_registry(home.path(), &api).for_frozen_dependencies();
-        assert!(fresh.version_info(&name, &version).unwrap().unwrap().yanked);
+        assert!(fresh.version_info(&name, &version).unwrap().yanked);
         assert!(
             fresh
                 .refresh_version_info(&name, &version, &quiet_user_log())
@@ -1688,6 +1861,60 @@ mod tests {
         assert!(requests.iter().all(|request| {
             request.starts_with("GET /api/v0/registry/modules/alice/public?version=0.1.0 ")
         }));
+    }
+
+    #[test]
+    fn stalled_async_metadata_response_times_out() {
+        use crate::registry::VersionReader;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let home = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let api = format!("http://{}", listener.local_addr().unwrap());
+            let registry = http_test_registry(home.path(), &api);
+            let reader = registry.version_reader();
+            let name = "alice/public".into();
+            let version = Version::new(0, 1, 0);
+            let server = async {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    assert_ne!(socket.read_buf(&mut request).await.unwrap(), 0);
+                }
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{")
+                    .await
+                    .unwrap();
+                // Advance only after the real connection is established. Keep
+                // it open with an incomplete response past the 30-second limit.
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(31)).await;
+                socket
+            };
+            let read = tokio::time::timeout(
+                Duration::from_secs(35),
+                reader.read_version(&name, &version),
+            );
+            let (_connection, result) = tokio::join!(server, read);
+            let error = result
+                .expect("the registry request must time out before the test deadline")
+                .unwrap_err();
+            let unavailable = error
+                .downcast_ref::<crate::registry::RegistryUnavailable>()
+                .unwrap_or_else(|| panic!("expected RegistryUnavailable: {error:#}"));
+            assert!(
+                unavailable
+                    .0
+                    .downcast_ref::<reqwest::Error>()
+                    .unwrap()
+                    .is_timeout()
+            );
+        });
     }
 
     #[test]
@@ -1943,15 +2170,20 @@ mod tests {
         .unwrap();
         let registry = api_test_registry(sandbox.path(), &api);
         let server = api_test_server(listener, vec![(200, String::new(), "artifact".to_owned())]);
-        download_registry_asset(
-            &download::client_with_retry().unwrap(),
-            &format!(
-                "{}/prebuild/alice/tools@0.1.0/main.wasm",
-                registry.endpoints.download
-            ),
-            &quiet_user_log(),
-        )
-        .unwrap();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(download_registry_asset(
+                &download::client_with_retry().unwrap(),
+                &format!(
+                    "{}/prebuild/alice/tools@0.1.0/main.wasm",
+                    registry.endpoints.download
+                ),
+                &quiet_user_log(),
+            ))
+            .unwrap();
         assert!(
             !server.join().unwrap()[0]
                 .to_ascii_lowercase()
@@ -2286,8 +2518,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wasm_assets_preserve_major_version_module_boundaries() {
+    #[tokio::test]
+    async fn wasm_assets_preserve_major_version_module_boundaries() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let wasm = b"\0asmtest";
@@ -2319,7 +2551,7 @@ mod tests {
                     &ModuleSource::from_version(name.into(), Version::new(2, 0, 0)).unwrap(),
                     package,
                     &quiet_user_log(),
-                    |url| {
+                    async |url| {
                         urls.push(url.to_owned());
                         if url.ends_with(".sha256") {
                             Ok(checksum.as_bytes().to_vec())
@@ -2328,6 +2560,7 @@ mod tests {
                         }
                     },
                 )
+                .await
                 .unwrap();
             assert_eq!(urls, [format!("{url}.sha256"), url.to_owned()]);
             assert_eq!(path, registry.home.registry_assets_dir().join(cache_suffix));
@@ -2346,8 +2579,8 @@ mod tests {
         assert!(parse_sha256_checksum(b"").is_err());
     }
 
-    #[test]
-    fn wasm_asset_cache_miss_downloads_checksum_and_wasm() {
+    #[tokio::test]
+    async fn wasm_asset_cache_miss_downloads_checksum_and_wasm() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let wasm = b"\0asmtest".to_vec();
@@ -2358,7 +2591,7 @@ mod tests {
                 &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3)).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
-                |url| {
+                async |url| {
                     urls.push(url.to_owned());
                     if url.ends_with(".wasm.sha256") {
                         Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
@@ -2367,6 +2600,7 @@ mod tests {
                     }
                 },
             )
+            .await
             .unwrap();
 
         assert_eq!(std::fs::read(path).unwrap(), b"\0asmtest");
@@ -2379,8 +2613,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wasm_asset_cache_hit_does_not_download() {
+    #[tokio::test]
+    async fn wasm_asset_cache_hit_does_not_download() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let name = parser_module();
@@ -2399,8 +2633,9 @@ mod tests {
                 &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
-                |_| bail!("cache hit should not download"),
+                async |_| bail!("cache hit should not download"),
             )
+            .await
             .unwrap();
 
         assert_eq!(path, cache_path);
@@ -2417,13 +2652,14 @@ mod tests {
         assert_eq!(
             registry
                 .acquire_executable_wasm("moonbitlang/parser/cmd/moonfmt@0.3.3", &quiet_user_log())
+                .await
                 .unwrap(),
             cache_path
         );
     }
 
-    #[test]
-    fn public_wasm_cache_survives_removing_http_metadata() {
+    #[tokio::test]
+    async fn public_wasm_cache_survives_removing_http_metadata() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -2442,10 +2678,15 @@ mod tests {
         );
         let registry = http_test_registry(home.path(), &api);
         let path = registry
-            .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .acquire_executable_wasm("alice/tool", &quiet_user_log())
+            .await
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), wasm);
-        assert_eq!(server.join().unwrap().len(), 3);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        // The latest response also supplies visibility; no second metadata
+        // request is needed before downloading the checksum and Wasm.
+        assert!(requests[0].starts_with("GET /api/v0/registry/modules/alice/tool "));
         let metadata = registry.home.registry_metadata_cache_dir();
         if metadata.exists() {
             std::fs::remove_dir_all(metadata).unwrap();
@@ -2456,13 +2697,14 @@ mod tests {
         assert_eq!(
             fresh
                 .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+                .await
                 .unwrap(),
             path
         );
     }
 
-    #[test]
-    fn private_prebuilt_wasm_download_remains_unsupported() {
+    #[tokio::test]
+    async fn private_prebuilt_wasm_download_remains_unsupported() {
         let home = tempfile::tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
@@ -2478,6 +2720,7 @@ mod tests {
         let registry = http_test_registry(home.path(), &api);
         let error = registry
             .acquire_executable_wasm("alice/tool@0.1.0", &quiet_user_log())
+            .await
             .unwrap_err();
         assert_eq!(
             error.to_string(),
@@ -2506,6 +2749,8 @@ mod tests {
         let wasm = b"\0asmtest".to_vec();
         let checksum = sha256_hex(&wasm);
 
+        // Model independent callers. Until the file lock yields, sharing one
+        // runtime thread would let a lock waiter block the download holding it.
         let threads = (0..2)
             .map(|_| {
                 let registry = RegistryClient::with_home(
@@ -2525,20 +2770,27 @@ mod tests {
                 let checksum = checksum.clone();
                 std::thread::spawn(move || {
                     start.wait();
-                    registry.acquire_wasm_asset_with(
-                        &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3))
-                            .unwrap(),
-                        "cmd/moonfmt",
-                        &quiet_user_log(),
-                        |url| {
-                            if url.ends_with(".wasm.sha256") {
-                                download_count.fetch_add(1, Ordering::SeqCst);
-                                std::thread::sleep(Duration::from_millis(50));
-                                Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
-                            } else {
-                                Ok(wasm.clone())
-                            }
-                        },
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_io()
+                        .enable_time()
+                        .build()
+                        .unwrap();
+                    runtime.block_on(
+                        registry.acquire_wasm_asset_with(
+                            &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3))
+                                .unwrap(),
+                            "cmd/moonfmt",
+                            &quiet_user_log(),
+                            async |url| {
+                                if url.ends_with(".wasm.sha256") {
+                                    download_count.fetch_add(1, Ordering::SeqCst);
+                                    tokio::time::sleep(Duration::from_millis(50)).await;
+                                    Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
+                                } else {
+                                    Ok(wasm.clone())
+                                }
+                            },
+                        ),
                     )
                 })
             })
@@ -2554,8 +2806,8 @@ mod tests {
         assert_eq!(download_count.load(Ordering::SeqCst), 1);
     }
 
-    #[test]
-    fn wasm_asset_checksum_mismatch_is_not_cached() {
+    #[tokio::test]
+    async fn wasm_asset_checksum_mismatch_is_not_cached() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let name = parser_module();
@@ -2567,7 +2819,7 @@ mod tests {
                 &ModuleSource::from_version(name.clone(), version.clone()).unwrap(),
                 "cmd/moonfmt",
                 &quiet_user_log(),
-                |url| {
+                async |url| {
                     if url.ends_with(".wasm.sha256") {
                         Ok(format!("{expected_checksum}\n").into_bytes())
                     } else {
@@ -2575,6 +2827,7 @@ mod tests {
                     }
                 },
             )
+            .await
             .unwrap_err();
 
         assert!(
@@ -2590,8 +2843,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wasm_asset_rejects_unvalidated_package_paths() {
+    #[tokio::test]
+    async fn wasm_asset_rejects_unvalidated_package_paths() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let registry = asset_test_registry(&sandbox);
         let error = registry
@@ -2599,8 +2852,9 @@ mod tests {
                 &ModuleSource::from_version(parser_module(), Version::new(0, 3, 3)).unwrap(),
                 "../escape",
                 &quiet_user_log(),
-                |_| bail!("invalid paths must fail before downloading"),
+                async |_| bail!("invalid paths must fail before downloading"),
             )
+            .await
             .unwrap_err();
 
         assert!(
@@ -2909,49 +3163,114 @@ mod tests {
         assert_eq!(request_count.load(Ordering::Relaxed), 1);
     }
 
-    #[test]
-    fn downloaded_archive_checksum_mismatch_is_rejected() {
-        let name: ModuleName = "test/module".into();
-        let version = Version::new(1, 2, 3);
-        let archive = test_archive();
-        let mut downloaded = Vec::new();
-        let expected_checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-        let error = copy_archive_and_verify_checksum(
-            &mut Cursor::new(&archive),
-            &mut downloaded,
-            &name,
-            &version,
-            expected_checksum,
+    #[tokio::test]
+    async fn checksum_mismatch_does_not_publish_archive_cache_file() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let cache_file = sandbox.path().join("archive.zip");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = api_test_server(listener, vec![(200, String::new(), test_archive())]);
+        let response = download::client_with_retry()
+            .unwrap()
+            .get(url)
+            .send()
+            .await
+            .unwrap();
+        let error = persist_verified_archive(
+            response,
+            &cache_file,
+            &"test/module".into(),
+            &Version::new(1, 2, 3),
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         )
+        .await
         .unwrap_err();
-
-        assert!(
-            format!("{error:#}").contains("Checksum mismatch for test/module@1.2.3"),
-            "{error:#}"
-        );
-        assert_eq!(downloaded, archive);
+        server.join().unwrap();
+        assert!(format!("{error:#}").contains("Checksum mismatch for test/module@1.2.3"));
+        assert!(!cache_file.exists());
+        assert_eq!(std::fs::read_dir(sandbox.path()).unwrap().count(), 0);
     }
 
     #[test]
-    fn checksum_mismatch_does_not_publish_archive_cache_file() {
-        let sandbox = tempfile::TempDir::new().unwrap();
-        let cache_file = sandbox.path().join("archive.zip");
-        let archive = test_archive();
-        let name: ModuleName = "test/module".into();
-        let version = Version::new(1, 2, 3);
+    fn source_downloads_overlap_and_duplicate_requests_share_the_archive() {
+        use std::io::BufRead;
 
-        let error = persist_verified_archive(
-            &mut Cursor::new(&archive),
-            &cache_file,
-            &name,
-            &version,
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        )
-        .unwrap_err();
-
-        assert!(format!("{error:#}").contains("Checksum mismatch for test/module@1.2.3"));
-        assert!(!cache_file.exists());
+        let sandbox = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let registry = api_test_registry(
+            sandbox.path(),
+            &format!("http://{}", listener.local_addr().unwrap()),
+        );
+        let modules = ["test/first", "test/second"].map(|name| {
+            let name = ModuleName::from(name);
+            let path = registry.home.registry_index_file(&name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "").unwrap();
+            ModuleSource::from_version(name, Version::new(1, 2, 3)).unwrap()
+        });
+        let bytes = test_archive();
+        let checksum = sha256_hex(&bytes);
+        let server = std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut connections = Vec::new();
+            // No response until both independent requests arrive. A serial
+            // downloader cannot pass this barrier. The duplicate must wait for
+            // its cache lock without blocking the other requests' progress.
+            while connections.len() < 2 {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(5)))
+                            .unwrap();
+                        for line in std::io::BufReader::new(&stream).lines() {
+                            if line.unwrap().is_empty() {
+                                break;
+                            }
+                        }
+                        connections.push(stream);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "source downloads did not overlap"
+                        );
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            }
+            for mut stream in connections {
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    bytes.len()
+                )
+                .unwrap();
+                stream.write_all(&bytes).unwrap();
+            }
+        });
+        let sources = [0, 0, 1]
+            .into_iter()
+            .map(|module| SourceRequest {
+                module: modules[module].clone(),
+                checksum: checksum.clone(),
+            })
+            .collect::<Vec<_>>();
+        let archives = registry
+            .download_archives(&sources, &quiet_user_log())
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(archives.len(), sources.len());
+        for (index, archive) in archives.into_iter().enumerate() {
+            let destination = sandbox.path().join(format!("source-{index}"));
+            extract_zip_to_dir(&destination, archive).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(destination.join("moon.mod")).unwrap(),
+                "name = \"test/module\"\nversion = \"1.2.3\"\n"
+            );
+        }
     }
 
     #[test]
@@ -2989,8 +3308,8 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn registry_path_resolution_preserves_index_io_errors() {
+    #[tokio::test]
+    async fn registry_path_resolution_preserves_index_io_errors() {
         let dir = tempfile::tempdir().unwrap();
         let registry = api_test_registry(dir.path(), "https://registry.example.test");
         let module: ModuleName = "test/module".into();
@@ -3005,6 +3324,7 @@ mod tests {
         assert!(error.is::<std::io::Error>(), "{error:#}");
         let error = registry
             .resolve_executable_package("test/module", &quiet_user_log())
+            .await
             .unwrap_err();
         assert!(error.is::<std::io::Error>(), "{error:#}");
     }
@@ -3032,8 +3352,8 @@ mod tests {
         assert!(error.is::<semver::Error>());
     }
 
-    #[test]
-    fn git_latest_queries_distinguish_cached_answers_from_current_answers() {
+    #[tokio::test]
+    async fn git_latest_queries_distinguish_cached_answers_from_current_answers() {
         let run_git = |args: &[&str]| {
             let output = std::process::Command::new("git")
                 .args(args)
@@ -3122,20 +3442,37 @@ mod tests {
                 home,
                 &quiet_user_log(),
             );
-            registry.metadata = MetadataBackend::Git(GitIndex::new(registry.home.clone()));
+            registry.metadata =
+                MetadataBackend::Git(Arc::new(GitIndex::new(registry.home.clone())));
             registry
         });
 
         for registry in &registries {
             assert_eq!(registry.cached_latest_version(&module).unwrap(), None);
             assert!(!registry.home.registry_index_file(&module).exists());
+            let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
             // Both a missing index and an index missing this module trigger a
             // current query for an unpinned executable coordinate.
             let package = registry
-                .resolve_executable_package("alice/tool", &quiet_user_log())
+                .resolve_executable_package("alice/tool", &user_log)
+                .await
                 .unwrap();
             assert_eq!(package.module.name().to_string(), "alice/tool");
             assert_eq!(package.module.version().to_string(), "1.2.3");
+            assert!(
+                registry
+                    .refresh_version_info(&module, &Version::new(1, 2, 3), &user_log)
+                    .unwrap()
+                    .is_some()
+            );
+            // Neither latest nor exact metadata refresh should attempt the
+            // deliberately unavailable symbols endpoint.
+            assert!(
+                capture.take().iter().all(|entry| matches!(
+                    entry.level,
+                    moonutil::user_log::UserLogEntryLevel::Info
+                ))
+            );
         }
 
         std::fs::write(
@@ -3179,6 +3516,11 @@ mod tests {
             assert_eq!(
                 registry.cached_latest_version(&module).unwrap(),
                 Some(Version::new(1, 2, 4))
+            );
+            let source = ModuleSource::from_version(module.clone(), Version::new(1, 2, 4)).unwrap();
+            assert_eq!(
+                registry.source_archive_checksum(&source).unwrap(),
+                "b".repeat(64)
             );
             let error = registry
                 .query_latest_version(&"alice/missing".into(), &quiet_user_log())
@@ -3235,7 +3577,7 @@ mod tests {
             &quiet_user_log(),
         );
         let version = Version::parse("0.2.1").unwrap();
-        assert!(registry.version_info(&module, &version).unwrap().is_some());
+        assert!(registry.version_info(&module, &version).is_ok());
         let source = ModuleSource::from_version(module, version).unwrap();
         assert_eq!(registry.source_archive_checksum(&source).unwrap(), "abc123");
 
@@ -3245,7 +3587,7 @@ mod tests {
     #[test]
     fn deprecated_dependencies_warn_after_mvs_selection() {
         use crate::registry::mock::create_mock_module;
-        use crate::resolver::{ModuleResolutionConfig, resolve_modules};
+        use crate::resolver::{ModuleResolutionConfig, prepare_roots, resolve_modules};
         use moonutil::resolution::{ModuleSource, ResolvedModule, ResolvedRootModules};
         use serde_json::json;
         let dir = tempfile::tempdir().unwrap();
@@ -3337,12 +3679,12 @@ mod tests {
         }
         let config = ModuleResolutionConfig {
             registry: &registry,
-            inject_std: false,
             warn_deprecated: true,
         };
         for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
             let (user_log, capture) = UserLog::captured(level);
-            let resolved = resolve_modules(&config, roots.clone(), &user_log).unwrap();
+            let resolved =
+                resolve_modules(&config, prepare_roots(roots.clone()).unwrap(), &user_log).unwrap();
             let selected = resolved
                 .all_modules()
                 .map(|source| (source.name().to_string(), source.version().to_string()))

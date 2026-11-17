@@ -29,10 +29,7 @@ use crate::constants::{
     BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK, MOON_WORK_ENV,
 };
 use crate::user_log::UserLog;
-use crate::workspace::{
-    MoonWork, PREFERRED_TARGET_DEPRECATION_WARNING, canonical_workspace_module_dirs,
-    workspace_manifest_path,
-};
+use crate::workspace::{MoonWork, canonical_workspace_module_dirs, workspace_manifest_path};
 
 const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "`moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
 
@@ -546,9 +543,6 @@ impl ProjectQuery {
         // `MOON_WORK=off` disables project selection, but workspace maintenance
         // still operates on an existing moon.work at the local module root.
         let workspace = WorkspaceLayout::read(manifest_path)?;
-        if workspace.manifest().preferred_target.is_some() {
-            user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
-        }
         Ok(WorkspaceEditTarget::Existing(workspace))
     }
 
@@ -654,9 +648,6 @@ impl ProjectQuery {
         let Some(workspace) = &self.workspace else {
             return;
         };
-        if workspace.manifest().preferred_target.is_some() {
-            user_log.warn(PREFERRED_TARGET_DEPRECATION_WARNING);
-        }
         if matches!(self.workspace_env, WorkspaceEnv::Auto)
             && self.module_dir.as_deref() == Some(workspace.root())
             && !workspace.contains_member(workspace.root())

@@ -27,8 +27,6 @@ use walkdir::WalkDir;
 
 use super::{TestSubcommand, UniversalFlags, process::ProcessAction, run_test};
 
-const MOON_COVE_REPORT_ENABLED_ENV: &str = "MOON_COVE_REPORT_ENABLED";
-
 #[derive(Debug, clap::Parser, Default)]
 #[clap(
     allow_external_subcommands(true),
@@ -57,9 +55,7 @@ pub(crate) enum CoverageSubcommands {
 
 /// Code coverage utilities
 ///
-/// Runs the toolchain's `bin/moon_cove.wasm` through `moonrun` by default.
-/// Set `MOON_COVE_REPORT_ENABLED=0` (or `false`) to use the legacy
-/// `moon_cove_report` instead.
+/// Runs the toolchain's `bin/moon_cove.wasm` through `moonrun`.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct CoverageSubcommand {
     #[clap(subcommand)]
@@ -76,7 +72,7 @@ pub(crate) struct CoverageAnalyzeSubcommand {
     #[clap(short, long, hide = true, allow_hyphen_values = true)]
     pub test_flag: Vec<String>,
 
-    /// Extra flags passed directly to the selected coverage reporter
+    /// Extra flags passed directly to `moon_cove`
     #[arg(last = true, global = true, name = "EXTRA_FLAGS")]
     extra_flags: Vec<String>,
 }
@@ -148,7 +144,6 @@ fn run_coverage_report(
             vec!["--help".to_owned()],
             &std::env::current_dir().unwrap_or(".".into()),
             cli.dry_run,
-            "Unable to get help from coverage utility",
             output,
         );
     }
@@ -163,13 +158,7 @@ fn run_coverage_report(
         .select(output.user_log())?
         .package_dirs()?;
 
-    run_coverage_reporter(
-        args.args,
-        &src,
-        cli.dry_run,
-        "Unable to run coverage report",
-        output,
-    )
+    run_coverage_reporter(args.args, &src, cli.dry_run, output)
 }
 
 /// Clean up coverage artifacts by removing all files with name `moonbit_coverage_*.txt` in the current directory and target
@@ -189,40 +178,19 @@ fn run_coverage_reporter(
     args: Vec<String>,
     cwd: &Path,
     dry_run: bool,
-    error_context: &'static str,
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {
-    let use_moon_cove = std::env::var(MOON_COVE_REPORT_ENABLED_ENV).map_or(true, |value| {
-        value != "0" && !value.eq_ignore_ascii_case("false")
-    });
-
-    let mut command = if use_moon_cove {
-        crate::run::command_for(
-            crate::run::ExecutionMode::MoonRun,
-            &moonutil::toolchain::bin().join("moon_cove.wasm"),
-            None,
-        )
-    } else {
-        std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_cove_report)
-    };
-    command
-        .current_dir(cwd)
-        .env_remove(MOON_COVE_REPORT_ENABLED_ENV)
-        .args(args);
+    let mut command = crate::run::command_for(
+        crate::run::ExecutionMode::MoonRun,
+        &moonutil::toolchain::bin().join("moon_cove.wasm"),
+        None,
+    );
+    command.current_dir(cwd).args(args);
     if dry_run {
         output.write_result(|writer| write_coverage_report_command(writer, &command, cwd))?;
         Ok(ProcessAction::Exit(0))
-    } else if use_moon_cove {
-        Ok(ProcessAction::Delegate(command))
     } else {
-        let code = command
-            .status()
-            .context(error_context)?
-            .code()
-            .ok_or_else(|| {
-                anyhow::anyhow!("Coverage report command exited without a status code")
-            })?;
-        Ok(ProcessAction::Exit(code))
+        Ok(ProcessAction::Delegate(command))
     }
 }
 

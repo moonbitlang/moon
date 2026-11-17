@@ -7,12 +7,15 @@ The root of a module is signified by `moon.mod` or the legacy `moon.mod.json`.
 A module recursively contain all directories and files under its root,
 until another module is met.
 
-Commands that discover modules, including `moon check`, warn when a module uses
-`moon.mod.json` and suggest `moon fmt` to migrate it to `moon.mod`. When both
-files exist, `moon.mod` takes precedence and a single format warning asks the
-user to remove the old file. Manifest warnings follow the user-log level
-(`--quiet` suppresses them) and are suppressed for dependency cache files under
-`.mooncakes`.
+Project builds use `moon.mod` and `moon.pkg`. `moon fmt` accepts legacy
+`moon.mod.json` and `moon.pkg.json` files. For each manifest selected for
+formatting, it migrates JSON when the corresponding DSL file is absent.
+Normal formatting writes the DSL manifest and removes the JSON file; `--check`
+and `--warn` compare the migration result while preserving the source manifests.
+`--dry-run` prints the planned commands.
+When both formats exist, the DSL file takes precedence and a single format
+warning asks the user to remove the old file. Manifest warnings are shown for
+the current project's modules, not its dependencies. `--quiet` suppresses them.
 
 The optional module field `private = true` (or `"private": true` in JSON)
 requests private visibility for the published module: only authorized users may
@@ -53,17 +56,13 @@ The converter then reads the normalized fields without mutating the map,
 preserving legacy option aliases and type checks. Unknown options are ignored.
 
 Package settings also have these direct declarations: `proof_enabled`,
-`use_async_io`, `max_concurrent_tests`, and `regex_backend` use assignments;
+`max_concurrent_tests`, and `regex_backend` use assignments;
 `virtual(has_default: ...)` declares a virtual package, and
 `virtual(implement: ...)` normalizes to the legacy `implement` field. The two
 `virtual` forms cannot be combined. They use the same value types, defaults, and
 validation as their legacy options. Each may appear only once. Like `formatter` and `pkgtype`, they are
 subject to `options(...)` overrides: an option with the same spelling replaces
 the direct declaration, while an alias spelling is rejected as a duplicate field.
-
-`use_async_io` is a boolean and defaults to `false`. When enabled, Moon passes
-`-use-async-io` to every `moonc check` and `moonc build-package` action for the
-package, including its test build targets.
 
 The compiler also reads package configuration, so accepting a declaration in
 Moon alone does not make it usable with older compilers. Direct declarations
@@ -83,7 +82,7 @@ declarations with disjoint [import conditions](cond-comp.md) do not warn.
 Duplicate items, aliases, and import-all flags are retained in source order,
 preserving existing dependency ordering and alias precedence. Different import
 kinds do not produce duplicate warnings.
-These manifest warnings are suppressed for dependency manifests in `.mooncakes`.
+These warnings are suppressed for dependency manifests.
 
 Named import aliases must be unique within each build target's dependencies.
 The special alias `*` marks an import-all declaration rather than a package
@@ -217,10 +216,15 @@ Module resolution selects concrete module sources and versions and records their
 dependency edges in `ModuleDependencyGraph`. `ModuleResolutionConfig` supplies
 registry and standard-library policy to the `ModuleResolver`; its working
 registry access, manifest caches, and diagnostics belong to
-`ModuleResolutionContext`. Failures are reported as `ModuleResolutionError`.
+`ModuleResolutionContext`. Registry injection is generic over `R: Registry`;
+the configuration and context borrow the concrete implementation through `&R`.
+Failures are reported as `ModuleResolutionError`.
 Registry read failures preserve their causes and are distinguished from missing
 modules or versions. Final graph construction reuses the metadata loaded during
 traversal rather than querying the registry again.
+Within one resolution, the context retains each successfully read exact registry
+version's manifest and advisory status. Shared dependencies reuse the same manifest,
+and deprecation warnings use that observation without another registry call.
 Package imports are resolved separately after package discovery.
 
 Modules are versioned using [SemVer][] (Semantic Versioning),
@@ -236,6 +240,22 @@ module or declared version is an error, even if a higher compatible version is
 available or required elsewhere in the graph; it is not silently substituted.
 This keeps publishing an unrelated release from changing an existing dependency
 graph, provided published versions and their metadata remain immutable.
+
+Registry traversal spawns each distinct exact-version query as it is discovered,
+without an application-level concurrency cap, and expands each completed result
+without waiting for its siblings. MVS exposes an asynchronous computation, awaited
+within a caller-owned Tokio runtime and `LocalSet`. The synchronous module-resolution
+entry point creates and drives that runtime; MVS does not configure or drive an
+executor. Its HTTP reader and connection pool live only during traversal. Version
+selection and final graph construction then compute directly from the gathered
+manifests. Source acquisition starts after module resolution returns.
+
+The resolution runtime uses Tokio's default blocking-pool limit. Git queries read
+module files from the complete local index on Tokio's blocking pool; parsed records
+are reused by subsequent synchronous queries, including checksum lookup. HTTP
+readers use asynchronous network I/O and run complete cache reads and publications
+on the blocking pool, sharing that cache with synchronous registry operations.
+These backend details remain outside MVS.
 
 Manifests specify full version numbers, not version ranges. After traversal,
 MVS selects the highest version actually required in each compatibility bucket:
@@ -309,6 +329,14 @@ resolve successfully before its build planning begins.
 `rr_build::prepare_resolved_build` receives the already selected backend and
 does not choose one itself.
 
+`moon fmt` scans the current project's modules without resolving dependencies
+or preparing build inputs such as C stubs and virtual interfaces.
+
+Build discovery scans directories and parses package manifests in parallel,
+using `-j` workers where provided and the available CPU count otherwise.
+`-j 1` uses serial scanning. Package preparation and ID assignment remain serial
+and follow module order and lexical package order.
+
 The `source` field in `moon.mod` specifies where package scanning starts,
 relative to the folder containing `moon.mod`.
 Package paths are the relative path (normalized to forward slash) relative to this root path.
@@ -376,10 +404,13 @@ for common folder layouts with root `.` and root `src`:
 
 A package can declare `experimental = true` in `moon.pkg` (or
 `"experimental": true` in `moon.pkg.json`). Omission or `false` leaves it stable.
-Package resolution warns for each direct dependency on an experimental package,
-using the active import graph for the requested backends. Ordinary and test
-imports are covered; implicit self-dependencies from tests are excluded. Warnings
-are deduplicated by importing/dependency package pair and across backends.
+Package resolution warns for each direct dependency on an experimental package
+when the importing package belongs to a project root module (including workspace
+members), using the active import graph for the requested backends. Imports
+inside dependency modules do not warn, whether those modules come from a registry
+or a local path. Ordinary and test imports are covered; implicit self-dependencies
+from tests are excluded. Warnings are deduplicated by importing/dependency package
+pair and across backends.
 Experimental status does not propagate to a package's dependents.
 
 The importing package can acknowledge dependencies through

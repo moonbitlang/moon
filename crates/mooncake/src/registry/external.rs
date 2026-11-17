@@ -18,13 +18,31 @@
 
 //! One-shot source acquisition by the external mooncake executable.
 
+use super::credentials::RegistryCredentials;
 use anyhow::{Context, bail};
-use moonutil::registry::RegistryDownloadRequest;
-use std::process::{Command, Stdio};
+use serde::{Deserialize, Serialize};
+use std::process::Stdio;
+use tokio::{io::AsyncWriteExt, process::Command};
 
-pub(super) fn download_archive(request: &RegistryDownloadRequest) -> anyhow::Result<()> {
+/// One source acquisition delegated to the external mooncake executable.
+/// Sent through stdin only. Deliberately not Debug: it carries the login captured
+/// by the caller, so metadata, authorization and download renewal use one token.
+#[derive(Serialize, Deserialize)]
+pub(super) struct RegistryDownloadRequest {
+    pub api: String,
+    pub module: String,
+    pub version: semver::Version,
+    pub checksum: String,
+    pub destination: std::path::PathBuf,
+    pub credentials: RegistryCredentials,
+}
+
+// FIXME: Extend the external mooncake protocol to acquire a whole batch in one
+// process. One process per private archive bypasses Moon's CPU concurrency budget.
+pub(super) async fn download_archive(request: &RegistryDownloadRequest) -> anyhow::Result<()> {
     let mut child = Command::new(&*moonutil::toolchain::BINARIES.mooncake)
         .arg("--download-archive")
+        .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -32,13 +50,15 @@ pub(super) fn download_archive(request: &RegistryDownloadRequest) -> anyhow::Res
         .context("failed to start mooncake for source download")?;
     // Closing stdin completes the request. The captured token is never placed
     // in argv, the environment or a temporary credentials file.
-    let result = serde_json::to_writer(child.stdin.take().expect("piped stdin"), request);
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let result = stdin.write_all(&serde_json::to_vec(request)?).await;
+    drop(stdin);
     if result.is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         bail!("failed to send the download request to mooncake; update the toolchain");
     }
-    if !child.wait()?.success() {
+    if !child.wait().await?.success() {
         bail!(
             "mooncake failed to download {}@{}",
             request.module,
@@ -46,4 +66,39 @@ pub(super) fn download_archive(request: &RegistryDownloadRequest) -> anyhow::Res
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_request_preserves_wire_format() {
+        // The installed mooncake reads this stdin protocol independently of
+        // Moon's Rust types. Both old and API-bound logins must keep their shape.
+        for credentials in [
+            serde_json::json!({"token": "test-only-token"}),
+            serde_json::json!({
+                "token": "test-only-token",
+                "username": "alice",
+                "registry_api": "https://registry.example/prefix"
+            }),
+        ] {
+            let wire = serde_json::json!({
+                "api": "https://registry.example/prefix",
+                "module": "alice/pkg",
+                "version": "1.2.3",
+                "checksum": "test-checksum",
+                "destination": "archive.zip",
+                "credentials": credentials
+            });
+            let request: RegistryDownloadRequest = serde_json::from_value(wire.clone()).unwrap();
+            let mut encoded = Vec::new();
+            serde_json::to_writer(&mut encoded, &request).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&encoded).unwrap(),
+                wire
+            );
+        }
+    }
 }

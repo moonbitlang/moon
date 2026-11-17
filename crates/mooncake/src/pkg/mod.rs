@@ -27,6 +27,8 @@ use moonutil::{
 pub mod add;
 pub mod install;
 pub mod legacy_postadd;
+mod manifest_edit;
+mod prepare;
 pub mod remove;
 pub mod sync;
 pub mod tree;

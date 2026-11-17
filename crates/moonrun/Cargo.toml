@@ -33,6 +33,7 @@ wee8 = ["dep:wee8", "dep:wasmparser"]
 [dependencies]
 anyhow.workspace = true
 dunce.workspace = true
+globset.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -56,16 +57,20 @@ openssl-probe.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true
+rustix = { version = "1.1.6", features = ["net", "event"] }
 
 [target."cfg(windows)".dependencies.windows-sys]
 workspace = true
 features = [
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
     "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_Security_Authentication_Identity",
     "Win32_Security_Credentials",
     "Win32_Security_Cryptography",
@@ -81,14 +86,18 @@ features = [
     "Win32_System_SystemServices",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_Time",
     "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
 ]
 
 [build-dependencies]
+cc.workspace = true
 vergen.workspace = true
-chrono.workspace = true
+time.workspace = true
 
 [dev-dependencies]
+ctor-lite = "0.1.2"
 dunce.workspace = true
 escargot.workspace = true
 moon-test-util.workspace = true

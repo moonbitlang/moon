@@ -41,12 +41,11 @@ pub(crate) fn moon_bin() -> PathBuf {
 pub(crate) fn moonrun_bin() -> PathBuf {
     MOONRUN_BIN
         .get_or_init(|| {
-            // `moonrun` is a host tool. Keep Cargo's default target layout so
-            // it can reuse artifacts from the outer Cargo invocation.
+            // Use the workspace manifest so dependency features match an outer
+            // workspace build. Request only the host moonrun binary and keep
+            // Cargo's default target layout to reuse that build's artifacts.
             escargot::CargoBuild::new()
-                .manifest_path(
-                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moonrun/Cargo.toml"),
-                )
+                .manifest_path(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml"))
                 .bin("moonrun")
                 .current_release()
                 .run()
@@ -208,7 +207,9 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
-    let s = if let Ok(toolchain) = compiler_flags::default_native_toolchain() {
+    let s = if let Ok(toolchain) =
+        compiler_flags::effective_native_toolchain(compiler_flags::ENV_CC.as_ref(), None)
+    {
         let cc = toolchain.cc();
         let s = s.replace(&cc.ar_path, cc.ar_name());
         s.replace(&cc.cc_path, cc.cc_name())
@@ -377,8 +378,13 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 
     let update = std::env::var_os("UPDATE_EXPECT").is_some();
     let toolchain_root = toolchain_root_for_tests();
-    let exit_code =
-        moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update, Some(&toolchain_root));
+    let exit_code = moon_test_util::cmdtest::run::t(
+        &test_path,
+        &moon_bin(),
+        &moonrun_bin(),
+        update,
+        Some(&toolchain_root),
+    );
 
     assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
 }

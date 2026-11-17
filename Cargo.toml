@@ -49,6 +49,8 @@ dunce = "1.0.4"
 escargot = "0.5.15"
 expect-test = "1.5.0"
 find-msvc-tools = "0.1.9"
+# Keep native build helper features consistent for workspace and standalone builds.
+cc = { version = "1", features = ["parallel"] }
 flate2 = "1.0.30"
 form_urlencoded = "1.2.1"
 snapbox = "0.6.23"
@@ -64,6 +66,7 @@ reqwest = { version = "0.13.5", default-features = false, features = [
 ] }
 openssl = { version = "0.10.75", features = ["vendored"] }
 openssl-probe = "0.2.0"
+once_cell = "1.20.3"
 percent-encoding = "2.3.1"
 petgraph = { version = "0.6.4", features = [
     "graphmap",
@@ -88,10 +91,7 @@ home = "0.5.0"
 semver = { version = "1.0.22", features = ["serde"] }
 sha2 = "0.10.8"
 blake3 = "1.8.5"
-chrono = { version = "0.4.31", features = [
-    "clock",
-    "std",
-], default-features = false }
+chrono = { version = "0.4.31", features = ["std"], default-features = false }
 hyper = "1.3.1"
 hyper-util = { version = "0.1.20", features = ["http1", "server", "tokio"] }
 hyper-staticfile = "0.10.0"
@@ -113,7 +113,6 @@ nucleo-matcher = "0.3.1"
 regex = { version = "1.11.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 base64 = "0.22.1"
-derive_builder = "0.20.2"
 shlex = "1.3.0"
 relative-path = "2.0.1"
 url = "2.5.4"
@@ -123,11 +122,12 @@ ignore = "0.4.23"
 similar = { version = "2.7.0", features = ["inline"] }
 notify = "6.1.1"
 json-structural-diff = { version = "0.1.0", features = ["colorize"] }
-handlebars = { version = "6.3.2", default-features = false }
 logos = "0.15.1"
 globset = "0.4"
+# Share vergen's date/time dependency when generating build versions.
+time = { version = "0.3.47", features = ["formatting"] }
 vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
-v8 = "0.106.0"
+v8 = "137.3.0"
 wasmtime = { version = "48.0.7", default-features = false, features = [
     "anyhow",
     "runtime",
@@ -142,6 +142,14 @@ libc = "0.2.177"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 tracing-chrome = "0.7.2"
+
+# These libraries are runtime dependencies of moon and build dependencies of
+# moonrun. Keep their development profiles identical so builds can share them.
+[profile.dev.package.fnv]
+debug = false
+
+[profile.dev.package.crc32fast]
+debug = false
 
 [profile.release]
 debug = false

@@ -43,7 +43,6 @@ fn test_blackbox_success() {
             "hello_test.mbt",
             "-i",
             "0",
-            "--nostd",
             "--sort-input",
             "--dry-run",
         ]),

@@ -50,10 +50,8 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
 mod tests {
     #[test]
     fn sleep_job_executor_references_native_worker_symbol() {
-        let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../third_party/moonbitlang_async");
         for symbol in super::sleep::PORTED_SYMBOLS {
-            let source_path = async_root.join(symbol.source);
+            let source_path = symbol.root.path(symbol.source);
             let contents = std::fs::read_to_string(&source_path)
                 .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
             assert!(

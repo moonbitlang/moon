@@ -26,17 +26,13 @@ use std::{
 use anyhow::Context;
 use serde::{Deserialize, Deserializer};
 
-use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend};
-
-pub const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "`preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
+use crate::{constants::MOON_WORK, moon_pkg};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MoonWork {
     #[serde(rename = "members", deserialize_with = "deserialize_use_paths")]
     pub use_paths: Vec<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_preferred_target")]
-    pub preferred_target: Option<TargetBackend>,
 }
 
 impl MoonWork {
@@ -54,17 +50,6 @@ impl MoonWork {
         parse_workspace_dsl(&content)
             .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
     }
-}
-
-fn deserialize_preferred_target<'de, D>(deserializer: D) -> Result<Option<TargetBackend>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let preferred_target = Option::<String>::deserialize(deserializer)?;
-    preferred_target
-        .map(|target| TargetBackend::str_to_backend(&target))
-        .transpose()
-        .map_err(serde::de::Error::custom)
 }
 
 fn deserialize_use_paths<'de, D>(deserializer: D) -> Result<Vec<PathBuf>, D::Error>
@@ -139,7 +124,7 @@ fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
     Ok(workspace)
 }
 
-pub fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
+pub fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
     let mut out = String::new();
 
     if work.use_paths.is_empty() {
@@ -154,18 +139,6 @@ pub fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
             out.push_str(",\n");
         }
         out.push_str("]\n");
-    }
-
-    Ok(out)
-}
-
-fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
-    let mut out = format_workspace_members(work)?;
-
-    if let Some(preferred_target) = work.preferred_target {
-        out.push_str("preferred_target = ");
-        out.push_str(&serde_json_lenient::to_string(preferred_target.to_flag())?);
-        out.push('\n');
     }
 
     Ok(out)
@@ -197,11 +170,10 @@ import { "example/dep@1.2.3" }
     }
 
     #[test]
-    fn parse_workspace_dsl_with_target() {
+    fn parse_workspace_dsl_with_members() {
         let parsed = parse_workspace_dsl(
             r#"
                 members = ["./app", "./shared"]
-                preferred_target = "wasm-gc"
             "#,
         )
         .unwrap();
@@ -210,7 +182,6 @@ import { "example/dep@1.2.3" }
             parsed.use_paths,
             vec![PathBuf::from("./app"), PathBuf::from("./shared")]
         );
-        assert_eq!(parsed.preferred_target, Some(TargetBackend::WasmGC));
     }
 
     #[test]
@@ -218,7 +189,6 @@ import { "example/dep@1.2.3" }
         let parsed = parse_workspace_dsl("members = []").unwrap();
 
         assert!(parsed.use_paths.is_empty());
-        assert_eq!(parsed.preferred_target, None);
     }
 
     #[test]
@@ -227,7 +197,6 @@ import { "example/dep@1.2.3" }
         std::fs::write(workspace_root.path().join("member.mbt"), "").unwrap();
         let workspace = MoonWork {
             use_paths: vec![PathBuf::from("member.mbt")],
-            preferred_target: None,
         };
 
         let error = canonical_workspace_module_dirs(workspace_root.path(), &workspace).unwrap_err();
@@ -242,24 +211,9 @@ import { "example/dep@1.2.3" }
     fn format_relative_workspace_paths_with_forward_slashes() {
         let workspace = MoonWork {
             use_paths: vec![PathBuf::from(".").join("app").join("main")],
-            preferred_target: Some(TargetBackend::WasmGC),
         };
 
         let json = format_workspace_dsl(&workspace).unwrap();
-        assert_eq!(
-            json,
-            "members = [\n  \"./app/main\",\n]\npreferred_target = \"wasm-gc\"\n"
-        );
-    }
-
-    #[test]
-    fn format_for_moon_fmt_removes_deprecated_preferred_target() {
-        let workspace = MoonWork {
-            use_paths: vec![PathBuf::from(".").join("app").join("main")],
-            preferred_target: Some(TargetBackend::WasmGC),
-        };
-
-        let json = format_workspace_members(&workspace).unwrap();
         assert_eq!(json, "members = [\n  \"./app/main\",\n]\n");
     }
 
@@ -268,7 +222,6 @@ import { "example/dep@1.2.3" }
     fn format_absolute_workspace_paths_without_normalizing_separators() {
         let workspace = MoonWork {
             use_paths: vec![PathBuf::from(r"C:\repo\app")],
-            preferred_target: None,
         };
 
         let json = format_workspace_dsl(&workspace).unwrap();
@@ -280,7 +233,6 @@ import { "example/dep@1.2.3" }
     fn format_absolute_workspace_paths_without_normalizing_separators() {
         let workspace = MoonWork {
             use_paths: vec![PathBuf::from("/repo/app")],
-            preferred_target: None,
         };
 
         let json = format_workspace_dsl(&workspace).unwrap();

@@ -1,5 +1,5 @@
 #!/bin/sh
-echo "$@" >> "$PROBE_LOG"
+echo "$@" >> "$MOON_TEST_CC_PROBE_LOG"
 if [ "$1" = "-dumpmachine" ]; then
   echo x86_64-unknown-fake_os-fake_libc
 fi

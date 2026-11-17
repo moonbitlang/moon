@@ -31,14 +31,15 @@ do not add compatibility wrappers or deprecation stages for hypothetical users.
 This does not relax the established host ABI or ordinary non-virtual execution
 contracts described above.
 
-Preparing a Moon/moonx artifact for execution in the embedding process or
+Preparing a Moon/moonx Wasm artifact for execution in the embedding process or
 delegating the invocation to an external process is an execution strategy
 behind that interface. This choice does not grant additional authority or
 change who owns completion and cleanup.
 Backend selection is separate from this strategy. `Engine::run` executes on
 the calling thread; `Engine::spawn` creates managed work whose result is consumed
 by `Engine::wait`. `run_moon` and `spawn_moon` share preparation and artifact
-execution, with an external helper preparing the artifact in both cases.
+execution, with an external helper preparing Wasm in both cases. This handoff
+is Wasm-only; native and Node commands use ordinary OS process execution.
 External delegation of the whole invocation remains future work.
 
 Each new Engine owns an independent process namespace. Clones share its backend

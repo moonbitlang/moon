@@ -16,18 +16,20 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Resolve an authorized guest Moon invocation into a supervised child.
+//! Resolve an authorized guest moonx invocation into a supervised child.
 
 #[cfg(unix)]
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use super::SpawnOptions;
 use super::lookup::LookupPlan;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::policy::PolicyInheritance;
+use crate::policy::Policy;
 use crate::process_tree::ProcessContext;
 use crate::resource::{ResourcePublication, ResourceRef};
 #[cfg(unix)]
@@ -57,7 +59,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy: Option<PolicyInheritance>,
+        policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
         let env = env
@@ -109,7 +111,7 @@ impl Spawn {
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
         options: SpawnOptions,
-        policy: Option<PolicyInheritance>,
+        policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
         use std::os::windows::ffi::OsStringExt;
         let program = args.remove(0);
@@ -145,7 +147,7 @@ impl Spawn {
         env: Vec<(OsString, OsString)>,
         stdio: [Option<ResourceRef>; 3],
         cwd: Option<OsString>,
-        policy: Option<PolicyInheritance>,
+        policy: Option<Policy>,
     ) -> AsyncHostResult<Self> {
         if program.as_encoded_bytes().contains(&0)
             || args.iter().any(|arg| arg.as_encoded_bytes().contains(&0))
@@ -157,15 +159,11 @@ impl Spawn {
         let env = Env::owned(env)
             .map_err(|_| AsyncHostError::Inval)?
             .entries();
-        let name = Path::new(&program)
-            .file_name()
-            .ok_or(AsyncHostError::Inval)?;
-        let moon = if cfg!(windows) {
-            name.eq_ignore_ascii_case("moon") || name.eq_ignore_ascii_case("moon.exe")
-        } else {
-            name == "moon" || name == "moon.exe"
-        };
-        if !moon && !moonutil::constants::is_moonx_executable(&program) {
+        // Guest Virtual spawn only admits moonx. Host-selected Engine preparation
+        // is a separate entry; a Moon basename must not enable arbitrary commands.
+        // FIXME: Add other native children through Engine supervision when mixed
+        // execution is implemented, rather than sending them through handoff.
+        if !moonutil::constants::is_moonx_executable(&program) {
             #[cfg(unix)]
             return Err(AsyncHostError::Native(libc::ENOTSUP));
             #[cfg(windows)]
@@ -178,9 +176,9 @@ impl Spawn {
             return Err(AsyncHostError::Inval);
         }
         #[cfg(unix)]
-        let executable = super::ambient::lookup::resolve_for_moon(&plan).map_err(io_error)?;
+        let executable = super::os::lookup::resolve_for_moon(&plan).map_err(io_error)?;
         #[cfg(windows)]
-        let executable = super::ambient::lookup::select_image(&plan).map_err(io_error)?;
+        let executable = super::os::lookup::select_image(&plan).map_err(io_error)?;
         let duplicate =
             |resource: Option<ResourceRef>, stream: StdioStream| -> AsyncHostResult<File> {
                 #[cfg(unix)]
@@ -220,7 +218,7 @@ impl Spawn {
             };
         let [stdin, stdout, stderr] = stdio;
         let mut run = RunOptions::default()
-            .with_guest_process_mode(crate::GuestProcessMode::Virtual)
+            .with_virtualize(true)
             .with_environment(env)
             .with_working_directory(WorkingDirectory::Fixed(cwd))
             .with_stdio(
@@ -229,7 +227,7 @@ impl Spawn {
                 duplicate(stderr, StdioStream::Stderr)?,
             );
         if let Some(policy) = policy {
-            run = run.with_inherited_policy(policy.contents());
+            run = run.with_parent_policy(policy);
         }
         Ok(Self {
             context,

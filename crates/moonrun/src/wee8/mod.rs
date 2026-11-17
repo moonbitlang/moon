@@ -136,7 +136,7 @@ impl Engine {
         self.initialization
             .as_ref()
             .map_err(|error| anyhow::anyhow!(error.clone()))?;
-        let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone());
+        let wasi = crate::wasi::WasiContext::new(module_name, args, &runtime, termination.clone())?;
         let stdio = Arc::clone(runtime.stdio());
         let memory_sanitizer = crate::memory_sanitizer::MemorySanitizer::default();
         let store = api::Store::new(StoreData {
@@ -157,7 +157,7 @@ impl Engine {
             crate::async_api::register(&mut registry)?;
             crate::sqlite::wasm::register(&mut registry)?;
             crate::core_api::register(&mut registry)?;
-            crate::host_imports::register(&mut registry, module_name, args)?;
+            crate::unstable_api::register(&mut registry, module_name, args)?;
             // The GC compiler uses the legacy character ABI. Reuse the same
             // per-run UTF-16 writer as V8 and Wasmtime, including surrogate pairs.
             registry.func_wrap(

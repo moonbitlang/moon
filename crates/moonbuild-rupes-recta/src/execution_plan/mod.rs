@@ -291,9 +291,7 @@ impl ExecutionPlan {
             .collect::<HashSet<_>>();
         for output in self.outputs.values_mut() {
             let module = match output.artifact.as_ref() {
-                Some(ArtifactKey::BundleResult { module } | ArtifactKey::DocsDir { module }) => {
-                    Some(*module)
-                }
+                Some(ArtifactKey::DocsDir { module }) => Some(*module),
                 Some(artifact) => artifact
                     .package()
                     .map(|package| resolved.pkg_dirs.get_package(package).module),

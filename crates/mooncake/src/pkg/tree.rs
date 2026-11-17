@@ -28,7 +28,7 @@ use moonutil::user_log::UserLog;
 
 use crate::pkg::roots_for_selected_module;
 use crate::registry;
-use crate::resolver::{ModuleResolutionConfig, resolve_modules};
+use crate::resolver::{ModuleResolutionConfig, prepare_roots, resolve_modules};
 
 /// The resolved dependency graph of the selected module, together with the
 /// module the tree is rooted at.
@@ -49,10 +49,9 @@ pub fn tree(
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
-        inject_std: false,
         warn_deprecated: true,
     };
-    let resolved = resolve_modules(&module_resolution_config, roots, user_log)?;
+    let resolved = resolve_modules(&module_resolution_config, prepare_roots(roots)?, user_log)?;
 
     let module_name: ModuleName = module.name.as_str().into();
     let selected_root = resolved

@@ -23,7 +23,6 @@ use std::{
 };
 
 use anyhow::Context;
-use moonutil::user_log::UserLog;
 
 #[derive(Debug, clap::Parser)]
 pub(crate) struct FormatWorkspaceSubcommand {
@@ -48,15 +47,9 @@ pub(crate) struct FormatWorkspaceSubcommand {
     warn: bool,
 }
 
-pub(crate) fn run_format_workspace(
-    cmd: FormatWorkspaceSubcommand,
-    user_log: &UserLog,
-) -> anyhow::Result<i32> {
+pub(crate) fn run_format_workspace(cmd: FormatWorkspaceSubcommand) -> anyhow::Result<i32> {
     let workspace = moonutil::workspace::MoonWork::read(&cmd.old)?;
-    if workspace.preferred_target.is_some() {
-        user_log.warn(moonutil::workspace::PREFERRED_TARGET_DEPRECATION_WARNING);
-    }
-    let formatted = moonutil::workspace::format_workspace_members(&workspace)?;
+    let formatted = moonutil::workspace::format_workspace_dsl(&workspace)?;
 
     if let Some(parent) = cmd.new.parent() {
         std::fs::create_dir_all(parent)?;

@@ -1,10 +1,10 @@
 use expect_test::{expect, expect_file};
 
-use crate::{TestDir, build_graph, get_stdout, moon_cmd, util::check};
+use crate::{Fixture, build_graph, get_stdout, moon_cmd, util::check};
 
 #[test]
 fn test_moon_test_patch() {
-    let dir = TestDir::new("moon_test/patch");
+    let dir = Fixture::copied("moon_test/patch");
 
     // Apply patch to normal build
     build_graph::assert(
@@ -20,7 +20,6 @@ fn test_moon_test_patch() {
             "./patch.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_dry_run_graph.jsonl.snap"],
     );
@@ -60,7 +59,6 @@ fn test_moon_test_patch() {
             "./patch_wbtest.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_wbtest_dry_run_graph.jsonl.snap"],
     );
@@ -101,7 +99,6 @@ fn test_moon_test_patch() {
             "./patch_test.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_bbtest_dry_run_graph.jsonl.snap"],
     );
@@ -142,7 +139,6 @@ fn test_moon_test_patch() {
             "./2.patch_test.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_2_bbtest_dry_run_graph.jsonl.snap"],
     );
@@ -182,7 +178,6 @@ fn test_moon_test_patch() {
             "./2.patch_wbtest.json",
             "--dry-run",
             "--sort-input",
-            "--nostd",
         ]),
         expect_file!["patch_2_wbtest_dry_run_graph.jsonl.snap"],
     );
@@ -212,7 +207,7 @@ fn test_moon_test_patch() {
 
 #[test]
 fn test_moon_test_patch_content_change_regenerates_driver() {
-    let dir = TestDir::new("moon_test/patch");
+    let dir = Fixture::copied("moon_test/patch");
 
     check(
         get_stdout(

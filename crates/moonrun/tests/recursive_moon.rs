@@ -18,7 +18,11 @@
 
 #![cfg(feature = "v8")]
 
-use moonrun::{Engine, GuestProcessMode, RunOptions, RunOutcome, WorkingDirectory};
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
+use moonrun::{Engine, RunOptions, RunOutcome, WorkingDirectory};
 use std::fs::{self, File};
 use std::io::{Read, Seek};
 use std::path::Path;
@@ -67,6 +71,27 @@ fn recursive_moon_processes() {
     .unwrap();
     fs::create_dir(project.join("subdir")).unwrap();
     fs::copy(fixture.join("leaf.mbtx"), project.join("subdir/leaf.mbtx")).unwrap();
+    fs::write(project.join("invalid.mbtx"), "this is invalid MoonBit").unwrap();
+    let untrusted_handoff = project.join("untrusted-handoff");
+    fs::create_dir(&untrusted_handoff).unwrap();
+    moonutil::run_handoff::RunHandoff::new(&untrusted_handoff, false).unwrap();
+    // Compile the recursive guest against the pinned async sources, then serve
+    // those exact bytes through a private registry cache. Recursive moonx
+    // invocations need neither registry networking nor a different async version.
+    snapbox::cmd::Command::new(moon)
+        .current_dir(&project)
+        .args(["build", "--target", "wasm", "src/virtual_parent"])
+        .timeout(Duration::from_secs(90))
+        .assert()
+        .success();
+    let moon_home = root.join("moon-home");
+    let cached = moon_home.join("registry/cache/assets/test/virtual/0.0.1/main/main.wasm");
+    fs::create_dir_all(cached.parent().unwrap()).unwrap();
+    fs::copy(
+        project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"),
+        cached,
+    )
+    .unwrap();
     // Both helper names resolve inside the guest's PATH, including recursive
     // calls. No process-global environment mutation is needed.
     let helper_moon = root.join(format!("moon{}", std::env::consts::EXE_SUFFIX));
@@ -79,10 +104,30 @@ fn recursive_moon_processes() {
         )),
     )
     .unwrap();
+    // The child may launch its moonx grandchild but no arbitrary program.
+    fs::write(
+        project.join("child-policy.toml"),
+        r#"
+[env]
+from_host = ["*"]
+[[process.allow]]
+program = "moonx"
+"#,
+    )
+    .unwrap();
     let policy = root.join("parent-policy.json");
-    fs::write(&policy, serde_json::to_vec(&serde_json::json!({
-        "process": { "spawn": true }, "env": { "from_host": ["*"], "set": { "PATH": path.to_str().unwrap() } }
-    })).unwrap()).unwrap();
+    fs::write(
+        &policy,
+        serde_json::to_vec(&serde_json::json!({
+            "process": { "virtualize": true, "allow": [{"program":"moonx"}] }, "env": { "from_host": ["*"], "set": {
+                "PATH": path.to_str().unwrap(),
+                "MOON_HOME": moon_home.to_str().unwrap(),
+                "MOON_TOOLCHAIN_ROOT": moonutil::toolchain::toolchain_root().to_str().unwrap(),
+            } }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     let stdout = tempfile::tempfile().unwrap();
     let stderr = tempfile::tempfile().unwrap();
     let parent = tree
@@ -91,8 +136,9 @@ fn recursive_moon_processes() {
             moon,
             &["run".into(), "src/virtual_parent".into()],
             RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_virtualize(true)
                 .with_policy_file(&policy)
+                .unwrap()
                 .with_working_directory(WorkingDirectory::Fixed(project.clone()))
                 .with_stdio(
                     tempfile::tempfile().unwrap(),
@@ -116,10 +162,11 @@ fn recursive_moon_processes() {
     assert!(ids.iter().all(|pid| *pid >= 1 << 30));
     assert_eq!(&lines[3..], ["grandchild", "arg with spaces"]);
     assert!(tree.snapshot().is_empty(), "descendants were not reaped");
+    assert!(!untrusted_handoff.join("result.json").exists());
 
     snapbox::cmd::Command::new(moon)
         .current_dir(&project)
-        .args(["run", "--virtual-process-tree", "--wasm-policy"])
+        .args(["run", "--target=wasm", "--wasm-policy"])
         .arg(&policy)
         .arg("src/virtual_parent")
         .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
@@ -137,7 +184,6 @@ arg with spaces
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
-        .arg("--virtual-process-tree")
         .arg("--policy")
         .arg(&policy)
         .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
@@ -153,10 +199,10 @@ arg with spaces
 
 "#]]);
     let denied_policy = root.join("denied.json");
-    fs::write(&denied_policy, b"{}").unwrap();
+    fs::write(&denied_policy, br#"{"process":{"virtualize":true}}"#).unwrap();
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
-        .args(["--virtual-process-tree", "--policy"])
+        .args(["--policy"])
         .arg(&denied_policy)
         .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
         .arg("denied")
@@ -167,7 +213,7 @@ arg with spaces
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(&project)
-        .args(["--virtual-process-tree", "--policy"])
+        .args(["--policy"])
         .arg(&policy)
         .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
         .arg("orphan")
@@ -175,6 +221,98 @@ arg with spaces
         .assert()
         .success()
         .stdout_eq("root spawning\nadopted child completed\n");
+
+    #[cfg(unix)]
+    {
+        use std::io::{BufRead, BufReader};
+        use std::os::unix::process::{CommandExt, ExitStatusExt};
+        use std::process::{Child, Command, Stdio};
+        use std::sync::mpsc;
+        use std::time::Instant;
+
+        struct ChildGuard(Option<Child>);
+
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                if let Some(mut child) = self.0.take() {
+                    // This test alone creates the group. Failure before the
+                    // ready handshake must also stop a still-running build
+                    // helper; never signal the test runner's process group.
+                    unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let stderr = tempfile::tempfile().unwrap();
+        let mut child = ChildGuard(Some(
+            Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+                .current_dir(&project)
+                .args(["--policy"])
+                .arg(&policy)
+                .arg(project.join("_build/wasm/debug/build/virtual_parent/virtual_parent.wasm"))
+                .arg("orphan-loop")
+                .env("TMPDIR", temporary.path())
+                .env("TMP", temporary.path())
+                .env("TEMP", temporary.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(stderr.try_clone().unwrap())
+                .process_group(0)
+                .spawn()
+                .unwrap(),
+        ));
+        let stdout = child.0.as_mut().unwrap().stdout.take().unwrap();
+        let (send, receive) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let lines = BufReader::new(stdout)
+                .lines()
+                .take(2)
+                .collect::<std::io::Result<Vec<_>>>();
+            let _ = send.send(lines);
+        });
+        let lines = match receive.recv_timeout(Duration::from_secs(30)) {
+            Ok(lines) => {
+                reader.join().unwrap();
+                lines.unwrap()
+            }
+            Err(error) => {
+                drop(child);
+                reader.join().unwrap();
+                panic!("adopted child did not start: {error}\n{}", contents(stderr));
+            }
+        };
+        assert_eq!(lines, ["root spawning", "ready"]);
+        // The second line comes from the delivered Wasm, after Moon has exited.
+        // Its handoff directory must remain owned until session shutdown reaps
+        // that execution. This does not exercise build-helper cancellation.
+        let handoffs = fs::read_dir(temporary.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.join("result.json").is_file())
+            .collect::<Vec<_>>();
+        assert_eq!(handoffs.len(), 1, "expected one live artifact handoff");
+        let pid = child.0.as_ref().unwrap().id() as libc::pid_t;
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.0.as_mut().unwrap().try_wait().unwrap() {
+                // try_wait has reaped this PID. Disarm the guard before any
+                // assertion, so failure cannot signal a subsequently reused ID.
+                drop(child.0.take());
+                break status;
+            }
+            assert!(Instant::now() < deadline, "CLI shutdown did not finish");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(status.signal(), Some(libc::SIGTERM), "{}", contents(stderr));
+        assert!(
+            fs::read_dir(temporary.path()).unwrap().next().is_none(),
+            "CLI exited before cleaning its adopted child's handoff: {handoffs:?}",
+        );
+    }
 }
 
 fn contents(mut file: File) -> String {

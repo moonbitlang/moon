@@ -58,10 +58,7 @@ fn cakenew_test() {
 #[test]
 fn capture_abort_test() {
     let dir = super::TestDir::new("capture_abort_test.in");
-    moon_cmd(&dir)
-        .args(["run", "main", "--nostd"])
-        .assert()
-        .failure();
+    moon_cmd(&dir).args(["run", "main"]).assert().failure();
 }
 
 #[test]
@@ -72,7 +69,7 @@ fn test_moon_run_with_cli_args() {
         get_stdout(&dir, ["run", "--target", "wasm-gc", "main", "--dry-run"]),
         expect![[r#"
             moonc build-package ./main/exit_wasm_gc.mbt ./main/main_wasm.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -pkg-type executable -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.mi:buffer' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.mi:debug' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:moonbitlang/core/builtin' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
+            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/float/float.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int16/int16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/buffer/buffer.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/double/double.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint64/uint64.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint/uint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/uint16/uint16.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bigint/bigint.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/byte_set/byte_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/test/test.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/hashmap/hashmap.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/set/set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/bytes.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy/lazy.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/rechar_set/rechar_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/shared_types/shared_types.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/sorted_set/sorted_set.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.core' ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
             '$MOONRUN_OVERRIDE' ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
@@ -228,4 +225,185 @@ fn test_js() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
+}
+
+#[test]
+fn test_large_test_selection() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"repro/manyfiles\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(dir.join("lib.mbt"), "pub fn one() -> Int { 1 }\n").unwrap();
+    for i in 1..=200 {
+        std::fs::write(
+            dir.join(format!(
+                "a_fairly_long_descriptive_test_file_name_number_{i:03}_test.mbt"
+            )),
+            format!("test \"case {i:03}\" {{ assert_eq(@manyfiles.one(), 1) }}\n"),
+        )
+        .unwrap();
+    }
+
+    for backend in [
+        "js",
+        "wasm",
+        "wasm-gc",
+        "native",
+        #[cfg(not(windows))]
+        "llvm",
+    ] {
+        moon_cmd(&dir)
+            .args(["test", "--target", backend])
+            .assert()
+            .success()
+            .stdout_eq("Total tests: 200, passed: 200, failed: 0.\n");
+    }
+}
+
+#[test]
+fn test_selection_argument_formats() {
+    let root = TestDir::new_empty();
+    let dir = root.join("project space ' 测试😀");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/selection\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    let files = [
+        "-Case,测试 e\u{301}😀%2F_test.mbt",
+        "{other}_test.mbt",
+        #[cfg(unix)]
+        "colon:name_test.mbt",
+        #[cfg(unix)]
+        "quote\"'\\back_test.mbt",
+        #[cfg(unix)]
+        "line\nbreak\ttab_test.mbt",
+    ];
+    for file in files {
+        std::fs::write(
+            dir.join(file),
+            "test \"selected first\" { assert_eq(1, 1) }\n\
+             test \"excluded\" { fail(\"must not execute\") }\n\
+             test \"selected last\" { assert_eq(2, 2) }\n",
+        )
+        .unwrap();
+    }
+    // Nonmonotonic and repeated indices must survive argument decoding unchanged.
+    let compact = files
+        .iter()
+        .map(|file| format!("{file}:2-3,0-1,2-3"))
+        .collect::<Vec<_>>()
+        .join("/");
+    let single_ranges = files
+        .iter()
+        .map(|file| format!("{file}:2-3/{file}:0-1/{file}:2-3"))
+        .collect::<Vec<_>>()
+        .join("/");
+    let expected: Vec<_> = files
+        .iter()
+        .flat_map(|file| {
+            [2, 0, 2].map(|index| {
+                serde_json::json!({
+                    "type": "result", "file": file, "index": index, "message": ""
+                })
+            })
+        })
+        .collect();
+    let mut sorted_files = files;
+    sorted_files.sort();
+    let build_only_expected: Vec<_> = sorted_files
+        .iter()
+        .flat_map(|file| {
+            [0, 2].map(|index| {
+                serde_json::json!({
+                    "type": "result", "file": file, "index": index, "message": ""
+                })
+            })
+        })
+        .collect();
+
+    for backend in [
+        "js",
+        "wasm",
+        "wasm-gc",
+        "native",
+        #[cfg(not(windows))]
+        "llvm",
+    ] {
+        // Exercise Moon's encoder too, including an argument starting with `-`.
+        moon_cmd(&dir)
+            .args([
+                "test",
+                "--target",
+                backend,
+                "--filter",
+                "selected*",
+                "--sort-input",
+            ])
+            .assert()
+            .success()
+            .stdout_eq(format!(
+                "Total tests: {0}, passed: {0}, failed: 0.\n",
+                files.len() * 2
+            ));
+        let build = moon_cmd(&dir)
+            .args([
+                "test",
+                "--target",
+                backend,
+                "--build-only",
+                "--filter",
+                "selected*",
+                "--sort-input",
+            ])
+            .assert()
+            .success();
+        let artifacts: serde_json::Value =
+            serde_json::from_slice(&build.get_output().stdout).unwrap();
+        let paths = artifacts["artifacts_path"].as_array().unwrap();
+        assert_eq!(paths.len(), 1);
+        // Match the runner's Windows path handling before launching the artifact.
+        let executable = dunce::simplified(std::path::Path::new(paths[0].as_str().unwrap()));
+        let mut selections = vec![
+            (compact.as_str(), expected.as_slice(), false),
+            (single_ranges.as_str(), expected.as_slice(), false),
+            ("", &[], false),
+        ];
+        if backend == "js" {
+            selections.push((
+                artifacts["test_filter_args"][0].as_str().unwrap(),
+                build_only_expected.as_slice(),
+                true,
+            ));
+        }
+        for (args, expected, from_build_only) in selections {
+            let command = match backend {
+                "js" => snapbox::cmd::Command::new(moonutil::toolchain::BINARIES.node_or_default())
+                    .arg(executable)
+                    .arg(args),
+                "wasm" | "wasm-gc" => snapbox::cmd::Command::new(moonrun_bin())
+                    .arg(format!("--test-args={args}"))
+                    .arg(executable),
+                _ => snapbox::cmd::Command::new(executable).arg(args),
+            };
+            let output = command.assert().success().stderr_eq("");
+            let mut events: Vec<serde_json::Value> =
+                std::str::from_utf8(&output.get_output().stdout)
+                    .unwrap()
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .filter(|event| event["type"] == "result")
+                    .collect();
+            if from_build_only {
+                // Compiler metadata controls file order; check the emitted selection.
+                events.sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+            }
+            assert_eq!(
+                events.as_slice(),
+                expected,
+                "backend={backend}, args={args}"
+            );
+        }
+    }
 }

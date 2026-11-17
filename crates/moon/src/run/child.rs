@@ -22,10 +22,11 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 
 use anyhow::Context;
-use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use tracing::debug;
 #[cfg(windows)]
 use tracing::warn;
+
+use super::section_capture::{SectionCapture, handle_stdout_async};
 
 #[cfg(target_os = "macos")]
 fn spawn_child(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {

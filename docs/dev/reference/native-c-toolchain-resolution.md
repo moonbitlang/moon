@@ -108,7 +108,8 @@ compares the architecture, operating system, and ABI of the probed target
 triple with the host. On Linux the ABI after the OS must be absent or `gnu`, so
 targets such as `gnux32`, `musl`, and `android` do not match. Other Unix hosts
 require no ABI component. Windows does not compare the ABI, because the shipped
-objects are not used there and the MSVC toolchain policy selects the ABI.
+objects are not used there. Windows direct object selection separately requires
+a cl-compatible driver.
 When they differ, Moon does not link `libmoonbitrun.o` or `libbacktrace.a`,
 and it does not define `MOONBIT_USE_SIMDUTF` or archive the SIMDUTF objects. The runtime then uses its scalar UTF code path. Runtime
 backtraces depend on `libbacktrace.a`, so Moon also does not define
@@ -138,12 +139,25 @@ output uses the compiler's cycle-capable allocation bookkeeping and the shared
 native runtime; it does not need an additional `moonc` flag. LLVM runtime builds
 do not enable it.
 
-During the toolchain transition, Moon falls back to the legacy `lib/runtime.c`
-when the split runtime directory is absent.
-
 This is why Moon needs both a compiler driver and an archiver.
 
 ## Debug information and optimization
+
+Generated C relies on wrapping signed integer addition, subtraction, and
+multiplication. Moon passes `-fwrapv` to GCC, Clang, and the system `cc`, and
+`/clang:-fwrapv` to clang-cl, including when package C flags are present.
+clang-cl is resolved as a distinct compiler kind while sharing the MSVC CLI,
+ABI, and CRT policy. User C flags remain opaque and follow these defaults;
+an explicit conflicting flag can override them.
+
+MSVC `cl` still has a known release-mode limitation: it can simplify
+`(x * 2) / 2` into `x` even when multiplication overflows. Its undocumented
+`/d2UndefIntOverflow-` switch is not a general wrapping contract, so Moon does
+not pass it. The ignored MSVC release regression records this limitation;
+fixing it requires the C emitted by `moonc` to express wrapping arithmetic
+explicitly instead of relying on signed overflow.
+See [Microsoft's optimizer description](https://devblogs.microsoft.com/cppblog/new-code-optimizer/)
+and [the limitations discussed with its author](https://bugzilla.mozilla.org/show_bug.cgi?id=1377550#c7).
 
 Moon's CLI profile and debug-information policy are described in
 [Default CLI profiles](build.md#default-cli-profiles). Compiler options with the
@@ -200,13 +214,33 @@ For the regular native pipeline, compiler selection uses this precedence:
 3. Windows only: MSVC discovery through `find-msvc-tools`
 4. PATH probing: `cc`, then `gcc`, then `clang`
 
-`effective_native_toolchain()` applies environment and package overrides before automatic
-selection. `detected_default_native_toolchain()` tries Windows MSVC discovery before the
-cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in `detect_cc_on_path()`.
+`effective_native_toolchain()` receives the environment and package requests explicitly.
+It selects the winning override before parsing the package compiler; a package
+compiler overridden by `MOON_CC` is not probed. When neither request applies,
+it performs automatic discovery. Invalid or unavailable selected compilers produce
+errors. `detected_default_native_toolchain()` tries Windows MSVC discovery before
+the cached PATH fallback, `try_cc_on_path()`, whose candidates are defined in
+`detect_cc_on_path()`.
 
-The Windows MSVC direct object native target uses `windows_msvc_native_toolchain()` instead.
-It requires a cl-compatible driver, warns and ignores an incompatible `MOON_CC`, and has no
-GCC-like fallback.
+For Native and LLVM requests, build planning first resolves toolchains into
+bindings for the shared runtime, each requested program package's `cc`, and each
+package's `stub-cc` whose C stubs will be linked. Repeated compiler requests share
+resolution within this step, but the returned bindings retain each consumer's
+role. Payload selection reads these bindings, and action construction looks them
+up by role without reading compiler requests or resolving executables again.
+Unused packages and commands without native toolchain actions do not trigger
+compiler resolution.
+
+The program binding supplies both generated-C compilation and final linking (or
+foreign-library archiving). Runtime and C-stub compilation and archiving consume
+their own bindings, which can select different toolchains.
+
+Automatic Native payload selection then checks those selected toolchains. A
+compiler targeting another platform requires generated C. The Windows direct
+object target also requires every selected driver to be cl-compatible; a selected
+GCC-style driver therefore uses generated C. Debug/profile and package C-flag
+constraints still apply. An explicit compiler request is honored or produces an
+error; payload selection never substitutes another compiler to keep direct objects.
 
 ## Global Environment Override
 
@@ -243,7 +277,8 @@ native toolchain actions do not resolve or invoke it.
 - `link.native.cc`
 - `link.native.stub_cc`
 
-These are parsed into `CC` values during build-plan construction.
+Build-plan construction passes these requests to the toolchain resolver after
+expanding package variables. Only the selected request is parsed and probed.
 
 They are useful as escape hatches, but they are toolchain-specific, not portable configuration.
 For example, `cc = "cl"` is MSVC-specific, while `cc = "gcc"` or GNU-style flags are specific to
@@ -296,9 +331,11 @@ without requiring a successfully probed MSVC target triple.
 
 - Archiver is `lib.exe`. A path-like `clang-cl` installation falls back to its sibling
   `llvm-lib.exe` when `lib.exe` is absent.
-- For a bare MSVC override such as `cl.exe`, Moon uses the discovered full paths for both
-  `cl.exe` and `lib.exe`. The discovered command environment is attached separately and is not
-  relied on to locate either executable.
+- A bare `cl` or `cl.exe` request discovers that compiler and its SDK environment
+  and librarian. Other bare MSVC-style requests, including `clang-cl`, first
+  resolve the requested executable through `PATH`, then discover SDK support.
+  A missing requested compiler is an error. Both executable paths are resolved
+  before command generation.
 - A path-like MSVC override uses its sibling librarian (`lib.exe`, or `llvm-lib.exe` for
   `clang-cl` when `lib.exe` is absent) and does not inherit the environment from a separately
   discovered toolchain. The configured environment must already support that toolchain.
@@ -385,18 +422,17 @@ candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
 Direct object output is enabled by default on macOS AArch64, Linux x86_64,
 and Windows x86_64 unless `MOONBIT_NEW_NATIVE=0` is set. Other values, including
 `1`, preserve that default; unsupported hosts still use generated C. Release
-builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set. Direct
-objects are emitted for the host, so a `MOON_CC` compiler that does not target
-the host (see `CC::targets_host()`) also selects generated C. The CLI checks
-this after it expands the user intent to requested artifacts, and only for a
-debug build that has a direct-object candidate and requests a native
-executable. It then clears the candidate. Other commands, such as `moon check`,
-library-only builds, and `moon test --outline`, do not probe the compiler.
-Callers do not supply the final payload
-mode. The planner derives it from requested artifacts, the build profile, and
-that explicit candidate, without reading the process environment. It stores the
-mode once in its private Backend Plan metadata; toolchain selection and lowering
-consume that same derived value.
+builds always use generated C, even when `MOONBIT_NEW_NATIVE=1` is set.
+
+After the user intent is expanded to requested artifacts, build planning resolves
+the required runtime, program, and C-stub toolchain bindings. Payload selection
+then uses those bindings together with the requested artifacts, build profile,
+and direct-object candidate. This selection does not read the process environment
+or probe compilers; it consumes the earlier resolution result. The planner stores
+the final mode once in its Backend Plan, and action construction and lowering
+consume that mode. Commands without native toolchain actions, including
+`moon check`, builds requesting only `.core`/`.mi` artifacts, and `moon test --outline`,
+do not probe compilers.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 They also remain on the compiler-driver link invocation for compatibility with
@@ -405,9 +441,9 @@ only to linking. The package's native settings are resolved once during planning
 and shared by its compilation and linking actions.
 If any selected executable package sets these flags, Moon uses the generated-C native backend
 instead of direct object output so the configured flags are not skipped.
-This native payload form is currently selected once per invocation, so one such package makes every
-selected executable in that invocation use generated C. This scope also keeps the invocation-wide
-runtime product and package-wide C-stub products on one compatible native toolchain and realization.
+This native payload form is currently selected once per Build Plan, so one such package makes every
+selected executable in that plan use generated C. Runtime and C-stub products can be shared
+within that payload mode; their compiler bindings remain independent.
 Selecting the payload form per executable requires those shared products to be keyed by their
 effective native toolchain and realization; changing only `LinkCore` and `MakeExecutable` would
 allow incompatible shared artifacts in mixed-mode builds.

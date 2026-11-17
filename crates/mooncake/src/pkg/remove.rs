@@ -24,16 +24,18 @@ use moonutil::{
     manifest::{
         convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
     },
-    moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     project::ProjectManifest,
     resolution::ModuleName,
     user_log::UserLog,
 };
 
 use crate::{
-    pkg::roots_for_selected_module,
+    pkg::{
+        manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
+        roots_for_selected_module,
+    },
     registry,
-    resolver::{ModuleResolutionConfig, resolve_modules},
+    resolver::{ModuleResolutionConfig, prepare_roots, resolve_modules},
 };
 
 /// Remove a dependency
@@ -62,10 +64,9 @@ pub fn remove(
     let registry = registry::default_registry(user_log);
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
-        inject_std: false, // no need to inject
         warn_deprecated: true,
     };
-    resolve_modules(&module_resolution_config, roots, user_log)?;
+    resolve_modules(&module_resolution_config, prepare_roots(roots)?, user_log)?;
 
     if module_dir.join(MOON_MOD).exists() {
         patch_module_dsl_to_file(

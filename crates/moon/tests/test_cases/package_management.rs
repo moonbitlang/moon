@@ -654,28 +654,22 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
     let moon_home = tempfile::TempDir::new()?;
     let toolchain_root = tempfile::TempDir::new()?;
 
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        [
+    // Installation layout is rejected before any runtime or network access.
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args([
             "upgrade",
             "--force",
             "--non-interactive",
             "--base-url",
             "https://example.invalid",
-        ],
-        [
-            ("MOON_HOME", moon_home.path().to_str().unwrap()),
-            (
-                "MOON_TOOLCHAIN_ROOT",
-                toolchain_root.path().to_str().unwrap(),
-            ),
-        ],
-    );
-
-    assert!(stderr.contains("moon upgrade only supports toolchains installed under MOON_HOME."));
-    assert!(stderr.contains(
-        "Please upgrade this installation with the package manager or installer that owns the toolchain."
-    ));
+        ])
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root.path())
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("Error: moon upgrade only supports toolchains installed under MOON_HOME. Active toolchain root is `[..]`, but MOON_HOME is `[..]`. Please upgrade this installation with the package manager or installer that owns the toolchain.\n");
     Ok(())
 }
 
@@ -704,6 +698,70 @@ fn test_postadd_script() {
     assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
 }
 */
+
+#[test]
+fn test_postadd_failure_retries_unfinished_installations() {
+    let dir = TestDir::new("test_postadd_retry.in");
+    let moon_home = tempfile::tempdir().unwrap();
+    let moon_path = std::env::join_paths(
+        std::iter::once(moon_bin().parent().unwrap().to_path_buf()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .unwrap();
+    for name in ["first", "second"] {
+        cache_registry_package(
+            moon_home.path(),
+            &format!("testuser/{name}"),
+            "1.0.0",
+            &["moon.mod", "moon.pkg"].map(|file| {
+                (
+                    file,
+                    std::fs::read(dir.join(format!("registry/{name}/{file}"))).unwrap(),
+                )
+            }),
+        );
+    }
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
+        .env_remove("MOON_IGNORE_POSTADD")
+        .env("PATH", &moon_path)
+        .args(["tree", "--package"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+[..]failed to execute postadd script[..]
+...
+"#]]);
+    // Package iteration order is unspecified. Neither the failed package nor
+    // any later package may be mistaken for a completed installation.
+    for name in ["first", "second"] {
+        assert!(!dir.join(format!(".mooncakes/testuser/{name}")).exists());
+    }
+
+    std::fs::copy(
+        dir.join("hook-input.txt"),
+        dir.join(".mooncakes/testuser/hook-input.txt"),
+    )
+    .unwrap();
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_REGISTRY_API", "0")
+        .env_remove("MOON_IGNORE_POSTADD")
+        .env("PATH", &moon_path)
+        .args(["tree", "--package"])
+        .assert()
+        .success();
+    for name in ["first", "second"] {
+        assert!(
+            dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"))
+                .is_file()
+        );
+    }
+}
 
 #[test]
 fn test_fetch_and_binary_install_run_legacy_postadd() {
@@ -1025,6 +1083,30 @@ fn registry_commands_warn_before_using_cached_latest() {
         }
         fixture.assert_selected(args[0], "1.0.0");
     }
+}
+
+#[test]
+fn git_update_keeps_index_when_symbols_fail() {
+    let fixture = RegistryQueryFixture::new();
+    fixture
+        .command(&["update"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Registry index is not a Git repository, re-cloning
+Registry index re-cloned successfully
+Warning: failed to update symbols: [..]
+
+"#]]);
+    let layout = moonutil::MoonHomeLayout::new(fixture.home.path().to_path_buf());
+    assert!(
+        std::fs::read_to_string(layout.registry_index_file(&"test/tool".into()))
+            .unwrap()
+            .contains("1.1.0")
+    );
+    assert!(layout.registry_update_state_path().exists());
+    assert!(!layout.registry_symbols_update_state_path().exists());
 }
 
 #[test]

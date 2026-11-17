@@ -136,8 +136,6 @@ features! {
     (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_build_plan, "Export the build plan graph (only with Rupes Recta)"),
     (unstable, rr_n2_explain, "Ask n2 to explain rerun reasons (only with Rupes Recta)"),
-    (unstable, rr_moon_mod, "Use moon.mod files to migrate project manifests during formatting (only with Rupes Recta)"),
-    (unstable, rr_moon_pkg, "Use moon.pkg files to init and migrate project (only with Rupes Recta)"),
     (stable, wasi_link, "Pass `-wasi` for wasi-oriented run/test/main wasm builds")
 }
 
@@ -145,21 +143,7 @@ impl FromStr for FeatureGate {
     type Err = FeatureGateParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut this = Self::parse_features_internal(s)?;
-
-        // By default, enable rr_moon_mod unless NEW_MOON_MOD=0 is set
-        this.rr_moon_mod = true;
-        if let Ok("0") = std::env::var("NEW_MOON_MOD").as_deref() {
-            this.rr_moon_mod = false;
-        }
-
-        // By default, enable rr_moon_pkg unless NEW_MOON_PKG=0 is set
-        this.rr_moon_pkg = true;
-        if let Ok("0") = std::env::var("NEW_MOON_PKG").as_deref() {
-            this.rr_moon_pkg = false;
-        }
-
-        Ok(this)
+        Self::parse_features_internal(s)
     }
 }
 
@@ -378,11 +362,13 @@ mod integration_test {
 
     #[test]
     fn test_from_str_compatibility() {
-        let result = FeatureGate::from_str("rupes_recta");
-        assert!(matches!(
-            result,
-            Err(FeatureGateParseError::UnknownFeature(_))
-        ));
+        for removed_feature in ["rupes_recta", "rr_moon_mod", "rr_moon_pkg"] {
+            let result = FeatureGate::from_str(removed_feature);
+            assert!(matches!(
+                result,
+                Err(FeatureGateParseError::UnknownFeature(_))
+            ));
+        }
 
         let f = FeatureGate::from_str("rr_export_module_graph,rr_export_package_graph")
             .expect("should parse successfully");

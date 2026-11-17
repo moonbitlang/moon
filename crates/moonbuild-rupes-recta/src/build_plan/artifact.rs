@@ -80,10 +80,6 @@ pub enum ArtifactKey {
         package: PackageId,
         target_kind: TargetKind,
     },
-    ProofReport {
-        package: PackageId,
-        target_kind: TargetKind,
-    },
     CStubObject {
         package: PackageId,
         /// Normalized declaration path, relative to the package root.
@@ -92,9 +88,24 @@ pub enum ArtifactKey {
     CStubLibrary {
         package: PackageId,
     },
+    /// The native payload of `LinkCore`, which later actions turn into the
+    /// executable.
     LinkedCore {
         package: PackageId,
         target_kind: TargetKind,
+    },
+    /// The relocatable wasm1 object of an executable's main package target:
+    /// the program's entry, exports and link settings (Wasm separate
+    /// compilation). The `BuildWasmObject` action provides it by running
+    /// `moonc link-core`; the `LinkCore` action is not involved.
+    WasmMainObject {
+        package: PackageId,
+        target_kind: TargetKind,
+    },
+    /// The relocatable wasm1 library object of a package, shared by the
+    /// executables of the programs using it (Wasm separate compilation).
+    WasmLibraryObject {
+        package: PackageId,
     },
     /// The native object compiled from generated-C `LinkedCore` output.
     GeneratedCObject {
@@ -122,12 +133,9 @@ pub enum ArtifactKey {
     NodeTestPackageConfig {
         package: PackageId,
     },
-    BundleResult {
-        module: ModuleId,
-    },
     RuntimeObject {
-        /// Path within the toolchain library layout (`runtime/foo.c` or
-        /// legacy `runtime.c`), independent of the installed toolchain root.
+        /// Path within the toolchain library layout (`runtime/foo.c`),
+        /// independent of the installed toolchain root.
         source: PathBuf,
     },
     RuntimeLibrary,
@@ -149,6 +157,7 @@ impl ArtifactKey {
             | Self::NodeTestPackageConfig { package }
             | Self::CStubObject { package, .. }
             | Self::CStubLibrary { package }
+            | Self::WasmLibraryObject { package }
             | Self::ForeignLibrary { package } => Some(*package),
             _ => self.package_target().map(|target| target.package),
         }
@@ -179,11 +188,11 @@ impl ArtifactKey {
                 package,
                 target_kind,
             }
-            | Self::ProofReport {
+            | Self::LinkedCore {
                 package,
                 target_kind,
             }
-            | Self::LinkedCore {
+            | Self::WasmMainObject {
                 package,
                 target_kind,
             }
@@ -211,8 +220,8 @@ impl ArtifactKey {
             | Self::NodeTestPackageConfig { .. }
             | Self::CStubObject { .. }
             | Self::CStubLibrary { .. }
+            | Self::WasmLibraryObject { .. }
             | Self::ForeignLibrary { .. }
-            | Self::BundleResult { .. }
             | Self::RuntimeObject { .. }
             | Self::RuntimeLibrary
             | Self::DocsDir { .. } => None,

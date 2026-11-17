@@ -18,7 +18,7 @@
 
 use super::context::ImportContext;
 #[cfg(test)]
-use super::provenance::{PortedImport, SourceLocation, SourceRoot};
+use super::provenance::{PortedImport, SourceRoot};
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
     random, runtime, signal, socket, stdio, thread_pool, time, tls,
@@ -498,6 +498,7 @@ declare_async_imports! {
 
     ported socket::udp_client_connect(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/udp_client_connect";
 
+    // Deprecated; use thread_pool/make_bind_job.
     helper socket::bind(fd: u64, addr: u32, addr_len: u32) -> i32 => "socket/bind";
 
     #[cfg(unix)]
@@ -863,6 +864,7 @@ declare_async_imports! {
     // guest-allocated MoonBit String.
     ported fs::get_tmp_path(ptr: u32, len: u32) -> i32 => "fs/get_tmp_path";
 
+    // Deprecated; use fs/get_tmp_path_len and fs/get_tmp_path.
     helper fs::get_tmp_path_buffer() -> u64 => "fs/get_tmp_path_buffer";
 
     ported fs::dir_buffer_min_size() -> u32 => "fs/dir_buffer_min_size";
@@ -1034,7 +1036,7 @@ declare_async_imports! {
         mode: i32,
     ) -> u64 => "thread_pool/make_open_job";
 
-    ported thread_pool::make_open_stat_job(
+    compat thread_pool::make_open_stat_job(
         path_ptr: u32,
         path_len: u32,
         access: i32,
@@ -1045,6 +1047,19 @@ declare_async_imports! {
         stat_request: i32,
         stat_result_len: u32,
     ) -> u64 => "thread_pool/make_open_stat_job";
+
+    ported thread_pool::make_openat_job(
+        parent: u64,
+        path_ptr: u32,
+        path_len: u32,
+        access: i32,
+        create_mode: i32,
+        append: i32,
+        sync: i32,
+        mode: i32,
+        stat_request: i32,
+        stat_result_len: u32,
+    ) -> u64 => "thread_pool/make_openat_job";
 
     ported thread_pool::make_fstatx_job(
         fd: u64,
@@ -1111,7 +1126,9 @@ declare_async_imports! {
 
     ported thread_pool::make_flock_job(fd: u64, exclusive: i32) -> u64 => "thread_pool/make_flock_job";
 
-    ported thread_pool::make_remove_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_remove_job";
+    compat thread_pool::make_remove_job(path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_remove_job";
+
+    ported thread_pool::make_removeat_job(parent: u64, path_ptr: u32, path_len: u32) -> u64 => "thread_pool/make_removeat_job";
 
     ported thread_pool::make_rename_job(
         old_path_ptr: u32,
@@ -1420,14 +1437,6 @@ mod tests {
             .expect("moonrun crate must live under crates/moonrun")
     }
 
-    fn source_path(source: SourceLocation) -> std::path::PathBuf {
-        match source.root {
-            SourceRoot::MoonbitAsync => repo_root()
-                .join("third_party/moonbitlang_async")
-                .join(source.path),
-        }
-    }
-
     fn native_symbol(import: &AsyncImport) -> String {
         let segments = import.wasm_symbol.split('/').collect::<Vec<_>>();
         let leaf = match segments.as_slice() {
@@ -1442,7 +1451,18 @@ mod tests {
         ported_import
             .native_symbol
             .map(str::to_string)
-            .unwrap_or_else(|| native_symbol(import))
+            .unwrap_or_else(|| {
+                let symbol = native_symbol(import);
+                if ported_import
+                    .sources
+                    .iter()
+                    .any(|source| source.root == SourceRoot::MoonbitRuntime)
+                {
+                    symbol.replacen("moonbitlang_async_", "moonbit_rt_", 1)
+                } else {
+                    symbol
+                }
+            })
     }
 
     fn module_leaf(module_path: &str) -> Option<&str> {
@@ -1543,11 +1563,12 @@ mod tests {
     }
 
     #[test]
-    fn generic_stat_imports_coexist_with_native_compatibility_adapters() {
-        let generic_imports: &[(&str, &[WasmType])] = &[
+    fn filesystem_job_imports_coexist_with_legacy_abis() {
+        let current_imports: &[(&str, &[WasmType])] = &[
             (
-                "thread_pool/make_open_stat_job",
+                "thread_pool/make_openat_job",
                 &[
+                    WasmType::I64,
                     WasmType::I32,
                     WasmType::I32,
                     WasmType::I32,
@@ -1574,29 +1595,40 @@ mod tests {
                     WasmType::I32,
                 ],
             ),
+            (
+                "thread_pool/make_removeat_job",
+                &[WasmType::I64, WasmType::I32, WasmType::I32],
+            ),
         ];
-        for &(wasm_symbol, parameter_types) in generic_imports {
+        for &(wasm_symbol, parameter_types) in current_imports {
             let import = ASYNC_IMPORTS
                 .iter()
                 .find(|import| import.wasm_symbol == wasm_symbol)
-                .expect("generic stat import must be registered");
+                .expect("current filesystem job import must be registered");
             assert_eq!(
                 import.kind,
                 AsyncImportKind::Ported,
-                "generic stat import {wasm_symbol} must track the current upstream operation"
+                "filesystem job import {wasm_symbol} must track the current upstream operation"
             );
             assert_eq!(
                 import.params, parameter_types,
-                "generic stat maker {wasm_symbol} must have an exact pointer-free Wasm ABI"
+                "filesystem job maker {wasm_symbol} must have an exact pointer-free Wasm ABI"
             );
             assert_eq!(import.result, Some(WasmType::I64));
         }
-        let legacy_open = ASYNC_IMPORTS
-            .iter()
-            .find(|import| import.wasm_symbol == "thread_pool/make_open_job")
-            .expect("legacy open import must remain registered");
-        assert_eq!(legacy_open.params, &[WasmType::I32; 7]);
-        assert_eq!(legacy_open.result, Some(WasmType::I64));
+        for (wasm_symbol, parameter_count) in [
+            ("thread_pool/make_open_job", 7),
+            ("thread_pool/make_open_stat_job", 9),
+            ("thread_pool/make_remove_job", 2),
+        ] {
+            let import = ASYNC_IMPORTS
+                .iter()
+                .find(|import| import.wasm_symbol == wasm_symbol)
+                .expect("legacy filesystem job import must remain registered");
+            assert_eq!(import.kind, AsyncImportKind::Compat);
+            assert_eq!(import.params, vec![WasmType::I32; parameter_count]);
+            assert_eq!(import.result, Some(WasmType::I64));
+        }
 
         let copy_result = ASYNC_IMPORTS
             .iter()
@@ -1752,7 +1784,7 @@ mod tests {
                 .expect("ported import must have a registered wasm import");
             let native_symbol = native_symbol_for(registered_import, &ported_import);
             for source in ported_import.sources {
-                let source_path = source_path(*source);
+                let source_path = source.root.path(source.path);
                 let contents = fs::read_to_string(&source_path)
                     .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
                 assert!(
@@ -1896,7 +1928,7 @@ mod tests {
                         .any(|import| import.wasm_symbol == registered_import.wasm_symbol)
                         && ported_import.sources.iter().any(|source| {
                             native_symbol == ported.native_symbol
-                                && source.root == SourceRoot::MoonbitAsync
+                                && source.root == ported.root
                                 && source.path == ported.source
                         })
                 }),

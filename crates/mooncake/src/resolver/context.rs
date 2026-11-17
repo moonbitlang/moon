@@ -28,22 +28,29 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::{Registry, RegistryModuleNotFound};
-
-use super::ModuleResolutionError;
+use crate::registry::{Registry, RegistryVersionInfo, VersionReader};
 
 /// Registry access, manifest caches, and diagnostics for module resolution.
-pub(crate) struct ModuleResolutionContext<'a> {
-    registry: &'a dyn Registry,
+pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
+    registry: &'a R,
     errors: Vec<super::ModuleResolutionError>,
+    registry_modules: HashMap<ModuleName, HashMap<Version, RegistryModule>>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
 }
 
-impl<'a> ModuleResolutionContext<'a> {
-    pub(crate) fn new(registry: &'a dyn Registry) -> Self {
+/// The manifest and advisory status come from the same registry observation.
+struct RegistryModule {
+    manifest: Arc<MoonMod>,
+    /// `Some("")` means deprecated without a reason; `None` means not deprecated.
+    deprecation_reason: Option<String>,
+}
+
+impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
+    pub(crate) fn new(registry: &'a R) -> Self {
         ModuleResolutionContext {
             registry,
             errors: Vec::new(),
+            registry_modules: HashMap::new(),
             local_module_cache: HashMap::new(),
         }
     }
@@ -60,51 +67,58 @@ impl<'a> ModuleResolutionContext<'a> {
         !self.errors.is_empty()
     }
 
-    /// Read one exact registry version, attaching dependency context to failures.
-    pub(crate) fn get_registry_module(
+    /// Own the query session outside individual tasks, while keeping registry
+    /// access encapsulated in the resolution context.
+    pub(crate) fn version_reader(&self) -> impl VersionReader + 'static {
+        self.registry.version_reader()
+    }
+
+    /// Accept a completed read. Only the resolver updates its manifest and
+    /// advisory cache; tasks never borrow the mutable resolution context.
+    pub(crate) fn record_registry_module(
+        &mut self,
+        name: &ModuleName,
+        version: &Version,
+        info: RegistryVersionInfo,
+    ) -> Arc<MoonMod> {
+        let module = self
+            .registry_modules
+            .entry(name.clone())
+            .or_default()
+            .entry(version.clone())
+            .or_insert_with(|| RegistryModule {
+                manifest: Arc::new(MoonMod {
+                    name: name.to_string(),
+                    version: Some(version.clone()),
+                    deps: info.deps,
+                    ..Default::default()
+                }),
+                deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
+            });
+        Arc::clone(&module.manifest)
+    }
+
+    /// Advisory status observed during traversal, without another registry read.
+    pub(crate) fn registry_deprecation_reason(
         &self,
         name: &ModuleName,
         version: &Version,
-        dependant: &ModuleName,
-    ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
-        let info = self.registry.version_info(name, version).map_err(|error| {
-            if error.is::<RegistryModuleNotFound>() {
-                ModuleResolutionError::ModuleMissing {
-                    dependency: name.clone(),
-                    dependant: dependant.clone(),
-                }
-            } else {
-                ModuleResolutionError::RegistryReadFailed {
-                    dependency: name.clone(),
-                    dependant: dependant.clone(),
-                    required: version.clone(),
-                    source: error,
-                }
-            }
-        })?;
-        let info = info.ok_or_else(|| ModuleResolutionError::VersionMissing {
-            dependency: name.clone(),
-            dependant: dependant.clone(),
-            required: version.clone(),
-        })?;
-        Ok(Arc::new(MoonMod {
-            name: name.to_string(),
-            version: Some(version.clone()),
-            deps: info.deps,
-            ..Default::default()
-        }))
+    ) -> Option<&str> {
+        self.registry_modules
+            .get(name)?
+            .get(version)?
+            .deprecation_reason
+            .as_deref()
     }
 
     /// Resolve a local module from its **canonical** path.
-    pub(crate) fn resolve_local_module(
-        &mut self,
-        path: &Path,
-    ) -> Result<Arc<MoonMod>, ModuleResolutionError> {
+    /// Return read errors unchanged; the caller adds dependency-edge context.
+    pub(crate) fn resolve_local_module(&mut self, path: &Path) -> anyhow::Result<Arc<MoonMod>> {
         if let Some(module) = self.local_module_cache.get(path) {
             return Ok(Arc::clone(module));
         }
 
-        let module = read_module_desc_file_in_dir(path).map_err(ModuleResolutionError::Other)?;
+        let module = read_module_desc_file_in_dir(path)?;
         let rc_module = Arc::new(module);
         self.local_module_cache
             .insert(path.to_owned(), Arc::clone(&rc_module));

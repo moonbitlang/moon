@@ -22,5 +22,4 @@ pub(crate) mod dependency_source;
 pub mod pkg;
 pub mod registry;
 pub(crate) mod resolver;
-mod update;
 pub(crate) mod zip_util;

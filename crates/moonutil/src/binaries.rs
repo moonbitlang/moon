@@ -46,8 +46,9 @@ const EXECUTABLE_OVERRIDES: &[&str] = &[
     "MOONINFO_OVERRIDE",
     "MOONRUN_OVERRIDE",
     "MOON_CRAM_OVERRIDE",
-    "MOON_COVE_REPORT_OVERRIDE",
     "MOON_NODE_OVERRIDE",
+    "MOON_PERF_OVERRIDE",
+    "MOON_XCRUN_OVERRIDE",
 ];
 
 /// Return only explicitly configured binary paths for best-effort display
@@ -120,6 +121,10 @@ pub fn mooncake_in(current_dir: &std::path::Path) -> PathBuf {
     moon_executable_in("mooncake", "MOONCAKE_OVERRIDE", current_dir)
 }
 
+pub fn moonrun_in(current_dir: &Path) -> PathBuf {
+    moon_executable_in("moonrun", "MOONRUN_OVERRIDE", current_dir)
+}
+
 fn optional_executable(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
     if let Some(custom_path) = std::env::var_os(env_var) {
         return Some(resolve_executable_override(&custom_path));
@@ -127,12 +132,6 @@ fn optional_executable(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
     candidates
         .iter()
         .find_map(|name| crate::toolchain::resolve_executable(name).ok())
-}
-
-/// Resolve a tool that ships in the same directory as `program`, if present.
-fn sibling_executable(program: &Path, binary_name: &str) -> Option<PathBuf> {
-    let sibling = ensure_exe_extension(program.with_file_name(binary_name));
-    sibling.is_file().then_some(sibling)
 }
 
 fn get_fallback_binary(name: &str) -> PathBuf {
@@ -148,9 +147,8 @@ fn get_fallback_binary(name: &str) -> PathBuf {
 pub struct CachedBinaries {
     pub moonbuild: LazyLock<PathBuf>,
     pub moonc: LazyLock<PathBuf>,
-    /// Standalone prover shipped next to `moonc`; absent on older toolchains,
-    /// which only provide the `moonc prove` subcommand.
-    pub moonc_prove: LazyLock<Option<PathBuf>>,
+    /// Standalone prover shipped next to the selected `moonc`.
+    pub moonc_prove: LazyLock<PathBuf>,
     pub mooncake: LazyLock<PathBuf>,
     pub moon_ide: LazyLock<PathBuf>,
     pub moondoc: LazyLock<PathBuf>,
@@ -158,10 +156,11 @@ pub struct CachedBinaries {
     pub mooninfo: LazyLock<PathBuf>,
     pub moonrun: LazyLock<PathBuf>,
     pub moon_cram: LazyLock<PathBuf>,
-    pub moon_cove_report: LazyLock<PathBuf>,
     pub node: LazyLock<Option<PathBuf>>,
     pub python: LazyLock<Option<PathBuf>>,
     pub git: LazyLock<Option<PathBuf>>,
+    pub perf: LazyLock<Option<PathBuf>>,
+    pub xcrun: LazyLock<Option<PathBuf>>,
 }
 
 impl CachedBinaries {
@@ -181,7 +180,9 @@ impl CachedBinaries {
 pub static BINARIES: CachedBinaries = CachedBinaries {
     moonbuild: LazyLock::new(|| moon_executable("moon", "MOON_OVERRIDE")),
     moonc: LazyLock::new(|| moon_executable("moonc", "MOONC_OVERRIDE")),
-    moonc_prove: LazyLock::new(|| sibling_executable(&BINARIES.moonc, "moonc-prove")),
+    moonc_prove: LazyLock::new(|| {
+        ensure_exe_extension(BINARIES.moonc.with_file_name("moonc-prove"))
+    }),
     mooncake: LazyLock::new(|| moon_executable("mooncake", "MOONCAKE_OVERRIDE")),
     moon_ide: LazyLock::new(|| moon_executable("moon-ide", "MOON_IDE_OVERRIDE")),
     moondoc: LazyLock::new(|| moon_executable("moondoc", "MOONDOC_OVERRIDE")),
@@ -189,28 +190,16 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
     mooninfo: LazyLock::new(|| moon_executable("mooninfo", "MOONINFO_OVERRIDE")),
     moonrun: LazyLock::new(|| moon_executable("moonrun", "MOONRUN_OVERRIDE")),
     moon_cram: LazyLock::new(|| moon_executable("moon-cram", "MOON_CRAM_OVERRIDE")),
-    moon_cove_report: LazyLock::new(|| {
-        moon_executable("moon_cove_report", "MOON_COVE_REPORT_OVERRIDE")
-    }),
     node: LazyLock::new(|| optional_executable(&["node.cmd", "node"], "MOON_NODE_OVERRIDE")),
     python: LazyLock::new(|| optional_executable(&["python", "python3"], "MOON_PYTHON_OVERRIDE")),
     git: LazyLock::new(|| optional_executable(&["git"], "MOON_GIT_OVERRIDE")),
+    perf: LazyLock::new(|| optional_executable(&["perf"], "MOON_PERF_OVERRIDE")),
+    xcrun: LazyLock::new(|| optional_executable(&["xcrun"], "MOON_XCRUN_OVERRIDE")),
 };
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_exe_extension, moon_executable, sibling_executable};
-
-    #[test]
-    fn sibling_executable_requires_existing_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let moonc = dir.path().join("moonc");
-        assert_eq!(sibling_executable(&moonc, "moonc-prove"), None);
-
-        let moonc_prove = ensure_exe_extension(dir.path().join("moonc-prove"));
-        std::fs::write(&moonc_prove, []).unwrap();
-        assert_eq!(sibling_executable(&moonc, "moonc-prove"), Some(moonc_prove));
-    }
+    use super::moon_executable;
 
     #[test]
     #[should_panic(expected = "failed to resolve MoonBit tool")]

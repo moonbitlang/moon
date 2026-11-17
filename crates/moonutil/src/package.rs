@@ -240,12 +240,6 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "test-import")]
     pub test_import: Option<PkgJSONImport>,
 
-    /// Whether to import all definitions from the package being tested
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "test-import-all")]
-    #[schemars(rename = "test-import-all")]
-    pub test_import_all: Option<bool>,
-
     /// Link configuration for the package.
     ///
     /// The boolean form `link: true` (force-link a non-main library) is
@@ -741,8 +735,6 @@ pub struct MoonPkg {
     pub link: Option<Link>,
     pub warn_list: Option<String>,
     pub proof_enabled: bool,
-    #[serde(default)]
-    pub use_async_io: bool,
 
     pub targets: Option<CondExprs>,
 
@@ -893,7 +885,6 @@ fn normalize_pkg_dsl(
         ("pkgtype", false),
         ("experimental", false),
         ("proof_enabled", false),
-        ("use_async_io", false),
         ("max_concurrent_tests", false),
         ("regex_backend", false),
         ("virtual", false),
@@ -1015,7 +1006,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let warn_list = read_dsl_option(&map, "warn_list", Some("warn-list"))?;
     let proof_enabled: Option<bool> =
         read_dsl_option(&map, "proof_enabled", Some("proof-enabled"))?;
-    let use_async_io: Option<bool> = read_dsl_option(&map, "use_async_io", None)?;
     let targets = read_dsl_option(&map, "targets", None)?;
     let pre_build = read_dsl_option(&map, "pre_build", Some("pre-build"))?;
     let local_rules: Option<Vec<MoonModRule>> = read_dsl_option(&map, "rule", None)?;
@@ -1029,8 +1019,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let max_concurrent_tests =
         read_dsl_option(&map, "max_concurrent_tests", Some("max-concurrent-tests"))?;
     let regex_backend = read_dsl_option(&map, "regex_backend", Some("regex-backend"))?;
-    // This legacy option is still type-checked, although it no longer has an effect.
-    let _: Option<bool> = read_dsl_option(&map, "test_import_all", Some("test-import-all"))?;
     // Unknown options are ignored, as they are in moon.pkg.json.
 
     if emit_warnings {
@@ -1067,7 +1055,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
             link: link.and_then(BoolOrLink::into_link),
             warn_list,
             proof_enabled: proof_enabled.unwrap_or(false),
-            use_async_io: use_async_io.unwrap_or(false),
             targets,
             pre_build,
             bin_name,
@@ -1170,7 +1157,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         link: j.link.and_then(BoolOrLink::into_link),
         warn_list: j.warn_list,
         proof_enabled: j.proof_enabled.unwrap_or(false),
-        use_async_io: false,
         targets: j.targets,
         pre_build: j.pre_build,
         bin_name: j.bin_name,
@@ -1445,7 +1431,6 @@ fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
     for (key, value) in [
         ("allow_experimental_packages", "true"),
         ("is_main", "true"),
-        ("test_import_all", "false"),
         ("warn_list", r#""+1""#),
         ("proof_enabled", "true"),
         (
@@ -1844,15 +1829,21 @@ import { "example/lib/wbtest" } for "wbtest"
     assert_eq!(pkg.wbtest_imports[0].get_path(), "example/lib/wbtest");
     for &backend in TargetBackend::all() {
         assert!(pkg.imports[0].supports_backend(backend));
-        assert_eq!(pkg.imports[1].supports_backend(backend), backend == Native);
-        assert_eq!(pkg.imports[2].supports_backend(backend), backend != Native);
+        assert_eq!(
+            pkg.imports[1].supports_backend(backend),
+            matches!(backend, Native | LLVM)
+        );
+        assert_eq!(
+            pkg.imports[2].supports_backend(backend),
+            !matches!(backend, Native | LLVM)
+        );
         assert_eq!(
             pkg.test_imports[0].supports_backend(backend),
-            matches!(backend, Native | Js)
+            matches!(backend, Native | LLVM | Js)
         );
         assert_eq!(
             pkg.wbtest_imports[0].supports_backend(backend),
-            backend == Native
+            matches!(backend, Native | LLVM)
         );
     }
 }
@@ -1959,6 +1950,9 @@ fn convert_pkg_dsl_duplicate_warnings_respect_import_conditions() {
     ] {
         for (first, second, overlaps) in [
             (r#"target = "native""#, r#"not(target = "native")"#, false),
+            (r#"target = "native""#, r#"target = "llvm""#, true),
+            (r#"not(target = "native")"#, r#"target = "llvm""#, false),
+            (r#"target = "native""#, r#"not(target = "llvm")"#, true),
             ("false", "true", false),
             ("any()", "all()", false),
             ("true", r#"target = "native""#, true),
@@ -2036,7 +2030,7 @@ import { "example/lib/unconditional" }
         assert!(pkg.imports[3].supports_backend(backend));
         assert_eq!(
             pkg.test_imports[0].supports_backend(backend),
-            backend == Native
+            matches!(backend, Native | LLVM)
         );
     }
     assert!(matches!(
@@ -2225,20 +2219,16 @@ options(
 }
 
 #[test]
-fn convert_pkg_dsl_supports_use_async_io() {
-    let (default_pkg, _) =
-        convert_test_pkg_dsl(crate::moon_pkg::parse("").unwrap(), false).unwrap();
-    assert!(!default_pkg.use_async_io);
-
-    let (enabled_pkg, _) = convert_test_pkg_dsl(
+fn convert_pkg_dsl_rejects_removed_use_async_io() {
+    let err = convert_test_pkg_dsl(
         crate::moon_pkg::parse("use_async_io = true").unwrap(),
         false,
     )
-    .unwrap();
-    assert!(enabled_pkg.use_async_io);
-
-    let invalid = crate::moon_pkg::parse(r#"use_async_io = "true""#).unwrap();
-    assert!(convert_test_pkg_dsl(invalid, false).is_err());
+    .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Unexpected key 'use_async_io' found in moon.pkg."
+    );
 }
 
 #[test]

@@ -17,15 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
-use anyhow::Context;
-use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::resolution::{
     ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
     ResolvedRootModules,
 };
-use moonutil::toolchain;
 use moonutil::user_log::UserLog;
 use semver::Version;
 use thiserror::Error;
@@ -93,8 +89,6 @@ pub(crate) enum ModuleResolutionError {
         module: ModuleName,
         conflicts: Vec<VersionConflict>,
     },
-    #[error("Cannot inject the standard library `moonbitlang/core`: {0}")]
-    CannotInjectCore(#[source] anyhow::Error),
     #[error("Error during resolution: {0}")]
     Other(#[source] anyhow::Error),
 }
@@ -110,15 +104,15 @@ pub(crate) struct VersionConflict {
 pub(crate) struct ModuleResolutionErrors(pub(crate) Vec<ModuleResolutionError>);
 
 /// The module dependency resolver.
-pub(crate) trait ModuleResolver {
+pub(crate) trait ModuleResolver<R: Registry> {
     /// Select module sources and versions, extending `module_graph` from its
     /// existing root modules with their dependencies.
     ///
     /// If the dependencies cannot be resolved, this function should return
     /// `false`. The errors should be emitted in `context`.
-    fn resolve(
+    async fn resolve(
         &mut self,
-        context: &mut ModuleResolutionContext,
+        context: &mut ModuleResolutionContext<'_, R>,
         module_graph: &mut ModuleDependencyGraph,
         user_log: &UserLog,
     ) -> bool;
@@ -265,19 +259,18 @@ fn format_module_resolution_errors(errors: &[ModuleResolutionError]) -> String {
         .join("\n")
 }
 
-/// Registry and standard-library policy for selecting module dependencies.
-pub(crate) struct ModuleResolutionConfig<'a> {
-    pub(crate) registry: &'a dyn Registry,
-    pub(crate) inject_std: bool,
+/// Metadata access and advisory policy for selecting module dependencies.
+pub(crate) struct ModuleResolutionConfig<'a, R: Registry> {
+    pub(crate) registry: &'a R,
     /// Explicit refresh reports fresh status after resolution.
     pub(crate) warn_deprecated: bool,
 }
 
-pub(crate) fn resolve_modules_with_solver(
-    config: &ModuleResolutionConfig,
-    resolver: &mut dyn ModuleResolver,
+/// Validate root declarations before project preparation performs external IO.
+/// The graph retains the input root IDs; callers may add an already prepared
+/// standard library before asking the resolver to expand dependencies.
+pub(crate) fn prepare_roots(
     root: ResolvedRootModules,
-    user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
     // Historical dependency manifests may still contain bin-deps. Only roots
     // used to execute them; reject those before any resolution or acquisition.
@@ -297,16 +290,19 @@ pub(crate) fn resolve_modules_with_solver(
         return Err(ModuleResolutionErrors(removed_bin_deps));
     }
 
+    Ok(ModuleDependencyGraph::from_root_modules(root))
+}
+
+pub(crate) async fn resolve_modules_with_solver<R: Registry>(
+    config: &ModuleResolutionConfig<'_, R>,
+    resolver: &mut impl ModuleResolver<R>,
+    mut module_graph: ModuleDependencyGraph,
+    user_log: &UserLog,
+) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
     let mut context = ModuleResolutionContext::new(config.registry);
-    let mut module_graph = ModuleDependencyGraph::from_root_modules(root);
-
-    if config.inject_std {
-        inject_std(&mut module_graph).map_err(|e| {
-            ModuleResolutionErrors(vec![ModuleResolutionError::CannotInjectCore(e)])
-        })?;
-    }
-
-    let status = resolver.resolve(&mut context, &mut module_graph, user_log);
+    let status = resolver
+        .resolve(&mut context, &mut module_graph, user_log)
+        .await;
     if context.any_errors() {
         Err(ModuleResolutionErrors(context.into_errors()))
     } else {
@@ -315,15 +311,15 @@ pub(crate) fn resolve_modules_with_solver(
         }
         assert_no_duplicate_module_names(&module_graph)?;
         if config.warn_deprecated {
-            warn_deprecated_dependencies(&module_graph, config.registry, user_log);
+            warn_deprecated_dependencies(&module_graph, &context, user_log);
         }
         Ok(module_graph)
     }
 }
 
-fn warn_deprecated_dependencies(
+fn warn_deprecated_dependencies<R: Registry>(
     module_graph: &ModuleDependencyGraph,
-    registry: &dyn Registry,
+    context: &ModuleResolutionContext<'_, R>,
     user_log: &UserLog,
 ) {
     if !user_log.is_enabled(log::Level::Warn) {
@@ -338,17 +334,13 @@ fn warn_deprecated_dependencies(
         if !matches!(source.source(), ModuleSourceKind::Registry) {
             continue;
         }
-        // RegistryClient reuses the index metadata already read by resolution.
-        let Ok(Some(release)) = registry.version_info(source.name(), source.version()) else {
-            continue;
-        };
-        if !release.yanked {
+        let Some(reason) = context.registry_deprecation_reason(source.name(), source.version())
+        else {
             continue;
         };
         // Registry-authored reasons may contain terminal control sequences.
         // Strip those while preserving ordinary newlines and spacing.
-        let reason = anstream::adapter::strip_str(release.yanked_reason.as_deref().unwrap_or(""))
-            .to_string();
+        let reason = anstream::adapter::strip_str(reason).to_string();
         let mut warning = if reason.trim().is_empty() {
             format!("Dependency `{source}` is deprecated.")
         } else {
@@ -368,40 +360,77 @@ fn warn_deprecated_dependencies(
     }
 }
 
-/// Inject the definition of `moonbitlang/core` in the installation directory
-/// to the resolve graph, and mark it as the standard library.
-fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
-    let core_dir = toolchain::core();
-    let loaded_core = read_module_desc_file_in_dir(&core_dir).with_context(|| {
-        if core_dir.exists() {
-            format!(
-                "Cannot load the core file. The standard library at `{}` \
-                 does not appear to be bundled. Run `moon -C {} bundle --target all` \
-                 to bundle it",
-                core_dir.display(),
-                core_dir.display()
-            )
-        } else {
-            format!(
-                "Cannot load the core file. The standard library directory `{}` \
-                 does not exist. Reinstall the MoonBit toolchain, or set \
-                 $MOON_CORE_OVERRIDE to a checkout of moonbitlang/core",
-                core_dir.display()
-            )
-        }
-    })?;
-    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
-    let id = module_graph.add_module(source, Arc::new(loaded_core));
-    module_graph.register_stdlib(id);
-
-    Ok(())
-}
-
-pub(crate) fn resolve_modules(
-    config: &ModuleResolutionConfig,
-    root: ResolvedRootModules,
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) fn resolve_modules<R: Registry>(
+    config: &ModuleResolutionConfig<'_, R>,
+    module_graph: ModuleDependencyGraph,
     user_log: &UserLog,
 ) -> Result<ModuleDependencyGraph, ModuleResolutionErrors> {
-    let mut resolver = MvsSolver;
-    resolve_modules_with_solver(config, &mut resolver, root, user_log)
+    // The synchronous entry point drives the computation; the solver only
+    // describes it. Source acquisition starts after this boundary returns.
+    // TODO: Move runtime ownership to command orchestration when resolution
+    // and test execution share a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|error| {
+            ModuleResolutionErrors(vec![ModuleResolutionError::Other(error.into())])
+        })?;
+    tokio::task::LocalSet::new().block_on(
+        &runtime,
+        resolve_modules_with_solver(config, &mut MvsSolver, module_graph, user_log),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use moonutil::resolution::ResolvedModule;
+
+    use super::*;
+    use crate::registry::mock::{MockRegistry, create_mock_module};
+
+    #[test]
+    fn resolution_retains_prepared_stdlib_and_root_identity() {
+        let root = Arc::new(create_mock_module(
+            "app/main",
+            "0.1.0",
+            [("dep/library", "1.0.0")],
+        ));
+        let source =
+            ModuleSource::from_version("app/main".into(), "0.1.0".parse().unwrap()).unwrap();
+        let (roots, root_id) = ResolvedModule::only_one_module(source, root);
+        let mut graph = prepare_roots(roots).unwrap();
+
+        // There is no core manifest on disk. The supplied module is authoritative;
+        // resolution must neither reread it nor replace it with the installed core.
+        let dir = tempfile::tempdir().unwrap();
+        let core_path = dir.path().join("unread-core");
+        let core = Arc::new(create_mock_module("moonbitlang/core", "9.0.0", []));
+        let core_source = ModuleSource::from_stdlib(&core, &core_path).unwrap();
+        let core_id = graph.add_module(core_source.clone(), Arc::clone(&core));
+        graph.register_stdlib(core_id);
+
+        let mut registry = MockRegistry::new();
+        registry.add_module_full("dep/library", "1.0.0", []);
+        let config = ModuleResolutionConfig {
+            registry: &registry,
+            warn_deprecated: false,
+        };
+        let resolved =
+            resolve_modules(&config, graph, &UserLog::new(log::LevelFilter::Error)).unwrap();
+
+        assert_eq!(resolved.input_module_ids(), &[root_id]);
+        assert_eq!(resolved.stdlib(), Some(core_id));
+        assert_eq!(resolved.module_source(core_id), &core_source);
+        assert!(Arc::ptr_eq(resolved.module_info(core_id), &core));
+        assert_eq!(resolved.module_count(), 3);
+        for (id, _) in resolved.all_modules_and_id() {
+            if id != core_id {
+                assert!(resolved.deps(id).any(|dependency| dependency == core_id));
+            }
+        }
+    }
 }

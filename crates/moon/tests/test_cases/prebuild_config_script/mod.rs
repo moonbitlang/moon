@@ -75,7 +75,7 @@ options("--moonbit-unstable-prebuild": "build.js")
                             .into_iter()
                             .flat_map(|target| ["--target", target]),
                     )
-                    .args(["--dry-run", "--nostd"])
+                    .args(["--dry-run"])
                     .assert()
                     .success();
             }
@@ -89,14 +89,7 @@ options("--moonbit-unstable-prebuild": "build.js")
         moon_cmd(&standalone)
             .arg("--target-dir")
             .arg(&target)
-            .args([
-                command,
-                "standalone.mbtx",
-                "--target",
-                "wasm",
-                "--dry-run",
-                "--nostd",
-            ])
+            .args([command, "standalone.mbtx", "--target", "wasm", "--dry-run"])
             .assert()
             .success();
     }

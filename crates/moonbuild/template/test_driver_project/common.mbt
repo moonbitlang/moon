@@ -8,7 +8,7 @@ fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.t
 // cannot split a UTF-16 surrogate pair.
 fn moonbit_test_driver_internal_escape_json(value : String) -> String {
   let buf = @moonbitlang/core/prelude.StringBuilder(
-    size_hint=value.length() * 2 + 4,
+    capacity=value.length() * 2 + 4,
   )
   buf.write_char('"')
   let mut start = 0
@@ -182,7 +182,7 @@ fn moonbit_test_driver_internal_string_from_extern(
     }
   }
   moonbit_test_driver_internal_finish_read_string(handle)
-  fixedarray_to_bytes(buf).to_unchecked_string(offset=0, length=len).to_string()
+  fixedarray_to_bytes(buf).to_unchecked_string(offset=0, len~).to_string()
 }
 
 // =========================================================
@@ -234,16 +234,22 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
     '/',
   )
   for arg in test_args {
-    let file_and_range = moonbit_test_driver_internal_split_mbt_string(arg, ':')
-    let file = file_and_range[0]
-    let range = file_and_range[1]
-    let start_and_end = moonbit_test_driver_internal_split_mbt_string(
-      range, '-',
-    )
-    let start = moonbit_test_driver_internal_parse_int_(start_and_end[0])
-    let end = moonbit_test_driver_internal_parse_int_(start_and_end[1])
-    for i in start..<end {
-      file_and_index.push((file, i))
+    // Only the last colon separates ranges from a possibly colon-containing name.
+    let mut colon = arg.length() - 1
+    while colon >= 0 && string_get(arg, colon) != ':' {
+      colon -= 1
+    }
+    let file = arg.unsafe_substring(start=0, end=colon)
+    let ranges = arg.unsafe_substring(start=colon + 1, end=arg.length())
+    for range in moonbit_test_driver_internal_split_mbt_string(ranges, ',') {
+      let start_and_end = moonbit_test_driver_internal_split_mbt_string(
+        range, '-',
+      )
+      let start = moonbit_test_driver_internal_parse_int_(start_and_end[0])
+      let end = moonbit_test_driver_internal_parse_int_(start_and_end[1])
+      for i in start..<end {
+        file_and_index.push((file, i))
+      }
     }
   }
   file_and_index

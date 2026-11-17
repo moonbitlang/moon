@@ -26,7 +26,7 @@ use std::{
 };
 
 use anyhow::Context;
-use moonbuild_rupes_recta::{DiscoveredProject, fmt::FmtResolveOutput, model::PackageId};
+use moonbuild_rupes_recta::{DiscoveredProject, discover::FmtProject, model::PackageId};
 use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
@@ -101,6 +101,29 @@ where
     Ok(selected)
 }
 
+fn fuzzy_match<T: AsRef<str>>(
+    needle: impl AsRef<str>,
+    haystack: impl IntoIterator<Item = T>,
+) -> Option<Vec<String>> {
+    let mut matcher = nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT.match_paths());
+    let matches = nucleo_matcher::pattern::Pattern::parse(
+        needle.as_ref(),
+        nucleo_matcher::pattern::CaseMatching::Ignore,
+        nucleo_matcher::pattern::Normalization::Smart,
+    )
+    .match_list(haystack, &mut matcher);
+    if matches.is_empty() {
+        None
+    } else {
+        Some(
+            matches
+                .into_iter()
+                .map(|m| m.0.as_ref().to_string())
+                .collect(),
+        )
+    }
+}
+
 trait AsNameMap<T> {
     fn all_names(&self) -> impl Iterator<Item = impl AsRef<str>>;
     fn get(&self, name: &str) -> Option<T>;
@@ -121,7 +144,7 @@ where
 
     let mut result = Vec::new();
 
-    if let Some(matches) = moonutil::fuzzy_match::fuzzy_match(needle, name_map.all_names()) {
+    if let Some(matches) = fuzzy_match(needle, name_map.all_names()) {
         for m in matches {
             if let Some(value) = name_map.get(m.as_str())
                 && result.iter().all(|existing| *existing != value)
@@ -528,7 +551,7 @@ where
         }
 
         let haystack = name_map.keys().map(|k| k.as_str());
-        match moonutil::fuzzy_match::fuzzy_match(needle, haystack) {
+        match fuzzy_match(needle, haystack) {
             Some(candidates) => {
                 let mut found = false;
                 for candidate in candidates {
@@ -550,28 +573,18 @@ where
     PackageMatchResult { matched, missing }
 }
 
-/// From a canonicalized directory path, find the corresponding package ID in `FmtResolveOutput`.
+/// From a canonicalized directory path, find the corresponding package ID in `FmtProject`.
 ///
 /// This is a simpler version of `filter_pkg_by_dir` for the formatter case, which doesn't
 /// have the full `ResolvedProject` available.
 pub(crate) fn filter_pkg_by_dir_for_fmt(
-    resolved: &FmtResolveOutput,
+    resolved: &FmtProject,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
     resolved
-        .root_module_ids
-        .iter()
-        .flat_map(|&module_id| {
-            resolved
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .find(|&pkg_id| {
-            let pkg = resolved.pkg_dirs.get_package(pkg_id);
-            dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
-        })
+        .package_roots()
+        .find(|(_, root)| dunce::simplified(root) == dunce::simplified(dir))
+        .map(|(id, _)| id)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Cannot find package to format at path `{}`.\n\
@@ -584,11 +597,11 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
 
 #[cfg(test)]
 mod tests {
-    use super::select_supported_packages;
+    use super::{fuzzy_match, select_supported_packages};
     use log::LevelFilter;
+    use moonbuild::prepare::ProjectPreparationConfig;
     use moonbuild_rupes_recta::{
-        DiscoveredProject, ProjectPreparationConfig, pkg_solve::PackageResolutionError,
-        resolve::ProjectPreparationError,
+        DiscoveredProject, pkg_solve::PackageResolutionError, resolve::ProjectResolutionError,
     };
     use moonutil::{
         constants::{MOON_MOD, MOON_PKG, MOON_WORK},
@@ -597,6 +610,40 @@ mod tests {
         user_log::UserLog,
     };
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn test_fuzzy() {
+        let haystack = [
+            "moonbitlang/core/builtin",
+            "moonbitlang/core/int",
+            "moonbitlang/core/list",
+            "moonbitlang/core/list/internal",
+            "moonbitlang/core/hashmap",
+        ];
+        let result = fuzzy_match("mci", haystack);
+        expect_test::expect![[r#"
+            Some(
+                [
+                    "moonbitlang/core/int",
+                    "moonbitlang/core/list/internal",
+                    "moonbitlang/core/list",
+                    "moonbitlang/core/builtin",
+                ],
+            )
+        "#]]
+        .assert_debug_eq(&result);
+
+        let result = fuzzy_match("moonbitlang/core/list", haystack);
+        expect_test::expect![[r#"
+            Some(
+                [
+                    "moonbitlang/core/list",
+                    "moonbitlang/core/list/internal",
+                ],
+            )
+        "#]]
+        .assert_debug_eq(&result);
+    }
 
     fn write_file(path: &Path, content: &str) {
         if let Some(parent) = path.parent() {
@@ -610,12 +657,8 @@ mod tests {
     }
 
     fn discover_project(source_dir: &Path) -> DiscoveredProject {
-        let cfg = ProjectPreparationConfig::new_with_load_defaults(
-            false,
-            false,
-            false,
-            WorkspaceEnv::Auto,
-        );
+        let cfg =
+            ProjectPreparationConfig::new_with_load_defaults(false, false, WorkspaceEnv::Auto);
         let user_log = UserLog::new(LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -628,8 +671,9 @@ mod tests {
         .package_dirs()
         .unwrap();
         let synced_modules =
-            moonbuild_rupes_recta::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
-        moonbuild_rupes_recta::discover_synced_project(&cfg, synced_modules, &user_log).unwrap()
+            moonbuild::prepare::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
+        moonbuild_rupes_recta::discover_synced_project(&cfg.discovery, synced_modules, &user_log)
+            .unwrap()
     }
 
     #[test]
@@ -666,7 +710,7 @@ pkgtype(kind: "executable")"#,
             "test/app/main"
         );
 
-        let ProjectPreparationError::PackageResolutionError(error) = discovered
+        let ProjectResolutionError::PackageResolutionError(error) = discovered
             .resolve_packages(&[TargetBackend::default()], &user_log)
             .unwrap_err()
         else {

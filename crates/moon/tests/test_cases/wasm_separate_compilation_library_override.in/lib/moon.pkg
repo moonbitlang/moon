@@ -1,0 +1,7 @@
+import {
+  "username/vo/vlib",
+}
+
+options(
+  overrides: [ "username/vo/impl" ],
+)

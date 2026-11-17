@@ -43,8 +43,6 @@ fn command_string_run_parses_as_expected() {
                     rr_export_package_graph: false,
                     rr_export_build_plan: false,
                     rr_n2_explain: false,
-                    rr_moon_mod: true,
-                    rr_moon_pkg: true,
                     wasi_link: true,
                 },
             },
@@ -55,8 +53,6 @@ fn command_string_run_parses_as_expected() {
                     "fn main { println(\"hello\") }",
                 ),
                 build_flags: BuildFlags {
-                    std: false,
-                    no_std: false,
                     debug: false,
                     release: false,
                     strip: false,
@@ -76,7 +72,6 @@ fn command_string_run_parses_as_expected() {
                 },
                 args: [],
                 moonrun_policy: None,
-                virtual_process_tree: false,
                 auto_sync_flags: AutoSyncFlags {
                     frozen: false,
                 },
@@ -150,15 +145,11 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     rr_export_package_graph: false,
                     rr_export_build_plan: false,
                     rr_n2_explain: false,
-                    rr_moon_mod: true,
-                    rr_moon_pkg: true,
                     wasi_link: true,
                 },
             },
             TestSubcommand {
                 build_flags: BuildFlags {
-                    std: false,
-                    no_std: false,
                     debug: false,
                     release: false,
                     strip: false,

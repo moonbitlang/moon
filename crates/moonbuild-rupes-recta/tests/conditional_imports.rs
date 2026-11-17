@@ -19,23 +19,21 @@
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
-    build_lower::WarningCondition,
-    build_plan::{ArtifactKey, InputDirective},
-    compile::compile,
+    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
+    build_lower::{WarningCondition, lower_build_plan},
+    build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
     metadata::{CheckCommandMap, gen_metadata_json},
     model::{BackendConfig, BuildTarget, DebugInfoRequest, TargetKind},
-    resolve::ProjectPreparationError,
+    resolve::ProjectResolutionError,
     target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
 };
 use moonutil::{
     build_options::RunMode,
     cond_expr::OptLevel,
     manifest::read_module_desc_file_in_dir,
-    project::WorkspaceEnv,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},
-    target::TargetBackend::{self, Js, Native},
+    target::TargetBackend::{self, Js, LLVM, Native},
     user_log::UserLog,
 };
 
@@ -65,8 +63,7 @@ fn discover(packages: &[(&str, &str)]) -> (tempfile::TempDir, DiscoveredProject)
     let mut module_dirs = DirSyncResult::new();
     module_dirs.insert(mid, dir.path().to_owned());
     let log = UserLog::new(log::LevelFilter::Error);
-    let config =
-        ProjectPreparationConfig::new_with_load_defaults(false, true, false, WorkspaceEnv::Auto);
+    let config = DiscoveryConfig::default();
     let discovered = discover_synced_project(&config, (module_graph, module_dirs), &log).unwrap();
     (dir, discovered)
 }
@@ -87,8 +84,106 @@ fn resolved_project_already_contains_each_backends_graph() {
             resolved.package_relations[&backend]
                 .dep_graph
                 .contains_edge(app, native),
-            backend == Native,
+            matches!(backend, Native | LLVM),
         );
+    }
+}
+
+#[test]
+fn test_drivers_select_async_runtime_from_active_imports() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/conditional_async_runtime");
+    let module = read_module_desc_file_in_dir(&root).unwrap();
+    let source = ModuleSource::from_local_module(&module, &root).unwrap();
+    let (module_graph, mid) = ModuleDependencyGraph::only_one_module(source, module);
+    let mut module_dirs = DirSyncResult::new();
+    module_dirs.insert(mid, root);
+    let log = UserLog::new(log::LevelFilter::Error);
+    let preparation = DiscoveryConfig::default();
+    let resolved = discover_synced_project(&preparation, (module_graph, module_dirs), &log)
+        .unwrap()
+        .resolve_packages(&[Js, TargetBackend::WasmGC], &log)
+        .unwrap();
+    let target_dir = tempfile::tempdir().unwrap();
+    for backend in [BackendConfig::Js, BackendConfig::WasmGc { use_wat: false }] {
+        let config = CompileConfig {
+            artifact_paths: ArtifactPathResolver::new(
+                TargetLayout::new(
+                    target_dir.path().to_owned(),
+                    TargetLayoutMode::Mono {
+                        main_module: resolved.module_graph.module_source(mid).clone(),
+                    },
+                    OptLevel::Debug,
+                    RunMode::Test,
+                ),
+                None,
+            ),
+            target_dir: target_dir.path().to_owned(),
+            backend,
+            opt_level: OptLevel::Debug,
+            action: RunMode::Test,
+            debug_info: DebugInfoRequest::default(),
+            stdlib_path: None,
+            debug_export_build_plan: false,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            warn_list: None,
+        };
+        // Ordinary imports are inherited by all test kinds. Test-only imports
+        // must affect only their own driver, and inactive imports affect none.
+        for (name, uses_legacy) in [
+            ("moonbitlang/async", [true, true, true]),
+            ("moonbitlang/async/regular", [true, true, true]),
+            ("moonbitlang/async/whitebox", [false, true, false]),
+            ("moonbitlang/async/blackbox", [false, false, true]),
+            ("moonbitlang/async/transitive", [false, false, false]),
+        ] {
+            let package = resolved.pkg_dirs.get_package_id_by_name(name).unwrap();
+            for (kind, uses_legacy) in [
+                TargetKind::InlineTest,
+                TargetKind::WhiteboxTest,
+                TargetKind::BlackboxTest,
+            ]
+            .into_iter()
+            .zip(uses_legacy)
+            {
+                let plan = build_plan(
+                    &resolved,
+                    &config,
+                    [ArtifactKey::GeneratedTestDriver {
+                        package,
+                        target_kind: kind,
+                    }]
+                    .into_iter(),
+                    &InputDirective::default(),
+                    None,
+                    &log,
+                )
+                .unwrap();
+                let execution_plan = lower_build_plan(&resolved, &plan, &config, &[]).unwrap();
+                let runtimes = execution_plan
+                    .action_ids()
+                    .flat_map(|id| execution_plan.action(id).command().args().windows(2))
+                    .filter(|args| args[0] == "--async-runtime-package")
+                    .map(|args| args[1].as_str())
+                    .collect::<Vec<_>>();
+                let expected = if name == "moonbitlang/async"
+                    || (config.backend.target_backend() == Js && uses_legacy)
+                {
+                    "moonbitlang/async"
+                } else {
+                    "moonbitlang/core/async"
+                };
+                assert_eq!(
+                    runtimes,
+                    [expected],
+                    "{name} {kind:?} {:?}",
+                    config.backend.target_backend()
+                );
+            }
+        }
     }
 }
 
@@ -156,7 +251,6 @@ import { "example/conditional/helper" } for "test"
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             warn_list: None,
-            info_no_alias: false,
         };
         let backend = config.backend.target_backend();
         let expected_mi = format!(
@@ -175,22 +269,23 @@ import { "example/conditional/helper" } for "test"
             TargetKind::WhiteboxTest,
             TargetKind::BlackboxTest,
         ] {
-            let output = compile(
-                &config,
+            let plan = build_plan(
                 &resolved,
-                &[ArtifactKey::CheckMi {
+                &config,
+                [ArtifactKey::CheckMi {
                     package: app,
                     target_kind: kind,
-                }],
+                }]
+                .into_iter(),
                 &InputDirective::default(),
                 None,
                 &log,
             )
             .unwrap();
-            let commands = output
-                .execution_plan
+            let execution_plan = lower_build_plan(&resolved, &plan, &config, &[]).unwrap();
+            let commands = execution_plan
                 .action_ids()
-                .map(|id| output.execution_plan.action(id).command().args())
+                .map(|id| execution_plan.action(id).command().args())
                 .collect::<Vec<_>>();
             let package_name = if kind == TargetKind::BlackboxTest {
                 "example/conditional/app_blackbox_test"
@@ -309,9 +404,11 @@ import { "example/conditional/common" @native_common }
         ]
     );
     for &backend in TargetBackend::all() {
-        let supported = &resolved.package_relations[&backend].realizable_supported_targets
-            [&target(&resolved, "consumer", TargetKind::Source)];
-        assert!(supported.contains(&backend));
+        let unsupported = resolved.package_relations[&backend]
+            .unsupported_targets
+            .contains(&target(&resolved, "consumer", TargetKind::Source));
+        // The native import includes LLVM, but its dependency only supports Native C.
+        assert_eq!(unsupported, backend == LLVM);
     }
 }
 
@@ -411,7 +508,7 @@ import { "example/conditional/never" }
             .resolve_packages(backends, &log)
             .unwrap_err();
         assert!(
-            matches!(error, ProjectPreparationError::PackageResolutionError(source)
+            matches!(error, ProjectResolutionError::PackageResolutionError(source)
             if matches!(*source, moonbuild_rupes_recta::pkg_solve::PackageResolutionError::ImportNotFound { ref import, .. }
                 if import == "example/conditional/missing"))
         );

@@ -54,6 +54,7 @@ use crate::async_sys::internal::event_loop::{
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
 use crate::filesystem::HostFs;
+use crate::filesystem::{FsOperation, FsPath, FsTarget};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
@@ -185,6 +186,32 @@ impl AsyncHostError {
             Self::Badf => native_errno::BADF,
             Self::PermissionDenied => native_errno::ACCESS,
             Self::Native(errno) => errno,
+        }
+    }
+}
+
+impl From<std::io::Error> for AsyncHostError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Native(error.raw_os_error().unwrap_or(native_errno::INVAL))
+    }
+}
+
+impl From<crate::filesystem::FsError> for AsyncHostError {
+    fn from(error: crate::filesystem::FsError) -> Self {
+        match error {
+            crate::filesystem::FsError::Denied => Self::PermissionDenied,
+            crate::filesystem::FsError::Io(error) => error.into(),
+        }
+    }
+}
+
+// Existing async_sys temp-directory primitives still use the async error type.
+// Keep that compatibility conversion at the ABI boundary, not in the OS layer.
+impl From<AsyncHostError> for crate::filesystem::FsError {
+    fn from(error: AsyncHostError) -> Self {
+        match error {
+            AsyncHostError::PermissionDenied => Self::Denied,
+            _ => Self::Io(std::io::Error::from_raw_os_error(error.errno())),
         }
     }
 }
@@ -2495,7 +2522,8 @@ impl AsyncHost {
 
         let kqueue = self.acquire_resource(kqueue_handle)?;
         let file = self.acquire_resource(file_handle)?;
-        Self::check_file_metadata_policy(&self.filesystem, Some(file.as_ref()))?;
+        self.filesystem
+            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
         crate::async_sys::fs::watch_kqueue::add_file(
             kqueue.as_fd()?.as_raw_fd(),
             file.as_fd()?.as_raw_fd(),
@@ -2703,11 +2731,17 @@ impl AsyncHost {
     }
 
     pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_resource(handle, crate::filesystem::stdio_kind)
+        self.with_resource(handle, |file| {
+            self.filesystem
+                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+            crate::filesystem::stdio_kind(file)
+        })
     }
 
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         self.with_resource(handle, |file| {
+            self.filesystem
+                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
             #[cfg(unix)]
             {
                 crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
@@ -3184,6 +3218,8 @@ impl AsyncHost {
             return Err(AsyncHostError::Inval);
         }
         let file = result.kind.resource_ref(&handles, fd_handle)?;
+        self.filesystem
+            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
         let len = u32::try_from(result.read_dir_changes_len).map_err(|_| AsyncHostError::Fault)?;
         let buffer = result
             .read_dir_changes_buffer
@@ -3543,7 +3579,10 @@ impl AsyncHost {
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            Self::check_file_lock_policy(&self.filesystem, Some(file), exclusive)?;
+            self.filesystem.authorize(FsOperation::Lock {
+                file: file.file_grant(),
+                exclusive,
+            })?;
             crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
         })
     }
@@ -3584,24 +3623,6 @@ impl AsyncHost {
             process.finish_job(process_job, job.ret(), job.err())?;
         }
         Ok(())
-    }
-
-    #[cfg(target_os = "macos")]
-    fn check_file_metadata_policy(
-        filesystem: &HostFs,
-        file: Option<&Resource>,
-    ) -> AsyncHostResult<()> {
-        let file = file.ok_or(AsyncHostError::Badf)?;
-        filesystem.authorize_resource_metadata(file.canonical_path())
-    }
-
-    fn check_file_lock_policy(
-        filesystem: &HostFs,
-        file: Option<&Resource>,
-        exclusive: bool,
-    ) -> AsyncHostResult<()> {
-        let file = file.ok_or(AsyncHostError::Badf)?;
-        filesystem.authorize_resource_lock(file.canonical_path(), exclusive)
     }
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
@@ -3908,9 +3929,15 @@ impl AsyncHost {
             ("TLS private key", private_key_file.as_path()),
             ("TLS certificate", certificate_file.as_path()),
         ] {
-            if let Err(error) = self.filesystem.authorize_read(path.as_os_str()) {
+            if let Err(error) = self
+                .filesystem
+                .authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))
+            {
                 return self.with_tls_pending_mut(handle, |pending| {
-                    pending.set_error(format!("failed to access {label} file: {error:?}"))
+                    pending.set_error(format!(
+                        "failed to access {label} file: {:?}",
+                        AsyncHostError::from(error)
+                    ))
                 });
             }
         }
@@ -4311,27 +4338,26 @@ mod tests {
         host.handles.borrow().resource_count_excluding_reserved()
     }
 
-    fn test_host(policy: Policy, environment: Env) -> AsyncHost {
+    fn test_host(policy: Option<Policy>, environment: Env) -> AsyncHost {
         test_host_with_working_directory(policy, environment, WorkingDirectory::Ambient)
     }
 
     fn test_host_with_working_directory(
-        mut policy: Policy,
+        policy: Option<Policy>,
         environment: Env,
         working_directory: WorkingDirectory,
     ) -> AsyncHost {
         let environment = Arc::new(environment);
         let working_directory = Arc::new(working_directory);
         let filesystem = Arc::new(HostFs::new(
-            policy.take_filesystem_policy(),
+            policy.as_ref().map(Policy::filesystem),
             Arc::clone(&environment),
             Arc::clone(&working_directory),
         ));
-        let network = HostNetwork::new(policy.take_network_policy());
+        let network = HostNetwork::new(policy.as_ref().map(Policy::network));
         let stdio = Arc::new(Stdio::Ambient);
         let process = HostProcess::new(
-            policy.take_process_policy(),
-            policy.take_policy_inheritance(),
+            policy,
             working_directory,
             Arc::clone(&stdio),
             None,
@@ -4357,7 +4383,7 @@ mod tests {
     }
 
     fn default_host() -> AsyncHost {
-        test_host(Policy::allow_all(), Env::ambient())
+        test_host(None, Env::ambient())
     }
 
     #[cfg(unix)]
@@ -4460,7 +4486,7 @@ mod tests {
 
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {
         let (policy, env) = policy::load_file(path).unwrap();
-        test_host(policy, env.realize().unwrap())
+        test_host(Some(policy), env.realize().unwrap())
     }
 
     #[cfg(unix)]
@@ -4578,6 +4604,103 @@ mod tests {
         host.free_job(job).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn spawn_keeps_redirected_files_after_parent_handles_close() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input");
+        let output = directory.path().join("output");
+        let policy_file = directory.path().join("policy.json");
+        std::fs::write(&input, b"delegated input").unwrap();
+
+        for allowed in [false, true] {
+            std::fs::write(&output, b"").unwrap();
+            std::fs::write(
+                &policy_file,
+                serde_json::to_vec(&serde_json::json!({
+                    "fs": {"read": ["*"], "write": ["*"]},
+                    "process": {"spawn": allowed},
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let host = host_with_policy(&policy_file);
+            let files = [(&input, 0), (&output, 1)].map(|(path, access)| {
+                let open = host
+                    .insert_job(FilesystemJob::open_legacy(
+                        path.as_os_str().to_owned(),
+                        access,
+                        0,
+                        false,
+                        0,
+                        0,
+                    ))
+                    .unwrap();
+                host.run_job(open).unwrap();
+                assert_eq!(host.with_job(open, |job| job.err()), Ok(0));
+                let file = host.open_job_get_fd(open).unwrap();
+                host.free_job(open).unwrap();
+                file
+            });
+            let [stdin, stdout] = files.map(|file| host.acquire_resource(file).unwrap());
+            let owners = [Arc::downgrade(&stdin), Arc::downgrade(&stdout)];
+            let spawn = host
+                .insert_job(ProcessJob::spawn_unix(
+                    "/bin/cat".into(),
+                    vec!["/bin/cat".into()],
+                    Vec::new(),
+                    Some(stdin),
+                    Some(stdout),
+                    None,
+                    None,
+                    SpawnOptions {
+                        child_signal_mask: unsafe { std::mem::zeroed() },
+                    },
+                ))
+                .unwrap();
+
+            // The request owns acquired Resources before preparation or spawn.
+            // Closing guest Handles must neither revoke those grants nor leave
+            // the numeric Handles usable for another operation.
+            for file in files {
+                host.close_fd(file).unwrap();
+                assert_eq!(
+                    host.acquire_resource(file).unwrap_err(),
+                    AsyncHostError::Badf
+                );
+            }
+            assert!(owners.iter().all(|owner| owner.upgrade().is_some()));
+            host.run_job(spawn).unwrap();
+            if allowed {
+                assert_eq!(host.with_job(spawn, |job| job.err()), Ok(0));
+                let pid = host.with_job(spawn, |job| job.ret()).unwrap() as i32;
+                let wait = host
+                    .make_wait_for_process_job(host.invalid_fd(), pid)
+                    .unwrap();
+                host.run_job(wait).unwrap();
+                assert_eq!(host.with_job(wait, |job| job.err()), Ok(0));
+                assert_eq!(host.with_job(wait, |job| job.ret()), Ok(0));
+                host.free_job(wait).unwrap();
+            } else {
+                assert_eq!(
+                    host.with_job(spawn, |job| job.err()),
+                    Ok(AsyncHostError::PermissionDenied.errno())
+                );
+            }
+            host.free_job(spawn).unwrap();
+            assert!(owners.iter().all(|owner| owner.upgrade().is_none()));
+            assert_eq!(resource_count(&host), 0);
+            assert_eq!(
+                std::fs::read(&output).unwrap(),
+                if allowed {
+                    b"delegated input".as_slice()
+                } else {
+                    b""
+                }
+            );
+        }
+    }
+
     #[test]
     fn failed_spawn_worker_reports_error_and_frees_without_a_result_handle() {
         let directory = tempfile::tempdir().unwrap();
@@ -4687,12 +4810,12 @@ mod tests {
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let environment = Env::owned([("PATH".into(), caller_bin.into_os_string())]).unwrap();
-        let (policy, _) = policy::load_inherited_json(
+        let (policy, _) = policy::load_json(
             br#"{"process":{"allow":[{"program":"moonrun-owned-path-probe","args_prefix":["allowed"]}]}}"#,
             &environment,
         )
         .unwrap();
-        let host = test_host(policy, environment);
+        let host = test_host(Some(policy), environment);
         let mut spawn: Job = ProcessJob::spawn_unix(
             program.into(),
             vec![program.into(), "allowed".into()],
@@ -4740,7 +4863,7 @@ mod tests {
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let host = test_host_with_working_directory(
-            Policy::allow_all(),
+            None,
             Env::owned([("PATH".into(), "bin".into())]).unwrap(),
             WorkingDirectory::Fixed(root.clone()),
         );
@@ -4811,8 +4934,8 @@ mod tests {
         // creation. Neither failure may replace the earlier policy denial.
         let environment =
             Env::owned([("PATH".into(), std::env::temp_dir().into_os_string())]).unwrap();
-        let (policy, _) = policy::load_inherited_json(b"{}", &environment).unwrap();
-        let host = test_host(policy, environment);
+        let (policy, _) = policy::load_json(b"{}", &environment).unwrap();
+        let host = test_host(Some(policy), environment);
         #[cfg(unix)]
         let mut spawn: Job = ProcessJob::spawn_unix(
             "moonx".into(),
@@ -4880,7 +5003,7 @@ mod tests {
             .unwrap();
         }
         let host = test_host_with_working_directory(
-            Policy::allow_all(),
+            None,
             Env::owned([]).unwrap(),
             WorkingDirectory::Fixed(root.clone()),
         );
@@ -4958,7 +5081,7 @@ mod tests {
         }
         #[cfg(windows)]
         assert_eq!(
-            crate::async_sys::process::process_id_from_handle(
+            crate::process::os::process_id(
                 process_resource
                     .as_ref()
                     .unwrap()
@@ -4967,7 +5090,7 @@ mod tests {
                     .as_raw_handle()
             )
             .unwrap(),
-            pid
+            pid as u32
         );
         let wait_job = host
             .insert_job(
@@ -6491,7 +6614,12 @@ mod tests {
         let host = host_with_policy(&policy_file);
 
         host.filesystem()
-            .authorize_open(link.as_os_str(), 0, 0, false)
+            .authorize(FsOperation::OpenAsync {
+                path: FsPath::Cwd(link.as_os_str()),
+                access: 0,
+                create_mode: 0,
+                read_metadata: false,
+            })
             .unwrap();
         let job = host
             .insert_job(FilesystemJob::open_legacy(
@@ -6679,7 +6807,8 @@ mod tests {
     }
 
     #[test]
-    fn fd_metadata_jobs_require_read_policy() {
+    fn fd_metadata_beyond_kind_requires_read_policy() {
+        const STAT_FILE_KIND: u32 = 0x0001;
         let tmp = tempfile::tempdir().unwrap();
         let writable = tmp.path().join("writable");
         std::fs::create_dir(&writable).unwrap();
@@ -6702,6 +6831,9 @@ mod tests {
         host.run_job(open_job).unwrap();
         let fd = host.open_job_get_fd(open_job).unwrap();
         let resource = host.acquire_resource(fd).unwrap();
+        let kind_job = host
+            .insert_job(FilesystemJob::fstatx(Arc::clone(&resource), STAT_FILE_KIND, 16).unwrap())
+            .unwrap();
         let size_job = host
             .insert_job(FilesystemJob::file_size(Arc::clone(&resource)))
             .unwrap();
@@ -6709,9 +6841,11 @@ mod tests {
             .insert_job(FilesystemJob::file_time(Arc::clone(&resource)))
             .unwrap();
 
+        host.run_job(kind_job).unwrap();
         host.run_job(size_job).unwrap();
         host.run_job(time_job).unwrap();
 
+        assert_eq!(host.with_job(kind_job, |job| job.err()).unwrap(), 0);
         assert_eq!(host.with_job(size_job, |job| job.ret()).unwrap(), -1);
         assert_eq!(
             host.with_job(size_job, |job| job.err()).unwrap(),
@@ -6724,6 +6858,7 @@ mod tests {
         );
         host.free_job(time_job).unwrap();
         host.free_job(size_job).unwrap();
+        host.free_job(kind_job).unwrap();
         host.close_fd(fd).unwrap();
         host.free_job(open_job).unwrap();
     }
@@ -6777,6 +6912,7 @@ mod tests {
         let identity_job = host
             .insert_job(
                 FilesystemJob::open(
+                    None,
                     file.as_os_str().to_os_string(),
                     1,
                     0,
@@ -6792,6 +6928,7 @@ mod tests {
         let metadata_job = host
             .insert_job(
                 FilesystemJob::open(
+                    None,
                     file.as_os_str().to_os_string(),
                     1,
                     0,
@@ -6976,9 +7113,9 @@ mod tests {
                 let policy_file = root.join("policy.toml");
                 std::fs::write(&policy_file, text).unwrap();
                 let (policy, environment) = policy::load_file(&policy_file).unwrap();
-                (policy, environment.realize().unwrap())
+                (Some(policy), environment.realize().unwrap())
             } else {
-                (Policy::allow_all(), Env::ambient())
+                (None, Env::ambient())
             };
             let host = test_host_with_working_directory(
                 policy,

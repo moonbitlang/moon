@@ -26,6 +26,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - uses: actions/checkout@v6
@@ -33,9 +35,7 @@ jobs:
         fetch-depth: 0
 
     - name: Setup mdBook
-      uses: peaceiris/actions-mdbook@v2
-      with:
-        mdbook-version: 'latest'
+      uses: ./.github/actions/setup-mdbook
     - name: Build the book
       run: |
         mdbook build docs/manual

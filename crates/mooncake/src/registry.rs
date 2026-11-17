@@ -18,6 +18,8 @@
 
 mod authentication;
 mod client;
+mod config;
+mod credentials;
 pub(crate) mod download;
 mod executable;
 mod external;
@@ -26,6 +28,7 @@ mod http;
 #[cfg(test)]
 pub(crate) mod mock;
 pub mod path;
+mod symbols;
 
 use std::path::Path;
 
@@ -35,12 +38,36 @@ pub use client::{
     RegistryClient, RegistryModuleManifest, RegistryPackageMatch, RegistryPublishedModule,
     RegistryRelease, RegistrySearchResult, RegistrySummaryFragment, RegistryUserModules,
 };
+pub use config::RegistryConfig;
+pub use credentials::Credentials;
 pub use executable::ResolvedExecutablePackage;
+pub use http::HttpVersionReader;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
 use moonutil::resolution::{ModuleName, ModuleSource};
 use moonutil::user_log::UserLog;
 use semver::Version;
+
+/// Validate syntax needed to interpolate a username into a module manifest.
+/// Registry-specific account rules, including length limits, belong to the
+/// registry service.
+pub fn validate_username(username: &str) -> anyhow::Result<(), String> {
+    if username.is_empty() {
+        return Err("Username must not be empty".to_string());
+    }
+
+    if !username
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(
+            "Usernames can only contain alphanumeric characters, dashes (-), and underscores (_)."
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct RegistryVersionInfo {
@@ -55,6 +82,14 @@ pub struct RegistryVersionInfo {
 #[error("module `{0}` was not found in the registry")]
 pub struct RegistryModuleNotFound(pub ModuleName);
 
+/// A known registry module has no entry for the requested version.
+#[derive(Debug, thiserror::Error)]
+#[error("version `{version}` of module `{name}` was not found in the registry")]
+pub struct RegistryVersionNotFound {
+    pub name: ModuleName,
+    pub version: Version,
+}
+
 /// A metadata refresh could not complete. Callers may explicitly use cached data.
 /// Git synchronization failures, including local Git and filesystem failures,
 /// belong here, as do HTTP transport errors, 5xx responses, and request throttling.
@@ -64,10 +99,29 @@ pub struct RegistryModuleNotFound(pub ModuleName);
 #[error(transparent)]
 pub struct RegistryUnavailable(pub anyhow::Error);
 
+/// Exact-version reads within one resolution. Readers own their backend handles
+/// and transport state; the resolver owns their lifetime and task scheduling.
+/// Futures may stay on the calling thread, so no `Send` bound is required.
+#[allow(async_fn_in_trait)]
+pub trait VersionReader {
+    /// Read only the requested version, with the same absence and failure
+    /// semantics as [`Registry::version_info`].
+    async fn read_version(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+    ) -> anyhow::Result<RegistryVersionInfo>;
+}
+
 pub trait Registry {
-    /// Read one exact published version. Never substitute another version.
+    /// Start a resolution's read session, sharing this registry's metadata cache.
+    /// Drop the reader and its tasks before dropping the resolution runtime.
+    fn version_reader(&self) -> impl VersionReader + 'static;
+
+    /// Read one exact published version synchronously. Never substitute another version.
+    /// Module resolution uses [`Self::version_reader`] instead.
     ///
-    /// `None` means the version is absent from a known module. Return
+    /// Return [`RegistryVersionNotFound`] if the version is absent from a known module,
     /// [`RegistryModuleNotFound`] if the module has no registry entry, and
     /// preserve read errors so callers can distinguish failures from absence.
     /// Backends that cannot distinguish absence from denied access return an
@@ -76,7 +130,7 @@ pub trait Registry {
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>>;
+    ) -> anyhow::Result<RegistryVersionInfo>;
 
     /// Read the locally known latest version without contacting the registry.
     /// `None` means there is no cached latest answer, not that the remote module
@@ -120,31 +174,21 @@ pub trait Registry {
     }
 }
 
-pub(crate) trait RegistrySource {
-    /// Materialize verified published source without executing package hooks.
-    fn materialize_source_to(
-        &self,
-        module: &ModuleSource,
-        to: &Path,
-        user_log: &UserLog,
-    ) -> anyhow::Result<()> {
-        let checksum = self.source_archive_checksum(module)?;
-        self.acquire_source_to(module, &checksum, to, user_log)
-    }
+/// One selected source archive and its expected checksum.
+pub(crate) struct SourceRequest {
+    pub module: ModuleSource,
+    pub checksum: String,
+}
 
-    /// Ensure the published source archive is available, verify it against the
-    /// checksum selected by the caller, and extract it without executing
-    /// package-controlled hooks such as `scripts.postadd`.
-    ///
-    /// The registry adapter decides whether to reuse a downloaded archive or
-    /// acquire it remotely; callers do not need to prepare an archive first.
-    fn acquire_source_to(
+pub(crate) trait RegistrySource {
+    /// Return one verified ZIP handle per request, in request order. Downloads
+    /// may overlap; the caller owns extraction, publication and package hooks.
+    /// Keep these handles open through extraction to avoid reopening cache paths.
+    fn download_archives(
         &self,
-        module: &ModuleSource,
-        expected_checksum: &str,
-        to: &Path,
+        sources: &[SourceRequest],
         user_log: &UserLog,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<Vec<std::fs::File>>;
 
     /// Return the registry's SHA-256 checksum for the published source
     /// ZIP archive.
@@ -155,11 +199,15 @@ impl<R> Registry for &mut R
 where
     R: Registry,
 {
+    fn version_reader(&self) -> impl VersionReader + 'static {
+        (**self).version_reader()
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         (**self).version_info(name, version)
     }
 
@@ -187,11 +235,15 @@ impl<R> Registry for Box<R>
 where
     R: Registry + ?Sized,
 {
+    fn version_reader(&self) -> impl VersionReader + 'static {
+        (**self).version_reader()
+    }
+
     fn version_info(
         &self,
         name: &ModuleName,
         version: &Version,
-    ) -> anyhow::Result<Option<RegistryVersionInfo>> {
+    ) -> anyhow::Result<RegistryVersionInfo> {
         (**self).version_info(name, version)
     }
 
@@ -251,6 +303,49 @@ fn stage_registry_cache_file(
     Ok((staged, path))
 }
 
+/// Publish a prepared directory on the same filesystem, retaining the old data
+/// until publication succeeds. The caller holds the registry update lock.
+fn replace_registry_directory(
+    staged: tempfile::TempDir,
+    target: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
+    if !target.try_exists()? {
+        std::fs::rename(staged.path(), target).context("failed to publish registry directory")?;
+        return Ok(());
+    }
+
+    let parent = target
+        .parent()
+        .context("registry directory has no parent")?;
+    let parent = std::fs::canonicalize(parent)?;
+    let backup = tempfile::Builder::new()
+        .prefix(".registry-backup-")
+        .tempdir_in(parent)?;
+    let previous = backup.path().join("previous");
+    std::fs::rename(target, &previous).context("failed to back up registry directory")?;
+
+    if let Err(error) = std::fs::rename(staged.path(), target) {
+        if let Err(restore_error) = std::fs::rename(&previous, target) {
+            // This is now the only copy of the old data. Keep it beyond this
+            // call so TempDir's cleanup cannot destroy a failed rollback.
+            let preserved = backup.into_path().join("previous");
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to publish registry directory; rollback also failed: {restore_error}; previous data preserved at `{}`",
+                    preserved.display()
+                )
+            });
+        }
+        return Err(error).context("failed to publish registry directory; previous data restored");
+    }
+
+    if let Err(error) = backup.close() {
+        user_log.warn(format!("failed to remove old registry directory: {error}"));
+    }
+    Ok(())
+}
+
 pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {
     RegistryClient::configured(user_log)
 }
@@ -258,9 +353,71 @@ pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
-    use super::Registry;
+    use super::{Registry, replace_registry_directory, validate_username};
     use crate::registry::mock::MockRegistry;
     use moonutil::{constants::MOONBITLANG_CORE, resolution::DEFAULT_VERSION};
+
+    #[test]
+    fn accepts_usernames_of_any_nonzero_length() {
+        assert!(validate_username("a").is_ok());
+        assert!(validate_username(&"a".repeat(40)).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_and_manifest_unsafe_usernames() {
+        assert!(validate_username("").is_err());
+        assert!(validate_username("foo\nbar").is_err());
+        assert!(validate_username("foo\"bar").is_err());
+    }
+
+    #[test]
+    fn directory_publication_cleans_staging_and_backup() {
+        for has_previous in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let target = root.path().join("target");
+            if has_previous {
+                std::fs::create_dir(&target).unwrap();
+                std::fs::write(target.join("old"), "old contents").unwrap();
+            }
+            let staged = tempfile::tempdir_in(root.path()).unwrap();
+            std::fs::write(staged.path().join("new"), "new contents").unwrap();
+            let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Off);
+
+            replace_registry_directory(staged, &target, &user_log).unwrap();
+
+            assert_eq!(
+                std::fs::read_to_string(target.join("new")).unwrap(),
+                "new contents"
+            );
+            assert!(!target.join("old").exists());
+            assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn failed_directory_publication_restores_previous_contents() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("old"), "old contents").unwrap();
+        let staged = tempfile::tempdir_in(root.path()).unwrap();
+        // Removing the prepared directory makes publication fail after the old
+        // directory has been moved to the backup.
+        std::fs::remove_dir(staged.path()).unwrap();
+        let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Off);
+
+        let error = replace_registry_directory(staged, &target, &user_log).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            std::fs::read_to_string(target.join("old")).unwrap(),
+            "old contents"
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn resolve_cached_unversioned_path_uses_latest_version() {

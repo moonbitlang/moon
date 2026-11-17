@@ -18,11 +18,11 @@
 
 //! Host-owned file and network resources.
 
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
+use crate::filesystem::FileGrant;
 
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -123,9 +123,7 @@ enum ResourcePayload {
         // Only fd_util/pipe's async write end can be used for interruptible
         // Worker notifications (O_NONBLOCK on Unix, OVERLAPPED on Windows).
         async_pipe_writer: bool,
-        // Best-effort pathname provenance for current filesystem authorization.
-        // This is not a stable identity for the opened Resource.
-        canonical_path: Option<PathBuf>,
+        grant: FileGrant,
     },
     // Reserved process stdio handle. The guest can use it, but does not own it.
     StdioFile(isize),
@@ -160,21 +158,18 @@ impl Resource {
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
             async_pipe_writer: false,
-            canonical_path: None,
+            grant: FileGrant::UNTRACKED,
         })
     }
 
-    pub(crate) fn new_with_canonical_path(
-        raw: fd_util::stub::RawFd,
-        canonical_path: Option<PathBuf>,
-    ) -> Self {
+    pub(crate) fn new_with_file_grant(raw: fd_util::stub::RawFd, grant: FileGrant) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
         }
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
             async_pipe_writer: false,
-            canonical_path,
+            grant,
         })
     }
 
@@ -182,7 +177,7 @@ impl Resource {
         Self::from_payload(ResourcePayload::File {
             raw: owned_raw_file(raw),
             async_pipe_writer: true,
-            canonical_path: None,
+            grant: FileGrant::UNTRACKED,
         })
     }
 
@@ -329,15 +324,15 @@ impl Resource {
         }
     }
 
-    pub(crate) fn canonical_path(&self) -> Option<&Path> {
+    pub(crate) fn file_grant(&self) -> &FileGrant {
         match &self.payload {
             #[cfg(windows)]
-            ResourcePayload::Process(_) => None,
-            ResourcePayload::File { canonical_path, .. } => canonical_path.as_deref(),
+            ResourcePayload::Process(_) => &FileGrant::UNTRACKED,
+            ResourcePayload::File { grant, .. } => grant,
+            ResourcePayload::StdioFile(_) => &FileGrant::STDIO,
             ResourcePayload::Invalid
-            | ResourcePayload::StdioFile(_)
             | ResourcePayload::TcpSocket { .. }
-            | ResourcePayload::UdpSocket { .. } => None,
+            | ResourcePayload::UdpSocket { .. } => &FileGrant::UNTRACKED,
         }
     }
 

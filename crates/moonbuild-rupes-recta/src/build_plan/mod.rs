@@ -55,7 +55,6 @@ use log::{debug, info};
 use moonutil::{
     compiler_flags::{NativeAllocator, NativeLinkArg, OptLevel as CCOptLevel, Toolchain},
     cond_expr::OptLevel,
-    resolution::ModuleId,
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -65,7 +64,7 @@ use crate::{
     CompileConfig, ResolvedProject,
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
-        PackageId,
+        PackageId, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
@@ -133,6 +132,13 @@ pub(crate) struct BackendPlan {
     /// The map of build target to the metadata it needs when linking core
     link_core_info: HashMap<BuildTarget, LinkCoreInfo>,
 
+    /// The `.core` inputs of each wasm1 object, both the main objects of
+    /// executables and the library objects of packages.
+    wasm_object_info: HashMap<WasmObject, LinkCoreInfo>,
+
+    /// The library objects linked into each executable linked from objects.
+    wasm_link_info: HashMap<BuildTarget, WasmLinkInfo>,
+
     /// The map of build target to the C stubs information
     c_stubs_info: HashMap<PackageId, BuildCStubsInfo>,
 
@@ -153,9 +159,6 @@ pub(crate) struct BackendPlan {
 
     /// The concrete `.mbti` input selected for each planned virtual contract.
     virtual_contract_inputs: HashMap<PackageId, PathBuf>,
-
-    /// The map of build target to its bundle information
-    bundle_info: HashMap<ModuleId, BuildBundleInfo>,
 }
 
 impl BackendPlan {
@@ -293,6 +296,14 @@ impl BuildPlan {
     pub fn action_count(&self) -> usize {
         self.backend.action_count() + self.package_prebuild.action_count()
     }
+
+    /// Whether lowering needs the files under the selected toolchain's include
+    /// directory. Callers should observe that tree only when this returns true.
+    pub fn requires_toolchain_headers(&self) -> bool {
+        self.backend
+            .actions()
+            .any(|node| self.backend.action(node).uses_toolchain_headers())
+    }
 }
 
 #[cfg(test)]
@@ -393,12 +404,6 @@ pub struct BuildTargetInfo {
     /// The patch file to supply to this package
     pub(crate) patch_file: Option<PathBuf>,
 
-    /// The Why3 configuration file to supply to proof commands.
-    pub(crate) why3_config: Option<PathBuf>,
-
-    /// The directory containing the selected proof prelude provider.
-    pub(crate) proof_prelude: PathBuf,
-
     /// Check the `.mi` file against the given target. Used in virtual packages.
     /// Also implies that the target must not generate a `.mi` file.
     pub(crate) check_mi_against: Option<BuildTarget>,
@@ -436,16 +441,23 @@ impl BuildTargetInfo {
 
 #[derive(Debug)]
 pub struct LinkCoreInfo {
-    /// The targets in **initialization order**.
+    /// The targets in **initialization order**. When the stdlib is injected,
+    /// this includes the reachable stdlib packages, whose `.core` files are
+    /// installed rather than produced by this plan.
     pub(crate) linked_order: Vec<BuildTarget>,
-
-    /// Link the prebuilt abort default only when the injected stdlib declares
-    /// the package and this target does not override it. Package discovery,
-    /// rather than artifact existence, determines compatibility with older core.
-    pub link_stdlib_abort: bool,
     // we currently don't need this, as it's controlled by build-wise options
     // /// Whether linking this target needs the standard library
     // pub std: bool,
+}
+
+/// The objects `moonc wasm-ld` links into one executable, besides the object
+/// of its main package.
+#[derive(Debug)]
+pub struct WasmLinkInfo {
+    /// The packages whose library objects are linked, in dependency order:
+    /// the standard library's, then the program's. The linker initializes
+    /// them in this order.
+    pub(crate) library_objects: Vec<PackageId>,
 }
 
 #[derive(Debug)]
@@ -519,14 +531,8 @@ pub struct BuildRuntimeInfo {
     pub(crate) native_allocator: NativeAllocator,
 }
 
-/// Metadata about bundling the build output of different targets together.
-pub struct BuildBundleInfo {
-    /// The targets to bundle into the final bundle.
-    pub(crate) bundle_targets: Vec<BuildTarget>,
-}
-
 /// Command-specific directives provided alongside requested artifacts.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InputDirective {
     /// Set `no_mi=true` for the given package.
     pub specify_no_mi_for: Option<PackageId>,
@@ -541,24 +547,6 @@ pub struct InputDirective {
     /// `Some(pkg)` so that only `pkg`'s test targets will emit
     /// --enable-value-tracing but not its dependencies' test targets.
     pub value_tracing: Option<PackageId>,
-
-    /// Use the given Why3 config file for `moon prove`.
-    pub prove_why3_config: Option<PathBuf>,
-
-    /// Use the proof prelude provider from this directory for `moon prove`.
-    pub proof_prelude: PathBuf,
-}
-
-impl Default for InputDirective {
-    fn default() -> Self {
-        Self {
-            specify_no_mi_for: None,
-            specify_patch_file: None,
-            value_tracing: None,
-            prove_why3_config: None,
-            proof_prelude: moonutil::toolchain::prelude_proof(),
-        }
-    }
 }
 
 /// Represents errors that may occur during build graph construction.
@@ -605,25 +593,25 @@ pub enum BuildPlanConstructError {
 
     #[error(
         "Selected backend '{backend}' is incompatible with the dependency graph. \
-         '{importer}' requires '{dependency}' whose active dependency graph supports {supported_backends}. \
+         '{importer}' requires '{dependency}' whose active dependency graph does not support this backend. \
          Dependency path: {path}"
     )]
     BackendIncompatibleDependency {
         backend: TargetBackend,
         importer: String,
         dependency: String,
-        supported_backends: String,
         path: String,
     },
 }
 
 /// Select one Native payload form for all requested artifacts in a plan.
 /// Host capability is supplied by the caller; package policy belongs to RR.
-pub(super) fn resolve_native_backend_mode(
+pub(super) fn resolve_native_backend_mode<'a>(
     resolved: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],
     opt_level: OptLevel,
     native_target: Option<crate::model::NativeTarget>,
+    toolchains: impl IntoIterator<Item = &'a Toolchain>,
 ) -> crate::model::NativeBackendMode {
     use crate::model::{DirectNativeMode, NativeBackendMode};
 
@@ -633,6 +621,15 @@ pub(super) fn resolve_native_backend_mode(
     let Some(native_target) = native_target.filter(|_| opt_level == OptLevel::Debug) else {
         return NativeBackendMode::GeneratedC;
     };
+    // Explicit compiler choices constrain the automatic payload selection.
+    // Windows direct objects currently require a cl-compatible link driver.
+    if toolchains.into_iter().any(|toolchain| {
+        !toolchain.cc().targets_host()
+            || (native_target == crate::model::NativeTarget::X86_64PcWindowsMsvc
+                && !toolchain.uses_msvc_cli())
+    }) {
+        return NativeBackendMode::GeneratedC;
+    }
     let needs_c_compiler = requested_artifacts.iter().any(|artifact| {
         let (ArtifactKey::Executable { package, .. } | ArtifactKey::ForeignLibrary { package }) =
             artifact
@@ -676,17 +673,22 @@ pub fn build_plan(
     let mut constructor =
         BuildPlanConstructor::new(resolved, config, input_directive, prebuild_config, user_log);
     let input = input.collect::<Vec<_>>();
-    if let BackendConfig::Native {
-        direct_object_candidate,
-        ..
-    } = &config.backend
-    {
-        constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
-            resolved,
-            &input,
-            config.opt_level,
-            *direct_object_candidate,
-        ));
+    if config.backend.target_backend().is_native() {
+        let native_toolchains = constructor.resolve_native_toolchains(&input)?;
+        if let BackendConfig::Native {
+            direct_object_candidate,
+            ..
+        } = &config.backend
+        {
+            constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
+                resolved,
+                &input,
+                config.opt_level,
+                *direct_object_candidate,
+                native_toolchains.values(),
+            ));
+        }
+        constructor.native_toolchains = native_toolchains;
     }
     constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
         DebugSymbols::None => false,
@@ -697,16 +699,7 @@ pub fn build_plan(
     };
     constructor.res.backend.moonc_stacktrace = config.debug_info.symbols == DebugSymbols::Backtrace
         && constructor.res.backend.direct_native_target().is_some();
-    // Preserve the caller-requested executable scope for Native selection,
-    // then drop test artifacts excluded by the standard-library special cases.
-    constructor.build(input.into_iter().filter(|artifact| {
-        artifact.package_target().is_none_or(|target| {
-            !target.kind.is_test()
-                || !crate::special_cases::should_skip_tests(
-                    &resolved.pkg_dirs.get_package(target.package).fqn,
-                )
-        })
-    }))?;
+    constructor.build(input.into_iter())?;
     let result = constructor.finish();
 
     info!(

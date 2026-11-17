@@ -21,7 +21,6 @@
 mod build_common;
 mod build_interface;
 mod build_package;
-mod bundle_core;
 mod check;
 mod gen_node_test_package_config;
 mod gen_test_driver;
@@ -31,6 +30,7 @@ mod moondoc;
 mod mooninfo;
 pub(super) mod msvc;
 mod prove;
+mod wasm_ld;
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -42,7 +42,6 @@ use crate::pkg_name::PackageFQN;
 pub(super) use self::build_common::*;
 pub(super) use self::build_interface::*;
 pub(super) use self::build_package::*;
-pub(super) use self::bundle_core::*;
 pub(super) use self::check::*;
 pub(super) use self::gen_node_test_package_config::*;
 pub(super) use self::gen_test_driver::*;
@@ -51,6 +50,7 @@ pub(super) use self::moon_archive::*;
 pub(super) use self::moondoc::*;
 pub(super) use self::mooninfo::*;
 pub(super) use self::prove::*;
+pub(super) use self::wasm_ld::*;
 
 /// The format of error reports from `moonc`.
 ///

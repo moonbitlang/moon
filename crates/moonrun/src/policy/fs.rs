@@ -16,166 +16,252 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::async_host::AsyncHostResult;
 
-use super::{config::FsConfig, sandbox_denied};
+use super::{sandbox_denied, transfer};
+use anyhow::Context;
+use globset::{GlobBuilder, GlobMatcher};
 
-/// Restricts async filesystem operations to native host roots.
+/// Checks filesystem operations against every source's rules.
 ///
 /// This is not a virtual filesystem. `HostFs` resolves runtime paths before
 /// asking these immutable rules whether the resulting target is allowed.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct FsPolicy {
-    read_roots: Vec<FsRoot>,
-    write_roots: Vec<FsRoot>,
-}
-
 #[derive(Clone, Debug)]
-enum FsRoot {
-    Any,
-    Path(PathBuf),
+pub(crate) struct FsPolicy {
+    rule_groups: Vec<Arc<FsRules>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FsIntents {
-    read: bool,
-    write: bool,
+impl Default for FsPolicy {
+    fn default() -> Self {
+        Self::from_rule_groups([Arc::new(FsRules::default())])
+    }
 }
 
 impl FsPolicy {
-    /// Construct runtime enforcement from roots canonicalized by `policy`.
-    pub(super) fn from_canonical_config(config: FsConfig) -> Self {
+    pub(super) fn from_rule_groups(rule_groups: impl IntoIterator<Item = Arc<FsRules>>) -> Self {
         Self {
-            read_roots: roots_from_config(config.read),
-            write_roots: roots_from_config(config.write),
+            rule_groups: rule_groups.into_iter().collect(),
         }
     }
 
     pub(crate) fn authorize(
         &self,
+        path: Option<&Path>,
+        read: bool,
+        write: bool,
+        target: &str,
+    ) -> AsyncHostResult<()> {
+        self.rule_groups
+            .iter()
+            .try_for_each(|group| group.authorize(path, read, write, target))
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct FsRules {
+    pub(super) read_rules: Vec<FsRule>,
+    pub(super) write_rules: Vec<FsRule>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum FsRule {
+    Any,
+    Path(PathBuf),
+    Glob {
+        base: PathBuf,
+        matcher: GlobMatcher,
+        exclude: bool,
+    },
+}
+
+impl FsRules {
+    pub(super) fn to_transfer(&self) -> transfer::Filesystem {
+        let rules = |rules: &[FsRule]| {
+            rules
+                .iter()
+                .map(|rule| match rule {
+                    FsRule::Any => transfer::FsRule::Any,
+                    FsRule::Path(path) => transfer::FsRule::Path(path.as_os_str().to_owned()),
+                    FsRule::Glob {
+                        base,
+                        matcher,
+                        exclude: false,
+                    } => transfer::FsRule::Glob {
+                        base: base.as_os_str().to_owned(),
+                        pattern: matcher.glob().glob().to_owned(),
+                    },
+                    FsRule::Glob {
+                        base,
+                        matcher,
+                        exclude: true,
+                    } => transfer::FsRule::ExcludeGlob {
+                        base: base.as_os_str().to_owned(),
+                        pattern: matcher.glob().glob().to_owned(),
+                    },
+                })
+                .collect()
+        };
+        transfer::Filesystem {
+            read: rules(&self.read_rules),
+            write: rules(&self.write_rules),
+        }
+    }
+
+    pub(super) fn from_transfer(value: transfer::Filesystem) -> anyhow::Result<Self> {
+        let rules = |rules: Vec<transfer::FsRule>| {
+            rules
+                .into_iter()
+                .map(|rule| match rule {
+                    transfer::FsRule::Any => Ok(FsRule::Any),
+                    transfer::FsRule::Path(path) => {
+                        let path = PathBuf::from(path);
+                        validate_base(&path)?;
+                        Ok(FsRule::Path(path))
+                    }
+                    transfer::FsRule::Glob { base, pattern } => {
+                        FsRule::glob(base.into(), &pattern, false)
+                    }
+                    transfer::FsRule::ExcludeGlob { base, pattern } => {
+                        FsRule::glob(base.into(), &pattern, true)
+                    }
+                })
+                .collect::<anyhow::Result<Vec<_>>>()
+        };
+        Ok(Self {
+            read_rules: rules(value.read)?,
+            write_rules: rules(value.write)?,
+        })
+    }
+
+    pub(crate) fn authorize(
+        &self,
         resolved_path: Option<&Path>,
-        intents: FsIntents,
+        read: bool,
+        write: bool,
         target: &str,
     ) -> AsyncHostResult<()> {
         let Some(path) = resolved_path else {
-            return sandbox_denied(intents.sandbox_action(), Some(target));
+            return sandbox_denied(
+                match (read, write) {
+                    (true, false) => "file read",
+                    (false, true) => "file write",
+                    _ => "file access",
+                },
+                Some(target),
+            );
         };
-        if intents.read && !self.allows_read(path) {
+        if read && !Self::allows(&self.read_rules, path) {
             return sandbox_denied("file read", Some(target));
         }
-        if intents.write && !self.allows_write(path) {
+        if write && !Self::allows(&self.write_rules, path) {
             return sandbox_denied("file write", Some(target));
         }
         Ok(())
     }
 
-    fn allows_read(&self, path: &Path) -> bool {
-        self.read_roots.iter().any(|root| root.allows(path))
-    }
-
-    fn allows_write(&self, path: &Path) -> bool {
-        self.write_roots.iter().any(|root| root.allows(path))
+    fn allows(rules: &[FsRule], path: &Path) -> bool {
+        let mut allowed = false;
+        for rule in rules {
+            if rule.matches(path) {
+                // Exclusions override every grant in this group, independent of
+                // order. A list containing only exclusions grants nothing.
+                if matches!(rule, FsRule::Glob { exclude: true, .. }) {
+                    return false;
+                }
+                allowed = true;
+            }
+        }
+        allowed
     }
 }
 
-impl FsRoot {
-    fn allows(&self, path: &Path) -> bool {
+impl FsRule {
+    /// Compile a source-resolved pattern without observing the filesystem.
+    pub(super) fn glob(base: PathBuf, pattern: &str, exclude: bool) -> anyhow::Result<Self> {
+        validate_base(&base)?;
+        anyhow::ensure!(
+            !pattern.is_empty()
+                && !pattern.contains('\0')
+                && Path::new(pattern)
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_))),
+            "filesystem glob must be a nonempty relative pattern without parent traversal"
+        );
+        let matcher = GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .backslash_escape(false)
+            .case_insensitive(false)
+            .build()
+            .with_context(|| format!("invalid filesystem glob {pattern:?}"))?
+            .compile_matcher();
+        Ok(Self::Glob {
+            base,
+            matcher,
+            exclude,
+        })
+    }
+
+    fn matches(&self, path: &Path) -> bool {
         match self {
             Self::Any => true,
             Self::Path(root) => path == root || path.starts_with(root),
+            Self::Glob { base, matcher, .. } => path.strip_prefix(base).is_ok_and(|path| {
+                // Candidate::new performs lossy conversion on Windows.
+                // OsStr's encoded bytes preserve names while satisfying the
+                // matcher's ASCII-compatible encoding requirement.
+                matcher.is_match_candidate(&globset::Candidate::from_bytes(
+                    path.as_os_str().as_encoded_bytes(),
+                ))
+            }),
         }
     }
 }
 
-impl FsIntents {
-    pub(crate) fn read() -> Self {
-        Self {
-            read: true,
-            write: false,
-        }
-    }
-
-    pub(crate) fn write() -> Self {
-        Self {
-            read: false,
-            write: true,
-        }
-    }
-
-    fn read_write() -> Self {
-        Self {
-            read: true,
-            write: true,
-        }
-    }
-
-    pub(crate) fn for_open(access: i32, create_mode: i32, append: bool) -> Self {
-        let mut intents = match access {
-            0 | 3 => Self::read(),
-            1 => Self::write(),
-            2 => Self::read_write(),
-            _ => Self::read_write(),
-        };
-        if create_mode != 0 || append {
-            intents.write = true;
-        }
-        intents
-    }
-
-    pub(crate) fn for_access_check(access: i32) -> Self {
-        if access == 2 {
-            Self::write()
-        } else {
-            Self::read()
-        }
-    }
-
-    fn sandbox_action(self) -> &'static str {
-        match (self.read, self.write) {
-            (true, false) => "file read",
-            (false, true) => "file write",
-            _ => "file access",
-        }
-    }
-}
-
-fn roots_from_config(roots: Vec<PathBuf>) -> Vec<FsRoot> {
-    roots
-        .into_iter()
-        .map(|root| {
-            if root.as_os_str() == OsStr::new("*") {
-                FsRoot::Any
-            } else {
-                FsRoot::Path(root)
-            }
-        })
-        .collect()
+fn validate_base(path: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(path.is_absolute(), "filesystem rule base must be absolute");
+    anyhow::ensure!(
+        !path.as_os_str().as_encoded_bytes().contains(&0)
+            && !path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir)),
+        "invalid filesystem rule base"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::config::{FsConfig, FsRuleConfig};
     use super::*;
     use crate::async_host::AsyncHostError;
 
     fn policy(read: Vec<PathBuf>, write: Vec<PathBuf>, config_dir: &Path) -> FsPolicy {
-        let config = crate::policy::canonicalize(
+        let selected = crate::policy::source::resolve(
             super::super::config::PolicyConfig {
-                fs: Some(FsConfig { read, write }),
+                fs: Some(FsConfig {
+                    read: read.into_iter().map(FsRuleConfig::Path).collect(),
+                    write: write.into_iter().map(FsRuleConfig::Path).collect(),
+                }),
                 ..Default::default()
             },
             config_dir,
         )
         .unwrap();
-        FsPolicy::from_canonical_config(config.fs.unwrap())
+        selected.policy.filesystem()
     }
 
-    fn authorize(policy: &FsPolicy, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {
+    fn authorize(policy: &FsPolicy, path: &Path, read: bool, write: bool) -> AsyncHostResult<()> {
         let parent = std::fs::canonicalize(path.parent().unwrap()).unwrap();
         let resolved = parent.join(path.file_name().unwrap());
-        policy.authorize(Some(&resolved), intents, &format!("{:?}", path.as_os_str()))
+        policy.authorize(
+            Some(&resolved),
+            read,
+            write,
+            &format!("{:?}", path.as_os_str()),
+        )
     }
 
     #[test]
@@ -185,12 +271,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        authorize(
-            &policy,
-            &allowed.join("new.txt"),
-            FsIntents::for_open(1, 0, false),
-        )
-        .unwrap();
+        authorize(&policy, &allowed.join("new.txt"), false, true).unwrap();
     }
 
     #[test]
@@ -202,47 +283,31 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![allowed], tmp.path());
 
-        let error = authorize(&policy, &denied.join("new.txt"), FsIntents::write()).unwrap_err();
+        let error = authorize(&policy, &denied.join("new.txt"), false, true).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
     #[test]
-    fn read_roots_do_not_permit_write_operations() {
+    fn read_rules_do_not_permit_write_operations() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
         let path = allowed.join("new.txt");
 
-        authorize(&policy, &path, FsIntents::read()).unwrap();
-        let error = authorize(&policy, &path, FsIntents::write()).unwrap_err();
+        authorize(&policy, &path, true, false).unwrap();
+        let error = authorize(&policy, &path, false, true).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
     #[test]
-    fn write_roots_do_not_permit_read_operations() {
+    fn write_rules_do_not_permit_read_operations() {
         let tmp = tempfile::tempdir().unwrap();
         let allowed = tmp.path().join("allowed");
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        let error = authorize(&policy, &allowed.join("new.txt"), FsIntents::read()).unwrap_err();
-        assert_eq!(error, AsyncHostError::PermissionDenied);
-    }
-
-    #[test]
-    fn create_mode_requires_write_even_for_read_access() {
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        std::fs::create_dir(&allowed).unwrap();
-        let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
-
-        let error = authorize(
-            &policy,
-            &allowed.join("new.txt"),
-            FsIntents::for_open(0, 1, false),
-        )
-        .unwrap_err();
+        let error = authorize(&policy, &allowed.join("new.txt"), true, false).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -256,7 +321,7 @@ mod tests {
         );
 
         let error = policy
-            .authorize(None, FsIntents::read(), "\"<untracked resource>\"")
+            .authorize(None, true, false, "\"<untracked resource>\"")
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -268,6 +333,6 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("*")], tmp.path());
 
-        authorize(&policy, &denied.join("new.txt"), FsIntents::write()).unwrap();
+        authorize(&policy, &denied.join("new.txt"), false, true).unwrap();
     }
 }

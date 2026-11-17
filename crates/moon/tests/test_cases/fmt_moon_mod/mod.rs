@@ -87,99 +87,19 @@ supported_targets = [ "wasm-gc", "js" ]
 }
 
 #[test]
-fn test_fmt_with_moon_mod_feature_disabled() {
-    let dir = TestDir::new("fmt_moon_mod.in");
-
-    check(
-        get_stderr_with_envs(
-            &dir,
-            ["fmt", "--dry-run", "--sort-input"],
-            [("NEW_MOON_MOD", "0")],
-        ),
-        expect![[]],
-    );
-
-    check(
-        get_stdout_with_envs(
-            &dir,
-            ["fmt", "--dry-run", "--sort-input"],
-            [("NEW_MOON_MOD", "0")],
-        ),
-        expect![[r#"
-            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-        "#]],
-    );
-}
-
-#[test]
-fn test_fmt_migrates_moon_mod_by_default() {
-    let dir = TestDir::new("fmt_moon_mod.in");
-
-    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
-
-    check(
-        output,
-        expect![[r#"
-            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-            moon tool migrate-manifest --old ./moon.mod.json --dest ./moon.mod
-            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-        "#]],
-    );
-}
-
-#[test]
-fn test_fmt_with_moon_mod_feature_disabled_keeps_legacy_file() {
-    let dir = TestDir::new("fmt_moon_mod.in");
-    let original = std::fs::read_to_string(dir.join("moon.mod.json")).unwrap();
-
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["fmt"])
-        .env("NEW_MOON_MOD", "0")
-        .assert()
-        .success();
-
-    assert!(!dir.join("moon.mod").exists());
-    assert!(dir.join("moon.mod.json").exists());
-    assert_eq!(
-        std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
-        original
-    );
-}
-
-#[test]
 fn test_fmt_moon_mod_json_migration_dry_run() {
     let dir = TestDir::new("fmt_moon_mod.in");
 
     assert!(dir.join("moon.mod.json").exists());
 
     check(
-        get_stderr(
-            &dir,
-            [
-                "--unstable-feature",
-                "rr_moon_mod",
-                "fmt",
-                "--dry-run",
-                "--sort-input",
-            ],
-        ),
+        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
         "#]],
     );
 
-    let output = get_stdout(
-        &dir,
-        [
-            "--unstable-feature",
-            "rr_moon_mod",
-            "fmt",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
+    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
 
     check(
         output,
@@ -246,7 +166,7 @@ fn test_fmt_moon_mod_json_migration_removes_legacy_file() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["--unstable-feature", "rr_moon_mod", "fmt"])
+        .args(["fmt"])
         .assert()
         .success();
 

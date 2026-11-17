@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/core/async",
+}
+
+import {
+  "moonbitlang/core/env",
+} for "wbtest"
+
+pkgtype(kind: "executable")

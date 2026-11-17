@@ -7,10 +7,10 @@ virtualized state, or authorization. Terms are defined in
 [CONTEXT.md](../../../CONTEXT.md); sequencing belongs in the
 [architecture tracker](../architecture-tracking.md).
 
-The requirements below describe the intended architecture. The current-state
-notes identify incomplete enforcement; this document does not turn those gaps
-into existing guarantees. Designs may revise the constraints explicitly, but
-moving files or completing a tracking item must not silently weaken them.
+The requirements below describe the intended architecture. Enforcement limits
+distinguish those requirements from supported guarantees. Designs may revise
+the constraints explicitly, but moving files or completing a tracking item
+must not silently weaken them.
 
 ## Relationship to earlier decisions
 
@@ -26,9 +26,9 @@ directory. The repository ADR 0001 and Moonrun ADR 0001 are different records.
 | Moonrun [0010: Stdio Compatibility](../../adr/0010-preserve-stdio-blocking-mode-for-compat-imports.md) | Compatibility imports must preserve embedding-owned descriptor blocking state |
 | Moonrun [0011: Generic Stat Result](../../adr/0011-use-a-stable-host-owned-generic-stat-result.md) | Share one host-owned result/codec, keep platform acquisition separate from ABI encoding, and authorize requested metadata effects |
 
-The glossary already defines Runtime Configuration, Runtime State, Moonrun
+The glossary defines Runtime Configuration, Runtime State, Moonrun
 Policy, Host Domain, Raw Operation, and Wasm Adapter. The
-[Rust library documentation](../../../README.md#rust-library) already describes
+[Rust library documentation](../../../README.md#rust-library) describes
 embedding. This guide connects those existing definitions to ownership and
 implementation obligations; it does not claim to introduce them.
 
@@ -38,7 +38,7 @@ replaces the repository ADR 0001's original
 module allocation, where `async_api` was V8-facing and `async_host` held the
 general host state. It preserves that ADR's semantic and lifetime guarantees.
 Its original V8/JS plumbing and deferred list are historical; the developer
-index describes current implementation and the tracker records remaining work.
+index describes the implementation and the tracker records remaining work.
 
 Related MoonBuild decisions keep their narrower scope. The
 [`moon run` lifecycle design](../../../../../docs/dev/design/moon-run-process-lifecycle.md)
@@ -55,7 +55,7 @@ processes, or invoking Moon. The CLI parses arguments, chooses configuration,
 connects process signals, and translates returned outcomes into host-process
 exit behavior. These actions stay outside the reusable execution interface.
 
-Virtual process interfaces have no current consumers and carry no backward
+Virtual process interfaces are experimental and carry no backward
 compatibility requirement. Their types, signatures, defaults, and behavior may
 change directly as this architecture develops. Prefer replacing an inadequate
 interface over preserving it with adapters or deprecation stages. Tests should
@@ -74,16 +74,16 @@ responsibilities have distinct owners within that interface.
 | Embedding caller / CLI | Select execution placement, root configuration and grants, signal forwarding, shutdown policy, and outcome presentation | [Library exports](../../../src/lib.rs), [CLI](../../../src/main.rs) |
 | Engine | Prepare reusable Loaded Modules, execute Wasm or prepared artifacts, and own execution scopes | [engine.rs](../../../src/engine.rs) |
 | Engine supervision | Own process admission, identities, parentage, control, adoption, completion, and reaping | [process_tree.rs](../../../src/process_tree.rs) |
-| Artifact preparation | Invoke Moon and retain delivered artifacts without executing guest code or finalizing control | [prepare_artifact.rs](../../../src/prepare_artifact.rs) |
+| Artifact preparation | Invoke Moon and retain delivered artifacts without executing guest code or finalizing control | [prepare_artifact.rs](../../../src/process/prepare_artifact.rs) |
 | Run | Execute Wasm synchronously and return after its Runtime and guest execution state have torn down | `Engine::run` and its scoped implementation |
 | Runtime | Realize one environment and wire its Host Domains, shared state, Handles, and authorization inputs | [runtime/mod.rs](../../../src/runtime/mod.rs) |
 
 `Engine::run` executes on the calling thread; `spawn(parent, module, options)`
 creates a managed thread whose result is consumed by `wait`. Both reuse Modules
 and consume `RunOptions`. Thread placement does not select guest process
-behavior: `GuestProcessMode::Native` is the compatibility default, and
-`with_guest_process_mode(GuestProcessMode::Virtual)` selects virtual identities
-and child control. A managed execution has a host control identity in either
+behavior: `process.virtualize` defaults to false, while a true value selects
+virtual identities and child control. The explicit Rust `with_virtualize` builder
+overrides that configuration without changing authorization. A managed execution has a host control identity in either
 mode; guest process operations use virtual identities only in Virtual mode.
 
 `Engine::new` creates an independent process namespace. Clones share its backend
@@ -92,20 +92,43 @@ not Engine or Runtime. A running Runtime may refer to its Engine through
 Process Context without forming an ownership cycle through the table. Neither
 admission nor lookup reconstructs Runtime state from a process entry.
 
-`run_moon` and `spawn_moon` share Moon preparation and artifact dispatch.
+`moonrun::initialize(config)` explicitly initializes the selected backend's
+process-wide state. For V8, the caller must initialize on the common ancestor
+of all compilation and execution threads before creating them, so they inherit
+the backend's memory protection permissions. Repeated calls do not repair
+existing threads. The CLI establishes this ordering; embedding callers own it.
+Lazy initialization remains available for compatibility, and Moonrun does not
+yet enforce thread ancestry or change caller-thread execution placement.
+
+`run_moon` and `spawn_moon` share Wasm preparation and execution.
+They are host-selected entries and can prepare Wasm through `moon run` as well
+as moonx. Handoff accepts Wasm targets only; native and Node commands use
+ordinary OS process execution.
+Guest Virtual spawn is narrower: only moonx is admitted, for local `.mbtx` files
+or registry packages. Other commands return unsupported without native fallback.
+Engine uses the shared moonx grammar before entering preparation. Help/version
+and parse errors complete through the embedded frontend and bound stdio; no
+helper or handoff directory is created. Responses use plain text and Clap's
+stream/exit-code rules, including best-effort diagnostic writes. Direct host
+entries need no helper executable for these responses; guest spawn still
+resolves and authorizes the executable before admission. Only valid execution
+requests enter preparation, where successful helper exit requires an artifact.
+Program arguments remain opaque after the input.
+Artifact execution must retain delivered dependencies and execution location.
 `run_file` places loading within the same execution scope as its Run. Internal
 `RuntimeConfig` and Host Domains remain private; public `RunOptions` builders
 provide the needed control, including owned environments, with one internal
 source for each fact.
 
 Whether a Moon/moonx request executes within the embedding host or through an
-external process is an execution strategy behind Engine. Current artifact
+external process is an execution strategy behind Engine. Artifact
 execution uses an external Moon helper for preparation and runs delivered Wasm
-in the embedding host; external delegation of the whole invocation remains
-future work. Each strategy must preserve the request's authority ceiling and
-explicit ownership of state, completion, and cleanup. It must account for the
-different enforcement available in an external process rather than claim that
-launch alone constrains it. Backend selection remains separate.
+in the embedding host; whole-invocation external delegation is tracked with
+[execution work](../architecture-tracking.md#execution-work). Each strategy must
+preserve the request's authority ceiling and explicit ownership of state,
+completion, and cleanup. It must account for the different enforcement
+available in an external process rather than claim that launch alone
+constrains it. Backend selection remains separate.
 
 Guest exit and termination return an outcome after teardown. They must not call
 `process::exit`, kill the embedding host, or install the CLI's process-signal
@@ -129,16 +152,67 @@ Cancelling a wait must preserve the child and an unread result. Managed results
 are published after thread reaping. A caller-thread virtual execution reserves
 its result for the synchronous caller and removes its identity on return.
 Neither `Terminating` nor dropping an Engine promises that blocked work has
-stopped. The caller owns descendant shutdown and waiting.
+stopped. `request_shutdown(outcome)` closes managed and Virtual admission and
+requests termination of all admitted members under the same process-table lock.
+It includes adopted descendants without changing single-member `terminate`
+semantics. Shutdown is irreversible for that namespace and shared by Engine
+clones. The caller owns waiting and result consumption. Native
+caller-thread execution has no table entry and retains its separate control.
 
-Current limits: the library interface is experimental. Virtual execution,
-managed spawning, and external forced interruption currently require V8. These
+The virtual CLI owns its Engine namespace. It forwards cooperative signals to
+the root while the root accepts them; otherwise it retains the first signal,
+requests namespace shutdown, and drains adopted roots before applying that
+signal to the host. Initialization and finalization are part of this signal
+policy, so early signals cannot miss admission and signals during cleanup
+cannot bypass it. After finalization, the process signal fallback applies.
+Normal root completion permits adopted descendants to finish naturally.
+Preparation retains termination requests while waiting for helper exit and
+prevents artifact execution after cancellation. The
+[helper cancellation contract](#artifact-preparation-and-command-selection)
+defines the required cancellation scope.
+
+Backend limits: the library interface is experimental. Virtual execution,
+managed spawning, and external forced interruption require V8. These
 limits are checked at execution/admission, not Engine construction; ordinary
 caller-thread Runs remain available on other supported backends. Unsupported
 operations must fail instead of silently weakening the contract. The CLI
-signal broker is separate, but worker interruption still installs Unix
-process-wide signal behavior. Policy denials also still write to host stderr.
+signal broker is separate, but worker interruption installs Unix
+process-wide signal behavior. Policy denials write to host stderr.
 These are embedding ownership gaps, not reasons to put CLI behavior in Engine.
+
+## Artifact preparation and command selection
+
+Guest Virtual spawning admits only moonx, for local `.mbtx` scripts and registry
+packages. Ordinary commands, including `moon run -`, report unsupported in that
+mode. Native mode retains ordinary OS spawning. Host-selected Engine entries
+can prepare `moon run` as well as moonx without expanding guest spawn support.
+Public `moon build` remains build-only.
+
+Moon and Engine share the authoritative moonx grammar in
+`moonutil::cli_support`, including its opaque program-argument tail. Ordinary
+Moon command definitions stay in Moon. Engine completes help/version and parse
+errors through bound streams before artifact preparation; guest arguments
+cannot replace the private handoff prefix. Guest spawn still resolves and
+authorizes the executable before admission. Classification does not grant
+additional authority.
+
+The mixed-execution follow-up will admit ordinary native children permitted by
+the existing process rules. These members need the same ownership of state,
+termination, completion, and reaping as Wasm Runs. Artifact handoff will be
+limited to Wasm; native and Node commands use ordinary OS execution.
+
+Noninteractive preparation should own its helper and compiler descendants as a
+cancellation scope, using a Unix process group or Windows Job. Cancelling that
+scope differs from terminating a single guest process. Completion requires
+reaping; cancellation must prevent admission of the delivered artifact.
+Moon/n2 cooperative cancellation is a separate protocol, not a prerequisite for
+this scope. Waiting for running n2 tasks does not actively cancel them.
+
+Acceptance cases distinguish host-selected preparation from guest moonx
+spawning, reject unsupported guest commands, and cover frontend responses and
+opaque argument tails. Cancellation coverage must verify that helpers and their
+descendants are reaped without starting the artifact. Implementation order
+belongs in [execution work](../architecture-tracking.md#execution-work).
 
 ## Three layers for host operations
 
@@ -163,10 +237,53 @@ separate ownership concerns, outside the per-import call chain.
 
 Shared ABI definitions are part of adaptation, not a fourth semantic layer.
 Their main homes are [wasm_imports](../../../src/wasm_imports),
-[async_api](../../../src/async_api), [host_imports.rs](../../../src/host_imports.rs),
+[async_api](../../../src/async_api), [core_api.rs](../../../src/core_api.rs),
+[unstable_api.rs](../../../src/unstable_api.rs),
 and domain-specific import registrations. The V8, Wasmtime, and wee8 adapters
 provide engine conversion and memory access. Pure value conversions need no
 artificial Host Domain or permission check.
+
+The import family identifies the guest contract, not a separate implementation
+of each host operation:
+
+| ABI family | Guest contract | Shared definitions |
+| --- | --- | --- |
+| WASI | WASIp1 calls, descriptor rights, and preopens | `wasi/imports.rs` |
+| Core | `moonbitlang/core` imports | `core_api/registry.rs` |
+| Async | `moonbitlang/async` imports | `async_api/` |
+| Unstable | Legacy `__moonbit_*_unstable` imports, retained until retirement | `unstable_api.rs` and `unstable_api/` |
+
+Filesystem requests share this path:
+
+```mermaid
+flowchart LR
+    W[WASI adaptation] --> F[Filesystem domain: HostFs and Jobs]
+    A[Async adaptation] --> F
+    U[Unstable adaptation] --> F
+    F --> R[std::fs or filesystem::os]
+```
+
+HostFs owns filesystem interpretation and authorization; Filesystem Jobs carry
+async execution and results within that same domain.
+Core executable-path queries use Runtime Executable state, cwd queries use
+HostFs, and environment operations use the shared Env. New operations should
+select their semantic owner instead of passing through HostFs merely to match
+the diagram.
+The Unstable API owns its legacy error/getter contract, not separate filesystem
+policy or mechanisms. Its retirement should remove that adaptation without
+removing shared host behavior.
+
+`std::fs` supplies ordinary OS operations directly. `filesystem::os` supplements
+it with mechanisms that need custom platform handling: rename with explicit
+replacement and cross-device options, handle-relative opening and removal,
+and directory-handle path lookup. Opening accepts typed host options and an
+execution bracket; Filesystem Jobs supply worker cancellation, while synchronous
+HostFs calls execute directly. The raw layer returns `io::Result` and does not
+import Async errors or worker state. Other custom async mechanisms reside in
+Job runners and `async_sys`; move them as their responsibilities are separated,
+without adding forwarding wrappers around std.
+Likewise, remove `AsyncHost` only if extracting its responsibilities leaves it
+unnecessary; deletion is a possible outcome, not a separate migration goal.
 
 Host Filesystem, Host Network, Host Process, SQLite Host, and WASI own their
 respective semantics. Env, Working Directory, and Stdio supply shared
@@ -174,7 +291,7 @@ Runtime-owned state. Workers schedule Jobs and deliver Completions; they do not
 become a second owner of domain interpretation or authorization.
 
 Raw Operations can remain private within a domain, such as
-[process/ambient.rs](../../../src/process/ambient.rs), or live in
+[process/os.rs](../../../src/process/os.rs), or live in
 [async_sys](../../../src/async_sys). Keep platform-specific operations close to
 their semantic owner. Reuse mature dependencies where appropriate, but account
 for their implicit cwd, environment, signal, and library-global behavior.
@@ -184,10 +301,22 @@ Within Host Process, [spawn.rs](../../../src/process/spawn.rs) owns request
 interpretation, authorization, and resource binding.
 [lookup.rs](../../../src/process/lookup.rs) computes executable candidates from
 explicit inputs; it has no Runtime, Policy, environment reads, filesystem
-probes, or OS calls. [ambient/lookup.rs](../../../src/process/ambient/lookup.rs)
-provides the OS observations and probes needed by that interpretation, while
-Ambient Process owns native execution. This separation is internal to the
-crate; a new crate or general process framework is not required.
+probes, or OS calls. [os/lookup.rs](../../../src/process/os/lookup.rs)
+provides the OS observations and probes needed by that interpretation.
+[native.rs](../../../src/process/native.rs) materializes policy transfers,
+retains Resource owners, brackets worker cancellation, and publishes results.
+[os.rs](../../../src/process/os.rs) and [os/control.rs](../../../src/process/os/control.rs)
+own native spawn, wait, polling, signals, and reaping. They accept resolved
+execution inputs and caller-retained native handles, return owned process
+handles and native `ExitStatus` values, and report `io::Error`. They do not
+interpret Policy, Resource publication, or Engine outcomes. OS interfaces use
+platform-specific inputs: Unix PID and Linux pidfd waits are distinct from
+Windows HANDLE waits; Windows console events take a process-group ID and event
+kind, and termination takes an explicit exit code. Host workers and async
+adaptation select these operations and preserve guest status, error encoding,
+and graceful-signal compatibility. Unix spawn and fork/exec share one native
+request and own their duplicated stdio descriptors. Native PID identity, child
+authority, and Engine admission remain separate responsibilities.
 
 For an operation that touches host state, the required flow is:
 
@@ -217,7 +346,7 @@ Explicit Unix search retains a frozen candidate sequence because an actual
 exec failure can require trying the next entry, even if the first entry passed
 an access check.
 
-Host Process now has one `prepare_job` entry shared by inline and worker jobs.
+Host Process has one `prepare_job` entry shared by inline and worker jobs.
 It applies the existing lexical process policy before effectful lookup,
 interprets the request using the realized Runtime state, binds streams, and
 selects native execution or virtual Moon derivation. Native requests retain
@@ -229,12 +358,11 @@ Virtual derivation validates the child environment and supplies the selected
 Moon tool to Engine without consulting PATH again. Admission and completion
 remain Engine responsibilities.
 
-Current limits: process rules authorize the requested program and arguments
-(or original Windows command-line prefix), not a stable executable file
-identity. This migration does not add filesystem authorization for executable
-lookup, constrain native descendants, or expand policy coverage. Some other
-imports still directly expose primitives; the full authority model remains
-incremental.
+Process authorization limits: rules authorize the requested program and
+arguments (or original Windows command-line prefix), not a stable executable
+file identity. These rules do not authorize filesystem effects of executable
+lookup or constrain native descendants. Other host effects require the
+contracts in the [authority design](authority-closure.md).
 
 ## Virtualization and inheritance
 
@@ -274,7 +402,13 @@ through its parent's Host Process, which derives the child before admission.
 Already-resolved state and authorization must not be reconstructed from the
 process tree later.
 
-Guest-visible executable origin currently records a load-time pathname; see
+[Policy construction](authority-closure.md#runtime-construction-and-inheritance)
+separates source loading, resolved domain rules, Env provisioning, and external
+transfer. In-process children receive typed restrictions rather than serialized
+policy documents. Neither inheritance nor decoding resolves filesystem roots
+again; source-relative resolution belongs to initial file loading.
+
+Guest-visible executable origin records a load-time pathname; see
 [current executable semantics](../current-exe-semantics.md). It is not a stable
 file identity proving which OS executable an authorization decision permits.
 
@@ -315,7 +449,7 @@ These rules follow the native implementations and interfaces:
 [musl spawn](https://git.musl-libc.org/cgit/musl/tree/src/process/posix_spawn.c),
 [Darwin spawnp](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c),
 and [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
-The raw Ambient Process primitives implement these mechanisms; Host Process
+The raw process primitives implement these mechanisms; Host Process
 chooses which Runtime inputs require interpretation.
 
 For interpreted lookup:
@@ -327,7 +461,7 @@ For interpreted lookup:
   environment changes do not redirect the resulting plan. Capture cwd only
   when relative candidates need a base or Engine requires a complete child
   configuration. Absolute candidates and an inherited or already absolute
-  child cwd do not require `getcwd`; an unlinked Ambient directory may still
+  child cwd do not require `getcwd`; an unlinked Ambient directory may
   be inherited. This freezing rule does not apply to native Ambient lookup.
 - Unix relative paths and relative or empty PATH entries use the effective child
   cwd. Explicit paths bypass search. Missing PATH uses the platform's default
@@ -366,17 +500,16 @@ not a reason to retain a second mutable or executable request state. Check the
 MoonBit wrapper together with the C stub when deciding whether a host behavior
 change breaks callers, as required by ADR 0002.
 
-Deliberately deferred work includes complicated PATH and
-PATHEXT compatibility, special Windows paths, trusted Moon recognition, and
-stable identity across filesystem changes. In interpreted lookup,
-drive-relative, rooted-without-drive, and device paths are currently rejected
+Interpreted lookup does not guarantee complete PATH/PATHEXT compatibility,
+trusted Moon identification, or stable file identity. Windows drive-relative,
+rooted-without-drive, and device paths are rejected
 rather than resolving against hidden host drive state. Interpreted Windows
 lookup does not reproduce CreateProcess's successive-prefix guessing for
 unquoted executable names containing spaces. Native Ambient Windows execution
-continues to delegate these cases to CreateProcessW. Deferral does not permit
+continues to delegate these cases to CreateProcessW. These limits do not permit
 introducing new host-global fallbacks for Runtime-owned inputs.
 
-Current implementation: `RunOptions::with_environment` selects an owned source
+`RunOptions::with_environment` selects an owned source
 environment; policy provisioning, when present, consumes that source. An empty
 iterator stays empty rather than inheriting host values. Host entries capture
 Virtual root defaults through `RuntimeConfig::capture_host_state`; guest spawn
@@ -385,12 +518,42 @@ stdio, and inherited policy explicitly. Admission rejects an incomplete Virtual
 configuration rather than falling back to host state. Parent links do not
 participate in deriving configuration or policy.
 
-Current limits: Ambient Runs can mutate the host environment.
+Embedding limits: Ambient Runs can mutate the host environment.
 Library-global state, including Winsock startup/cleanup and Unix signal handlers,
-also requires an ownership audit. The current ambient Windows spawn path even
-assigns the embedding process to a global Job Object; this is not a child-owned
-cancellation scope. Such facilities need an explicit host coordination contract
-and controlled Runtime use. Runtime-local objects do not isolate them.
+requires coordinated ownership across Runtimes and the embedder. The ambient
+Windows spawn path assigns the embedding process to a global Job Object; this
+is not a child-owned cancellation scope. Such facilities need an explicit host
+coordination contract and controlled Runtime use. Runtime-local objects do not
+isolate them.
+
+## Execution configuration
+
+The selected policy file colocates `process.virtualize` with process permission
+syntax, but these fields have separate owners. Source loading produces resolved
+Policy rules, Env provisioning configuration, and the execution choice once.
+Engine consumes the execution choice before admission; Runtime composes the
+resolved rules with inherited restrictions and provisions Env from the caller's
+source. Inherited restriction transfer carries neither execution configuration
+nor Env provisioning. Internal children receive their parent's execution choice
+explicitly through Host Process; parentage alone does not supply it.
+
+The CLI offers `--virtual-process` and `--daemon` as explicit enabling overrides
+for `process.virtualize` and `process.ipc`. Absent flags retain the selected
+configuration. Neither flag changes authorization. The implementation rejects
+combining IPC with virtual process identities, including settings loaded from
+policy or inherited discovery. This restriction does not apply to Runtime state isolation:
+IPC uses owned Env and Fixed cwd with native process identities. Its guest
+operations use the same Host Domains and executable lookup as other Runs with
+that state.
+The binary consumes the library's shared `MoonrunCli` grammar; parsing does not
+initialize the Engine, load policy, or install process-global handlers.
+
+A policy discovered through Moon's Wasm handoff is loaded before Wasm starts.
+A managed execution reuses its existing identity; an inline execution admits
+under the namespace shutdown lock only if virtualization becomes enabled.
+Host-selected policy suppresses the delivered source, while inherited authority
+always remains an additional ceiling and does not suppress child configuration.
+Runtime does not change execution mode after construction.
 
 ## Overall authority and FFI mapping
 
@@ -406,17 +569,17 @@ that ceiling. The union of exposed routes matters: denying a path in one FFI
 does not deny an equivalent WASI or native route. This is a semantic requirement,
 not a requirement for one global policy object on every call.
 
-| Access surface | Semantic and authorization owner | Current coverage / required treatment |
+| Access surface | Semantic and authorization owner | Contract and enforcement limits |
 | --- | --- | --- |
-| Legacy and async filesystem calls | Host Filesystem with filesystem rules and Resource provenance | Shared domain checks exist; path and handle operations must express the complete read/write/metadata intent |
+| Unstable and async filesystem calls | Host Filesystem with filesystem rules and Resource provenance | Shared domain checks exist; path and handle operations must express the complete read/write/metadata intent |
 | Async networking | Host Network with network rules | DNS, socket endpoints, and acquired sockets have distinct effects; keep checks in the domain |
 | Process spawn, wait, signal, and kill | Host Process; Engine executes authorized virtual control | Spawn authorization and child provenance exist; executable resolution must be covered by the final interpreted intent |
 | SQLite file access | SQLite Host using filesystem authorization | Account for database, journal, temporary-file, and auxiliary access; retain existing policy restrictions on SQLite behavior |
 | Env, cwd, executable identity | Runtime-owned state and its provisioning | State selection is distinct from permission; exposing environment values is an explicit data grant |
 | Stdio, passed files, sockets, and directory resources | Granting owner plus the receiving domain | Validate lifetime, kind, provenance, and allowed use; a Handle is not an unchecked OS descriptor |
-| WASIp1 filesystem and descriptors | WASI descriptor and preopen authority | Currently independent of Moonrun Policy; shares Runtime Env/stdio and derives its preopen from cwd. Uniform authority requires explicit integration |
-| Build helpers and compiler descendants | Host-selected preparation plus separately delegated execution authority | Currently retain host access; guest Wasm policy does not sandbox preparation |
-| Native executables and Node | Host Process admission plus an explicit native execution contract | Prepared native/JS artifacts are not yet executed by Engine. Native guest process mode preserves existing OS spawn paths; spawn permission does not restrict arbitrary native syscalls |
+| WASIp1 filesystem and descriptors | WASI descriptor/preopen authority plus Host Filesystem | Filesystem effects use shared domain authorization and native operations; acquired-file I/O retains descriptor rights. Runtime Env/stdio remain shared; stdio is a separate resource grant |
+| Build helpers and compiler descendants | Host-selected preparation plus separately delegated execution authority | Helpers retain host access; guest Wasm policy does not sandbox preparation |
+| Native executables and Node | Host Process admission plus an explicit native execution contract | Handoff is Wasm-only. Native guest process mode preserves existing OS spawn paths; spawn permission does not restrict arbitrary native syscalls |
 | Other imports touching host state | The relevant domain or Runtime dependency | Audit clocks, randomness, library initialization, and any direct raw imports; declare unrestricted exposure or enforce a rule rather than assuming filesystem policy covers them |
 
 An FFI name is an ABI entry point, not the unit of policy. Two FFIs with the
@@ -448,21 +611,21 @@ parentage, a policy filename, or knowledge of another Runtime's handle number.
 Runtime isolation prevents access to the original resource behind another
 Runtime's Handles; cross-Runtime resource transfer needs explicit rebinding.
 
-Current limits: policy loading separates environment provisioning from domain
-rules and transports canonical inherited policy. Without a policy, existing
+Enforcement limits: policy loading separates environment provisioning from
+domain rules and transports resolved restrictions independently of user policy syntax. Without a policy,
 domain operations retain their unrestricted behavior; Virtual mode alone does
-not change that. Current policy inheritance does not implement a general
-intersection of parent authority, child policy, WASI grants, and resource
-delegation. Inherited policy currently takes precedence over delivered policy;
-that precedence is not a complete restriction algebra. WASI and trusted native
-helpers remain separate authority surfaces. SQLite's native VFS and temporary
-files, and native TLS system-trust discovery, also need their trusted scope
-stated explicitly; existing path checks do not mediate every library effect.
-A host may deliberately grant ambient native execution, in which case Effective
-Authority includes everything that process can reach. Its own descendants do
-not automatically acquire a Moonrun Runtime or virtual identity. A complete
-sandbox claim must wait for the relevant surfaces and identity/race guarantees
-to be enforced.
+not change that. Inherited and selected child policies form a conjunction of domain
+restrictions. WASI rights remain additional checks; general resource delegation
+requires its own enforcement. The [authority design](authority-closure.md) specifies
+those contracts and the filesystem enforcement boundary.
+
+SQLite's native VFS and temporary files, and native TLS system-trust discovery,
+require explicit trusted scope; path checks do not mediate every library
+effect. A host may deliberately grant ambient native execution, whose Effective
+Authority includes everything that process can reach. Its descendants do not
+automatically acquire a Moonrun Runtime or virtual identity. A complete sandbox
+claim requires enforcement across those surfaces and stable identity/race
+guarantees.
 
 Authority, cancellation, and resource budgets are separate contracts. A policy
 allowlist does not provide CPU, memory, worker-count, or temporary-disk limits;
@@ -490,17 +653,27 @@ capabilities must fail instead of falling back to ambient execution.
 Use the following execution scenarios as evidence, adding tests as each
 contract becomes enforceable rather than treating planned coverage as passing:
 
-| Contract | Existing evidence / next acceptance case |
+| Contract | Evidence and acceptance criterion |
 | --- | --- |
 | Embedding without host exit | [engine_outcomes.rs](../../../tests/engine_outcomes.rs), [engine_backends.rs](../../../tests/engine_backends.rs); preserve guest outcome and host-error distinction |
 | Independent state on shared Engine | [working_directory.rs](../../../tests/working_directory.rs), [stdio.rs](../../../tests/stdio.rs), [process_tree.rs](../../../tests/process_tree.rs); retain explicit Env, namespace, clone, and placement coverage |
 | Scope-owned termination and cleanup | [run_termination.rs](../../../tests/run_termination.rs), process-tree unit tests; retain caller-thread and managed execution through loading, preparation, and cleanup |
-| Recursive handoff and child control | [recursive_moon.rs](../../../tests/recursive_moon.rs), [moon_handoff.rs](../../../tests/moon_handoff.rs), [guest_process_control.rs](../../../tests/guest_process_control.rs) |
-| Equivalent ABI semantics | [legacy_host_imports.rs](../../../tests/legacy_host_imports.rs), [numeric_host_imports.rs](../../../tests/numeric_host_imports.rs), [wasi_imports.rs](../../../tests/wasi_imports.rs); add cross-surface denial tests when authority is integrated |
-| Monotonic delegation | Existing policy inheritance tests are a starting point; add child-policy, WASI, resource-transfer, and helper/native grant cases as their enforcement lands |
+| Recursive handoff and child control | [recursive_moon.rs](../../../tests/recursive_moon.rs), [moon_handoff.rs](../../../tests/moon_handoff.rs), [guest_process_control.rs](../../../tests/guest_process_control.rs); preserve arguments, cwd, Env, stdio, policy, and executable origin through handoff |
+| Equivalent ABI semantics | [legacy_host_imports.rs](../../../tests/legacy_host_imports.rs), [numeric_host_imports.rs](../../../tests/numeric_host_imports.rs), [wasi_imports.rs](../../../tests/wasi_imports.rs), [filesystem_authority.rs](../../../tests/filesystem_authority.rs); preserve ABI contracts and shared denial behavior |
+| Monotonic delegation | Policy composition tests cover inherited and additional domain restrictions; resource delegation has separate acceptance cases in the [authority design](authority-closure.md) |
 
-Prioritize the shared library and domain interfaces and ordinary execution
-paths. Helper ownership, native execution, and authorization expansion can then
-use those interfaces without redesigning Runtime, imports, and supervision
-together. The tracker determines which increment is next; these constraints
-continue to apply after that tracker is complete.
+Process-preparation acceptance cases must also cover:
+
+- Native controls for caller and child cwd on each platform, including relative
+  PATH entries. Separate Runtime cases exercise Fixed caller cwd and an
+  independent child-cwd override.
+- Frozen caller lookup inputs independent of child Env, lexical denial before
+  lookup or transfer-file effects, and cwd capture only where required.
+- Pure lookup calculation without OS fixtures and Linux candidate retries
+  within one child process.
+- Async completion/errno/free ordering for failed preparation, Linux fallback
+  raw argv/envp and exec errors, and Windows empty and NUL-terminated strings.
+
+The tracker owns sequencing. These contracts apply to library and domain
+changes, helper ownership, native execution, and authorization regardless of
+which task delivers them.

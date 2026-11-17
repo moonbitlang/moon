@@ -110,6 +110,9 @@ fn prepare_delegate(invocation: DelegatedInvocation) -> anyhow::Result<Command> 
         DelegatedInvocation::Cram { current_dir, args } => {
             super::cram::prepare_moon_cram(current_dir.as_deref(), args)
         }
+        DelegatedInvocation::TestCli { current_dir, args } => {
+            super::testcli::prepare(current_dir.as_deref(), args)
+        }
         DelegatedInvocation::Login { current_dir } => {
             super::mooncake_adapter::prepare_direct(current_dir.as_deref(), &["login"])
         }
@@ -240,6 +243,7 @@ fn dispatch(
         Build(command) => super::run_build(&flags, command, output).map(Into::into),
         Bundle(command) => super::run_bundle(flags, command, output).map(Into::into),
         Check(command) => super::run_check(&flags, &command, output).map(Into::into),
+        Fix(command) => super::run_fix(&flags, &command, output).map(Into::into),
         Prove(command) => super::run_prove(&flags, &command, output).map(Into::into),
         Clean(command) => super::run_clean(&flags, &command, output.user_log()).map(Into::into),
         Cram(command) => super::run_cram(&flags, command, output),
@@ -256,7 +260,7 @@ fn dispatch(
         Explain(command) => super::run_explain(&flags, command).map(Into::into),
         Install(command) => super::install_cli(flags, command, output.user_log()).map(Into::into),
         Whoami(command) => super::run_whoami(&flags, command).map(Into::into),
-        New(command) => super::run_new(&flags, command, output.user_log()).map(Into::into),
+        New(command) => super::run_new(&flags, command, output.user_log()),
         Publish(command) => {
             super::mooncake_adapter::publish_cli(flags, command, output.user_log()).map(Into::into)
         }
@@ -268,7 +272,6 @@ fn dispatch(
         }
         Remove(command) => super::remove_cli(flags, command, output.user_log()).map(Into::into),
         Run(command) => super::run_run(&flags, command, output).map(Into::into),
-        RunWasm(command) => super::run_runwasm(&flags, command, output),
         Search(command) => super::run_search(command, output).map(Into::into),
         View(command) => super::run_view(command, output).map(Into::into),
         Test(command) => super::run_test(flags, command, output).map(Into::into),
@@ -277,8 +280,8 @@ fn dispatch(
         Upgrade(command) => super::run_upgrade(flags, command).map(Into::into),
         ShellCompletion(command) => super::gen_shellcomp(&flags, command).map(Into::into),
         Version(command) => super::run_version(&flags, command).map(Into::into),
-        Tool(command) => super::run_tool(&flags, command, output.user_log()).map(Into::into),
-        Login(_) | Register(_) | External(_) => {
+        Tool(command) => super::run_tool(&flags, command).map(Into::into),
+        Login(_) | Register(_) | External(_) | TestCli => {
             unreachable!("transparent delegates are selected before Moon runtime setup")
         }
     }

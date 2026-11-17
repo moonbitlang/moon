@@ -16,20 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use chrono::DateTime;
+use std::error::Error;
 use std::{env, fs, path::Path};
-use std::{
-    error::Error,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use time::{OffsetDateTime, format_description};
 use vergen::EmitBuilder;
 
 pub fn main() -> Result<(), Box<dyn Error>> {
     EmitBuilder::builder().build_date().git_sha(true).emit()?;
 
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    let datetime = DateTime::from_timestamp(time.as_secs() as i64, 0).unwrap();
-    let date_str = datetime.format("%Y%m%d").to_string();
+    let date_str =
+        OffsetDateTime::now_utc().format(&format_description::parse("[year][month][day]")?)?;
     println!("cargo:rustc-env=CARGO_PKG_VERSION=0.1.{date_str}");
 
     println!("cargo:rerun-if-changed=resources/error_codes");

@@ -22,10 +22,7 @@ mod model;
 mod solve;
 mod verify;
 
-use crate::{
-    discover::DiscoverResult,
-    pkg_solve::verify::{compute_realizable_supported_targets, verify},
-};
+use crate::{discover::DiscoverResult, pkg_solve::verify::verify_and_compute_support};
 use log::info;
 use moonutil::{resolution::ModuleDependencyGraph, target::TargetBackend, user_log::UserLog};
 use tracing::{Level, instrument};
@@ -34,7 +31,7 @@ pub use model::{DepEdge, PackageRelations, PackageResolutionError};
 use solve::solve_only;
 
 /// Resolve package imports and virtual-package references, validate their
-/// relationships, and compute supported backends from the resulting graph.
+/// relationships, and check dependency support for the selected backend.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn resolve_packages(
     modules: &ModuleDependencyGraph,
@@ -46,8 +43,13 @@ pub fn resolve_packages(
     info!("Starting dependency resolution");
 
     let mut res = solve_only(modules, packages, enable_coverage, backend, user_log)?;
-    verify(&res, packages, user_log)?;
-    res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
+    res.unsupported_targets = verify_and_compute_support(
+        &res,
+        packages,
+        modules.input_module_ids(),
+        backend,
+        user_log,
+    )?;
 
     info!("Dependency resolution completed successfully");
     Ok(res)

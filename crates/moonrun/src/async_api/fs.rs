@@ -35,6 +35,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_>) -> i32 {
     match context
         .filesystem()
         .temp_dir()
+        .map_err(AsyncHostError::from)
         .and_then(|path| encode_guest_units(&path))
         .and_then(|units| i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault))
     {
@@ -60,6 +61,8 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_>, ptr: u32, len: u32) 
     zero_or_minus_one(context, result)
 }
 
+// Deprecated: this was a host-buffer test helper, not an upstream Wasm import.
+// Guests should use fs/get_tmp_path_len and fs/get_tmp_path.
 pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_>) -> AsyncHostResult<u64> {
     let path = context.filesystem().temp_dir()?;
     Ok(context

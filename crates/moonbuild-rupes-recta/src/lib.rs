@@ -21,16 +21,19 @@
 
     ## Quickstart
 
-    You can find the high-level compilation stages in [`resolve`] and [`compile`]:
+    Dependency and script preparation live in `moonbuild::prepare`, and build
+    orchestration lives in `moonbuild::compile`. RR consumes synchronized
+    modules and exposes the individual compilation stages:
 
-    - [`resolve`] discovers modules and packages as [`DiscoveredProject`], then
+    - [`resolve`] discovers packages in supplied modules as [`DiscoveredProject`], then
       resolves the requested target backends. [`ResolvedProject`] contains complete
       [`pkg_solve::PackageRelations`] for each requested backend. Any resolution
       failure is returned immediately.
 
-    - [`compile`] takes in the project and its package relations and produces an
-      [`execution_plan::ExecutionPlan`]. This part converts the intent of the
-      user into concrete actions and declared outputs.
+    - [`build_plan`] converts requested artifacts into a semantic Build Plan.
+      After orchestration prepares the required external inputs, [`build_lower`]
+      produces an [`execution_plan::ExecutionPlan`] with concrete actions and
+      declared outputs. Both stages borrow the same [`CompileConfig`].
 
     Of all intents of the user, one is so different from the rest: `moon fmt`.
     The formatter only needs the list of files to run, regardless of whether the
@@ -54,9 +57,9 @@
 
     1. Read the local registry index (usually populated from `mooncakes.io`
        by `moon update`) and resolve the *module* dependency graph
-       (via `mooncake`'s internal resolver).
-    2. Download the required dependency to local cache folders
-       ([`mooncake::pkg::install`]).
+       (`moonbuild::prepare` delegates module resolution to `mooncake`).
+    2. Synchronize the required dependency sources through `mooncake` before
+       entering RR. RR does not depend on the registry or downloader.
     3. Discover packages within modules ([`crate::discover`]). This is different
        from many package managers -- the package distribution unit ("module")
        is different from the compile unit ("package").
@@ -103,7 +106,7 @@ pub mod pkg_name;
 pub mod pkg_solve;
 
 // High-level actions
-pub mod compile;
+mod compile;
 pub mod resolve;
 pub mod target_layout;
 
@@ -114,15 +117,14 @@ pub mod fmt;
 pub mod all_pkgs;
 pub mod cond_comp;
 pub mod intent;
-mod mbtx;
 pub mod metadata;
 pub mod prebuild;
 mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{CompileConfig, CompileOutput, compile};
+pub use compile::CompileConfig;
 pub use resolve::{
-    DiscoveredProject, ProjectPreparationConfig, ResolvedProject, discover_synced_project,
-    prepare_synced_project, sync_module_dependencies,
+    DiscoveredProject, DiscoveryConfig, ResolvedProject, discover_synced_project,
+    prepare_synced_project,
 };

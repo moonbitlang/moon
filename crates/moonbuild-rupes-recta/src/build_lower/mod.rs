@@ -59,20 +59,19 @@ pub enum LoweringError {
 
     #[error("failed to parse built-in :embed prebuild arguments: unterminated quote or escape")]
     MalformedEmbedArguments,
-
-    #[error("failed to inspect MoonBit toolchain include directory {path}")]
-    ToolchainInclude {
-        path: PathBuf,
-        source: walkdir::Error,
-    },
 }
 
 /// Lower a normalized action plan into an executor-neutral Execution Plan.
+///
+/// When [`BuildPlan::requires_toolchain_headers`] is true, supply all files
+/// observed under the selected toolchain's include directory. Lowering attaches
+/// these paths to C compilation actions without inspecting the filesystem.
 #[instrument(skip_all)]
 pub fn lower_build_plan(
     resolved_project: &ResolvedProject,
     plan: &BuildPlan,
     opt: &CompileConfig,
+    toolchain_include_files: &[PathBuf],
 ) -> Result<ExecutionPlan, LoweringError> {
     info!("Starting action plan lowering to execution plan");
     debug!(
@@ -82,7 +81,7 @@ pub fn lower_build_plan(
         plan.backend_plan().moonc_debug_info()
     );
 
-    let mut ctx = LoweringContext::new(resolved_project, plan, opt);
+    let mut ctx = LoweringContext::new(resolved_project, plan, opt, toolchain_include_files);
     let mut execution = ExecutionPlanBuilder::default();
 
     for action_key in plan.all_actions() {
@@ -146,6 +145,7 @@ mod tests {
                 wasi_link: false,
                 new_allocator: false,
                 collect_ref_cycle: false,
+                separate_compilation: false,
             },
             BackendConfig::WasmGc { use_wat: false },
             BackendConfig::Js,
@@ -172,11 +172,10 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                info_no_alias: false,
                 stdlib_path: None,
             };
 
-            let context = LoweringContext::new(&resolved_project, &plan, &options);
+            let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
             assert_eq!(context.artifact_path_options().os, OperatingSystem::None);
         }
     }
@@ -239,7 +238,6 @@ mod tests {
             link: None,
             warn_list: None,
             proof_enabled: false,
-            use_async_io: false,
             targets: None,
             pre_build: None,
             bin_name: None,
@@ -281,8 +279,6 @@ mod tests {
             warn_list: None,
             specified_no_mi: false,
             patch_file: None,
-            why3_config: None,
-            proof_prelude: PathBuf::from("proof-prelude"),
             check_mi_against: None,
             value_tracing: false,
         }
@@ -370,6 +366,129 @@ mod tests {
     }
 
     #[test]
+    fn stdlib_interface_inputs_are_exact_per_action_and_backend() {
+        let (mut project, target) = single_package_resolve_output();
+        let template = project.pkg_dirs.get_package(target.package).clone();
+        let [a, b, shared, unrelated] = ["a", "b", "shared", "unrelated"].map(|name| {
+            let path = PackagePath::new(name).expect("valid fixture package name");
+            let mut package = template.clone();
+            package.fqn = PackageFQN::new(template.fqn.module().clone(), path.clone());
+            package.is_stdlib = true;
+            project
+                .discovered
+                .pkg_dirs
+                .test_add_package(template.module, path, package)
+                .build_target(TargetKind::Source)
+        });
+        let smaller = target.package.build_target(TargetKind::WhiteboxTest);
+        let empty = target.package.build_target(TargetKind::BlackboxTest);
+        let mut plan = BuildPlan::default();
+        for target in [target, smaller, empty] {
+            let node = BuildPlanNode::Check(target);
+            plan.test_add_node(node);
+            plan.test_insert_build_target_info(target, build_target_info());
+            plan.test_provide_artifact(
+                node,
+                ArtifactKey::CheckMi {
+                    package: target.package,
+                    target_kind: target.kind,
+                },
+            );
+        }
+        // A diamond, an overlapping but smaller import set, and no stdlib
+        // imports. Reusing a previous action's union would over-observe files.
+        for backend in [BackendConfig::WasmGc { use_wat: false }, BackendConfig::Js] {
+            let relations = project
+                .package_relations
+                .get_mut(&backend.target_backend())
+                .expect("fixture supplies relations for each backend");
+            relations.dep_graph.add_node(unrelated);
+            for (from, to, alias) in [
+                (target, a, "a"),
+                (target, b, "b"),
+                (smaller, a, "a"),
+                (a, shared, "shared"),
+                (b, shared, "shared"),
+            ] {
+                relations.dep_graph.add_edge(
+                    from,
+                    to,
+                    crate::pkg_solve::DepEdge {
+                        short_alias: arcstr::Substr::from(alias),
+                        import_all: false,
+                        kind: TargetKind::Source,
+                    },
+                );
+            }
+            let stdlib = PathBuf::from("toolchain/core");
+            let options = CompileConfig {
+                target_dir: PathBuf::from("_build"),
+                debug_export_build_plan: false,
+                debug_info: Default::default(),
+                warn_list: None,
+                artifact_paths: ArtifactPathResolver::new(
+                    TargetLayout::new(
+                        PathBuf::from("_build"),
+                        TargetLayoutMode::Workspace,
+                        OptLevel::Debug,
+                        RunMode::Check,
+                    ),
+                    Some(stdlib.clone()),
+                ),
+                backend,
+                opt_level: OptLevel::Debug,
+                action: RunMode::Check,
+                enable_coverage: false,
+                moonc_output_json: false,
+                docs_serve: false,
+                warning_condition: WarningCondition::Default,
+                stdlib_path: Some(stdlib.clone()),
+            };
+            let mut context = LoweringContext::new(&project, &plan, &options, &[]);
+            let mut execution = ExecutionPlanBuilder::default();
+            let mut observations = Vec::new();
+            for (target, expected) in [
+                (target, vec![a, b, shared]),
+                (smaller, vec![a, shared]),
+                (empty, vec![]),
+            ] {
+                let action = context
+                    .lower_action(
+                        &BuildPlanActionKey::Backend(BuildPlanNode::Check(target)),
+                        &mut execution,
+                    )
+                    .expect("check action should lower");
+                let mut expected = expected
+                    .iter()
+                    .map(|target| {
+                        options.artifact_paths.mi_of_build_target(
+                            &project.pkg_dirs,
+                            target,
+                            options.backend.target_backend(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                expected.sort();
+                observations.push((action, expected));
+            }
+            let lowered = execution.finish([]);
+            for (action, expected) in observations {
+                // Inspect the compiler action's actual file observations,
+                // including transitive interfaces and excluding unrelated ones.
+                let mut inputs = lowered
+                    .action(action)
+                    .inputs()
+                    .iter()
+                    .filter(|path| path.starts_with(&stdlib))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                inputs.sort();
+                assert_eq!(inputs, expected);
+            }
+        }
+    }
+
+    #[test]
     fn opaque_module_flags_make_compiler_actions_ineligible() {
         let mut module_info = moon_mod("username/hello");
         module_info.compile_flags = Some(vec!["-include".to_string(), "config.mbt".to_string()]);
@@ -399,7 +518,6 @@ mod tests {
             target,
             LinkCoreInfo {
                 linked_order: Vec::new(),
-                link_stdlib_abort: false,
             },
         );
 
@@ -425,11 +543,10 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            info_no_alias: false,
             stdlib_path: None,
         };
 
-        let mut context = LoweringContext::new(&resolved_project, &plan, &options);
+        let mut context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
         let mut execution = ExecutionPlanBuilder::default();
         let nodes = [check_node, link_core_node];
         let actions = nodes
@@ -451,18 +568,15 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::disallowed_methods)] // File writes only set up the supplied test toolchain.
     fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
         let toolchain_dir = tempfile::tempdir().expect("create test toolchain");
         let include_dir = toolchain_dir.path().join("include");
-        std::fs::create_dir_all(include_dir.join("internal")).expect("create header directory");
+        // The supplied paths deliberately do not exist: lowering must consume
+        // the observation from preparation rather than repeat it.
         let toolchain_headers = [
             include_dir.join("moonbit.h"),
             include_dir.join("internal/runtime.h"),
         ];
-        for header in &toolchain_headers {
-            std::fs::write(header, "/* test header */").expect("write test header");
-        }
         let (resolved_project, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
@@ -538,7 +652,6 @@ mod tests {
             target,
             LinkCoreInfo {
                 linked_order: vec![target],
-                link_stdlib_abort: false,
             },
         );
         plan.test_insert_c_stubs_info(
@@ -610,12 +723,12 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            info_no_alias: false,
             stdlib_path: None,
         };
 
-        let execution =
-            lower_build_plan(&resolved_project, &plan, &options).expect("lowering should succeed");
+        assert!(plan.requires_toolchain_headers());
+        let execution = lower_build_plan(&resolved_project, &plan, &options, &toolchain_headers)
+            .expect("lowering should use supplied paths even when the include tree is absent");
         let custom_input_actions = execution
             .action_ids()
             .filter(|id| {
@@ -890,13 +1003,12 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                info_no_alias: false,
                 stdlib_path: None,
             };
 
-            let lowered = lower_build_plan(&resolved_project, &plan, &options)
+            let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])
                 .expect("lowering should succeed");
-            let context = LoweringContext::new(&resolved_project, &plan, &options);
+            let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
             let executable = artifact_paths.target_layout().executable_of_build_target(
                 &resolved_project.pkg_dirs,
                 &target,

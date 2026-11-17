@@ -20,7 +20,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -29,7 +29,7 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{self, CC, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
+    compiler_flags::{self, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
@@ -46,22 +46,23 @@ use relative_path::PathExt;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{BuildBundleInfo, PrebuildInfo},
+    build_plan::PrebuildInfo,
     cond_comp,
     discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
-        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind,
+        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
+    special_cases::WASM_ERROR_TABLE_PACKAGES,
 };
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo,
     CompileGeneratedCInfo, ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo,
-    PackagePrebuildKey,
+    PackagePrebuildKey, WasmLinkInfo,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
-    constructor::{BuildPlanConstructor, PackageFileSet},
+    constructor::{BuildPlanConstructor, NativeToolchainRole, PackageFileSet},
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -83,43 +84,100 @@ fn should_generate_direct_native_dsym(
 }
 
 impl<'a> BuildPlanConstructor<'a> {
-    fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-            err.context(
-                "Windows MSVC direct object native target requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
-            )
-        } else if self.res.backend.direct_native_target().is_some() {
-            err.context(
-                "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
-            )
-        } else {
-            err
-        }
-    }
+    /// Resolve compiler bindings for the requested Native/LLVM actions before
+    /// choosing payloads. The result records each consumer's role independently
+    /// of the compiler request; later action builders do not resolve compilers.
+    pub(super) fn resolve_native_toolchains(
+        &self,
+        requested: &[ArtifactKey],
+    ) -> Result<HashMap<NativeToolchainRole, Toolchain>, BuildPlanConstructError> {
+        use NativeToolchainRole::{CStubs, Program, Runtime};
 
-    fn warn_incompatible_windows_msvc_env_override(&mut self) {
-        if self.warned_incompatible_windows_msvc_env_override
-            || !compiler_flags::has_incompatible_windows_msvc_env_override()
-        {
-            return;
-        }
-
-        self.warned_incompatible_windows_msvc_env_override = true;
-        self.user_log.warn(
-            "MOON_CC is ignored for Windows MSVC direct object native target because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
-        );
-    }
-
-    fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        // TODO: Consume explicit toolchain candidates and environment overrides
-        // once native toolchain discovery moves to command orchestration.
         debug_assert!(self.config.backend.target_backend().is_native());
-        if self.res.backend.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-            self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::windows_msvc_native_toolchain(package_cc);
+        let mut roles = IndexSet::new();
+        for artifact in requested {
+            let target = match *artifact {
+                ArtifactKey::Executable {
+                    package,
+                    target_kind,
+                } => package.build_target(target_kind),
+                ArtifactKey::ForeignLibrary { package } => package.build_target(TargetKind::Source),
+                ArtifactKey::CStubObject { package, .. }
+                | ArtifactKey::CStubLibrary { package } => {
+                    roles.insert(CStubs(package));
+                    continue;
+                }
+                ArtifactKey::GeneratedCObject { package, .. } => {
+                    roles.insert(Program(package));
+                    continue;
+                }
+                ArtifactKey::RuntimeObject { .. } | ArtifactKey::RuntimeLibrary => {
+                    roles.insert(Runtime);
+                    continue;
+                }
+                _ => continue,
+            };
+            roles.insert(Runtime);
+            roles.insert(Program(target.package));
+            let (_, stubs) = self.dfs_link_core_sources(target)?;
+            roles.extend(stubs.into_iter().map(CStubs));
         }
 
-        compiler_flags::effective_native_toolchain(package_cc)
+        // Deduplicate probes within this resolution only. The returned bindings
+        // retain roles even when several consumers select the same compiler.
+        let mut cache = HashMap::<Option<String>, Toolchain>::new();
+        roles
+            .into_iter()
+            .map(|role| {
+                // TODO: Receive captured toolchain candidates and environment inputs
+                // once native toolchain discovery moves to command orchestration.
+                // Keep this lazy: an empty role set must not probe MOON_CC.
+                let env_cc = compiler_flags::ENV_CC.as_ref();
+                let request = match (env_cc, role) {
+                    (Some(_), _) | (_, Runtime) => None,
+                    (None, Program(package) | CStubs(package)) => {
+                        let pkg = self.input.pkg_dirs.get_package(package);
+                        pkg.raw
+                            .link
+                            .as_ref()
+                            .and_then(|link| link.native.as_ref())
+                            .and_then(|native| {
+                                if matches!(role, Program(_)) {
+                                    native.cc.as_ref()
+                                } else {
+                                    native.stub_cc.as_ref()
+                                }
+                            })
+                            .map(|cc| {
+                                self.replace_build_vars(package, pkg.module, cc)
+                                    .into_owned()
+                            })
+                    }
+                };
+                let toolchain = match cache.entry(request) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        let toolchain = compiler_flags::effective_native_toolchain(
+                            env_cc,
+                            entry.key().as_deref(),
+                        )
+                        .map_err(|error| match role {
+                            Runtime => BuildPlanConstructError::FailedToSetRuntimeCC(error),
+                            Program(package) => BuildPlanConstructError::FailedToSetCC(
+                                error,
+                                self.input.pkg_dirs.fqn(package).clone().into(),
+                            ),
+                            CStubs(package) => BuildPlanConstructError::FailedToSetStubCC(
+                                error,
+                                self.input.pkg_dirs.fqn(package).clone().into(),
+                            ),
+                        })?;
+                        entry.insert(toolchain)
+                    }
+                };
+                Ok((role, toolchain.clone()))
+            })
+            .collect()
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
@@ -263,27 +321,14 @@ impl<'a> BuildPlanConstructor<'a> {
             ));
         }
 
-        let dependency_realizable = self
-            .rel
-            .realizable_supported_targets
-            .get(&dep)
-            .expect("realizable backend support should be available for every dependency node");
-
-        if dependency_realizable.contains(&selected_backend) {
+        if !self.rel.unsupported_targets.contains(&dep) {
             return Ok(());
         }
-
-        let mut supported_backends = dependency_realizable
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        supported_backends.sort();
 
         Err(BuildPlanConstructError::BackendIncompatibleDependency {
             backend: selected_backend,
             importer: importer_pkg.fqn.to_string(),
             dependency: dependency_pkg.fqn.to_string(),
-            supported_backends: format!("[{}]", supported_backends.join(", ")),
             path: format!("{} -> {}", importer_pkg.fqn, dependency_pkg.fqn),
         })
     }
@@ -300,7 +345,7 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return Ok(());
         }
 
@@ -317,7 +362,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_check_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -336,7 +381,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_build_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -355,7 +400,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_build_outputs_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -389,12 +434,11 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Specify a need on the proof artifacts of a dependency.
     ///
     /// Dependency proofs stay modular: dependents only require the dependency's
-    /// proof surface (`.mi` + `.mlw`). Provider selection decides whether an
-    /// explicit `Prove` or an internal `EmitProof` action supplies that surface.
+    /// proof surface (`.mi` + `.mlw`), prepared by `EmitProof`.
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
         // As with normal `.mi` dependencies, stdlib packages use installed
         // toolchain artifacts rather than planned local nodes.
-        if self.config.stdlib_path.is_some() && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
             return;
         }
 
@@ -423,7 +467,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // If the given target is a virtual package with default implementation,
         // we need to build its interface first. Injected stdlib contracts are
         // installed toolchain files and remain external to this plan.
-        if pkg.is_virtual() && !(self.config.stdlib_path.is_some() && pkg.is_stdlib) {
+        if pkg.is_virtual() && !pkg.is_stdlib {
             self.require_artifact(
                 node,
                 ArtifactKey::VirtualContractMi {
@@ -436,8 +480,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // the virtual package's interface first, unless that contract comes
         // from the injected stdlib.
         if let Some(vpkg_id) = self.rel.virt_impl.get(target.package)
-            && !(self.config.stdlib_path.is_some()
-                && self.input.pkg_dirs.is_stdlib_package(*vpkg_id))
+            && !self.input.pkg_dirs.is_stdlib_package(*vpkg_id)
         {
             self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
         }
@@ -744,8 +787,6 @@ impl<'a> BuildPlanConstructor<'a> {
             .as_ref()
             .filter(|(specify_target, _)| specify_target == &target)
             .map(|(_, path)| path.clone());
-        let why3_config = self.input_directive.prove_why3_config.clone();
-        let proof_prelude = self.input_directive.proof_prelude.clone();
 
         let mi_check_target = self.mi_check_target(target, pkg);
 
@@ -757,8 +798,6 @@ impl<'a> BuildPlanConstructor<'a> {
             warn_list,
             specified_no_mi,
             patch_file,
-            why3_config,
-            proof_prelude,
             check_mi_against: mi_check_target,
             value_tracing: self
                 .input_directive
@@ -892,16 +931,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let pkg = self.input.pkg_dirs.get_package(target);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
-        let stub_cc = native_config
-            .and_then(|native| native.stub_cc.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref()).map_err(|e| {
-                    BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?;
-
         let cc_flags = native_config
             .and_then(|native| native.stub_cc_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
@@ -928,13 +957,10 @@ impl<'a> BuildPlanConstructor<'a> {
             .collect();
 
         let effective_native_toolchain = self
-            .effective_native_toolchain(stub_cc.as_ref())
-            .map_err(|e| {
-                BuildPlanConstructError::FailedToSetStubCC(
-                    self.new_native_linker_context(e),
-                    pkg.fqn.clone().into(),
-                )
-            })?;
+            .native_toolchains
+            .get(&NativeToolchainRole::CStubs(target))
+            .expect("C-stub toolchain should be selected before action planning")
+            .clone();
 
         if let Some(prebuild) = self.prebuild_config {
             prebuild.append_link_args(std::iter::once(target), &mut link_args);
@@ -985,11 +1011,31 @@ impl<'a> BuildPlanConstructor<'a> {
         debug!("Linking Core IR for target: {:?}", target);
         debug!("Performing DFS post-order traversal to collect dependencies");
 
-        // This DFS is shared by both LinkCore and MakeExecutable actions.
-        let (link_core_deps, _, link_stdlib_abort) = self.dfs_link_core_sources(target)?;
+        let (linked_order, _) = self.dfs_link_core_sources(target)?;
+        let link_core_info = self.require_core_ir_closure(node, linked_order);
+        self.res
+            .backend
+            .link_core_info
+            .insert(target, link_core_info);
+        self.resolved_node(node);
 
+        Ok(())
+    }
+
+    /// Require the Core IR closure of a compilation, given in initialization
+    /// order, and record it.
+    fn require_core_ir_closure(
+        &mut self,
+        node: BuildPlanNode,
+        linked_order: IndexSet<BuildTarget>,
+    ) -> LinkCoreInfo {
         // The traversal has already replaced unnecessary dependencies.
-        for target in &link_core_deps {
+        // Injected stdlib packages are linked from their installed `.core`
+        // files, which this plan does not produce.
+        for target in &linked_order {
+            if self.input.pkg_dirs.is_stdlib_package(target.package) {
+                continue;
+            }
             self.require_artifact(
                 node,
                 ArtifactKey::CoreIr {
@@ -1000,17 +1046,226 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // Use DFS-built order directly (dependencies first, then dependents).
-        let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
-        let link_core_info = LinkCoreInfo {
-            linked_order: targets,
-            link_stdlib_abort,
+        LinkCoreInfo {
+            linked_order: linked_order.into_iter().collect(),
+        }
+    }
+
+    /// Whether `target`'s executable is linked from per-package wasm1 objects
+    /// (Wasm separate compilation) rather than by one whole-program
+    /// `link-core`.
+    ///
+    /// This is the single rule for choosing the provider of the executable.
+    /// Executables that need what only a whole-program link supports keep it:
+    /// - the objects carry no link configuration, so a package with
+    ///   `link.wasm` settings (exports, memory, flags) or a module with link
+    ///   flags is linked whole;
+    /// - a library object is compiled once per package and shared by every
+    ///   executable using it, while virtual packages resolve per executable,
+    ///   from its own overrides; an executable reaching a virtual package is
+    ///   linked whole;
+    /// - a main package cannot be compiled into a library object, which a
+    ///   blackbox test of it would link;
+    /// - a library object cannot refer to the package its main object
+    ///   compiles, so a test whose linked libraries depend on the package
+    ///   under test is linked whole (see
+    ///   [`Self::links_dependent_of_main_package`]);
+    /// - `moonc wasm-ld` writes binary modules only.
+    pub(super) fn links_wasm_objects(&self, target: BuildTarget) -> bool {
+        let BackendConfig::Wasm {
+            use_wat: false,
+            separate_compilation: true,
+            ..
+        } = self.config.backend
+        else {
+            return false;
         };
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+        let module = self.input.pkg_dirs.module_info(pkg.module);
+        let links_as_main = if pkg.raw.is_main {
+            target.kind != TargetKind::BlackboxTest
+        } else {
+            target.kind.is_test()
+        };
+        if !(links_as_main
+            && pkg.raw.link.as_ref().is_none_or(|link| link.wasm.is_none())
+            && module.link_flags.as_deref().is_none_or(<[_]>::is_empty))
+        {
+            return false;
+        }
+        let reachable = self.wasm_reachable_targets(target);
+        !reachable.iter().any(|reached| {
+            self.input
+                .pkg_dirs
+                .get_package(reached.package)
+                .is_virtual()
+        }) && !self.links_dependent_of_main_package(target, &reachable)
+    }
+
+    /// The targets reachable from `target` and the error table packages in
+    /// the raw dependency graph, before virtual packages are resolved.
+    ///
+    /// `links_wasm_objects` inspects this set before deciding whether objects
+    /// are linked at all. It is not the link input: `wasm_object_inputs`
+    /// produces the resolved Core IR inputs, in dependency order, of an
+    /// object that is planned.
+    fn wasm_reachable_targets(&self, target: BuildTarget) -> HashSet<BuildTarget> {
+        let graph = &self.rel.dep_graph;
+        let mut visited = HashSet::new();
+        let mut stack = std::iter::once(target)
+            .chain(
+                self.wasm_error_table_packages()
+                    .map(|package| package.build_target(TargetKind::Source)),
+            )
+            .collect::<Vec<_>>();
+        while let Some(node) = stack.pop() {
+            if visited.insert(node) {
+                stack.extend(graph.neighbors_directed(node, petgraph::Direction::Outgoing));
+            }
+        }
+        visited
+    }
+
+    /// Whether a library object that `target`'s executable would link, among
+    /// the `reachable` targets (see [`Self::wasm_reachable_targets`]), depends
+    /// on the package whose code `target`'s main object compiles.
+    ///
+    /// The main object of a source, inline-test or whitebox-test target
+    /// compiles its package, and keeps that package's definitions local. A
+    /// library object referring to them cannot be linked, and would also be
+    /// initialized before the main object initializes the package. This
+    /// happens when a whitebox test imports a package depending on the package
+    /// under test, or when an error table package depends on it, as every
+    /// standard library package below `json` does.
+    fn links_dependent_of_main_package(
+        &self,
+        target: BuildTarget,
+        reachable: &HashSet<BuildTarget>,
+    ) -> bool {
+        // A blackbox test's main object compiles only the test code, which no
+        // package depends on.
+        if target.kind == TargetKind::BlackboxTest {
+            return false;
+        }
+
+        // The packages whose source depends on the main package.
+        let main_source = target.package.build_target(TargetKind::Source);
+        let mut dependents = HashSet::new();
+        let mut stack = vec![main_source];
+        while let Some(node) = stack.pop() {
+            for dependent in self
+                .rel
+                .dep_graph
+                .neighbors_directed(node, petgraph::Direction::Incoming)
+            {
+                if dependent.kind == TargetKind::Source && dependents.insert(dependent.package) {
+                    stack.push(dependent);
+                }
+            }
+        }
+        dependents.remove(&target.package);
+
+        reachable
+            .iter()
+            .any(|node| node.kind == TargetKind::Source && dependents.contains(&node.package))
+    }
+
+    /// The [`WASM_ERROR_TABLE_PACKAGES`] present in this build.
+    fn wasm_error_table_packages(&self) -> impl Iterator<Item = PackageId> + '_ {
+        WASM_ERROR_TABLE_PACKAGES
+            .iter()
+            .filter_map(|name| self.input.pkg_dirs.get_package_id_by_name(name))
+    }
+
+    /// The `.core` inputs of the wasm1 object compiling `target`, in
+    /// dependency order: `target`'s own dependencies, then those of the
+    /// [`WASM_ERROR_TABLE_PACKAGES`], which `moonc` needs for error types.
+    ///
+    /// An object only refers to the packages it loads: `moonc` keeps a
+    /// definition local to an object when the package owning it is not
+    /// loaded. An executable links the objects of its main object's inputs,
+    /// which therefore cover the inputs of every object it links.
+    fn wasm_object_inputs(
+        &self,
+        target: BuildTarget,
+    ) -> Result<IndexSet<BuildTarget>, BuildPlanConstructError> {
+        let (mut order, _) = self.dfs_link_core_sources(target)?;
+        // A package already loaded as a test target is not loaded again.
+        let mut packages = order
+            .iter()
+            .map(|target| target.package)
+            .collect::<HashSet<_>>();
+        for package in self.wasm_error_table_packages() {
+            // Each traversal emits dependencies first, so appending them keeps
+            // a dependency order.
+            let (deps, _) = self.dfs_link_core_sources(package.build_target(TargetKind::Source))?;
+            for dep in deps {
+                if packages.insert(dep.package) {
+                    order.insert(dep);
+                }
+            }
+        }
+        Ok(order)
+    }
+
+    /// Plan a wasm1 object (Wasm separate compilation).
+    ///
+    /// Every object is compiled from the `.core` files of its target's
+    /// dependencies and the error table packages. A library object compiles a
+    /// package's source target alone, so every executable using it shares it.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_wasm_object(
+        &mut self,
+        node: BuildPlanNode,
+        object: WasmObject,
+    ) -> Result<(), BuildPlanConstructError> {
+        let target = match object {
+            WasmObject::Main(target) => target,
+            WasmObject::Library(package) => package.build_target(TargetKind::Source),
+        };
+        let inputs = self.wasm_object_inputs(target)?;
+        let info = self.require_core_ir_closure(node, inputs);
+        self.res.backend.wasm_object_info.insert(object, info);
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    /// Plan the `moonc wasm-ld` action that links an executable from the
+    /// object of its main package and the library objects of the other
+    /// packages its main object loads, in link order.
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_link_wasm_objects(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.require_artifact(
+            node,
+            ArtifactKey::WasmMainObject {
+                package: target.package,
+                target_kind: target.kind,
+            },
+        );
+
+        // The main package's own target, which may replace its source target
+        // (whitebox tests), is compiled into its main object.
+        let library_objects = self
+            .wasm_object_inputs(target)?
+            .into_iter()
+            .filter(|&dep| dep != target)
+            .map(|dep| {
+                debug_assert_eq!(dep.kind, TargetKind::Source);
+                dep.package
+            })
+            .collect::<Vec<_>>();
+        for &package in &library_objects {
+            self.require_artifact(node, ArtifactKey::WasmLibraryObject { package });
+        }
         self.res
             .backend
-            .link_core_info
-            .insert(target, link_core_info);
+            .wasm_link_info
+            .insert(target, WasmLinkInfo { library_objects });
         self.resolved_node(node);
-
         Ok(())
     }
 
@@ -1023,8 +1278,11 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         debug_assert!(self.config.backend.target_backend().is_native());
 
-        let (link_core_deps, c_stub_deps, _) = self.dfs_link_core_sources(target)?;
+        let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
+
+        // TODO: Validate the program's ABI against its runtime and C-stub
+        // toolchain bindings before planning their link.
 
         let payload = if matches!(&self.config.backend, BackendConfig::Native { .. })
             && matches!(
@@ -1153,14 +1411,6 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let pkg = self.input.pkg_dirs.get_package(package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-        let cc = native_config
-            .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(package, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref())
-                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
-            })
-            .transpose()?;
         let c_flags = native_config
             .and_then(|native| native.cc_flags.as_ref())
             .map(|s| self.replace_build_vars(package, pkg.module, s))
@@ -1172,13 +1422,11 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let effective_native_toolchain =
-            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
-                BuildPlanConstructError::FailedToSetCC(
-                    self.new_native_linker_context(e),
-                    pkg.fqn.clone().into(),
-                )
-            })?;
+        let effective_native_toolchain = self
+            .native_toolchains
+            .get(&NativeToolchainRole::Program(package))
+            .expect("program toolchain should be selected before action planning")
+            .clone();
 
         let native_allocator = self
             .config
@@ -1251,7 +1499,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // A foreign library exports its source target; tests link executables.
         let target = package.build_target(TargetKind::Source);
-        let (_, c_stub_packages, _) = self.dfs_link_core_sources(target)?;
+        let (_, c_stub_packages) = self.dfs_link_core_sources(target)?;
 
         // Archive members are objects. Generated C needs its own compile step,
         // while direct-object and LLVM linking already produce an object.
@@ -1301,20 +1549,25 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    /// Whether linking a package also links the C stubs it declares. Injected
+    /// stdlib packages are never built locally, so their stubs are not either.
+    fn links_c_stubs_of(&self, package: PackageId) -> bool {
+        self.config.backend.target_backend().is_native()
+            && !self.input.pkg_dirs.is_stdlib_package(package)
+            && !self
+                .input
+                .pkg_dirs
+                .get_package(package)
+                .c_stub_files
+                .is_empty()
+    }
+
     fn dfs_link_core_sources(
         &self,
         target: BuildTarget,
-    ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>, bool), BuildPlanConstructError> {
+    ) -> Result<(IndexSet<BuildTarget>, IndexSet<PackageId>), BuildPlanConstructError> {
         // This DFS is shared by both LinkCore and MakeExecutable actions.
         let vp_info = self.rel.virtual_users.get(target.package);
-
-        let abort = if self.config.stdlib_path.is_some() {
-            self.input.pkg_dirs.abort_pkg()
-        } else {
-            None
-        };
-        let abort_override_pkg =
-            abort.and_then(|abort| vp_info.and_then(|vu| vu.overrides.get(abort).copied()));
 
         // This is the link core sources
         let mut link_core_deps: IndexSet<BuildTarget> = IndexSet::new();
@@ -1327,8 +1580,6 @@ impl<'a> BuildPlanConstructor<'a> {
         // package itself and its blackbox test target both being added, which
         // is redundant.
         let mut c_stub_deps: IndexSet<PackageId> = IndexSet::new();
-        // Core versions without abort need no separate default implementation.
-        let link_stdlib_abort = abort.is_some() && abort_override_pkg.is_none();
 
         let graph = &self.rel.dep_graph;
 
@@ -1365,37 +1616,17 @@ impl<'a> BuildPlanConstructor<'a> {
                     };
                 }
 
-                // Skip abort entirely
-                if abort.is_some_and(|x| node.package == x) {
-                    continue;
-                }
-
                 trace!(?node, "Pre-order: push marker, then schedule children");
                 // Push post-order marker
                 stack.push((node, true));
 
                 // Gather dependencies (outgoing neighbors) and sort deterministically
+                //
+                // Injected stdlib packages are traversed as well, so only the
+                // stdlib packages reachable through imports are linked.
                 let mut deps: Vec<BuildTarget> = graph
                     .neighbors_directed(node, petgraph::Direction::Outgoing)
-                    .filter(|dep| {
-                        // Skip stdlib packages because they are always linked implicitly
-                        // only when stdlib is injected. When building stdlib itself, keep them.
-                        self.config.stdlib_path.is_none()
-                            || !self.input.pkg_dirs.is_stdlib_package(dep.package)
-                    })
                     .collect();
-
-                if curr == target
-                    && let Some(override_pkg) = abort_override_pkg
-                {
-                    let override_target = BuildTarget {
-                        package: override_pkg,
-                        kind: TargetKind::Source,
-                    };
-                    if !deps.contains(&override_target) {
-                        deps.push(override_target);
-                    }
-                }
 
                 deps.sort_by(|a, b| {
                     let pa = self.input.pkg_dirs.get_package(a.package);
@@ -1425,10 +1656,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
                         // Record emitted and collect c-stub if necessary
                         emitted.insert(cur);
-                        let pkg = self.input.pkg_dirs.get_package(cur.package);
-                        if self.config.backend.target_backend().is_native()
-                            && !pkg.c_stub_files.is_empty()
-                        {
+                        if self.links_c_stubs_of(cur.package) {
                             c_stub_deps.insert(cur.package);
                         }
                         continue;
@@ -1452,151 +1680,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 emitted.insert(cur);
                 trace!(?cur, "Post-order: emitted");
 
-                if self.config.backend.target_backend().is_native() && !pkg.c_stub_files.is_empty()
-                {
+                if self.links_c_stubs_of(cur.package) {
                     c_stub_deps.insert(cur.package);
                 }
             }
         }
 
-        Ok((link_core_deps, c_stub_deps, link_stdlib_abort))
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_bundle(
-        &mut self,
-        node: BuildPlanNode,
-        module_id: ModuleId,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Bundling a module gathers the build result of all its non-virtual packages, in topo order
-        let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
-        let mut bundle_targets = Vec::new();
-        let target_backend = self.config.backend.target_backend();
-        for target in topo_sorted_pkgs.into_iter() {
-            let pkg = self.input.pkg_dirs.get_package(target.package);
-            if !pkg.effective_supported_targets.contains(&target_backend) {
-                trace!(
-                    ?module_id,
-                    ?target,
-                    ?target_backend,
-                    "skipping bundle target that does not support backend"
-                );
-                continue;
-            }
-            if !pkg.has_implementation() {
-                // TODO(bundle-virtual): Request the contract as a bundle root
-                // when the stdlib gains a pure virtual package, then cover the
-                // installed sidecar with a bundle integration fixture.
-                trace!(
-                    ?module_id,
-                    ?target,
-                    "skipping bundle target without implementation"
-                );
-                continue;
-            }
-
-            trace!(?module_id, ?target, "enqueuing bundle dependency");
-            self.require_artifact(
-                node,
-                ArtifactKey::CoreIr {
-                    package: target.package,
-                    target_kind: target.kind,
-                },
-            );
-
-            if pkg.is_virtual() {
-                trace!(
-                    ?module_id,
-                    ?target,
-                    "skipping including as build target for virtual package"
-                );
-                continue;
-            }
-            bundle_targets.push(target);
-        }
-        trace!(
-            ?module_id,
-            count = bundle_targets.len(),
-            "recording bundle targets"
-        );
-        self.res
-            .backend
-            .bundle_info
-            .insert(module_id, BuildBundleInfo { bundle_targets });
-        self.resolved_node(node);
-
-        Ok(())
-    }
-
-    /// List all packages in the module in topological order.
-    ///
-    /// This is a DFS that limits its traversal to only packages within the module.
-    fn topo_sort_module_packages(&self, module_id: ModuleId) -> Vec<BuildTarget> {
-        let pkg_map = self
-            .input
-            .pkg_dirs
-            .packages_for_module(module_id)
-            .expect("Must exist");
-
-        let cmp_by_fqn = |a: &PackageId, b: &PackageId| {
-            let pkg_a = self.input.pkg_dirs.get_package(*a);
-            let pkg_b = self.input.pkg_dirs.get_package(*b);
-            pkg_a.fqn.cmp(&pkg_b.fqn)
-        };
-
-        // Seed the DFS with packages sorted by FQN to ensure deterministic traversal.
-        let mut seeds: Vec<_> = pkg_map.values().copied().collect();
-        seeds.sort_by(cmp_by_fqn);
-
-        let graph = &self.rel.dep_graph;
-        let mut ordered = Vec::new();
-        let mut visited = HashSet::new();
-        let mut stack = Vec::new();
-
-        for pkg_id in seeds {
-            let target = pkg_id.build_target(TargetKind::Source);
-            if visited.contains(&target) {
-                continue;
-            }
-
-            // Classic iterative DFS with an explicit stack so we control ordering precisely.
-            stack.push((target, false));
-            while let Some((node, expanded)) = stack.pop() {
-                if expanded {
-                    let pkg = self.input.pkg_dirs.get_package(node.package);
-                    if pkg.module == module_id {
-                        ordered.push(node);
-                    }
-                    continue;
-                }
-
-                if !visited.insert(node) {
-                    continue;
-                }
-
-                stack.push((node, true));
-
-                let mut deps: Vec<_> = graph
-                    .neighbors_directed(node, petgraph::Direction::Outgoing)
-                    .filter(|dep| dep.kind == TargetKind::Source)
-                    .filter(|dep| {
-                        let pkg = self.input.pkg_dirs.get_package(dep.package);
-                        pkg.module == module_id
-                    })
-                    .collect();
-
-                // Visit dependencies in sorted order, pushing reverse so the smallest comes off first.
-                deps.sort_by(|a, b| cmp_by_fqn(&a.package, &b.package));
-
-                for dep in deps.into_iter().rev() {
-                    if !visited.contains(&dep) {
-                        stack.push((dep, false));
-                    }
-                }
-            }
-        }
-
-        ordered
+        Ok((link_core_deps, c_stub_deps))
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
@@ -1648,9 +1738,11 @@ impl<'a> BuildPlanConstructor<'a> {
             return Ok(());
         }
 
-        let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
-            BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
-        })?;
+        let effective_native_toolchain = self
+            .native_toolchains
+            .get(&NativeToolchainRole::Runtime)
+            .expect("runtime toolchain should be selected before action planning")
+            .clone();
         // TODO: Consume supplied runtime sources and optional SIMDUTF objects
         // once command orchestration captures the runtime file inventory.
         let source_files = toolchain::runtime_source_paths()
@@ -1724,34 +1816,22 @@ impl<'a> BuildPlanConstructor<'a> {
         // file input, so n2 connects it to the matching prebuild provider.
         self.plan_package_prebuild(target)?;
 
-        let canonical = pkg.root_path.join(MBTI_USER_WRITTEN);
-        let legacy = pkg
-            .root_path
-            .join(format!("{}.mbti", pkg.fqn.short_alias()));
-        let selected = [canonical, legacy].into_iter().find(|candidate| {
-            pkg.virtual_mbti_files.contains(candidate)
-                || self
-                    .res
-                    .package_prebuild
-                    .output_paths(target)
-                    .any(|output| output == candidate)
-        });
-        let Some(selected) = selected else {
+        let contract = pkg.root_path.join(MBTI_USER_WRITTEN);
+        if !pkg.virtual_mbti_files.contains(&contract)
+            && !self
+                .res
+                .package_prebuild
+                .output_paths(target)
+                .any(|output| output == &contract)
+        {
             return Err(BuildPlanConstructError::MissingVirtualMbtiFile(
                 pkg.fqn.clone().into(),
-            ));
-        };
-        if selected.file_name().and_then(OsStr::to_str) != Some(MBTI_USER_WRITTEN) {
-            self.user_log.warn(format!(
-                "Using package name in MBTI file is deprecated. Please rename {} to {}",
-                selected.display(),
-                MBTI_USER_WRITTEN
             ));
         }
         self.res
             .backend
             .virtual_contract_inputs
-            .insert(target, selected);
+            .insert(target, contract);
 
         for dep in self.rel.dep_graph.neighbors_directed(
             target.build_target(TargetKind::Source),
@@ -2051,7 +2131,7 @@ fn prebuild_command_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::{ARKind, CCKind};
+    use moonutil::compiler_flags::{ARKind, CC, CCKind};
 
     use super::*;
 

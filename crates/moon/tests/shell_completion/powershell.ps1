@@ -75,3 +75,9 @@ Assert-Contains $toolCompletions 'embed'
 
 $buildCompletions = Get-MoonCompletions 'moon build --ver'
 Assert-Contains $buildCompletions '--verbose'
+
+Assert-Contains (Get-MoonCompletions 'moon testc') 'testcli'
+$testcliCompletions = Get-MoonCompletions 'moon testcli --'
+foreach ($option in @('--verbose', '--quiet', '--trace', '--dry-run', '--target-dir')) {
+    Assert-NotContains $testcliCompletions $option
+}

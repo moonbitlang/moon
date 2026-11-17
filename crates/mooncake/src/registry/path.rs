@@ -162,7 +162,7 @@ pub fn parse_module_path(input: &str) -> anyhow::Result<RegistryPath> {
     Ok(parsed)
 }
 
-/// Parse `user/module[/vN][/package]` using the install/runwasm interpretation.
+/// Parse `user/module[/vN][/package]` using the install/moonx interpretation.
 ///
 /// A canonical major-version suffix (`vN`, N >= 2, without leading zeroes)
 /// belongs to the module. Later segments are the package path. Use

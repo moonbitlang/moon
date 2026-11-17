@@ -12,8 +12,7 @@ fn test_expect_test() -> anyhow::Result<()> {
     println!("Original content:\n{}", original);
     assert!(!original.contains(r#"content=["a", "b", "c"]"#));
 
-    let s = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&tmp_dir_path)
+    let s = moon_cmd(&tmp_dir_path)
         .args(["test", "--update", "--no-parallelize"])
         .assert()
         .success()
@@ -28,8 +27,7 @@ fn test_expect_test() -> anyhow::Result<()> {
     println!("Updated content:\n{}", updated);
     assert!(updated.contains(r#"#|[a, b, c]"#));
 
-    let s = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&tmp_dir_path)
+    let s = moon_cmd(&tmp_dir_path)
         .args(["test", "--update", "--no-parallelize"])
         .assert()
         .success()
@@ -68,8 +66,7 @@ fn test_expect_test() -> anyhow::Result<()> {
 fn test_only_update_expect() {
     let tmp_dir_path = TestDir::new("test_expect_test/only_update_expect");
 
-    let _ = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&tmp_dir_path)
+    let _ = moon_cmd(&tmp_dir_path)
         .args([
             "test",
             "-p",

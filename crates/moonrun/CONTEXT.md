@@ -65,7 +65,8 @@ _Avoid_: Moonrun Policy, Runtime Configuration, process-global state
 Authorization input that answers which fully interpreted host operations are
 allowed. It does not own or select Runtime State such as Env, Runtime Working
 Directory, stdio bindings, VFS configuration, child tables, or OS handles.
-Moonrun Policy does not implicitly configure or restrict WASI descriptors.
+Moonrun Policy constrains WASI filesystem effects without selecting its
+descriptors, preopens, or stdio bindings.
 _Avoid_: Runtime Configuration, Runtime State, WASI sandbox, virtual filesystem
 
 **Effective Authority**:
@@ -73,6 +74,14 @@ The host effects reachable by a guest through all exposed operations and
 delegated resources, including their combinations. Moonrun Policy contributes
 to this authority alongside WASI grants and permitted helper or native execution.
 _Avoid_: Moonrun Policy, Runtime Configuration, virtual process identity
+
+**Policy Rule**:
+An individual authorization condition, such as a program and argument prefix.
+`FsRules`, `NetRules`, and `ProcessRules` hold one policy source's compiled rules.
+An effective `Policy` combines complete rule groups; each group must permit the
+operation. Domain policies perform their own checks. User `PolicyConfig` is a
+construction input, separate from these immutable rules and Runtime State.
+_Avoid_: Runtime Configuration, resource grant, restriction layer
 
 **Host Domain**:
 The unique semantic owner for one family of host behavior. A Host Domain
@@ -112,16 +121,17 @@ The standard-stream behavior selected once by Runtime Configuration and owned
 by one Runtime. The V8 I/O imports, WASI descriptors, reserved Async Host
 Resources, and Host Process defaults all consume this same Runtime State.
 `Ambient` preserves the historical observation points for process standard
-streams without owning their OS handles. `Owned` binds caller-supplied files to
-one Run. Moonrun Policy neither selects nor authorizes Runtime Stdio.
+streams without owning their OS handles. `Bound` selects each stream independently:
+an owned file/pipe or the corresponding ambient stream. Fully owned bindings
+remain available to callers. Moonrun Policy neither selects nor authorizes Runtime Stdio.
 _Avoid_: process-global fallback, stdio policy, Host Stdio forwarding service
 
 **WASI Capability Surface**:
 The files and directories reachable through WASI descriptors and preopens.
-WASI access is configured separately from Moonrun Policy, even when both
-surfaces ultimately access the same host filesystem. A runtime adapter must
-configure both explicitly instead of treating one as enforcement for the
-other.
+WASI descriptor rights and preopen containment constrain access in addition to
+Moonrun filesystem policy. A descriptor grant does not bypass that policy;
+filesystem policy does not create descriptors or widen their rights. Explicitly
+bound stdio remains a separate resource grant.
 _Avoid_: Moonrun Policy, FFI permissions
 
 **Runtime Working Directory**:
@@ -141,12 +151,13 @@ _Avoid_: sandbox root, virtual filesystem root, captured cwd
 **Host Filesystem**:
 The Runtime-owned, backend-neutral implementation of moonrun's
 permission-backed filesystem operations. It owns filesystem authorization,
-Filesystem Job payloads, execution, and result interpretation. Wasm runtime
-adapters only convert values and expose imports; the thread pool only schedules
+Filesystem Job payloads, execution, and domain results. ABI adapters convert
+values, expose imports, and present errors in their ABI (including Unstable API strings
+and WASI errno); the thread pool only schedules
 Filesystem Jobs and delivers their Completions. Other Host Domains may ask it
 to interpret and authorize filesystem intents without transferring their own
-domain semantics to the Host Filesystem. WASI does not pass through the Host
-Filesystem.
+domain semantics to the Host Filesystem. WASI retains descriptor and preopen
+semantics while using the Host Filesystem for authorized filesystem effects.
 _Avoid_: WASI filesystem, V8 filesystem
 
 **Host Network**:
@@ -289,11 +300,14 @@ It is installed once before Engine initialization and lives until process
 exit. On Unix, the CLI blocks its managed signals before creating other
 threads, a dedicated `sigwait` thread consumes them, and child processes use
 the signal mask preserved before broker installation. On Windows, one
-console-control handler performs the same forwarding role. The adapter
-directly forwards each captured signal to the CLI Run's Signal Sender. If that
-Run does not accept the signal, the adapter
-applies the process's existing platform behavior. The library Engine never
-installs this adapter.
+console-control handler performs the same forwarding role. Ordinary CLI execution
+forwards captured signals to the Run's Signal Sender; an unaccepted signal uses
+the process's existing platform behavior. The virtual CLI instead requests Engine
+namespace shutdown and waits for adopted descendants before presenting the first
+unhandled signal. An IPC host CLI requests whole-session shutdown immediately;
+an IPC client forwards signals only to its delegated Run. Signals during session
+cleanup cannot bypass it; after finalization they return to the process fallback.
+The library Engine never installs this adapter.
 _Avoid_: Runtime signal handler, Engine signal handler, global Run target
 
 **Loaded Module**:
@@ -307,7 +321,10 @@ The Moonrun execution host that prepares reusable Loaded Modules, executes Runs,
 and owns a namespace of admitted process identities and their lifecycle. Clones
 share that namespace and backend; a newly constructed Engine has an independent
 namespace. Execution placement and guest process behavior are separate choices.
-An Engine does not own a Runtime's virtual environment.
+An Engine does not own a Runtime's virtual environment. `request_shutdown`
+closes managed, virtualized and IPC-enabled admission and requests termination of
+all admitted members, including adopted descendants; it does not wait or affect Native
+caller-thread Runs without IPC outside its process table.
 _Avoid_: Runtime, Instance, Run, execution thread, thread pool
 
 **Instance**:
@@ -322,11 +339,11 @@ chosen by the caller. It returns only after run-local guest execution state is
 torn down.
 _Avoid_: Engine, Runtime, Instance, Worker, execution thread
 
-**Guest Process Mode**:
-The selection of native operating-system process behavior or virtual process
-identities and child control for a Run. It is independent of the host's choice
-to execute on the calling thread or a managed thread, and does not grant host
-permissions.
+**Process Virtualization**:
+The `virtualize` choice to expose Engine process identities and child control,
+with owned root Env/cwd and internal moonx execution. Otherwise guest process
+operations use native identities and preserve Ambient defaults. This choice is
+independent of execution placement and native-launch authorization.
 _Avoid_: Execution placement, Engine Backend, sandbox mode
 
 **Supervisor**:
@@ -336,6 +353,17 @@ can cover preparation, a Wasm Run, and cleanup; a Run is not that entire
 lifecycle. Supervision does not require a separate public owner or command
 object.
 _Avoid_: Runtime, Host Process, separate execution host
+
+**Unstable API**:
+The legacy `__moonbit_*_unstable` import family, retained for existing guests
+until its eventual retirement; it uses the same Host Domains as other import
+families rather than owning separate host behavior.
+_Avoid_: Core API, all host imports, stale implementation
+
+**Core API**:
+The imports exposed under `moonbitlang/core`, distinct from the legacy
+Unstable API even when both are consumed by Core library code.
+_Avoid_: Unstable API, all Core library imports
 
 **Async API**:
 The backend-neutral `moonbitlang/async` import definitions and ABI validation

@@ -24,11 +24,13 @@ use std::{
     sync::Arc,
 };
 
-use moonutil::manifest::{MoonMod, MoonModRule};
+use moonutil::manifest::{ManifestFormat, MoonMod, MoonModRule};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
-use moonutil::resolution::{ModuleId, ModuleSource, ResolvedRootModules};
+use moonutil::resolution::{ModuleId, ModuleSource, ResolvedModule};
 use moonutil::{constants::MOON_PKG_JSON, target::TargetBackend};
 use slotmap::{SecondaryMap, SlotMap};
+
+use super::scan::PackageInput;
 
 use crate::{
     model::PackageId,
@@ -162,11 +164,26 @@ pub struct DiscoveredPackage {
     /// the input for `BuildVirtual`.
     pub virtual_mbti_files: Vec<PathBuf>,
 
-    /// Whether this package is part of the standard library.    
+    /// Whether this package comes from the injected prebuilt standard library.
+    ///
+    /// Its artifacts are installed toolchain files rather than outputs of the
+    /// build plan. Packages of `moonbitlang/core` are not marked when building
+    /// core itself, and no package is marked when the stdlib is not injected.
     pub is_stdlib: bool,
 }
 
 impl DiscoveredPackage {
+    /// Declared prebuild outputs in the same path identity as discovered files.
+    /// These remain generated files even when prebuild execution is disabled.
+    pub fn prebuild_output_paths(&self) -> impl Iterator<Item = PathBuf> + '_ {
+        self.raw
+            .pre_build
+            .iter()
+            .flatten()
+            .flat_map(|rule| rule.output().iter())
+            .map(|path| resolve_prebuild_path(&self.root_path, path))
+    }
+
     pub fn is_single_file(&self) -> bool {
         self.single_file_source_kind.is_some()
     }
@@ -218,6 +235,29 @@ impl DiscoveredPackage {
     }
 }
 
+/// Formatting needs local module declarations and files, without a dependency
+/// graph, effective build settings, native headers, or virtual-package inputs.
+#[derive(Debug)]
+pub struct FmtProject {
+    pub(crate) modules: Vec<FmtModule>,
+    pub(crate) packages: SlotMap<PackageId, PackageInput>,
+}
+
+#[derive(Debug)]
+pub(crate) struct FmtModule {
+    pub(crate) module: ResolvedModule,
+    pub(crate) manifest_format: ManifestFormat,
+    pub(crate) packages: BTreeMap<PackagePath, PackageId>,
+}
+
+impl FmtProject {
+    pub fn package_roots(&self) -> impl Iterator<Item = (PackageId, &Path)> {
+        self.packages
+            .iter()
+            .map(|(id, package)| (id, package.root_path.as_path()))
+    }
+}
+
 /// The result of a package discovery process.
 #[derive(Debug, Clone, Default)]
 pub struct DiscoverResult {
@@ -237,26 +277,6 @@ pub struct DiscoverResult {
     /// later, this map will not work, and a per-module package name map should
     /// be used instead.
     packages_rev_map: HashMap<String, PackageId>,
-
-    /// A special case: `moonbitlang/core/abort`, a standard library package that
-    /// needs special treatments.
-    ///
-    /// Note: this is purely a discovery-time record. It is set whenever abort
-    /// is present, regardless of whether we are building the stdlib itself or
-    /// injecting a prebuilt stdlib. Build-mode checks decide whether the
-    /// prebuilt abort artifacts are used.
-    abort_pkg: Option<PackageId>,
-}
-
-/// A local project discovered directly from the file system without dependency resolution.
-#[derive(Debug, Clone)]
-pub struct DiscoveredLocalProject {
-    /// The discovered local root modules.
-    pub root_modules: ResolvedRootModules,
-    /// The module IDs of the local root modules.
-    pub root_module_ids: Vec<ModuleId>,
-    /// The packages discovered under the local root modules.
-    pub pkg_dirs: DiscoverResult,
 }
 
 impl DiscoverResult {
@@ -299,10 +319,6 @@ impl DiscoverResult {
         }
 
         Ok(id)
-    }
-
-    pub(super) fn set_abort_pkg(&mut self, id: PackageId) {
-        self.abort_pkg = Some(id);
     }
 
     /// Get a package by its ID. This operation is infallible because PackageId
@@ -355,10 +371,6 @@ impl DiscoverResult {
         pkg.fqn.clone()
     }
 
-    pub fn abort_pkg(&self) -> Option<PackageId> {
-        self.abort_pkg
-    }
-
     pub fn is_stdlib_package(&self, id: PackageId) -> bool {
         self.packages[id].is_stdlib
     }
@@ -384,6 +396,9 @@ impl DiscoverResult {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DiscoverError {
+    #[error("Unable to scan package directories: {0}")]
+    CantScanPackages(#[from] ignore::Error),
+
     #[error("Unable to load local workspace rooted at path '{path}', error: {inner}")]
     CantReadLocalWorkspace { path: PathBuf, inner: anyhow::Error },
 
@@ -431,16 +446,6 @@ pub enum DiscoverError {
         module: ModuleSource,
         package: PackagePath,
         path: PathBuf,
-        inner: anyhow::Error,
-    },
-
-    #[error(
-        "Unable to read file info for file '{file}' in package '{package}' of module '{module}', error: {inner}"
-    )]
-    CantReadFileInfo {
-        module: ModuleSource,
-        package: PackagePath,
-        file: PathBuf,
         inner: anyhow::Error,
     },
 

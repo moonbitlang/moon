@@ -99,7 +99,7 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - For a multi-backend invocation, compose the independently lowered
      Execution Plans into one executor graph, sharing compatible physical
      providers such as package prebuild actions. JSON-formatted checks retain
-     each diagnostic's backend through the originating n2 Build ID, so they use
+     each diagnostic's backend through the originating Action ID, so they use
      the same composed graph. Backend actions render their backend together
      with any applicable target kind, such as `(wasm, blackbox test)`;
      package-prebuild actions independently render `(prebuild)` before the
@@ -221,8 +221,8 @@ Toolchain and host facts follow the same rule. `moonutil::toolchain` owns facts
 about the selected MoonBit toolchain tree, including known tool binaries and
 the shipped standard-library artifact layout. Command orchestration decides
 whether those facts apply to the current build, then passes the selected facts
-forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
-!is_core`; RR lowering, metadata generation, and `all_pkgs.json` generation
+forward. In particular, `rr_build` chooses `stdlib_path` from `!is_core`;
+RR lowering, metadata generation, and `all_pkgs.json` generation
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
 not need to be eager: non-native builds do not resolve native-only OS/toolchain
@@ -232,6 +232,14 @@ and lowering borrow that same configuration, so planning can select optional
 runtime members such as SIMDUTF objects and lowering can consume the same paths
 without rediscovery or a copied planning configuration.
 
+`moonbuild::compile` orchestrates planning and lowering. Once a Build Plan is
+complete, it scans the selected toolchain include directory only if the plan
+contains C-stub, runtime-object, or generated-C compilation. The scan follows
+symlinks and supplies sorted file paths to RR lowering, which attaches them to
+those actions as inputs. Native checks and plans without C compilation do not
+observe the include tree. This preparation uses the existing compiler paths;
+it does not select another toolchain or rebuild the plan.
+
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment
 explicitly and passes it to prebuild execution. Commands that skip prebuild
@@ -239,10 +247,20 @@ configuration, such as `check`, should not capture that environment just to
 construct a build plan. This does not disable package pre-build rules.
 
 Dependency synchronization is explicit in the normal project path. Command
-adapters first call dependency sync, then pass the synced dependency result to
-package discovery and package relationship resolution. RR should not hide
-dependency downloads or `.mooncakes` directory updates behind a plain
-project-resolve call.
+adapters call `moonbuild::prepare::sync_module_dependencies`, then pass the
+synced module graph and source directories to RR for package discovery and
+package relationship resolution. `ProjectPreparationConfig` owns sync policy
+and directly contains RR's `DiscoveryConfig`, which only carries coverage and
+discovery parallelism settings. Discovery-only callers do not need registry,
+workspace, or download settings.
+
+Single-file preparation also belongs to `moonbuild::prepare`: it reads script
+declarations, normalizes versioned imports, consults cached registry metadata
+when required, and synchronizes dependencies through `mooncake`. RR receives
+the synchronized modules, invoked source path, source kind, and normalized
+imports, then discovers dependency packages and synthesizes the single-file
+package. Module version selection remains in `mooncake`; RR has no dependency
+on registry access or downloading.
 
 ## Project discovery and layout
 
@@ -377,6 +395,15 @@ combined with scripts. Paths on different Windows drives remain absolute.
 
 Module dependencies provide packages that can be imported from code.
 
+Module version resolution consumes an initialized Module Dependency Graph.
+Project preparation validates the roots and, for builds that use the installed
+standard library, loads core and registers it before resolution. Building core
+itself skips this injection; a workspace mixing core with other roots remains
+unsupported. The resolver preserves input root IDs and the supplied standard
+library while extending the graph with selected dependencies. It does not
+locate the installed toolchain or reload its core manifest. Registry metadata
+and local dependency manifests are still read during dependency traversal.
+
 Binary dependency execution has been removed. Nonempty `bin-deps` declarations
 in input/root modules are rejected during module resolution, before dependency
 acquisition. Empty declarations are accepted. Old dependency manifests
@@ -427,8 +454,11 @@ Current registry configuration behavior today is:
   without network access; `None` means no cached answer, not remote absence.
   `query_latest_version` contacts the registry and retains the answer; it must
   not silently fall back to a stale version. The Git client implements the
-  latter by synchronizing its index before reading it. MVS and deprecation
-  checks read exact releases. `resolve_cached_unversioned_path` resolves import
+  latter by synchronizing its index before reading it. Metadata refreshes do
+  not update `symbols.zip`; Git-mode `moon update` explicitly synchronizes the
+  index and symbols separately. A symbols failure warns without failing the
+  index update. MVS and deprecation checks read exact releases.
+  `resolve_cached_unversioned_path` resolves import
   paths using cached latest answers only. The complete Git version map is an
   internal cache, not a public cache trait. Queries preserve registry read
   failures instead of reporting them as missing modules or cache misses.
@@ -437,8 +467,8 @@ Current registry configuration behavior today is:
 - Command inputs become a `ModuleRequest::Versioned` or `Unversioned` request.
   Commands separately decide whether remote access is allowed; an unversioned
   request does not itself choose current or cached latest.
-- `moonx` and `moon runwasm` use cached latest for unpinned coordinates and
-  query current latest on a cache miss or for explicit `@latest`. `moon add`,
+- `moonx` uses cached latest for unpinned coordinates and
+  queries current latest on a cache miss or for explicit `@latest`. `moon add`,
   `moon fetch`, and registry binary installation query current latest when no
   version is specified. If metadata cannot be refreshed, these three commands
   warn and explicitly fall back to a cached latest answer, if any; authoritative
@@ -707,6 +737,22 @@ flags into `BuildConfig`; execution does not depend on CLI parsing types.
 Shared artifact paths remain in Rupes Recta's `target_layout` module.
 Dry-run and planner snapshots traverse the Execution Plan directly, without
 constructing an n2 graph or copying command arguments into a second map.
+
+Captured action output retains only its Action ID, executor termination, and
+output. The capture borrows its owning `BuildInput`, keeping the Execution Plan
+alive through result processing. The n2 callback maps its Build ID to the
+Action ID; it does not copy action metadata, classify diagnostics, or construct
+failure messages. Result processing resolves the Target Backend, output kind,
+description, and command from that input. It classifies compiler errors from
+the original output before diagnostic filtering.
+Structured execution results include these failures even when compiler
+diagnostics already explain them or a diagnostic limit hides those diagnostics.
+Failure messages remain a separate projection, with visibility controlled by
+UserLog; their absence does not imply that an action succeeded. The current n2 API
+collapses nonzero exits, most abnormal terminations, and per-task execution
+errors into the same failure result, so these records cannot distinguish
+ordinary compiler errors from a compiler that emitted diagnostics and then
+crashed.
 
 Human-readable diagnostic rendering shares source text, character-based line
 offsets, and Ariadne sources across each diagnostic batch. Source maps are

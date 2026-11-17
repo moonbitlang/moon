@@ -18,6 +18,10 @@
 
 #![cfg(feature = "v8")]
 
+#[cfg(feature = "v8")]
+#[path = "common/test_init.rs"]
+mod test_init;
+
 fn run(source: &str) {
     let engine = moonrun::Engine::default();
     let module = engine

@@ -30,16 +30,16 @@ pub(crate) fn get_platform() -> i32 {
 
 ported_fns! {
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_job_get_ret"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_job_get_ret"
     )]
     pub(crate) fn job_get_ret(job: &Job) -> i64 {
         job.ret()
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
-        original = "moonbitlang_async_job_get_err"
+        runtime = "thread_pool.c",
+        original = "moonbit_rt_job_get_err"
     )]
     pub(crate) fn job_get_err(job: &Job) -> i32 {
         job.err()

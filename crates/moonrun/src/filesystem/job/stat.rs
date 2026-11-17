@@ -25,6 +25,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
+use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::Resource;
 
@@ -63,15 +64,20 @@ pub(crate) struct StatRequest {
 
 impl StatRequest {
     pub(super) const fn open_identity() -> Self {
+        // Each identity property occupies one 64-bit word after the header.
         Self {
             mask: STAT_OPEN_IDENTITY,
-            encoded_len: 32,
+            encoded_len: STAT_HEADER_LEN
+                + STAT_OPEN_IDENTITY.count_ones() as usize * std::mem::size_of::<u64>(),
         }
     }
 
     pub(super) fn new(mask: u32, capacity: u32) -> AsyncHostResult<Self> {
         let header_len = u32::try_from(STAT_HEADER_LEN).map_err(|_| AsyncHostError::Fault)?;
-        if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0 || capacity < header_len {
+        if mask & !STAT_SUPPORTED_PROPERTY_MASK != 0
+            || capacity < header_len
+            || capacity > i32::MAX as u32
+        {
             return Err(AsyncHostError::Inval);
         }
         let property_words = (0..8)
@@ -301,10 +307,31 @@ pub(super) fn run_statx_job(
         .map(|resource| resource.as_file().map(|file| file.as_raw_handle()))
         .transpose()?;
 
-    *result = Some(PackedStat::new(
-        request,
-        platform::query_path(parent, path, follow_symlink, request)?,
-    ));
+    #[cfg(unix)]
+    let values = platform::query_path(parent, path, follow_symlink, request)?;
+    #[cfg(windows)]
+    let values = {
+        use super::super::os::openat::{
+            self, Access, CreateMode, OpenOptions, Sync, TypeConstraint,
+        };
+        let file = openat::open(
+            parent,
+            &path,
+            &OpenOptions {
+                access: Access::Attributes,
+                type_constraint: TypeConstraint::Any,
+                follow_symlink,
+                is_async: false,
+                create: CreateMode::Open,
+                append: false,
+                sync: Sync::None,
+                permission: 0,
+            },
+            &super::CancellableIo,
+        )?;
+        platform::query(file.as_raw_handle(), request)?
+    };
+    *result = Some(PackedStat::new(request, values));
     Ok(0)
 }
 
@@ -464,14 +491,6 @@ mod platform {
             libc::S_IFCHR => FILE_KIND_CHAR_DEVICE,
             _ => FILE_KIND_UNKNOWN,
         }
-    }
-
-    fn last_native_error() -> AsyncHostError {
-        AsyncHostError::Native(
-            std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or(libc::EINVAL),
-        )
     }
 }
 
@@ -762,36 +781,22 @@ mod platform {
             _ => FILE_KIND_UNKNOWN,
         }
     }
-
-    fn last_native_error() -> AsyncHostError {
-        AsyncHostError::Native(
-            std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or(libc::EINVAL),
-        )
-    }
 }
 
 #[cfg(windows)]
 mod platform {
-    use std::ffi::OsString;
     use std::mem::MaybeUninit;
-    use std::os::windows::ffi::OsStrExt;
 
-    use windows_sys::Win32::Foundation::{
-        CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, SetLastError,
-    };
+    use windows_sys::Win32::Foundation::{GetLastError, HANDLE, SetLastError};
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
-        FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_INFO_BY_HANDLE_CLASS,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_CHAR,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_TYPE_CHAR,
         FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileAttributeTagInfo, FileBasicInfo,
         GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileSize, GetFileType,
-        INVALID_FILE_SIZE, OPEN_EXISTING,
+        INVALID_FILE_SIZE,
     };
 
-    use super::super::runner::{handle_is_socket, resolve_windows_path_for_parent};
+    use super::super::runner::handle_is_socket;
     use super::*;
 
     #[derive(Default)]
@@ -819,43 +824,7 @@ mod platform {
         Ok(values)
     }
 
-    pub(super) fn query_path(
-        parent: Option<HANDLE>,
-        path: OsString,
-        follow_symlink: bool,
-        request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        let path = resolve_windows_path_for_parent(parent, path)?;
-        let path: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
-        let flags = FILE_ATTRIBUTE_NORMAL
-            | FILE_FLAG_BACKUP_SEMANTICS
-            | if follow_symlink {
-                0
-            } else {
-                FILE_FLAG_OPEN_REPARSE_POINT
-            };
-        let handle = unsafe {
-            CreateFileW(
-                path.as_ptr(),
-                FILE_READ_ATTRIBUTES,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                flags,
-                std::ptr::null_mut(),
-            )
-        };
-        if handle == INVALID_HANDLE_VALUE {
-            return Err(last_native_error());
-        }
-        let result = query(handle, request);
-        unsafe {
-            CloseHandle(handle);
-        }
-        result
-    }
-
-    fn query(handle: HANDLE, request: StatRequest) -> AsyncHostResult<StatValues> {
+    pub(super) fn query(handle: HANDLE, request: StatRequest) -> AsyncHostResult<StatValues> {
         let mut stat = WindowsStat::default();
         let mut remaining = request.mask();
 
@@ -1027,10 +996,6 @@ mod platform {
     fn filetime_ticks(value: windows_sys::Win32::Foundation::FILETIME) -> i64 {
         i64::from(value.dwHighDateTime) << 32 | i64::from(value.dwLowDateTime)
     }
-
-    fn last_native_error() -> AsyncHostError {
-        AsyncHostError::Native(unsafe { GetLastError() } as i32)
-    }
 }
 
 #[cfg(test)]
@@ -1059,6 +1024,7 @@ mod tests {
     fn request_rejects_unknown_properties_and_short_buffers() {
         assert_eq!(StatRequest::new(0x0100, 8), Err(AsyncHostError::Inval));
         assert_eq!(StatRequest::new(0, 7), Err(AsyncHostError::Inval));
+        assert_eq!(StatRequest::new(0, u32::MAX), Err(AsyncHostError::Inval));
         assert_eq!(
             StatRequest::new(STAT_CREATE_TIME, 23),
             Err(AsyncHostError::Inval)
@@ -1163,23 +1129,36 @@ mod tests {
     }
 
     #[test]
-    fn invalid_open_stat_request_is_rejected_before_opening_the_path() {
+    fn invalid_open_stat_request_is_rejected_before_open() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("must-not-be-created");
-        let error = crate::filesystem::Job::open(
+        let result = crate::filesystem::Job::open(
+            None,
             path.clone().into_os_string(),
             1,
             3,
             false,
             0,
             0o600,
-            0x0100,
-            8,
-        )
-        .unwrap_err();
-
-        assert_eq!(error, AsyncHostError::Inval);
+            STAT_SUPPORTED_PROPERTY_MASK + 1,
+            STAT_HEADER_LEN as u32,
+        );
+        assert_eq!(result.unwrap_err(), AsyncHostError::Inval);
         assert!(!path.exists());
+
+        // Invalid arguments take precedence over a missing parent directory.
+        let result = crate::filesystem::Job::open(
+            None,
+            temp.path().join("missing/file").into_os_string(),
+            1,
+            3,
+            false,
+            0,
+            0o600,
+            STAT_SUPPORTED_PROPERTY_MASK + 1,
+            STAT_HEADER_LEN as u32,
+        );
+        assert_eq!(result.unwrap_err(), AsyncHostError::Inval);
     }
 
     #[cfg(unix)]
@@ -1228,7 +1207,7 @@ mod tests {
     #[test]
     fn windows_parent_relative_query_resolves_from_directory_handle() {
         use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::Storage::FileSystem::{
             CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
             FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -1256,14 +1235,19 @@ mod tests {
         assert_ne!(parent, INVALID_HANDLE_VALUE);
         let request = StatRequest::new(STAT_FILE_KIND | STAT_FILE_SIZE, 24).unwrap();
 
-        let values = platform::query_path(Some(parent), OsString::from("child"), true, request);
-        unsafe {
-            CloseHandle(parent);
-        }
-        let values = values.unwrap();
-
-        assert_eq!(values.kind, Some(1));
-        assert_eq!(values.size, Some(5));
+        let parent = Resource::new(parent);
+        let mut result = None;
+        run_statx_job(
+            Some(&parent),
+            OsString::from("child"),
+            request,
+            true,
+            &mut result,
+        )
+        .unwrap();
+        let result = result.unwrap();
+        assert_eq!(result.scalar(STAT_FILE_KIND), Some(1));
+        assert_eq!(result.scalar(STAT_FILE_SIZE), Some(5));
     }
 
     #[cfg(windows)]

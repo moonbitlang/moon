@@ -266,15 +266,18 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::ProofWhyml { target_kind, .. } => {
                 (b"proof-whyml".as_slice(), Some(*target_kind), None)
             }
-            ArtifactKey::ProofReport { target_kind, .. } => {
-                (b"proof-report".as_slice(), Some(*target_kind), None)
-            }
             ArtifactKey::CStubObject { source, .. } => {
                 (b"c-stub-object".as_slice(), None, Some(source.clone()))
             }
             ArtifactKey::CStubLibrary { .. } => (b"c-stub-library".as_slice(), None, None),
             ArtifactKey::LinkedCore { target_kind, .. } => {
                 (b"linked-core".as_slice(), Some(*target_kind), None)
+            }
+            ArtifactKey::WasmMainObject { target_kind, .. } => {
+                (b"wasm-main-object".as_slice(), Some(*target_kind), None)
+            }
+            ArtifactKey::WasmLibraryObject { .. } => {
+                (b"wasm-library-object".as_slice(), None, None)
             }
             ArtifactKey::GeneratedCObject { target_kind, .. } => {
                 (b"generated-c-object".as_slice(), Some(*target_kind), None)
@@ -296,7 +299,6 @@ impl From<&ArtifactKey> for LogicalProduct {
             ArtifactKey::NodeTestPackageConfig { .. } => {
                 (b"node-test-package-config".as_slice(), None, None)
             }
-            ArtifactKey::BundleResult { .. } => (b"bundle-result".as_slice(), None, None),
             ArtifactKey::RuntimeObject { source } => {
                 (b"runtime-object".as_slice(), None, Some(source.clone()))
             }

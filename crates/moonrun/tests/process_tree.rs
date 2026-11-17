@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonrun::{Engine, GuestProcessMode, ProcessError};
+use moonrun::{Engine, ProcessError};
 
 #[cfg(not(feature = "v8"))]
 #[test]
@@ -35,21 +35,14 @@ fn unsupported_backend_cannot_admit_virtual_processes() {
         RunOutcome::Completed
     );
     let error = engine
-        .run(
-            &module,
-            RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-        )
+        .run(&module, RunOptions::default().with_virtualize(true))
         .unwrap_err();
     assert!(matches!(
         error.downcast_ref::<ProcessError>(),
         Some(ProcessError::UnsupportedBackend)
     ));
     assert!(matches!(
-        engine.spawn(
-            None,
-            &module,
-            RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-        ),
+        engine.spawn(None, &module, RunOptions::default().with_virtualize(true),),
         Err(ProcessError::UnsupportedBackend)
     ));
     assert!(engine.snapshot().is_empty());
@@ -115,12 +108,8 @@ mod v8 {
                     .and_then(|module| {
                         let error = engine.run(&module, RunOptions::default()).unwrap_err();
                         assert!(format!("{error:#}").contains("Maximum call stack size exceeded"));
-                        let pid = tree.spawn(
-                            None,
-                            &module,
-                            RunOptions::default()
-                                .with_guest_process_mode(GuestProcessMode::Virtual),
-                        )?;
+                        let pid =
+                            tree.spawn(None, &module, RunOptions::default().with_virtualize(true))?;
                         Ok(tree.wait(pid)?)
                     });
                 let error = result.unwrap_err();
@@ -153,7 +142,7 @@ mod v8 {
                         None,
                         &module,
                         RunOptions::default()
-                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .with_virtualize(true)
                             .without_stack_trace(),
                     )
                     .unwrap();
@@ -165,24 +154,20 @@ mod v8 {
             }
             "tree" => {
                 let parent = tree
-                    .spawn(
-                        None,
-                        &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                    )
+                    .spawn(None, &module, RunOptions::default().with_virtualize(true))
                     .unwrap();
                 let child = tree
                     .spawn(
                         Some(parent),
                         &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                        RunOptions::default().with_virtualize(true),
                     )
                     .unwrap();
                 let grandchild = tree
                     .spawn(
                         Some(child),
                         &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                        RunOptions::default().with_virtualize(true),
                     )
                     .unwrap();
                 assert_eq!(
@@ -208,11 +193,7 @@ mod v8 {
                 assert!(parent.get() >= 1 << 30);
                 let other = Engine::default();
                 let foreign = other
-                    .spawn(
-                        None,
-                        &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                    )
+                    .spawn(None, &module, RunOptions::default().with_virtualize(true))
                     .unwrap();
                 assert!(matches!(
                     tree.terminate(foreign, RunTermination::Exit(1)),
@@ -222,7 +203,7 @@ mod v8 {
                     tree.spawn(
                         Some(foreign),
                         &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual)
+                        RunOptions::default().with_virtualize(true)
                     ),
                     Err(ProcessError::NotFound(_))
                 ));
@@ -236,7 +217,7 @@ mod v8 {
                     tree.spawn(
                         Some(parent),
                         &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual)
+                        RunOptions::default().with_virtualize(true)
                     ),
                     Err(ProcessError::ParentNotRunning(_))
                 ));
@@ -275,11 +256,7 @@ mod v8 {
             }
             "waiters" => {
                 let pid = tree
-                    .spawn(
-                        None,
-                        &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                    )
+                    .spawn(None, &module, RunOptions::default().with_virtualize(true))
                     .unwrap();
                 let barrier = Arc::new(Barrier::new(3));
                 let (send, receive) = mpsc::channel();
@@ -305,7 +282,7 @@ mod v8 {
                     .spawn(
                         Some(pid),
                         &module,
-                        RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
+                        RunOptions::default().with_virtualize(true),
                     )
                     .unwrap();
                 assert!(tree.terminate(pid, RunTermination::Exit(2)).unwrap());
@@ -333,12 +310,7 @@ mod v8 {
                 let mut previous = None;
                 for _ in 0..32 {
                     let pid = tree
-                        .spawn(
-                            None,
-                            &module,
-                            RunOptions::default()
-                                .with_guest_process_mode(GuestProcessMode::Virtual),
-                        )
+                        .spawn(None, &module, RunOptions::default().with_virtualize(true))
                         .unwrap();
                     assert!(previous.is_none_or(|previous| pid > previous));
                     previous = Some(pid);
@@ -358,7 +330,7 @@ mod v8 {
                         None,
                         &module,
                         RunOptions::default()
-                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .with_virtualize(true)
                             .with_test_args("{"),
                     )
                     .unwrap();
@@ -370,7 +342,7 @@ mod v8 {
                         None,
                         &module,
                         RunOptions::default()
-                            .with_guest_process_mode(GuestProcessMode::Virtual)
+                            .with_virtualize(true)
                             .with_termination_receiver(receiver)
                     ),
                     Err(ProcessError::TerminationAlreadyConfigured)
@@ -407,7 +379,7 @@ mod v8 {
                         .run(
                             &module,
                             RunOptions::default()
-                                .with_guest_process_mode(GuestProcessMode::Virtual)
+                                .with_virtualize(true)
                                 .with_working_directory(WorkingDirectory::Fixed(cwd.clone())),
                         )
                         .unwrap(),
@@ -420,7 +392,7 @@ mod v8 {
                             None,
                             &module,
                             RunOptions::default()
-                                .with_guest_process_mode(GuestProcessMode::Virtual)
+                                .with_virtualize(true)
                                 .with_working_directory(WorkingDirectory::Fixed(cwd.clone())),
                         )
                         .unwrap()
@@ -446,8 +418,9 @@ mod v8 {
                         None,
                         &module,
                         RunOptions::default()
-                            .with_guest_process_mode(GuestProcessMode::Virtual)
-                            .with_policy_file(policy),
+                            .with_virtualize(true)
+                            .with_policy_file(policy)
+                            .unwrap(),
                     )
                     .unwrap();
                 assert_eq!(tree.wait(pid).unwrap(), RunOutcome::Completed);

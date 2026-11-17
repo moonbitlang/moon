@@ -16,18 +16,20 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Wasm-backend-neutral process operations owned by one moonrun Runtime.
+//! Wasm-backend-neutral process operations and Moon artifact preparation.
 //!
-//! [`HostProcess`] is the module interface used by the async host. Policy,
+//! [`HostProcess`] is the Runtime-owned interface used by the async host. Policy,
 //! working-directory configuration, and child provenance stay above the
-//! private [`ambient`] implementation, which owns native operating-system
-//! execution. Supervised Runs instead resolve guest process identities and
-//! waits within their virtual process tree.
+//! native workers and [`os`] process mechanisms. Supervised Runs instead resolve
+//! guest process identities and waits within their virtual process tree.
+//! [`prepare_moon`] runs host-selected helpers and owns their artifact handoff.
 
-mod ambient;
 mod job;
 mod lookup;
 mod moon;
+pub(crate) mod native;
+pub(crate) mod os;
+mod prepare_artifact;
 mod spawn;
 #[cfg(test)]
 mod tests;
@@ -38,18 +40,20 @@ use std::sync::{Arc, Mutex};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(windows)]
 use crate::async_sys::internal::fd_util::stub::RawFd;
-use crate::policy::{PolicyInheritance, ProcessPolicy};
+use crate::policy::{Policy, ProcessPolicy};
 use crate::resource::ResourceRef;
 use crate::runtime::{Stdio, WorkingDirectory};
 
 pub(crate) use job::Job;
-pub(crate) use job::SpawnOptions;
+pub(crate) use os::SpawnOptions;
+pub(crate) use prepare_artifact::{Preparation, prepare_moon};
 
 /// Process operations and child ownership shared by guest and worker threads.
 #[derive(Clone)]
 pub(crate) struct HostProcess {
+    ipc_endpoint: Option<std::path::PathBuf>,
     policy: Option<ProcessPolicy>,
-    policy_inheritance: Option<PolicyInheritance>,
+    policy_inheritance: Option<Policy>,
     working_directory: Arc<WorkingDirectory>,
     stdio: Arc<Stdio>,
     child_authority: Option<Arc<ChildAuthorityState>>,
@@ -71,8 +75,7 @@ struct ChildAuthorityStateInner {
 
 impl HostProcess {
     pub(crate) fn new(
-        policy: Option<ProcessPolicy>,
-        policy_inheritance: Option<PolicyInheritance>,
+        policy: Option<Policy>,
         working_directory: Arc<WorkingDirectory>,
         stdio: Arc<Stdio>,
         context: Option<crate::process_tree::ProcessContext>,
@@ -85,14 +88,20 @@ impl HostProcess {
             .is_some()
             .then(|| Arc::new(ChildAuthorityState::default()));
         Self {
-            policy,
-            policy_inheritance,
+            ipc_endpoint: None,
+            policy: policy.as_ref().map(Policy::process),
+            policy_inheritance: policy,
             working_directory,
             stdio,
             child_authority,
             context,
             environment,
         }
+    }
+
+    pub(crate) fn with_ipc_endpoint(mut self, endpoint: Option<std::path::PathBuf>) -> Self {
+        self.ipc_endpoint = endpoint;
+        self
     }
 
     pub(crate) fn context(&self) -> Option<&crate::process_tree::ProcessContext> {
@@ -242,7 +251,7 @@ impl HostProcess {
         if state.process_handle_pids.get(&handle) != Some(&pid) {
             return Err(AsyncHostError::PermissionDenied);
         }
-        if crate::async_sys::process::process_id_from_handle(raw_handle)? != pid {
+        if os::process_id(raw_handle)? != pid as u32 {
             return Err(AsyncHostError::PermissionDenied);
         }
         let result = f()?;
@@ -374,14 +383,14 @@ impl HostProcess {
         let Some(state) = self.child_authority.as_deref() else {
             #[cfg(unix)]
             if defer_reap {
-                crate::async_sys::process::reap_process(pid)?;
+                os::reap(pid)?;
             }
             return Ok(());
         };
         let mut state = state.inner.lock().unwrap();
         #[cfg(unix)]
         if defer_reap {
-            crate::async_sys::process::reap_process(pid)?;
+            os::reap(pid)?;
         }
         state.owned_child_pids.remove(&pid);
         Ok(())
@@ -404,5 +413,5 @@ impl HostProcess {
 
 #[cfg(windows)]
 pub(crate) fn cancel_wait(cancel: &crate::resource::ResourceRef) -> AsyncHostResult<()> {
-    ambient::cancel_wait_for_process(cancel)
+    native::cancel_wait_for_process(cancel)
 }

@@ -20,15 +20,15 @@
 //!
 //! Ambient state stays with the native primitive when it can express the
 //! Runtime's state. Explicit lookup captures only the inputs its candidates
-//! need. OS queries and execution live below this module in `ambient`.
+//! need. OS queries and execution live below this module in `os`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(windows)]
-use super::ambient;
-use super::ambient::Executable;
+use super::os;
+use super::os::Executable;
 use super::{HostProcess, SpawnOptions, lookup};
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::resource::{Resource, ResourceRef};
@@ -62,7 +62,7 @@ pub(super) struct NativeSpawn {
     // HostProcess is released between preparation and native execution.
     pub(super) _stdio_owner: Arc<Stdio>,
     pub(super) executable: Executable,
-    pub(super) policy_inheritance: Option<crate::policy::PolicyInheritance>,
+    pub(super) policy_inheritance: Option<crate::policy::Policy>,
 }
 
 pub(super) enum PreparedSpawn {
@@ -83,6 +83,50 @@ impl HostProcess {
         #[cfg(windows)]
         self.check_spawn_windows(&request.command_line)?;
 
+        #[cfg(unix)]
+        if let Some(endpoint) = &self.ipc_endpoint {
+            // This is host-owned session routing, not a guest Env default.
+            // Bind it even for an explicit child environment; ordinary native
+            // descendants can pass it on without knowing anything about IPC.
+            use std::os::unix::ffi::OsStrExt;
+            let prefix = format!("{}=", crate::ipc::ENDPOINT_ENV);
+            request
+                .env
+                .retain(|entry| !entry.as_bytes().starts_with(prefix.as_bytes()));
+            let mut entry = OsString::from(prefix);
+            entry.push(endpoint);
+            request.env.push(entry);
+        }
+
+        #[cfg(windows)]
+        if let Some(endpoint) = &self.ipc_endpoint {
+            use std::os::windows::ffi::OsStrExt;
+            let prefix: Vec<u16> = format!("{}=", crate::ipc::ENDPOINT_ENV)
+                .encode_utf16()
+                .collect();
+            // Windows environment keys are case-insensitive. Preserve all other
+            // raw entries, including hidden drive directories and their order.
+            let mut env = Vec::with_capacity(request.env.len());
+            for entry in request
+                .env
+                .split(|unit| *unit == 0)
+                .take_while(|entry| !entry.is_empty())
+            {
+                let reserved = entry.len() >= prefix.len()
+                    && entry.iter().zip(&prefix).all(|(a, b)| {
+                        *a == *b || (*a <= 127 && (*a as u8).to_ascii_uppercase() as u16 == *b)
+                    });
+                if !reserved {
+                    env.extend_from_slice(entry);
+                    env.push(0);
+                }
+            }
+            env.extend(prefix);
+            env.extend(endpoint.as_os_str().encode_wide());
+            env.extend([0, 0]);
+            request.env = env;
+        }
+
         if let WorkingDirectory::Fixed(root) = self.working_directory.as_ref() {
             request.cwd = Some(match request.cwd {
                 Some(cwd) if cwd.is_empty() => cwd,
@@ -102,17 +146,17 @@ impl HostProcess {
             // Do not call getcwd just to inherit Ambient cwd: its pathname can
             // be unavailable while the directory remains usable.
             #[cfg(unix)]
-            let (executable, invokes_moonx) = (
+            let (executable, inherits_policy) = (
                 Executable::Ambient(request.path.clone()),
-                moonutil::constants::is_moonx_executable(&request.path),
+                is_policy_recipient(&request.path),
             );
             #[cfg(windows)]
-            let (executable, invokes_moonx) = (
+            let (executable, inherits_policy) = (
                 Executable::Ambient,
                 if self.policy_inheritance.is_some() {
-                    let arguments = ambient::lookup::parse_command_line(&request.command_line)
-                        .map_err(io_error)?;
-                    moonutil::constants::is_moonx_executable(&arguments[0])
+                    let arguments =
+                        os::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
+                    is_policy_recipient(&arguments[0])
                 } else {
                     false
                 },
@@ -122,7 +166,7 @@ impl HostProcess {
                 request,
                 _stdio_owner: Arc::clone(&self.stdio),
                 executable,
-                policy_inheritance: if invokes_moonx {
+                policy_inheritance: if inherits_policy {
                     self.policy_inheritance.clone()
                 } else {
                     None
@@ -162,7 +206,7 @@ impl HostProcess {
             use std::os::windows::ffi::OsStrExt;
 
             let arguments =
-                ambient::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
+                os::lookup::parse_command_line(&request.command_line).map_err(io_error)?;
             let program = &arguments[0];
             let searches_path = !program
                 .encode_wide()
@@ -175,8 +219,7 @@ impl HostProcess {
                 WorkingDirectory::Ambient => None,
             };
             let directories = if searches_path {
-                let (application, system) =
-                    ambient::lookup::windows_directories().map_err(io_error)?;
+                let (application, system) = os::lookup::windows_directories().map_err(io_error)?;
                 let mut directories: Vec<_> = application.into_iter().collect();
                 if self
                     .environment
@@ -241,26 +284,41 @@ impl HostProcess {
             return Ok(PreparedSpawn::Moon(Box::new(spawn)));
         }
         #[cfg(unix)]
-        let (executable, invokes_moonx) = (
+        let (executable, inherits_policy) = (
             Executable::Prepared(plan),
-            moonutil::constants::is_moonx_executable(&request.path),
+            is_policy_recipient(&request.path),
         );
         #[cfg(windows)]
-        let (executable, invokes_moonx) = (
-            Executable::Prepared(ambient::lookup::select_image(&plan).map_err(io_error)?),
-            moonutil::constants::is_moonx_executable(&arguments[0]),
+        let (executable, inherits_policy) = (
+            Executable::Prepared(os::lookup::select_image(&plan).map_err(io_error)?),
+            is_policy_recipient(&arguments[0]),
         );
         Ok(PreparedSpawn::Native(Box::new(NativeSpawn {
             request,
             _stdio_owner: Arc::clone(&self.stdio),
             executable,
-            policy_inheritance: if invokes_moonx {
+            policy_inheritance: if inherits_policy {
                 self.policy_inheritance.clone()
             } else {
                 None
             },
         })))
     }
+}
+
+// moonrun consumes inherited restrictions directly; moonx relays them to moonrun.
+fn is_policy_recipient(program: &OsStr) -> bool {
+    moonutil::constants::is_moonx_executable(program) || is_moonrun_executable(program)
+}
+
+fn is_moonrun_executable(path: &OsStr) -> bool {
+    Path::new(path).file_name().is_some_and(|name| {
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("moonrun") || name.eq_ignore_ascii_case("moonrun.exe")
+        } else {
+            name == "moonrun" || name == "moonrun.exe"
+        }
+    })
 }
 
 fn lookup_error(error: lookup::LookupError) -> AsyncHostError {
@@ -283,7 +341,7 @@ fn io_error(error: std::io::Error) -> AsyncHostError {
 impl SpawnRequest {
     pub(super) fn configure_stdio(&mut self, runtime_stdio: &Stdio) -> AsyncHostResult<()> {
         #[cfg(unix)]
-        if matches!(runtime_stdio, Stdio::Owned(_)) {
+        if matches!(runtime_stdio, Stdio::Bound(_)) {
             for (slot, stream) in self.stdio.iter_mut().zip(StdioStream::ALL) {
                 if slot.is_none() {
                     let raw = runtime_stdio.raw(stream).map_err(|_| AsyncHostError::Io)?;

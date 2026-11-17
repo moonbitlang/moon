@@ -1,6 +1,6 @@
 use super::*;
 
-/// Test that moon fmt with rr_moon_pkg feature gate:
+/// `moon fmt` migrates legacy package manifests and formats existing DSL manifests:
 /// - Migrates moon.pkg.json to moon.pkg (lib/)
 /// - Formats existing moon.pkg files (main/)
 #[test]
@@ -14,32 +14,14 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
 
     // Check stderr for migration warning
     check(
-        get_stderr(
-            &dir,
-            [
-                "--unstable-feature",
-                "rr_moon_pkg",
-                "fmt",
-                "--dry-run",
-                "--sort-input",
-            ],
-        ),
+        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
             Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg/lib', deprecated moon.pkg.json is removed.
         "#]],
     );
 
-    let output = get_stdout(
-        &dir,
-        [
-            "--unstable-feature",
-            "rr_moon_pkg",
-            "fmt",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
+    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
 
     check(
         output,
@@ -59,7 +41,7 @@ fn test_fmt_moon_pkg_json_migration_replaces_legacy_file() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["--unstable-feature", "rr_moon_pkg", "fmt"])
+        .args(["fmt"])
         .assert()
         .success();
 
@@ -67,25 +49,21 @@ fn test_fmt_moon_pkg_json_migration_replaces_legacy_file() {
     assert!(!dir.join("lib/moon.pkg.json").exists());
 }
 
-/// Test that with rr_moon_pkg and rr_moon_mod disabled, legacy manifests are not migrated,
-/// but existing new-format manifests are still formatted.
 #[test]
-fn test_fmt_without_moon_pkg_and_moon_mod_feature() {
+fn test_fmt_migrates_manifests_despite_removed_environment_switches() {
     let dir = TestDir::new("fmt_moon_pkg.in");
 
-    // Test dry run output without rr_moon_pkg and rr_moon_mod features.
-    check(
-        get_stdout_with_envs(
-            &dir,
-            ["fmt", "--dry-run", "--sort-input"],
-            [("NEW_MOON_PKG", "0"), ("NEW_MOON_MOD", "0")],
-        ),
-        expect![[r#"
-            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-            moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
-        "#]],
-    );
+    moon_cmd(&dir)
+        .env("NEW_MOON_MOD", "0")
+        .env("NEW_MOON_PKG", "0")
+        .arg("fmt")
+        .assert()
+        .success();
+
+    for manifest in ["moon.mod", "lib/moon.pkg"] {
+        assert!(dir.join(manifest).is_file());
+        assert!(!dir.join(format!("{manifest}.json")).exists());
+    }
 }
 
 /// Test that when both moon.pkg and moon.pkg.json exist in the same package,
@@ -102,16 +80,7 @@ fn test_fmt_moon_pkg_both_exist() {
     // 1. Migration warning for root package (moon.pkg.json only)
     // 2. Both-exist warning for both/ package
     check(
-        get_stderr(
-            &dir,
-            [
-                "--unstable-feature",
-                "rr_moon_pkg",
-                "fmt",
-                "--dry-run",
-                "--sort-input",
-            ],
-        ),
+        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: Both moon.pkg.json and moon.pkg exist at package root '$ROOT/both', using the new format moon.pkg. Please remove the deprecated moon.pkg.json.
             Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
@@ -119,16 +88,7 @@ fn test_fmt_moon_pkg_both_exist() {
         "#]],
     );
 
-    let output = get_stdout(
-        &dir,
-        [
-            "--unstable-feature",
-            "rr_moon_pkg",
-            "fmt",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
+    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
 
     // Stdout should still show the formatting commands (using moon.pkg for both/, migrating for root)
     check(

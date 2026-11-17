@@ -35,7 +35,11 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::{pkg::legacy_postadd, registry::RegistrySource};
+use crate::{
+    pkg::legacy_postadd,
+    registry::{RegistrySource, SourceRequest},
+    zip_util::extract_archives,
+};
 
 use super::DependencySource;
 
@@ -55,13 +59,19 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 pub(super) struct ProjectDependencySource {
     path: PathBuf,
     postadd_output: ChildOutputMode,
+    jobs: Option<usize>,
 }
 
 impl ProjectDependencySource {
-    pub(super) fn new(path: impl Into<PathBuf>, postadd_output: ChildOutputMode) -> Self {
+    pub(super) fn new(
+        path: impl Into<PathBuf>,
+        postadd_output: ChildOutputMode,
+        jobs: Option<usize>,
+    ) -> Self {
         Self {
             path: path.into(),
             postadd_output,
+            jobs,
         }
     }
 
@@ -271,21 +281,56 @@ fn sync(
         log::info!("Creating user {} at {}", &user, user_path.display());
         std::fs::create_dir_all(user_path)?;
     }
-    // Finally, Download and install packages that are needed.
-    for (user, pkgs) in diff.add_pkg {
-        for (pkg, version) in pkgs {
-            let pkg_path = pkg_to_dir(dep_dir, &user, &pkg);
-            log::info!(
-                "Installing package {:?} at {}",
-                &version,
-                pkg_path.display()
-            );
-            let ModuleSourceKind::Registry = version.source() else {
-                unreachable!()
-            };
-            registry.materialize_source_to(version, &pkg_path, user_log)?;
-            legacy_postadd::run(&pkg_path, postadd_runner)?;
-            // TODO: parallelize this
+    // Download the missing archives together, then run legacy hooks serially.
+    let sources = diff
+        .add_pkg
+        .into_values()
+        .flat_map(|pkgs| pkgs.into_values())
+        .map(|module| {
+            Ok(SourceRequest {
+                module: module.clone(),
+                checksum: registry.source_archive_checksum(module)?,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let archives = registry.download_archives(&sources, user_log)?;
+    let staged = sources
+        .iter()
+        .map(|_| {
+            tempfile::Builder::new()
+                .prefix(".source-")
+                .tempdir_in(dep_dir.path())
+        })
+        .collect::<std::io::Result<Vec<_>>>()?;
+    extract_archives(
+        archives
+            .into_iter()
+            .zip(&staged)
+            .map(|(archive, directory)| (archive, directory.path().to_owned()))
+            .collect(),
+        dep_dir.jobs,
+    )?;
+    // Only publish one installation at a time. Later staged sources are
+    // discarded if a hook fails, so a retry cannot mistake them for complete.
+    for (source, staging) in sources.into_iter().zip(staged) {
+        let name = source.module.name();
+        let directory = pkg_to_dir(dep_dir, &name.username, &name.unqual);
+        if directory.exists() {
+            std::fs::remove_dir_all(&directory)?;
+        }
+        std::fs::rename(staging.path(), &directory)?;
+        // A manifest is treated as installed on the next sync. Materialize only
+        // this package, and discard it on failure so retry still runs its hook.
+        if let Err(error) = legacy_postadd::run(&directory, postadd_runner) {
+            if let Err(cleanup_error) = std::fs::remove_dir_all(&directory)
+                && cleanup_error.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(error).context(format!(
+                    "Unable to remove incomplete package `{}`: {cleanup_error}",
+                    directory.display()
+                ));
+            }
+            return Err(error);
         }
     }
 

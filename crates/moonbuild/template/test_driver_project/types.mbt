@@ -124,7 +124,7 @@ priv struct MoonBitTestDriverInternalTestMap[F](
   @moonbitlang/core/prelude.Map[
     String,
     @moonbitlang/core/prelude.Map[Int32, (F, ReadOnlyArray[String])],
-  ]
+  ],
 )
 
 ///|

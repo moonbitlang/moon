@@ -1,4 +1,97 @@
-use crate::{TestDir, get_err_stderr_with_envs, get_stdout_with_envs};
+use crate::{TestDir, get_err_stderr_with_envs, get_stdout_with_envs, moon_cmd};
+use snapbox::IntoData;
+
+// Exercise automatic Native payload selection, with fixture compilers on PATH.
+fn native_debug_build_dry_run(dir: &TestDir) -> snapbox::cmd::Command {
+    moon_cmd(dir)
+        .env_remove("MOON_CC")
+        .env_remove("MOON_AR")
+        .env_remove("MOON_CC_WRAPPER")
+        .env(
+            "PATH",
+            super::unix_graph::prepend_to_path(&dir.join("fake-toolchain/bin")),
+        )
+        .env("MOONBIT_NEW_NATIVE", "1")
+        .args(["build", "--target", "native", "--debug", "--dry-run"])
+}
+
+// Each program uses its own compiler for both C compilation and linking.
+// The first program's C stub uses a third compiler.
+#[test]
+fn independent_programs_and_stubs_keep_their_compiler_choices() {
+    let dir = TestDir::new("native_backend/compiler_roles");
+    let bin = dir.join("fake-toolchain/bin");
+    for name in ["first", "second", "stub"] {
+        std::fs::copy(bin.join("fake-gcc"), bin.join(format!("{name}-gcc"))).unwrap();
+        std::fs::copy(bin.join("fake-ar"), bin.join(format!("{name}-ar"))).unwrap();
+    }
+    native_debug_build_dry_run(&dir)
+        .assert()
+        .success()
+        .stdout_eq(
+            snapbox::str![[r#"
+[..]/first-gcc -o [..]/first.o [..] -c [..] [..]/first/first.c
+[..]/first-gcc -o [..]/first/first.exe [..]
+[..]/second-gcc -o [..]/second.o [..] -c [..] [..]/second/second.c
+[..]/second-gcc -o [..]/second/second.exe [..]
+[..]/stub-gcc -o [..]/first/stub.o [..] -c [..] [..]/first/stub.c
+...
+"#]]
+            .unordered(),
+        );
+}
+
+#[test]
+fn package_cross_compiler_requires_generated_c() {
+    let dir = TestDir::new("native_backend/cross_compiler");
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        r#"options("is-main": true, link: { "native": { "cc": "fake-cross-gcc" }})"#,
+    )
+    .unwrap();
+
+    native_debug_build_dry_run(&dir)
+        .args(["main"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+...
+[..]moonc link-core[..] -o [..]/main/main.c [..]
+...
+"#]]);
+}
+
+#[test]
+fn dependency_stub_cross_compiler_requires_generated_c() {
+    let dir = TestDir::new("native_backend/cross_compiler");
+    // main has no compiler override; only the imported stub_dep does.
+    std::fs::write(
+        dir.join("main/moon.pkg"),
+        "import { \"cross_compiler/stub_dep\" }\noptions(\"is-main\": true)",
+    )
+    .unwrap();
+
+    native_debug_build_dry_run(&dir)
+        .args(["main"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+...
+[..]moonc link-core[..] -o [..]/main/main.c [..]
+...
+"#]]);
+}
+
+#[test]
+fn unused_package_does_not_require_its_compiler() {
+    // The unused package names a nonexistent stub compiler. main imports neither
+    // it nor stub_dep, so this build needs only the ordinary host compiler.
+    let dir = TestDir::new("native_backend/cross_compiler");
+    native_debug_build_dry_run(&dir)
+        .args(["main"])
+        .assert()
+        .success();
+}
 
 /// Prebuilt objects and the flags that require them. They are built for the
 /// host, so a compiler for another target must not receive them.

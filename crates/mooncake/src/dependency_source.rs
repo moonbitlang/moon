@@ -18,6 +18,12 @@
 
 //! Selection of dependency sources used by one resolution.
 
+// TODO: Separate source availability from installation completion. Cache original
+// sources even when they declare postadd, but run hooks in writable installation
+// directories. Persist pending/completed/skipped hook state instead of inferring
+// completion from a manifest, then schedule hooks according to dependencies with
+// bounded concurrency. Caching hook outputs needs separately defined build inputs.
+
 mod global;
 mod project;
 
@@ -57,17 +63,19 @@ pub(crate) fn select<'a>(
     cache: &'a CacheRoot,
     resolved: &ModuleDependencyGraph,
     postadd_output: ChildOutputMode,
+    jobs: Option<usize>,
 ) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
         .all_modules()
         .any(|module| matches!(module.source(), ModuleSourceKind::Registry) && !module.is_core());
     if has_registry_sources && let Some(root) = cache.initialize()? {
-        return Ok(Box::new(ImmutableDependencySource::new(root)));
+        return Ok(Box::new(ImmutableDependencySource::new(root, jobs)));
     }
 
     Ok(Box::new(ProjectDependencySource::new(
         project_dir,
         postadd_output,
+        jobs,
     )))
 }
 
@@ -85,7 +93,7 @@ mod tests {
         cache::{CacheKind, CacheRoot},
         child_process::ChildOutputMode,
         manifest::MoonMod,
-        resolution::{ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind},
+        resolution::{ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
         user_log::UserLog,
     };
     use semver::Version;
@@ -128,45 +136,44 @@ mod tests {
             self.checksum_after_first_read = Some(checksum.to_string());
             self
         }
-
-        fn install_source(
-            &self,
-            name: &ModuleName,
-            version: &Version,
-            to: &Path,
-        ) -> anyhow::Result<()> {
-            self.installations.fetch_add(1, Ordering::SeqCst);
-            let scripts = if self.postadd {
-                r#"
-options(
-  "scripts": {
-    "postadd": "must-not-run",
-  },
-)
-"#
-            } else {
-                ""
-            };
-            std::fs::write(
-                to.join("moon.mod"),
-                format!("name = \"{name}\"\nversion = \"{version}\"\n{scripts}"),
-            )?;
-            Ok(())
-        }
     }
 
     impl RegistrySource for TestRegistry {
-        fn acquire_source_to(
+        fn download_archives(
             &self,
-            module: &ModuleSource,
-            expected_checksum: &str,
-            to: &Path,
+            sources: &[crate::registry::SourceRequest],
             _user_log: &UserLog,
-        ) -> anyhow::Result<()> {
-            std::fs::create_dir_all(to)?;
-            self.install_source(module.name(), module.version(), to)?;
-            std::fs::write(to.join("acquired-archive-checksum"), expected_checksum)?;
-            Ok(())
+        ) -> anyhow::Result<Vec<std::fs::File>> {
+            use std::io::{Seek, Write};
+
+            sources
+                .iter()
+                .map(|source| {
+                    self.installations.fetch_add(1, Ordering::SeqCst);
+                    let mut archive = zip::ZipWriter::new(tempfile::tempfile()?);
+                    archive.start_file("moon.mod", zip::write::FileOptions::default())?;
+                    writeln!(
+                        archive,
+                        "name = {:?}\nversion = {:?}",
+                        source.module.name().to_string(),
+                        source.module.version().to_string()
+                    )?;
+                    if self.postadd {
+                        writeln!(
+                            archive,
+                            "options(scripts: {{ \"postadd\": \"must-not-run\" }})"
+                        )?;
+                    }
+                    archive.start_file(
+                        "acquired-archive-checksum",
+                        zip::write::FileOptions::default(),
+                    )?;
+                    archive.write_all(source.checksum.as_bytes())?;
+                    let mut archive = archive.finish()?;
+                    archive.rewind()?;
+                    Ok(archive)
+                })
+                .collect()
         }
 
         fn source_archive_checksum(&self, _module: &ModuleSource) -> anyhow::Result<String> {
@@ -214,7 +221,7 @@ options(
     #[test]
     fn source_layout_is_canonical() {
         let cache = tempfile::TempDir::new().unwrap();
-        let store = ImmutableDependencySource::new(cache.path());
+        let store = ImmutableDependencySource::new(cache.path(), None);
         let (resolved, module) = test_env();
 
         assert_eq!(
@@ -234,6 +241,7 @@ options(
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -267,10 +275,11 @@ options(
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
-        let directory =
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        let directory = ImmutableDependencySource::new(&cache_dir, None)
+            .source_dir(resolved.module_source(module));
 
         let error = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -295,6 +304,7 @@ options(
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -319,15 +329,27 @@ options(
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
-                let source =
-                    select(&project_dir, &cache, &resolved, ChildOutputMode::Inherit).unwrap();
+                let source = select(
+                    &project_dir,
+                    &cache,
+                    &resolved,
+                    ChildOutputMode::Inherit,
+                    None,
+                )
+                .unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
             });
             let second = scope.spawn(|| {
-                let source =
-                    select(&project_dir, &cache, &resolved, ChildOutputMode::Inherit).unwrap();
+                let source = select(
+                    &project_dir,
+                    &cache,
+                    &resolved,
+                    ChildOutputMode::Inherit,
+                    None,
+                )
+                .unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
@@ -355,6 +377,7 @@ options(
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -392,6 +415,7 @@ options(
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -401,7 +425,8 @@ options(
 
         assert_eq!(
             paths[module],
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module))
+            ImmutableDependencySource::new(&cache_dir, None)
+                .source_dir(resolved.module_source(module))
         );
         assert_eq!(
             std::fs::read_to_string(paths[module].join("acquired-archive-checksum")).unwrap(),
@@ -426,10 +451,11 @@ options(
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
-        let directory =
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        let directory = ImmutableDependencySource::new(&cache_dir, None)
+            .source_dir(resolved.module_source(module));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
             directory.join("moon.mod"),
@@ -468,7 +494,14 @@ options(
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
         let user_log = user_log();
-        let source = select(&project_dir, &cache, &resolved, ChildOutputMode::Inherit).unwrap();
+        let source = select(
+            &project_dir,
+            &cache,
+            &resolved,
+            ChildOutputMode::Inherit,
+            None,
+        )
+        .unwrap();
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log)

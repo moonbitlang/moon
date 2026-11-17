@@ -167,17 +167,17 @@ fn run_build_for_single_file_rr(
     } = dirs;
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_dependency_source_cache(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,
     );
-    let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
+    let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         dirs,
         single_file_path,
@@ -250,12 +250,12 @@ fn sync_and_discover_build_project(
     dirs: &PackageDirs,
     user_log: &UserLog,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
-    let preparation_config = moonbuild_rupes_recta::ProjectPreparationConfig::new(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 

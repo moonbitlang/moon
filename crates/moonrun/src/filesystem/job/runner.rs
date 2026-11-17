@@ -25,6 +25,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
+use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
@@ -35,25 +36,27 @@ use super::stat::{
     FILE_KIND_CHAR_DEVICE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE, FILE_KIND_REGULAR,
     FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
 };
-use super::stat::{StatRequest, run_fstatx_job};
+use super::stat::{PackedStat, StatRequest, StatValues, run_fstatx_job};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
+use crate::filesystem::FileGrant;
 
 type RawFile = fd_util::stub::RawFd;
 
 #[cfg(unix)]
-fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
+pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
     Ok(file.as_file()?.as_raw_fd())
 }
 
 #[cfg(windows)]
-fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
+pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
     Ok(file.as_file()?.as_raw_handle())
 }
 
 ported_fns! {
-    #[ported(source = "src/internal/event_loop/fs.c", original = "open_job_worker")]
+    #[ported(source = "src/internal/event_loop/fs.c", original = "openat_job_worker")]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_open_job(
+        parent: Option<&Resource>,
         result: &mut Option<OpenJobResult>,
         filename: OsString,
         access: i32,
@@ -63,23 +66,37 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
-        let filename_for_provenance = filename.clone();
-        let file = open_raw_native_file(filename, access, create_mode, append, sync, mode)?;
-        let resource = Resource::new_with_canonical_path(
+        let filename_for_provenance = match parent {
+            Some(parent) => super::super::os::directory::path(raw_file_handle(parent)?)
+                .ok()
+                .map(|base| base.join(&filename)),
+            None => Some(std::path::PathBuf::from(&filename)),
+        };
+        let file = open_raw_native_file(parent.map(raw_file_handle).transpose()?, filename, access, create_mode, append, sync, mode)?;
+        let resource = Resource::new_with_file_grant(
             file,
-            std::fs::canonicalize(filename_for_provenance).ok(),
+            FileGrant::from_opened_path(filename_for_provenance),
         );
-        let mut stat = None;
-        run_fstatx_job(&resource, request, &mut stat)?;
+        // Unlike async Workers, synchronous calls do not mask ordinary signals.
+        // An unnecessary stat can therefore return EINTR after open succeeds.
+        // Callers cannot tell which syscall was interrupted and may retry open,
+        // repeating its side effects.
+        let stat = if request.mask() == 0 {
+            PackedStat::new(request, StatValues::default())
+        } else {
+            let mut stat = None;
+            run_fstatx_job(&resource, request, &mut stat)?;
+            stat.ok_or(AsyncHostError::Io)?
+        };
         *result = Some(OpenJobResult {
             resource: ResourcePublication::Unpublished(resource),
-            stat: stat.ok_or(AsyncHostError::Io)?,
+            stat,
         });
         Ok(0)
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "read_job_worker"
     )]
     pub(super) fn run_read_job(
@@ -96,7 +113,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/thread_pool.c",
+        runtime = "thread_pool.c",
         original = "write_job_worker"
     )]
     pub(super) fn run_write_job(
@@ -219,6 +236,16 @@ ported_fns! {
         Ok(0)
     }
 
+    #[ported(source = "src/internal/event_loop/fs.c", original = "removeat_job_worker")]
+    pub(super) fn run_removeat_job(parent: Option<&Resource>, path: OsString) -> AsyncHostResult<i64> {
+        super::super::os::unlinkat::remove_at(
+            parent.map(raw_file_handle).transpose()?,
+            &path,
+            &super::CancellableIo,
+        )?;
+        Ok(0)
+    }
+
     #[ported(
         source = "src/internal/event_loop/fs.c",
         original = "rename_job_worker"
@@ -228,7 +255,9 @@ ported_fns! {
         new_path: OsString,
         replace: bool,
     ) -> AsyncHostResult<i64> {
-        rename_native_path(old_path, new_path, replace)?;
+        crate::filesystem::os::rename(
+            std::path::Path::new(&old_path), std::path::Path::new(&new_path),
+            crate::filesystem::os::RenameOptions { replace, cross_device: crate::filesystem::os::CrossDevice::AllowCopy })?;
         Ok(0)
     }
 
@@ -320,8 +349,9 @@ ported_fns! {
     }
 }
 
-#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
 fn open_raw_native_file(
+    parent: Option<RawFile>,
     filename: OsString,
     access: i32,
     create_mode: i32,
@@ -329,45 +359,52 @@ fn open_raw_native_file(
     sync: i32,
     mode: i32,
 ) -> AsyncHostResult<RawFile> {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStringExt;
-
-    let access_flag = match access {
-        0 | 3 => libc::O_RDONLY,
-        1 => libc::O_WRONLY,
-        2 => libc::O_RDWR,
+    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+    let is_async = access == 3;
+    let (access, type_constraint) = match access {
+        0 => (Access::Read, TypeConstraint::Any),
+        1 => (Access::Write, TypeConstraint::Any),
+        2 => (Access::ReadWrite, TypeConstraint::Any),
+        3 => (Access::ListDirectory, TypeConstraint::Directory),
         _ => return Err(AsyncHostError::Inval),
     };
-    let create_flag = match create_mode {
-        0 => 0,
-        1 => libc::O_TRUNC,
-        2 => libc::O_CREAT,
-        3 => libc::O_CREAT | libc::O_TRUNC,
-        4 => libc::O_CREAT | libc::O_EXCL,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let sync_flag = match sync {
-        0 => 0,
-        1 => libc::O_DSYNC,
-        2 => libc::O_SYNC,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let append_flag = if append { libc::O_APPEND } else { 0 };
-    let filename = CString::new(filename.into_vec()).map_err(|_| AsyncHostError::Inval)?;
-    let fd = with_cancellable_region(|| {
-        Ok(unsafe {
-            libc::open(
-                filename.as_ptr(),
-                access_flag | sync_flag | create_flag | append_flag | libc::O_CLOEXEC,
-                mode as libc::c_uint,
-            )
-        })
-    })?;
-    if fd < 0 {
-        return Err(last_native_error());
+    let file = openat::open(
+        parent,
+        &filename,
+        &OpenOptions {
+            access,
+            type_constraint,
+            follow_symlink: true,
+            is_async,
+            create: match create_mode {
+                0 => CreateMode::Open,
+                1 => CreateMode::Truncate,
+                2 => CreateMode::Create,
+                3 => CreateMode::CreateOrTruncate,
+                4 => CreateMode::Exclusive,
+                _ => return Err(AsyncHostError::Inval),
+            },
+            append,
+            sync: match sync {
+                0 => Sync::None,
+                1 => Sync::Data,
+                2 => Sync::All,
+                _ => return Err(AsyncHostError::Inval),
+            },
+            permission: mode as u32,
+        },
+        &super::CancellableIo,
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::fd::IntoRawFd;
+        Ok(file.into_raw_fd())
     }
-
-    Ok(fd)
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::IntoRawHandle;
+        Ok(file.into_raw_handle())
+    }
 }
 
 #[cfg(unix)]
@@ -382,94 +419,6 @@ fn file_kind_from_stat(stat: &libc::stat) -> i32 {
         libc::S_IFCHR => 7,
         _ => 0,
     }
-}
-
-#[cfg(windows)]
-fn open_raw_native_file(
-    filename: OsString,
-    access: i32,
-    create_mode: i32,
-    append: bool,
-    sync: i32,
-    _mode: i32,
-) -> AsyncHostResult<RawFile> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{
-        ERROR_PIPE_BUSY, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
-    };
-    use windows_sys::Win32::Storage::FileSystem::{
-        CREATE_ALWAYS, CREATE_NEW, CreateFileW, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_FLAG_WRITE_THROUGH,
-        FILE_LIST_DIRECTORY, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS,
-        OPEN_EXISTING, TRUNCATE_EXISTING,
-    };
-    use windows_sys::Win32::System::Pipes::{NMPWAIT_WAIT_FOREVER, WaitNamedPipeW};
-
-    let sync_flag = match sync {
-        0 => 0,
-        1 | 2 => FILE_FLAG_WRITE_THROUGH,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let mut access_flag = match access {
-        0 => GENERIC_READ,
-        1 => GENERIC_WRITE,
-        2 => GENERIC_READ | GENERIC_WRITE,
-        3 => FILE_LIST_DIRECTORY,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    let create_mode = match create_mode {
-        0 => OPEN_EXISTING,
-        1 => TRUNCATE_EXISTING,
-        2 => OPEN_ALWAYS,
-        3 => CREATE_ALWAYS,
-        4 => CREATE_NEW,
-        _ => return Err(AsyncHostError::Inval),
-    };
-    if append {
-        access_flag = (access_flag ^ GENERIC_WRITE) | FILE_APPEND_DATA;
-    }
-    let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | sync_flag;
-    if access == 3 {
-        flags |= FILE_FLAG_OVERLAPPED;
-    }
-
-    let filename = filename
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let handle: HANDLE = loop {
-        let handle = with_cancellable_region(|| {
-            Ok(unsafe {
-                CreateFileW(
-                    filename.as_ptr(),
-                    access_flag,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    std::ptr::null(),
-                    create_mode,
-                    flags,
-                    std::ptr::null_mut(),
-                )
-            })
-        })?;
-        if handle != INVALID_HANDLE_VALUE {
-            break handle;
-        }
-        let error = std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno());
-        if error != ERROR_PIPE_BUSY as i32 {
-            return Err(AsyncHostError::Native(error));
-        }
-        let ready = with_cancellable_region(|| {
-            Ok(unsafe { WaitNamedPipeW(filename.as_ptr(), NMPWAIT_WAIT_FOREVER) })
-        })?;
-        if ready == 0 {
-            return Err(last_native_error());
-        }
-    };
-
-    Ok(handle)
 }
 
 #[cfg(windows)]
@@ -894,57 +843,6 @@ fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostR
     Ok(i64::from(ret))
 }
 
-#[cfg(all(unix, target_os = "linux"))]
-fn rename_native_path(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-) -> AsyncHostResult<()> {
-    let old_path = path_to_cstring(old_path)?;
-    let new_path = path_to_cstring(new_path)?;
-    let flags = if replace { 0 } else { libc::RENAME_NOREPLACE };
-    let ret = unsafe {
-        libc::syscall(
-            libc::SYS_renameat2,
-            libc::AT_FDCWD,
-            old_path.as_ptr(),
-            libc::AT_FDCWD,
-            new_path.as_ptr(),
-            flags,
-        )
-    };
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(all(unix, target_os = "macos"))]
-fn rename_native_path(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-) -> AsyncHostResult<()> {
-    let old_path = path_to_cstring(old_path)?;
-    let new_path = path_to_cstring(new_path)?;
-    let flags = if replace { 0 } else { libc::RENAME_EXCL };
-    let ret = unsafe {
-        libc::renameatx_np(
-            libc::AT_FDCWD,
-            old_path.as_ptr(),
-            libc::AT_FDCWD,
-            new_path.as_ptr(),
-            flags,
-        )
-    };
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(unix)]
 fn path_to_cstring(path: OsString) -> AsyncHostResult<std::ffi::CString> {
     use std::os::unix::ffi::OsStringExt;
@@ -1117,85 +1015,23 @@ fn file_kind_by_path(
     path: OsString,
     follow_symlink: bool,
 ) -> AsyncHostResult<i32> {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
-    };
-
-    let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS;
-    if !follow_symlink {
-        flags |= FILE_FLAG_OPEN_REPARSE_POINT;
-    }
-    let parent = parent.map(raw_file_handle).transpose()?;
-    let path = resolve_windows_path_for_parent(parent, path)?;
-    let path = path_to_wide(path);
-    let handle: HANDLE = unsafe {
-        CreateFileW(
-            path.as_ptr(),
-            FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            flags,
-            std::ptr::null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(last_native_error());
-    }
-    let kind = kind_of_raw_file(handle);
-    unsafe {
-        CloseHandle(handle);
-    }
-    kind
-}
-
-#[cfg(windows)]
-pub(super) fn resolve_windows_path_for_parent(
-    parent: Option<RawFile>,
-    path: OsString,
-) -> AsyncHostResult<OsString> {
-    let Some(parent) = parent else {
-        return Ok(path);
-    };
-    if std::path::Path::new(&path).is_absolute() {
-        return Ok(path);
-    }
-
-    let mut parent_path = std::path::PathBuf::from(final_path_from_handle(parent)?);
-    parent_path.push(path);
-    Ok(parent_path.into_os_string())
-}
-
-#[cfg(windows)]
-fn final_path_from_handle(handle: RawFile) -> AsyncHostResult<OsString> {
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
-    };
-
-    let mut buffer = vec![0u16; 260];
-    loop {
-        let len = unsafe {
-            GetFinalPathNameByHandleW(
-                handle,
-                buffer.as_mut_ptr(),
-                u32::try_from(buffer.len()).map_err(|_| AsyncHostError::Fault)?,
-                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
-            )
-        };
-        if len == 0 {
-            return Err(last_native_error());
-        }
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        if len < buffer.len() {
-            buffer.truncate(len);
-            return Ok(OsString::from_wide(&buffer));
-        }
-        buffer.resize(len + 1, 0);
-    }
+    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+    let file = openat::open(
+        parent.map(raw_file_handle).transpose()?,
+        &path,
+        &OpenOptions {
+            access: Access::Attributes,
+            type_constraint: TypeConstraint::Any,
+            follow_symlink,
+            is_async: false,
+            create: CreateMode::Open,
+            append: false,
+            sync: Sync::None,
+            permission: 0,
+        },
+        &super::CancellableIo,
+    )?;
+    kind_of_raw_file(file.as_raw_handle())
 }
 
 #[cfg(windows)]
@@ -1725,87 +1561,6 @@ fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostR
 }
 
 #[cfg(windows)]
-fn rename_native_path(
-    old_path: OsString,
-    new_path: OsString,
-    replace: bool,
-) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_INVALID_PARAMETER, HANDLE, INVALID_HANDLE_VALUE,
-    };
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, DELETE, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FileRenameInfoEx, MOVEFILE_COPY_ALLOWED, MOVEFILE_REPLACE_EXISTING,
-        MoveFileExW, OPEN_EXISTING, SetFileInformationByHandle,
-    };
-
-    let old_path = path_to_wide(old_path);
-    let new_path = path_to_wide(new_path);
-    let handle: HANDLE = unsafe {
-        CreateFileW(
-            old_path.as_ptr(),
-            DELETE,
-            FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            std::ptr::null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(last_native_error());
-    }
-
-    let filename_len = new_path.len().checked_sub(1).ok_or(AsyncHostError::Inval)?;
-    let buffer_size = std::mem::size_of::<FILE_RENAME_INFO>()
-        .checked_add(filename_len * std::mem::size_of::<u16>())
-        .ok_or(AsyncHostError::Fault)?;
-    let mut buffer = vec![0u8; buffer_size];
-    let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-    unsafe {
-        (*info).Anonymous.Flags = if replace { 3 } else { 0 };
-        (*info).RootDirectory = std::ptr::null_mut();
-        (*info).FileNameLength = u32::try_from(filename_len * std::mem::size_of::<u16>())
-            .map_err(|_| AsyncHostError::Fault)?;
-        std::ptr::copy_nonoverlapping(
-            new_path.as_ptr(),
-            (*info).FileName.as_mut_ptr(),
-            filename_len,
-        );
-    }
-
-    let ret = unsafe {
-        SetFileInformationByHandle(handle, FileRenameInfoEx, info.cast(), buffer_size as u32)
-    };
-    unsafe {
-        CloseHandle(handle);
-    }
-    if ret != 0 {
-        return Ok(());
-    }
-
-    let error = std::io::Error::last_os_error()
-        .raw_os_error()
-        .unwrap_or_else(|| AsyncHostError::Inval.errno());
-    if error != ERROR_INVALID_PARAMETER as i32 {
-        return Err(AsyncHostError::Native(error));
-    }
-
-    let flags = MOVEFILE_COPY_ALLOWED
-        | if replace {
-            MOVEFILE_REPLACE_EXISTING
-        } else {
-            0
-        };
-    if unsafe { MoveFileExW(old_path.as_ptr(), new_path.as_ptr(), flags) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
 fn path_to_wide(path: OsString) -> Vec<u16> {
     os_string_to_wide(path)
         .into_iter()
@@ -1834,23 +1589,52 @@ fn copy_windows_realpath_c_string_bytes(units: &[u16]) -> Box<[u8]> {
         '\\' as u16,
     ];
 
-    // GetFinalPathNameByHandleW with VOLUME_NAME_DOS returns a `\\?\` path.
-    // Match async's user-facing realpath result by normalizing `\\?\C:\...`
-    // to `C:\...` and `\\?\UNC\server\...` to `\\server\...`. Checking
-    // each complete prefix establishes the slice bounds before rewriting it.
-    // The returned string therefore uses conventional rather than verbatim
-    // Windows path syntax.
-    if units.starts_with(&VERBATIM_UNC_PREFIX) {
+    // Strip an extended prefix only when ordinary DOS parsing preserves every
+    // component. Otherwise the returned path could name a different file.
+    if units.starts_with(&VERBATIM_UNC_PREFIX) && windows_dos_path_is_exact(&units[8..]) {
         let mut normalized = units[6..].to_vec();
         normalized[0] = '\\' as u16;
         copy_wide_c_string_bytes(&normalized)
-    } else if units.starts_with(&VERBATIM_PREFIX) {
-        copy_wide_c_string_bytes(&units[VERBATIM_PREFIX.len()..])
+    } else if units.starts_with(&VERBATIM_PREFIX)
+        && !units.starts_with(&VERBATIM_UNC_PREFIX)
+        && windows_dos_path_is_exact(&units[4..])
+    {
+        copy_wide_c_string_bytes(&units[4..])
     } else {
-        // Preserve an unexpected API result rather than dropping arbitrary
-        // leading code units.
         copy_wide_c_string_bytes(units)
     }
+}
+
+#[cfg(windows)]
+fn windows_dos_path_is_exact(units: &[u16]) -> bool {
+    use windows_sys::Wdk::Storage::FileSystem::RtlIsDosDeviceName_U;
+    use windows_sys::Win32::Foundation::MAX_PATH;
+    if units.len() >= MAX_PATH as usize {
+        return false;
+    }
+    let mut path = units.to_vec();
+    path.push(0);
+    let mut start = 0;
+    while start < units.len() {
+        let end = (start..units.len())
+            .find(|&i| path[i] == '\\' as u16)
+            .unwrap_or(units.len());
+        if end == start || (path[end - 1] == u16::from(b'.') || path[end - 1] == u16::from(b' ')) {
+            return false;
+        }
+        // The NT routine accepts a NUL-terminated component. Restore separators
+        // before inspecting the next component, just as upstream does.
+        path[end] = 0;
+        let device = unsafe { RtlIsDosDeviceName_U(path[start..].as_ptr()) };
+        if end < units.len() {
+            path[end] = '\\' as u16;
+        }
+        if device != 0 {
+            return false;
+        }
+        start = end + 1;
+    }
+    true
 }
 
 #[cfg(windows)]
@@ -1861,14 +1645,6 @@ fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
     }
     buffer.extend_from_slice(&0u16.to_ne_bytes());
     buffer.into_boxed_slice()
-}
-
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
 }
 
 #[cfg(windows)]
@@ -1897,10 +1673,13 @@ mod tests {
             old_link.clone().into_os_string(),
         )
         .unwrap();
-        rename_native_path(
-            old_link.clone().into_os_string(),
-            new_link.clone().into_os_string(),
-            false,
+        crate::filesystem::os::rename(
+            &old_link,
+            &new_link,
+            crate::filesystem::os::RenameOptions {
+                replace: false,
+                cross_device: crate::filesystem::os::CrossDevice::AllowCopy,
+            },
         )
         .unwrap();
         assert!(target.is_dir());
@@ -1934,7 +1713,7 @@ mod tests {
     }
 
     #[test]
-    fn realpath_normalizes_only_windows_verbatim_prefixes() {
+    fn realpath_preserves_windows_path_identity() {
         let normalize = |path: &str| {
             let units = path.encode_utf16().collect::<Vec<_>>();
             let bytes = copy_windows_realpath_c_string_bytes(&units);
@@ -1952,6 +1731,26 @@ mod tests {
             r"\\server\share\file"
         );
         assert_eq!(normalize(r"C:\already-normal"), r"C:\already-normal");
+        // Bare device names remain reserved across Windows versions. Names with
+        // extensions, such as NUL.txt, stopped being reserved in Windows 11.
+        for path in [
+            r"\\?\C:\dir.\file",
+            r"\\?\C:\dir \file",
+            r"\\?\C:\NUL",
+            r"\\?\C:\COM¹",
+            r"\\?\UNC\server\share\dir.\file",
+            r"\\?\UNC\server\share\file ",
+            r"\\?\UNC\server\share\NUL",
+        ] {
+            assert_eq!(normalize(path), path);
+        }
+        // Match upstream's MAX_PATH boundary, measured in UTF-16 code units.
+        for filename in ["a".repeat(252), "😀".repeat(126)] {
+            let short = format!(r"C:\dir\{filename}");
+            assert_eq!(normalize(&format!(r"\\?\{short}")), short);
+            let long = format!(r"\\?\{short}a");
+            assert_eq!(normalize(&long), long);
+        }
     }
 
     #[test]

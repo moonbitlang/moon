@@ -37,12 +37,14 @@ use anyhow::Context;
 use moonbuild::{
     BuildMeta,
     execution::{BuildInput, resolve_parallelism},
+    prepare::ProjectPreparationConfig,
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, ProjectPreparationConfig, ResolvedProject,
+    CompileConfig, DiscoveredProject, ResolvedProject,
     build_lower::WarningCondition,
     build_plan::{ArtifactKey, InputDirective},
-    fmt::{FmtConfig, FmtResolveOutput},
+    discover::FmtProject,
+    fmt::FmtConfig,
     intent::UserIntent,
     model::{
         BackendConfig, DebugInfoRequest, DebugSymbols, ENV_MOONBIT_NEW_NATIVE, NativeTarget,
@@ -87,9 +89,9 @@ pub(crate) fn sync_and_discover_project(
         )
     })?;
     let synced_modules =
-        moonbuild_rupes_recta::sync_module_dependencies(preparation_config, dirs, user_log)?;
+        moonbuild::prepare::sync_module_dependencies(preparation_config, dirs, user_log)?;
     Ok(moonbuild_rupes_recta::discover_synced_project(
-        preparation_config,
+        &preparation_config.discovery,
         synced_modules,
         user_log,
     )?)
@@ -243,7 +245,6 @@ pub fn build_patch_directive_for_package(
         specify_no_mi_for: no_mi.then_some(pkg),
         specify_patch_file: patch_directive,
         value_tracing,
-        ..Default::default()
     })
 }
 
@@ -328,6 +329,7 @@ pub(crate) fn prepare_resolved_build(
                 && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
             new_allocator: std::env::var("MOON_WASM_NEW_ALLOCATOR").as_deref() == Ok("1"),
             collect_ref_cycle,
+            separate_compilation: std::env::var("MOON_SEPARATE_COMPILATION").as_deref() == Ok("1"),
         },
         TargetBackend::WasmGC => BackendConfig::WasmGc {
             use_wat: build_flags.output_wat,
@@ -358,7 +360,7 @@ pub(crate) fn prepare_resolved_build(
         },
     };
     info!("Final backend configuration: {:?}", backend);
-    let stdlib_path = (build_flags.std() && !is_core).then(moonutil::toolchain::core);
+    let stdlib_path = (!is_core).then(moonutil::toolchain::core);
     if target_backend == TargetBackend::LLVM
         && !cli.dry_run
         && let Some(core_root) = &stdlib_path
@@ -402,39 +404,7 @@ pub(crate) fn prepare_resolved_build(
             WarningCondition::Default
         },
         warn_list: build_flags.warn_list.clone(),
-        info_no_alias: false,
     })
-}
-
-/// Drop the direct-object candidate when `MOON_CC` targets another machine.
-///
-/// Direct objects are emitted for the host, so such a compiler cannot link
-/// them. The compiler is probed only when planning could select direct objects:
-/// a debug build that requests a native executable. The planner still selects
-/// the final payload form.
-fn drop_direct_objects_for_cross_env_cc(cx: &mut CompileConfig, requested: &[ArtifactKey]) {
-    let BackendConfig::Native {
-        direct_object_candidate,
-        ..
-    } = &mut cx.backend
-    else {
-        return;
-    };
-    if direct_object_candidate.is_none()
-        || cx.opt_level != BuildProfile::Debug
-        || !requested
-            .iter()
-            .any(|artifact| matches!(artifact, ArtifactKey::Executable { .. }))
-    {
-        return;
-    }
-    if compiler_flags::ENV_CC
-        .as_ref()
-        .is_some_and(|cc| !cc.targets_host())
-    {
-        info!("Disabling direct object native output: MOON_CC does not target the host");
-        *direct_object_candidate = None;
-    }
 }
 
 /// Plan a build graph from an already resolved project and command intent.
@@ -449,7 +419,7 @@ fn drop_direct_objects_for_cross_env_cc(cx: &mut CompileConfig, requested: &[Art
 #[instrument(level = Level::DEBUG, skip_all)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_resolved_build_from_intent(
-    mut cx: CompileConfig,
+    cx: CompileConfig,
     user_log: &UserLog,
     intent: CalcUserIntentOutput,
     resolved_project: ResolvedProject,
@@ -494,9 +464,8 @@ pub(crate) fn plan_resolved_build_from_intent(
     info!("Expanding user intents to requested artifacts");
     let requested_artifacts =
         intent.requested_artifacts(&resolved_project, user_log, cx.backend.target_backend());
-    drop_direct_objects_for_cross_env_cc(&mut cx, &requested_artifacts);
     info!("Begin lowering to build graph");
-    let compile_output = moonbuild_rupes_recta::compile(
+    let compile_output = moonbuild::compile::compile(
         &cx,
         &resolved_project,
         &requested_artifacts,
@@ -541,7 +510,7 @@ pub(crate) fn plan_resolved_build_from_intent(
 }
 
 pub fn plan_fmt(
-    resolved: &FmtResolveOutput,
+    resolved: &FmtProject,
     cfg: &FmtConfig,
     target_dir: &Path,
     selected_packages: &[PackageId],
@@ -659,7 +628,7 @@ fn write_metadata_if_changed(metadata_file: &Path, metadata: &str) -> anyhow::Re
 
 fn collect_check_commands_by_output(
     build_input: &BuildInput,
-) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
+) -> moonbuild_rupes_recta::metadata::CheckCommandMap<'_> {
     let mut commands = BTreeMap::new();
     for id in build_input.execution_plan().action_ids() {
         let action = build_input.execution_plan().action(id);
@@ -668,18 +637,18 @@ fn collect_check_commands_by_output(
             continue;
         };
         for output in action.outputs() {
-            commands.insert(output.clone(), command_args.clone());
+            commands.insert(output.clone(), command_args);
         }
     }
     commands
 }
 
-fn check_command_args_without_executable(args: &[String]) -> Option<Vec<String>> {
+fn check_command_args_without_executable(args: &[String]) -> Option<&[String]> {
     let (_executable, command_args) = args.split_first()?;
     command_args
         .first()
         .is_some_and(|arg| arg == "check")
-        .then(|| command_args.to_vec())
+        .then_some(command_args)
 }
 
 pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {

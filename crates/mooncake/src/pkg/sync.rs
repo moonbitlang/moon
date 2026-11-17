@@ -56,13 +56,13 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     user_log: &UserLog,
-    no_std: bool,
     workspace_env: WorkspaceEnv,
+    jobs: Option<usize>,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        return resolve_workspace_sync(dirs, cli, output_options, user_log, no_std, workspace);
+        return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace, jobs);
     }
 
     let module = read_module_desc_file_in_dir(&dirs.source_dir)?;
@@ -76,8 +76,8 @@ pub fn auto_sync(
         output_options,
         user_log,
         cli.dont_sync(),
-        no_std,
         &CacheRoot::Disabled,
+        jobs,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((module_graph, sync_result, None))
@@ -88,8 +88,8 @@ fn resolve_workspace_sync(
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     user_log: &UserLog,
-    no_std: bool,
     workspace: &WorkspaceLayout,
+    jobs: Option<usize>,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in workspace.members() {
@@ -105,8 +105,8 @@ fn resolve_workspace_sync(
         output_options,
         user_log,
         cli.dont_sync(),
-        no_std,
         &CacheRoot::Disabled,
+        jobs,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((
@@ -122,6 +122,7 @@ pub fn auto_sync_for_single_file_rr(
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
     output_options: SyncOutputOptions,
     source_cache: &CacheRoot,
+    jobs: Option<usize>,
     user_log: &UserLog,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
@@ -146,8 +147,8 @@ pub fn auto_sync_for_single_file_rr(
         output_options,
         user_log,
         sync_flags.dont_sync(),
-        false,
         source_cache,
+        jobs,
     )?;
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);

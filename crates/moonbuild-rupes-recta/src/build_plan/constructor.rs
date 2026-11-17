@@ -26,16 +26,29 @@ use std::{
 use crate::{
     CompileConfig, ResolvedProject,
     build_plan::InputDirective,
-    model::{BuildPlanNode, BuildTarget, PackageId},
+    model::{BuildPlanNode, BuildTarget, PackageId, WasmObject},
     prebuild::PrebuildOutput,
 };
-use moonutil::user_log::UserLog;
+use moonutil::{compiler_flags::Toolchain, user_log::UserLog};
 use tracing::{Level, instrument};
 
 use super::{
     BuildPlan, BuildPlanConstructError,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
+
+/// The native action family whose compiler is selected before payload planning.
+/// Package test targets share their package's compiler and C stubs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum NativeToolchainRole {
+    /// Compile and archive the shared native runtime.
+    Runtime,
+    /// Compile the package's generated C and link its executable, or archive
+    /// its foreign library. Direct-object/LLVM payloads skip C compilation.
+    Program(PackageId),
+    /// Compile and archive the package's C stubs.
+    CStubs(PackageId),
+}
 
 /// The struct responsible for holding the states and dependencies used during
 /// the construction of a build plan.
@@ -54,10 +67,13 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
-    pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
     pub(super) package_native_compile: HashMap<PackageId, super::CompileGeneratedCInfo>,
+
+    /// Complete role bindings selected before payload planning. Action builders
+    /// only read these bindings; compiler-request caching is local to resolution.
+    pub(super) native_toolchains: HashMap<NativeToolchainRole, Toolchain>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -93,10 +109,10 @@ impl<'a> BuildPlanConstructor<'a> {
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
-            warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
             package_native_compile: HashMap::new(),
+            native_toolchains: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }
@@ -118,10 +134,6 @@ impl<'a> BuildPlanConstructor<'a> {
         let input = input.collect::<Vec<_>>();
         self.res.requested_artifacts.extend(input.iter().cloned());
 
-        // Record the complete caller-requested set before selecting providers.
-        // Some artifacts share a provider only for a particular request shape;
-        // for example, an explicit proof report makes `Prove` provide the proof
-        // surface that dependencies would otherwise get from `EmitProof`.
         for artifact in &input {
             self.need_artifact_provider(artifact);
         }
@@ -273,29 +285,6 @@ impl<'a> BuildPlanConstructor<'a> {
                     },
                 );
             }
-            BuildPlanNode::Prove(target) => {
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::ProofMi {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::ProofWhyml {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-                self.res.artifacts.provide(
-                    node,
-                    ArtifactKey::ProofReport {
-                        package: target.package,
-                        target_kind: target.kind,
-                    },
-                );
-            }
             BuildPlanNode::BuildCStub(package, index) => {
                 let pkg = self.input.pkg_dirs.get_package(package);
                 let source = &pkg.c_stub_files[index as usize];
@@ -326,7 +315,17 @@ impl<'a> BuildPlanConstructor<'a> {
                 };
                 self.res.artifacts.provide(node, artifact);
             }
-            BuildPlanNode::MakeExecutable(target) => {
+            BuildPlanNode::BuildWasmObject(object) => {
+                let artifact = match object {
+                    WasmObject::Main(target) => ArtifactKey::WasmMainObject {
+                        package: target.package,
+                        target_kind: target.kind,
+                    },
+                    WasmObject::Library(package) => ArtifactKey::WasmLibraryObject { package },
+                };
+                self.res.artifacts.provide(node, artifact);
+            }
+            BuildPlanNode::LinkWasmObjects(target) | BuildPlanNode::MakeExecutable(target) => {
                 self.res.artifacts.provide(
                     node,
                     ArtifactKey::Executable {
@@ -370,11 +369,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.res
                     .artifacts
                     .provide(node, ArtifactKey::NodeTestPackageConfig { package });
-            }
-            BuildPlanNode::Bundle(module) => {
-                self.res
-                    .artifacts
-                    .provide(node, ArtifactKey::BundleResult { module });
             }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 let info = self
@@ -442,25 +436,7 @@ impl<'a> BuildPlanConstructor<'a> {
             | ArtifactKey::ProofWhyml {
                 package,
                 target_kind,
-            } => {
-                let target = package.build_target(*target_kind);
-                if self
-                    .res
-                    .requested_artifacts
-                    .contains(&ArtifactKey::ProofReport {
-                        package: *package,
-                        target_kind: *target_kind,
-                    })
-                {
-                    BuildPlanNode::Prove(target)
-                } else {
-                    BuildPlanNode::EmitProof(target)
-                }
-            }
-            ArtifactKey::ProofReport {
-                package,
-                target_kind,
-            } => BuildPlanNode::Prove(package.build_target(*target_kind)),
+            } => BuildPlanNode::EmitProof(package.build_target(*target_kind)),
             ArtifactKey::CStubObject { package, source } => {
                 let pkg = self.input.pkg_dirs.get_package(*package);
                 let index = pkg
@@ -475,6 +451,15 @@ impl<'a> BuildPlanConstructor<'a> {
                 package,
                 target_kind,
             } => BuildPlanNode::LinkCore(package.build_target(*target_kind)),
+            ArtifactKey::WasmMainObject {
+                package,
+                target_kind,
+            } => {
+                BuildPlanNode::BuildWasmObject(WasmObject::Main(package.build_target(*target_kind)))
+            }
+            ArtifactKey::WasmLibraryObject { package } => {
+                BuildPlanNode::BuildWasmObject(WasmObject::Library(*package))
+            }
             ArtifactKey::GeneratedCObject {
                 package,
                 target_kind,
@@ -493,6 +478,8 @@ impl<'a> BuildPlanConstructor<'a> {
                 let target = package.build_target(*target_kind);
                 if self.config.backend.target_backend().is_native() {
                     BuildPlanNode::MakeExecutable(target)
+                } else if self.links_wasm_objects(target) {
+                    BuildPlanNode::LinkWasmObjects(target)
                 } else {
                     BuildPlanNode::LinkCore(target)
                 }
@@ -508,7 +495,6 @@ impl<'a> BuildPlanConstructor<'a> {
             ArtifactKey::NodeTestPackageConfig { package } => {
                 BuildPlanNode::GenerateNodeTestPackageConfig(*package)
             }
-            ArtifactKey::BundleResult { module } => BuildPlanNode::Bundle(*module),
             ArtifactKey::RuntimeObject { source } => {
                 let info = self
                     .res
@@ -538,7 +524,6 @@ impl<'a> BuildPlanConstructor<'a> {
         match node {
             BuildPlanNode::Check(build_target)
             | BuildPlanNode::EmitProof(build_target)
-            | BuildPlanNode::Prove(build_target)
             | BuildPlanNode::BuildCore(build_target)
             | BuildPlanNode::GenerateTestInfo(build_target) => {
                 let pkg = self.input.pkg_dirs.get_package(build_target.package);
@@ -567,6 +552,22 @@ impl<'a> BuildPlanConstructor<'a> {
                 assert!(
                     self.res.backend.link_core_info.contains_key(&build_target),
                     "Link core info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
+            BuildPlanNode::BuildWasmObject(object) => {
+                assert!(
+                    self.res.backend.wasm_object_info.contains_key(&object),
+                    "Wasm object info for {:?} should be present when resolving node {:?}",
+                    object,
+                    node
+                );
+            }
+            BuildPlanNode::LinkWasmObjects(build_target) => {
+                assert!(
+                    self.res.backend.wasm_link_info.contains_key(&build_target),
+                    "Wasm link info for {:?} should be present when resolving node {:?}",
                     build_target,
                     node
                 );
@@ -612,14 +613,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::GenerateNodeTestPackageConfig(_) | BuildPlanNode::GenerateMbti(_) => (),
-            BuildPlanNode::Bundle(module_id) => {
-                assert!(
-                    self.res.backend.bundle_info.contains_key(&module_id),
-                    "Bundle info for module {:?} should be present when resolving node {:?}",
-                    module_id,
-                    node
-                );
-            }
             BuildPlanNode::BuildRuntimeObject(index) => {
                 let info = self
                     .res
@@ -688,7 +681,6 @@ impl<'a> BuildPlanConstructor<'a> {
         match node {
             BuildPlanNode::Check(target) => self.build_check(node, target),
             BuildPlanNode::EmitProof(target) => self.build_proof_node(node, target),
-            BuildPlanNode::Prove(target) => self.build_proof_node(node, target),
             BuildPlanNode::BuildCore(target) => self.build_build(node, target),
             BuildPlanNode::BuildCStub(target, index) => {
                 self.build_build_c_stub(node, target, index)
@@ -697,6 +689,8 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.build_archive_or_link_c_stubs(node, target)
             }
             BuildPlanNode::LinkCore(target) => self.build_link_core(node, target),
+            BuildPlanNode::BuildWasmObject(object) => self.build_wasm_object(node, object),
+            BuildPlanNode::LinkWasmObjects(target) => self.build_link_wasm_objects(node, target),
             BuildPlanNode::MakeExecutable(target) => self.build_native_executable(node, target),
             BuildPlanNode::CompileGeneratedC(target) => {
                 self.build_compile_generated_c(node, target)
@@ -712,7 +706,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.resolved_node(node);
                 Ok(())
             }
-            BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeObject(index) => self.build_runtime_object(node, index),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),

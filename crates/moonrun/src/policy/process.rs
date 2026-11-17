@@ -19,33 +19,100 @@
 use std::ffi::OsStr;
 #[cfg(unix)]
 use std::ffi::OsString;
+use std::sync::Arc;
 
 use anyhow::{bail, ensure};
 
 use crate::async_host::AsyncHostResult;
 
-use super::{
-    config::{ProcessConfig, ProcessRuleConfig},
-    sandbox_denied,
-};
+use super::{config::ProcessConfig, sandbox_denied, transfer};
 
 #[derive(Clone, Debug)]
-pub(crate) enum ProcessPolicy {
+pub(crate) struct ProcessPolicy {
+    rule_groups: Vec<Arc<ProcessRules>>,
+}
+
+impl ProcessPolicy {
+    pub(super) fn from_rule_groups(
+        rule_groups: impl IntoIterator<Item = Arc<ProcessRules>>,
+    ) -> Self {
+        Self {
+            rule_groups: rule_groups.into_iter().collect(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_config(config: ProcessConfig) -> anyhow::Result<Self> {
+        Self::from_configs([config])
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_configs(
+        configs: impl IntoIterator<Item = ProcessConfig>,
+    ) -> anyhow::Result<Self> {
+        let rule_groups = configs
+            .into_iter()
+            .map(|config| ProcessRules::from_config(config).map(Arc::new))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self::from_rule_groups(rule_groups))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn allows_unix(&self, program: &OsStr, argv: &[OsString]) -> AsyncHostResult<()> {
+        self.rule_groups
+            .iter()
+            .try_for_each(|group| group.allows_unix(program, argv))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn allows_windows(&self, command_line: &OsStr) -> AsyncHostResult<()> {
+        self.rule_groups
+            .iter()
+            .try_for_each(|group| group.allows_windows(command_line))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum ProcessRules {
     AllowAll,
     Scoped(Vec<ProcessRule>),
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ProcessRule {
-    #[cfg(unix)]
     program: String,
-    #[cfg(unix)]
     args_prefix: Vec<String>,
     #[cfg(windows)]
     windows_command_line_prefix: Vec<u16>,
 }
 
-impl ProcessPolicy {
+impl ProcessRules {
+    pub(super) fn to_transfer(&self) -> transfer::Process {
+        match self {
+            Self::AllowAll => transfer::Process::AllowAll,
+            Self::Scoped(rules) => transfer::Process::Scoped(
+                rules
+                    .iter()
+                    .map(|rule| transfer::Command {
+                        program: rule.program.clone(),
+                        args_prefix: rule.args_prefix.clone(),
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    pub(super) fn from_transfer(value: transfer::Process) -> anyhow::Result<Self> {
+        match value {
+            transfer::Process::AllowAll => Ok(Self::AllowAll),
+            transfer::Process::Scoped(rules) => rules
+                .into_iter()
+                .map(|rule| ProcessRule::new(rule.program, rule.args_prefix))
+                .collect::<anyhow::Result<_>>()
+                .map(Self::Scoped),
+        }
+    }
+
     pub(super) fn from_config(config: ProcessConfig) -> anyhow::Result<Self> {
         if config.spawn && !config.allow.is_empty() {
             bail!("process.spawn and process.allow cannot be used together");
@@ -59,7 +126,7 @@ impl ProcessPolicy {
             .into_iter()
             .enumerate()
             .map(|(index, rule)| {
-                ProcessRule::from_config(rule)
+                ProcessRule::new(rule.program, rule.args_prefix)
                     .map_err(|error| error.context(format!("invalid process.allow[{index}]")))
             })
             .collect::<anyhow::Result<_>>()?;
@@ -101,26 +168,21 @@ impl ProcessPolicy {
 }
 
 impl ProcessRule {
-    fn from_config(config: ProcessRuleConfig) -> anyhow::Result<Self> {
-        ensure!(!config.program.is_empty(), "program must not be empty");
+    fn new(program: String, args_prefix: Vec<String>) -> anyhow::Result<Self> {
+        ensure!(!program.is_empty(), "program must not be empty");
+        ensure!(!program.contains('\0'), "program must not contain NUL");
         ensure!(
-            !config.program.contains('\0'),
-            "program must not contain NUL"
-        );
-        ensure!(
-            config.args_prefix.iter().all(|arg| !arg.contains('\0')),
+            args_prefix.iter().all(|arg| !arg.contains('\0')),
             "args_prefix must not contain NUL"
         );
 
         #[cfg(windows)]
         let windows_command_line_prefix =
-            encode_windows_command_line_prefix(&config.program, &config.args_prefix);
+            encode_windows_command_line_prefix(&program, &args_prefix);
 
         Ok(Self {
-            #[cfg(unix)]
-            program: config.program,
-            #[cfg(unix)]
-            args_prefix: config.args_prefix,
+            program,
+            args_prefix,
             #[cfg(windows)]
             windows_command_line_prefix,
         })
@@ -207,6 +269,7 @@ fn matches_windows_command_line_prefix(command_line: &[u16], prefix: &[u16]) -> 
 
 #[cfg(test)]
 mod tests {
+    use super::super::config::ProcessRuleConfig;
     use super::*;
     #[cfg(unix)]
     use crate::async_host::AsyncHostError;
@@ -219,8 +282,71 @@ mod tests {
                 program: program.to_owned(),
                 args_prefix: args_prefix.iter().map(|arg| (*arg).to_owned()).collect(),
             }],
+            ..Default::default()
         })
         .unwrap()
+    }
+
+    #[test]
+    fn composed_process_rules_require_every_argument_prefix() {
+        let policy = ProcessPolicy::from_configs([
+            ProcessConfig {
+                spawn: true,
+                allow: vec![],
+                ..Default::default()
+            },
+            ProcessConfig {
+                spawn: false,
+                allow: vec![ProcessRuleConfig {
+                    program: "tool".into(),
+                    args_prefix: vec!["build".into()],
+                }],
+                ..Default::default()
+            },
+            ProcessConfig {
+                spawn: false,
+                allow: vec![ProcessRuleConfig {
+                    program: "tool".into(),
+                    args_prefix: vec!["build".into(), "--safe".into()],
+                }],
+                ..Default::default()
+            },
+        ])
+        .unwrap();
+        #[cfg(unix)]
+        {
+            policy
+                .allows_unix(
+                    OsStr::new("tool"),
+                    &["tool".into(), "build".into(), "--safe".into()],
+                )
+                .unwrap();
+            assert_eq!(
+                policy.allows_unix(OsStr::new("tool"), &["tool".into(), "build".into()]),
+                Err(crate::async_host::AsyncHostError::PermissionDenied)
+            );
+            assert_eq!(
+                policy.allows_unix(
+                    OsStr::new("other"),
+                    &["other".into(), "build".into(), "--safe".into()]
+                ),
+                Err(crate::async_host::AsyncHostError::PermissionDenied)
+            );
+        }
+        #[cfg(windows)]
+        {
+            policy
+                .allows_windows(OsStr::new("tool.exe build --safe"))
+                .unwrap();
+            assert_eq!(
+                policy.allows_windows(OsStr::new("tool.exe build")),
+                Err(crate::async_host::AsyncHostError::PermissionDenied)
+            );
+            assert_eq!(
+                policy.allows_windows(OsStr::new("tool.exe build --safety")),
+                Err(crate::async_host::AsyncHostError::PermissionDenied)
+            );
+        }
     }
 
     #[cfg(unix)]
@@ -291,6 +417,7 @@ mod tests {
                 program: "git".to_owned(),
                 args_prefix: vec!["status".to_owned()],
             }],
+            ..Default::default()
         })
         .unwrap_err();
         assert!(error.to_string().contains("cannot be used together"));
@@ -368,6 +495,7 @@ mod tests {
                     program: program.to_owned(),
                     args_prefix: args_prefix.into_iter().map(str::to_owned).collect(),
                 }],
+                ..Default::default()
             })
             .unwrap_err();
             assert!(format!("{error:#}").contains(message));

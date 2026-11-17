@@ -40,7 +40,6 @@ fn test_backend_flag() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/js/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib
             moonc build-package ./main/main.mbt -o ./_build/js/release/bundle/main/main.core -pkg username/hello/main -is-main -i ./_build/js/release/bundle/lib/lib.mi:lib -pkg-sources username/hello/main:./main
-            moonc bundle-core ./_build/js/release/bundle/lib/lib.core ./_build/js/release/bundle/main/main.core -o ./_build/js/release/bundle/hello.core
         "#]],
     );
 }
@@ -50,14 +49,7 @@ fn test_js_format() {
     let dir = TestDir::new("backend/js_format");
     let stdout = get_stdout(
         &dir,
-        [
-            "build",
-            "--target",
-            "js",
-            "--sort-input",
-            "--dry-run",
-            "--nostd",
-        ],
+        ["build", "--target", "js", "--sort-input", "--dry-run"],
     );
     println!("{stdout}");
     let stdout_lines = stdout.lines().collect::<Vec<_>>();
@@ -83,7 +75,7 @@ fn test_js_format() {
     assert!(get_link_core_of("lib3").contains("-target js"));
     assert!(get_link_core_of("lib3").contains("-js-format iife"));
 
-    let _ = get_stdout(&dir, ["build", "--target", "js", "--release", "--nostd"]);
+    let _ = get_stdout(&dir, ["build", "--target", "js", "--release"]);
     let t = dir.join(BUILD_DIR).join("js").join("release").join("build");
     check(
         std::fs::read_to_string(t.join("lib0").join("lib0.js"))

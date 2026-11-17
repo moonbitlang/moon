@@ -32,7 +32,7 @@ use std::thread::{self, JoinHandle};
 
 use thiserror::Error;
 
-use crate::engine::{GuestProcessMode, SUPPORTS_RUN_TERMINATION};
+use crate::engine::SUPPORTS_RUN_TERMINATION;
 use crate::run_termination::{RunTerminationReceiver, TerminationRequest};
 use crate::{Engine, Module, RunOptions, RunOutcome, RunTermination, RunTerminator};
 use crate::{WorkingDirectory, termination_channel};
@@ -98,6 +98,8 @@ pub enum ProcessError {
     NotFound(VirtualPid),
     #[error("virtual parent {0} is no longer running")]
     ParentNotRunning(VirtualPid),
+    #[error("the Engine process namespace is shutting down")]
+    ShuttingDown,
     #[error("another caller is already waiting for virtual process {0}")]
     AlreadyWaiting(VirtualPid),
     #[error("spawned execution owns the Run termination receiver")]
@@ -198,7 +200,15 @@ impl ProcessCompletion {
     }
 }
 
-type Table = Arc<Mutex<BTreeMap<VirtualPid, Entry>>>;
+#[derive(Default)]
+struct TableState {
+    entries: BTreeMap<VirtualPid, Entry>,
+    // Admission and shutdown share this lock: a new execution is either
+    // included in shutdown or rejected before its thread can start.
+    shutting_down: bool,
+}
+
+type Table = Arc<Mutex<TableState>>;
 
 // A Windows spawn must pin completion before another supervisor can reap its
 // PID. Publishing the guest HANDLE later must not depend on a new PID lookup.
@@ -219,8 +229,75 @@ impl std::fmt::Debug for ProcessTable {
     }
 }
 
+/// Borrow the execution owner's control and exit guard. A policy delivered by
+/// preparation can bind supervision before Runtime starts: spawned executions
+/// reuse their admitted PID, while an inline invocation admits only when needed.
+/// The owner closes the receiver before dropping the guard, including on unwind.
+pub(crate) struct ExecutionScope<'a> {
+    receiver: &'a RunTerminationReceiver,
+    exit: &'a mut Option<ProcessExitGuard>,
+}
+
+impl ExecutionScope<'_> {
+    pub(crate) fn termination(&self) -> &TerminationRequest {
+        &self.receiver.request
+    }
+
+    pub(crate) fn bind_supervision(
+        &mut self,
+        engine: &Engine,
+        options: &mut RunOptions,
+        signals: &crate::SignalReceiver,
+    ) -> Result<(), ProcessError> {
+        if !options.virtualize() && !options.ipc() {
+            return Ok(());
+        }
+        if !SUPPORTS_RUN_TERMINATION {
+            return Err(ProcessError::UnsupportedBackend);
+        }
+        options.prepare_root()?;
+        options.native_stack_budget = Some(engine.guest_stack_budget()?);
+        let pid = if let Some(exit) = &self.exit {
+            exit.pid
+        } else {
+            let mut table = engine.processes.0.lock().unwrap();
+            if table.shutting_down {
+                return Err(ProcessError::ShuttingDown);
+            }
+            let pid = VirtualPid::allocate(&NEXT_PID)?;
+            table.entries.insert(
+                pid,
+                Entry {
+                    info: ProcessInfo {
+                        pid,
+                        parent: None,
+                        state: ProcessState::Running,
+                    },
+                    terminator: self.receiver.sender(),
+                    signals: signals.sender(),
+                    completion: Arc::new(ProcessCompletion::default()),
+                    waiting: true,
+                },
+            );
+            *self.exit = Some(ProcessExitGuard {
+                table: Arc::clone(&engine.processes.0),
+                pid,
+                reap_on_drop: true,
+            });
+            pid
+        };
+        // IPC participates in host shutdown without changing guest identity or
+        // routing native spawns through the virtual process tree.
+        options.runtime.process_context = options.virtualize().then(|| ProcessContext {
+            pid,
+            engine: engine.clone(),
+        });
+        Ok(())
+    }
+}
+
 impl Engine {
-    fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
+    pub(crate) fn guest_stack_budget(&self) -> Result<usize, ProcessError> {
         self.config
             .stack_size
             .unwrap_or(1024)
@@ -229,9 +306,24 @@ impl Engine {
             .ok_or(ProcessError::InvalidStackSize)
     }
 
+    /// Resolve the guest budget and native allocation once for any execution
+    /// thread, including IPC workers. Preserve the caller's native headroom.
+    pub(crate) fn execution_stack(&self) -> Result<(usize, usize), ProcessError> {
+        let guest_stack_budget = self.guest_stack_budget()?;
+        let required_stack = guest_stack_budget
+            .checked_add(2 * 1024 * 1024)
+            .ok_or(ProcessError::InvalidStackSize)?;
+        let (low, high) = crate::native_stack::bounds()?;
+        let native_stack_size = high
+            .checked_sub(low)
+            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
+        let thread_stack_size = required_stack.max(native_stack_size);
+        Ok((guest_stack_budget, thread_stack_size))
+    }
+
     /// Start a Run on a new thread, with an optional live parent in this Engine.
     ///
-    /// `GuestProcessMode::Virtual` captures the host environment and cwd unless
+    /// `virtualize = true` captures the host environment and cwd unless
     /// explicitly provisioned. Native mode preserves ambient host state. Stdio
     /// follows `options`. Failures after admission are returned by `wait`.
     pub fn spawn(
@@ -259,20 +351,19 @@ impl Engine {
             parent,
             options,
             signals,
-            move |engine, options, signals, termination| {
-                engine.run_in_scope(&module, options, signals, termination)
+            move |engine, options, signals, scope| {
+                engine.run_in_scope(&module, options, signals, scope.termination())
             },
         )
         .map(|spawned| spawned.pid)
     }
 
-    /// Admit a prepared executable through the same dispatch as a Moon helper
-    /// result. Native process nodes are not yet implemented.
-    pub fn spawn_executable_with_signal_receiver(
+    /// Load a Wasm file within a managed execution scope, including cancellation
+    /// and cleanup, and receive signals through the supplied channel.
+    pub fn spawn_file_with_signal_receiver(
         &self,
         parent: Option<VirtualPid>,
         executable: &Path,
-        kind: moonutil::run_handoff::ExecutionKind,
         options: RunOptions,
         signals: crate::SignalReceiver,
     ) -> Result<VirtualPid, ProcessError> {
@@ -283,20 +374,15 @@ impl Engine {
             parent,
             options,
             signals,
-            move |engine, options, signals, termination| {
-                engine.execute_artifact_in_scope(
-                    kind,
-                    &executable,
-                    &executable,
-                    |bytes| {
-                        moonutil::wasm_source_map::load(&executable, bytes)
-                            .as_deref()
-                            .and_then(crate::source_map::SourceMap::parse)
-                    },
-                    options,
-                    signals,
-                    termination,
-                )
+            move |engine, options, signals, scope| {
+                // Managed roots accept Wasm contents regardless of filename.
+                let bytes = std::fs::read(&executable)?;
+                let module = engine.compile_file(&executable, &bytes, || {
+                    moonutil::wasm_source_map::load(&executable, &bytes)
+                        .as_deref()
+                        .and_then(crate::source_map::SourceMap::parse)
+                })?;
+                engine.run_in_scope(&module, options, signals, scope.termination())
             },
         )
         .map(|spawned| spawned.pid)
@@ -306,6 +392,8 @@ impl Engine {
     /// under the PID allocated here. `args` are Moon's arguments, including
     /// `run` for Moon; pass program arguments there rather than in `options`.
     ///
+    /// Moonx frontend responses complete under this PID using the embedded
+    /// grammar and bound stdio, without launching a helper or preparing files.
     /// Build/download helpers retain host access. Termination during preparation
     /// is retained until the helper exits and prevents subsequent Wasm execution.
     pub fn spawn_moon(
@@ -326,13 +414,13 @@ impl Engine {
             parent,
             options,
             crate::signal_channel().1,
-            move |engine, options, signals, termination| {
+            move |engine, options, signals, scope| {
                 engine.execute_moon_in_scope(
                     &executable,
                     &args,
                     options,
                     signals,
-                    termination,
+                    scope,
                     #[cfg(windows)]
                     false,
                 )
@@ -351,12 +439,12 @@ impl Engine {
             &Engine,
             RunOptions,
             crate::SignalReceiver,
-            &TerminationRequest,
+            &mut ExecutionScope<'_>,
         ) -> anyhow::Result<RunOutcome>,
     ) -> anyhow::Result<RunOutcome> {
-        let virtual_process = options.guest_process_mode == GuestProcessMode::Virtual;
+        let supervised = options.virtualize() || options.ipc();
         if !SUPPORTS_RUN_TERMINATION {
-            if virtual_process {
+            if supervised {
                 return Err(ProcessError::UnsupportedBackend.into());
             }
             anyhow::ensure!(
@@ -367,51 +455,21 @@ impl Engine {
         // The receiver is declared after the exit guard so panic unwinding
         // closes control before removing the PID and adopting its children.
         let mut exit = None;
-        let receiver = options.termination_receiver.take().unwrap_or_else(|| {
-            if virtual_process {
-                termination_channel().1
-            } else {
-                RunTerminationReceiver {
-                    request: Default::default(),
-                }
-            }
-        });
+        let receiver = options
+            .termination_receiver
+            .take()
+            .unwrap_or_else(|| termination_channel().1);
         let result = (|| {
             if let Some(outcome) = receiver.request.get() {
                 drop((execute, options, signals));
                 return Ok(outcome.into());
             }
-            options.prepare_root()?;
-            if virtual_process {
-                options.native_stack_budget = Some(self.guest_stack_budget()?);
-                let pid = VirtualPid::allocate(&NEXT_PID)?;
-                options.runtime.process_context = Some(ProcessContext {
-                    pid,
-                    engine: self.clone(),
-                });
-                self.processes.0.lock().unwrap().insert(
-                    pid,
-                    Entry {
-                        info: ProcessInfo {
-                            pid,
-                            parent: None,
-                            state: ProcessState::Running,
-                        },
-                        terminator: receiver.sender(),
-                        signals: signals.sender(),
-                        completion: Arc::new(ProcessCompletion::default()),
-                        waiting: true,
-                    },
-                );
-                exit = Some(ProcessExitGuard {
-                    table: Arc::clone(&self.processes.0),
-                    pid,
-                    reap_on_drop: true,
-                });
-            } else {
-                options.runtime.process_context = None;
-            }
-            execute(self, options, signals, &receiver.request)
+            let mut scope = ExecutionScope {
+                receiver: &receiver,
+                exit: &mut exit,
+            };
+            scope.bind_supervision(self, &mut options, &signals)?;
+            execute(self, options, signals, &mut scope)
         })();
         let result = match receiver.close() {
             Some(outcome) => Ok(outcome.into()),
@@ -431,7 +489,7 @@ impl Engine {
             &Engine,
             RunOptions,
             crate::SignalReceiver,
-            &TerminationRequest,
+            &mut ExecutionScope<'_>,
         ) -> anyhow::Result<RunOutcome>
         + Send
         + 'static,
@@ -442,17 +500,9 @@ impl Engine {
         if options.termination_receiver.is_some() {
             return Err(ProcessError::TerminationAlreadyConfigured);
         }
-        let guest_stack_budget = self.guest_stack_budget()?;
-        let required_stack = guest_stack_budget
-            .checked_add(2 * 1024 * 1024)
-            .ok_or(ProcessError::InvalidStackSize)?;
-        let (low, high) = crate::native_stack::bounds()?;
-        let native_stack_size = high
-            .checked_sub(low)
-            .ok_or_else(|| std::io::Error::other("invalid native thread stack bounds"))?;
-        let thread_stack_size = required_stack.max(native_stack_size);
+        let (guest_stack_budget, thread_stack_size) = self.execution_stack()?;
         options.native_stack_budget = Some(guest_stack_budget);
-        if options.guest_process_mode == GuestProcessMode::Virtual
+        if options.virtualize()
             && (options.runtime.default_environment.is_none()
                 || !matches!(
                     options.runtime.working_directory,
@@ -462,18 +512,23 @@ impl Engine {
             return Err(ProcessError::InvalidVirtualConfiguration);
         }
         let mut table = self.processes.0.lock().unwrap();
+        if table.shutting_down {
+            return Err(ProcessError::ShuttingDown);
+        }
         if let Some(parent) = parent {
-            let entry = table.get(&parent).ok_or(ProcessError::NotFound(parent))?;
+            let entry = table
+                .entries
+                .get(&parent)
+                .ok_or(ProcessError::NotFound(parent))?;
             if entry.info().state != ProcessState::Running {
                 return Err(ProcessError::ParentNotRunning(parent));
             }
         }
         let pid = VirtualPid::allocate(&NEXT_PID)?;
-        options.runtime.process_context = (options.guest_process_mode == GuestProcessMode::Virtual)
-            .then(|| ProcessContext {
-                pid,
-                engine: self.clone(),
-            });
+        options.runtime.process_context = options.virtualize().then(|| ProcessContext {
+            pid,
+            engine: self.clone(),
+        });
         let (terminator, receiver) = termination_channel();
         let signals = signal_receiver.sender();
         let engine = self.clone();
@@ -486,11 +541,11 @@ impl Engine {
             .name(format!("moonrun-{pid}"))
             .stack_size(thread_stack_size)
             .spawn(move || {
-                let _exit = ProcessExitGuard {
+                let mut exit = Some(ProcessExitGuard {
                     table: shared_table,
                     pid,
                     reap_on_drop: false,
-                };
+                });
                 // Close control before publishing exit, including on unwind.
                 let receiver = receiver;
                 let result = match receiver.request.get() {
@@ -498,7 +553,15 @@ impl Engine {
                         drop((execute, options, signal_receiver));
                         Ok(outcome.into())
                     }
-                    None => execute(&engine, options, signal_receiver, &receiver.request),
+                    None => execute(
+                        &engine,
+                        options,
+                        signal_receiver,
+                        &mut ExecutionScope {
+                            receiver: &receiver,
+                            exit: &mut exit,
+                        },
+                    ),
                 };
                 // Admission owns cancellation through preparation too, including
                 // artifact loading errors before the Wasm engine is entered.
@@ -512,7 +575,7 @@ impl Engine {
             #[cfg(windows)]
             completion: Arc::clone(&completion),
         };
-        table.insert(
+        table.entries.insert(
             pid,
             Entry {
                 info: ProcessInfo {
@@ -541,10 +604,35 @@ impl Engine {
         outcome: RunTermination,
     ) -> Result<bool, ProcessError> {
         let table = self.processes.0.lock().unwrap();
-        let entry = table.get(&pid).ok_or(ProcessError::NotFound(pid))?;
+        let entry = table.entries.get(&pid).ok_or(ProcessError::NotFound(pid))?;
         // Lock order is table then termination. Run completion acquires the
         // table only after execution has closed the termination channel.
         Ok(entry.terminator.terminate(outcome))
+    }
+
+    /// Close admission and request termination of every admitted execution.
+    ///
+    /// This includes adopted descendants and is shared by clones of this
+    /// Engine. The first call returns `true`; later calls return `false` and
+    /// leave the first requests intact. Existing per-process termination
+    /// requests retain their own first outcome.
+    ///
+    /// This only requests shutdown. Callers must still wait for cleanup and
+    /// reap the members they own. Native caller-thread Runs without IPC are not
+    /// admitted to the process table and are unaffected. Dropping an Engine does not
+    /// implicitly request shutdown.
+    pub fn request_shutdown(&self, outcome: RunTermination) -> bool {
+        let mut table = self.processes.0.lock().unwrap();
+        if table.shutting_down {
+            return false;
+        }
+        table.shutting_down = true;
+        // The existing table -> termination lock order also serializes with
+        // parent exit/adoption. Wake callbacks must never re-enter the table.
+        for entry in table.entries.values() {
+            entry.terminator.terminate(outcome);
+        }
+        true
     }
 
     /// Join and reap exactly once, including Run failures and thread panics.
@@ -557,7 +645,7 @@ impl Engine {
         }
         let outcome = result.take().unwrap();
         drop(result);
-        self.processes.0.lock().unwrap().remove(&pid);
+        self.processes.0.lock().unwrap().entries.remove(&pid);
         drop(claim);
         outcome
     }
@@ -569,6 +657,7 @@ impl Engine {
             .0
             .lock()
             .unwrap()
+            .entries
             .values()
             .map(Entry::info)
             .collect()
@@ -589,11 +678,11 @@ impl Drop for ProcessExitGuard {
     fn drop(&mut self) {
         let mut table = self.table.lock().unwrap();
         if self.reap_on_drop {
-            table.remove(&self.pid);
+            table.entries.remove(&self.pid);
         } else {
-            table.get_mut(&self.pid).unwrap().info.state = ProcessState::Exited;
+            table.entries.get_mut(&self.pid).unwrap().info.state = ProcessState::Exited;
         }
-        for entry in table.values_mut() {
+        for entry in table.entries.values_mut() {
             if entry.info.parent == Some(self.pid) {
                 entry.info.parent = None;
             }
@@ -613,7 +702,10 @@ impl WaitClaim {
     fn new(table: Table, pid: VirtualPid) -> Result<Self, ProcessError> {
         let completion = {
             let mut entries = table.lock().unwrap();
-            let entry = entries.get_mut(&pid).ok_or(ProcessError::NotFound(pid))?;
+            let entry = entries
+                .entries
+                .get_mut(&pid)
+                .ok_or(ProcessError::NotFound(pid))?;
             if entry.waiting {
                 return Err(ProcessError::AlreadyWaiting(pid));
             }
@@ -630,7 +722,7 @@ impl WaitClaim {
 
 impl Drop for WaitClaim {
     fn drop(&mut self) {
-        if let Some(entry) = self.table.lock().unwrap().get_mut(&self.pid) {
+        if let Some(entry) = self.table.lock().unwrap().entries.get_mut(&self.pid) {
             entry.waiting = false;
         }
     }
@@ -639,6 +731,238 @@ impl Drop for WaitClaim {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn delivered_policy_binds_the_existing_scope_before_execution() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy_path = directory.path().join("policy.json");
+        std::fs::write(&policy_path, r#"{"process":{"virtualize":true}}"#).unwrap();
+        let engine = Engine::default();
+        let outcome = engine
+            .run_inline(
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |engine, options, signals, scope| {
+                    assert!(engine.snapshot().is_empty());
+                    let mut options = options.with_policy_file(&policy_path)?;
+                    scope.bind_supervision(engine, &mut options, &signals)?;
+                    let pid = options.runtime.process_context.as_ref().unwrap().pid;
+                    assert_eq!(engine.snapshot()[0].pid, pid);
+                    assert!(options.runtime.default_environment.is_some());
+                    engine.request_shutdown(RunTermination::Exit(77));
+                    Ok(RunOutcome::Completed)
+                },
+            )
+            .unwrap();
+        assert_eq!(outcome, RunOutcome::Exited(77));
+        assert!(engine.snapshot().is_empty());
+
+        let engine = Engine::default();
+        let spawned = engine
+            .spawn_execution(
+                None,
+                RunOptions::default(),
+                crate::signal_channel().1,
+                move |engine, options, signals, scope| {
+                    let pid = engine.snapshot()[0].pid;
+                    let mut options = options.with_policy_file(&policy_path)?;
+                    scope.bind_supervision(engine, &mut options, &signals)?;
+                    assert_eq!(options.runtime.process_context.unwrap().pid, pid);
+                    assert_eq!(engine.snapshot().len(), 1);
+                    Ok(RunOutcome::Completed)
+                },
+            )
+            .unwrap();
+        assert_eq!(engine.wait(spawned.pid).unwrap(), RunOutcome::Completed);
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn shutdown_prevents_late_inline_virtual_admission() {
+        let directory = tempfile::tempdir().unwrap();
+        let policy_path = directory.path().join("policy.json");
+        std::fs::write(&policy_path, r#"{"process":{"virtualize":true}}"#).unwrap();
+        let engine = Engine::default();
+        let error = engine
+            .run_inline(
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |engine, options, signals, scope| {
+                    assert!(engine.snapshot().is_empty());
+                    engine.request_shutdown(RunTermination::Exit(77));
+                    let mut options = options.with_policy_file(&policy_path)?;
+                    scope.bind_supervision(engine, &mut options, &signals)?;
+                    panic!("closed namespace admitted a delivered virtual root")
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ProcessError>(),
+            Some(ProcessError::ShuttingDown)
+        ));
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn shutdown_closes_managed_and_virtual_admission_only_in_its_engine() {
+        let engine = Engine::default();
+        assert!(engine.request_shutdown(RunTermination::Exit(17)));
+        assert!(!engine.clone().request_shutdown(RunTermination::Exit(18)));
+        assert!(matches!(
+            engine.spawn_execution(
+                None,
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |_, _, _, _| panic!("closed namespace admitted a managed execution"),
+            ),
+            Err(ProcessError::ShuttingDown)
+        ));
+        let error = engine
+            .run_inline(
+                RunOptions::default().with_virtualize(true),
+                crate::signal_channel().1,
+                |_, _, _, _| panic!("closed namespace admitted a virtual inline execution"),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<ProcessError>(),
+            Some(ProcessError::ShuttingDown)
+        ));
+        // Native caller-thread execution has no process-table membership.
+        assert_eq!(
+            engine
+                .run_inline(
+                    RunOptions::default(),
+                    crate::signal_channel().1,
+                    |_, _, _, _| Ok(RunOutcome::Completed),
+                )
+                .unwrap(),
+            RunOutcome::Completed
+        );
+        let other = Engine::default();
+        let child = other
+            .spawn_execution(
+                None,
+                RunOptions::default(),
+                crate::signal_channel().1,
+                |_, _, _, _| Ok(RunOutcome::Completed),
+            )
+            .unwrap();
+        assert_eq!(other.wait(child.pid).unwrap(), RunOutcome::Completed);
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn shutdown_includes_children_before_and_after_adoption() {
+        use std::time::Duration;
+
+        for before_adoption in [true, false] {
+            let engine = Engine::default();
+            let (release, pending) = mpsc::channel();
+            let (ready, started) = mpsc::channel();
+            let mut child = None;
+            let outcome = engine
+                .run_inline(
+                    RunOptions::default().with_virtualize(true),
+                    crate::signal_channel().1,
+                    |engine, options, _, _| {
+                        let parent = options.runtime.process_context.as_ref().unwrap().pid;
+                        child = Some(
+                            engine
+                                .spawn_execution(
+                                    Some(parent),
+                                    RunOptions::default(),
+                                    crate::signal_channel().1,
+                                    move |_, _, _, scope| {
+                                        ready.send(scope.termination().clone()).unwrap();
+                                        pending.recv_timeout(Duration::from_secs(5)).unwrap();
+                                        Ok(RunOutcome::Completed)
+                                    },
+                                )
+                                .unwrap()
+                                .pid,
+                        );
+                        let request = started.recv_timeout(Duration::from_secs(5)).unwrap();
+                        if before_adoption {
+                            assert!(engine.request_shutdown(RunTermination::Exit(31)));
+                            assert_eq!(request.get(), Some(RunTermination::Exit(31)));
+                        } else {
+                            // Ending just the parent leaves its child running.
+                            assert!(engine.terminate(parent, RunTermination::Exit(17)).unwrap());
+                            assert_eq!(request.get(), None);
+                        }
+                        Ok(RunOutcome::Completed)
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                outcome,
+                RunOutcome::Exited(if before_adoption { 31 } else { 17 })
+            );
+            let child = child.unwrap();
+            assert_eq!(engine.snapshot()[0].parent, None);
+            if !before_adoption {
+                assert!(engine.request_shutdown(RunTermination::Exit(31)));
+            }
+            assert_eq!(engine.snapshot()[0].state, ProcessState::Terminating);
+            assert!(!engine.request_shutdown(RunTermination::Exit(32)));
+            release.send(()).unwrap();
+            assert_eq!(engine.wait(child).unwrap(), RunOutcome::Exited(31));
+            assert!(engine.snapshot().is_empty());
+        }
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
+    fn concurrent_shutdown_either_includes_or_rejects_admission() {
+        use std::sync::Barrier;
+        use std::time::Duration;
+
+        let engine = Engine::default();
+        let gate = Arc::new(Barrier::new(3));
+        let (release, pending) = mpsc::channel();
+        let admission = {
+            let engine = engine.clone();
+            let gate = Arc::clone(&gate);
+            thread::spawn(move || {
+                gate.wait();
+                engine.spawn_execution(
+                    None,
+                    RunOptions::default(),
+                    crate::signal_channel().1,
+                    move |_, _, _, _| {
+                        pending.recv_timeout(Duration::from_secs(5)).unwrap();
+                        Ok(RunOutcome::Completed)
+                    },
+                )
+            })
+        };
+        let shutdown = {
+            let engine = engine.clone();
+            let gate = Arc::clone(&gate);
+            thread::spawn(move || {
+                gate.wait();
+                engine.request_shutdown(RunTermination::Exit(23))
+            })
+        };
+        gate.wait();
+        assert!(shutdown.join().unwrap());
+        match admission.join().unwrap() {
+            Ok(child) => {
+                // A request accepted before the thread starts may drop this
+                // receiver without executing the closure at all.
+                let _ = release.send(());
+                assert_eq!(engine.wait(child.pid).unwrap(), RunOutcome::Exited(23));
+            }
+            Err(ProcessError::ShuttingDown) => {}
+            Err(error) => panic!("unexpected admission error: {error}"),
+        }
+        assert!(engine.snapshot().is_empty());
+    }
 
     #[test]
     fn pid_exhaustion_never_wraps_or_reuses_an_id() {
@@ -680,6 +1004,35 @@ mod tests {
 
     #[cfg(feature = "v8")]
     #[test]
+    fn ipc_inline_execution_is_supervised_without_virtualizing_guest_identity() {
+        let engine = Engine::default();
+        let outcome = engine.run_inline(
+            RunOptions::default().with_ipc(true),
+            crate::signal_channel().1,
+            |engine, options, _, scope| {
+                assert!(options.runtime.process_context.is_none());
+                assert!(options.runtime.default_environment.is_some());
+                assert_eq!(engine.snapshot().len(), 1);
+                assert!(engine.request_shutdown(RunTermination::Exit(17)));
+                assert_eq!(scope.termination().get(), Some(RunTermination::Exit(17)));
+                assert!(
+                    engine
+                        .run_inline(
+                            RunOptions::default().with_ipc(true),
+                            crate::signal_channel().1,
+                            |_, _, _, _| panic!("shutdown admitted another IPC Run"),
+                        )
+                        .is_err()
+                );
+                Ok(RunOutcome::Completed)
+            },
+        );
+        assert_eq!(outcome.unwrap(), RunOutcome::Exited(17));
+        assert!(engine.snapshot().is_empty());
+    }
+
+    #[cfg(feature = "v8")]
+    #[test]
     fn virtual_inline_execution_stays_on_the_caller_and_owns_its_result() {
         let engine = Engine::default();
         let module = engine
@@ -689,10 +1042,10 @@ mod tests {
         let (terminator, receiver) = termination_channel();
         let result = engine.run_inline(
             RunOptions::default()
-                .with_guest_process_mode(GuestProcessMode::Virtual)
+                .with_virtualize(true)
                 .with_termination_receiver(receiver),
             crate::signal_channel().1,
-            |engine, options, signals, termination| {
+            |engine, options, signals, scope| {
                 assert_eq!(thread::current().id(), caller);
                 let pid = options.runtime.process_context.as_ref().unwrap().pid;
                 assert!(options.runtime.default_environment.is_some());
@@ -704,7 +1057,7 @@ mod tests {
                 assert!(matches!(engine.clone().wait(pid), Err(ProcessError::AlreadyWaiting(id)) if id == pid));
                 // A newly created Engine owns a different namespace.
                 assert!(matches!(Engine::default().wait(pid), Err(ProcessError::NotFound(id)) if id == pid));
-                engine.run_in_scope(&module, options, signals, termination)?;
+                engine.run_in_scope(&module, options, signals, scope.termination())?;
                 // Engine control and the supplied receiver are one channel,
                 // including after the Run has released its Runtime.
                 assert!(terminator.terminate(RunTermination::Exit(17)));
@@ -740,7 +1093,7 @@ mod tests {
         let result = catch_unwind(AssertUnwindSafe(|| {
             engine.run_inline(
                 RunOptions::default()
-                    .with_guest_process_mode(GuestProcessMode::Virtual)
+                    .with_virtualize(true)
                     .with_termination_receiver(receiver),
                 crate::signal_channel().1,
                 |engine, options, _, _| {
@@ -792,7 +1145,7 @@ mod tests {
             assert!(matches!(
                 engine.spawn_execution(
                     None,
-                    options.with_guest_process_mode(GuestProcessMode::Virtual),
+                    options.with_virtualize(true),
                     crate::signal_channel().1,
                     |_, _, _, _| panic!("incomplete virtual state admitted"),
                 ),
@@ -882,12 +1235,7 @@ mod tests {
         let inline_engine = engine.clone();
         let result = thread::Builder::new()
             .stack_size(512 * 1024)
-            .spawn(move || {
-                inline_engine.run(
-                    &module,
-                    RunOptions::default().with_guest_process_mode(GuestProcessMode::Virtual),
-                )
-            })
+            .spawn(move || inline_engine.run(&module, RunOptions::default().with_virtualize(true)))
             .unwrap()
             .join()
             .unwrap();
@@ -961,7 +1309,7 @@ mod tests {
                 assert_eq!(outcome, RunTermination::Exit(7));
                 Ok(RunOutcome::Exited(7))
             });
-            entries.insert(
+            entries.entries.insert(
                 pid,
                 Entry {
                     info: ProcessInfo {
@@ -992,7 +1340,7 @@ mod tests {
             let waiter = thread::spawn(move || done.send(waiting_tree.wait(pid)).unwrap());
             // Wait until the waiter reserves the result, without permitting
             // the simulated host work to finish.
-            while !tree.processes.0.lock().unwrap()[&pid].waiting {
+            while !tree.processes.0.lock().unwrap().entries[&pid].waiting {
                 thread::yield_now();
             }
             assert_eq!(tree.snapshot()[0].state, ProcessState::Terminating);
@@ -1077,8 +1425,9 @@ mod tests {
                     None,
                     options,
                     crate::signal_channel().1,
-                    move |engine, options, signals, termination| {
-                        let result = engine.run_in_scope(&module, options, signals, termination);
+                    move |engine, options, signals, scope| {
+                        let result =
+                            engine.run_in_scope(&module, options, signals, scope.termination());
                         assert_eq!(result.is_err(), run_error);
                         returned.send(()).unwrap();
                         // Execution can retain delivery files after its Run returns.
@@ -1090,7 +1439,7 @@ mod tests {
                 )
                 .unwrap();
             run_returned.recv_timeout(Duration::from_secs(5)).unwrap();
-            let terminator = tree.processes.0.lock().unwrap()[&spawned.pid]
+            let terminator = tree.processes.0.lock().unwrap().entries[&spawned.pid]
                 .terminator
                 .clone();
             let accepted = tree
@@ -1147,7 +1496,9 @@ mod tests {
             .unwrap();
         let tree = engine;
         let pid = tree.spawn(None, &module, RunOptions::default()).unwrap();
-        let terminator = tree.processes.0.lock().unwrap()[&pid].terminator.clone();
+        let terminator = tree.processes.0.lock().unwrap().entries[&pid]
+            .terminator
+            .clone();
         let table = Arc::downgrade(&tree.processes.0);
         drop(tree);
         assert!(table.upgrade().is_some());

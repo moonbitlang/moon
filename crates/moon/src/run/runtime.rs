@@ -21,8 +21,37 @@
 use std::path::Path;
 use std::process::Command;
 
-use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::BackendConfig;
+
+#[derive(Clone, Debug)]
+pub(crate) struct TestArgs {
+    pub(crate) package: String,
+    pub(crate) file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
+}
+
+impl TestArgs {
+    /// Encode `filename:start-end,start-end/...` for all test runtimes.
+    /// Compiler test metadata uses basenames, so `/` cannot occur in a name.
+    /// Decoders split at the last `:` to preserve colons in Unix filenames.
+    pub(crate) fn to_cli_args(&self) -> String {
+        use std::fmt::Write;
+
+        let mut args = String::new();
+        for (file, ranges) in &self.file_and_index {
+            let Some((first, rest)) = ranges.split_first() else {
+                continue;
+            };
+            if !args.is_empty() {
+                args.push('/');
+            }
+            write!(args, "{file}:{}-{}", first.start, first.end).unwrap();
+            for range in rest {
+                write!(args, ",{}-{}", range.start, range.end).unwrap();
+            }
+        }
+        args
+    }
+}
 
 /// The runtime mode used to execute one built artifact.
 #[derive(Clone, Copy)]
@@ -30,16 +59,6 @@ pub(crate) enum ExecutionMode {
     MoonRun,
     Node,
     Native,
-}
-
-impl From<ExecutionMode> for moonutil::run_handoff::ExecutionKind {
-    fn from(mode: ExecutionMode) -> Self {
-        match mode {
-            ExecutionMode::MoonRun => Self::Wasm,
-            ExecutionMode::Native => Self::Native,
-            ExecutionMode::Node => Self::Js,
-        }
-    }
 }
 
 impl From<&BackendConfig> for ExecutionMode {
@@ -57,15 +76,11 @@ impl From<&BackendConfig> for ExecutionMode {
 /// arguments that are directly passed to the MoonBit program being executed.
 ///
 /// If the executable is a test executable, `test` should be passed with the
-/// args that are passed to the test executable. The function **may create
-/// temporary files** to support test execution.
+/// args that are passed to the test executable.
 ///
 /// `mbt_executable` is the final MoonBit executable to run, such as a `.wasm`
 /// file in WASM or WASM-GC backends, a `.js` file in JS backend, or a native
 /// executable in Native or LLVM backends.
-///
-/// ### Note
-///
 pub(crate) fn command_for(
     mode: ExecutionMode,
     mbt_executable: &Path,
@@ -80,14 +95,7 @@ pub(crate) fn command_for_with_moonrun_policy(
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
 ) -> Command {
-    command_for_with_moonrun_policy_source_dir(
-        mode,
-        mbt_executable,
-        test,
-        moonrun_policy,
-        None,
-        false,
-    )
+    command_for_with_moonrun_policy_source_dir(mode, mbt_executable, test, moonrun_policy, None)
 }
 
 pub(crate) fn command_for_with_moonrun_policy_source_dir(
@@ -96,52 +104,92 @@ pub(crate) fn command_for_with_moonrun_policy_source_dir(
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,
-    virtual_process_tree: bool,
 ) -> Command {
-    match (mode, virtual_process_tree) {
-        (ExecutionMode::MoonRun, _) | (_, true) => {
-            let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
-            if virtual_process_tree {
-                cmd.arg("--virtual-process-tree");
-                cmd.arg("--virtual-process-kind");
-                cmd.arg(match mode {
-                    ExecutionMode::MoonRun => "wasm",
-                    ExecutionMode::Native => "native",
-                    ExecutionMode::Node => "js",
-                });
-            }
-            if let Some(t) = test {
-                cmd.arg("--test-args");
-                cmd.arg(serde_json::to_string(t).unwrap());
-            }
-            if let Some(policy) = moonrun_policy {
-                cmd.arg("--policy");
-                cmd.arg(dunce::simplified(policy));
-            }
-            if let Some(source_dir) = policy_source_dir {
-                debug_assert!(moonrun_policy.is_some());
-                cmd.arg("--policy-source-dir");
-                cmd.arg(source_dir);
-            }
-            cmd.arg(dunce::simplified(mbt_executable));
-            cmd.arg("--");
-            cmd
-        }
-        (ExecutionMode::Node, false) => {
+    match mode {
+        ExecutionMode::MoonRun => moonrun_command(
+            mbt_executable,
+            test,
+            moonrun_policy,
+            policy_source_dir,
+            false,
+        ),
+        ExecutionMode::Node => {
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
             cmd.arg(dunce::simplified(mbt_executable));
             if let Some(t) = test {
-                cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
+                cmd.arg(t.to_cli_args());
             }
             cmd
         }
-        (ExecutionMode::Native, false) => {
+        ExecutionMode::Native => {
             let mut cmd = Command::new(dunce::simplified(mbt_executable));
             if let Some(t) = test {
-                cmd.arg(t.to_cli_args_for_native());
+                cmd.arg(t.to_cli_args());
             }
             cmd
         }
+    }
+}
+
+/// Construct the Wasm runner command, keeping runner options before the opaque
+/// program arguments. IPC changes execution placement, not the selected policy.
+pub(crate) fn moonrun_command(
+    mbt_executable: &Path,
+    test: Option<&TestArgs>,
+    moonrun_policy: Option<&Path>,
+    policy_source_dir: Option<&Path>,
+    ipc: bool,
+) -> Command {
+    let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
+    if let Some(t) = test {
+        // Keep filenames beginning with `-` inside the option's value.
+        cmd.arg(format!("--test-args={}", t.to_cli_args()));
+    }
+    if let Some(policy) = moonrun_policy {
+        cmd.arg("--policy");
+        cmd.arg(dunce::simplified(policy));
+    }
+    if let Some(source_dir) = policy_source_dir {
+        debug_assert!(moonrun_policy.is_some());
+        cmd.arg("--policy-source-dir");
+        cmd.arg(source_dir);
+    }
+    if ipc {
+        cmd.arg("--daemon");
+    }
+    cmd.arg(dunce::simplified(mbt_executable));
+    cmd.arg("--");
+    cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TestArgs;
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn compact_test_args_group_ranges_without_changing_selection_order() {
+        let args = TestArgs {
+            package: "test/selection".into(),
+            file_and_index: vec![
+                ("empty.mbt".into(), vec![]),
+                ("-Case:测试,e\u{301}.mbt".into(), vec![7..9, 0..2, 7..8]),
+                ("{other}.mbt".into(), vec![1..2]),
+                ("-Case:测试,e\u{301}.mbt".into(), vec![3..3]),
+            ],
+        };
+        assert_eq!(
+            args.to_cli_args(),
+            "-Case:测试,e\u{301}.mbt:7-9,0-2,7-8/{other}.mbt:1-2/-Case:测试,e\u{301}.mbt:3-3"
+        );
+        assert_eq!(
+            TestArgs {
+                package: "test/selection".into(),
+                file_and_index: vec![],
+            }
+            .to_cli_args(),
+            ""
+        );
     }
 }

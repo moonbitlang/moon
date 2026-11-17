@@ -1,0 +1,5 @@
+supported_targets = "all"
+#cfg(target = "js")
+import { "example/conditional/native" }
+#cfg(target = "native")
+import { "example/conditional/js" }

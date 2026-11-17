@@ -22,9 +22,9 @@ use moonutil::{compiler_flags::Toolchain, resolution::ModuleId};
 
 use super::{
     BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo,
+    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo, WasmLinkInfo,
 };
-use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind};
+use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind, WasmObject};
 
 /// A semantic Build Plan action hydrated with the metadata needed by lowering.
 ///
@@ -37,10 +37,6 @@ pub(crate) enum BuildAction<'a> {
         info: &'a BuildTargetInfo,
     },
     EmitProof {
-        target: BuildTarget,
-        info: &'a BuildTargetInfo,
-    },
-    Prove {
         target: BuildTarget,
         info: &'a BuildTargetInfo,
     },
@@ -63,6 +59,14 @@ pub(crate) enum BuildAction<'a> {
         /// The native toolchain of the action that consumes the linked core,
         /// if any. Its ABI selects the LLVM target.
         native_toolchain: Option<&'a Toolchain>,
+    },
+    BuildWasmObject {
+        object: WasmObject,
+        info: &'a LinkCoreInfo,
+    },
+    LinkWasmObjects {
+        target: BuildTarget,
+        info: &'a WasmLinkInfo,
     },
     MakeExecutable {
         target: BuildTarget,
@@ -94,10 +98,6 @@ pub(crate) enum BuildAction<'a> {
         package: PackageId,
         input: &'a Path,
     },
-    Bundle {
-        module: ModuleId,
-        targets: &'a [BuildTarget],
-    },
     BuildRuntimeObject {
         index: u32,
         info: &'a BuildRuntimeInfo,
@@ -111,6 +111,18 @@ pub(crate) enum BuildAction<'a> {
     RunPrebuild {
         info: &'a PrebuildInfo,
     },
+}
+
+impl BuildAction<'_> {
+    /// These actions compile C sources against the MoonBit toolchain headers.
+    pub(crate) fn uses_toolchain_headers(self) -> bool {
+        matches!(
+            self,
+            Self::BuildCStub { .. }
+                | Self::BuildRuntimeObject { .. }
+                | Self::CompileGeneratedC { .. }
+        )
+    }
 }
 
 impl BackendPlan {
@@ -146,13 +158,6 @@ impl BackendPlan {
                     .get(&target)
                     .expect("Build target info should be present for EmitProof nodes"),
             },
-            BuildPlanNode::Prove(target) => BuildAction::Prove {
-                target,
-                info: self
-                    .build_target_infos
-                    .get(&target)
-                    .expect("Build target info should be present for Prove nodes"),
-            },
             BuildPlanNode::BuildCore(target) => BuildAction::BuildCore {
                 target,
                 info: self
@@ -182,6 +187,20 @@ impl BackendPlan {
                     .get(&target)
                     .expect("Link core info should be present for LinkCore nodes"),
                 native_toolchain: self.linked_core_consumer_toolchain(target),
+            },
+            BuildPlanNode::BuildWasmObject(object) => BuildAction::BuildWasmObject {
+                object,
+                info: self
+                    .wasm_object_info
+                    .get(&object)
+                    .expect("Wasm object info should be present for BuildWasmObject nodes"),
+            },
+            BuildPlanNode::LinkWasmObjects(target) => BuildAction::LinkWasmObjects {
+                target,
+                info: self
+                    .wasm_link_info
+                    .get(&target)
+                    .expect("Wasm link info should be present for LinkWasmObjects nodes"),
             },
             BuildPlanNode::MakeExecutable(target) => BuildAction::MakeExecutable {
                 target,
@@ -233,14 +252,6 @@ impl BackendPlan {
                     .map(|path| path.as_path())
                     .expect("virtual contract input should be selected during build planning"),
             },
-            BuildPlanNode::Bundle(module) => BuildAction::Bundle {
-                module,
-                targets: &self
-                    .bundle_info
-                    .get(&module)
-                    .expect("Bundle info should be present when lowering bundle node")
-                    .bundle_targets,
-            },
             BuildPlanNode::BuildRuntimeObject(index) => BuildAction::BuildRuntimeObject {
                 index,
                 info: self
@@ -286,7 +297,6 @@ mod tests {
             target,
             LinkCoreInfo {
                 linked_order: vec![target],
-                link_stdlib_abort: false,
             },
         );
         plan.test_insert_foreign_library_info(

@@ -32,23 +32,13 @@ use crate::pkg_name::PackageFQN;
 // string segments
 const MOONBIT: &str = "moonbitlang";
 const CORE: &str = "core";
-const ABORT: &str = "abort";
 const BUILTIN: &str = "builtin";
 const COVERAGE: &str = "coverage";
-pub(crate) const CORE_MODULE: &str = "moonbitlang/core";
 pub(crate) const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
 
-/// Libraries that should not be tested
-const SKIP_TEST_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
-/// Libraries that should not be covered
-const SKIP_COVERAGE_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
 /// Libraries that should use themselves for coverage
 const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
     &[(MOONBIT, CORE, BUILTIN), (MOONBIT, CORE, COVERAGE)];
-
-pub(crate) fn module_name_is_core(name: &str) -> bool {
-    name == CORE_MODULE
-}
 
 /// Core packages require importing `prelude` in test imports, or the test will
 /// not be able to run.
@@ -69,20 +59,21 @@ fn name_matches(package_fqn: &PackageFQN, target: (&str, &str, &str)) -> bool {
     *package_fqn == target
 }
 
-pub(crate) fn should_skip_tests(package_fqn: &PackageFQN) -> bool {
-    SKIP_TEST_LIBS
-        .iter()
-        .any(|&target| name_matches(package_fqn, target))
-}
-
-pub(crate) fn should_skip_coverage(package_fqn: &PackageFQN) -> bool {
-    SKIP_COVERAGE_LIBS
-        .iter()
-        .any(|&target| name_matches(package_fqn, target))
-}
-
 pub(crate) fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
     SELF_COVERAGE_LIBS
         .iter()
         .any(|&target| name_matches(package_fqn, target))
 }
+
+/// Packages that every wasm1 object and every executable linked from objects
+/// load, with their dependencies (Wasm separate compilation).
+///
+/// `moonc` gives each error constructor an object uses an entry in the error
+/// table, whose methods call functions of these packages. It needs their
+/// `.core` files to compile such an object, and their objects must be linked
+/// with it. Not every standard library package that uses errors depends on
+/// them, `builtin` included.
+// FIXME: Remove once the linker assembles each error table entry from the
+// objects defining its methods.
+pub(crate) const WASM_ERROR_TABLE_PACKAGES: &[&str] =
+    &["moonbitlang/core/json", "moonbitlang/core/debug"];

@@ -95,7 +95,6 @@ pub enum ArtifactKey {
 
     ProofMi { package: PackageId, target_kind: TargetKind },
     ProofWhyml { package: PackageId, target_kind: TargetKind },
-    ProofReport { package: PackageId, target_kind: TargetKind },
 
     CStubObject { package: PackageId, source: PathBuf },
     CStubLibrary { package: PackageId },
@@ -103,6 +102,8 @@ pub enum ArtifactKey {
     RuntimeLibrary,
     GeneratedTestDriver { package: PackageId, target_kind: TargetKind },
     LinkedCore { package: PackageId, target_kind: TargetKind },
+    WasmMainObject { package: PackageId, target_kind: TargetKind },
+    WasmLibraryObject { package: PackageId },
     GeneratedCObject { package: PackageId, target_kind: TargetKind },
     Executable { package: PackageId, target_kind: TargetKind },
     ForeignLibrary { package: PackageId },
@@ -117,9 +118,21 @@ is unrelated to the `moonbitlang/core` package.
 Artifact identity never contains an execution `ActionId` or `_build` root.
 `CheckMi`, `BuildMi`, and `VirtualContractMi` are distinct because they are not
 interchangeable compiler inputs even though they all currently use `.mi`.
-`EmitProof` and `Prove` are alternative providers of the same `ProofMi` and
-`ProofWhyml` artifacts; only `Prove` additionally provides `ProofReport`.
-Provider selection belongs to the invocation lifecycle, not artifact identity.
+`EmitProof` provides `ProofMi` and `ProofWhyml` through `moonc-prove -emit-only`.
+After all requested preparation succeeds, `moon prove` executes the prepared
+WhyML outside the build graph with `moonc-prove -prove-whyml`.
+Proof reports describe that invocation and are not Build Artifacts. Any
+compilation or lowering failure stops all proof execution and produces no proof
+summary. After preparation succeeds, the command removes selected reports before
+starting proof processes, so a startup failure cannot expose an old result. It
+holds the target lock through execution to protect the preparation artifacts and
+proof outputs.
+
+Incremental build reuse ends at the `.mi` and `.mlw` artifacts. Proof execution
+runs on every invocation and produces fresh reports, including detailed failures
+when goals cannot be proved. Why3's internal session caching is owned by the
+compiler. Missing or malformed reports and prover startup failures count as
+failed selected packages.
 
 C-stub, runtime, and native foreign-library artifacts are realized as static
 archives. A `ForeignLibrary` consumes C-stub and runtime objects directly
@@ -131,6 +144,14 @@ For generated-C native builds, `MakeExecutable` and `ArchiveForeignLibrary`
 consume `GeneratedCObject`, provided by `CompileGeneratedC`. Only that compile
 action consumes the C form of `LinkedCore` and observes toolchain headers.
 Object-producing backends let final linking consume `LinkedCore` directly.
+
+With Wasm separate compilation, `BuildWasmObject` provides both kinds of wasm1
+object, and the executable's target never runs `LinkCore`. Its
+`WasmObject::Main` form provides the `WasmMainObject` of the executable's main
+package target, carrying its entry, exports and link settings. Its
+`WasmObject::Library` form provides each other package's `WasmLibraryObject`,
+which is keyed by package alone because every executable shares it.
+`LinkWasmObjects` consumes both and provides the `Executable`.
 
 `Executable { package, target_kind }` includes test executables: source,
 inline-test, whitebox-test, and blackbox-test targets have different
@@ -220,10 +241,8 @@ in a dependency edge.
 The same rule handles invocation roots. `UserIntent` names results such as
 `CheckMi`, `CoreIr`, or `Executable`; it does not construct provider actions.
 For example, `Executable` selects `LinkCore` for Wasm/JS backends and
-`MakeExecutable` for native/LLVM backends. The complete caller-requested
-artifact set is recorded before provider expansion, so proof-surface artifacts
-select `Prove` when the invocation also requests `ProofReport`, and otherwise
-select `EmitProof`.
+`MakeExecutable` for native/LLVM backends. Proof-surface artifacts select
+`EmitProof`, including those requested by `moon prove`.
 
 JavaScript test intents also request one `NodeTestPackageConfig` for each
 package. Its dedicated package-scoped `GenerateNodeTestPackageConfig` provider
@@ -368,8 +387,9 @@ loads indirect dependencies through the paths in `all_pkgs.json`. A local
 indirect interface is covered by its producer, but an installed one has none.
 Compiler actions therefore observe every installed standard-library `.mi`
 reachable from their direct standard-library dependencies as an ordinary file
-input. Native lowering enumerates the chosen toolchain include tree and
-attaches its headers as ordinary inputs.
+input. After planning, `moonbuild::compile` enumerates the chosen toolchain
+include tree when C compilation is required. Native lowering attaches the
+supplied file paths as ordinary inputs without scanning the tree itself.
 
 Actions with broader unmodeled observations remain cache-ineligible. This
 includes proof execution, documentation generation, arbitrary prebuild shell

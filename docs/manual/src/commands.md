@@ -8,10 +8,11 @@ This document contains the help content for the `moon` command-line program.
 * [`moon new`↴](#moon-new)
 * [`moon build`↴](#moon-build)
 * [`moon check`↴](#moon-check)
+* [`moon fix`↴](#moon-fix)
 * [`moon prove`↴](#moon-prove)
 * [`moon run`↴](#moon-run)
-* [`moon runwasm`↴](#moon-runwasm)
 * [`moon test`↴](#moon-test)
+* [`moon testcli`↴](#moon-testcli)
 * [`moon clean`↴](#moon-clean)
 * [`moon fmt`↴](#moon-fmt)
 * [`moon doc`↴](#moon-doc)
@@ -54,10 +55,11 @@ This document contains the help content for the `moon` command-line program.
 * `new` — Create a new MoonBit module
 * `build` — Build the current package
 * `check` — Check the current package, but don't build object files
+* `fix` — Apply compiler-proposed source fixes (experimental)
 * `prove` — Prove the current package
 * `run` — Run a main package
-* `runwasm` — Deprecated: use moon run --target wasm locally or moonx for registry packages
 * `test` — Test the current package
+* `testcli` — Run CLI tests with the current toolchain's mooncram
 * `clean` — Remove local build outputs or configured global caches
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
@@ -193,6 +195,33 @@ A successful check also updates `pkg.generated.mbti` of the checked local packag
 
 
 
+## `moon fix`
+
+Apply compiler-proposed source fixes (experimental)
+
+Runs the same check as `moon check` and applies the fixes attached to its diagnostics, but only those that still match the files and pass the fix checks; any other fix is skipped as a whole. A fix is applied only if every target backend that compiles its file proposes it. Pass `--verbose` to see why a fix was skipped.
+
+Files select only themselves; directories select their package. Declared prebuild outputs and file symlinks are excluded. Writes are atomic per file; a failed run may retain files changed earlier. Exit 0 means the fix workflow completed, even if compiler diagnostics remain. At most four rounds write files, followed by a check of the final contents.
+
+**Usage:** `moon fix [OPTIONS] [PATH]...`
+
+###### **Arguments:**
+
+* `<PATH>` — Package directory or source file to fix (file paths restrict edits to that file)
+
+###### **Options:**
+
+* `--target <TARGET>` — Select the target backends to check
+
+  Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
+
+* `--warn-list <WARN_LIST>` — Warn list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
+* `--diff` — Preview only the first round as a unified diff; later rounds may propose further changes
+
+
+
 ## `moon prove`
 
 Prove the current package
@@ -262,51 +291,9 @@ Run a main package
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `--wasm-policy <PATH>` — Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
-* `--virtual-process-tree` — Run Wasm descendants in the same virtual process tree (experimental)
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux
-
-
-
-## `moon runwasm`
-
-Deprecated:
-  Local packages: use `moon run <LOCAL_PACKAGE> --target wasm`.
-  Registry packages: use `moonx <PACKAGE[@VERSION]>`.
-
-Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
-
-Local package inputs are handled like `moon run --target wasm`:
-  moon runwasm main
-  moon runwasm ./main
-
-Experimental moonrun policy forwarding:
-  moon runwasm --experimental-policy moonrun-policy.json main
-
-Accepted Mooncakes coordinate forms:
-  moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
-  moon runwasm moonbitlang/parser/cmd/moonfmt@latest
-  moon runwasm moonbitlang/parser/cmd/moonfmt
-
-Pinned coordinates use the given version directly. `@latest` refreshes the
-registry index before resolving the latest version. Unpinned coordinates use
-the latest version already in the local index, updating it only when the module
-is absent. Fetched wasm files are cached under $MOON_HOME/registry/cache/assets
-and reused on later runs.
-
-**Usage:** `moon runwasm [OPTIONS] <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
-
-###### **Arguments:**
-
-* `<LOCAL_PACKAGE|PACKAGE[@VERSION]>` — Local package path or Mooncakes package coordinate of the prebuilt wasm binary
-* `<ARGS>` — The arguments provided to the wasm program
-
-###### **Options:**
-
-* `--experimental-policy <PATH>` — Experimental: pass a moonrun JSON policy file for moonbitlang/async runtime access.
-
-   The policy applies to moonbitlang/async and moonrun-owned unstable FFI; WASI is not covered.
 
 
 
@@ -366,6 +353,22 @@ Test executables run in parallel using the available CPU count by default. Use `
 * `--patch-file <PATCH_FILE>` — Path to the patch file
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
 * `-f`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
+
+
+
+## `moon testcli`
+
+Run CLI tests with the current toolchain's mooncram
+
+Executes `moonrun <toolchain>/bin/mooncram.wasm -- [ARGS]...` without loading a MoonBit project. All arguments after `testcli`, including `--help`, `--version`, and `--`, are forwarded unchanged.
+
+Uses the current toolchain, including MOON_TOOLCHAIN_ROOT and MOONRUN_OVERRIDE. Moon options such as `-C` must appear before `testcli`; `--trace` is not supported before this command.
+
+**Usage:** `moon testcli [ARGS]...`
+
+###### **Arguments:**
+
+* `<ARGS>` — Arguments forwarded to mooncram
 
 
 
@@ -820,7 +823,7 @@ Otherwise, synchronize the Git registry index and symbols as before. This mode a
 
 Code coverage utilities
 
-Runs the toolchain's `bin/moon_cove.wasm` through `moonrun` by default. Set `MOON_COVE_REPORT_ENABLED=0` (or `false`) to use the legacy `moon_cove_report` instead.
+Runs the toolchain's `bin/moon_cove.wasm` through `moonrun`.
 
 **Usage:** `moon coverage <COMMAND>`
 
@@ -840,7 +843,7 @@ Run test with instrumentation and report coverage
 
 ###### **Arguments:**
 
-* `<EXTRA_FLAGS>` — Extra flags passed directly to the selected coverage reporter
+* `<EXTRA_FLAGS>` — Extra flags passed directly to `moon_cove`
 
 ###### **Options:**
 
