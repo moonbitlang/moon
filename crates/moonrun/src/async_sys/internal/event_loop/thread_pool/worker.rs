@@ -73,7 +73,7 @@ pub(crate) struct CompletedJob {
 #[derive(Debug)]
 // The worker removes its Job from `state` while running it, but cancellation
 // still needs to distinguish an idle worker from an active operation. Most
-// jobs are cancelled through the worker thread; process waits instead retain
+// jobs are cancelled through the worker thread; event-based waits instead retain
 // the job's dedicated cancellation event until that operation returns.
 enum RunningCancellation {
     Idle,
@@ -408,9 +408,12 @@ impl Worker {
             use std::os::windows::io::AsRawHandle;
             use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, GetLastError};
             use windows_sys::Win32::System::IO::CancelSynchronousIo;
+            use windows_sys::Win32::System::Threading::SetEvent;
 
             if let WorkerCancellationTarget::Resource(cancel) = self.cancellation_target() {
-                crate::process::cancel_wait(&cancel)?;
+                if unsafe { SetEvent(cancel.as_handle()?.as_raw_handle()) } == 0 {
+                    return Err(AsyncHostError::Native(unsafe { GetLastError() } as i32));
+                }
                 return Ok(CancellationOutcome::NeedWait);
             }
             if unsafe { CancelSynchronousIo(self.thread.as_raw_handle()) } != 0 {

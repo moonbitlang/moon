@@ -45,6 +45,7 @@ mod stdio;
 mod thread_pool;
 mod time;
 mod tls;
+mod tty;
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
 pub(crate) use registry::register;

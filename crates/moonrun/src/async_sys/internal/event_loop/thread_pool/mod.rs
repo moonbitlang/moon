@@ -23,6 +23,8 @@ mod sleep;
 mod types;
 mod worker;
 
+#[cfg(windows)]
+pub(crate) use cancellation::make_cancel_event;
 pub(crate) use cancellation::with_cancellable_region;
 pub(crate) use jobs::make_failed_job;
 pub(crate) use jobs::make_sleep_job;
@@ -31,6 +33,8 @@ pub(crate) use jobs::{job_get_err, job_get_ret};
 pub(crate) use runner::run_host_job;
 pub(crate) use types::{CancellationOutcome, HostHandle, Job, JobPayload, ResourceTable};
 pub(crate) use types::{JobCancellation, JobCancellationOverride};
+#[cfg(all(test, windows))]
+pub(crate) use worker::WorkerCancellationTarget;
 #[cfg(test)]
 pub(crate) use worker::free_worker;
 pub(crate) use worker::{

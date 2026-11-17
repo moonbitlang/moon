@@ -176,8 +176,14 @@ impl SignalReceiver {
     }
 
     pub(crate) fn configure(&self, all_signals: &[i32], signals: &[i32]) {
-        self.shared.inner.lock().unwrap().interested =
-            signal_mask(signals) & signal_mask(all_signals);
+        // `SIGWINCH` is not a cancellation signal, so it is not in
+        // `all_signals`. A guest that lists it handles it as a resize; older
+        // guests, which cancel on every signal, never list it.
+        #[cfg(unix)]
+        let supported = signal_mask(all_signals) | signal_bit(libc::SIGWINCH);
+        #[cfg(windows)]
+        let supported = signal_mask(all_signals);
+        self.shared.inner.lock().unwrap().interested = signal_mask(signals) & supported;
     }
 
     #[cfg(unix)]
@@ -283,6 +289,42 @@ mod tests {
         let (sender, receiver) = signal_channel();
         drop(receiver);
         assert_eq!(sender.send(2), Err(SignalSendError::Disconnected));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resize_signal_is_delivered_only_when_listed() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
+        let (sender, receiver) = signal_channel();
+        let (notifier, recv) = ThreadPoolCompletionNotifier::new().unwrap();
+        let _recv = unsafe { OwnedFd::from_raw_fd(recv) };
+        let notifier = Arc::new(notifier);
+        let _target = receiver
+            .attach_completion_target(Arc::clone(&notifier))
+            .unwrap();
+        receiver.configure(&[libc::SIGINT], &[libc::SIGINT]);
+        assert_eq!(sender.send(libc::SIGWINCH), Ok(false));
+
+        receiver.configure(&[libc::SIGINT], &[libc::SIGINT, libc::SIGWINCH]);
+        assert_eq!(sender.send(libc::SIGWINCH), Ok(true));
+        let mut events = [0_u8; 8];
+        assert_eq!(notifier.fetch(&mut events).unwrap(), 4);
+        assert_eq!(
+            i32::from_ne_bytes(events[..4].try_into().unwrap()),
+            libc::SIGWINCH | i32::MIN
+        );
+
+        // Core lists `SIGWINCH` with every configuration, so clearing the
+        // cancellation signals keeps the resize signal.
+        receiver.configure(&[libc::SIGINT], &[libc::SIGWINCH]);
+        assert_eq!(sender.send(libc::SIGINT), Ok(false));
+        assert_eq!(sender.send(libc::SIGWINCH), Ok(true));
+        assert_eq!(notifier.fetch(&mut events).unwrap(), 4);
+        assert_eq!(
+            i32::from_ne_bytes(events[..4].try_into().unwrap()),
+            libc::SIGWINCH | i32::MIN
+        );
     }
 
     #[cfg(windows)]

@@ -376,6 +376,15 @@ Ordinary Unix Jobs retain the thread pool's `pthread_kill(SIGUSR2)` path.
 If the Run does not accept a signal, the adapter applies the process's existing
 signal behavior.
 
+On Unix a terminal resize reaches the guest as `SIGWINCH`. A Run accepts it
+only when its guest lists it in `signal/set_global_cancellation_signals`, as
+core async does; older guests, which treat every signal as cancellation, never
+list it. Embedders forward it through the same `SignalSender`. The CLI also
+waits for `SIGWINCH`, installing a no-op handler when its action is the default
+or ignored, because macOS discards a blocked signal that is ignored. In a
+virtual or IPC session it reaches every Run that accepts it. An unaccepted
+`SIGWINCH` is dropped and never terminates anything.
+
 For external V8 termination, pass a `termination_channel` receiver through
 `RunOptions::with_termination_receiver`. Its `RunTerminator` can request an exit
 code or signal outcome from another thread; the first request wins. Acceptance
@@ -470,7 +479,8 @@ By default, running `moonrun` without `--policy` preserves existing behavior.
 Supplying a JSON file with `--policy <path>` enables an experimental policy
 system and switches supported moonrun-owned host surfaces into sandbox mode.
 The policy is deny-by-default: omitted or empty `fs`, `net`, and `env` objects
-deny that surface, and process spawning is disabled unless explicitly allowed.
+deny that surface, and process spawning and the controlling terminal are
+disabled unless explicitly allowed.
 Add entries only for the access the program should have. The policy covers
 `moonbitlang/async`, moonrun's `__moonbit_*_unstable` filesystem imports, and
 supported WASIp1 filesystem operations. WASI retains descriptor rights and
@@ -484,8 +494,8 @@ Runtime Env realized from `env` provisioning. Bound stdio remains an explicit
 resource grant; filesystem policy does not disable it. Other WASI facilities,
 such as randomness, are not controlled by `fs` or `net` rules.
 
-An empty JSON object denies all policy-covered filesystem, network, and
-environment access:
+An empty JSON object denies all policy-covered filesystem, network,
+environment, process, and terminal access:
 
 ```json
 {}
@@ -505,7 +515,8 @@ To allow everything while still passing a policy file, use explicit wildcards:
     "connect": ["*:*"],
     "bind": ["*:*"]
   },
-  "process": { "spawn": true }
+  "process": { "spawn": true },
+  "tty": true
 }
 ```
 
@@ -603,6 +614,11 @@ alternatives.
 
 `process.spawn` and `process.allow` cannot be used together. Set
 `process.spawn = true` only as a coarse allow-all escape hatch.
+
+`tty = true` lets the program open the controlling terminal (`/dev/tty` on
+Linux, the device behind it on macOS, the console on Windows), switch it to raw
+mode, read from it, and write to it. Filesystem
+rules do not grant terminal access.
 
 These rules authorize the logical request, not the executable file eventually
 selected by the operating system. In particular, `PATH`, the working directory,

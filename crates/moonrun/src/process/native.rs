@@ -211,18 +211,6 @@ fn spawn_stdio_handle(resource: &Resource) -> AsyncHostResult<os::RawFile> {
     }
 }
 
-#[cfg(windows)]
-pub(super) fn make_wait_for_process_cancel() -> AsyncHostResult<Resource> {
-    Ok(Resource::new(
-        os::make_wait_for_process_cancel()?.into_raw_handle(),
-    ))
-}
-
-#[cfg(windows)]
-pub(super) fn cancel_wait_for_process(cancel: &ResourceRef) -> AsyncHostResult<()> {
-    os::cancel_wait_for_process(cancel.as_handle()?.as_raw_handle()).map_err(Into::into)
-}
-
 fn policy_transfer_error(error: std::io::Error) -> AsyncHostError {
     error
         .raw_os_error()

@@ -59,6 +59,9 @@ openssl-probe.workspace = true
 libc.workspace = true
 rustix = { version = "1.1.6", features = ["net", "event"] }
 
+[target."cfg(windows)".dependencies]
+windows-link.workspace = true
+
 [target."cfg(windows)".dependencies.windows-sys]
 workspace = true
 features = [
@@ -88,6 +91,7 @@ features = [
     "Win32_System_Threading",
     "Win32_System_Time",
     "Win32_System_WindowsProgramming",
+    "Win32_UI_Input_KeyboardAndMouse",
 ]
 
 [build-dependencies]

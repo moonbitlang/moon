@@ -147,7 +147,9 @@ impl Job {
                 #[cfg(unix)]
                 defer_reap,
                 #[cfg(windows)]
-                cancel: Some(Arc::new(native::make_wait_for_process_cancel()?)),
+                cancel: Some(Arc::new(
+                    crate::async_sys::internal::event_loop::thread_pool::make_cancel_event()?,
+                )),
             },
         })
     }

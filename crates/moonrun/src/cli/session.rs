@@ -94,6 +94,18 @@ impl CliSession {
         true
     }
 
+    /// Deliver a terminal resize to every Run that listens for it, under
+    /// either policy: it is not a termination request. Unlike `send`, an
+    /// unaccepted resize is dropped rather than shutting down the session.
+    #[cfg(unix)]
+    pub(crate) fn send_resize(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        if state.finished || state.shutdown.is_some() {
+            return false;
+        }
+        state.engine.as_ref().is_some_and(Engine::deliver_resize)
+    }
+
     /// Called only after draining the Engine's adopted roots. An unhandled
     /// signal controls the CLI exit even when the original root had already
     /// returned; it does not rewrite that root's completed process result.

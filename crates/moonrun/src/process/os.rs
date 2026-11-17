@@ -781,29 +781,6 @@ pub(super) fn wait_pid(pid: i32, defer_reap: bool) -> io::Result<std::process::E
 }
 
 #[cfg(windows)]
-pub(super) fn make_wait_for_process_cancel() -> io::Result<OwnedHandle> {
-    use windows_sys::Win32::System::Threading::CreateEventW;
-
-    let cancel = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
-    if cancel.is_null() {
-        Err(last_native_error())
-    } else {
-        Ok(unsafe { OwnedHandle::from_raw_handle(cancel) })
-    }
-}
-
-#[cfg(windows)]
-pub(super) fn cancel_wait_for_process(cancel: RawFile) -> io::Result<()> {
-    use windows_sys::Win32::System::Threading::SetEvent;
-
-    if unsafe { SetEvent(cancel) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
 pub(super) fn wait_handle(
     handle: RawFile,
     cancel: RawFile,

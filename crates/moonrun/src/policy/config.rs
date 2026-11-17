@@ -29,6 +29,9 @@ pub(super) struct PolicyConfig {
     pub(super) net: Option<NetConfig>,
     pub(super) env: Option<EnvConfig>,
     pub(super) process: Option<ProcessConfig>,
+    /// Whether the guest may open the controlling terminal.
+    #[serde(default)]
+    pub(super) tty: bool,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]

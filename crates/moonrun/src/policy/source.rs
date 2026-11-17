@@ -77,6 +77,7 @@ pub(super) fn resolve(config: PolicyConfig, directory: &Path) -> anyhow::Result<
             },
             NetRules::from_config(config.net.unwrap_or_default())?,
             ProcessRules::from_config(config.process.unwrap_or_default())?,
+            config.tty,
         ),
         environment,
         virtualize,
