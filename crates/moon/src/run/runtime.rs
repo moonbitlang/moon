@@ -21,8 +21,37 @@
 use std::path::Path;
 use std::process::Command;
 
-use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::BackendConfig;
+
+#[derive(Clone, Debug)]
+pub(crate) struct TestArgs {
+    pub(crate) package: String,
+    pub(crate) file_and_index: Vec<(String, Vec<std::ops::Range<u32>>)>,
+}
+
+impl TestArgs {
+    /// Encode `filename:start-end,start-end/...` for all test runtimes.
+    /// Compiler test metadata uses basenames, so `/` cannot occur in a name.
+    /// Decoders split at the last `:` to preserve colons in Unix filenames.
+    pub(crate) fn to_cli_args(&self) -> String {
+        use std::fmt::Write;
+
+        let mut args = String::new();
+        for (file, ranges) in &self.file_and_index {
+            let Some((first, rest)) = ranges.split_first() else {
+                continue;
+            };
+            if !args.is_empty() {
+                args.push('/');
+            }
+            write!(args, "{file}:{}-{}", first.start, first.end).unwrap();
+            for range in rest {
+                write!(args, ",{}-{}", range.start, range.end).unwrap();
+            }
+        }
+        args
+    }
+}
 
 /// The runtime mode used to execute one built artifact.
 #[derive(Clone, Copy)]
@@ -132,4 +161,35 @@ pub(crate) fn moonrun_command(
     cmd.arg(dunce::simplified(mbt_executable));
     cmd.arg("--");
     cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TestArgs;
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn compact_test_args_group_ranges_without_changing_selection_order() {
+        let args = TestArgs {
+            package: "test/selection".into(),
+            file_and_index: vec![
+                ("empty.mbt".into(), vec![]),
+                ("-Case:测试,e\u{301}.mbt".into(), vec![7..9, 0..2, 7..8]),
+                ("{other}.mbt".into(), vec![1..2]),
+                ("-Case:测试,e\u{301}.mbt".into(), vec![3..3]),
+            ],
+        };
+        assert_eq!(
+            args.to_cli_args(),
+            "-Case:测试,e\u{301}.mbt:7-9,0-2,7-8/{other}.mbt:1-2/-Case:测试,e\u{301}.mbt:3-3"
+        );
+        assert_eq!(
+            TestArgs {
+                package: "test/selection".into(),
+                file_and_index: vec![],
+            }
+            .to_cli_args(),
+            ""
+        );
+    }
 }

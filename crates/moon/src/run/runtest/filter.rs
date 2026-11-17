@@ -601,7 +601,7 @@ mod test {
 
         let mut file_and_index = vec![];
         super::apply_filter(None, &meta, &mut file_and_index, false, false, None);
-        let args = moonbuild::entry::TestArgs {
+        let args = crate::run::runtime::TestArgs {
             package: "repro/manyfiles".into(),
             file_and_index,
         };
