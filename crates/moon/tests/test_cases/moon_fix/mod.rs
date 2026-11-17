@@ -168,7 +168,7 @@ fn fix_package_selector_does_not_edit_checked_dependencies() {
 
 #[cfg(unix)]
 #[test]
-fn fix_standalone_symlinks_preserve_the_invoked_source_identity() {
+fn fix_skips_explicit_standalone_symlinks() {
     use std::os::unix::fs::symlink;
 
     for (alias, target) in [
@@ -187,13 +187,121 @@ fn fix_standalone_symlinks_preserve_the_invoked_source_identity() {
             .arg(alias)
             .assert()
             .success()
-            .stdout_eq(format!("{alias}:2:3: Remove `mut`\n"));
-        assert_eq!(read_file(&dir, target), FIXED_SOURCE);
+            .stdout_eq("")
+            .stderr_eq(format!(
+                "Warning: skipping source symlink `{alias}`\nNo fixes to apply\n"
+            ));
+        assert_eq!(read_file(&dir, target), UNUSED_MUT_SOURCE);
         assert_eq!(
             std::fs::read_link(dir.join("project").join(alias)).unwrap(),
             PathBuf::from(target)
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn fix_skips_explicit_project_symlinks_without_selecting_their_targets() {
+    use std::os::unix::fs::symlink;
+
+    for target in ["source.mbt", "backing/source.mbt", "../external.mbt"] {
+        let (dir, moonc) = project(&[
+            (target, UNUSED_MUT_SOURCE),
+            (&format!("{target}.diagnostics"), &unused_mut("*", 2)),
+            ("alias.mbt.diagnostics", &unused_mut("*", 2)),
+            ("other.mbt", UNUSED_MUT_SOURCE),
+            ("other.mbt.diagnostics", &unused_mut("*", 2)),
+            ("backing/moon.pkg", ""),
+        ]);
+        symlink(target, dir.join("project/alias.mbt")).unwrap();
+        fix_cmd(&dir, &moonc)
+            .arg("alias.mbt")
+            .assert()
+            .success()
+            .stdout_eq("")
+            .stderr_eq("Warning: skipping source symlink `alias.mbt`\nNo fixes to apply\n");
+        assert_eq!(read_file(&dir, target), UNUSED_MUT_SOURCE);
+        assert_eq!(read_file(&dir, "other.mbt"), UNUSED_MUT_SOURCE);
+
+        // Skipping one selector must not discard other explicit selectors.
+        fix_cmd(&dir, &moonc)
+            .args(["alias.mbt", "other.mbt"])
+            .assert()
+            .success()
+            .stdout_eq("other.mbt:2:3: Remove `mut`\n")
+            .stderr_eq(snapbox::str![[r#"
+Warning: skipping source symlink `alias.mbt`
+Applied 1 fix to 1 file
+...
+"#]]);
+        assert_eq!(read_file(&dir, target), UNUSED_MUT_SOURCE);
+        assert_eq!(read_file(&dir, "other.mbt"), FIXED_SOURCE);
+        assert_eq!(
+            std::fs::read_link(dir.join("project/alias.mbt")).unwrap(),
+            PathBuf::from(target)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn fix_skips_discovered_symlinks_including_diff_previews() {
+    use std::os::unix::fs::symlink;
+
+    for target in ["source.txt", "backing/source.txt", "../external.txt"] {
+        let (dir, moonc) = project(&[
+            (target, UNUSED_MUT_SOURCE),
+            ("alias.mbt.diagnostics", &unused_mut("*", 2)),
+            ("backing/moon.pkg", ""),
+        ]);
+        symlink(target, dir.join("project/alias.mbt")).unwrap();
+        for flags in [vec![], vec!["."], vec!["--diff"]] {
+            fix_cmd(&dir, &moonc)
+                .args(flags)
+                .assert()
+                .success()
+                .stdout_eq("")
+                .stderr_eq(snapbox::str![[r#"
+No fixes to apply
+Skipped 1 fix (run with `--verbose` to see why)
+...
+"#]]);
+            assert_eq!(read_file(&dir, target), UNUSED_MUT_SOURCE);
+        }
+        fix_cmd(&dir, &moonc)
+            .arg("--verbose")
+            .assert()
+            .success()
+            .stdout_eq("")
+            .stderr_eq(snapbox::str![[r#"
+...
+skipped fix `Remove `mut`` at alias.mbt:2:3: the source file is a symlink
+No fixes to apply
+Skipped 1 fix
+...
+"#]]);
+        assert_eq!(
+            std::fs::read_link(dir.join("project/alias.mbt")).unwrap(),
+            PathBuf::from(target)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn fix_allows_directory_aliases() {
+    let (dir, moonc) = project(&[
+        ("a.mbt", UNUSED_MUT_SOURCE),
+        ("a.mbt.diagnostics", &unused_mut("*", 2)),
+    ]);
+    std::os::unix::fs::symlink("project", dir.join("alias")).unwrap();
+    fix_cmd(&dir, &moonc)
+        .current_dir(dir.join("alias"))
+        .arg("../alias")
+        .assert()
+        .success()
+        .stdout_eq("a.mbt:2:3: Remove `mut`\n");
+    assert_eq!(read_file(&dir, "a.mbt"), FIXED_SOURCE);
 }
 
 #[test]
