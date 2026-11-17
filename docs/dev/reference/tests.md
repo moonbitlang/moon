@@ -1,8 +1,9 @@
 # `moon test` execution flow
 
 This document summarizes what the current `moon test` implementation does. The behavior is
-based on `crates/moon/src/run/runtest.rs`, `crates/moon/src/run/runtime.rs`, and
-`crates/moon/src/cli/test.rs`. Treat this as internal documentation: user-facing
+based on `crates/moon/src/run/runtest.rs`, its private `report` module,
+`crates/moon/src/run/runtime.rs`, and `crates/moon/src/cli/test.rs`.
+Treat this as internal documentation: user-facing
 behavior can change.
 
 ## Build + run pipeline
@@ -109,6 +110,10 @@ Collected test results are reported in invocation order, regardless of completio
 order. Output printed directly by test programs may interleave. Selected Target
 Backends still execute one after another, and this scheduling does not split
 individual test cases into separate processes or change async-test concurrency.
+
+The private `runtest::report` module owns per-test text and JSON output, including
+benchmark summary decoding and formatting. Test result data and expect/snapshot
+promotion remain in `moonbuild`.
 
 `moon bench` remains sequential by default to avoid contention affecting
 measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
@@ -221,6 +226,7 @@ itself) keeps the legacy runtime; otherwise the generated driver uses
 ## Commands per backend (and how to specify test cases)
 
 `command_for` (in `runtime.rs`) hides the differences between target backends.
+The same module owns `TestArgs` and its command-line encoding.
 All backends receive `TestArgs::to_cli_args()` selections in the form
 `filename:start-end,start-end/...`, for example `math.mbt:0-5,7-9/io.mbt:2-3`.
 Ranges are half-open, and their order and duplicates are preserved. Grouping

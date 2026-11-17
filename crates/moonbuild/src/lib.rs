@@ -18,9 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-pub mod benchmark;
 pub mod compile;
-pub mod entry;
 pub mod execution;
 pub mod expect;
 pub mod prepare;

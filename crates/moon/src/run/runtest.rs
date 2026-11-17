@@ -59,6 +59,7 @@
 
 mod filter;
 mod promotion;
+mod report;
 
 use std::{
     collections::HashMap,
@@ -70,12 +71,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
 use moonbuild::{
-    benchmark::{BATCHBENCH, render_batch_bench_summary},
-    entry::{CompactTestFormatter, TestArgs},
-    expect::{
-        ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING, render_expect_fail,
-        render_snapshot_fail,
-    },
+    expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING},
     runtest::{TestDriverEvent, TestStatistics},
 };
 use moonbuild_rupes_recta::{
@@ -90,10 +86,11 @@ use moonutil::{
 };
 use tracing::{debug, info, instrument, trace, warn};
 
-use super::{run_with_parallelism, section_capture::SectionCapture};
+use super::{run_with_parallelism, runtime::TestArgs, section_capture::SectionCapture};
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
 pub(crate) use promotion::perform_promotion;
+use report::{BATCHBENCH, print_test_result};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TestOutlineEntry {
@@ -1040,105 +1037,6 @@ fn parse_one_test_result(
         Failed
     };
     Ok(res)
-}
-
-fn print_test_result(
-    res: &TestCaseResult,
-    module_name: &str,
-    verbose: bool,
-    json: bool,
-    pkg_src: &DiscoverResult,
-) {
-    if json {
-        print_test_result_json(res);
-    } else {
-        print_test_result_normal(res, module_name, verbose, pkg_src);
-    }
-}
-
-fn print_test_result_json(res: &TestCaseResult) {
-    use TestResultKind::*;
-
-    match res.kind {
-        Passed => {
-            // In JSON mode, do not emit anything for successful tests.
-            // If verbose success output is desired, callers should disable json.
-        }
-        Failed | RuntimeError | ExpectTestFailed | SnapshotTestFailed | ExpectPanic => {
-            // Repopulate test_name from metadata when available
-            let test_name = res
-                .meta
-                .name
-                .as_ref()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| res.raw.test_name.clone());
-
-            // Normalize message: for ExpectPanic with empty message, align with legacy output
-            let mut message = res.raw.message.clone();
-            if matches!(res.kind, ExpectPanic) && message.is_empty() {
-                message = "panic is expected".to_string();
-            }
-
-            let obj = moonbuild::runtest::TestStatistics {
-                package: res.raw.package.clone(),
-                filename: res.raw.filename.clone(),
-                index: res.raw.index.clone(),
-                test_name,
-                message,
-            };
-
-            // Print compact JSON line
-            println!("{}", serde_json_lenient::to_string(&obj).unwrap());
-        }
-    }
-}
-
-fn print_test_result_normal(
-    res: &TestCaseResult,
-    module_name: &str,
-    verbose: bool,
-    pkg_src: &DiscoverResult,
-) {
-    let output = &res.raw;
-    let message = &output.message;
-    let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
-
-    match res.kind {
-        TestResultKind::Passed => {
-            if message.starts_with(BATCHBENCH) {
-                let _ = formatter.write_bench(&mut std::io::stdout());
-                println!();
-                render_batch_bench_summary(message);
-            } else if verbose {
-                let _ = formatter.write_success(&mut std::io::stdout());
-                println!();
-            }
-        }
-
-        TestResultKind::Failed | TestResultKind::RuntimeError => {
-            if message.is_empty() {
-                let _ = formatter.write_failure(&mut std::io::stdout());
-            } else {
-                let _ = formatter.write_failure_with_message(&mut std::io::stdout(), message);
-            }
-            println!();
-        }
-        TestResultKind::ExpectTestFailed => {
-            let _ = formatter.write_failure(&mut std::io::stdout());
-            println!();
-            let _ = render_expect_fail(pkg_src, output);
-        }
-        TestResultKind::SnapshotTestFailed => {
-            let _ = formatter.write_failure(&mut std::io::stdout());
-            println!();
-            let _ = render_snapshot_fail(pkg_src, output);
-        }
-        TestResultKind::ExpectPanic => {
-            let _ =
-                formatter.write_failure_with_message(&mut std::io::stdout(), "panic is expected");
-            println!();
-        }
-    }
 }
 
 #[cfg(test)]
