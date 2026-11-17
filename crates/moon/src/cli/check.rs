@@ -692,6 +692,7 @@ fn run_check_for_single_file_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
         quiet: false,
         child_output: if json.is_some() {
@@ -1040,6 +1041,7 @@ fn sync_and_discover_check_project(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
         quiet: false,
         child_output: if json {

@@ -61,10 +61,15 @@ use tracing::{info, instrument};
 pub fn discover_for_build(
     module_graph: &ModuleDependencyGraph,
     dirs: &DirSyncResult,
+    jobs: Option<usize>,
     user_log: &UserLog,
 ) -> Result<DiscoverResult, DiscoverError> {
     info!("Starting package discovery across all modules");
+    let workers = jobs
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from))
+        .max(1);
     let mut res = DiscoverResult::default();
+    let mut modules = Vec::new();
     for (id, source) in module_graph.all_modules_and_id() {
         if matches!(source.source(), ModuleSourceKind::SingleFile(_)) {
             continue;
@@ -102,7 +107,23 @@ pub fn discover_for_build(
             })?;
         let manifest = Arc::new(manifest);
         res.set_module_info(id, Arc::clone(&manifest));
-        for input in scan::scan_packages(source, dir, &manifest, false, emit_warnings, user_log)? {
+        modules.push((id, source, dir, manifest, targets, emit_warnings));
+    }
+    let scans = scan::scan_packages(
+        &modules
+            .iter()
+            .map(|(_, source, dir, manifest, _, emit)| {
+                (*source, dir.as_path(), manifest.as_ref(), *emit)
+            })
+            .collect::<Vec<_>>(),
+        false,
+        workers,
+        user_log,
+    )?;
+    // Preserve module/lexical package order for IDs and build preparation,
+    // independently of the order in which scanning completes.
+    for ((id, _, _, _, targets, emit_warnings), packages) in modules.into_iter().zip(scans) {
+        for input in packages {
             let package = prepare::prepare_package(id, input, &targets)?;
             if emit_warnings {
                 scan::warn_package_name(&package.fqn, user_log);
@@ -152,7 +173,15 @@ pub fn discover_for_fmt(
             }
         })?;
         let mut packages = BTreeMap::new();
-        for input in scan::scan_packages(&source, module_dir, &manifest, true, true, user_log)? {
+        for input in scan::scan_packages(
+            &[(&source, module_dir.as_path(), &manifest, true)],
+            true,
+            1,
+            user_log,
+        )?
+        .into_iter()
+        .flatten()
+        {
             scan::warn_package_name(&input.fqn, user_log);
             if let Some(first) = names.insert(input.fqn.to_string(), input.fqn.clone()) {
                 return Err(DiscoverError::ConflictingPackageNameString {
@@ -215,7 +244,7 @@ mod tests {
         let mut dirs = moonutil::resolution::DirSyncResult::default();
         dirs.insert(id, dir);
         assert!(matches!(
-            crate::discover::discover_for_build(&graph, &dirs, &log),
+            crate::discover::discover_for_build(&graph, &dirs, Some(2), &log),
             Err(DiscoverError::InvalidStubPath { .. })
         ));
         Ok(())
@@ -251,7 +280,7 @@ mod tests {
 
         for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
             let (log, capture) = UserLog::captured(level);
-            discover_for_build(&graph, &dirs, &log)?;
+            discover_for_build(&graph, &dirs, Some(2), &log)?;
             let warnings = capture.take();
             assert_eq!(warnings.len(), usize::from(level == log::LevelFilter::Warn));
             if let Some(warning) = warnings.first() {
@@ -268,7 +297,12 @@ mod tests {
             dependency_dir.join("moon.pkg"),
         )?;
         assert!(matches!(
-            discover_for_build(&graph, &dirs, &UserLog::new(log::LevelFilter::Warn)),
+            discover_for_build(
+                &graph,
+                &dirs,
+                Some(2),
+                &UserLog::new(log::LevelFilter::Warn)
+            ),
             Err(super::DiscoverError::CantReadPackageFile { .. })
         ));
         Ok(())
@@ -303,7 +337,7 @@ mod tests {
                 root.join("moon.pkg"),
                 format!("options(\"native-stub\": [{stub:?}])\n"),
             )?;
-            let result = discover_for_build(&module_graph, &dirs, &log);
+            let result = discover_for_build(&module_graph, &dirs, Some(2), &log);
             if valid {
                 let discovered = result?;
                 let package = discovered
@@ -353,7 +387,7 @@ mod tests {
 
             for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
                 let (user_log, capture) = UserLog::captured(level);
-                let discovered = discover_for_build(&module_graph, &dirs, &user_log)?;
+                let discovered = discover_for_build(&module_graph, &dirs, Some(2), &user_log)?;
                 assert!(
                     discovered
                         .get_package_id_by_name(&format!("{name}/v2"))
@@ -416,7 +450,7 @@ mod tests {
             dirs.insert(dep_id, dep_dir.clone());
             let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-            let discovered = discover_for_build(&module_graph, &dirs, &user_log)?;
+            let discovered = discover_for_build(&module_graph, &dirs, Some(2), &user_log)?;
             assert!(discovered.get_package_id_by_name("a/b/v2").is_some());
             assert!(capture.take().is_empty());
         }
@@ -442,7 +476,7 @@ mod tests {
         dirs.insert(id, dir.path().to_owned());
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
 
-        discover_for_build(&module_graph, &dirs, &user_log)?;
+        discover_for_build(&module_graph, &dirs, Some(2), &user_log)?;
 
         let warnings = capture.take();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
@@ -486,9 +520,13 @@ options(
         let mut dirs = DirSyncResult::default();
         dirs.insert(id, dir.clone());
 
-        let discovered =
-            discover_for_build(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
-                .expect("failed to discover test packages");
+        let discovered = discover_for_build(
+            &module_graph,
+            &dirs,
+            Some(2),
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .expect("failed to discover test packages");
 
         let module = discovered.module_info(id);
         assert_eq!(
@@ -542,16 +580,22 @@ source = ".src""#,
         let mut dirs = DirSyncResult::default();
         dirs.insert(id, dir.clone());
 
-        let discovered =
-            discover_for_build(&module_graph, &dirs, &UserLog::new(log::LevelFilter::Error))
-                .expect("failed to discover test packages");
+        for workers in [1, 2] {
+            let discovered = discover_for_build(
+                &module_graph,
+                &dirs,
+                Some(workers),
+                &UserLog::new(log::LevelFilter::Error),
+            )
+            .expect("failed to discover test packages");
 
-        assert!(discovered.get_package_id_by_name("example/pkg").is_some());
-        assert!(
-            discovered
-                .get_package_id_by_name("example/pkg/.hidden")
-                .is_none()
-        );
+            assert!(discovered.get_package_id_by_name("example/pkg").is_some());
+            assert!(
+                discovered
+                    .get_package_id_by_name("example/pkg/.hidden")
+                    .is_none()
+            );
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

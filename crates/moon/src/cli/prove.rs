@@ -158,7 +158,8 @@ pub(crate) fn run_prove(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_jobs(build_flags.jobs);
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let target_backend =
         rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();

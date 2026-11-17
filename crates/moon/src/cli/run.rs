@@ -567,6 +567,7 @@ fn build_package_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output());
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let lock = if cli.dry_run {
@@ -768,6 +769,7 @@ fn build_single_file_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output())
     .with_dependency_source_cache(
         resolve_cache_root(CacheKind::DependencySources)

@@ -554,7 +554,8 @@ fn run_test_in_single_file_rr(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_jobs(cmd.build_flags.jobs);
     let (discovered, backend) = moonbuild_rupes_recta::resolve::discover_single_file_project(
         &preparation_config,
         dirs,
@@ -919,7 +920,8 @@ pub(crate) fn sync_and_discover_test_or_bench_project(
             cmd.auto_sync_flags.frozen,
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
-        );
+        )
+        .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 

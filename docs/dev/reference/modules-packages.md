@@ -332,6 +332,11 @@ does not choose one itself.
 `moon fmt` scans the current project's modules without resolving dependencies
 or preparing build inputs such as C stubs and virtual interfaces.
 
+Build discovery scans directories and parses package manifests in parallel,
+using `-j` workers where provided and the available CPU count otherwise.
+`-j 1` uses serial scanning. Package preparation and ID assignment remain serial
+and follow module order and lexical package order.
+
 The `source` field in `moon.mod` specifies where package scanning starts,
 relative to the folder containing `moon.mod`.
 Package paths are the relative path (normalized to forward slash) relative to this root path.

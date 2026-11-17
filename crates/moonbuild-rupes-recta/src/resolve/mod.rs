@@ -159,6 +159,7 @@ pub struct ProjectPreparationConfig {
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
     workspace_env: WorkspaceEnv,
+    jobs: Option<usize>,
 }
 
 struct FrontMatterImports {
@@ -317,6 +318,7 @@ impl ProjectPreparationConfig {
             sync_flags: AutoSyncFlags { frozen },
             sync_output: SyncOutputOptions::default(),
             dependency_source_cache: CacheRoot::Disabled,
+            jobs: None,
             enable_coverage,
             workspace_env,
         }
@@ -332,9 +334,15 @@ impl ProjectPreparationConfig {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
             dependency_source_cache: CacheRoot::Disabled,
+            jobs: None,
             enable_coverage,
             workspace_env,
         }
+    }
+
+    pub fn with_jobs(mut self, jobs: Option<usize>) -> Self {
+        self.jobs = jobs;
+        self
     }
 
     pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
@@ -413,7 +421,8 @@ pub fn discover_synced_project(
 ) -> Result<DiscoveredProject, ProjectPreparationError> {
     let (module_graph, dir_sync_result) = synced_dependencies;
 
-    let mut discover_result = discover_for_build(&module_graph, &dir_sync_result, user_log)?;
+    let mut discover_result =
+        discover_for_build(&module_graph, &dir_sync_result, cfg.jobs, user_log)?;
     let main_is_core = {
         let ids = module_graph.input_module_ids();
         ids.len() == 1 && *module_graph.module_source(ids[0]).name() == CORE_MODULE_TUPLE
@@ -496,7 +505,8 @@ pub fn discover_single_file_project(
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
     // Discover all packages in resolved modules
-    let mut discover_result = discover_for_build(&module_graph, &dir_sync_result, user_log)?;
+    let mut discover_result =
+        discover_for_build(&module_graph, &dir_sync_result, cfg.jobs, user_log)?;
     // Synthesize the single-file package with only its declared imports.
     crate::discover::synth::build_synth_single_file_package(
         source_file,
