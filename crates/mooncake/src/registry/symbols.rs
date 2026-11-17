@@ -22,16 +22,14 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use moonutil::{
-    MoonHomeLayout, locks::lock_directory, registry::RegistryConfig, user_log::UserLog,
-};
+use moonutil::{MoonHomeLayout, locks::lock_directory, user_log::UserLog};
 use reqwest::{
     StatusCode,
     header::{ETAG, HeaderValue, IF_NONE_MATCH},
 };
 use serde::{Deserialize, Serialize};
 
-use super::{download, replace_registry_directory, stage_registry_cache_file};
+use super::{RegistryConfig, download, replace_registry_directory, stage_registry_cache_file};
 use crate::zip_util::extract_zip_to_dir;
 
 const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";

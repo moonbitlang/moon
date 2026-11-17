@@ -27,7 +27,6 @@ use anyhow::{Context, bail};
 use moonutil::{
     MOON_HOME, MoonHomeLayout,
     locks::lock_directory,
-    registry::RegistryConfig,
     resolution::{ModuleName, ModuleSource},
     user_log::UserLog,
 };
@@ -41,9 +40,9 @@ use crate::{
 };
 
 use super::{
-    SourceRequest, authentication, credentials::RegistryCredentials, encode_path_segment,
-    external::RegistryDownloadRequest, git::GitIndex, http::HttpMetadata, sha256_hex,
-    stage_registry_cache_file,
+    RegistryConfig, SourceRequest, authentication, credentials::RegistryCredentials,
+    encode_path_segment, external::RegistryDownloadRequest, git::GitIndex, http::HttpMetadata,
+    sha256_hex, stage_registry_cache_file,
 };
 
 /// Select the metadata implementation once, when constructing the client.
@@ -396,7 +395,7 @@ impl RegistryClient {
     /// List a user's published modules, including deprecated modules.
     #[tracing::instrument(skip(self), fields(api = %self.config.api))]
     pub fn user_modules(&self, username: &str) -> anyhow::Result<RegistryUserModules> {
-        moonutil::registry::validate_username(username).map_err(anyhow::Error::msg)?;
+        super::validate_username(username).map_err(anyhow::Error::msg)?;
         let url = format!(
             "{}/api/v0/user/{}",
             self.endpoints.api,
@@ -1109,7 +1108,7 @@ mod tests {
     fn save_test_login(home: &Path, api: &str, username: &str, token: &str) {
         RegistryCredentials::save(
             &home.join("credentials.json"),
-            moonutil::registry::Credentials {
+            crate::registry::Credentials {
                 username: Some(username.to_owned()),
                 token: token.to_owned(),
             },

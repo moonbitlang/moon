@@ -20,12 +20,11 @@
 
 mod sync;
 
-use super::RegistryVersionInfo;
+use super::{RegistryConfig, RegistryVersionInfo};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    MoonHomeLayout, dependency::SourceDependencyInfo, registry::RegistryConfig,
-    resolution::ModuleName, user_log::UserLog,
+    MoonHomeLayout, dependency::SourceDependencyInfo, resolution::ModuleName, user_log::UserLog,
 };
 use once_cell::sync::OnceCell;
 use semver::Version;

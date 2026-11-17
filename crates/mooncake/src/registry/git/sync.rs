@@ -22,16 +22,34 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use moonutil::{
-    MoonHomeLayout,
-    git::{GitCommandError, Stdios},
-    locks::lock_directory,
-    registry::RegistryConfig,
-    user_log::UserLog,
-};
+use moonutil::{MoonHomeLayout, locks::lock_directory, toolchain::BINARIES, user_log::UserLog};
 use serde::{Deserialize, Serialize};
 
-use crate::registry::{replace_registry_directory, sha256_hex, stage_registry_cache_file};
+use crate::registry::{
+    RegistryConfig, replace_registry_directory, sha256_hex, stage_registry_cache_file,
+};
+
+#[derive(Debug, thiserror::Error)]
+#[error("git command failed: `{cmd}`")]
+struct GitCommandError {
+    cmd: String,
+
+    #[source]
+    source: std::io::Error,
+}
+
+fn git_command(args: &[&str]) -> Result<std::process::Child, GitCommandError> {
+    std::process::Command::new(BINARIES.git_or_default())
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|source| GitCommandError {
+            cmd: format!("git {}", args.join(" ")),
+            source,
+        })
+}
 
 /// Bookkeeping for successful Git synchronization, independent of index contents.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,18 +200,15 @@ fn clone_registry_index(
     // clones. Do not fall back to a full-history clone for dumb/static HTTP.
     // Git for Windows cannot clone into the verbatim paths produced by
     // canonicalize; simplify only the argument passed to the external tool.
-    let child = moonutil::git::git_command(
-        &[
-            "clone",
-            "--depth",
-            "1",
-            "--single-branch",
-            "--no-tags",
-            &registry_config.index,
-            dunce::simplified(target_dir).to_str().unwrap(),
-        ],
-        Stdios::npp(),
-    )
+    let child = git_command(&[
+        "clone",
+        "--depth",
+        "1",
+        "--single-branch",
+        "--no-tags",
+        &registry_config.index,
+        dunce::simplified(target_dir).to_str().unwrap(),
+    ])
     .map_err(|e| CloneRegistryIndexError {
         source: CloneRegistryIndexErrorKind::GitCommandError(e),
     })?;
@@ -323,7 +338,7 @@ enum RegistryIndexState {
 fn run_registry_git(target_dir: &Path, args: &[&str]) -> Result<CommandOutput, RegistryGitError> {
     let mut command = vec!["-C", target_dir.to_str().unwrap()];
     command.extend_from_slice(args);
-    let output = moonutil::git::git_command(&command, Stdios::npp())
+    let output = git_command(&command)
         .map_err(|e| RegistryGitError {
             source: RegistryGitErrorKind::GitCommandError(e),
         })?
@@ -430,8 +445,39 @@ fn update_registry_index(
 mod tests {
     use super::*;
 
+    #[test]
+    fn git_command_uses_binary_override() {
+        const CHILD_PROCESS: &str = "MOON_TEST_REGISTRY_GIT_OVERRIDE_CHILD";
+        if std::env::var_os(CHILD_PROCESS).is_some() {
+            let error = git_command(&["--version"]).unwrap_err();
+            assert_eq!(error.to_string(), "git command failed: `git --version`");
+            assert_eq!(error.source.kind(), std::io::ErrorKind::NotFound);
+            return;
+        }
+
+        // Resolve the cached executable in a fresh process with an unavailable
+        // override: falling back to Git on PATH would incorrectly succeed.
+        let dir = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "registry::git::sync::tests::git_command_uses_binary_override",
+                "--nocapture",
+            ])
+            .env(CHILD_PROCESS, "1")
+            .env("MOON_GIT_OVERRIDE", dir.path().join("missing-git"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     fn run_git(args: &[&str]) {
-        let output = std::process::Command::new("git")
+        let output = std::process::Command::new(BINARIES.git_or_default())
             .args(args)
             .output()
             .unwrap();

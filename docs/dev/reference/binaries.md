@@ -24,6 +24,9 @@ resolved from that directory.
 The cached entry point is `moonutil::toolchain::BINARIES`. Build engines should
 use it instead of duplicating tool lookup rules.
 
+Registry Git synchronization uses the same cache, selecting `MOON_GIT_OVERRIDE`
+before searching `PATH`.
+
 Linux profiling resolves `perf` through an optional entry in this cache,
 using `MOON_PERF_OVERRIDE` before searching `PATH`. Availability checks,
 recording, export, and dry-run output use the same resolved executable.

@@ -18,6 +18,7 @@
 
 mod authentication;
 mod client;
+mod config;
 mod credentials;
 pub(crate) mod download;
 mod executable;
@@ -37,6 +38,8 @@ pub use client::{
     RegistryClient, RegistryModuleManifest, RegistryPackageMatch, RegistryPublishedModule,
     RegistryRelease, RegistrySearchResult, RegistrySummaryFragment, RegistryUserModules,
 };
+pub use config::RegistryConfig;
+pub use credentials::Credentials;
 pub use executable::ResolvedExecutablePackage;
 pub use http::HttpVersionReader;
 use indexmap::IndexMap;
@@ -44,6 +47,27 @@ use moonutil::dependency::SourceDependencyInfo;
 use moonutil::resolution::{ModuleName, ModuleSource};
 use moonutil::user_log::UserLog;
 use semver::Version;
+
+/// Validate syntax needed to interpolate a username into a module manifest.
+/// Registry-specific account rules, including length limits, belong to the
+/// registry service.
+pub fn validate_username(username: &str) -> anyhow::Result<(), String> {
+    if username.is_empty() {
+        return Err("Username must not be empty".to_string());
+    }
+
+    if !username
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(
+            "Usernames can only contain alphanumeric characters, dashes (-), and underscores (_)."
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct RegistryVersionInfo {
@@ -329,9 +353,22 @@ pub(crate) fn default_registry(user_log: &UserLog) -> RegistryClient {
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
-    use super::{Registry, replace_registry_directory};
+    use super::{Registry, replace_registry_directory, validate_username};
     use crate::registry::mock::MockRegistry;
     use moonutil::{constants::MOONBITLANG_CORE, resolution::DEFAULT_VERSION};
+
+    #[test]
+    fn accepts_usernames_of_any_nonzero_length() {
+        assert!(validate_username("a").is_ok());
+        assert!(validate_username(&"a".repeat(40)).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_and_manifest_unsafe_usernames() {
+        assert!(validate_username("").is_err());
+        assert!(validate_username("foo\nbar").is_err());
+        assert!(validate_username("foo\"bar").is_err());
+    }
 
     #[test]
     fn directory_publication_cleans_staging_and_backup() {

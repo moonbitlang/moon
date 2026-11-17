@@ -20,14 +20,14 @@ use std::{fs::File, io::Write, str::FromStr};
 
 use anyhow::{Context, bail};
 use mooncake::registry::{
-    RegistryClient, RegistryModuleManifest, RegistryRelease, RegistryUserModules,
+    Credentials, RegistryClient, RegistryModuleManifest, RegistryRelease, RegistryUserModules,
     path::{ModuleRequest, parse_module_path},
+    validate_username,
 };
 use moonutil::{
     MOON_HOME,
     cli_support::UniversalFlags,
     command_output::CommandOutput,
-    registry::{Credentials, validate_username},
     resolution::ModuleName,
     user_log::{UserLog, UserLogEntry, UserLogEntryLevel},
 };
