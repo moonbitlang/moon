@@ -21,6 +21,45 @@ use std::{
     path::Path,
 };
 
+/// CPU work runs on a dedicated, bounded worker pool. This runtime has no
+/// network tasks; source downloads finish before extraction starts.
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) fn extract_archives(
+    archives: Vec<(std::fs::File, std::path::PathBuf)>,
+    jobs: Option<usize>,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    use tracing::Instrument;
+
+    let workers = jobs
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from))
+        .max(1)
+        .min(archives.len());
+    if workers <= 1 {
+        for (archive, directory) in archives {
+            extract_zip_to_dir(&directory, archive)?;
+        }
+        return Ok(());
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers)
+        .build()
+        .context("failed to start source extraction workers")?;
+    // Runtime destruction waits for running synchronous jobs before callers
+    // can clean up staging directories, including after an extraction fails.
+    runtime.block_on(async {
+        let mut tasks = tokio::task::JoinSet::new();
+        for (archive, directory) in archives {
+            tasks.spawn(async move { extract_zip_to_dir(&directory, archive) }.in_current_span());
+        }
+        while let Some(result) = tasks.join_next().await {
+            result.context("source extraction task failed")??;
+        }
+        Ok(())
+    })
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
 pub(crate) fn extract_zip_to_dir(dest: &Path, archive: impl Read + Seek) -> anyhow::Result<()> {
     let mut zip = zip::ZipArchive::new(archive)?;
     for i in 0..zip.len() {

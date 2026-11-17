@@ -392,6 +392,7 @@ pub fn sync_module_dependencies(
         cfg.sync_output,
         user_log,
         cfg.workspace_env.clone(),
+        cfg.jobs,
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
@@ -501,6 +502,7 @@ pub fn discover_single_file_project(
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,
         &cfg.dependency_source_cache,
+        cfg.jobs,
         user_log,
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;

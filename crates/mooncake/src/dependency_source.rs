@@ -63,17 +63,19 @@ pub(crate) fn select<'a>(
     cache: &'a CacheRoot,
     resolved: &ModuleDependencyGraph,
     postadd_output: ChildOutputMode,
+    jobs: Option<usize>,
 ) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
         .all_modules()
         .any(|module| matches!(module.source(), ModuleSourceKind::Registry) && !module.is_core());
     if has_registry_sources && let Some(root) = cache.initialize()? {
-        return Ok(Box::new(ImmutableDependencySource::new(root)));
+        return Ok(Box::new(ImmutableDependencySource::new(root, jobs)));
     }
 
     Ok(Box::new(ProjectDependencySource::new(
         project_dir,
         postadd_output,
+        jobs,
     )))
 }
 
@@ -219,7 +221,7 @@ mod tests {
     #[test]
     fn source_layout_is_canonical() {
         let cache = tempfile::TempDir::new().unwrap();
-        let store = ImmutableDependencySource::new(cache.path());
+        let store = ImmutableDependencySource::new(cache.path(), None);
         let (resolved, module) = test_env();
 
         assert_eq!(
@@ -239,6 +241,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -272,10 +275,11 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
-        let directory =
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        let directory = ImmutableDependencySource::new(&cache_dir, None)
+            .source_dir(resolved.module_source(module));
 
         let error = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -300,6 +304,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -324,15 +329,27 @@ mod tests {
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
-                let source =
-                    select(&project_dir, &cache, &resolved, ChildOutputMode::Inherit).unwrap();
+                let source = select(
+                    &project_dir,
+                    &cache,
+                    &resolved,
+                    ChildOutputMode::Inherit,
+                    None,
+                )
+                .unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
             });
             let second = scope.spawn(|| {
-                let source =
-                    select(&project_dir, &cache, &resolved, ChildOutputMode::Inherit).unwrap();
+                let source = select(
+                    &project_dir,
+                    &cache,
+                    &resolved,
+                    ChildOutputMode::Inherit,
+                    None,
+                )
+                .unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
@@ -360,6 +377,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -397,6 +415,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
 
@@ -406,7 +425,8 @@ mod tests {
 
         assert_eq!(
             paths[module],
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module))
+            ImmutableDependencySource::new(&cache_dir, None)
+                .source_dir(resolved.module_source(module))
         );
         assert_eq!(
             std::fs::read_to_string(paths[module].join("acquired-archive-checksum")).unwrap(),
@@ -431,10 +451,11 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
+            None,
         )
         .unwrap();
-        let directory =
-            ImmutableDependencySource::new(&cache_dir).source_dir(resolved.module_source(module));
+        let directory = ImmutableDependencySource::new(&cache_dir, None)
+            .source_dir(resolved.module_source(module));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
             directory.join("moon.mod"),
@@ -473,7 +494,14 @@ mod tests {
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
         let user_log = user_log();
-        let source = select(&project_dir, &cache, &resolved, ChildOutputMode::Inherit).unwrap();
+        let source = select(
+            &project_dir,
+            &cache,
+            &resolved,
+            ChildOutputMode::Inherit,
+            None,
+        )
+        .unwrap();
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log)
