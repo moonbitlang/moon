@@ -19,7 +19,7 @@
 //! Lowering implementation for build actions.
 
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -1470,13 +1470,20 @@ impl<'a> LoweringContext<'a> {
             })
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
-        let mut installed_stdlib = BTreeSet::new();
+        // Each installed stdlib package has one interface path in this lowering.
+        // Merge by identity, cloning each cached path only once per action.
+        // The common action-lowering boundary sorts the final input paths.
+        let mut installed_stdlib = BTreeMap::new();
         for root in stdlib_deps {
-            installed_stdlib.extend(self.installed_stdlib_closure(root).iter().cloned());
+            for (&package, path) in self.installed_stdlib_closure(root) {
+                installed_stdlib
+                    .entry(package)
+                    .or_insert_with(|| path.clone());
+            }
         }
         MiInputs {
             deps,
-            installed_stdlib: installed_stdlib.into_iter().collect(),
+            installed_stdlib: installed_stdlib.into_values().collect(),
         }
     }
 
@@ -1486,24 +1493,29 @@ impl<'a> LoweringContext<'a> {
     /// dependencies through the paths listed in `all_pkgs.json`. Local
     /// interfaces are covered by their producers, but installed stdlib
     /// interfaces have none, so the whole reachable stdlib closure is observed.
-    fn installed_stdlib_closure(&mut self, root: BuildTarget) -> &[PathBuf] {
+    fn installed_stdlib_closure(&mut self, root: BuildTarget) -> &BTreeMap<PackageId, PathBuf> {
         if !self.installed_stdlib_closures.contains_key(&root) {
             let mut visited = HashSet::new();
             let mut pending = vec![root];
-            let mut paths = BTreeSet::new();
+            let mut paths = BTreeMap::new();
             while let Some(current) = pending.pop() {
                 if !visited.insert(current) {
                     continue;
                 }
                 if let Some(cached) = self.installed_stdlib_closures.get(&current) {
-                    paths.extend(cached.iter().cloned());
+                    for (&package, path) in cached {
+                        paths.entry(package).or_insert_with(|| path.clone());
+                    }
                     continue;
                 }
-                paths.insert(self.artifact_paths.mi_of_build_target(
-                    self.packages,
-                    &current,
-                    self.opt.backend.target_backend(),
-                ));
+                paths.insert(
+                    current.package,
+                    self.artifact_paths.mi_of_build_target(
+                        self.packages,
+                        &current,
+                        self.opt.backend.target_backend(),
+                    ),
+                );
                 pending.extend(
                     self.rel
                         .dep_graph
@@ -1513,8 +1525,7 @@ impl<'a> LoweringContext<'a> {
             }
             // Cache only roots requested by compiler actions. Materializing
             // every intermediate closure costs more for small import sets.
-            self.installed_stdlib_closures
-                .insert(root, paths.into_iter().collect());
+            self.installed_stdlib_closures.insert(root, paths);
         }
         &self.installed_stdlib_closures[&root]
     }
