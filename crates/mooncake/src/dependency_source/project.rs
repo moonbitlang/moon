@@ -38,7 +38,7 @@ use semver::Version;
 use crate::{
     pkg::legacy_postadd,
     registry::{RegistrySource, SourceRequest},
-    zip_util::extract_zip_to_dir,
+    zip_util::extract_archives,
 };
 
 use super::DependencySource;
@@ -59,13 +59,19 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 pub(super) struct ProjectDependencySource {
     path: PathBuf,
     postadd_output: ChildOutputMode,
+    jobs: Option<usize>,
 }
 
 impl ProjectDependencySource {
-    pub(super) fn new(path: impl Into<PathBuf>, postadd_output: ChildOutputMode) -> Self {
+    pub(super) fn new(
+        path: impl Into<PathBuf>,
+        postadd_output: ChildOutputMode,
+        jobs: Option<usize>,
+    ) -> Self {
         Self {
             path: path.into(),
             postadd_output,
+            jobs,
         }
     }
 
@@ -288,18 +294,34 @@ fn sync(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let archives = registry.download_archives(&sources, user_log)?;
-    for (source, archive) in sources.into_iter().zip(archives) {
+    let staged = sources
+        .iter()
+        .map(|_| {
+            tempfile::Builder::new()
+                .prefix(".source-")
+                .tempdir_in(dep_dir.path())
+        })
+        .collect::<std::io::Result<Vec<_>>>()?;
+    extract_archives(
+        archives
+            .into_iter()
+            .zip(&staged)
+            .map(|(archive, directory)| (archive, directory.path().to_owned()))
+            .collect(),
+        dep_dir.jobs,
+    )?;
+    // Only publish one installation at a time. Later staged sources are
+    // discarded if a hook fails, so a retry cannot mistake them for complete.
+    for (source, staging) in sources.into_iter().zip(staged) {
         let name = source.module.name();
         let directory = pkg_to_dir(dep_dir, &name.username, &name.unqual);
         if directory.exists() {
             std::fs::remove_dir_all(&directory)?;
         }
-        std::fs::create_dir_all(&directory)?;
+        std::fs::rename(staging.path(), &directory)?;
         // A manifest is treated as installed on the next sync. Materialize only
         // this package, and discard it on failure so retry still runs its hook.
-        if let Err(error) = extract_zip_to_dir(&directory, archive)
-            .and_then(|()| legacy_postadd::run(&directory, postadd_runner))
-        {
+        if let Err(error) = legacy_postadd::run(&directory, postadd_runner) {
             if let Err(cleanup_error) = std::fs::remove_dir_all(&directory)
                 && cleanup_error.kind() != std::io::ErrorKind::NotFound
             {
