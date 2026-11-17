@@ -76,7 +76,6 @@ pub(crate) use fix::*;
 pub(crate) use fmt::*;
 pub(crate) use generate_test_driver::*;
 pub(crate) use info::*;
-use moonbuild::upgrade::UpgradeSubcommand;
 use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
 use moonutil::cli_support::{
     DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,

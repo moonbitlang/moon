@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod server;
+
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
@@ -205,7 +207,7 @@ pub(crate) fn run_doc_rr(
             .module_source(module_id)
             .name()
             .to_string();
-        moonbuild::doc_http::start_server(static_dir, &full_name, cmd.bind, cmd.port)?;
+        server::start_server(static_dir, &full_name, cmd.bind, cmd.port)?;
     }
 
     Ok(0)

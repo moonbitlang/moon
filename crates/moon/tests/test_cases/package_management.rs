@@ -654,28 +654,22 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
     let moon_home = tempfile::TempDir::new()?;
     let toolchain_root = tempfile::TempDir::new()?;
 
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        [
+    // Installation layout is rejected before any runtime or network access.
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args([
             "upgrade",
             "--force",
             "--non-interactive",
             "--base-url",
             "https://example.invalid",
-        ],
-        [
-            ("MOON_HOME", moon_home.path().to_str().unwrap()),
-            (
-                "MOON_TOOLCHAIN_ROOT",
-                toolchain_root.path().to_str().unwrap(),
-            ),
-        ],
-    );
-
-    assert!(stderr.contains("moon upgrade only supports toolchains installed under MOON_HOME."));
-    assert!(stderr.contains(
-        "Please upgrade this installation with the package manager or installer that owns the toolchain."
-    ));
+        ])
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root.path())
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq("Error: moon upgrade only supports toolchains installed under MOON_HOME. Active toolchain root is `[..]`, but MOON_HOME is `[..]`. Please upgrade this installation with the package manager or installer that owns the toolchain.\n");
     Ok(())
 }
 

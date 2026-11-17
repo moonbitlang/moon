@@ -20,14 +20,12 @@
 
 pub mod bench;
 pub mod benchmark;
-pub mod doc_http;
 pub mod entry;
 pub mod execution;
 pub mod expect;
 pub mod runtest;
 pub mod section_capture;
 pub mod test_utils;
-pub mod upgrade;
 
 use indexmap::IndexMap;
 use moonbuild_rupes_recta::{
