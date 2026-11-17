@@ -18,21 +18,26 @@
 
 //! Compatibility execution for the legacy `scripts.postadd` hook.
 //!
-//! Registry source acquisition deliberately does not call this module. The
-//! remaining command paths opt into the legacy behavior after source has been
-//! materialized, so rejecting postadd in the future does not change the
-//! Registry interface.
+//! Registry source acquisition deliberately does not call this module.
+//! Installation requires explicit permission after materializing writable
+//! sources. A pending marker records skipped or failed hooks.
 
 use std::path::Path;
 
 use anyhow::bail;
 use moonutil::{child_process::ManagedChildRunner, manifest::read_module_desc_file_in_dir};
 
+// TODO: Resume pending hooks in existing installations once explicit retry
+// support is available; manifest presence alone does not imply hook completion.
+pub const PENDING_FILE: &str = ".moon-postadd-pending";
+
 /// Run the legacy hook declared by the materialized module at `module_dir`.
-pub fn run(module_dir: &Path, runner: &ManagedChildRunner) -> anyhow::Result<()> {
-    if std::env::var_os("MOON_IGNORE_POSTADD").is_some() {
-        return Ok(());
-    }
+pub fn run(
+    module_dir: &Path,
+    runner: &ManagedChildRunner,
+    allow: bool,
+    user_log: &moonutil::user_log::UserLog,
+) -> anyhow::Result<()> {
     let module = read_module_desc_file_in_dir(module_dir)?;
     let Some(postadd) = module
         .scripts
@@ -41,6 +46,20 @@ pub fn run(module_dir: &Path, runner: &ManagedChildRunner) -> anyhow::Result<()>
     else {
         return Ok(());
     };
+
+    // Source availability does not imply hook completion. Keep this marker
+    // until success, including after a skipped or failed invocation.
+    let pending = module_dir.join(PENDING_FILE);
+    if !pending.exists() {
+        std::fs::write(&pending, "")?;
+    }
+    if !allow || std::env::var_os("MOON_IGNORE_POSTADD").is_some() {
+        user_log.warn(format!(
+            "Skipped postadd for {}; pass --allow-postadd when installing to execute it.",
+            module.name
+        ));
+        return Ok(());
+    }
 
     let postadd = postadd.split(' ').collect::<Vec<_>>();
     let Some((command, args)) = postadd.split_first() else {
@@ -56,6 +75,7 @@ pub fn run(module_dir: &Path, runner: &ManagedChildRunner) -> anyhow::Result<()>
             command
         );
     }
+    std::fs::remove_file(pending)?;
     Ok(())
 }
 
@@ -96,7 +116,7 @@ options(scripts: {{ "postadd": "{}" }})
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
         let child = ManagedChildRunner::new(ChildOutputMode::Capture, &user_log);
 
-        run(sandbox.path(), &child).unwrap();
+        run(sandbox.path(), &child, true, &user_log).unwrap();
 
         let entries = capture.take();
         assert_eq!(entries.len(), 2);
@@ -116,7 +136,7 @@ options(scripts: {{ "postadd": "{}" }})
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
         let child = ManagedChildRunner::new(ChildOutputMode::Capture, &user_log);
 
-        let error = run(sandbox.path(), &child).unwrap_err();
+        let error = run(sandbox.path(), &child, true, &user_log).unwrap_err();
 
         assert!(
             error

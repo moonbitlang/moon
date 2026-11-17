@@ -132,7 +132,8 @@ pub(crate) fn run_doc_rr(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_allow_postadd(cli.allow_postadd);
     let synced_modules =
         moonbuild_rupes_recta::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
     let discovered = moonbuild_rupes_recta::discover_synced_project(

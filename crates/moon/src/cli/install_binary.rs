@@ -261,7 +261,7 @@ pub(super) fn install_binary(
 
     registry.materialize_source_to(&module, module_dir, user_log)?;
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(module_dir, &child)?;
+    legacy_postadd::run(module_dir, &child, cli.allow_postadd, user_log)?;
 
     let filter = PackageFilter::package_path(path.package.clone(), install_all);
 
@@ -555,6 +555,7 @@ fn prepare_native_build(
     })?;
     let preparation_config =
         ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
+            .with_allow_postadd(cli.allow_postadd)
             .with_sync_output(sync_output);
     let synced_modules = moonbuild_rupes_recta::sync_module_dependencies(
         &preparation_config,

@@ -241,7 +241,14 @@ pub(crate) fn add_cli(
             error
         }
     })?;
-    mooncake::pkg::add::add(&module_dir, &dirs, &module, cmd.upgrade, user_log)
+    mooncake::pkg::add::add(
+        &module_dir,
+        &dirs,
+        &module,
+        cmd.upgrade,
+        cli.allow_postadd,
+        user_log,
+    )
 }
 
 #[cfg(test)]

@@ -34,6 +34,9 @@ use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOut
 
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
+#[clap(
+    after_help = "Dependency postadd scripts are skipped by default. Use --allow-postadd to permit\nscripts during installation. Permission applies only to this command."
+)]
 pub struct AddSubcommand {
     /// The registry module name to add
     #[clap(value_name = "MODULE")]
@@ -53,6 +56,7 @@ pub fn add(
     dirs: &PackageDirs,
     module: &ModuleSource,
     upgrade: bool,
+    allow_postadd: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let pkg_name = module.name();
@@ -105,7 +109,10 @@ pub fn add(
         user_log,
         false,
         &moonutil::cache::CacheRoot::Disabled,
-        None,
+        &super::install::SourceInstallOptions {
+            allow_postadd,
+            ..Default::default()
+        },
     )?;
 
     if module_dir.join(MOON_MOD).exists() {

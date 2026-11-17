@@ -69,10 +69,11 @@ impl<'a> ImmutableDependencySource<'a> {
         checksum: &str,
         directory: &Path,
         frozen: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<Option<tempfile::TempDir>> {
         match std::fs::symlink_metadata(directory) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-                validate_cached_source(directory, module, checksum)?;
+                validate_cached_source(directory, module, checksum, user_log)?;
                 Ok(None)
             }
             Ok(_) => anyhow::bail!(
@@ -145,7 +146,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
                     }
                     let directory = self.source_dir(module);
                     if let Some(staging) =
-                        self.stage_source(module, &checksum, &directory, frozen)?
+                        self.stage_source(module, &checksum, &directory, frozen, user_log)?
                     {
                         staged.push((module, checksum, directory.clone(), staging));
                     }
@@ -175,7 +176,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
             self.jobs,
         )?;
         for (module, checksum, directory, staging) in staged {
-            validate_source(staging.path(), module)?;
+            validate_source(staging.path(), module, user_log)?;
             std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
             std::fs::rename(staging.path(), &directory).with_context(|| {
                 format!(
@@ -193,6 +194,7 @@ fn validate_cached_source(
     directory: &Path,
     module: &ModuleSource,
     expected_checksum: &str,
+    user_log: &UserLog,
 ) -> anyhow::Result<()> {
     let checksum_file = directory.join(SOURCE_ARCHIVE_CHECKSUM_FILE);
     let cached_checksum = match std::fs::read_to_string(&checksum_file) {
@@ -228,10 +230,14 @@ fn validate_cached_source(
             module.version()
         );
     }
-    validate_source(directory, module)
+    validate_source(directory, module, user_log)
 }
 
-fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<()> {
+fn validate_source(
+    directory: &Path,
+    module: &ModuleSource,
+    user_log: &UserLog,
+) -> anyhow::Result<()> {
     let manifest = read_module_desc_file_in_dir(directory)?;
     if manifest.name != module.name().to_string()
         || manifest.version.as_ref() != Some(module.version())
@@ -247,11 +253,10 @@ fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<()
         .as_ref()
         .is_some_and(|scripts| scripts.contains_key("postadd"))
     {
-        anyhow::bail!(
-            "cannot prepare {}@{} in the shared dependency source cache because it declares scripts.postadd",
-            module.name(),
-            module.version()
-        );
+        user_log.warn(format!(
+            "Skipped postadd for {}; pass --allow-postadd when installing to execute it.",
+            module.name()
+        ));
     }
     Ok(())
 }

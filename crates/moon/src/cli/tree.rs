@@ -155,6 +155,7 @@ fn resolve_selected_package_graph(
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
     let preparation_config =
         ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
+            .with_allow_postadd(cli.allow_postadd)
             .with_sync_output(SyncOutputOptions {
                 quiet: false,
                 child_output,

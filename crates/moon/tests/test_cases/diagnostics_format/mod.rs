@@ -58,5 +58,6 @@ options(scripts: {{ "postadd": {postadd:?} }})
         .env("MOON_HOME", moon_home.path())
         .env("PATH", moon_path)
         .args(args)
+        .arg("--allow-postadd")
         .assert()
 }

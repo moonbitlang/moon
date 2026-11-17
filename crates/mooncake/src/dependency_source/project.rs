@@ -36,6 +36,7 @@ use moonutil::{
 use semver::Version;
 
 use crate::{
+    pkg::install::SourceInstallOptions,
     pkg::legacy_postadd,
     registry::{RegistrySource, SourceRequest},
     zip_util::extract_archives,
@@ -59,19 +60,19 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 pub(super) struct ProjectDependencySource {
     path: PathBuf,
     postadd_output: ChildOutputMode,
-    jobs: Option<usize>,
+    options: SourceInstallOptions,
 }
 
 impl ProjectDependencySource {
     pub(super) fn new(
         path: impl Into<PathBuf>,
         postadd_output: ChildOutputMode,
-        jobs: Option<usize>,
+        options: SourceInstallOptions,
     ) -> Self {
         Self {
             path: path.into(),
             postadd_output,
-            jobs,
+            options,
         }
     }
 
@@ -308,7 +309,7 @@ fn sync(
             .zip(&staged)
             .map(|(archive, directory)| (archive, directory.path().to_owned()))
             .collect(),
-        dep_dir.jobs,
+        dep_dir.options.jobs,
     )?;
     // Only publish one installation at a time. Later staged sources are
     // discarded if a hook fails, so a retry cannot mistake them for complete.
@@ -321,7 +322,12 @@ fn sync(
         std::fs::rename(staging.path(), &directory)?;
         // A manifest is treated as installed on the next sync. Materialize only
         // this package, and discard it on failure so retry still runs its hook.
-        if let Err(error) = legacy_postadd::run(&directory, postadd_runner) {
+        if let Err(error) = legacy_postadd::run(
+            &directory,
+            postadd_runner,
+            dep_dir.options.allow_postadd,
+            user_log,
+        ) {
             if let Err(cleanup_error) = std::fs::remove_dir_all(&directory)
                 && cleanup_error.kind() != std::io::ErrorKind::NotFound
             {

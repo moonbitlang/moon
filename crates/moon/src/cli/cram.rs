@@ -152,6 +152,7 @@ fn run_cram_test(
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_allow_postadd(cli.allow_postadd)
     .with_jobs(build_cmd.build_flags.jobs);
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let lock = if cli.dry_run {

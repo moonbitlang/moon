@@ -527,6 +527,9 @@ Add a dependency
 
 **Usage:** `moon add [OPTIONS] <MODULE>`
 
+Dependency postadd scripts are skipped by default. Use --allow-postadd to permit
+scripts during installation. Permission applies only to this command.
+
 ###### **Arguments:**
 
 * `<MODULE>` — The registry module name to add

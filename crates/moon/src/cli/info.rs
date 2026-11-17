@@ -270,7 +270,8 @@ pub(crate) fn run_info(
         cmd.auto_sync_flags.frozen,
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_allow_postadd(cli.allow_postadd);
     let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
     let discovered =
         discover_synced_project(&preparation_config, synced_modules, output.user_log())?;

@@ -211,9 +211,10 @@ failed child becomes an error. User Log filtering and child-output mode remain
 independent decisions: capture is never inferred from the User Log destination.
 
 Registry adapters only acquire and verify source. Project-local dependency
-installation invokes the isolated legacy-postadd module after materialization,
-while immutable cached sources reject postadd and never receive process-output
-policy. Package prebuild tasks remain build-graph work owned by the build
+installation invokes the isolated legacy-postadd module after materialization
+only with `--allow-postadd`. Otherwise it records the pending hook and warns.
+Immutable cached sources never execute postadd; authorized invocations use
+writable installation directories instead. Package prebuild tasks remain build-graph work owned by the build
 executor. User programs remain Process Passthrough.
 
 ## Regression coverage

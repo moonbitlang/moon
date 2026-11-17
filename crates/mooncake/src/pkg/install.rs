@@ -30,6 +30,13 @@ use moonutil::{
 };
 use std::path::PathBuf;
 
+/// Source installation policy, independent of registry metadata resolution.
+#[derive(Debug, Default, Clone)]
+pub struct SourceInstallOptions {
+    pub jobs: Option<usize>,
+    pub allow_postadd: bool,
+}
+
 /// Install a binary package globally
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -97,7 +104,7 @@ pub(crate) fn install_impl(
     user_log: &UserLog,
     dont_sync: bool,
     source_cache: &CacheRoot,
-    jobs: Option<usize>,
+    options: &SourceInstallOptions,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let module_graph = prepare_build_modules(roots)?;
 
@@ -122,7 +129,7 @@ pub(crate) fn install_impl(
         source_cache,
         &res,
         output_options.child_output,
-        jobs,
+        options,
     )?;
     let dependency_paths =
         dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;

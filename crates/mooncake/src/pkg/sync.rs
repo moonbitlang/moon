@@ -20,6 +20,8 @@
 
 use std::sync::Arc;
 
+use super::install::SourceInstallOptions;
+
 use indexmap::IndexMap;
 use moonutil::{
     cache::CacheRoot,
@@ -57,12 +59,12 @@ pub fn auto_sync(
     output_options: SyncOutputOptions,
     user_log: &UserLog,
     workspace_env: WorkspaceEnv,
-    jobs: Option<usize>,
+    options: &SourceInstallOptions,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
-        return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace, jobs);
+        return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace, options);
     }
 
     let module = read_module_desc_file_in_dir(&dirs.source_dir)?;
@@ -77,7 +79,7 @@ pub fn auto_sync(
         user_log,
         cli.dont_sync(),
         &CacheRoot::Disabled,
-        jobs,
+        options,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((module_graph, sync_result, None))
@@ -89,7 +91,7 @@ fn resolve_workspace_sync(
     output_options: SyncOutputOptions,
     user_log: &UserLog,
     workspace: &WorkspaceLayout,
-    jobs: Option<usize>,
+    options: &SourceInstallOptions,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in workspace.members() {
@@ -106,7 +108,7 @@ fn resolve_workspace_sync(
         user_log,
         cli.dont_sync(),
         &CacheRoot::Disabled,
-        jobs,
+        options,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((
@@ -122,7 +124,7 @@ pub fn auto_sync_for_single_file_rr(
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
     output_options: SyncOutputOptions,
     source_cache: &CacheRoot,
-    jobs: Option<usize>,
+    options: &SourceInstallOptions,
     user_log: &UserLog,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
@@ -148,7 +150,7 @@ pub fn auto_sync_for_single_file_rr(
         user_log,
         sync_flags.dont_sync(),
         source_cache,
-        jobs,
+        options,
     )?;
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);

@@ -18,11 +18,8 @@
 
 //! Selection of dependency sources used by one resolution.
 
-// TODO: Separate source availability from installation completion. Cache original
-// sources even when they declare postadd, but run hooks in writable installation
-// directories. Persist pending/completed/skipped hook state instead of inferring
-// completion from a manifest, then schedule hooks according to dependencies with
-// bounded concurrency. Caching hook outputs needs separately defined build inputs.
+// TODO: Schedule permitted postadd hooks according to dependencies with bounded
+// concurrency. Caching hook outputs needs separately defined build inputs.
 
 mod global;
 mod project;
@@ -36,6 +33,7 @@ use moonutil::{
     user_log::UserLog,
 };
 
+use crate::pkg::install::SourceInstallOptions;
 use crate::registry::RegistrySource;
 
 use self::{global::ImmutableDependencySource, project::ProjectDependencySource};
@@ -63,19 +61,24 @@ pub(crate) fn select<'a>(
     cache: &'a CacheRoot,
     resolved: &ModuleDependencyGraph,
     postadd_output: ChildOutputMode,
-    jobs: Option<usize>,
+    options: &SourceInstallOptions,
 ) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
         .all_modules()
         .any(|module| matches!(module.source(), ModuleSourceKind::Registry) && !module.is_core());
-    if has_registry_sources && let Some(root) = cache.initialize()? {
-        return Ok(Box::new(ImmutableDependencySource::new(root, jobs)));
+    // Hooks need writable, installation-local sources. Permission applies to
+    // this invocation, never to the shared immutable source cache.
+    if has_registry_sources
+        && !options.allow_postadd
+        && let Some(root) = cache.initialize()?
+    {
+        return Ok(Box::new(ImmutableDependencySource::new(root, options.jobs)));
     }
 
     Ok(Box::new(ProjectDependencySource::new(
         project_dir,
         postadd_output,
-        jobs,
+        options.clone(),
     )))
 }
 
@@ -241,7 +244,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
 
@@ -264,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn postadd_is_rejected_before_publication() {
+    fn postadd_sources_are_cached_without_executing_hooks() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let cache_dir = sandbox.path().join("cache");
         let cache = global_cache(&cache_dir);
@@ -275,22 +278,27 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
         let directory = ImmutableDependencySource::new(&cache_dir, None)
             .source_dir(resolved.module_source(module));
 
-        let error = source
-            .ensure(&registry, &resolved, false, &user_log())
-            .unwrap_err();
-
+        let (log, captured) = UserLog::captured(log::LevelFilter::Warn);
+        source.ensure(&registry, &resolved, false, &log).unwrap();
         assert!(
-            format!("{error:#}").contains("scripts.postadd"),
-            "{error:#}"
+            captured
+                .take()
+                .iter()
+                .any(|entry| entry.message.contains("Skipped postadd"))
         );
         assert_eq!(registry.installations.load(Ordering::SeqCst), 1);
-        assert!(!directory.exists());
+        assert!(directory.is_dir());
+        assert!(
+            !directory
+                .join(crate::pkg::legacy_postadd::PENDING_FILE)
+                .exists()
+        );
     }
 
     #[test]
@@ -304,7 +312,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
 
@@ -334,7 +342,7 @@ mod tests {
                     &cache,
                     &resolved,
                     ChildOutputMode::Inherit,
-                    None,
+                    &Default::default(),
                 )
                 .unwrap();
                 source
@@ -347,7 +355,7 @@ mod tests {
                     &cache,
                     &resolved,
                     ChildOutputMode::Inherit,
-                    None,
+                    &Default::default(),
                 )
                 .unwrap();
                 source
@@ -377,7 +385,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
 
@@ -415,7 +423,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
 
@@ -451,7 +459,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
         let directory = ImmutableDependencySource::new(&cache_dir, None)
@@ -499,7 +507,7 @@ mod tests {
             &cache,
             &resolved,
             ChildOutputMode::Inherit,
-            None,
+            &Default::default(),
         )
         .unwrap();
 

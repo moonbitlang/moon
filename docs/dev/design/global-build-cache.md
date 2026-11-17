@@ -72,6 +72,9 @@ dependencies, its `.mooncakes` directory lives under the per-script build root
 (for example, `_build/script.mbtx/.mooncakes`) and follows `--target-dir`.
 Ordinary projects and workspaces retain their project-local dependency
 directories.
+`--allow-postadd` uses writable project-local or invocation-private sources
+instead of the shared cache. Without permission, cached sources may contain
+hook declarations but hooks are skipped with a warning.
 `MOON_BUILD_CACHE` still configures and cleans its future root only.
 
 HTTP registry metadata uses the same cache-root ownership and cleanup rules,
@@ -280,8 +283,9 @@ version with another checksum, Moon refuses to replace or coexist with the new
 source and asks the user to run `moon clean --dep-cache` explicitly.
 
 Project-local installation extracts archives in parallel into staging
-directories, then publishes packages and runs hooks serially. Failed extraction
-or hooks discard incomplete installations so a later sync retries them.
+directories, then publishes packages and handles permitted hooks serially.
+Failed extraction or hooks discard incomplete installations so a later sync
+retries them. Skipped hooks leave a pending marker for later retry support.
 Source acquisition reads the archive checksum once and uses that value for
 both archive verification and the published metadata. Verification and
 extraction consume the same open archive handle, so replacing the
@@ -302,9 +306,9 @@ n2 dependency graph.
 
 `post-add` hooks will not run in globally shared prepared sources. They make
 source state mutable and can have effects that are not captured by an artifact
-key. The initial shared-source flow should reject a dependency that requires
-`post-add`, rather than execute the hook or silently skip it. A sandboxed,
-explicitly keyed hook model would require a separate design.
+key. Shared-source preparation skips hooks with a warning. Explicit permission
+selects writable installation directories instead. A sandboxed, explicitly
+keyed hook-output cache would require a separate design.
 
 Moving `.mooncakes` wholesale into `_build` is not a prerequisite. Acquisition,
 prepared immutable sources, mutable work, and final outputs have different

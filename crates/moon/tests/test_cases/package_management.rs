@@ -700,6 +700,77 @@ fn test_postadd_script() {
 */
 
 #[test]
+fn test_postadd_requires_explicit_permission() {
+    let dir = TestDir::new("test_postadd_retry.in");
+    let moon_home = tempfile::tempdir().unwrap();
+    let moon_path = std::env::join_paths(
+        std::iter::once(moon_bin().parent().unwrap().to_path_buf()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .unwrap();
+    for name in ["first", "second"] {
+        cache_registry_package(
+            moon_home.path(),
+            &format!("testuser/{name}"),
+            "1.0.0",
+            &["moon.mod", "moon.pkg"].map(|file| {
+                (
+                    file,
+                    std::fs::read(dir.join(format!("registry/{name}/{file}"))).unwrap(),
+                )
+            }),
+        );
+    }
+    let command = || {
+        moon_cmd(&dir)
+            .env("MOON_HOME", moon_home.path())
+            .env("MOON_REGISTRY_API", "0")
+            .env_remove("MOON_IGNORE_POSTADD")
+            .env("PATH", &moon_path)
+    };
+    command()
+        .args(["tree", "--package"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+...
+Warning: Skipped postadd for testuser/[..]; pass --allow-postadd when installing to execute it.
+...
+"#]]);
+    for name in ["first", "second"] {
+        assert!(
+            dir.join(format!(".mooncakes/testuser/{name}/moon.mod"))
+                .is_file()
+        );
+        assert!(
+            !dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"))
+                .exists()
+        );
+    }
+    // Permission is checked on fresh installations. Retrying an existing
+    // skipped installation is covered by the follow-up change.
+    for name in ["first", "second"] {
+        std::fs::remove_dir_all(dir.join(format!(".mooncakes/testuser/{name}"))).unwrap();
+    }
+    std::fs::copy(
+        dir.join("hook-input.txt"),
+        dir.join(".mooncakes/testuser/hook-input.txt"),
+    )
+    .unwrap();
+    command()
+        .args(["tree", "--package", "--allow-postadd"])
+        .assert()
+        .success();
+    for name in ["first", "second"] {
+        assert!(
+            dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"))
+                .is_file()
+        );
+    }
+}
+
+#[test]
 fn test_postadd_failure_retries_unfinished_installations() {
     let dir = TestDir::new("test_postadd_retry.in");
     let moon_home = tempfile::tempdir().unwrap();
@@ -728,7 +799,7 @@ fn test_postadd_failure_retries_unfinished_installations() {
         .env("MOON_REGISTRY_API", "0")
         .env_remove("MOON_IGNORE_POSTADD")
         .env("PATH", &moon_path)
-        .args(["tree", "--package"])
+        .args(["tree", "--package", "--allow-postadd"])
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
@@ -752,7 +823,7 @@ fn test_postadd_failure_retries_unfinished_installations() {
         .env("MOON_REGISTRY_API", "0")
         .env_remove("MOON_IGNORE_POSTADD")
         .env("PATH", &moon_path)
-        .args(["tree", "--package"])
+        .args(["tree", "--package", "--allow-postadd"])
         .assert()
         .success();
     for name in ["first", "second"] {
@@ -878,7 +949,12 @@ pkgtype(kind: "executable")
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("PATH", &moon_path)
-        .args(["fetch", "--no-update", "testuser/postadd@1.0.0"])
+        .args([
+            "fetch",
+            "--no-update",
+            "testuser/postadd@1.0.0",
+            "--allow-postadd",
+        ])
         .assert()
         .success();
     assert!(
@@ -890,7 +966,12 @@ pkgtype(kind: "executable")
     let install = moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("PATH", &moon_path)
-        .args(["install", "testuser/postadd/tool@1.0.0", "--bin"])
+        .args([
+            "install",
+            "testuser/postadd/tool@1.0.0",
+            "--allow-postadd",
+            "--bin",
+        ])
         .arg(&bin_dir)
         .assert()
         .success();

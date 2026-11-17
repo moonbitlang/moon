@@ -500,6 +500,7 @@ pub(crate) fn build_standalone_wasm(
         verbose,
         trace: false,
         dry_run: false,
+        allow_postadd: false,
         unstable_feature: ""
             .parse()
             .expect("empty unstable feature set must be valid"),
@@ -567,6 +568,7 @@ fn build_package_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_allow_postadd(cli.allow_postadd)
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output());
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
@@ -769,6 +771,7 @@ fn build_single_file_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
+    .with_allow_postadd(cli.allow_postadd)
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output())
     .with_dependency_source_cache(

@@ -46,6 +46,11 @@ pub struct UniversalFlags {
     #[clap(long, global = true)]
     pub dry_run: bool,
 
+    /// Allow dependency postadd scripts to run during this command
+    #[clap(long, global = true)]
+    #[serde(default)]
+    pub allow_postadd: bool,
+
     /// Unstable flags to MoonBuild.
     #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
     pub unstable_feature: Box<crate::features::FeatureGate>,

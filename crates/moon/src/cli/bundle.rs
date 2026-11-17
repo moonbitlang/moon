@@ -188,6 +188,7 @@ fn sync_and_discover_bundle_project(
             cmd.build_flags.enable_coverage,
             cli.workspace_env.clone(),
         )
+        .with_allow_postadd(cli.allow_postadd)
         .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }

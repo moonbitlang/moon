@@ -99,7 +99,7 @@ pub(crate) fn fetch_cli(
 
     registry.materialize_source_to(&module, &pkg_dir, user_log)?;
     let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(&pkg_dir, &child)?;
+    legacy_postadd::run(&pkg_dir, &child, cli.allow_postadd, user_log)?;
 
     if !cli.quiet {
         println!(

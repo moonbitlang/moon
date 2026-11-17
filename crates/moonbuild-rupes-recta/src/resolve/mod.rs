@@ -160,6 +160,7 @@ pub struct ProjectPreparationConfig {
     pub enable_coverage: bool,
     workspace_env: WorkspaceEnv,
     jobs: Option<usize>,
+    allow_postadd: bool,
 }
 
 struct FrontMatterImports {
@@ -319,6 +320,7 @@ impl ProjectPreparationConfig {
             sync_output: SyncOutputOptions::default(),
             dependency_source_cache: CacheRoot::Disabled,
             jobs: None,
+            allow_postadd: false,
             enable_coverage,
             workspace_env,
         }
@@ -335,9 +337,15 @@ impl ProjectPreparationConfig {
             sync_output: SyncOutputOptions::default(),
             dependency_source_cache: CacheRoot::Disabled,
             jobs: None,
+            allow_postadd: false,
             enable_coverage,
             workspace_env,
         }
+    }
+
+    pub fn with_allow_postadd(mut self, allow: bool) -> Self {
+        self.allow_postadd = allow;
+        self
     }
 
     pub fn with_jobs(mut self, jobs: Option<usize>) -> Self {
@@ -392,7 +400,10 @@ pub fn sync_module_dependencies(
         cfg.sync_output,
         user_log,
         cfg.workspace_env.clone(),
-        cfg.jobs,
+        &mooncake::pkg::install::SourceInstallOptions {
+            jobs: cfg.jobs,
+            allow_postadd: cfg.allow_postadd,
+        },
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
@@ -502,7 +513,10 @@ pub fn discover_single_file_project(
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,
         &cfg.dependency_source_cache,
-        cfg.jobs,
+        &mooncake::pkg::install::SourceInstallOptions {
+            jobs: cfg.jobs,
+            allow_postadd: cfg.allow_postadd,
+        },
         user_log,
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;

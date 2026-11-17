@@ -38,6 +38,7 @@ fn command_string_run_parses_as_expected() {
                 verbose: false,
                 trace: false,
                 dry_run: false,
+                allow_postadd: false,
                 unstable_feature: FeatureGate {
                     rr_export_module_graph: false,
                     rr_export_package_graph: false,
@@ -140,6 +141,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 verbose: false,
                 trace: false,
                 dry_run: true,
+                allow_postadd: false,
                 unstable_feature: FeatureGate {
                     rr_export_module_graph: false,
                     rr_export_package_graph: false,
