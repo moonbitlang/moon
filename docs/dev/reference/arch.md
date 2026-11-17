@@ -377,6 +377,15 @@ combined with scripts. Paths on different Windows drives remain absolute.
 
 Module dependencies provide packages that can be imported from code.
 
+Module version resolution consumes an initialized Module Dependency Graph.
+Project preparation validates the roots and, for builds that use the installed
+standard library, loads core and registers it before resolution. Building core
+itself skips this injection; a workspace mixing core with other roots remains
+unsupported. The resolver preserves input root IDs and the supplied standard
+library while extending the graph with selected dependencies. It does not
+locate the installed toolchain or reload its core manifest. Registry metadata
+and local dependency manifests are still read during dependency traversal.
+
 Binary dependency execution has been removed. Nonempty `bin-deps` declarations
 in input/root modules are rejected during module resolution, before dependency
 acquisition. Empty declarations are accepted. Old dependency manifests

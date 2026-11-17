@@ -31,7 +31,7 @@ use tracing::Instrument;
 
 use crate::{
     registry::{HttpVersionReader, RegistryClient, RegistryVersionInfo},
-    resolver::{ModuleResolutionConfig, MvsSolver, resolve_modules_with_solver},
+    resolver::{ModuleResolutionConfig, MvsSolver, prepare_roots, resolve_modules_with_solver},
 };
 
 /// Independent refresh outcomes for one selected dependency. Keeping failures
@@ -71,10 +71,11 @@ pub async fn update(
     }
     let config = ModuleResolutionConfig {
         registry,
-        inject_std: false,
         warn_deprecated: false,
     };
-    let graph = resolve_modules_with_solver(&config, &mut MvsSolver, roots, user_log).await?;
+    let graph =
+        resolve_modules_with_solver(&config, &mut MvsSolver, prepare_roots(roots)?, user_log)
+            .await?;
     let selected = graph
         .all_modules_and_id()
         .map(|(_, module)| module)

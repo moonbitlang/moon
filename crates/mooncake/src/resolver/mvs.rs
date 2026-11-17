@@ -667,7 +667,9 @@ mod test {
     use crate::registry::mock::{MockRegistry, create_mock_module};
     use crate::registry::{Registry, RegistryVersionInfo};
     use crate::resolver::context::ModuleResolutionContext;
-    use crate::resolver::{ModuleResolutionConfig, ModuleResolutionErrors, resolve_modules};
+    use crate::resolver::{
+        ModuleResolutionConfig, ModuleResolutionErrors, prepare_roots, resolve_modules,
+    };
 
     fn create_mock_registry() -> MockRegistry {
         let mut registry = MockRegistry::new();
@@ -1413,7 +1415,6 @@ mod test {
         };
         let config = ModuleResolutionConfig {
             registry: &registry,
-            inject_std: false,
             warn_deprecated: true,
         };
         let root = create_mock_module(
@@ -1422,7 +1423,12 @@ mod test {
             names.iter().map(|name| (name.as_str(), "1.0.0")),
         );
         let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-        let graph = resolve_modules(&config, create_mock_root(root), &user_log).unwrap();
+        let graph = resolve_modules(
+            &config,
+            prepare_roots(create_mock_root(root)).unwrap(),
+            &user_log,
+        )
+        .unwrap();
         assert_eq!(registry.reads.borrow().len(), 41);
         assert_eq!(registry.peak.get(), names.len());
         assert_eq!(registry.active.get(), 0);

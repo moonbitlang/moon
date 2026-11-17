@@ -21,10 +21,9 @@ use crate::{
     resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
-use super::sync::SyncOutputOptions;
+use super::{prepare::prepare_build_modules, sync::SyncOutputOptions};
 use moonutil::{
     cache::CacheRoot,
-    constants::MOONBITLANG_CORE,
     project::PackageDirs,
     resolution::{DirSyncResult, ModuleDependencyGraph, ResolvedRootModules},
     user_log::UserLog,
@@ -99,12 +98,7 @@ pub(crate) fn install_impl(
     dont_sync: bool,
     source_cache: &CacheRoot,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
-    let includes_core = roots
-        .iter()
-        .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
-    if includes_core && roots.len() != 1 {
-        anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
-    }
+    let module_graph = prepare_build_modules(roots)?;
 
     let registry = if dont_sync {
         registry::default_registry(user_log).for_frozen_dependencies()
@@ -113,11 +107,10 @@ pub(crate) fn install_impl(
     };
     let module_resolution_config = ModuleResolutionConfig {
         registry: &registry,
-        inject_std: !includes_core,
         warn_deprecated: true,
     };
 
-    let res = resolve_modules(&module_resolution_config, roots, user_log)?;
+    let res = resolve_modules(&module_resolution_config, module_graph, user_log)?;
     let dependency_user_log = if output_options.quiet {
         user_log.with_level(log::LevelFilter::Error)
     } else {
