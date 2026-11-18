@@ -90,17 +90,16 @@ ported_fns! {
                 .map(|base| base.join(&filename)),
             None => Some(std::path::PathBuf::from(&filename)),
         };
-        let file = open_raw_native_file(
-            parent.map(raw_file_handle).transpose()?,
-            filename,
-            access,
-            create_mode,
-            append,
-            sync,
-            mode,
+        let parent_handle = parent.map(raw_file_handle).transpose()?;
+        let options = open_options(access, create_mode, append, sync, mode)?;
+        let file = super::super::os::openat::open(
+            parent_handle,
+            &filename,
+            &options,
+            &super::CancellableIo,
         )?;
         let resource =
-            Resource::new_with_file_grant(file, FileGrant::from_opened_path(filename_for_provenance));
+            Resource::from_file(file, FileGrant::from_opened_path(filename_for_provenance));
         // Unlike async Workers, synchronous calls do not mask ordinary signals.
         // An unnecessary stat can therefore return EINTR after open succeeds.
         // Callers cannot tell which syscall was interrupted and may retry open,
@@ -487,17 +486,14 @@ ported_fns! {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn open_raw_native_file(
-    parent: Option<RawFile>,
-    filename: OsString,
+fn open_options(
     access: i32,
     create_mode: i32,
     append: bool,
     sync: i32,
     mode: i32,
-) -> AsyncHostResult<RawFile> {
-    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+) -> AsyncHostResult<super::super::os::openat::OpenOptions> {
+    use super::super::os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
     let is_async = access == 3;
     let (access, type_constraint) = match access {
         0 => (Access::Read, TypeConstraint::Any),
@@ -506,43 +502,28 @@ fn open_raw_native_file(
         3 => (Access::ListDirectory, TypeConstraint::Directory),
         _ => return Err(AsyncHostError::Inval),
     };
-    let file = openat::open(
-        parent,
-        &filename,
-        &OpenOptions {
-            access,
-            type_constraint,
-            follow_symlink: true,
-            is_async,
-            create: match create_mode {
-                0 => CreateMode::Open,
-                1 => CreateMode::Truncate,
-                2 => CreateMode::Create,
-                3 => CreateMode::CreateOrTruncate,
-                4 => CreateMode::Exclusive,
-                _ => return Err(AsyncHostError::Inval),
-            },
-            append,
-            sync: match sync {
-                0 => Sync::None,
-                1 => Sync::Data,
-                2 => Sync::All,
-                _ => return Err(AsyncHostError::Inval),
-            },
-            permission: mode as u32,
+    Ok(OpenOptions {
+        access,
+        type_constraint,
+        follow_symlink: true,
+        is_async,
+        create: match create_mode {
+            0 => CreateMode::Open,
+            1 => CreateMode::Truncate,
+            2 => CreateMode::Create,
+            3 => CreateMode::CreateOrTruncate,
+            4 => CreateMode::Exclusive,
+            _ => return Err(AsyncHostError::Inval),
         },
-        &super::CancellableIo,
-    )?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::IntoRawFd;
-        Ok(file.into_raw_fd())
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::IntoRawHandle;
-        Ok(file.into_raw_handle())
-    }
+        append,
+        sync: match sync {
+            0 => Sync::None,
+            1 => Sync::Data,
+            2 => Sync::All,
+            _ => return Err(AsyncHostError::Inval),
+        },
+        permission: mode as u32,
+    })
 }
 
 #[cfg(unix)]

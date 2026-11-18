@@ -919,13 +919,12 @@ mod tests {
     fn stdio_directory_grant_does_not_authorize_child_metadata() {
         use crate::filesystem::FileGrant;
         use crate::runtime::{Env, WorkingDirectory};
-        use std::os::fd::IntoRawFd;
         use std::sync::Arc;
 
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(directory.path().join("child"), []).unwrap();
-        let parent = Resource::new_with_file_grant(
-            std::fs::File::open(directory.path()).unwrap().into_raw_fd(),
+        let parent = Resource::from_file(
+            std::fs::File::open(directory.path()).unwrap(),
             FileGrant::STDIO,
         );
         let filesystem = HostFs::new(
