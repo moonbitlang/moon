@@ -47,6 +47,11 @@ pub struct StandaloneWasm {
     pub executable: PathBuf,
     /// Original `.mbtx` source when it declares permissions. Runtime policy
     /// roots remain relative to that source's directory.
+    // TODO(moonrun-execution-request): Replace this source-file handoff once
+    // Moonrun exposes a directly usable daemon/IPC execution entry accepting
+    // permission declarations and their source directory with the run inputs.
+    // Moonrun should select and resolve policy without rereading the source;
+    // compilation results should then contain only build artifacts.
     pub policy_source: Option<PathBuf>,
 }
 

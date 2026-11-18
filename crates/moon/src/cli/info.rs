@@ -44,7 +44,6 @@ use crate::{
         canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
-    rr_build,
 };
 
 use super::UniversalFlags;
@@ -97,7 +96,7 @@ impl PackageSelection {
         discovered: &DiscoveredProject,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = rr_build::local_packages(discovered).collect();
+        let package_ids: Vec<_> = crate::filter::local_packages(discovered).collect();
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
@@ -363,9 +362,8 @@ fn plan_info_rr(
         target_kind,
         user_log,
     };
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = BuildFlags::default().compile_config(
         cli,
-        &BuildFlags::default(),
         target,
         target_dir,
         RunMode::Check,

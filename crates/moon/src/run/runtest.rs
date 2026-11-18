@@ -23,7 +23,7 @@
 
     ## A normal test workflow
 
-    1. Build test executable (using [`crate::rr_build`])
+    1. Build test executable (using [`moonbuild::compile::BuildSession`])
     2. Run tests using [`run_tests`]
     3. Interpret and print the test results using [`ReplaceableTestResults::print_result`]
 
@@ -829,7 +829,7 @@ async fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.user_log.is_enabled(log::Level::Info) {
-        ctx.user_log.info(crate::rr_build::format_dry_run_command(
+        ctx.user_log.info(crate::dry_run::format_dry_run_command(
             &cmd,
             &ctx.source_dir,
         ));

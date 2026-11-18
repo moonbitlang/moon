@@ -41,10 +41,7 @@ use moonutil::{
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
-use crate::{
-    cli::{BuildFlags, registry_queries},
-    rr_build::{self},
-};
+use crate::cli::{BuildFlags, registry_queries};
 
 /// How to filter packages for installation.
 #[derive(Debug, Clone, Copy)]
@@ -642,9 +639,8 @@ fn build_selected_package(
         ..BuildFlags::default()
     };
 
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = build_flags.compile_config(
         cli,
-        &build_flags,
         TargetBackend::Native,
         &prepared.target_dir,
         RunMode::Build,

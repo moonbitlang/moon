@@ -16,12 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Path filtering operations
-//!
-//! This module contains the common path filtering logic for both legacy and RR backends.
+//! Select packages and target backends from command selectors and project preferences.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -33,6 +31,55 @@ use moonutil::{
     target::TargetBackend,
     user_log::UserLog,
 };
+
+pub(crate) fn local_packages(
+    discovered: &DiscoveredProject,
+) -> impl Iterator<Item = PackageId> + '_ {
+    discovered.local_modules().iter().flat_map(|&module_id| {
+        discovered
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .into_iter()
+            .flat_map(|packages| packages.values().copied())
+    })
+}
+
+/// Select a standalone file's Target Backends before package resolution:
+/// explicit targets, then the file's preferred backend, then the project default.
+pub(crate) fn single_file_target_backends(
+    discovered: &DiscoveredProject,
+    selected_target_backends: &[TargetBackend],
+    preferred_backend: Option<TargetBackend>,
+    user_log: &UserLog,
+) -> Vec<TargetBackend> {
+    if !selected_target_backends.is_empty() {
+        return selected_target_backends.to_vec();
+    }
+    vec![preferred_backend.unwrap_or_else(|| {
+        local_modules_preferred_target(discovered, user_log).unwrap_or_default()
+    })]
+}
+
+/// The preferred target that all local modules agree on, if any.
+pub(crate) fn local_modules_preferred_target(
+    discovered: &DiscoveredProject,
+    user_log: &UserLog,
+) -> Option<TargetBackend> {
+    let preferred = discovered
+        .local_modules()
+        .iter()
+        .filter_map(|&module_id| discovered.module_info(module_id).preferred_target)
+        .collect::<BTreeSet<_>>();
+
+    if preferred.len() > 1 {
+        user_log.warn(
+            "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly",
+        );
+        None
+    } else {
+        preferred.into_iter().next()
+    }
+}
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.

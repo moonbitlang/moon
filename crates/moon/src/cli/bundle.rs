@@ -33,8 +33,6 @@ use moonutil::{
 use std::path::Path;
 use tracing::instrument;
 
-use crate::rr_build;
-
 use super::BuildFlags;
 
 /// Bundle the module
@@ -149,7 +147,7 @@ fn run_bundle_rr_from_discovered(
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
             let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(writer, &build_input, source_dir)
+            crate::dry_run::write_dry_run(writer, &build_input, source_dir)
         })?;
         Ok(0)
     } else {
@@ -180,7 +178,7 @@ fn sync_and_discover_bundle_project(
         cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
-    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
+    moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 /// Selects backends, resolves packages, then plans one bundle per backend.
@@ -194,7 +192,10 @@ pub(crate) fn plan_bundle_rr_from_discovered(
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     let target_backends = if selected_target_backends.is_empty() {
-        vec![rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default()]
+        vec![
+            crate::filter::local_modules_preferred_target(&discovered, user_log)
+                .unwrap_or_default(),
+        ]
     } else {
         selected_target_backends.to_vec()
     };
@@ -224,9 +225,8 @@ fn plan_bundle_rr_from_resolved(
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let mut compile_config = rr_build::prepare_resolved_build(
+    let mut compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Bundle,

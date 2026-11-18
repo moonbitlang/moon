@@ -20,11 +20,12 @@ use moonbuild::execution::{BuildConfig, BuildInput};
 use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::Context;
-use moonbuild_rupes_recta::fmt::{FmtConfig, build_execution_plan_for_fmt_file};
+use moonbuild_rupes_recta::fmt::{
+    FmtConfig, build_execution_plan_for_fmt, build_execution_plan_for_fmt_file,
+};
 use moonutil::{command_output::CommandOutput, path_normalizer::PathNormalizer};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
-use crate::rr_build::{self, plan_fmt};
 
 use super::UniversalFlags;
 
@@ -136,7 +137,7 @@ fn run_fmt_rr(
         .collect::<Vec<_>>();
 
         if package_paths.is_empty() || !selected_packages.is_empty() {
-            let build_input = plan_fmt(
+            let execution_plan = build_execution_plan_for_fmt(
                 &resolved,
                 &fmt_config,
                 &dirs.target_dir,
@@ -144,7 +145,7 @@ fn run_fmt_rr(
                 &dirs.project_manifest,
                 user_log,
             )?;
-            plans.push((dirs, build_input, None));
+            plans.push((dirs, BuildInput::new(execution_plan, None), None));
         }
     }
 
@@ -152,14 +153,14 @@ fn run_fmt_rr(
         if cli.dry_run {
             output.write_result(|writer| {
                 if let Some(normalizer) = &normalizer {
-                    rr_build::write_dry_run_with_normalizer(
+                    crate::dry_run::write_dry_run_with_normalizer(
                         writer,
                         &build_input,
                         &dirs.source_dir,
                         normalizer,
                     )
                 } else {
-                    rr_build::write_dry_run(writer, &build_input, &dirs.source_dir)
+                    crate::dry_run::write_dry_run(writer, &build_input, &dirs.source_dir)
                 }
             })?;
             continue;

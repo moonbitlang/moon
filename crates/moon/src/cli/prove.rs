@@ -40,7 +40,6 @@ use crate::{
         canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
         package_supports_backend,
     },
-    rr_build,
 };
 
 const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
@@ -160,9 +159,10 @@ pub(crate) fn run_prove(
         cli.workspace_env.clone(),
     )
     .with_jobs(build_flags.jobs);
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let target_backend =
-        rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
+        crate::filter::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
     let intent = calc_user_intent(
         path_filter,
         module_dir.as_deref(),
@@ -178,9 +178,8 @@ pub(crate) fn run_prove(
         ensure_why3_config(&generated_why3_config_path)?;
     }
 
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = build_flags.compile_config(
         cli,
-        &build_flags,
         target_backend,
         target_dir,
         RunMode::Prove,
@@ -204,12 +203,12 @@ pub(crate) fn run_prove(
 
     if cli.dry_run {
         output.write_result(|writer| -> std::io::Result<()> {
-            rr_build::write_dry_run(writer, &build_graph, project_root)?;
+            crate::dry_run::write_dry_run(writer, &build_graph, project_root)?;
             for proof in &proofs {
                 writeln!(
                     writer,
                     "{}",
-                    rr_build::format_dry_run_command(&proof.command, project_root)
+                    crate::dry_run::format_dry_run_command(&proof.command, project_root)
                 )?;
             }
             Ok(())

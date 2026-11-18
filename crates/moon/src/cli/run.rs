@@ -44,7 +44,6 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::filter::ensure_package_supports_backend;
-use crate::rr_build;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -354,7 +353,7 @@ fn build_wasm_file_executable_from_arg(
             None,
         );
         run_cmd.args(&cmd.args);
-        let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
+        let command = crate::dry_run::format_dry_run_command(&run_cmd, &print_dir);
         output.write_result(|writer| writeln!(writer, "{command}"))?;
     }
 
@@ -507,7 +506,8 @@ fn build_package_executable(
     )
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output());
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
     let (build_meta, build_graph) = plan_run_rr_from_discovered(
         &session,
@@ -558,9 +558,8 @@ pub(crate) fn plan_run_rr_from_discovered(
         cmd.build_flags.enable_value_tracing,
     )?;
     let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Run,
@@ -722,20 +721,22 @@ fn build_single_file_executable(
     let resolved = discovered.resolve_packages(&[selected_target_backend], user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Run,
         user_log,
         &resolved,
     )?;
-    let package = rr_build::local_packages(&resolved)
+    let package = crate::filter::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
     let directive = if value_tracing {
-        rr_build::build_patch_directive_for_package(package, false, Some(package), None, false)?
+        InputDirective {
+            value_tracing: Some(package),
+            ..Default::default()
+        }
     } else {
         Default::default()
     };
@@ -788,14 +789,14 @@ fn build_executable_from_plan(
     );
     if cli.dry_run {
         output.write_result(|writer| {
-            rr_build::write_dry_run(writer, &build_graph, source_dir)?;
+            crate::dry_run::write_dry_run(writer, &build_graph, source_dir)?;
 
             if options.print_dry_run_run_command {
                 let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
                 writeln!(
                     writer,
                     "{}",
-                    rr_build::format_dry_run_command(&run_cmd, source_dir)
+                    crate::dry_run::format_dry_run_command(&run_cmd, source_dir)
                 )?;
             }
             Ok::<_, std::io::Error>(())
@@ -880,7 +881,7 @@ fn run_executable(
     run_cmd.args(&cmd.args);
     let user_log = output.user_log();
     if user_log.is_enabled(log::Level::Info) {
-        user_log.info(rr_build::format_dry_run_command(
+        user_log.info(crate::dry_run::format_dry_run_command(
             &run_cmd,
             &executable.source_dir,
         ));

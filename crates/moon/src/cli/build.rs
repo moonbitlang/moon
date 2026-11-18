@@ -42,7 +42,6 @@ use crate::filter::{
     group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
     select_packages, select_supported_packages,
 };
-use crate::rr_build;
 
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
@@ -181,7 +180,7 @@ fn run_build_for_single_file_rr(
         true,
         user_log,
     )?;
-    let target_backends = rr_build::single_file_target_backends(
+    let target_backends = crate::filter::single_file_target_backends(
         &discovered,
         selected_target_backends,
         backend,
@@ -191,14 +190,13 @@ fn run_build_for_single_file_rr(
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
-    let package = rr_build::local_packages(&resolved)
+    let package = crate::filter::local_packages(&resolved)
         .next()
         .context("single-file project must resolve exactly one local package")?;
     let mut planned_runs = Vec::with_capacity(target_backends.len());
     for target_backend in target_backends {
-        let compile_config = rr_build::prepare_resolved_build(
+        let compile_config = cmd.build_flags.compile_config(
             cli,
-            &cmd.build_flags,
             target_backend,
             target_dir,
             RunMode::Build,
@@ -248,7 +246,7 @@ fn sync_and_discover_build_project(
         cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
-    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
+    moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 /// Run the build routine in RR backend
@@ -347,7 +345,7 @@ fn execute_planned_builds(
     if cli.dry_run {
         output.write_result(|writer| {
             let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(writer, &build_input, source_dir)?;
+            crate::dry_run::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         return Ok(true);
@@ -484,9 +482,8 @@ pub(crate) fn plan_build_rr_from_resolved(
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Build,
@@ -520,9 +517,8 @@ fn plan_build_rr_from_resolved_with_scope(
     scoped_packages: Vec<PackageId>,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Build,
@@ -554,9 +550,8 @@ fn plan_build_rr_from_selection(
     selection: ResolvedBuildSelection,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Build,
@@ -615,7 +610,8 @@ fn select_build_plans(
         let selections = resolve_build_target_selections(discovered, cmd, None, user_log)?;
         if selections.is_empty() && !has_explicit_build_selector(cmd) {
             return Ok(vec![BackendPlanSelection::command_selector(
-                rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+                crate::filter::local_modules_preferred_target(discovered, user_log)
+                    .unwrap_or_default(),
             )]);
         }
         return Ok(selections.into_iter().map(Into::into).collect());
@@ -751,7 +747,7 @@ fn resolve_selected_build_packages(
         return Ok(pkgs);
     }
 
-    Ok(rr_build::local_packages(discovered)
+    Ok(crate::filter::local_packages(discovered)
         .filter(|&pkg_id| {
             target_backend
                 .is_none_or(|backend| package_supports_backend(discovered, pkg_id, backend))
@@ -794,7 +790,7 @@ fn calc_user_intent(
     } else {
         Ok(calc_user_intent_from_scoped_packages(
             discovered,
-            &rr_build::local_packages(discovered)
+            &crate::filter::local_packages(discovered)
                 .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
                 .collect::<Vec<_>>(),
             target_backend,

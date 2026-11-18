@@ -171,7 +171,7 @@ impl PlanningFixture {
         user_log: &UserLog,
     ) -> anyhow::Result<(TargetBackend, ResolvedProject)> {
         let target_backend = selected_target_backend.unwrap_or_else(|| {
-            crate::rr_build::local_modules_preferred_target(&self.discovered, user_log)
+            crate::filter::local_modules_preferred_target(&self.discovered, user_log)
                 .unwrap_or_default()
         });
         let resolved_project = self
@@ -441,7 +441,7 @@ impl PlanningFixture {
 
     fn dump_plan(&self, plan: PlannedGraph) -> anyhow::Result<String> {
         let mut out = Vec::new();
-        crate::rr_build::write_build_graph(
+        crate::dry_run::write_build_graph(
             &mut out,
             &plan.build_graph,
             plan.build_meta

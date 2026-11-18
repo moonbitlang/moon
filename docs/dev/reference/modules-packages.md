@@ -326,7 +326,7 @@ each selected backend from the shared `ResolvedProject`. Selection uses only
 declared package data, so a selector error is reported before a package resolution
 error. Every backend selected for the current invocation or watch pass must
 resolve successfully before its build planning begins.
-`rr_build::prepare_resolved_build` receives the already selected backend and
+`BuildFlags::compile_config` receives the already selected backend and
 does not choose one itself.
 
 `moon fmt` scans the current project's modules without resolving dependencies

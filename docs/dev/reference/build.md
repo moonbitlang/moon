@@ -154,7 +154,7 @@ default optimization profile by subcommand:
 
 This policy is centralized in `BuildFlags::effective_profile()` in
 `crates/moon/src/build_flags.rs`. The CLI adapter's
-`rr_build::prepare_resolved_build()` converts those flags and the resolved
+`BuildFlags::compile_config()` converts those flags and the resolved
 backend into `DebugInfoRequest`, selecting requested symbol detail and native
 runtime backtrace support separately. A default `moon run` for the Native target
 backend requests source backtraces. After selecting the Native Payload Form,

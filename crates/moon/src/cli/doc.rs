@@ -34,7 +34,6 @@ use tracing::instrument;
 use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
-use crate::rr_build::{self};
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
@@ -148,9 +147,8 @@ pub(crate) fn run_doc_rr(
         .unwrap_or_default();
     let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
 
-    let mut compile_config = rr_build::prepare_resolved_build(
+    let mut compile_config = build_flags.compile_config(
         &cli,
-        &build_flags,
         target_backend,
         target_dir,
         RunMode::Check,
@@ -170,7 +168,9 @@ pub(crate) fn run_doc_rr(
 
     // Early exit for dry-run
     if cli.dry_run {
-        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
+        output.write_result(|writer| {
+            crate::dry_run::write_dry_run(writer, &build_graph, source_dir)
+        })?;
         return Ok(0);
     }
 
