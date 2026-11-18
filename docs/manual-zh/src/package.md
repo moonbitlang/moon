@@ -20,7 +20,13 @@
 因此 `has_default` 和 `implement` 不能同时使用。
 
 每项配置只需声明一次，直接声明或写在 `options(...)` 中均可。例如，不要同时使用
-`proof_enabled = true` 和 `options("proof-enabled": true)`。
+`proof_enabled = true` 和 `options("proof-enabled": true)`，即使值相同也会报错。
+`warnings` 与 `warn-list` / `warn_list`、`supported_targets` 与 `supported-targets`、
+`dev_build` 与 `pre-build` / `pre_build` 同样遵循此规则，不会在两种形式之间合并或覆盖。
+
+同一种类的多个 `import` 块仍按源码顺序合并，但不能同时使用 `options(...)` 中对应种类的
+import 配置。空块和空的选项列表也算显式声明。普通、黑盒测试和白盒测试 import 相互独立。
+仍可声明多个 `rule` 和 `dev_build`，其中规则名必须唯一。
 
 其他配置，包括 `bin-name`、`bin-target`、`overrides`、结构化的 `link`、
 `native-stub` 和按文件配置的 `targets`，仍需写在 `options(...)` 中。

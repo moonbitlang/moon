@@ -1,3 +1,2 @@
-// A different warning distinguishes this dependency from the project root.
-supported_targets = "js"
-options("dependency-future": true, "supported-targets": "native")
+// A distinct unknown key identifies warnings from the dependency.
+options("dependency-future": true, "supported-targets": "js")

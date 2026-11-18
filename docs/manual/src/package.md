@@ -23,7 +23,16 @@ implements one, so `has_default` and `implement` cannot be combined.
 
 Declare each setting only once, either directly or in `options(...)`. For
 example, do not combine `proof_enabled = true` with
-`options("proof-enabled": true)`.
+`options("proof-enabled": true)`: this is an error even when the values agree.
+The same rule applies to `warnings` and `warn-list` / `warn_list`,
+`supported_targets` and `supported-targets`, and `dev_build` and
+`pre-build` / `pre_build`. Settings are not merged or overridden between forms.
+
+Multiple `import` blocks of the same kind still combine in source order, but
+cannot be combined with an `options(...)` import field of that kind. Empty
+blocks and empty option lists also count as declarations. Regular, test, and
+whitebox imports are independent. Multiple `rule` and `dev_build` declarations
+remain supported; rule names must be unique.
 
 Other settings, including `bin-name`, `bin-target`, `overrides`, structured
 `link`, `native-stub`, and per-file `targets`, still belong in `options(...)`.
