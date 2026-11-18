@@ -29,7 +29,7 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{self, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
+    compiler_flags::{self, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
@@ -50,8 +50,9 @@ use crate::{
     cond_comp,
     discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
-        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind, WasmObject,
+        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, DirectNativeMode,
+        NativeBackendMode, NativeLinkArg, NativeTarget, OperatingSystem, PackageId, TargetKind,
+        WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     special_cases::WASM_ERROR_TABLE_PACKAGES,

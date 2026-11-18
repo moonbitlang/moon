@@ -53,7 +53,7 @@ use std::{
 use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    compiler_flags::{NativeAllocator, NativeLinkArg, OptLevel as CCOptLevel, Toolchain},
+    compiler_flags::{NativeAllocator, Toolchain},
     cond_expr::OptLevel,
     target::TargetBackend,
     user_log::UserLog,
@@ -63,8 +63,8 @@ use tracing::instrument;
 use crate::{
     CompileConfig, ResolvedProject,
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
-        PackageId, WasmObject,
+        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, NativeBackendMode,
+        NativeLinkArg, NativeTarget, PackageId, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,

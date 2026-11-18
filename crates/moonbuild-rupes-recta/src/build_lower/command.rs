@@ -19,11 +19,14 @@
 use std::path::{Path, PathBuf};
 
 use moonutil::{
-    compiler_flags::{ArchiverConfig, CompilerPaths, Toolchain, make_archiver_command_resolved},
+    compiler_flags::{CompilerPaths, Toolchain},
     toolchain::BINARIES,
 };
 
-use super::compiler::{CmdlineAbstraction, MoonArchive};
+use super::compiler::{
+    CmdlineAbstraction, MoonArchive,
+    native::{ArchiverConfig, make_archiver_command},
+};
 use crate::execution_plan::LoweredCommand;
 
 /// Command data produced by action-specific lowering before common execution
@@ -71,7 +74,7 @@ impl BuildCommand {
     ) -> Self {
         let cc = toolchain.cc().clone();
         let archive_arg = archive.display().to_string();
-        let archiver_command = make_archiver_command_resolved(
+        let mut command = make_archiver_command(
             cc.clone(),
             config,
             &members
@@ -81,23 +84,16 @@ impl BuildCommand {
             &archive_arg,
             compiler_paths,
         );
-        let command = if cc.archiver_updates_existing_archive() {
-            let command = MoonArchive {
+        if cc.archiver_updates_existing_archive() {
+            let wrapped = MoonArchive {
                 output: archive.into(),
-                archiver: &archiver_command,
+                archiver: command.commandline.args(),
             }
             .build_command(&*BINARIES.moonbuild);
-            Self {
-                // The archiver is no longer `argv[0]`, so observe it explicitly.
-                extra_inputs: vec![PathBuf::from(&cc.ar_path)],
-                commandline: command.into(),
-            }
-        } else {
-            Self {
-                extra_inputs: vec![],
-                commandline: archiver_command.into(),
-            }
-        };
+            // The archiver is no longer argv[0], so observe it explicitly.
+            command.extra_inputs.push(PathBuf::from(&cc.ar_path));
+            command.commandline = wrapped.into();
+        }
         command.with_msvc_env(toolchain)
     }
 
@@ -143,13 +139,13 @@ impl BuildCommand {
     }
 
     pub(super) fn with_msvc_env(self, toolchain: &Toolchain) -> Self {
-        self.with_env(super::compiler::msvc::command_env(toolchain))
+        self.with_env(super::compiler::native::msvc::command_env(toolchain))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use moonutil::compiler_flags::{ARKind, ArchiverConfig, CC, CCKind};
+    use moonutil::compiler_flags::{ARKind, CC, CCKind};
 
     use crate::execution_plan::{LoweredCommandExecution, LoweredResponseFile};
 
@@ -253,6 +249,47 @@ mod tests {
             ]
         );
         assert!(command.extra_inputs.is_empty());
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn archive_wrapper_retains_selected_library_inputs() {
+        let toolchain = Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Gcc,
+            cc_path: "/toolchain/bin/cc".into(),
+            ar_kind: ARKind::GnuAr,
+            ar_path: "/toolchain/bin/ar".into(),
+            target_triple: None,
+            is_env_override: false,
+        });
+        let command = BuildCommand::archive(
+            &toolchain,
+            ArchiverConfig {
+                archive_moonbitrun: true,
+                native_allocator: moonutil::compiler_flags::NativeAllocator::Mimalloc,
+            },
+            &[PathBuf::from("main.o")],
+            Path::new("lib.a"),
+            &CompilerPaths {
+                include_path: "/toolchain/include".into(),
+                lib_path: "/toolchain/lib".into(),
+            },
+        );
+        // Wrapping the archiver must preserve inputs selected during construction.
+        assert_eq!(
+            command.extra_inputs,
+            [
+                PathBuf::from("/toolchain/lib/libmoonbitrun.o"),
+                PathBuf::from("/toolchain/bin/ar"),
+            ]
+        );
+        assert!(
+            command
+                .commandline
+                .args()
+                .iter()
+                .any(|arg| arg == "/toolchain/lib/libmoonbitrun.o")
+        );
     }
 
     #[test]

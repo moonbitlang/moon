@@ -1301,7 +1301,7 @@ mod tests {
         BuildCStubsInfo {
             effective_native_toolchain: system_cc_toolchain(),
             debug_info: false,
-            opt_level: moonutil::compiler_flags::OptLevel::None,
+            opt_level: crate::model::CCOptLevel::None,
             cc_flags: Vec::new(),
             link_args: Vec::new(),
         }

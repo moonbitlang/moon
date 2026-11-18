@@ -23,10 +23,7 @@ use super::ToolchainSource;
 #[cfg(windows)]
 use anyhow::Context;
 
-use super::{
-    CC, CCConfig, CCKind, LinkerConfig, MsvcEnvironment, OutputType, Toolchain,
-    resolve_native_toolchain_executables,
-};
+use super::{CC, CCKind, MsvcEnvironment, Toolchain, resolve_native_toolchain_executables};
 
 pub const WINDOWS_MSVC_DEFAULT_LIBS: &[&str] = &[
     "libcmt.lib",
@@ -172,66 +169,4 @@ pub(super) fn default_librarian(cc_path: &Path, cc_kind: CCKind) -> String {
     }
 
     lib
-}
-
-pub(super) fn add_linker_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    if cc.uses_msvc_cli() {
-        buf.push("/nologo".to_string());
-    }
-}
-
-pub(super) fn add_linker_runtime<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-    lpath: &str,
-) {
-    if cc.uses_msvc_cli() {
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push(
-                dunce::simplified(&dyn_lib_path.as_ref().join("libruntime.lib"))
-                    .display()
-                    .to_string(),
-            );
-        }
-        buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
-    }
-}
-
-pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
-    if !cc.uses_msvc_cli() {
-        return;
-    }
-
-    buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
-    // Large generated C files can exceed the default COFF section limit.
-    buf.push("/bigobj".to_string());
-
-    if matches!(cc.cc_kind, CCKind::ClangCl) {
-        // Generated C relies on wrapping signed arithmetic. Older clang-cl
-        // versions otherwise optimize as if signed overflow cannot occur.
-        buf.push("/clang:-fwrapv".to_string());
-    }
-
-    if !has_user_flags {
-        buf.push("/utf-8".to_string());
-        buf.push("/wd4819".to_string());
-    }
-    buf.push("/nologo".to_string());
-}
-
-pub(super) fn add_cc_runtime_flags(cc: &CC, toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
-    if cc.uses_msvc_cli()
-        && let Some(crt) = toolchain.and_then(Toolchain::msvc_crt_policy)
-    {
-        buf.push(crt.compiler_flag().to_string());
-    }
-}
-
-pub(super) fn add_cc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
-    if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
-        buf.push("/link".to_string());
-        buf.push(format!("/LIBPATH:{lpath}"));
-    }
 }

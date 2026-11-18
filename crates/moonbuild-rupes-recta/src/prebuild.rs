@@ -23,10 +23,10 @@
 
 use std::collections::HashMap;
 
-use moonutil::{compiler_flags::NativeLinkArg, resolution::ModuleId};
+use moonutil::resolution::ModuleId;
 use serde::Deserialize;
 
-use crate::model::PackageId;
+use crate::model::{NativeLinkArg, PackageId};
 
 /// The output of running prebuild config scripts
 #[derive(Debug, Default)]

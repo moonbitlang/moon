@@ -26,10 +26,7 @@ use std::{
 
 use moonutil::{
     build_options::RunMode,
-    compiler_flags::{
-        ArchiverConfig, CCConfig, LinkerConfig, OutputType as CCOutputType, Toolchain,
-        make_cc_command_resolved_for_toolchain, make_linker_command_resolved,
-    },
+    compiler_flags::Toolchain,
     cond_expr::OptLevel,
     package::JsFormat,
     resolution::{CORE_MODULE, ModuleId},
@@ -58,6 +55,10 @@ use crate::{
     target_layout::proof_artifact_stem,
 };
 
+use super::compiler::native::{
+    ArchiverConfig, CCConfig, LinkerConfig, OutputType as CCOutputType, make_cc_command,
+    make_linker_command,
+};
 use super::{
     BuildCommand, LoweringError, compiler,
     context::{ActionArtifacts, LoweringContext},
@@ -953,7 +954,7 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let cc_cmd = make_cc_command_resolved_for_toolchain(
+        let mut command = make_cc_command(
             &info.effective_native_toolchain,
             config,
             &info.cc_flags,
@@ -971,7 +972,8 @@ impl<'a> LoweringContext<'a> {
         extra_inputs.push(input_file.clone());
         extra_inputs.extend(package.c_stub_header_files.iter().cloned());
 
-        BuildCommand::c_compile(&info.effective_native_toolchain, cc_cmd, extra_inputs)
+        command.extra_inputs.extend(extra_inputs);
+        command
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
@@ -1115,7 +1117,7 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let cc_cmd = make_cc_command_resolved_for_toolchain(
+        make_cc_command(
             &info.effective_native_toolchain,
             config,
             &info.c_flags,
@@ -1127,9 +1129,7 @@ impl<'a> LoweringContext<'a> {
                 .backend
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
-        );
-
-        BuildCommand::c_compile(&info.effective_native_toolchain, cc_cmd, vec![])
+        )
     }
 
     /// Archive a foreign library's payload, C stub, and runtime objects, e.g.
@@ -1286,7 +1286,7 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let cc_cmd = make_linker_command_resolved(
+        let cc_cmd = make_linker_command(
             info.effective_native_toolchain.cc().clone(),
             config,
             &info.link_args,
@@ -1296,19 +1296,13 @@ impl<'a> LoweringContext<'a> {
                 .collect::<Vec<_>>(),
             &pkg_dir,
             &dest,
-            &self
-                .opt
+            self.opt
                 .backend
                 .compiler_paths()
-                .expect("native lowering requires compiler paths")
-                .lib_path,
+                .expect("native lowering requires compiler paths"),
         );
 
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cc_cmd.into(),
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
+        cc_cmd.with_msvc_env(&info.effective_native_toolchain)
     }
 
     fn lower_link_new_native_exe(
@@ -1349,33 +1343,32 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let commandline = if info.effective_native_toolchain.uses_msvc_cli() {
-            compiler::msvc::link_executable_command(
+        let command = if info.effective_native_toolchain.uses_msvc_cli() {
+            let commandline = compiler::native::msvc::link_executable_command(
                 &info.effective_native_toolchain,
                 &source_args,
                 &info.link_args,
                 &dest,
                 &compiler_paths.lib_path,
             )
-            .into()
+            .into();
+            BuildCommand {
+                extra_inputs: vec![],
+                commandline,
+            }
         } else {
-            let linker_cmd = make_linker_command_resolved(
+            make_linker_command(
                 cc,
                 config,
                 &info.link_args,
                 &source_args,
                 &pkg_dir,
                 &dest,
-                &compiler_paths.lib_path,
-            );
-            linker_cmd.into()
+                compiler_paths,
+            )
         };
 
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline,
-        }
-        .with_msvc_env(&info.effective_native_toolchain)
+        command.with_msvc_env(&info.effective_native_toolchain)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts))]

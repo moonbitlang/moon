@@ -18,9 +18,7 @@
 
 use std::path::Path;
 
-use colored::Colorize;
-
-use super::{ARKind, CC, CCConfig};
+use super::{ARKind, CC};
 
 pub(super) fn default_archiver(cc_path: &Path) -> (ARKind, String) {
     (ARKind::TccAr, cc_path.display().to_string())
@@ -28,12 +26,6 @@ pub(super) fn default_archiver(cc_path: &Path) -> (ARKind, String) {
 
 pub(super) fn resolve_archiver_path(cc: &mut CC) {
     cc.ar_path.clone_from(&cc.cc_path);
-}
-
-pub(super) fn add_archiver_flags(buf: &mut Vec<String>, dest: &str) {
-    buf.push("-ar".to_string());
-    buf.push("rcs".to_string());
-    buf.push(dest.to_string());
 }
 
 #[cfg(target_os = "macos")]
@@ -61,26 +53,11 @@ static MACOS_SDK_LIB_PATH: std::sync::LazyLock<Option<std::path::PathBuf>> =
     std::sync::LazyLock::new(resolve_macos_sdk_lib_path);
 
 #[cfg(target_os = "macos")]
-pub(super) fn add_macos_sdk_library_path(buf: &mut Vec<String>) {
-    if let Some(sdk_lib_path) = MACOS_SDK_LIB_PATH.as_ref() {
-        buf.push(format!("-L{}", sdk_lib_path.display()));
-    }
+pub(super) fn macos_sdk_library_path() -> Option<&'static Path> {
+    MACOS_SDK_LIB_PATH.as_deref()
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(super) fn add_macos_sdk_library_path(_buf: &mut Vec<String>) {}
-
-pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if !cc.is_tcc() {
-        return;
-    }
-
-    if config.no_sys_header {
-        buf.push("-DMOONBIT_NATIVE_NO_SYS_HEADER".to_string());
-    } else {
-        eprintln!(
-            "{}: Use tcc without set MOONBIT_NATIVE_NO_SYS_HEADER.",
-            "Warning".yellow().bold(),
-        );
-    }
+pub(super) fn macos_sdk_library_path() -> Option<&'static Path> {
+    None
 }

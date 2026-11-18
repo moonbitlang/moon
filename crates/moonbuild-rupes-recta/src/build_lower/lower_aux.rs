@@ -19,10 +19,6 @@
 //! Lowering implementation for auxiliary build steps.
 
 use moonutil::{
-    compiler_flags::{
-        ArchiverConfig, CCConfig, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_cc_command_resolved,
-    },
     resolution::{ModuleId, ModuleSourceKind},
     toolchain::BINARIES,
 };
@@ -31,9 +27,12 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{ArtifactKey, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, PackageId, TargetKind},
+    model::{BuildTarget, CCOptLevel, PackageId, TargetKind},
 };
 
+use super::compiler::native::{
+    ArchiverConfig, CCConfig, OutputType as CCOutputType, make_cc_command,
+};
 use super::{BuildCommand, LoweringError, compiler, context::ActionArtifacts};
 
 const LEGACY_ASYNC_RUNTIME_PACKAGE: &str = "moonbitlang/async";
@@ -160,9 +159,8 @@ impl<'a> super::LoweringContext<'a> {
         let source = &info.source_files[index as usize];
 
         let runtime_toolchain = &info.effective_native_toolchain;
-        let resolved_cc = runtime_toolchain.cc().clone();
-        let cc_cmd = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
-            compiler::msvc::compile_runtime_command(
+        let mut command = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
+            let command = compiler::native::msvc::compile_runtime_command(
                 runtime_toolchain,
                 source,
                 &artifact_path,
@@ -170,10 +168,11 @@ impl<'a> super::LoweringContext<'a> {
                 crt,
                 info.native_allocator,
                 self.opt.backend.collect_ref_cycle(),
-            )
+            );
+            BuildCommand::c_compile(runtime_toolchain, command, vec![])
         } else {
-            make_cc_command_resolved(
-                resolved_cc,
+            make_cc_command(
+                runtime_toolchain,
                 CCConfig {
                     debug_info: true,
                     link_moonbitrun: true,
@@ -188,6 +187,7 @@ impl<'a> super::LoweringContext<'a> {
                     native_allocator: Some(info.native_allocator),
                 },
                 &[] as &[&str],
+                &[],
                 [source.display().to_string()],
                 &self
                     .artifact_paths
@@ -200,7 +200,8 @@ impl<'a> super::LoweringContext<'a> {
             )
         };
 
-        BuildCommand::c_compile(runtime_toolchain, cc_cmd, vec![source.clone()])
+        command.extra_inputs.push(source.clone());
+        command
     }
 
     #[instrument(level = Level::DEBUG, skip(self, artifacts, info))]
