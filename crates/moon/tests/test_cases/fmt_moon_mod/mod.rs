@@ -180,9 +180,50 @@ import {
   "example/dep@0.1.0",
 }
 
-warnings = "+w1-w2"
+readme = "README.md"
 
-readme = "README.md""#
+warnings = "+w1-w2""#
     );
     assert!(!dir.join("moon.mod.json").exists());
+}
+
+#[test]
+fn test_fmt_canonical_module_json_preserves_imports_and_rules() {
+    let dir = TestDir::new("fmt_moon_mod.in");
+    let source = r#"{
+  "name": "test/canonical_module",
+  "import": {"example/dep": "0.1.0"},
+  "warnings": "+w1-w2",
+  "supported_targets": "wasm-gc",
+  "rule": [
+    {"name": "first", "command": "echo first"},
+    {"name": "second", "command": "echo second"}
+  ]
+}"#;
+    std::fs::write(dir.join("moon.mod.json"), source).unwrap();
+
+    moon_cmd(&dir).args(["fmt", "--check"]).assert().failure();
+    moon_cmd(&dir).args(["fmt", "--warn"]).assert().success();
+    assert!(!dir.join("moon.mod").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moon.mod.json")).unwrap(),
+        source
+    );
+
+    moon_cmd(&dir).arg("fmt").assert().success();
+    assert!(!dir.join("moon.mod.json").exists());
+    let module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
+    assert_eq!(
+        module.deps["example/dep"].version().unwrap().to_string(),
+        "0.1.0"
+    );
+    assert_eq!(module.warn_list.as_deref(), Some("+w1-w2"));
+    let rules = module.rule.unwrap();
+    assert_eq!(
+        rules
+            .iter()
+            .map(|rule| (rule.name.as_str(), rule.command.as_str()))
+            .collect::<Vec<_>>(),
+        [("first", "echo first"), ("second", "echo second")]
+    );
 }

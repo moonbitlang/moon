@@ -24,13 +24,13 @@ use std::{
 use anyhow::{Context, bail};
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use serde_json_lenient::{Map, Value};
 
 pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
     cond_expr::CondExprs,
-    manifest::unknown_field_paths,
+    manifest::{ManifestOptions, unknown_field_paths},
     module::MoonModRule,
     moon_pkg,
     target::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
@@ -1177,7 +1177,10 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let (map, imports) = normalize_pkg_dsl(dsl, path, emit_warnings, user_log)?;
-    let mut options = PackageOptions { fields: map };
+    let mut options = ManifestOptions {
+        fields: map,
+        manifest: "moon.pkg",
+    };
     // Keep explicit declarations until their conflicts have been checked.
     let name: Option<String> = options.read("name", None)?;
     let experimental: Option<bool> = options.read("experimental", None)?;
@@ -1271,35 +1274,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         crate::manifest::warn_unknown_fields(&package.unknown_fields(), path, user_log);
     }
     Ok((package, supported_targets_decl_kind))
-}
-
-/// Consumes recognized options; the remaining entries are unknown fields.
-struct PackageOptions {
-    fields: Map<String, Value>,
-}
-
-impl PackageOptions {
-    fn read<T: DeserializeOwned>(
-        &mut self,
-        name: &str,
-        alias: Option<&str>,
-    ) -> anyhow::Result<Option<T>> {
-        let value = self.fields.remove(name);
-        let alias_value = alias.and_then(|alias| self.fields.remove(alias));
-        if value.is_some() && alias_value.is_some() {
-            bail!("duplicate field `{name}`");
-        }
-        let key = if value.is_some() {
-            name
-        } else {
-            alias.unwrap_or(name)
-        };
-        match value.or(alias_value) {
-            Some(value) => Option::<T>::deserialize(value)
-                .with_context(|| format!("invalid `{key}` in moon.pkg")),
-            None => Ok(None),
-        }
-    }
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {

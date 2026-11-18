@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::manifest::{
-    MoonMod, MoonModJSON, convert_module_to_mod_json,
-    read_module_desc_file_in_dir_with_legacy, write_module_dsl_to_file,
+    MoonMod, MoonModJSON, convert_module_to_mod_json, read_module_desc_file_in_dir_with_legacy,
+    write_module_dsl_to_file,
 };
 use serde_json_lenient::json;
 
@@ -30,32 +30,47 @@ fn module_formats_produce_the_same_canonical_json() {
         "warnings": "+a",
         "preferred_target": "js",
         "supported_targets": "js",
-        "rule": [{"name": "generate", "command": "echo $input"}],
+        "rule": [{"name": "generate", "command": "echo $input", "future": true}],
         "future": true,
+        "--moonbit-unstable-prebuild": "build.js",
     });
     for (name, source) in [
         ("moon.mod.json", expected.to_string()),
-        ("moon.mod.json", json!({
-            "name": "example/app",
-            "deps": {"example/dep": "1.2.3"},
-            "warn-list": "+a",
-            "preferred-target": "js",
-            "supported-targets": "js",
-            "rule": {"name": "generate", "command": "echo $input"},
-            "future": true,
-        }).to_string()),
-        ("moon.mod", r#"name = "example/app"
+        (
+            "moon.mod.json",
+            json!({
+                "name": "example/app",
+                "deps": {"example/dep": "1.2.3"},
+                "warn-list": "+a",
+                "preferred-target": "js",
+                "supported-targets": "js",
+                "rule": {"name": "generate", "command": "echo $input", "future": true},
+                "future": true,
+                "--moonbit-unstable-prebuild": "build.js",
+            })
+            .to_string(),
+        ),
+        (
+            "moon.mod",
+            r#"name = "example/app"
 import { "example/dep@1.2.3" }
 warnings = "+a"
 preferred_target = "js"
 supported_targets = "js"
-rule(name: "generate", command: "echo $input")
-options(future: true)
-"#.into()),
+rule(name: "generate", command: "echo $input", future: true)
+options(future: true, "--moonbit-unstable-prebuild": "build.js")
+"#
+            .into(),
+        ),
     ] {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(name), source).unwrap();
         let module = read_module_desc_file_in_dir_with_legacy(dir.path(), true).unwrap();
+        assert_eq!(
+            module.ext,
+            json!({"future": true}),
+            "known fields should be decoded in {name}"
+        );
         let actual = serde_json_lenient::to_value(convert_module_to_mod_json(module)).unwrap();
         assert_eq!(actual, expected, "{name}");
     }
@@ -76,9 +91,12 @@ fn canonical_module_json_round_trips_through_the_formatter() {
     });
     let manifest: MoonModJSON = serde_json_lenient::from_value(source.clone()).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    write_module_dsl_to_file(&manifest, dir.path()).unwrap();
+    write_module_dsl_to_file(&manifest, &dir.path().join("moon.mod")).unwrap();
     let module = read_module_desc_file_in_dir_with_legacy(dir.path(), false).unwrap();
-    assert_eq!(serde_json_lenient::to_value(convert_module_to_mod_json(module)).unwrap(), source);
+    assert_eq!(
+        serde_json_lenient::to_value(convert_module_to_mod_json(module)).unwrap(),
+        source
+    );
 }
 
 #[test]
@@ -103,6 +121,9 @@ fn canonical_and_legacy_json_names_cannot_both_be_set() {
         json!({"name": "example/app", "preferred_target": "js", "preferred-target": "wasm"}),
         json!({"name": "example/app", "supported_targets": "js", "supported-targets": "wasm"}),
     ] {
-        assert!(serde_json_lenient::from_value::<MoonModJSON>(source.clone()).is_err(), "accepted {source}");
+        assert!(
+            serde_json_lenient::from_value::<MoonModJSON>(source.clone()).is_err(),
+            "accepted {source}"
+        );
     }
 }

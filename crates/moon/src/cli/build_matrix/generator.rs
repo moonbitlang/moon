@@ -150,7 +150,7 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
         name: "build_matrix".to_string(),
         version: None,
         private: None,
-        deps: None,
+        import: None,
         readme: None,
         repository: None,
         license: None,
@@ -164,7 +164,7 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
         rule: None,
         ext: Default::default(),
 
-        warn_list: None,
+        warnings: None,
 
         include: None,
         exclude: None,

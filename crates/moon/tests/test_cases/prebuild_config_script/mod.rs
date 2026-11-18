@@ -639,7 +639,8 @@ fn test_unstable_prebuild_config_uses_preferred_backend() {
         let mut module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
         module.preferred_target =
             Some(moonutil::target::TargetBackend::str_to_backend(target).unwrap());
-        moonutil::manifest::write_module_dsl_to_file(&module.into(), dir.as_ref()).unwrap();
+        moonutil::manifest::write_module_dsl_to_file(&module.into(), &dir.join("moon.mod"))
+            .unwrap();
 
         let result = moon_cmd(&dir)
             .args(["build", "--release", "--dry-run"])
