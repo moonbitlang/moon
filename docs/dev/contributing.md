@@ -33,6 +33,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | Package discovery, package resolution, planning, and lowering | [`moonbuild-rupes-recta/src`](../../crates/moonbuild-rupes-recta/src/lib.rs) |
 | Build sessions, module prebuild, and standalone Wasm compilation | [`moonbuild/src/compile`](../../crates/moonbuild/src/compile) |
 | Build planning and external-input preparation | [`moonbuild/src/compile.rs`](../../crates/moonbuild/src/compile.rs) |
+| Generated package metadata model | [`moonbuild-rupes-recta/src/metadata.rs`](../../crates/moonbuild-rupes-recta/src/metadata.rs) |
 | Build metadata publication | [`moonbuild/src/metadata.rs`](../../crates/moonbuild/src/metadata.rs) |
 | Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
 | Test invocation and result reporting | [`moon/src/run/runtime.rs`](../../crates/moon/src/run/runtime.rs), [`run/runtest/report.rs`](../../crates/moon/src/run/runtest/report.rs) |

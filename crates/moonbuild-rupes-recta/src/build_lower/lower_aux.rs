@@ -24,7 +24,6 @@ use moonutil::{
         make_cc_command_resolved,
     },
     resolution::{ModuleId, ModuleSourceKind},
-    test_metadata::DriverKind,
     toolchain::BINARIES,
 };
 use tracing::{Level, instrument};
@@ -88,13 +87,6 @@ impl<'a> super::LoweringContext<'a> {
                     if *package == target.package && *target_kind == target.kind
             )
         });
-        let driver_kind = match target.kind {
-            TargetKind::Source => panic!("Source package cannot be a test driver"),
-            TargetKind::WhiteboxTest => DriverKind::Whitebox,
-            TargetKind::BlackboxTest => DriverKind::Blackbox,
-            TargetKind::InlineTest => DriverKind::Internal,
-            TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
-        };
         let pkg_full_name = package.fqn.to_string();
         let files_vec = if target.kind == TargetKind::WhiteboxTest {
             info.whitebox_files.clone()
@@ -125,7 +117,7 @@ impl<'a> super::LoweringContext<'a> {
             bench: self.opt.action == moonutil::build_options::RunMode::Bench,
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
-            driver_kind,
+            target_kind: target.kind,
             target_backend: self.opt.backend.target_backend(),
             patch_file,
             pkg_name: &pkg_full_name,

@@ -322,22 +322,27 @@ import { "example/conditional/helper" } for "test"
             backend,
             &CheckCommandMap::new(),
         );
-        let app_metadata = metadata
-            .packages
+        let metadata = serde_json::to_value(metadata).unwrap();
+        let app_metadata = metadata["packages"]
+            .as_array()
+            .unwrap()
             .iter()
-            .find(|pkg| pkg.rel == "app")
+            .find(|pkg| pkg["rel"] == "app")
             .unwrap();
-        assert_eq!(app_metadata.deps.len(), 1);
-        assert_eq!(app_metadata.deps[0].alias, "platform");
+        assert_eq!(app_metadata["deps"].as_array().unwrap().len(), 1);
+        assert_eq!(app_metadata["deps"][0]["alias"], "platform");
         assert_eq!(
-            app_metadata.deps[0].path,
+            app_metadata["deps"][0]["path"],
             format!("example/conditional/{implementation}")
         );
         assert_eq!(
-            app_metadata.wbtest_deps.len(),
+            app_metadata["wbtest-deps"].as_array().unwrap().len(),
             usize::from(backend == Native)
         );
-        assert_eq!(app_metadata.test_deps.len(), usize::from(backend == Native));
+        assert_eq!(
+            app_metadata["test-deps"].as_array().unwrap().len(),
+            usize::from(backend == Native)
+        );
     }
 }
 

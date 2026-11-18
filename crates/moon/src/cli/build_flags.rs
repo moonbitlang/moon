@@ -33,8 +33,8 @@ use moonutil::{
     constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
     features::FeatureGate,
     package::SupportedTargetsDeclKind,
+    render::DiagnosticLevel,
     target::{SurfaceTarget, TargetBackend},
-    test_metadata::DiagnosticLevel,
     user_log::UserLog,
 };
 use tracing::{Level, info, instrument};

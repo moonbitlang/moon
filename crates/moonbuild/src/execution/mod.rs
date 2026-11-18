@@ -36,9 +36,8 @@ use moonbuild_rupes_recta::{
     target_layout::GENERATED_TEST_DRIVER_PREFIX,
 };
 use moonutil::{
-    render::{DiagnosticSources, MooncDiagnostic},
+    render::{DiagnosticLevel, DiagnosticSources, MooncDiagnostic},
     target::TargetBackend,
-    test_metadata::DiagnosticLevel,
     user_log::UserLog,
 };
 use tracing::instrument;

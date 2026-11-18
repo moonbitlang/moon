@@ -122,6 +122,9 @@ Implementation-wise:
   Its execution entry points publish metadata through a private module before
   handing the graph to `moonbuild::execution`. Dry-run planning only locks when
   it runs module prebuild configuration; a dry-run session cannot execute.
+- RR's `metadata` module owns the generated package document model. Moonbuild
+  serializes and publishes it, and owns the active backend/profile selector.
+  These output formats are separate from moonutil's input manifest declarations.
 - Moon's private `cli` modules own command policy. `BuildFlags::compile_config`
   adapts command flags, while `cli::selection` owns shared package and backend
   selection. Commands select intents and metadata

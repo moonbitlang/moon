@@ -29,9 +29,16 @@ use std::{
 };
 
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
 use tracing::{Level, instrument};
 
 use crate::{BuildMeta, execution::BuildInput};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PackagesSelectorJSON {
+    backend: String,
+    opt_level: String,
+}
 
 /// Generate the backend/profile/run-mode-scoped `packages.json` document.
 ///
@@ -83,7 +90,7 @@ pub(super) fn publish_check_metadata(
     // Before the split, repeated publication made the final planned
     // backend authoritative, so retain that deterministic behavior.
     let selected = build_metas.last().expect("non-empty planned runs");
-    let selector = moonutil::manifest::PackagesSelectorJSON {
+    let selector = PackagesSelectorJSON {
         backend: selected.target_backend().to_string(),
         opt_level: selected.opt_level.as_str().to_string(),
     };
@@ -204,6 +211,18 @@ pub(super) fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<(
 
 #[cfg(test)]
 mod tests {
+    use super::PackagesSelectorJSON;
+
+    #[test]
+    fn packages_selector_json_matches_compiler_contract() {
+        let value = serde_json_lenient::to_string(&PackagesSelectorJSON {
+            backend: "wasm-gc".to_string(),
+            opt_level: "debug".to_string(),
+        })
+        .unwrap();
+        assert_eq!(value, r#"{"backend":"wasm-gc","opt_level":"debug"}"#);
+    }
+
     #[cfg(unix)]
     #[test]
     fn metadata_write_preserves_equal_files_and_replaces_changed_files() {

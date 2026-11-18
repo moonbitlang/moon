@@ -20,9 +20,9 @@
 
 use std::io::Write;
 
+use crate::test_metadata::MbtTestInfo;
 use colored::Colorize;
 use moonbuild_rupes_recta::discover::DiscoverResult;
-use moonutil::test_metadata::MbtTestInfo;
 
 use super::expect::{render_expect_fail, render_snapshot_fail};
 use super::{TestCaseResult, TestResultKind, TestStatistics};

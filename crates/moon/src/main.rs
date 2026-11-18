@@ -23,6 +23,7 @@ mod diff;
 mod dry_run;
 mod panic;
 mod run;
+mod test_metadata;
 mod watch;
 
 pub fn main() {

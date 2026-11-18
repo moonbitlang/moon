@@ -29,7 +29,7 @@ use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
     command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, project::PackageDirs,
-    resolution::ModuleId, target::TargetBackend, test_metadata::DiagnosticLevel, user_log::UserLog,
+    render::DiagnosticLevel, resolution::ModuleId, target::TargetBackend, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
