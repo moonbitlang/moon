@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Resource operations shared by Host Filesystem callers.
+//! Read and write operations in the Host Filesystem domain.
 //!
 //! Keep authorization next to the native effect. Async Host validates guest
 //! memory and owns pending-I/O lifetimes; it does not interpret file policy.
@@ -27,7 +27,8 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use super::{FsOperation, FsTarget, HostFs};
+use super::HostFs;
+use crate::filesystem::FsOperation;
 use crate::resource::Resource;
 
 impl HostFs {
@@ -45,39 +46,6 @@ impl HostFs {
     pub(crate) fn write_immediate(&self, file: &Resource, source: &[u8]) -> AsyncHostResult<usize> {
         self.authorize(FsOperation::WriteResource(file.file_grant()))?;
         crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), source)
-    }
-
-    pub(crate) fn resource_stdio_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
-        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-        super::stdio_kind(file)
-    }
-
-    pub(crate) fn resource_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
-        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-        #[cfg(unix)]
-        {
-            crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-        }
-        #[cfg(windows)]
-        {
-            if file.resource_class().is_socket() {
-                crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
-            } else {
-                crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-            }
-        }
-    }
-
-    pub(crate) fn try_lock_resource(
-        &self,
-        file: &Resource,
-        exclusive: bool,
-    ) -> AsyncHostResult<()> {
-        self.authorize(FsOperation::Lock {
-            file: file.file_grant(),
-            exclusive,
-        })?;
-        crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
     }
 
     /// Start a read whose completion is owned by Async Host.

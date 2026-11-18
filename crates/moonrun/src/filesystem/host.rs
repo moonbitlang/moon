@@ -20,16 +20,20 @@
 //! ABI adapters own descriptor rights, value conversion, and error presentation.
 //! Standard-library operations and `os` provide the filesystem mechanisms.
 
+mod io;
+
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, io};
+use std::{fs, io as std_io};
 
 #[cfg(unix)]
 use super::path::entry_before_directory_suffix;
 use super::{FsOperation, FsPath, FsTarget};
+use crate::async_host::AsyncHostResult;
 use crate::async_sys::fs::stub;
 use crate::policy::FsPolicy;
+use crate::resource::Resource;
 use crate::runtime::{Env, WorkingDirectory};
 
 /// Preserve policy denial separately from OS errors for each caller's ABI.
@@ -38,7 +42,7 @@ pub(crate) enum FsError {
     #[error("filesystem access denied by policy")]
     Denied,
     #[error(transparent)]
-    Io(#[from] io::Error),
+    Io(#[from] std_io::Error),
 }
 
 /// One source for both native open options and their authorization intent.
@@ -60,7 +64,7 @@ pub(crate) struct Directory {
 impl Directory {
     /// Runtime configuration acquires a preopen without granting guest access.
     /// HostFs still authorizes each operation using its requested effects.
-    pub(crate) fn preopen(path: &Path) -> io::Result<Self> {
+    pub(crate) fn preopen(path: &Path) -> std_io::Result<Self> {
         use super::os::{
             DirectIo,
             openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
@@ -200,6 +204,39 @@ impl HostFs {
         }
     }
 
+    pub(crate) fn resource_stdio_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
+        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+        super::stdio_kind(file)
+    }
+
+    pub(crate) fn resource_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
+        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+        #[cfg(unix)]
+        {
+            crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
+        }
+        #[cfg(windows)]
+        {
+            if file.resource_class().is_socket() {
+                crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
+            } else {
+                crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
+            }
+        }
+    }
+
+    pub(crate) fn try_lock_resource(
+        &self,
+        file: &Resource,
+        exclusive: bool,
+    ) -> AsyncHostResult<()> {
+        self.authorize(FsOperation::Lock {
+            file: file.file_grant(),
+            exclusive,
+        })?;
+        crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
+    }
+
     pub(crate) fn read_file(&self, path: &Path) -> Result<Vec<u8>, FsError> {
         self.authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::read(self.resolve_path(path.as_os_str()))?)
@@ -272,7 +309,7 @@ impl HostFs {
         if (!write && (!options.read || options.create || options.create_new || options.truncate))
             || (options.append && options.truncate && !options.create_new)
         {
-            return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
+            return Err(std_io::Error::from(std_io::ErrorKind::InvalidInput).into());
         }
         Ok(openat::open(
             Some(super::os::raw_file(&directory.file)),
