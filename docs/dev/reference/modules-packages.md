@@ -57,6 +57,12 @@ type checks, and reports remaining keys as warnings. Nested configuration keys
 are checked too. The same diagnostics apply to JSON manifests. Module diagnostics
 are retained with the parsed manifest until its role in resolution is known.
 
+Compatibility forms such as boolean/object `link` and map/list imports dispatch
+by input shape when decoding. This keeps nested unknown-field diagnostics in
+the normal deserialization path without a second parse or a separate field list.
+Prebuild entries decode both `command` and `rule` before selecting the direct
+command when both are present, so a malformed unused field is still rejected.
+
 Unknown-key warnings are emitted for input modules and their packages, and are
 suppressed for dependencies and the standard library. `--quiet` suppresses these
 warnings. Known fields with invalid types remain errors in every module, even

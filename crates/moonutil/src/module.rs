@@ -110,11 +110,20 @@ pub struct MoonModRule {
     pub command: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum MoonModJSONRules {
     Single(MoonModRule),
     Multiple(Vec<MoonModRule>),
+}
+
+impl<'de> Deserialize<'de> for MoonModJSONRules {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde_untagged::UntaggedEnumVisitor::new()
+            .map(|value| value.deserialize().map(Self::Single))
+            .seq(|value| value.deserialize().map(Self::Multiple))
+            .deserialize(deserializer)
+    }
 }
 
 impl MoonModJSONRules {

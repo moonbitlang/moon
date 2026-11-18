@@ -44,6 +44,55 @@ pub use crate::module::{
 };
 pub use crate::package::{MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind};
 
+/// Use the deserializer's accepted fields (including aliases) for diagnostics.
+/// A compiler-owned field is known when it has a typed manifest declaration,
+/// regardless of whether Moon itself lowers it to a compiler argument.
+pub(crate) fn deserialize_with_unknown_fields<
+    'de,
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+>(
+    value: D,
+    prefix: &str,
+    unknown: &mut Vec<String>,
+) -> Result<T, D::Error> {
+    serde_ignored::deserialize(value, |path| {
+        fn append(path: &serde_ignored::Path<'_>, output: &mut String) {
+            use serde_ignored::Path;
+            match path {
+                Path::Root => {}
+                Path::Map { parent, key } => {
+                    append(parent, output);
+                    if !output.is_empty() {
+                        output.push('.');
+                    }
+                    output.push_str(key);
+                }
+                Path::Seq { parent, index } => {
+                    append(parent, output);
+                    use std::fmt::Write;
+                    write!(output, "[{index}]").unwrap();
+                }
+                Path::Some { parent }
+                | Path::NewtypeStruct { parent }
+                | Path::NewtypeVariant { parent } => append(parent, output),
+            }
+        }
+        let mut field = prefix.to_owned();
+        append(&path, &mut field);
+        unknown.push(field);
+    })
+}
+
+pub(crate) fn warn_unknown_fields(unknown: &[String], manifest: &Path, user_log: &UserLog) {
+    for field in unknown {
+        user_log.warn(format!(
+            "Unknown configuration key `{field}` in `{}`.",
+            manifest.display()
+        ));
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     #[error("`source` should not contain invalid chars `{0:?}`")]
@@ -239,7 +288,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
     let mut unknown_fields = Vec::new();
     let rule = if let Some(rules) = map.remove("rule") {
         let rules: Vec<MoonModRule> =
-            crate::manifest_diagnostics::deserialize(&rules, "rule", &mut unknown_fields)?;
+            deserialize_with_unknown_fields(&rules, "rule", &mut unknown_fields)?;
         let mut names = HashSet::new();
         for rule in &rules {
             if !names.insert(rule.name.as_str()) {
@@ -337,25 +386,17 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
         kind: MoonModJSONFormatErrorKind::IO(e),
     })?;
     let mut unknown_fields = Vec::new();
-    let j = (|| -> Result<MoonModJSON, serde_json_lenient::Error> {
-        // Decode the original text to retain duplicate-field errors and locations.
-        let j = serde_json_lenient::from_str(&contents)?;
-        let value: serde_json_lenient::Value = serde_json_lenient::from_str(&contents)?;
-        if let Some(rule) = value.get("rule").filter(|value| !value.is_null()) {
-            if rule.is_array() {
-                let _: Vec<MoonModRule> =
-                    crate::manifest_diagnostics::deserialize(rule, "rule", &mut unknown_fields)?;
-            } else {
-                let _: MoonModRule =
-                    crate::manifest_diagnostics::deserialize(rule, "rule", &mut unknown_fields)?;
-            }
-        }
-        Ok(j)
-    })()
-    .map_err(|e| MoonModJSONFormatError {
-        path: path.into(),
-        kind: MoonModJSONFormatErrorKind::Parse(e),
-    })?;
+    let mut deserializer = serde_json_lenient::Deserializer::from_str(&contents);
+    let j: MoonModJSON =
+        deserialize_with_unknown_fields(&mut deserializer, "", &mut unknown_fields)
+            .and_then(|module| {
+                deserializer.end()?;
+                Ok(module)
+            })
+            .map_err(|e| MoonModJSONFormatError {
+                path: path.into(),
+                kind: MoonModJSONFormatErrorKind::Parse(e),
+            })?;
 
     if let Some(src) = &j.source {
         is_valid_folder_name(src).map_err(|e| MoonModJSONFormatError {
@@ -385,32 +426,13 @@ fn read_package_from_json_with_supported_targets_decl(
     let contents = std::fs::read_to_string(path)?;
     let mut unknown = Vec::new();
     let mut deserializer = serde_json_lenient::Deserializer::from_str(&contents);
-    let j: MoonPkgJSON =
-        crate::manifest_diagnostics::deserialize(&mut deserializer, "", &mut unknown)
-            .with_context(|| format!("Failed to parse {path:?}"))?;
+    let j: MoonPkgJSON = deserialize_with_unknown_fields(&mut deserializer, "", &mut unknown)
+        .with_context(|| format!("Failed to parse {path:?}"))?;
     deserializer.end()?;
-    // Inspect untagged object boundaries separately without losing the original
-    // typed deserializer's duplicate-field checks or error locations.
-    let value: serde_json_lenient::Value = serde_json_lenient::from_str(&contents)?;
-    let legacy_test_import_all = value
-        .get("test-import-all")
-        .map(Option::<bool>::deserialize)
-        .transpose()?
-        .flatten();
-    // TODO: Remove recognition when moonc stops reading this deprecated option.
-    unknown.retain(|key| key != "test-import-all");
-    if let Some(fields) = value.as_object() {
-        crate::manifest_diagnostics::package_untagged_fields(fields, &mut unknown)?;
-    }
     let package =
         convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings, user_log)?;
     if emit_warnings {
-        crate::manifest_diagnostics::warn(&unknown, path, user_log);
-        if legacy_test_import_all.is_some() {
-            user_log.warn(
-                "`test-import-all` in moon.pkg.json is deprecated; use explicit imports instead.",
-            );
-        }
+        warn_unknown_fields(&unknown, path, user_log);
     }
     Ok(package)
 }
@@ -458,7 +480,7 @@ pub fn warn_module_manifest(
         ManifestFormat::New => MOON_MOD,
         ManifestFormat::Legacy => MOON_MOD_JSON,
     };
-    crate::manifest_diagnostics::warn(&module.unknown_fields, &dir.join(manifest), user_log);
+    warn_unknown_fields(&module.unknown_fields, &dir.join(manifest), user_log);
     if matches!(format, ManifestFormat::Legacy) {
         return;
     }

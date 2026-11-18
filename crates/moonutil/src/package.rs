@@ -88,7 +88,7 @@ impl From<MoonPkgFormatterJSON> for MoonPkgFormatter {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum PkgJSONImport {
     /// Path and alias of an imported package
@@ -97,29 +97,63 @@ pub enum PkgJSONImport {
     List(Vec<PkgJSONImportItem>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+// Dispatch compatibility forms by shape instead of Serde's buffered untagged
+// matching. This lets the manifest decoder observe ignored nested fields.
+impl<'de> Deserialize<'de> for PkgJSONImport {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde_untagged::UntaggedEnumVisitor::new()
+            .map(|value| value.deserialize().map(Self::Map))
+            .seq(|value| value.deserialize().map(Self::List))
+            .deserialize(deserializer)
+    }
+}
+
+#[derive(Debug, Serialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum PkgJSONImportItem {
     String(String),
-    Object {
-        path: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        alias: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        #[serde(alias = "import-all")]
-        #[serde(rename(serialize = "import-all"))]
-        #[schemars(rename = "import-all")]
-        import_all: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        value: Option<Vec<String>>,
-    },
+    Object(PkgJSONImportObject),
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+pub struct PkgJSONImportObject {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "import-all")]
+    #[serde(rename(serialize = "import-all"))]
+    #[schemars(rename = "import-all")]
+    pub import_all: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<Vec<String>>,
+}
+
+impl<'de> Deserialize<'de> for PkgJSONImportItem {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde_untagged::UntaggedEnumVisitor::new()
+            .string(|value| Ok(Self::String(value.to_owned())))
+            .map(|value| value.deserialize().map(Self::Object))
+            .deserialize(deserializer)
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum BoolOrLink {
     Bool(bool),
     Link(Box<Link>),
+}
+
+impl<'de> Deserialize<'de> for BoolOrLink {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Dispatch on the input shape without buffering it, so ignored fields
+        // and duplicate fields are handled by the ordinary struct deserializer.
+        serde_untagged::UntaggedEnumVisitor::new()
+            .bool(|value| Ok(Self::Bool(value)))
+            .map(|value| value.deserialize().map(Self::Link))
+            .deserialize(deserializer)
+    }
 }
 
 impl BoolOrLink {
@@ -264,6 +298,11 @@ pub struct MoonPkgJSON {
     /// Alert options read from the manifest by moonc.
     #[serde(rename = "alert-list", skip_serializing_if = "Option::is_none")]
     pub alert_list: Option<String>,
+
+    // TODO: Remove recognition when moonc stops reading this deprecated option.
+    #[serde(rename = "test-import-all", skip_serializing)]
+    #[schemars(skip)]
+    pub legacy_test_import_all: Option<bool>,
 
     /// Whether this package participates in proof-oriented workflows.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -661,7 +700,7 @@ impl Link {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum MoonPkgGenerate {
     Direct {
@@ -674,6 +713,49 @@ pub enum MoonPkgGenerate {
         input: StringOrArray,
         output: StringOrArray,
     },
+}
+
+impl<'de> Deserialize<'de> for MoonPkgGenerate {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Both forms share one object shape. Decode every known field before
+        // selecting the command, so an unused field cannot hide a type error.
+        #[derive(Deserialize)]
+        struct Generate {
+            input: StringOrArray,
+            output: StringOrArray,
+            #[serde(default, deserialize_with = "present_string")]
+            command: Option<String>,
+            #[serde(default, deserialize_with = "present_string")]
+            rule: Option<String>,
+        }
+        fn present_string<'de, D: serde::Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<String>, D::Error> {
+            String::deserialize(deserializer).map(Some)
+        }
+        let Generate {
+            input,
+            output,
+            command,
+            rule,
+        } = Generate::deserialize(deserializer)?;
+        // Preserve the direct-command precedence when both are provided.
+        if let Some(command) = command {
+            Ok(Self::Direct {
+                input,
+                output,
+                command,
+            })
+        } else if let Some(rule) = rule {
+            Ok(Self::Rule {
+                input,
+                output,
+                rule,
+            })
+        } else {
+            Err(serde::de::Error::custom("expected `command` or `rule`"))
+        }
+    }
 }
 
 impl MoonPkgGenerate {
@@ -954,12 +1036,13 @@ fn normalize_pkg_dsl(
                 if !seen_import_keys.insert(key) {
                     bail!("Duplicate key '{key}' found in moon.pkg options.");
                 }
+                let mut unknown = Vec::new();
+                *imports = pkg_json_imports_to_imports(
+                    crate::manifest::deserialize_with_unknown_fields(&v, &k, &mut unknown)?,
+                );
                 if emit_warnings {
-                    let mut unknown = Vec::new();
-                    crate::manifest_diagnostics::import_fields(&v, &k, &mut unknown);
-                    crate::manifest_diagnostics::warn(&unknown, path, user_log);
+                    crate::manifest::warn_unknown_fields(&unknown, path, user_log);
                 }
-                *imports = pkg_json_imports_to_imports(serde_json_lenient::from_value(v)?);
             } else {
                 map.insert(k, v);
             }
@@ -1023,7 +1106,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         fields: map,
         unknown: Vec::new(),
     };
-    crate::manifest_diagnostics::package_untagged_fields(&options.fields, &mut options.unknown)?;
     // Keep explicit declarations until their conflicts have been checked.
     let name: Option<String> = options.read("name", None)?;
     let experimental: Option<bool> = options.read("experimental", None)?;
@@ -1056,7 +1138,7 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let regex_backend = options.read("regex_backend", Some("regex-backend"))?;
     if emit_warnings {
         options.unknown.extend(options.fields.keys().cloned());
-        crate::manifest_diagnostics::warn(&options.unknown, path, user_log);
+        crate::manifest::warn_unknown_fields(&options.unknown, path, user_log);
         if legacy_test_import_all.is_some() {
             user_log
                 .warn("`test-import-all` in moon.pkg is deprecated; use explicit imports instead.");
@@ -1135,8 +1217,10 @@ impl PackageOptions {
             alias.unwrap_or(name)
         };
         match value.or(alias_value) {
-            Some(value) => crate::manifest_diagnostics::deserialize(&value, key, &mut self.unknown)
-                .with_context(|| format!("invalid `{key}` in moon.pkg")),
+            Some(value) => {
+                crate::manifest::deserialize_with_unknown_fields(&value, key, &mut self.unknown)
+                    .with_context(|| format!("invalid `{key}` in moon.pkg"))
+            }
             None => Ok(None),
         }
     }
@@ -1153,12 +1237,12 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
             .into_iter()
             .map(|item| match item {
                 PkgJSONImportItem::String(path) => Import::Simple(path),
-                PkgJSONImportItem::Object {
+                PkgJSONImportItem::Object(PkgJSONImportObject {
                     path,
                     alias,
                     import_all,
                     ..
-                } => Import::from_json(path, alias, import_all.unwrap_or(false)),
+                }) => Import::from_json(path, alias, import_all.unwrap_or(false)),
             })
             .collect(),
     }
@@ -1175,6 +1259,11 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         blackbox: pkg_json_imports_to_imports(j.test_import),
     };
     if emit_warnings {
+        if j.legacy_test_import_all.is_some() {
+            user_log.warn(
+                "`test-import-all` in moon.pkg.json is deprecated; use explicit imports instead.",
+            );
+        }
         imports.warn_duplicates(user_log);
     }
 

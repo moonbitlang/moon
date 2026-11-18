@@ -132,6 +132,7 @@ options("warn-list": false)"#,
         r#"options("alert-list": false)"#,
         r#"options(link: {"wasm-gc": {"use-ffi-bytes": "true"}})"#,
         r#"options("pre-build": [{"input": "a", "output": "b", "rule": "generate", "command": 123}])"#,
+        r#"options("pre-build": [{"input": "a", "output": "b", "command": "echo", "rule": null}])"#,
     ] {
         let path = dir.path().join("moon.pkg");
         std::fs::write(&path, source).unwrap();
@@ -187,14 +188,30 @@ options(
 #[test]
 fn json_duplicate_known_fields_remain_errors() {
     let dir = tempfile::tempdir().unwrap();
-    let source = r#"{"name": "test/first", "name": "test/second"}"#;
-    let path = dir.path().join("moon.pkg.json");
-    std::fs::write(&path, source).unwrap();
     let log = UserLog::new(log::LevelFilter::Off);
-    let error =
-        read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false)
-            .unwrap_err();
-    assert!(format!("{error:#}").contains("duplicate field `name`"));
+    let path = dir.path().join("moon.pkg.json");
+    for (source, field) in [
+        (r#"{"name": "test/first", "name": "test/second"}"#, "name"),
+        (
+            r#"{"link": {"native": {"cc": "clang", "cc": "gcc"}}}"#,
+            "cc",
+        ),
+        (r#"{"import": [{"path": "a/b", "path": "c/d"}]}"#, "path"),
+        (
+            r#"{"pre-build": [{"input": "a", "output": "b", "command": "echo", "command": "other"}]}"#,
+            "command",
+        ),
+    ] {
+        std::fs::write(&path, source).unwrap();
+        let error =
+            read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false)
+                .unwrap_err();
+        assert!(
+            format!("{error:#}").contains(&format!("duplicate field `{field}`")),
+            "{error:#}"
+        );
+    }
+    let source = r#"{"name": "test/first", "name": "test/second"}"#;
     std::fs::write(dir.path().join("moon.mod.json"), source).unwrap();
     let error = read_module_manifest(dir.path(), true).unwrap_err();
     assert!(format!("{error:#}").contains("duplicate field `name`"));

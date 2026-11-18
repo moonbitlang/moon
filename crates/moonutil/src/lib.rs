@@ -37,7 +37,6 @@ pub mod features;
 pub mod front_matter;
 pub mod locks;
 pub mod manifest;
-mod manifest_diagnostics;
 mod module;
 mod moon_dir;
 pub mod moon_pkg;
