@@ -1239,6 +1239,7 @@ mod tests {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,

@@ -104,6 +104,9 @@ pub struct MoonMod {
 pub struct MoonModRule {
     pub name: String,
     pub command: String,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: serde_json_lenient::Map<String, serde_json_lenient::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

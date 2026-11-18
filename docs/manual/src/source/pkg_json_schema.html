@@ -42,6 +42,13 @@
   "description": "A package of MoonBit language",
   "type": "object",
   "properties": {
+    "alert-list": {
+      "description": "Alert options read from the manifest by moonc.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "allow-experimental-packages": {
       "description": "Acknowledge all experimental dependencies, or only the listed full package names.",
       "anyOf": [
@@ -646,6 +653,13 @@
           ]
         },
         "shared-memory": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "use-ffi-bytes": {
+          "description": "Use the compiler's FFI byte representation for WasmGC.",
           "type": [
             "boolean",
             "null"

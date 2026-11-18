@@ -34,6 +34,20 @@ recognize them report `Invalid configuration` (`E4192`); use the legacy
 are provided by the toolchain's `moonfmt`. Older formatter versions may rewrite
 direct declarations into their equivalent `options(...)` form.
 
+## Configuration diagnostics
+
+Unknown keys in `options(...)`, JSON manifests, and nested settings produce
+warnings. For example, `link.native.cc_link_flags` warns because the accepted
+spelling is `cc-link-flags`. Warnings do not stop the command and are suppressed
+by `--quiet`; unknown-key warnings in dependencies are suppressed by default.
+This applies to both module and package configuration.
+
+Known fields with incorrect types are errors, including in dependencies and
+with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a
+string. Compiler-consumed settings such as `options("alert-list": "+all")`
+and the boolean `link.wasm-gc.use-ffi-bytes` are also recognized and type-checked
+by Moon.
+
 ## Experimental packages
 
 Declare `experimental = true` at the top level of a package's `moon.pkg` to

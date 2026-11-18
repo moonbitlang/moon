@@ -20,13 +20,13 @@ use std::{
     collections::HashSet,
     ffi::OsStr,
     fs::File,
-    io::{BufReader, BufWriter},
+    io::BufWriter,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, bail};
 use indexmap::IndexMap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON},
@@ -43,6 +43,30 @@ pub use crate::module::{
     convert_module_to_mod_json,
 };
 pub use crate::package::{MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind};
+
+/// Unknown fields are captured by Serde's `flatten` on each configuration object.
+/// Format only their keys: the value of an unknown option is opaque to Moon.
+pub(crate) fn unknown_field_paths<'a>(
+    fields: &'a serde_json_lenient::Map<String, serde_json_lenient::Value>,
+    prefix: &'a str,
+) -> impl Iterator<Item = String> + 'a {
+    fields.keys().map(move |key| {
+        if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        }
+    })
+}
+
+pub(crate) fn warn_unknown_fields(unknown: &[String], manifest: &Path, user_log: &UserLog) {
+    for field in unknown {
+        user_log.warn(format!(
+            "Unknown configuration key `{field}` in `{}`.",
+            manifest.display()
+        ));
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -206,7 +230,10 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         }
     }
 
-    if let serde_json_lenient::Value::Object(options) = map.remove("options").unwrap_or_default() {
+    if let Some(options) = map.remove("options") {
+        let options =
+            serde_json_lenient::Map::<String, serde_json_lenient::Value>::deserialize(options)
+                .context("`options` in moon.mod must be an object")?;
         for (key, value) in options {
             if map.contains_key(&key) {
                 bail!("Duplicate key '{}' found in moon.mod.", key);
@@ -216,14 +243,15 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
     }
 
     if let Some(warnings) = map.remove("warnings") {
-        let warnings = match warnings {
-            serde_json_lenient::Value::String(s) => s,
-            _ => String::new(),
-        };
-        let legacy_warn_list = match map.remove("warn-list") {
-            Some(serde_json_lenient::Value::String(s)) => s,
-            _ => String::new(),
-        };
+        let warnings =
+            String::deserialize(warnings).context("`warnings` in moon.mod must be a string")?;
+        let legacy_warn_list = map
+            .remove("warn-list")
+            .map(Option::<String>::deserialize)
+            .transpose()
+            .context("`warn-list` in moon.mod must be a string")?
+            .flatten()
+            .unwrap_or_default();
         let merged = format!("{warnings}{legacy_warn_list}");
         if !merged.is_empty() {
             map.insert(
@@ -233,7 +261,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         }
     }
     let rule = if let Some(rules) = map.remove("rule") {
-        let rules: Vec<MoonModRule> = serde_json_lenient::from_value(rules)?;
+        let rules = Vec::<MoonModRule>::deserialize(rules)?;
         let mut names = HashSet::new();
         for rule in &rules {
             if !names.insert(rule.name.as_str()) {
@@ -309,8 +337,9 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
 
     let json = serde_json_lenient::Value::Object(map);
 
-    let j: MoonModJSON = serde_json_lenient::from_value(json)
+    let mut j: MoonModJSON = serde_json_lenient::from_value(json)
         .with_context(|| format!("failed to load `{}`", path.display()))?;
+    j.rule = rule.map(MoonModJSONRules::Multiple);
     validate_module_dsl_deps(j.deps.as_ref())?;
 
     if let Some(src) = &j.source {
@@ -319,19 +348,16 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
             return Err(anyhow::Error::new(SourceError::NotSubdirectory));
         }
     }
-    let mut module: MoonMod = j.try_into().map_err(anyhow::Error::new)?;
-    module.rule = rule;
-    Ok(module)
+    j.try_into().map_err(anyhow::Error::new)
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
-    let file = File::open(path).map_err(|e| MoonModJSONFormatError {
+    let contents = std::fs::read_to_string(path).map_err(|e| MoonModJSONFormatError {
         path: path.into(),
         kind: MoonModJSONFormatErrorKind::IO(e),
     })?;
-    let reader = BufReader::new(file);
     let j: MoonModJSON =
-        serde_json_lenient::from_reader(reader).map_err(|e| MoonModJSONFormatError {
+        serde_json_lenient::from_str(&contents).map_err(|e| MoonModJSONFormatError {
             path: path.into(),
             kind: MoonModJSONFormatErrorKind::Parse(e),
         })?;
@@ -359,10 +385,21 @@ fn read_package_from_json_with_supported_targets_decl(
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let j = serde_json_lenient::from_reader(reader).context(format!("Failed to parse {path:?}"))?;
-    convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings, user_log)
+    let contents = std::fs::read_to_string(path)?;
+    let j: MoonPkgJSON = serde_json_lenient::from_str(&contents)
+        .with_context(|| format!("Failed to parse {path:?}"))?;
+    let mut unknown = if emit_warnings {
+        j.consumed_unknown_fields()
+    } else {
+        Vec::new()
+    };
+    let package =
+        convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings, user_log)?;
+    if emit_warnings {
+        unknown.extend(package.0.unknown_fields());
+        warn_unknown_fields(&unknown, path, user_log);
+    }
+    Ok(package)
 }
 
 /// Reads a moon.pkg from the given path.
@@ -374,7 +411,7 @@ fn read_package_from_dsl_with_supported_targets_decl(
     let file = File::open(path)?;
     let str = std::io::read_to_string(file)?;
     let dsl = moon_pkg::parse(&str)?;
-    convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, emit_warnings, user_log)
+    convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, path, emit_warnings, user_log)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -404,6 +441,23 @@ pub fn warn_module_manifest(
     module: &MoonMod,
     user_log: &UserLog,
 ) {
+    let manifest = match format {
+        ManifestFormat::New => MOON_MOD,
+        ManifestFormat::Legacy => MOON_MOD_JSON,
+    };
+    let mut unknown: Vec<_> = module
+        .ext
+        .as_object()
+        .into_iter()
+        .flat_map(|fields| fields.keys())
+        // The resolver still diagnoses removed binary dependencies.
+        .filter(|key| key.as_str() != "bin-deps")
+        .cloned()
+        .collect();
+    for (index, rule) in module.rule.iter().flatten().enumerate() {
+        unknown.extend(unknown_field_paths(&rule.extra, &format!("rule[{index}]")));
+    }
+    warn_unknown_fields(&unknown, &dir.join(manifest), user_log);
     if matches!(format, ManifestFormat::Legacy) {
         return;
     }

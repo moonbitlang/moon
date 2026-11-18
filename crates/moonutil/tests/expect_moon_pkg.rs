@@ -111,6 +111,7 @@ fn expect_import() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -155,6 +156,7 @@ fn expect_is_main() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -203,6 +205,7 @@ fn expect_formatter() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -256,6 +259,7 @@ fn expect_supported_targets() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -300,6 +304,7 @@ fn expect_supported_targets_expr() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -342,6 +347,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -381,6 +387,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -432,6 +439,7 @@ fn expect_build() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: Some(
@@ -444,6 +452,7 @@ fn expect_build() {
                             "output1.wasm",
                         ),
                         command: "exe1 $input -o $output",
+                        extra: {},
                     },
                     Direct {
                         input: String(
@@ -453,6 +462,7 @@ fn expect_build() {
                             "output2.wasm",
                         ),
                         command: "exe2 $input -o $output",
+                        extra: {},
                     },
                 ],
             ),
@@ -502,6 +512,7 @@ fn expect_warnings() {
             warn_list: Some(
                 "+unused_variable-deprecated_syntax",
             ),
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -549,6 +560,7 @@ fn expect_supported_targets_prefers_new_config() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -664,6 +676,19 @@ fn expect_options() {
                                     "--flag2",
                                 ],
                             ),
+                            extra: {
+                                "heap_start_address": Number(100),
+                                "import_memory": Object {
+                                    "module": String("string"),
+                                    "name": String("string"),
+                                },
+                                "memory_limits": Object {
+                                    "min": Number(1),
+                                    "max": Number(10),
+                                },
+                                "shared_memory": Bool(true),
+                                "export_memory_name": String("name"),
+                            },
                         },
                     ),
                     wasm_gc: None,
@@ -678,6 +703,7 @@ fn expect_options() {
                             format: Some(
                                 ESM,
                             ),
+                            extra: {},
                         },
                     ),
                     native: Some(
@@ -697,11 +723,50 @@ fn expect_options() {
                             stub_cc_flags: None,
                             stub_cc_link_flags: None,
                             stub_lib_deps: None,
+                            extra: {
+                                "cflags": Array [
+                                    String("-flag1"),
+                                    String("-flag2"),
+                                ],
+                                "cc_link_flags": String("-flag1"),
+                                "stub_cc": String("gcc"),
+                                "stub_cflags": String("-flag2"),
+                                "stub_cc_link_flags": String("-flag1"),
+                                "stub_lib_deps": Array [
+                                    String("lib1"),
+                                    String("lib2"),
+                                ],
+                            },
                         },
                     ),
+                    extra: {
+                        "wasm_gc": Object {
+                            "exports": Array [
+                                String("f1"),
+                                String("f2"),
+                            ],
+                            "import_memory": Object {
+                                "module": String("string"),
+                                "name": String("string"),
+                            },
+                            "memory_limits": Object {
+                                "min": Number(1),
+                                "max": Number(10),
+                            },
+                            "shared_memory": Bool(true),
+                            "export_memory_name": String("name"),
+                            "flags": Array [
+                                String("--flag1"),
+                                String("--flag2"),
+                            ],
+                            "use_js_builtin_string": Bool(true),
+                            "imported_string_constants": String("string"),
+                        },
+                    },
                 },
             ),
             warn_list: None,
+            alert_list: None,
             proof_enabled: true,
             targets: Some(
                 {
@@ -780,6 +845,7 @@ fn expect_options() {
             virtual_pkg: Some(
                 VirtualPkg {
                     has_default: false,
+                    extra: {},
                 },
             ),
             implement: Some(
@@ -823,6 +889,7 @@ fn expect_max_concurrent_tests() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -869,6 +936,7 @@ fn expect_virtual_implement() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,

@@ -482,6 +482,7 @@ fn moon_mod_json_conversion_serializes_single_rule_as_object() {
     let module_json = convert_module_to_mod_json(MoonMod {
         name: "example/mod".to_string(),
         rule: Some(vec![MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "exe1".to_string(),
         }]),
@@ -518,6 +519,7 @@ fn manifest_facade_exposes_moon_mod_json_rules() {
         checksum: None,
         source: None,
         rule: Some(MoonModJSONRules::Single(MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "exe1".to_string(),
         })),
@@ -550,10 +552,12 @@ fn moon_mod_json_conversion_serializes_multiple_rules_as_array() {
         name: "example/mod".to_string(),
         rule: Some(vec![
             MoonModRule {
+                extra: Default::default(),
                 name: "rule1".to_string(),
                 command: "exe1".to_string(),
             },
             MoonModRule {
+                extra: Default::default(),
                 name: "rule2".to_string(),
                 command: "exe2".to_string(),
             },

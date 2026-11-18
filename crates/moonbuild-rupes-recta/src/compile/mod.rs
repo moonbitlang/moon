@@ -132,6 +132,7 @@ mod tests {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
@@ -211,10 +212,12 @@ mod tests {
             main.c_stub_files = vec![PathBuf::from("main/stub.c")];
             if let Some(flags) = c_flags {
                 main.raw.link = Some(moonutil::package::Link {
+                    extra: Default::default(),
                     wasm: None,
                     wasm_gc: None,
                     js: None,
                     native: Some(moonutil::package::NativeLinkConfig {
+                        extra: Default::default(),
                         exports: None,
                         cc: None,
                         cc_flags: Some(flags.into()),
@@ -494,10 +497,12 @@ mod tests {
         );
         let mut with_flags = package(module, &module_source, "with_flags", false, true);
         with_flags.raw.link = Some(moonutil::package::Link {
+            extra: Default::default(),
             wasm: None,
             wasm_gc: None,
             js: None,
             native: Some(moonutil::package::NativeLinkConfig {
+                extra: Default::default(),
                 exports: None,
                 cc: None,
                 cc_flags: Some("-fno-inline".into()),

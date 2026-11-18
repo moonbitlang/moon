@@ -102,6 +102,7 @@ pub fn f() -> Unit {{
                 );
             }
             let pkg = MoonPkgJSON {
+                extra: Default::default(),
                 name: None,
                 experimental: None,
                 allow_experimental_packages: None,
@@ -117,6 +118,8 @@ pub fn f() -> Unit {{
                 formatter: None,
                 link: None,
                 warn_list: None,
+                alert_list: None,
+                legacy_test_import_all: None,
                 proof_enabled: None,
                 targets: None,
                 pre_build: None,
@@ -205,6 +208,7 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
     }
 
     let pkg = MoonPkgJSON {
+        extra: Default::default(),
         name: None,
         experimental: None,
         allow_experimental_packages: None,
@@ -220,6 +224,8 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
         formatter: None,
         link: None,
         warn_list: None,
+        alert_list: None,
+        legacy_test_import_all: None,
         proof_enabled: None,
         targets: None,
         pre_build: None,
