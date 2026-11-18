@@ -836,6 +836,9 @@ pub enum OptLevel {
 
 #[derive(Clone)]
 pub struct CCConfig {
+    /// Request C11 for Moon-owned C sources when using an MSVC-compatible driver.
+    /// User stubs choose their standard through compiler flags instead.
+    pub msvc_c11: bool,
     // indicates -g for gcc-like compilers
     // we don't set /Zi as it will have concurrency problem
     // like multiple msvc instances race to write the same .pdb file
@@ -1411,7 +1414,7 @@ where
     add_cc_compile_only_flags(&cc, &mut buf, &config);
 
     // Compiler-specific flags
-    add_cc_msvc_specific_flags(&cc, &mut buf, has_user_flags);
+    add_cc_msvc_specific_flags(&cc, &mut buf, config.msvc_c11, has_user_flags);
     add_cc_gcc_like_specific_flags(&cc, &mut buf);
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
@@ -1494,6 +1497,7 @@ mod tests {
 
     fn executable_cc_config() -> CCConfig {
         CCConfig {
+            msvc_c11: true,
             debug_info: false,
             link_moonbitrun: false,
             link_libbacktrace: false,
@@ -2185,6 +2189,7 @@ mod tests {
         let command = make_cc_command_resolved_for_toolchain(
             &toolchain,
             CCConfig {
+                msvc_c11: true,
                 debug_info: false,
                 link_moonbitrun: false,
                 link_libbacktrace: false,
@@ -2509,6 +2514,42 @@ mod tests {
 
         assert!(command.iter().any(|flag| flag == "-O2"));
         assert!(command.iter().any(|flag| flag == "-lcustom"));
+    }
+
+    #[test]
+    fn msvc_stubs_preserve_user_standards_without_adding_defaults() {
+        let paths = CompilerPaths {
+            include_path: "include".into(),
+            lib_path: "lib".into(),
+        };
+        for kind in [CCKind::Msvc, CCKind::ClangCl] {
+            for (source, user_flags) in [
+                ("stub.c", vec![]),
+                ("stub.c", vec!["/std:c11"]),
+                ("stub.c", vec!["/std:c17"]),
+                ("stub.cpp", vec!["/std:c++20"]),
+            ] {
+                let command = make_cc_command_resolved_with_link_args(
+                    fake_cc(kind, None),
+                    CCConfig {
+                        msvc_c11: false,
+                        ..executable_cc_config()
+                    },
+                    &user_flags,
+                    &[],
+                    [source],
+                    "build",
+                    Some("build/main.exe"),
+                    &paths,
+                );
+                let standards: Vec<_> = command
+                    .iter()
+                    .filter(|arg| arg.starts_with("/std:"))
+                    .map(String::as_str)
+                    .collect();
+                assert_eq!(standards, user_flags, "{kind:?}: {command:?}");
+            }
+        }
     }
 
     #[test]

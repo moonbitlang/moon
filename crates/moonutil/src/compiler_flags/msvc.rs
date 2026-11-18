@@ -199,12 +199,19 @@ pub(super) fn add_linker_runtime<P: AsRef<Path>>(
     }
 }
 
-pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
+pub(super) fn add_cc_specific_flags(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    c11: bool,
+    has_user_flags: bool,
+) {
     if !cc.uses_msvc_cli() {
         return;
     }
 
-    buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
+    if c11 {
+        buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
+    }
     // Large generated C files can exceed the default COFF section limit.
     buf.push("/bigobj".to_string());
 

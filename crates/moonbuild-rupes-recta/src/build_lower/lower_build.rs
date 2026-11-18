@@ -933,6 +933,7 @@ impl<'a> LoweringContext<'a> {
         });
 
         let config = CCConfig {
+            msvc_c11: false,
             debug_info: info.debug_info,
             link_moonbitrun: true,
             link_libbacktrace: false,
@@ -1092,6 +1093,7 @@ impl<'a> LoweringContext<'a> {
         // Compile with the settings an executable link would use for the
         // same generated C, so the object matches the runtime it links with.
         let config = CCConfig {
+            msvc_c11: true,
             debug_info: info.c_debug_info,
             link_moonbitrun: true,
             link_libbacktrace: false,

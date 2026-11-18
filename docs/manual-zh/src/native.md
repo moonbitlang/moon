@@ -12,6 +12,13 @@
 Windows 的新 native 后端要求兼容 `cl` 的 MSVC 工具链，例如 `cl.exe` 或
 `clang-cl.exe`，用于编译运行时、C stub 和链接可执行文件。
 
+## Native stub 语言标准
+
+Native stub 默认使用编译器的语言标准。可通过 `link.native.stub-cc-flags`
+显式选择，例如 MSVC 兼容编译器的 `/std:c11` 或 `/std:c++20`。这些参数适用于
+包内所有 stub。此前依赖 Moon 自动添加 `/std:c11` 的 C stub，现在需要自行
+指定；Moon 生成的 C 和运行时源码仍使用 C11。
+
 ## C 编译缓存
 
 通过 `MOON_CC_WRAPPER` 使用 ccache、sccache 等编译缓存工具：

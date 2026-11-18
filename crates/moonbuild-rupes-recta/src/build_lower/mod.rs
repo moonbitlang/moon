@@ -842,9 +842,10 @@ mod tests {
                 .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
         );
         assert!(
-            stub_compile_command
+            !stub_compile_command
                 .iter()
-                .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_C_STANDARD_FLAG)
+                .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_C_STANDARD_FLAG),
+            "user stubs choose their own language standard"
         );
 
         let moonc_inputs = input_paths_for_command(&lowered, |command| {

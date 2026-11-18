@@ -2,14 +2,46 @@
 use std::process::Command;
 
 #[cfg(not(windows))]
-use crate::{TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs};
+use crate::{
+    TestDir, get_err_stderr_with_envs, get_stderr_with_envs, get_stdout_with_envs, moon_cmd,
+};
 #[cfg(windows)]
-use crate::{TestDir, get_stdout_with_envs};
+use crate::{TestDir, get_stdout_with_envs, moon_cmd};
 #[cfg(unix)]
 use expect_test::expect_file;
 
 #[cfg(unix)]
 use super::unix_graph::assert_native_backend_graph;
+
+#[test]
+fn cpp_stubs_use_the_user_selected_standard() {
+    let compilers: &[&str] = if cfg!(windows) {
+        &["cl", "clang-cl"]
+    } else {
+        &["clang"]
+    };
+    for compiler in compilers {
+        if *compiler == "clang-cl" && which::which(compiler).is_err() {
+            assert!(std::env::var_os("CI").is_none(), "clang-cl missing in CI");
+            eprintln!("skipping C++ stub test for unavailable clang-cl");
+            continue;
+        }
+        let dir = TestDir::new("native_backend/msvc_cpp_stubs");
+        if !cfg!(windows) {
+            let manifest = std::fs::read_to_string(dir.join("moon.pkg")).unwrap();
+            std::fs::write(dir.join("moon.pkg"), manifest.replace("/std:", "-std=")).unwrap();
+        }
+        // The stub uses C++20 consteval. MSVC rejects adding /std:c11 to this command.
+        moon_cmd(&dir)
+            .env("MOON_CC", compiler)
+            .env_remove("MOON_AR")
+            .env_remove("MOON_CC_WRAPPER")
+            .args(["run", ".", "--target", "native"])
+            .assert()
+            .success()
+            .stdout_eq("42\n");
+    }
+}
 
 #[cfg(windows)]
 fn link_commands_with_compiler(output: &str, compiler_path: &str) -> Vec<String> {

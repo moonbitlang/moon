@@ -14,6 +14,15 @@ On Windows, the new native backend requires a cl-compatible MSVC toolchain,
 such as `cl.exe` or `clang-cl.exe`, to compile the runtime and C stubs and link
 the executable.
 
+## Native stub language standards
+
+Native stubs use the compiler's default language standard. Set
+`link.native.stub-cc-flags` to choose a standard explicitly, such as `/std:c11`
+for C11 or `/std:c++20` for C++20 with MSVC-compatible compilers. These flags
+apply to all stubs in the package. C stubs that previously relied on Moon adding
+`/std:c11` must now specify it themselves. Moon-generated C and runtime sources
+continue to use C11 with MSVC-compatible compilers.
+
 ## C compiler caching
 
 Set `MOON_CC_WRAPPER` to use a compiler cache such as ccache or sccache:

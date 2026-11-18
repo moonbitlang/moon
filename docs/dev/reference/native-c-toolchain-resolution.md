@@ -141,6 +141,18 @@ do not enable it.
 
 This is why Moon needs both a compiler driver and an archiver.
 
+## Native stub language standards
+
+Native stubs use the selected compiler's default language standard unless the
+package sets one through `link.native.stub-cc-flags`. For example, C stubs that
+need C11 with MSVC can specify `/std:c11`; C++ stubs can specify `/std:c++20`.
+These flags apply to every stub in the package, with source language selection
+left to the compiler. Build variables expand before shell-style argument splitting.
+
+Moon requests `/std:c11` for its generated C and runtime sources when using
+`cl` or `clang-cl`. User stubs control their own standard, avoiding conflicts
+between Moon's C11 setting and an explicitly requested C++ standard.
+
 ## Debug information and optimization
 
 Generated C relies on wrapping signed integer addition, subtraction, and
@@ -498,9 +510,10 @@ the script's responsibility and must match the selected driver.
 ### Compile
 
 `make_cc_command*` uses `cc_path` for compile steps (`-c` or `/c`) and backend-specific flags.
-MSVC-style compile commands pass `/std:c11` and `/bigobj`. The latter raises the
-object-file section limit for large generated C files. Both flags apply to
-generated C, C stubs, and runtime C, including when user compiler flags are set.
+MSVC-style compilation of Moon-generated C and runtime sources uses `/std:c11`.
+All MSVC-style compile commands pass `/bigobj`, which raises the
+object-file section limit for large generated C files. `/bigobj` applies to
+generated C, user stubs, and runtime C, including when user compiler flags are set.
 For TCC on macOS, Moon also passes the active SDK `usr/lib` path reported by
 `xcrun --sdk macosx --show-sdk-path` when it resolves to an existing directory.
 If `xcrun` is missing or returns an unusable path, Moon omits the extra `-L` flag instead of
