@@ -106,9 +106,41 @@ pub struct MoonModJSONFormatError {
     kind: MoonModJSONFormatErrorKind,
 }
 
-// TODO: Remove this adapter once moonfmt's mod_json input accepts canonical
-// module JSON names and rule arrays. Its current protocol uses legacy names and
-// repeated top-level rule keys; public JSON uses one rule array.
+// User-authored JSON and existing tools use the historical field names.
+// Keep this conversion at output boundaries; MoonModJSON serialization is internal.
+fn legacy_module_json(m: &MoonModJSON) -> serde_json_lenient::Result<Map<String, Value>> {
+    let Value::Object(fields) = serde_json_lenient::to_value(m)? else {
+        unreachable!("MoonModJSON should serialize to an object");
+    };
+    let mut fields: Map<String, Value> = fields
+        .into_iter()
+        .map(|(key, value)| {
+            let key = match key.as_str() {
+                "import" => "deps".into(),
+                "warnings" => "warn-list".into(),
+                "preferred_target" => "preferred-target".into(),
+                "supported_targets" => "supported-targets".into(),
+                _ => key,
+            };
+            (key, value)
+        })
+        .collect();
+    if let Some(Value::Array(mut rules)) = fields.remove("rule") {
+        match rules.len() {
+            0 => {}
+            1 => {
+                fields.insert("rule".into(), rules.pop().unwrap());
+            }
+            _ => {
+                fields.insert("rule".into(), Value::Array(rules));
+            }
+        }
+    }
+    Ok(fields)
+}
+
+// moonfmt's mod_json protocol represents multiple rules as repeated keys.
+// TODO: Remove this wrapper if the supported moonfmt versions accept rule arrays.
 struct MoonfmtModJsonInput<'a>(&'a MoonModJSON);
 
 impl Serialize for MoonfmtModJsonInput<'_> {
@@ -118,26 +150,20 @@ impl Serialize for MoonfmtModJsonInput<'_> {
     {
         use serde::ser::{Error, SerializeMap};
 
-        let mut value = serde_json_lenient::to_value(self.0).map_err(Error::custom)?;
-        let serde_json_lenient::Value::Object(map) = &mut value else {
-            unreachable!("MoonModJSON should serialize to an object");
-        };
+        let mut map = legacy_module_json(self.0).map_err(Error::custom)?;
         let rules = map.remove("rule");
         let mut output = serializer.serialize_map(None)?;
         for (key, value) in map.iter() {
-            let key = match key.as_str() {
-                "import" => "deps",
-                "warnings" => "warn-list",
-                "preferred_target" => "preferred-target",
-                "supported_targets" => "supported-targets",
-                key => key,
-            };
             output.serialize_entry(key, value)?;
         }
-        if let Some(Value::Array(rules)) = rules {
-            for rule in rules {
-                output.serialize_entry("rule", &rule)?;
+        match rules {
+            Some(Value::Array(rules)) => {
+                for rule in rules {
+                    output.serialize_entry("rule", &rule)?;
+                }
             }
+            Some(rule) => output.serialize_entry("rule", &rule)?,
+            None => {}
         }
         output.end()
     }
@@ -477,11 +503,13 @@ pub fn warn_known_shadowed_manifest(
         ));
 }
 
+/// Write a module manifest in the user-facing legacy JSON format.
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
+    let json = legacy_module_json(m)?;
     let p = source_dir.join(MOON_MOD_JSON);
     let file = File::create(p)?;
     let mut writer = BufWriter::new(file);
-    serde_json_lenient::to_writer_pretty(&mut writer, &m)?;
+    serde_json_lenient::to_writer_pretty(&mut writer, &json)?;
     Ok(())
 }
 

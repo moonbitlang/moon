@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "JSON schema for MoonBit moon.mod.json files",
-  "description": "A module of MoonBit lang",
+  "title": "Internal normalized module JSON",
+  "description": "Unstable internal representation; not a user manifest format or a compatibility promise",
   "type": "object",
   "required": [
     "name"

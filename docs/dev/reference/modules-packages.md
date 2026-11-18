@@ -53,14 +53,21 @@ the module constraints, supported targets must be valid, and rule names must be
 unique. DSL-specific dependency restrictions and declaration precedence are
 handled by the DSL decoder.
 
-Canonical module JSON uses `import` for the dependency map, `warnings`,
-`preferred_target`, `supported_targets`, and an array of `rule` objects. The legacy
-`deps`, `warn-list`, `preferred-target`, and `supported-targets` names are input
-aliases; supplying both a canonical name and its alias is an error. A single
-legacy `rule` object is accepted on input and serialized as a one-element array.
-JSON schema describes the canonical output. The formatter adapter supplies the
-legacy names and repeated rule keys required by the current moonfmt protocol;
-`moon fmt`, including `--check` and `--warn`, uses this adapter for module JSON.
+Supported user inputs are the DSL and legacy JSON. Legacy module JSON uses
+`deps`, `warn-list`, `preferred-target`, and `supported-targets`; `rule` accepts
+an object or an array, with unique rule names. Commands that update a JSON
+manifest retain this format.
+
+`MoonModJSON` serializes an internal normalized representation using `import`,
+`warnings`, `preferred_target`, `supported_targets`, and a `rule` array. Its
+schema documents that representation for maintenance; neither is a stable user
+input or interoperability contract. The decoder's aliases incidentally accept
+normalized names, but that does not promise support for normalized JSON inputs
+or mixtures of legacy and normalized fields.
+
+Output boundaries translate normalized fields back to legacy names. The
+formatter adapter additionally supplies repeated rule keys required by moonfmt;
+`moon fmt`, including `--check` and `--warn`, uses it for module JSON migration.
 
 `moon.pkg` is parsed into ordered DSL entries and converted directly to the
 `MoonPkg` package model. The DSL keeps JSON-shaped values for decoding individual

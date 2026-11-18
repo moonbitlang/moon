@@ -18,12 +18,12 @@
 
 use moonutil::manifest::{
     MoonMod, MoonModJSON, convert_module_to_mod_json, read_module_desc_file_in_dir_with_legacy,
-    write_module_dsl_to_file,
+    write_module_dsl_to_file, write_module_json_to_file,
 };
 use serde_json_lenient::json;
 
 #[test]
-fn module_formats_produce_the_same_canonical_json() {
+fn legacy_json_and_dsl_have_the_same_normalized_representation() {
     let expected = json!({
         "name": "example/app",
         "import": {"example/dep": "1.2.3"},
@@ -35,7 +35,6 @@ fn module_formats_produce_the_same_canonical_json() {
         "--moonbit-unstable-prebuild": "build.js",
     });
     for (name, source) in [
-        ("moon.mod.json", expected.to_string()),
         (
             "moon.mod.json",
             json!({
@@ -77,25 +76,26 @@ options(future: true, "--moonbit-unstable-prebuild": "build.js")
 }
 
 #[test]
-fn canonical_module_json_round_trips_through_the_formatter() {
+fn legacy_module_json_round_trips_through_the_formatter() {
     let source = json!({
         "name": "example/app",
-        "import": {"example/dep": "1.2.3"},
-        "warnings": "+a",
-        "preferred_target": "js",
-        "supported_targets": "js",
+        "deps": {"example/dep": "1.2.3"},
+        "warn-list": "+a",
+        "preferred-target": "js",
+        "supported-targets": "js",
         "rule": [
             {"name": "first", "command": "echo first"},
             {"name": "second", "command": "echo second"},
         ],
     });
-    let manifest: MoonModJSON = serde_json_lenient::from_value(source.clone()).unwrap();
+    let manifest: MoonModJSON = serde_json_lenient::from_value(source).unwrap();
+    let normalized = serde_json_lenient::to_value(&manifest).unwrap();
     let dir = tempfile::tempdir().unwrap();
     write_module_dsl_to_file(&manifest, &dir.path().join("moon.mod")).unwrap();
     let module = read_module_desc_file_in_dir_with_legacy(dir.path(), false).unwrap();
     assert_eq!(
         serde_json_lenient::to_value(convert_module_to_mod_json(module)).unwrap(),
-        source
+        normalized
     );
 }
 
@@ -114,16 +114,36 @@ fn json_conversion_checks_module_constraints() {
 }
 
 #[test]
-fn canonical_and_legacy_json_names_cannot_both_be_set() {
-    for source in [
-        json!({"name": "example/app", "import": {}, "deps": {}}),
-        json!({"name": "example/app", "warnings": "+a", "warn-list": "-a"}),
-        json!({"name": "example/app", "preferred_target": "js", "preferred-target": "wasm"}),
-        json!({"name": "example/app", "supported_targets": "js", "supported-targets": "wasm"}),
+fn writing_module_json_preserves_the_legacy_format() {
+    let rule = json!({"name": "generate", "command": "echo $input", "future": true});
+    for rules in [
+        None,
+        Some(rule.clone()),
+        Some(json!([rule, {
+            "name": "second", "command": "echo second"
+        }])),
     ] {
-        assert!(
-            serde_json_lenient::from_value::<MoonModJSON>(source.clone()).is_err(),
-            "accepted {source}"
-        );
+        let mut source = json!({
+            "name": "example/app",
+            "deps": {"example/dep": {"path": "../dep", "version": "1.2.3"}},
+            "warn-list": "+a",
+            "preferred-target": "js",
+            "supported-targets": "js",
+            "future": true,
+        });
+        if let Some(rules) = rules {
+            source["rule"] = rules;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("moon.mod.json");
+        std::fs::write(&path, source.to_string()).unwrap();
+
+        // The shared writer used by dependency edits must preserve the user's
+        // JSON format even though the intermediate model serializes differently.
+        let module = read_module_desc_file_in_dir_with_legacy(dir.path(), true).unwrap();
+        write_module_json_to_file(&module.into(), dir.path()).unwrap();
+        let written: serde_json_lenient::Value =
+            serde_json_lenient::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(written, source);
     }
 }

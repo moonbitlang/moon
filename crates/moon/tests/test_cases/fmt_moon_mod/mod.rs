@@ -188,13 +188,13 @@ warnings = "+w1-w2""#
 }
 
 #[test]
-fn test_fmt_canonical_module_json_preserves_imports_and_rules() {
+fn test_fmt_legacy_module_json_preserves_imports_and_rules() {
     let dir = TestDir::new("fmt_moon_mod.in");
     let source = r#"{
-  "name": "test/canonical_module",
-  "import": {"example/dep": "0.1.0"},
-  "warnings": "+w1-w2",
-  "supported_targets": "wasm-gc",
+  "name": "test/legacy_module",
+  "deps": {"example/dep": "0.1.0"},
+  "warn-list": "+w1-w2",
+  "supported-targets": "wasm-gc",
   "rule": [
     {"name": "first", "command": "echo first"},
     {"name": "second", "command": "echo second"}

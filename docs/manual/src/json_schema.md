@@ -2,30 +2,27 @@
 
 ## moon.mod.json
 
-The canonical JSON representation uses the same field names as the corresponding
-module declarations. `import` maps module names to dependency specifications;
-`rule` is an array even when it contains only one rule.
+Supported user configuration formats are the legacy JSON format and the
+`moon.mod` DSL. Legacy JSON keeps its existing field names:
 
 ```json
 {
   "name": "example/app",
-  "import": { "example/dep": "1.2.3" },
-  "warnings": "+a",
-  "preferred_target": "js",
-  "supported_targets": "js",
-  "rule": [
-    { "name": "generate", "command": "generator $input -o $output" }
-  ]
+  "deps": { "example/dep": "1.2.3" },
+  "warn-list": "+a",
+  "preferred-target": "js",
+  "supported-targets": "js"
 }
 ```
 
-The reader also accepts the legacy names `deps`, `warn-list`, `preferred-target`,
-and `supported-targets`, and the legacy single-object `rule` form. Serialization
-uses the canonical names and rule array. A canonical name and its legacy alias
-cannot both be set, and rule names must be unique.
+Commands that update a JSON manifest retain this format. `moon fmt` migrates it
+to `moon.mod`; `--check` and `--warn` preserve the input files.
 
-Project builds use `moon.mod`. `moon fmt` migrates either JSON spelling to that
-format; `--check` and `--warn` preserve the input files.
+### Internal normalized representation
+
+The schema below describes Moon's internal normalized JSON representation for
+maintenance. It is not a schema for user-authored `moon.mod.json` files and does
+not establish a supported input format or a stable JSON export API.
 
 <iframe src="source/mod_json_schema.html" width="100%" height="500px" frameborder="0"></iframe>
 
