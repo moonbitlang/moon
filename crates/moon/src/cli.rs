@@ -32,6 +32,7 @@ pub(crate) mod fetch;
 pub(crate) mod fix;
 pub(crate) mod fmt;
 pub(crate) mod generate_test_driver;
+mod generated_mbti;
 pub(crate) mod info;
 pub(crate) mod install_binary;
 pub(crate) mod invocation;

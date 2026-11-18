@@ -26,7 +26,6 @@ use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
 use crate::filter::{BackendPlanSelection, TargetPackageGroup};
-use crate::rr_build;
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
@@ -41,7 +40,7 @@ use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildTarget;
-use moonbuild_rupes_recta::model::PackageId;
+use moonbuild_rupes_recta::model::{PackageId, TargetKind};
 use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
@@ -147,12 +146,11 @@ impl ResolvedTestSelection {
                             } else {
                                 None
                             };
-                            rr_build::build_patch_directive_for_package(
+                            crate::build_flags::build_patch_directive_for_package(
                                 *pkg_id,
-                                false,
                                 trace_pkg,
                                 cmd.patch_file.as_deref(),
-                                true,
+                                TargetKind::InlineTest,
                             )
                             .context("failed to build input directive")?
                         } else {
@@ -563,11 +561,11 @@ fn run_test_in_single_file_rr(
         user_log,
     )?;
     let target_backends =
-        rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
+        crate::filter::single_file_target_backends(&discovered, &targets, backend, user_log);
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
-    let pkg = rr_build::local_packages(&resolved)
+    let pkg = crate::filter::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
 
@@ -593,17 +591,18 @@ fn run_test_in_single_file_rr(
     let planned_runs = target_backends
         .into_iter()
         .map(|target_backend| {
-            let compile_config = rr_build::prepare_resolved_build(
+            let compile_config = build_flags.compile_config(
                 cli,
-                &build_flags,
                 target_backend,
                 target_dir,
                 RunMode::Test,
                 user_log,
                 &resolved,
             )?;
-            let directive =
-                rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
+            let directive = InputDirective {
+                value_tracing: trace_pkg,
+                ..Default::default()
+            };
             let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
             let (build_meta, build_graph) = session.plan(
                 compile_config,
@@ -787,7 +786,7 @@ fn select_test_plans(
     let selections = resolve_test_target_selections(discovered, cmd, user_log)?;
     if selections.is_empty() {
         return Ok(vec![BackendPlanSelection::command_selector(
-            rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+            crate::filter::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
         )]);
     }
     Ok(selections.into_iter().map(Into::into).collect())
@@ -807,9 +806,8 @@ fn plan_test_or_bench_rr_from_intent(
 ) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
     let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
 
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = build_flags.compile_config(
         cli,
-        &build_flags,
         target_backend,
         target_dir,
         if cmd.run_mode == RunMode::Bench {
@@ -915,7 +913,7 @@ pub(crate) fn sync_and_discover_test_or_bench_project(
         cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
-    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
+    moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -1015,7 +1013,9 @@ fn run_test_workflow(
     let build_graph = BuildInput::compose(build_inputs)?;
 
     if cli.dry_run {
-        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
+        output.write_result(|writer| {
+            crate::dry_run::write_dry_run(writer, &build_graph, source_dir)
+        })?;
         // Test command lines depend on generated metadata, which dry-run does
         // not materialize. Profile dry-run therefore also stops at the build graph.
         return Ok(0);
@@ -1284,9 +1284,13 @@ fn apply_list_of_filters(
         // Currently, value tracing is only supported for single package testing
         // It's not sure whether we should support it for multiple packages
         let trace_pkg = if value_tracing { Some(pkg_id) } else { None };
-        input_directive =
-            rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file, true)
-                .context("failed to build input directive")?;
+        input_directive = crate::build_flags::build_patch_directive_for_package(
+            pkg_id,
+            trace_pkg,
+            patch_file,
+            TargetKind::InlineTest,
+        )
+        .context("failed to build input directive")?;
     } else if filtered_package_ids.len() > 1 {
         let package_names = || {
             filtered_package_ids
@@ -1339,7 +1343,7 @@ fn calc_user_intent(
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
 ) -> Result<BuildRequest, anyhow::Error> {
-    let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
+    let all_affected_packages: Vec<_> = crate::filter::local_packages(discovered).collect();
     calc_user_intent_from_packages(
         discovered,
         cmd,
@@ -1594,13 +1598,13 @@ fn resolve_selected_test_packages(
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
+        let all_affected_packages: Vec<_> = crate::filter::local_packages(discovered).collect();
         return Ok(
             match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
         );
     }
 
-    Ok(rr_build::local_packages(discovered).collect())
+    Ok(crate::filter::local_packages(discovered).collect())
 }
 
 fn validate_original_package_selection_filters(
@@ -1621,7 +1625,7 @@ fn validate_original_package_selection_filters(
 
     let matched_packages = match_packages_with_fuzzy(
         discovered,
-        rr_build::local_packages(discovered),
+        crate::filter::local_packages(discovered),
         package_filter,
     )
     .matched;

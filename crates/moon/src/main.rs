@@ -20,9 +20,9 @@
 
 mod build_flags;
 mod cli;
+mod dry_run;
 mod filter;
 mod panic;
-pub mod rr_build;
 mod run;
 #[cfg(test)]
 mod tests;

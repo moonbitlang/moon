@@ -21,7 +21,8 @@
 mod single_file;
 pub use single_file::discover_single_file_project;
 
-use moonbuild_rupes_recta::{DiscoveryConfig, resolve::ProjectResolutionError};
+use anyhow::Context;
+use moonbuild_rupes_recta::{DiscoveredProject, DiscoveryConfig, resolve::ProjectResolutionError};
 use mooncake::pkg::sync::{SyncOutputOptions, auto_sync};
 use moonutil::{
     cache::CacheRoot,
@@ -137,4 +138,25 @@ pub fn sync_module_dependencies(
     debug!("Resolved {} modules", module_graph.module_count());
 
     Ok((module_graph, dir_sync_result))
+}
+
+/// Synchronize module dependencies and discover packages.
+/// This step does not acquire the target-directory lock.
+pub fn sync_and_discover_project(
+    preparation_config: &ProjectPreparationConfig,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<DiscoveredProject> {
+    std::fs::create_dir_all(&dirs.target_dir).with_context(|| {
+        format!(
+            "Failed to create target directory: '{}'",
+            dirs.target_dir.display()
+        )
+    })?;
+    let synced_modules = sync_module_dependencies(preparation_config, dirs, user_log)?;
+    Ok(moonbuild_rupes_recta::discover_synced_project(
+        &preparation_config.discovery,
+        synced_modules,
+        user_log,
+    )?)
 }

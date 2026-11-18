@@ -38,12 +38,9 @@ use moonutil::{
 };
 use tracing::instrument;
 
-use crate::{
-    cli::{
-        BuildSubcommand,
-        process::{self, ProcessAction},
-    },
-    rr_build::{self},
+use crate::cli::{
+    BuildSubcommand,
+    process::{self, ProcessAction},
 };
 
 use super::{BuildFlags, UniversalFlags};
@@ -153,7 +150,8 @@ fn run_cram_test(
         cli.workspace_env.clone(),
     )
     .with_jobs(build_cmd.build_flags.jobs);
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
     let planned_runs = crate::cli::plan_build_rr_from_discovered(
@@ -170,7 +168,7 @@ fn run_cram_test(
     if cli.dry_run {
         output.write_result(|writer| {
             for (_, build_graph) in &planned_runs {
-                rr_build::write_dry_run(writer, build_graph, source_dir)?;
+                crate::dry_run::write_dry_run(writer, build_graph, source_dir)?;
             }
             write_dry_run_cram_command(
                 writer,

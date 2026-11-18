@@ -29,7 +29,7 @@ use moonbuild_rupes_recta::{DiscoveredProject, build_plan::ArtifactKey, model::P
 use moonutil::constants::MBTI_GENERATED;
 
 /// The source-tree path that a package's generated interface is published to.
-pub(crate) fn generated_mbti_dest(discovered: &DiscoveredProject, package: PackageId) -> PathBuf {
+pub(super) fn generated_mbti_dest(discovered: &DiscoveredProject, package: PackageId) -> PathBuf {
     discovered
         .pkg_dirs
         .get_package(package)
@@ -38,7 +38,7 @@ pub(crate) fn generated_mbti_dest(discovered: &DiscoveredProject, package: Packa
 }
 
 /// The generated `.mbti` artifacts planned by a build, with their packages.
-pub(crate) fn generated_mbti_artifacts(
+pub(super) fn generated_mbti_artifacts(
     meta: &BuildMeta,
 ) -> impl Iterator<Item = (PackageId, &Path)> {
     meta.artifacts.iter().filter_map(|(artifact, paths)| {

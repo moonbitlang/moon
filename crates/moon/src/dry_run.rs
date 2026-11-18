@@ -214,7 +214,7 @@ fn ordered_actions<'a>(
 /// Format a command as it would be executed, with the proper escaping.
 ///
 /// This also replaces paths like [`write_dry_run`] does.
-pub fn format_dry_run_command(cmd: &Command, source_dir: &Path) -> String {
+pub(crate) fn format_dry_run_command(cmd: &Command, source_dir: &Path) -> String {
     let replacer = PathNormalizer::new(source_dir);
 
     let args =

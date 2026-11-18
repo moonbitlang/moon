@@ -122,9 +122,9 @@ Implementation-wise:
   Its execution entry points publish metadata through a private module before
   handing the graph to `moonbuild::execution`. Dry-run planning only locks when
   it runs module prebuild configuration; a dry-run session cannot execute.
-- [Moon's `rr_build` module][moon_rr_build] adapts command flags and intents.
-  Commands select packages, backends, and metadata requirements, and keep the
-  session alive while consuming build outputs. Run and test commands release
+- Moon's `BuildFlags::compile_config` adapts command flags, while `filter`
+  owns package and backend selection. Commands select intents and metadata
+  requirements, and keep the session alive while consuming build outputs. Run and test commands release
   it before launching user programs; test promotion and its partial rebuild
   share a new session. Standalone Wasm callers use
   `moonbuild::compile::build_standalone_wasm` without constructing CLI arguments.
@@ -141,7 +141,6 @@ Implementation-wise:
     The "subset of command" is frequently just all commands within the build graph.
     These limit the ability for it to precisely (or sometimes, correctly) determine the commands to run.
 
-[moon_rr_build]: /crates/moon/src/rr_build/mod.rs
 [rr_home]: /crates/moonbuild-rupes-recta/src/lib.rs
 [n2]: https://github.com/moonbitlang/n2
 
@@ -232,12 +231,12 @@ Toolchain and host facts follow the same rule. `moonutil::toolchain` owns facts
 about the selected MoonBit toolchain tree, including known tool binaries and
 the shipped standard-library artifact layout. Command orchestration decides
 whether those facts apply to the current build, then passes the selected facts
-forward. In particular, `rr_build` chooses `stdlib_path` from `!is_core`;
+forward. In particular, `moonbuild::compile` chooses `stdlib_path` from `!is_core`;
 RR lowering, metadata generation, and `all_pkgs.json` generation
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
 not need to be eager: non-native builds do not resolve native-only OS/toolchain
-details. `rr_build` captures OS and compiler paths only for Native and LLVM,
+details. `moonbuild::compile` captures OS and compiler paths only for Native and LLVM,
 and stores them in the selected backend variant of `CompileConfig`. Planning
 and lowering borrow that same configuration, so planning can select optional
 runtime members such as SIMDUTF objects and lowering can consume the same paths
@@ -252,7 +251,7 @@ observe the include tree. This preparation uses the existing compiler paths;
 it does not select another toolchain or rebuild the plan.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
-configuration scripts run, `rr_build` captures the process environment
+configuration scripts run, `moonbuild::compile` captures the process environment
 explicitly and passes it to prebuild execution. Commands that skip prebuild
 configuration, such as `check`, should not capture that environment just to
 construct a build plan. This does not disable package pre-build rules.

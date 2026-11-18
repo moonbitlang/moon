@@ -16,15 +16,28 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::{collections::BTreeSet, path::Path};
+
 use anyhow::bail;
 use moonbuild::execution::{BuildConfig, OutputStyle};
-use moonutil::features::FeatureGate;
+use moonbuild_rupes_recta::{
+    CompileConfig, DiscoveredProject, ResolvedProject,
+    build_lower::WarningCondition,
+    build_plan::InputDirective,
+    model::{DebugInfoRequest, DebugSymbols, PackageId, TargetKind},
+};
 use moonutil::{
     build_options::RunMode,
+    cli_support::UniversalFlags,
     cond_expr::OptLevel as BuildProfile,
+    constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
+    features::FeatureGate,
+    package::SupportedTargetsDeclKind,
     target::{SurfaceTarget, TargetBackend},
     test_metadata::DiagnosticLevel,
+    user_log::UserLog,
 };
+use tracing::{Level, info, instrument};
 
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildFlags {
@@ -118,6 +131,97 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
+    /// Construct the final configuration for a resolved project and its selected backend.
+    ///
+    /// Commands select the Target Backend before package resolution. CLI policy is
+    /// resolved here while both the original flags and that backend are available;
+    /// RR receives one completed configuration with no CLI parsing types.
+    #[instrument(level = Level::DEBUG, skip_all)]
+    pub(crate) fn compile_config(
+        &self,
+        cli: &UniversalFlags,
+        target_backend: TargetBackend,
+        target_dir: &Path,
+        action: RunMode,
+        user_log: &UserLog,
+        resolved_project: &ResolvedProject,
+    ) -> anyhow::Result<CompileConfig> {
+        // A couple of debug things:
+        if cli.unstable_feature.rr_export_module_graph {
+            info!("Exporting module graph DOT file");
+            moonbuild_rupes_recta::util::print_module_graph_dot(
+                &resolved_project.module_graph,
+                &mut std::fs::File::create(target_dir.join("module_graph.dot"))?,
+            )?;
+        }
+        if cli.unstable_feature.rr_export_package_graph {
+            info!("Exporting package graph DOT file");
+            // Import conditions make each backend's package graph distinct.
+            let file_name = format!("package_graph.{}.dot", target_backend.to_dir_name());
+            moonbuild_rupes_recta::util::print_package_relations_dot(
+                &resolved_project.package_relations[&target_backend],
+                &resolved_project.pkg_dirs,
+                &mut std::fs::File::create(target_dir.join(file_name))?,
+            )?;
+        }
+
+        // TODO: remove this once LLVM backend is well supported
+        if target_backend == TargetBackend::LLVM {
+            user_log.warn(
+                "LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
+            );
+        }
+        warn_local_legacy_supported_targets(resolved_project, user_log);
+
+        let opt_level = self.effective_profile(action);
+        let strip = self.strip_for(action);
+        let debug_info = DebugInfoRequest {
+            symbols: if strip {
+                DebugSymbols::None
+            } else if action == RunMode::Run
+                && target_backend == TargetBackend::Native
+                && !self.debug
+                && !self.no_strip
+            {
+                // Planning chooses how to retain source backtraces after selecting
+                // generated C or direct object output for this Native run.
+                DebugSymbols::Backtrace
+            } else {
+                DebugSymbols::Full
+            },
+            // Stripping symbols does not disable a debug-profile run's native
+            // backtrace machinery. Other commands enable it with debug symbols.
+            runtime_backtrace: target_backend.is_native()
+                && (!strip || (action == RunMode::Run && opt_level == BuildProfile::Debug)),
+        };
+        let backend = moonbuild::compile::prepare_backend(
+            target_backend,
+            self.output_wat,
+            cli.unstable_feature.wasi_link,
+        )?;
+        info!("Final backend configuration: {:?}", backend);
+        let mut config = moonbuild::compile::prepare_config(
+            resolved_project,
+            target_dir,
+            backend,
+            opt_level,
+            action,
+            debug_info,
+            cli.dry_run,
+        )?;
+        config.enable_coverage = self.enable_coverage;
+        config.debug_export_build_plan = cli.unstable_feature.rr_export_build_plan;
+        // In legacy impl, dry run always forces no JSON.
+        config.moonc_output_json = !cli.dry_run && self.output_style().needs_moonc_json();
+        config.warning_condition = if self.deny_warn {
+            WarningCondition::Deny
+        } else {
+            WarningCondition::Default
+        };
+        config.warn_list = self.warn_list.clone();
+        Ok(config)
+    }
+
     pub(crate) fn execution_config(
         &self,
         unstable_features: &FeatureGate,
@@ -193,6 +297,57 @@ impl BuildFlags {
             ),
         }
     }
+}
+
+fn warn_local_legacy_supported_targets(discovered: &DiscoveredProject, user_log: &UserLog) {
+    let mut warned = BTreeSet::new();
+    for &module_id in discovered.local_modules() {
+        if let Some(pkgs) = discovered.pkg_dirs.packages_for_module(module_id) {
+            for &pkg_id in pkgs.values() {
+                if !warned.insert(pkg_id) {
+                    continue;
+                }
+                let pkg = discovered.pkg_dirs.get_package(pkg_id);
+                if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
+                    user_log.warn(format!(
+                        "Package `{}` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead",
+                        pkg.fqn
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// Interpret a patch filename, using the command-selected target kind when
+/// it has no explicit whitebox or blackbox suffix.
+pub(crate) fn build_patch_directive_for_package(
+    pkg: PackageId,
+    value_tracing: Option<PackageId>,
+    patch_file: Option<&Path>,
+    default_patch_kind: TargetKind,
+) -> anyhow::Result<InputDirective> {
+    let patch_directive = if let Some(path) = patch_file {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("patch file path is not valid utf-8"))?;
+        let kind = if path_str.ends_with(WHITEBOX_TEST_PATCH) {
+            TargetKind::WhiteboxTest
+        } else if path_str.ends_with(BLACKBOX_TEST_PATCH) {
+            TargetKind::BlackboxTest
+        } else {
+            default_patch_kind
+        };
+        Some((pkg.build_target(kind), path.to_path_buf()))
+    } else {
+        None
+    };
+
+    Ok(InputDirective {
+        specify_no_mi_for: None,
+        specify_patch_file: patch_directive,
+        value_tracing,
+    })
 }
 
 #[cfg(test)]

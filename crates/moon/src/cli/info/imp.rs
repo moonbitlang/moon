@@ -34,8 +34,8 @@ use moonutil::target::TargetBackend;
 use sha2::Digest;
 use tracing::error;
 
+use crate::cli::generated_mbti::{generated_mbti_artifacts, generated_mbti_dest};
 use crate::filter::preferred_target_backend_for_package;
-use crate::rr_build::{generated_mbti_artifacts, generated_mbti_dest};
 
 const REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
 const ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();

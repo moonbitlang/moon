@@ -289,7 +289,7 @@ Behavior:
 ## Environment Capture
 
 - Module-level prebuild configuration scripts receive a snapshot of the process
-  environment captured by `rr_build` before prebuild execution.
+  environment captured by `moonbuild::compile` before prebuild execution.
 - Commands that skip prebuild configuration do not capture this environment.
 - The snapshot is passed to each module prebuild script through its environment
   and the compatibility stdin input; it is not rediscovered inside individual

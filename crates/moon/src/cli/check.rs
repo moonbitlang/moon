@@ -65,7 +65,6 @@ use crate::filter::{
     group_packages_by_preferred_backend, package_supports_backend,
     preferred_target_backend_for_package, select_packages, select_supported_packages,
 };
-use crate::rr_build;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -696,7 +695,7 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let target_backends = rr_build::single_file_target_backends(
+    let target_backends = crate::filter::single_file_target_backends(
         &discovered,
         selected_target_backends,
         backend,
@@ -713,9 +712,8 @@ fn run_check_for_single_file_rr(
 
     let mut planned_runs = Vec::with_capacity(target_backends.len());
     for target_backend in target_backends {
-        let compile_config = rr_build::prepare_resolved_build(
+        let compile_config = cmd.build_flags.compile_config(
             cli,
-            &cmd.build_flags,
             target_backend,
             target_dir,
             RunMode::Check,
@@ -879,8 +877,9 @@ fn run_check_normal_rr_from_discovered(
     let mut ignored_paths = prebuild_list.ignored_paths;
     if watch {
         ignored_paths.extend(planned_runs.iter().flat_map(|(meta, _)| {
-            rr_build::generated_mbti_artifacts(meta)
-                .map(|(package, _)| rr_build::generated_mbti_dest(&meta.resolved_project, package))
+            crate::cli::generated_mbti::generated_mbti_artifacts(meta).map(|(package, _)| {
+                crate::cli::generated_mbti::generated_mbti_dest(&meta.resolved_project, package)
+            })
         }));
     }
 
@@ -926,7 +925,7 @@ fn run_planned_checks(
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
             let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(writer, &build_input, source_dir)?;
+            crate::dry_run::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         return Ok(true);
@@ -985,8 +984,9 @@ fn run_planned_checks(
 /// written, so an up-to-date file is never touched.
 fn publish_generated_mbti(build_metas: &[BuildMeta], user_log: &UserLog) {
     for meta in build_metas {
-        for (package, generated) in rr_build::generated_mbti_artifacts(meta) {
-            let dest = rr_build::generated_mbti_dest(&meta.resolved_project, package);
+        for (package, generated) in crate::cli::generated_mbti::generated_mbti_artifacts(meta) {
+            let dest =
+                crate::cli::generated_mbti::generated_mbti_dest(&meta.resolved_project, package);
             if let Err(e) = write_if_changed(generated, &dest) {
                 user_log.warn(format!("failed to update `{}`: {e}", dest.display()));
             }
@@ -1017,7 +1017,7 @@ fn sync_and_discover_check_project(
         cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
-    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
+    moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
@@ -1075,7 +1075,7 @@ fn select_check_plans(
             // Keep one empty plan so a project without packages still
             // publishes its package metadata.
             return Ok(vec![TargetPackageGroup {
-                target_backend: rr_build::local_modules_preferred_target(discovered, user_log)
+                target_backend: crate::filter::local_modules_preferred_target(discovered, user_log)
                     .unwrap_or_default(),
                 packages: Vec::new(),
             }]);
@@ -1118,9 +1118,8 @@ fn plan_check_rr_for_selection(
         target_backend,
         packages,
     } = selection;
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Check,
@@ -1228,7 +1227,7 @@ fn resolve_selected_packages(
         .collect());
     }
 
-    Ok(rr_build::local_packages(discovered)
+    Ok(crate::filter::local_packages(discovered)
         .filter(|&pkg| {
             target_backend.is_none_or(|backend| package_supports_backend(discovered, pkg, backend))
         })
@@ -1326,7 +1325,12 @@ fn build_directive_for_selected_packages(
     patch_file: Option<&Path>,
 ) -> anyhow::Result<moonbuild_rupes_recta::build_plan::InputDirective> {
     if let [pkg] = selected {
-        return rr_build::build_patch_directive_for_package(*pkg, false, None, patch_file, false);
+        return crate::build_flags::build_patch_directive_for_package(
+            *pkg,
+            None,
+            patch_file,
+            moonbuild_rupes_recta::model::TargetKind::Source,
+        );
     }
 
     if patch_file.is_some() {
