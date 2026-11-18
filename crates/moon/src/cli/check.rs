@@ -59,7 +59,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::instrument;
 
-use crate::filter::{
+use super::selection::{
     TargetPackageGroup, canonicalize_with_filename, ensure_package_supports_backend,
     ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
     group_packages_by_preferred_backend, package_supports_backend,
@@ -274,7 +274,7 @@ struct CheckJsonCommand {
     command: CheckSubcommand,
 }
 
-pub(crate) fn json_command(command: CheckSubcommand) -> Box<dyn JsonCommand> {
+pub(super) fn json_command(command: CheckSubcommand) -> Box<dyn JsonCommand> {
     Box::new(CheckJsonCommand { command })
 }
 
@@ -305,7 +305,7 @@ fn check_json_outcome(outcome: CheckJsonOutcome) -> JsonCommandOutcome {
 /// `--no-mbti` to skip this.
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
-pub(crate) struct CheckSubcommand {
+pub(super) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -427,11 +427,11 @@ fn project_check_json_diagnostic(
 
 /// Selected, non-generated local sources mapped to the Target Backends whose
 /// planned compiler actions read them; shared actions have no single backend.
-pub(crate) type EditableSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
+pub(super) type EditableSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
 
 /// The structured result of one check, for commands that consume its
 /// diagnostics instead of reporting them.
-pub(crate) struct CollectedCheck {
+pub(super) struct CollectedCheck {
     pub diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
     pub editable_sources: EditableSources,
     pub execution_failed: bool,
@@ -440,7 +440,7 @@ pub(crate) struct CollectedCheck {
 /// Run a check with JSON diagnostics and return them with the sources each
 /// backend compiled. User logs go to `output` as in an ordinary check;
 /// diagnostics are not rendered, and no diagnostic limit applies.
-pub(crate) fn run_check_collecting(
+pub(super) fn run_check_collecting(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     output: &CommandOutput,
@@ -508,7 +508,7 @@ fn run_check_json(
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_check(
+pub(super) fn run_check(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     output: &CommandOutput,
@@ -695,7 +695,7 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let target_backends = crate::filter::single_file_target_backends(
+    let target_backends = super::selection::single_file_target_backends(
         &discovered,
         selected_target_backends,
         backend,
@@ -1022,7 +1022,7 @@ fn sync_and_discover_check_project(
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_check_rr_from_discovered(
+pub(super) fn plan_check_rr_from_discovered(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -1075,8 +1075,10 @@ fn select_check_plans(
             // Keep one empty plan so a project without packages still
             // publishes its package metadata.
             return Ok(vec![TargetPackageGroup {
-                target_backend: crate::filter::local_modules_preferred_target(discovered, user_log)
-                    .unwrap_or_default(),
+                target_backend: super::selection::local_modules_preferred_target(
+                    discovered, user_log,
+                )
+                .unwrap_or_default(),
                 packages: Vec::new(),
             }]);
         }
@@ -1161,7 +1163,7 @@ fn validate_selector_flags_before_split(
     Ok(())
 }
 
-pub(crate) fn resolve_check_target_selections(
+fn resolve_check_target_selections(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &CheckSubcommand,
     source_dir: &Path,
@@ -1219,15 +1221,13 @@ fn resolve_selected_packages(
         if let Some(target_backend) = target_backend {
             return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
         }
-        return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(discovered, dir)
-        })?
-        .into_iter()
-        .map(|(_, pkg_id)| pkg_id)
-        .collect());
+        return Ok(select_packages(discovered, &cmd.path, user_log)?
+            .into_iter()
+            .map(|(_, pkg_id)| pkg_id)
+            .collect());
     }
 
-    Ok(crate::filter::local_packages(discovered)
+    Ok(super::selection::local_packages(discovered)
         .filter(|&pkg| {
             target_backend.is_none_or(|backend| package_supports_backend(discovered, pkg, backend))
         })
@@ -1325,7 +1325,7 @@ fn build_directive_for_selected_packages(
     patch_file: Option<&Path>,
 ) -> anyhow::Result<moonbuild_rupes_recta::build_plan::InputDirective> {
     if let [pkg] = selected {
-        return crate::build_flags::build_patch_directive_for_package(
+        return super::build_flags::build_patch_directive_for_package(
             *pkg,
             None,
             patch_file,

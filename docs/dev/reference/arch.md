@@ -122,8 +122,9 @@ Implementation-wise:
   Its execution entry points publish metadata through a private module before
   handing the graph to `moonbuild::execution`. Dry-run planning only locks when
   it runs module prebuild configuration; a dry-run session cannot execute.
-- Moon's `BuildFlags::compile_config` adapts command flags, while `filter`
-  owns package and backend selection. Commands select intents and metadata
+- Moon's private `cli` modules own command policy. `BuildFlags::compile_config`
+  adapts command flags, while `cli::selection` owns shared package and backend
+  selection. Commands select intents and metadata
   requirements, and keep the session alive while consuming build outputs. Run and test commands release
   it before launching user programs; test promotion and its partial rebuild
   share a new session. Standalone Wasm callers use

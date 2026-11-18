@@ -38,7 +38,7 @@ use super::BuildFlags;
 /// Bundle the module
 #[derive(Debug, clap::Parser)]
 #[clap(hide(true))]
-pub(crate) struct BundleSubcommand {
+pub(super) struct BundleSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -51,7 +51,7 @@ pub(crate) struct BundleSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_bundle(
+pub(super) fn run_bundle(
     cli: UniversalFlags,
     cmd: BundleSubcommand,
     output: &CommandOutput,
@@ -83,7 +83,7 @@ pub(crate) fn run_bundle(
 
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_bundle_internal(
+pub(super) fn run_bundle_internal(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
@@ -95,7 +95,7 @@ pub(crate) fn run_bundle_internal(
 
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_bundle_internal_rr(
+pub(super) fn run_bundle_internal_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
@@ -182,7 +182,7 @@ fn sync_and_discover_bundle_project(
 }
 
 /// Selects backends, resolves packages, then plans one bundle per backend.
-pub(crate) fn plan_bundle_rr_from_discovered(
+pub(super) fn plan_bundle_rr_from_discovered(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
@@ -193,7 +193,7 @@ pub(crate) fn plan_bundle_rr_from_discovered(
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     let target_backends = if selected_target_backends.is_empty() {
         vec![
-            crate::filter::local_modules_preferred_target(&discovered, user_log)
+            super::selection::local_modules_preferred_target(&discovered, user_log)
                 .unwrap_or_default(),
         ]
     } else {

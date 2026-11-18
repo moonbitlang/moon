@@ -16,16 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use super::selection::{
+    BackendPlanSelection, TargetPackageGroup, canonicalize_with_filename,
+    ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
+    group_packages_by_preferred_backend, match_packages_with_fuzzy, package_supports_backend,
+    select_packages,
+};
 use crate::cli::profile;
-use crate::filter::canonicalize_with_filename;
-use crate::filter::ensure_packages_support_backend;
-use crate::filter::filter_pkg_by_dir;
-use crate::filter::format_supported_backends;
-use crate::filter::group_packages_by_preferred_backend;
-use crate::filter::match_packages_with_fuzzy;
-use crate::filter::package_supports_backend;
-use crate::filter::select_packages;
-use crate::filter::{BackendPlanSelection, TargetPackageGroup};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
@@ -146,7 +143,7 @@ impl ResolvedTestSelection {
                             } else {
                                 None
                             };
-                            crate::build_flags::build_patch_directive_for_package(
+                            super::build_flags::build_patch_directive_for_package(
                                 *pkg_id,
                                 trace_pkg,
                                 cmd.patch_file.as_deref(),
@@ -248,13 +245,13 @@ fn print_test_outlines(
 /// `--no-parallelize` to run them sequentially without limiting build parallelism.
 #[derive(Debug, clap::Parser)]
 #[clap(group = clap::ArgGroup::new("test_index_selector").multiple(false))]
-pub(crate) struct TestSubcommand {
+pub(super) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
     /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
     #[clap(long = "wasm-policy", value_name = "PATH")]
-    pub(crate) moonrun_policy: Option<PathBuf>,
+    pub(super) moonrun_policy: Option<PathBuf>,
 
     /// Run test in the specified package
     #[clap(short, long, num_args(1..))]
@@ -332,7 +329,7 @@ pub(crate) struct TestSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_test(
+pub(super) fn run_test(
     cli: UniversalFlags,
     mut cmd: TestSubcommand,
     output: &CommandOutput,
@@ -561,11 +558,11 @@ fn run_test_in_single_file_rr(
         user_log,
     )?;
     let target_backends =
-        crate::filter::single_file_target_backends(&discovered, &targets, backend, user_log);
+        super::selection::single_file_target_backends(&discovered, &targets, backend, user_log);
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
-    let pkg = crate::filter::local_packages(&resolved)
+    let pkg = super::selection::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
 
@@ -627,7 +624,7 @@ fn run_test_in_single_file_rr(
     )
 }
 
-pub(crate) struct TestLikeSubcommand<'a> {
+pub(super) struct TestLikeSubcommand<'a> {
     pub run_mode: RunMode,
     pub build_flags: &'a BuildFlags,
     pub moonrun_policy: Option<&'a Path>,
@@ -713,7 +710,7 @@ impl TestLikeSubcommand<'_> {
 }
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
-pub(crate) fn plan_test_or_bench_rr_from_discovered(
+pub(super) fn plan_test_or_bench_rr_from_discovered(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
@@ -786,7 +783,8 @@ fn select_test_plans(
     let selections = resolve_test_target_selections(discovered, cmd, user_log)?;
     if selections.is_empty() {
         return Ok(vec![BackendPlanSelection::command_selector(
-            crate::filter::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+            super::selection::local_modules_preferred_target(discovered, user_log)
+                .unwrap_or_default(),
         )]);
     }
     Ok(selections.into_iter().map(Into::into).collect())
@@ -830,7 +828,7 @@ fn plan_test_or_bench_rr_from_intent(
 
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_internal(
+pub(super) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
     dirs: &PackageDirs,
@@ -866,7 +864,7 @@ pub(crate) fn run_test_or_bench_internal(
     )
 }
 
-pub(crate) fn validate_test_or_bench_invocation(
+pub(super) fn validate_test_or_bench_invocation(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
@@ -901,7 +899,7 @@ pub(crate) fn validate_test_or_bench_invocation(
     Ok(())
 }
 
-pub(crate) fn sync_and_discover_test_or_bench_project(
+pub(super) fn sync_and_discover_test_or_bench_project(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
@@ -943,7 +941,7 @@ fn run_test_rr(
 /// Holds the target-directory lock through planning and the initial build,
 /// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_from_discovered(
+pub(super) fn run_test_or_bench_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
@@ -1284,7 +1282,7 @@ fn apply_list_of_filters(
         // Currently, value tracing is only supported for single package testing
         // It's not sure whether we should support it for multiple packages
         let trace_pkg = if value_tracing { Some(pkg_id) } else { None };
-        input_directive = crate::build_flags::build_patch_directive_for_package(
+        input_directive = super::build_flags::build_patch_directive_for_package(
             pkg_id,
             trace_pkg,
             patch_file,
@@ -1343,7 +1341,7 @@ fn calc_user_intent(
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
 ) -> Result<BuildRequest, anyhow::Error> {
-    let all_affected_packages: Vec<_> = crate::filter::local_packages(discovered).collect();
+    let all_affected_packages: Vec<_> = super::selection::local_packages(discovered).collect();
     calc_user_intent_from_packages(
         discovered,
         cmd,
@@ -1589,22 +1587,22 @@ fn resolve_selected_test_packages(
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.explicit_path_filters.is_empty() {
-        return Ok(select_packages(cmd.explicit_path_filters, user_log, |dir| {
-            filter_pkg_by_dir(discovered, dir)
-        })?
-        .into_iter()
-        .map(|(_, pkg_id)| pkg_id)
-        .collect());
+        return Ok(
+            select_packages(discovered, cmd.explicit_path_filters, user_log)?
+                .into_iter()
+                .map(|(_, pkg_id)| pkg_id)
+                .collect(),
+        );
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = crate::filter::local_packages(discovered).collect();
+        let all_affected_packages: Vec<_> = super::selection::local_packages(discovered).collect();
         return Ok(
             match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
         );
     }
 
-    Ok(crate::filter::local_packages(discovered).collect())
+    Ok(super::selection::local_packages(discovered).collect())
 }
 
 fn validate_original_package_selection_filters(
@@ -1625,7 +1623,7 @@ fn validate_original_package_selection_filters(
 
     let matched_packages = match_packages_with_fuzzy(
         discovered,
-        crate::filter::local_packages(discovered),
+        super::selection::local_packages(discovered),
         package_filter,
     )
     .matched;

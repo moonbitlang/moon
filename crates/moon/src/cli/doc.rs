@@ -37,7 +37,7 @@ use crate::cli::BuildFlags;
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct DocSubcommand {
+pub(super) struct DocSubcommand {
     /// Start a web server to serve the documentation
     #[clap(long)]
     pub serve: bool,
@@ -63,7 +63,7 @@ pub(crate) struct DocSubcommand {
 
 #[instrument(skip_all)]
 #[allow(deprecated)]
-pub(crate) fn run_doc(
+pub(super) fn run_doc(
     cli: UniversalFlags,
     cmd: DocSubcommand,
     output: &CommandOutput,
@@ -95,7 +95,7 @@ fn run_doc_query(symbol: &str, user_log: &UserLog) -> anyhow::Result<i32> {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_doc_rr(
+pub(super) fn run_doc_rr(
     cli: UniversalFlags,
     cmd: DocSubcommand,
     output: &CommandOutput,

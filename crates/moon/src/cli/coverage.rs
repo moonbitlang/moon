@@ -25,7 +25,7 @@ use clap::Parser;
 use moonutil::{command_output::CommandOutput, project::PackageDirs, user_log::UserLog};
 use walkdir::WalkDir;
 
-use super::{TestSubcommand, UniversalFlags, process::ProcessAction, run_test};
+use super::{TestSubcommand, UniversalFlags, process::ProcessAction, test::run_test};
 
 #[derive(Debug, clap::Parser, Default)]
 #[clap(
@@ -33,7 +33,7 @@ use super::{TestSubcommand, UniversalFlags, process::ProcessAction, run_test};
     disable_help_flag(true),
     ignore_errors(true)
 )]
-pub(crate) struct CoverageReportSubcommand {
+pub(super) struct CoverageReportSubcommand {
     /// Arguments to pass to the coverage utility
     #[clap(name = "args", allow_hyphen_values(true))]
     pub args: Vec<String>,
@@ -44,7 +44,7 @@ pub(crate) struct CoverageReportSubcommand {
 }
 
 #[derive(Debug, clap::Parser)]
-pub(crate) enum CoverageSubcommands {
+pub(super) enum CoverageSubcommands {
     /// Run test with instrumentation and report coverage
     Analyze(CoverageAnalyzeSubcommand),
     /// Generate code coverage report
@@ -57,13 +57,13 @@ pub(crate) enum CoverageSubcommands {
 ///
 /// Runs the toolchain's `bin/moon_cove.wasm` through `moonrun`.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct CoverageSubcommand {
+pub(super) struct CoverageSubcommand {
     #[clap(subcommand)]
     pub cmd: CoverageSubcommands,
 }
 
 #[derive(Debug, clap::Parser)]
-pub(crate) struct CoverageAnalyzeSubcommand {
+pub(super) struct CoverageAnalyzeSubcommand {
     /// Analyze coverage for a specific package.
     #[clap(short, long)]
     package: Option<String>,
@@ -77,7 +77,7 @@ pub(crate) struct CoverageAnalyzeSubcommand {
     extra_flags: Vec<String>,
 }
 
-pub(crate) fn run_coverage(
+pub(super) fn run_coverage(
     cli: UniversalFlags,
     cmd: CoverageSubcommand,
     output: &CommandOutput,

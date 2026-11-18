@@ -27,22 +27,22 @@ use moonutil::user_log::UserLog;
 use super::registry_runner;
 
 #[derive(Debug)]
-pub(crate) struct MoonxInvocation {
-    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
-    pub(crate) experimental_policy: Option<PathBuf>,
+pub(super) struct MoonxInvocation {
+    pub(super) handoff: Option<moonutil::run_handoff::RunHandoff>,
+    pub(super) experimental_policy: Option<PathBuf>,
     daemon: bool,
-    pub(crate) verbose: bool,
+    pub(super) verbose: bool,
     input: String,
     args: Vec<String>,
 }
 
-pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
+pub(super) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
         .is_some_and(|arg| moonutil::constants::is_moonx_executable(arg))
 }
 
-pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
+pub(super) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
     let cli = MoonxCli::try_parse_from(raw_args)?;
     let (input, args) = cli.input_and_args();
     let input = input.to_owned();
@@ -57,7 +57,7 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
     })
 }
 
-pub(crate) fn prepare(
+pub(super) fn prepare(
     invocation: MoonxInvocation,
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {

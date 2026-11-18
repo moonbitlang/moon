@@ -27,7 +27,7 @@ use super::UniversalFlags;
 
 /// Workspace maintenance commands
 #[derive(Debug, clap::Parser)]
-pub(crate) struct WorkSubcommand {
+pub(super) struct WorkSubcommand {
     #[clap(subcommand)]
     command: WorkSubcommands,
 }
@@ -43,19 +43,19 @@ enum WorkSubcommands {
 }
 
 #[derive(Debug, clap::Parser)]
-pub(crate) struct WorkInitSubcommand {
+pub(super) struct WorkInitSubcommand {
     /// Module directories to add to the workspace
     pub paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, clap::Parser)]
-pub(crate) struct WorkUseSubcommand {
+pub(super) struct WorkUseSubcommand {
     /// Module directories to add to the workspace
     #[clap(required = true)]
     pub paths: Vec<PathBuf>,
 }
 
-pub(crate) fn work_cli(
+pub(super) fn work_cli(
     cli: UniversalFlags,
     cmd: WorkSubcommand,
     user_log: &UserLog,

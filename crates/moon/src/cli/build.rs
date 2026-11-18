@@ -37,8 +37,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
-use crate::filter::{
-    BackendPlanSelection, TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
+use super::selection::{
+    BackendPlanSelection, TargetPackageGroup, ensure_packages_support_backend,
     group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
     select_packages, select_supported_packages,
 };
@@ -70,7 +70,7 @@ impl ResolvedBuildSelection {
 /// does not hide the list. With `--output-json`, each one is an `artifact`
 /// JSON message instead.
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct BuildSubcommand {
+pub(super) struct BuildSubcommand {
     /// Paths to the packages that should be built, or one standalone `.mbtx` file.
     #[clap(name = "PATH", conflicts_with("package"))]
     pub path: Vec<PathBuf>,
@@ -91,7 +91,7 @@ pub(crate) struct BuildSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_build(
+pub(super) fn run_build(
     cli: &UniversalFlags,
     cmd: BuildSubcommand,
     output: &CommandOutput,
@@ -180,7 +180,7 @@ fn run_build_for_single_file_rr(
         true,
         user_log,
     )?;
-    let target_backends = crate::filter::single_file_target_backends(
+    let target_backends = super::selection::single_file_target_backends(
         &discovered,
         selected_target_backends,
         backend,
@@ -190,7 +190,7 @@ fn run_build_for_single_file_rr(
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
-    let package = crate::filter::local_packages(&resolved)
+    let package = super::selection::local_packages(&resolved)
         .next()
         .context("single-file project must resolve exactly one local package")?;
     let mut planned_runs = Vec::with_capacity(target_backends.len());
@@ -473,7 +473,7 @@ fn write_built_outputs_json(
     Ok(())
 }
 
-pub(crate) fn plan_build_rr_from_resolved(
+pub(super) fn plan_build_rr_from_resolved(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -569,7 +569,7 @@ fn plan_build_rr_from_selection(
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_build_rr_from_discovered(
+pub(super) fn plan_build_rr_from_discovered(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -610,7 +610,7 @@ fn select_build_plans(
         let selections = resolve_build_target_selections(discovered, cmd, None, user_log)?;
         if selections.is_empty() && !has_explicit_build_selector(cmd) {
             return Ok(vec![BackendPlanSelection::command_selector(
-                crate::filter::local_modules_preferred_target(discovered, user_log)
+                super::selection::local_modules_preferred_target(discovered, user_log)
                     .unwrap_or_default(),
             )]);
         }
@@ -726,12 +726,10 @@ fn resolve_selected_build_packages(
         if let Some(target_backend) = target_backend {
             return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
         }
-        return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(discovered, dir)
-        })?
-        .into_iter()
-        .map(|(_, pkg_id)| pkg_id)
-        .collect());
+        return Ok(select_packages(discovered, &cmd.path, user_log)?
+            .into_iter()
+            .map(|(_, pkg_id)| pkg_id)
+            .collect());
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
@@ -747,7 +745,7 @@ fn resolve_selected_build_packages(
         return Ok(pkgs);
     }
 
-    Ok(crate::filter::local_packages(discovered)
+    Ok(super::selection::local_packages(discovered)
         .filter(|&pkg_id| {
             target_backend
                 .is_none_or(|backend| package_supports_backend(discovered, pkg_id, backend))
@@ -790,7 +788,7 @@ fn calc_user_intent(
     } else {
         Ok(calc_user_intent_from_scoped_packages(
             discovered,
-            &crate::filter::local_packages(discovered)
+            &super::selection::local_packages(discovered)
                 .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
                 .collect::<Vec<_>>(),
             target_backend,

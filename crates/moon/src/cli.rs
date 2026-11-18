@@ -16,86 +16,95 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub(crate) mod bench;
-pub(crate) mod build;
-pub(crate) mod build_matrix;
-pub(crate) mod bundle;
-pub(crate) mod check;
-pub(crate) mod clean;
-pub(crate) mod coverage;
-pub(crate) mod cram;
-pub(crate) mod deps;
-pub(crate) mod doc;
-pub(crate) mod explain;
-pub(crate) mod external;
-pub(crate) mod fetch;
-pub(crate) mod fix;
-pub(crate) mod fmt;
-pub(crate) mod generate_test_driver;
+//! Command parsing, selection, and orchestration. Only `execute` is exposed to
+//! the rest of the binary; command definitions and planning adapters stay here.
+
+mod bench;
+mod build;
+mod build_flags;
+mod build_matrix;
+mod bundle;
+mod check;
+mod clean;
+mod coverage;
+mod cram;
+mod deps;
+mod doc;
+mod explain;
+mod external;
+mod fetch;
+mod fix;
+mod fmt;
+mod generate_test_driver;
 mod generated_mbti;
-pub(crate) mod info;
-pub(crate) mod install_binary;
-pub(crate) mod invocation;
-pub(crate) mod mooncake_adapter;
-pub(crate) mod moonx;
-pub(crate) mod new;
-pub(crate) mod process;
-pub(crate) mod profile;
-pub(crate) mod prove;
+mod info;
+mod install_binary;
+mod invocation;
+mod mooncake_adapter;
+mod moonx;
+mod new;
+mod process;
+mod profile;
+mod prove;
 #[cfg(test)]
 mod registry_output_tests;
 mod registry_queries;
-pub(crate) mod registry_runner;
-pub(crate) mod run;
-pub(crate) mod runtime;
-pub(crate) mod search;
-pub(crate) mod shell_completion;
-pub(crate) mod test;
-pub(crate) mod testcli;
-pub(crate) mod tool;
-pub(crate) mod tree;
-pub(crate) mod update;
-pub(crate) mod upgrade;
-pub(crate) mod version;
-pub(crate) mod view;
-pub(crate) mod whoami;
+mod registry_runner;
+mod run;
+mod runtime;
+mod search;
+mod selection;
+mod shell_completion;
+mod test;
+mod testcli;
+#[cfg(test)]
+mod tests;
+mod tool;
+mod tree;
+mod update;
+mod upgrade;
+mod version;
+mod view;
+mod whoami;
 mod work;
-pub(crate) use crate::build_flags::BuildFlags;
-pub(crate) use bench::*;
-pub(crate) use build::*;
-pub(crate) use build_matrix::*;
-pub(crate) use bundle::*;
-pub(crate) use check::*;
-pub(crate) use clean::*;
-pub(crate) use coverage::*;
-pub(crate) use cram::*;
-pub(crate) use deps::*;
-pub(crate) use doc::*;
-pub(crate) use explain::*;
-pub(crate) use fetch::*;
-pub(crate) use fix::*;
-pub(crate) use fmt::*;
-pub(crate) use generate_test_driver::*;
-pub(crate) use info::*;
+use build_flags::BuildFlags;
+pub(crate) use runtime::execute;
+
+use bench::BenchSubcommand;
+use build::BuildSubcommand;
+use build_matrix::GenerateBuildMatrix;
+use bundle::BundleSubcommand;
+use check::CheckSubcommand;
+use clean::CleanSubcommand;
+use coverage::CoverageSubcommand;
+use cram::CramSubcommand;
+use deps::RunPostaddSubcommand;
+use doc::DocSubcommand;
+use explain::ExplainSubcommand;
+use fetch::FetchSubcommand;
+use fix::FixSubcommand;
+use fmt::FmtSubcommand;
+use generate_test_driver::GenerateTestDriverSubcommand;
+use info::InfoSubcommand;
 use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
 use moonutil::cli_support::{
     DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
     UniversalFlags,
 };
-pub(crate) use new::*;
-pub(crate) use prove::*;
-pub(crate) use run::*;
-pub(crate) use search::*;
-pub(crate) use shell_completion::*;
-pub(crate) use test::*;
-pub(crate) use tool::*;
-pub(crate) use tree::*;
-pub(crate) use update::*;
-pub(crate) use upgrade::*;
-pub(crate) use version::*;
-pub(crate) use view::*;
-pub(crate) use whoami::*;
-pub(crate) use work::{WorkSubcommand, work_cli};
+use new::NewSubcommand;
+use prove::ProveSubcommand;
+use run::RunSubcommand;
+use search::SearchSubcommand;
+use shell_completion::ShellCompSubCommand;
+use test::TestSubcommand;
+use tool::ToolSubcommand;
+use tree::TreeSubcommand;
+use update::UpdateSubcommand;
+use upgrade::UpgradeSubcommand;
+use version::VersionSubcommand;
+use view::ViewSubcommand;
+use whoami::WhoamiSubcommand;
+use work::WorkSubcommand;
 
 fn standalone_mbtx_path<'a>(
     paths: &'a [std::path::PathBuf],
@@ -122,7 +131,7 @@ fn standalone_mbtx_path<'a>(
     about = "The build system and package manager for MoonBit.",
     override_usage = "moon [OPTIONS] <COMMAND>"
 )]
-pub(crate) struct MoonBuildCli {
+struct MoonBuildCli {
     #[clap(subcommand)]
     pub subcommand: Option<MoonBuildSubcommands>,
 
@@ -135,7 +144,7 @@ pub(crate) struct MoonBuildCli {
 }
 
 #[derive(Debug, clap::Parser)]
-pub(crate) enum MoonBuildSubcommands {
+enum MoonBuildSubcommands {
     New(NewSubcommand),
 
     // Build system

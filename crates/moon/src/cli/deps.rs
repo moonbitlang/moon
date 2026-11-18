@@ -47,13 +47,13 @@ use super::{UniversalFlags, registry_queries};
 /// Postadd is being retired. If you still need it, please open an issue at
 /// https://github.com/moonbitlang/moon/issues describing your use case.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct RunPostaddSubcommand {
+pub(super) struct RunPostaddSubcommand {
     /// Installed dependency module name, without a version (defaults to the current module)
     #[clap(value_name = "MODULE")]
     pub module: Option<String>,
 }
 
-pub(crate) fn run_postadd_cli(
+pub(super) fn run_postadd_cli(
     cli: UniversalFlags,
     cmd: RunPostaddSubcommand,
     output: &CommandOutput,
@@ -115,7 +115,7 @@ pub(crate) fn run_postadd_cli(
     Ok(0)
 }
 
-pub(crate) fn require_selected_module(
+pub(super) fn require_selected_module(
     project: &ProjectContext,
     command: &str,
 ) -> anyhow::Result<PathBuf> {
@@ -151,7 +151,7 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn install_cli(
+pub(super) fn install_cli(
     cli: UniversalFlags,
     cmd: InstallSubcommand,
     user_log: &UserLog,
@@ -265,7 +265,7 @@ pub(crate) fn install_cli(
     install_binary(&cli, &path, &install_dir, install_all, user_log)
 }
 
-pub(crate) fn remove_cli(
+pub(super) fn remove_cli(
     cli: UniversalFlags,
     cmd: RemoveSubcommand,
     user_log: &UserLog,
@@ -285,7 +285,7 @@ pub(crate) fn remove_cli(
     mooncake::pkg::remove::remove(&module_dir, &project_manifest, &path.module, user_log)
 }
 
-pub(crate) fn add_cli(
+pub(super) fn add_cli(
     cli: UniversalFlags,
     cmd: AddSubcommand,
     user_log: &UserLog,

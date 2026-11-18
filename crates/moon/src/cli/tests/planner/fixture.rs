@@ -36,7 +36,7 @@ use moonutil::{
 
 use crate::cli::{
     BenchSubcommand, BuildSubcommand, BundleSubcommand, CheckSubcommand, MoonBuildCli,
-    MoonBuildSubcommands, RunSubcommand, TestLikeSubcommand, TestSubcommand,
+    MoonBuildSubcommands, RunSubcommand, TestSubcommand, test::TestLikeSubcommand,
 };
 
 pub(super) struct PlanningFixture {
@@ -108,7 +108,7 @@ impl PlanningFixture {
             module,
         );
         let core_dir =
-            dunce::canonicalize(crate_root.join("src/tests/planner/fixtures/core_dependency"))?;
+            dunce::canonicalize(crate_root.join("src/cli/tests/planner/fixtures/core_dependency"))?;
         let core = read_module_desc_file_in_dir(&core_dir)?;
         let core_id =
             module_graph.add_module(ModuleSource::from_stdlib(&core, &core_dir)?, Arc::new(core));
@@ -171,7 +171,7 @@ impl PlanningFixture {
         user_log: &UserLog,
     ) -> anyhow::Result<(TargetBackend, ResolvedProject)> {
         let target_backend = selected_target_backend.unwrap_or_else(|| {
-            crate::filter::local_modules_preferred_target(&self.discovered, user_log)
+            crate::cli::selection::local_modules_preferred_target(&self.discovered, user_log)
                 .unwrap_or_default()
         });
         let resolved_project = self

@@ -54,7 +54,7 @@ use super::{
 /// With --json, a versioned report contains a result (module metadata, an array
 /// of releases for --versions, or a user profile), status, and messages.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct ViewSubcommand {
+pub(super) struct ViewSubcommand {
     /// Username to list, or username/module[@version] to inspect
     #[arg(
         value_name = "USER_OR_MODULE",
@@ -151,13 +151,13 @@ impl ViewSubcommand {
     }
 }
 
-pub(crate) fn run_view(command: ViewSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
+pub(super) fn run_view(command: ViewSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
     let result = command.fetch(output.user_log())?;
     output.write_result(|writer| render_view(writer, &result))?;
     Ok(0)
 }
 
-pub(crate) fn json_command(command: ViewSubcommand) -> Box<dyn JsonCommand> {
+pub(super) fn json_command(command: ViewSubcommand) -> Box<dyn JsonCommand> {
     Box::new(command)
 }
 

@@ -166,9 +166,19 @@ delegation may then replace the Moon process. On Windows, Moon waits for the
 child while preserving the existing Ctrl-C behavior. Transparent delegates
 use the same final executor without creating a Moon command runtime first.
 
-`main.rs` owns only panic-hook setup, raw argument collection, one runtime
-call, and the final `process::exit`. The retained exception is Clap's native
-parse-error exit before managed command execution begins.
+`main.rs` owns only panic-hook setup, raw argument collection, one
+`cli::execute` call, and the final `process::exit`. The retained exception is
+Clap's native parse-error exit before managed command execution begins.
+
+`cli::execute` reexports the runtime operation directly. It is the CLI module's
+only entry point from the rest of the binary. Command definitions, invocation
+selection, dispatch, shared build flags, and package/backend selection are private
+to `cli`; its planner tests live inside the same module. Dispatch calls command
+modules directly rather than relying on wildcard exports from `cli.rs`.
+
+Shared runtime execution, watching, and dry-run rendering remain outside `cli`.
+Both command handlers and the test runner use command rendering; these shared
+modules do not depend on CLI parsing types or command policy.
 
 ## Tracing ownership
 

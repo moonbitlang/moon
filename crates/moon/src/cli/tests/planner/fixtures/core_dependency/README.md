@@ -24,6 +24,6 @@ the installed SDK's exact package composition.
 
 Do not use this fixture as a core project. That role must go through module
 synchronization so tests can detect accidental injection of a second core.
-See [core_project](../../../../../tests/test_cases/core_project/README.md) for
-local core discovery rules and [the fixture map](../../../../../../../docs/dev/testing.md#core-fixture-roles)
+See [core_project](../../../../../../tests/test_cases/core_project/README.md) for
+local core discovery rules and [the fixture map](../../../../../../../../docs/dev/testing.md#core-fixture-roles)
 for the existing backend and IDE scenarios.

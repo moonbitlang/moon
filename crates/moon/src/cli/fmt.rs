@@ -25,13 +25,13 @@ use moonbuild_rupes_recta::fmt::{
 };
 use moonutil::{command_output::CommandOutput, path_normalizer::PathNormalizer};
 
-use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
+use super::selection::select_fmt_packages;
 
 use super::UniversalFlags;
 
 /// Format source code
 #[derive(Debug, clap::Parser)]
-pub(crate) struct FmtSubcommand {
+pub(super) struct FmtSubcommand {
     /// Check only and don't change the source code
     #[clap(long)]
     pub check: bool,
@@ -57,7 +57,7 @@ pub(crate) struct FmtSubcommand {
     pub args: Vec<String>,
 }
 
-pub(crate) fn run_fmt(
+pub(super) fn run_fmt(
     cli: &UniversalFlags,
     cmd: FmtSubcommand,
     output: &CommandOutput,
@@ -129,12 +129,10 @@ fn run_fmt_rr(
             user_log,
         )
         .context("Failed to discover project for formatting")?;
-        let selected_packages = select_packages(&package_paths, user_log, |dir| {
-            filter_pkg_by_dir_for_fmt(&resolved, dir)
-        })?
-        .into_iter()
-        .map(|(_, pkg_id)| pkg_id)
-        .collect::<Vec<_>>();
+        let selected_packages = select_fmt_packages(&resolved, &package_paths, user_log)?
+            .into_iter()
+            .map(|(_, pkg_id)| pkg_id)
+            .collect::<Vec<_>>();
 
         if package_paths.is_empty() || !selected_packages.is_empty() {
             let execution_plan = build_execution_plan_for_fmt(

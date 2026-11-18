@@ -23,7 +23,7 @@ use anyhow::{Result, bail};
 use super::UniversalFlags;
 
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct UpgradeSubcommand {
+pub(super) struct UpgradeSubcommand {
     /// Force upgrade
     #[clap(long, short)]
     force: bool,
@@ -39,7 +39,7 @@ pub(crate) struct UpgradeSubcommand {
     base_url: Option<String>,
 }
 
-pub(crate) fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> Result<i32> {
+pub(super) fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for upgrade")
     }
