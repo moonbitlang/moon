@@ -348,8 +348,9 @@ but they may be one of these:
 - A path to a file within a package.
 
 Resolving the package selectors to their in-memory definition
-happens after discovering all relevant modules and packages.
-There is currently no explicit module resolving, because there is only one (input) module to work on.
+happens after discovering all relevant modules and packages and before resolving
+their package imports. The selected project's root modules bound the default
+package scope; explicit selector rules remain command-specific.
 
 If no input module can be found, some subcommands of `moon` enters a "single-file mode",
 which treats the input file (if specified) as the content of a synthesized input module and package.
@@ -615,6 +616,19 @@ For `moon check` and `moon build` without an explicit `--target`, CLI planning
 may first split selected packages into multiple backend groups using
 `module preferred_target -> default backend`,
 then emit intents separately for each backend group.
+
+For `moon build`, private `cli/build/selection.rs` completes one `BuildRequest`
+per backend using only package declarations. Explicit selectors request their
+selected packages; a default build requests linkable packages, or all supported
+non-stdlib packages in its scope when none are linkable. If all implicit
+preferred-backend groups become empty, selection chooses the shared module
+preference or default backend and reselects its supported local packages. It
+retains that fallback plan even when empty. An empty explicit selection does
+not trigger this fallback.
+
+The build workflow resolves all requested backend imports before planning any
+request, then passes these completed requests to the build session. It does not
+reinterpret paths, package names, or default scope after package resolution.
 
 This mapping is also on a migration path for main packages: release N keeps the
 current artifacts so warnings can be surfaced, while release N+1 will omit

@@ -16,7 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::fixture::{PlanningFixture, parse_bench_command, parse_run_command, parse_test_command};
+use super::fixture::{
+    PlanningFixture, parse_bench_command, parse_build_command, parse_run_command,
+    parse_test_command,
+};
 
 fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
@@ -177,5 +180,34 @@ fn run_selection_is_validated_before_import_resolution() {
             error.contains(expected_error),
             "{package} ({target}): {error}"
         );
+    }
+}
+
+#[test]
+fn build_selection_is_validated_before_import_resolution() {
+    let fixture = PlanningFixture::new("test_selection_before_resolution.in")
+        .expect("invalid imports should not prevent discovery");
+    let native_path = fixture.case_dir().join("native");
+    let native_path = native_path.to_str().expect("fixture path should be UTF-8");
+
+    for (selector, expected_error) in [
+        (vec!["--target", "native"], "selection/errors/missing"),
+        (
+            vec!["--target", "js", "--package", "selection/errors/native"],
+            "Selected package(s) do not support target backend 'js'",
+        ),
+        (
+            vec!["--target", "js", native_path],
+            "Package 'selection/errors/native' does not support target backend 'js'",
+        ),
+    ] {
+        let args = [vec!["build", "--dry-run"], selector].concat();
+        let (cli, cmd) = parse_build_command(&args);
+        let error = fixture
+            .plan_build_all_with_cli(&cli, &cmd)
+            .err()
+            .expect("invalid selection or imports should fail planning");
+        let error = format!("{error:#}");
+        assert!(error.contains(expected_error), "{args:?}: {error}");
     }
 }
