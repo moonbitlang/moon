@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::run::TestIndexRange;
 use anyhow::Context;
 use moonutil::{
-    build_options::TestIndexRange,
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
     project::PackageDirs,

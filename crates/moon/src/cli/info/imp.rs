@@ -24,11 +24,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::diff::write_diff;
 use anstyle::{AnsiColor, Style};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
-use moonbuild::expect::write_diff;
 use moonbuild_rupes_recta::{DiscoveredProject, model::PackageId, pkg_name::PackageFQN};
 use moonutil::target::TargetBackend;
 use sha2::Digest;

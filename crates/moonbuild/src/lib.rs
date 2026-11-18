@@ -20,10 +20,8 @@
 
 pub mod compile;
 pub mod execution;
-pub mod expect;
 mod metadata;
 pub mod prepare;
-pub mod runtest;
 
 use indexmap::IndexMap;
 use moonbuild_rupes_recta::{

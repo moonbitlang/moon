@@ -112,8 +112,11 @@ Backends still execute one after another, and this scheduling does not split
 individual test cases into separate processes or change async-test concurrency.
 
 The private `runtest::report` module owns per-test text and JSON output, including
-benchmark summary decoding and formatting. Test result data and expect/snapshot
-promotion remain in `moonbuild`.
+benchmark summary decoding and formatting. The runner owns test result data;
+its private `expect` module interprets expect/snapshot failures and applies
+source updates. Shared diff rendering for these reports and `moon info` lives
+in Moon's private `diff` module. `BuildSession` retains build-lock and rebuild
+ownership.
 
 `moon bench` remains sequential by default to avoid contention affecting
 measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
@@ -158,8 +161,9 @@ files.
    rerun follows. The final report retains the last observed results, including
    results for tests outside the rerun filter.
 
-During promotion the expect/snapshot helpers in `moonbuild::expect` are
-responsible for touching files. The CLI does not stream diffs; failures are still
+During promotion the helpers in Moon's private `run::runtest::expect` module
+are responsible for touching files while the caller holds the build session lock.
+The CLI does not stream diffs; failures are still
 rendered via `render_expect_fail` / `render_snapshot_fail` to provide context when
 `--update` is not active or when a promotion pass still fails.
 

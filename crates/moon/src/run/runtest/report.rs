@@ -21,14 +21,11 @@
 use std::io::Write;
 
 use colored::Colorize;
-use moonbuild::{
-    expect::{render_expect_fail, render_snapshot_fail},
-    runtest::TestStatistics,
-};
 use moonbuild_rupes_recta::discover::DiscoverResult;
 use moonutil::test_metadata::MbtTestInfo;
 
-use super::{TestCaseResult, TestResultKind};
+use super::expect::{render_expect_fail, render_snapshot_fail};
+use super::{TestCaseResult, TestResultKind, TestStatistics};
 
 pub(super) const BATCHBENCH: &str = "@BATCH_BENCH ";
 
@@ -69,7 +66,7 @@ fn print_test_result_json(res: &TestCaseResult) {
                 message = "panic is expected".to_string();
             }
 
-            let obj = moonbuild::runtest::TestStatistics {
+            let obj = TestStatistics {
                 package: res.raw.package.clone(),
                 filename: res.raw.filename.clone(),
                 index: res.raw.index.clone(),
