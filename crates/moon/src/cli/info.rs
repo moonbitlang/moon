@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
 use moonbuild_rupes_recta::{
@@ -32,7 +33,6 @@ use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
-    locks::lock_directory,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
     user_log::UserLog,
@@ -44,7 +44,7 @@ use crate::{
         canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
-    rr_build::{self, CalcUserIntentOutput},
+    rr_build,
 };
 
 use super::UniversalFlags;
@@ -165,7 +165,7 @@ fn calc_user_intent_for_info(
     ctx: &InfoIntentContext,
     discovered: &DiscoveredProject,
     target_backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     let is_canonical_run = matches!(ctx.target_kind, imp::TargetKind::Canonical);
 
     let intents = match &ctx.selection.mode {
@@ -293,12 +293,13 @@ pub(crate) fn run_info(
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
     std::fs::create_dir_all(target_dir)?;
-    let _lock = lock_directory(target_dir, output.user_log())?;
+    let session = BuildSession::new(target_dir, false, output.user_log())?;
 
     let planned_runs = execution_targets
         .into_iter()
         .map(|(target, target_kind)| {
             let (meta, input) = plan_info_rr(
+                &session,
                 &cli,
                 &cmd,
                 target,
@@ -316,9 +317,6 @@ pub(crate) fn run_info(
         return Ok(0);
     }
 
-    for (_, meta, _) in &planned_runs {
-        moonbuild::metadata::generate_all_pkgs_json(meta)?;
-    }
     let (all_meta, build_inputs): (Vec<_>, Vec<_>) = planned_runs
         .into_iter()
         .map(|(target, meta, input)| ((target, meta), input))
@@ -326,8 +324,12 @@ pub(crate) fn run_info(
     let build_input = BuildInput::compose(build_inputs)?;
     // TODO: UX: Consider mirroring flags from `moon check`?
     let cfg = BuildFlags::default().execution_config(&cli.unstable_feature, cli.verbose);
-    let result =
-        moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+    let result = session.execute(
+        &cfg,
+        build_input,
+        &all_meta.iter().map(|(_, meta)| meta).collect::<Vec<_>>(),
+        MetadataOutput::Compiler,
+    )?;
     let print_result = result.print_info(cli.quiet, "generating mbti files");
     if !result.successful() {
         return Ok(1);
@@ -344,6 +346,7 @@ pub(crate) fn run_info(
 /// Plan `moon info` for one target backend.
 #[allow(clippy::too_many_arguments)]
 fn plan_info_rr(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: TargetBackend,
@@ -374,13 +377,11 @@ fn plan_info_rr(
         &resolved_project,
         compile_config.backend.target_backend(),
     )?;
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         None,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }

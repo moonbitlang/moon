@@ -21,7 +21,7 @@
 pub mod compile;
 pub mod execution;
 pub mod expect;
-pub mod metadata;
+mod metadata;
 pub mod prepare;
 pub mod runtest;
 

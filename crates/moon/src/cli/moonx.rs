@@ -78,7 +78,9 @@ pub(crate) fn prepare(
             target_dir: None,
         }
         .single_file_package_dirs(&input)?;
-        Some(super::run::build_standalone_wasm(dirs, false, verbose)?)
+        Some(moonbuild::compile::build_standalone_wasm(
+            dirs, false, verbose,
+        )?)
     } else {
         None
     };
@@ -94,12 +96,12 @@ pub(crate) fn prepare(
             runtime.block_on(registry.acquire_executable_wasm(&input, user_log))?
         }
     };
-    let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
-        experimental_policy.as_deref(),
+    let policy = experimental_policy.as_deref().or_else(|| {
         standalone
             .as_ref()
-            .and_then(|built| built.embedded_mbtx_policy.as_ref()),
-    );
+            .and_then(|built| built.policy_source.as_deref())
+    });
+    let policy_source_dir = None;
 
     if let Some(handoff) = handoff {
         // The supervisor parses the same frontend and owns execution settings,

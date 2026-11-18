@@ -93,9 +93,6 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Select provider actions and expand their transitive artifact requirements.
    - Generate a concrete build graph containing the final commandlines to execute.
 3. Execute the build graph
-   - Generate metadata files required by compiler actions. Full project checks
-     also publish `packages.json` and `index.json` for tooling compatibility
-     during migration.
    - For a multi-backend invocation, compose the independently lowered
      Execution Plans into one executor graph, sharing compatible physical
      providers such as package prebuild actions. JSON-formatted checks retain
@@ -104,6 +101,9 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
      with any applicable target kind, such as `(wasm, blackbox test)`;
      package-prebuild actions independently render `(prebuild)` before the
      executor receives either description.
+   - Generate metadata files required by compiler actions. Full project checks
+     also publish `packages.json` and `index.json` for tooling compatibility
+     during migration.
    - Execute the concrete build graph in its executor ([n2][]).
      The executor ensures the graph is executed incrementally, rebuilding only the changed parts.
 4. Perform other operations required after build
@@ -117,10 +117,17 @@ Implementation-wise:
   [RR][rr_home] handles package discovery, package resolution, planning, and
   lowering; `moonbuild::compile` prepares external inputs and drives planning
   and lowering.
-- `moonbuild::metadata` publishes build metadata, and `moonbuild::execution`
-  executes the resulting graphs. [Moon's `rr_build` module][moon_rr_build]
-  adapts command flags and intents and still orchestrates prebuild configuration
-  before compilation.
+- `moonbuild::compile::BuildSession` holds the target-directory lock across
+  module prebuild configuration, planning, metadata publication, and execution.
+  Its execution entry points publish metadata through a private module before
+  handing the graph to `moonbuild::execution`. Dry-run planning only locks when
+  it runs module prebuild configuration; a dry-run session cannot execute.
+- [Moon's `rr_build` module][moon_rr_build] adapts command flags and intents.
+  Commands select packages, backends, and metadata requirements, and keep the
+  session alive while consuming build outputs. Run and test commands release
+  it before launching user programs; test promotion and its partial rebuild
+  share a new session. Standalone Wasm callers use
+  `moonbuild::compile::build_standalone_wasm` without constructing CLI arguments.
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:
@@ -843,7 +850,8 @@ index is replaced last. Readers therefore never follow a newly published index
 to a partially written document or stale selector. Byte-identical metadata is
 left untouched.
 
-`moonbuild::metadata::publish_check_metadata` owns this publication sequence,
-including the compiler's `all_pkgs.json` for each plan. The command layer decides
-whether a check publishes metadata and holds the target-directory lock.
-`moon doc` uses the scoped-document writer without publishing a selector or index.
+The private `moonbuild::metadata` module owns this publication sequence,
+including the compiler's `all_pkgs.json` for each plan. The command layer selects
+`MetadataOutput::Check` for a full check; `BuildSession` publishes it under the
+same lock as execution. `moon doc` selects `MetadataOutput::Packages` to publish
+its scoped document without changing the selector or index.

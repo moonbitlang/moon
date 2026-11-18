@@ -79,9 +79,9 @@ Rewriting such a file at the same path may therefore fail to trigger relinking.
 Explicit generated-file dependency declarations and rerun controls remain
 future work for the experimental protocol.
 
-For actual builds, the command layer acquires the target-directory lock before
-planning runs these scripts and keeps it through build execution. This protects
-script writes and any build actions that read their outputs from concurrent
+For actual builds, `moonbuild::compile::BuildSession` acquires the target-directory
+lock before planning runs these scripts and keeps it through build execution.
+This protects script writes and any build actions that read their outputs from concurrent
 invocations. For dry runs, each backend planning pass acquires the lock only
 if it will execute a module-level prebuild script, and keeps it through planning.
 Passes that skip the scripts do not acquire the lock, including native and LLVM
@@ -95,8 +95,9 @@ build.
 MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
 Their target is always linear-memory Wasm, independently of the project backend;
 compiling the script therefore skips module-level prebuild configuration. The
-command layer calls the standalone builder directly and preserves the outer
-command's `--frozen` setting. Moonrun executes the compiled artifact, using normal
+prebuild implementation calls moonbuild's standalone Wasm builder directly,
+without constructing CLI flags, and preserves the outer command's `--frozen`
+setting. Moonrun executes the compiled artifact, using normal
 runtime discovery (including `MOONRUN_OVERRIDE`). Build progress stays off stdout
 to preserve the JSON protocol.
 

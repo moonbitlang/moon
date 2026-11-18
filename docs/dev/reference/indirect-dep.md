@@ -44,5 +44,5 @@ The file path to `all_pkgs.json` is passed to the compiler via the `--all_pkgs` 
 The `gen_all_pkgs_json` function in `crates/moonbuild-rupes-recta/src/all_pkgs.rs`
 constructs the document by iterating through resolved packages and collecting
 their artifact paths for the target backend and build configuration.
-`moonbuild::metadata::generate_all_pkgs_json` serializes and writes it before
+`BuildSession` invokes the private `moonbuild::metadata` writer before
 compiler execution, leaving byte-identical files untouched.

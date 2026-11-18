@@ -16,7 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Build planning and preparation of external inputs before lowering.
+//! Prepare, plan, and execute builds within a target-directory lifecycle.
+
+mod config;
+mod prebuild;
+mod session;
+mod standalone;
+
+pub use config::{prepare_backend, prepare_config};
+pub use session::{BuildRequest, BuildSession, MetadataOutput};
+pub use standalone::{StandaloneWasm, build_standalone_wasm};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{
@@ -32,17 +41,17 @@ use tracing::{debug, info, instrument};
 use walkdir::WalkDir;
 
 /// The output information of the compilation.
-pub struct CompileOutput {
+pub(super) struct CompileOutput {
     /// Executor-neutral concrete actions and declared outputs.
-    pub execution_plan: ExecutionPlan,
+    pub(super) execution_plan: ExecutionPlan,
 
     /// The build plan, but only if we decided to export it.
-    pub build_plan: Option<Box<BuildPlan>>,
+    build_plan: Option<Box<BuildPlan>>,
 }
 
 /// Plan one backend, prepare its external inputs, and lower its complete graph.
 #[instrument(skip_all)]
-pub fn compile(
+pub(super) fn compile(
     cx: &CompileConfig,
     resolved_project: &ResolvedProject,
     requested_artifacts: &[ArtifactKey],

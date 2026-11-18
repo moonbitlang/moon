@@ -21,9 +21,7 @@ use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::{FmtConfig, build_execution_plan_for_fmt_file};
-use moonutil::{
-    command_output::CommandOutput, locks::lock_directory, path_normalizer::PathNormalizer,
-};
+use moonutil::{command_output::CommandOutput, path_normalizer::PathNormalizer};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, plan_fmt};
@@ -167,12 +165,12 @@ fn run_fmt_rr(
             continue;
         }
         std::fs::create_dir_all(&dirs.target_dir)?;
-        let _lock = lock_directory(&dirs.target_dir, user_log)?;
-        let res = moonbuild::execution::execute_build(
+        let session = moonbuild::compile::BuildSession::new(&dirs.target_dir, false, user_log)?;
+        let res = session.execute(
             &BuildConfig::default(),
             build_input,
-            &dirs.target_dir,
-            user_log,
+            &[],
+            moonbuild::compile::MetadataOutput::Compiler,
         )?;
         res.print_info(cli.quiet, "formatting")?;
     }

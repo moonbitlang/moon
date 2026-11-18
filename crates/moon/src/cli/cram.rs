@@ -26,12 +26,12 @@ use std::{
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonutil::{
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
-    locks::lock_directory,
     path_normalizer::PathNormalizer,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
@@ -154,13 +154,10 @@ fn run_cram_test(
     )
     .with_jobs(build_cmd.build_flags.jobs);
     let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
     let planned_runs = crate::cli::plan_build_rr_from_discovered(
+        &session,
         cli,
         &build_cmd,
         target_dir,
@@ -190,14 +187,14 @@ fn run_cram_test(
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
-        moonbuild::metadata::generate_all_pkgs_json(&build_meta)?;
-        let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
+        let result =
+            session.execute(&cfg, build_graph, &[&build_meta], MetadataOutput::Compiler)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
             return Ok(ProcessAction::Exit(result.return_code_for_success()));
         }
     }
-    drop(lock);
+    drop(session);
 
     let mut command = Command::new(moon_cram);
     command.args(parsed.cram_args);

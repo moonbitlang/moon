@@ -27,7 +27,6 @@ use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
 use crate::filter::{BackendPlanSelection, TargetPackageGroup};
 use crate::rr_build;
-use crate::rr_build::CalcUserIntentOutput;
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
@@ -36,6 +35,7 @@ use anyhow::bail;
 use clap::builder::ArgPredicate;
 use colored::Colorize;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession};
 use moonbuild::execution::BuildConfig;
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
@@ -45,7 +45,6 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::locks::lock_directory;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use moonutil::user_log::UserLog;
@@ -126,7 +125,7 @@ impl ResolvedTestSelection {
         cmd: &TestLikeSubcommand<'_>,
         target_backend: TargetBackend,
         filter: &TestFilter,
-    ) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    ) -> Result<BuildRequest, anyhow::Error> {
         match self {
             ResolvedTestSelection::Workspace { packages } => Ok(packages
                 .iter()
@@ -567,11 +566,7 @@ fn run_test_in_single_file_rr(
         rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
     let pkg = rr_build::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
@@ -610,14 +605,12 @@ fn run_test_in_single_file_rr(
             let directive =
                 rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
             let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
-            let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+            let (build_meta, build_graph) = session.plan(
                 compile_config,
-                user_log,
                 intent,
                 resolved.clone(),
                 cmd.build_flags.jobs,
                 cmd.auto_sync_flags.frozen,
-                cli.dry_run,
             )?;
             Ok((build_meta, build_graph, filter.clone()))
         })
@@ -630,7 +623,7 @@ fn run_test_in_single_file_rr(
         target_dir,
         false,
         planned_runs,
-        lock,
+        session,
         output,
     )
 }
@@ -722,6 +715,7 @@ impl TestLikeSubcommand<'_> {
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
 pub(crate) fn plan_test_or_bench_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
@@ -761,6 +755,7 @@ pub(crate) fn plan_test_or_bench_rr_from_discovered(
         .into_iter()
         .map(|(target_backend, intent, filter)| {
             plan_test_or_bench_rr_from_intent(
+                session,
                 cli,
                 cmd,
                 target_dir,
@@ -800,12 +795,13 @@ fn select_test_plans(
 
 #[allow(clippy::too_many_arguments)]
 fn plan_test_or_bench_rr_from_intent(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
     target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    intent: CalcUserIntentOutput,
+    intent: BuildRequest,
     filter: TestFilter,
     user_log: &UserLog,
 ) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
@@ -824,14 +820,12 @@ fn plan_test_or_bench_rr_from_intent(
         user_log,
         &resolved_project,
     )?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )?;
     Ok((build_meta, build_graph, filter))
 }
@@ -966,13 +960,10 @@ pub(crate) fn run_test_or_bench_from_discovered(
         target_dir,
         ..
     } = dirs;
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let planned_runs = plan_test_or_bench_rr_from_discovered(
+        &session,
         cli,
         cmd,
         target_dir,
@@ -987,7 +978,7 @@ pub(crate) fn run_test_or_bench_from_discovered(
         target_dir,
         display_backend_hint,
         planned_runs,
-        lock,
+        session,
         output,
     )
 }
@@ -1009,7 +1000,7 @@ fn run_test_workflow(
     target_dir: &Path,
     display_backend_hint: bool,
     planned_runs: Vec<(BuildMeta, BuildInput, TestFilter)>,
-    lock: Option<std::fs::File>,
+    session: BuildSession,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -1030,9 +1021,6 @@ fn run_test_workflow(
         return Ok(0);
     }
 
-    for (build_meta, _) in &build_metas_and_filters {
-        moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
-    }
     let build_config = cmd
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose);
@@ -1042,13 +1030,7 @@ fn run_test_workflow(
         .iter()
         .map(|(meta, _)| meta)
         .collect::<Vec<_>>();
-    let result = moonbuild::execution::execute_test_build(
-        &build_config,
-        build_graph,
-        target_dir,
-        &build_metas,
-        user_log,
-    )?;
+    let result = session.execute_test(&build_config, build_graph, &build_metas)?;
     if !result.successful() {
         return Ok(result.return_code_for_success());
     }
@@ -1072,7 +1054,7 @@ fn run_test_workflow(
     }
     // n2 has closed the shared database. Test execution must not block checks
     // or other builds that use this target directory.
-    drop(lock);
+    drop(session);
     if cmd.profile {
         return profile::profile_tests(
             cli,
@@ -1150,7 +1132,7 @@ fn run_tests_with_updates(
 
             // Promotion changes build inputs. Keep it and the partial rebuild
             // under one lock, then release it before the next test run.
-            let lock = lock_directory(target_dir, user_log)?;
+            let session = BuildSession::new(target_dir, false, user_log)?;
 
             // Only the latest run can request another promotion. Keep results
             // for tests outside the rerun filter in the final report.
@@ -1192,15 +1174,13 @@ fn run_tests_with_updates(
                         .expect("test result from the last test run should be present")
                         .as_slice()
                 });
-            let result = moonbuild::execution::execute_build_partial(
+            let result = session.rebuild(
                 build_config,
                 build_graph,
-                target_dir,
-                Some(&build_meta),
-                user_log,
+                &build_meta,
                 want_files.map(PathBuf::as_path),
             )?;
-            drop(lock);
+            drop(session);
             if !result.successful() {
                 exit_code = exit_code.max(result.return_code_for_success());
                 continue 'backends;
@@ -1358,7 +1338,7 @@ fn calc_user_intent(
     out_filter: &mut TestFilter,
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
     calc_user_intent_from_packages(
         discovered,
@@ -1382,7 +1362,7 @@ fn calc_user_intent_from_packages(
     user_log: &UserLog,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     debug!(
         package_count = all_affected_packages.len(),
         module_count = discovered.local_modules().len(),

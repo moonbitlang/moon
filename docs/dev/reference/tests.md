@@ -131,8 +131,8 @@ snapshot tests. The CLI enforces a single target backend in this mode (updating
 multiple backends at once would diverge binary outputs) and disallows patch
 files.
 
-1. After each run, the workflow reacquires the target-directory lock before
-   promotion and holds it through any partial rebuild. `perform_promotion` scans
+1. After each run, the workflow opens a new `BuildSession`, acquiring the
+   target-directory lock before promotion and holding it through any partial rebuild. `perform_promotion` scans
    that run's `ReplaceableTestResults`. For every `ExpectTestFailed` or
    `SnapshotTestFailed` case it:
 
@@ -144,7 +144,7 @@ files.
 
    - Checks the `--limit` counter (default 256 passes) to avoid infinite loops.
    - Rebuilds just the affected test artifacts by cloning the saved build graph
-     and calling `execute_build_partial` with the target nodes returned from the
+     and calling `BuildSession::rebuild` with the output paths returned from the
      filter.
    - Releases the lock before re-running the filtered subset of tests, with the
      `PackageFilter` wrapped inside a temporary `TestFilter`. Only the promoted

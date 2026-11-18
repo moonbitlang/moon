@@ -21,13 +21,14 @@ mod server;
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
+use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
-use moonutil::{build_options::RunMode, locks::lock_directory, user_log::UserLog};
+use moonutil::{build_options::RunMode, user_log::UserLog};
 use tracing::instrument;
 
 use super::UniversalFlags;
@@ -158,14 +159,13 @@ pub(crate) fn run_doc_rr(
     )?;
     compile_config.docs_serve = cmd.serve;
     let intent = vec![UserIntent::Doc(module_id)].into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )?;
 
     // Early exit for dry-run
@@ -174,16 +174,14 @@ pub(crate) fn run_doc_rr(
         return Ok(0);
     }
 
-    let lock = lock_directory(target_dir, user_log)?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    moonbuild::metadata::generate_all_pkgs_json(&build_meta)?;
-    // Generate metadata for `moondoc`
-    moonbuild::metadata::generate_metadata(source_dir, &build_meta, &build_graph)?;
-
     // Execute the build
     let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
-    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    let result = session.execute(
+        &cfg,
+        build_graph,
+        &[&build_meta],
+        MetadataOutput::Packages(source_dir),
+    )?;
     result.print_info(cli.quiet, "checking")?;
 
     if !result.successful() {
@@ -191,7 +189,7 @@ pub(crate) fn run_doc_rr(
     }
 
     // Release lock before serving (no writes beyond this point)
-    drop(lock);
+    drop(session);
     // Serve
     if cmd.serve {
         let static_dir = target_dir.join("doc");
