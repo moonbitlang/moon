@@ -23,9 +23,9 @@
 mod io;
 
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, io as std_io};
 
 #[cfg(unix)]
 use super::path::entry_before_directory_suffix;
@@ -42,7 +42,7 @@ pub(crate) enum FsError {
     #[error("filesystem access denied by policy")]
     Denied,
     #[error(transparent)]
-    Io(#[from] std_io::Error),
+    Io(#[from] std::io::Error),
 }
 
 /// One source for both native open options and their authorization intent.
@@ -64,7 +64,7 @@ pub(crate) struct Directory {
 impl Directory {
     /// Runtime configuration acquires a preopen without granting guest access.
     /// HostFs still authorizes each operation using its requested effects.
-    pub(crate) fn preopen(path: &Path) -> std_io::Result<Self> {
+    pub(crate) fn preopen(path: &Path) -> std::io::Result<Self> {
         use super::os::{
             DirectIo,
             openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
@@ -309,7 +309,7 @@ impl HostFs {
         if (!write && (!options.read || options.create || options.create_new || options.truncate))
             || (options.append && options.truncate && !options.create_new)
         {
-            return Err(std_io::Error::from(std_io::ErrorKind::InvalidInput).into());
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).into());
         }
         Ok(openat::open(
             Some(super::os::raw_file(&directory.file)),
