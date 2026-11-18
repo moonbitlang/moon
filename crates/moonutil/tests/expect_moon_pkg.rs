@@ -487,97 +487,25 @@ fn expect_build() {
 }
 
 #[test]
-fn expect_warnings() {
+fn expect_warnings_rejects_duplicate_configuration() {
     let actual = run(r#"
     warnings = "+unused_variable"
     options(
       "warn-list": "-deprecated_syntax",
     )
     "#);
-    expect_test::expect![[r#"
-        MoonPkg {
-            name: None,
-            experimental: false,
-            allow_experimental_packages: None,
-            is_main: false,
-            force_link: false,
-            sub_package: None,
-            imports: [],
-            wbtest_imports: [],
-            test_imports: [],
-            formatter: MoonPkgFormatter {
-                ignore: {},
-            },
-            link: None,
-            warn_list: Some(
-                "+unused_variable-deprecated_syntax",
-            ),
-            alert_list: None,
-            proof_enabled: false,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: {
-                Wasm,
-                WasmGC,
-                Js,
-                Native,
-                LLVM,
-            },
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            max_concurrent_tests: None,
-            regex_backend: None,
-            local_rules: None,
-        }"#]]
-    .assert_eq(&actual);
+    expect_test::expect![["Error: duplicate field `warn_list`"]].assert_eq(&actual);
 }
 
 #[test]
-fn expect_supported_targets_prefers_new_config() {
+fn expect_supported_targets_rejects_duplicate_configuration() {
     let actual = run(r#"
     supported_targets = "js"
     options(
       "supported-targets": "+native",
     )
     "#);
-    expect_test::expect![[r#"
-        MoonPkg {
-            name: None,
-            experimental: false,
-            allow_experimental_packages: None,
-            is_main: false,
-            force_link: false,
-            sub_package: None,
-            imports: [],
-            wbtest_imports: [],
-            test_imports: [],
-            formatter: MoonPkgFormatter {
-                ignore: {},
-            },
-            link: None,
-            warn_list: None,
-            alert_list: None,
-            proof_enabled: false,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: {
-                Js,
-            },
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            max_concurrent_tests: None,
-            regex_backend: None,
-            local_rules: None,
-        }"#]]
-    .assert_eq(&actual);
+    expect_test::expect![["Error: duplicate field `supported_targets`"]].assert_eq(&actual);
 }
 
 #[test]

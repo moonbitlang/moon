@@ -1521,7 +1521,7 @@ import { "example/test" } for "test"
 import { "example/whitebox" } for "wbtest"
 pkgtype(kind: "foreign_library")
 formatter(ignore: ["generated.mbt"])
-warnings = "+1"
+warnings = "+1-2"
 supported_targets = "all-js"
 rule(name: "first", command: "first $input $output")
 rule(name: "second", command: "second $input $output")
@@ -1530,7 +1530,6 @@ dev_build(input: "b", output: "c", command: "generate")
 options(
   "is-main": false,
   link: { "wasm": { "heap-start-address": 2214592512 } },
-  "warn-list": "-2",
   "proof-enabled": true,
   targets: { "native.mbt": "native" },
   "bin-name": "app",
@@ -1663,24 +1662,70 @@ fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
 }
 
 #[test]
-fn convert_pkg_dsl_preserves_options_precedence() {
-    assert_pkg_dsl_matches_json(
-        r#"
-pkgtype(kind: "library")
-formatter(ignore: ["original.mbt"])
-rule(name: "original", command: "original")
-options(
-  pkgtype: { "kind": "executable" },
-  formatter: { "ignore": ["replacement.mbt"] },
-  rule: [],
-)
-"#,
-        serde_json_lenient::json!({
-            "pkgtype": {"kind": "executable"},
-            "formatter": {"ignore": ["replacement.mbt"]},
-            "rule": [],
-        }),
-    );
+fn convert_pkg_dsl_rejects_duplicate_options() {
+    for (declaration, option, field) in [
+        (
+            r#"pkgtype(kind: "library")"#,
+            r#"pkgtype: { "kind": "library" }"#,
+            "pkgtype",
+        ),
+        (
+            r#"formatter(ignore: ["a.mbt"])"#,
+            r#"formatter: { "ignore": [] }"#,
+            "formatter",
+        ),
+        (r#"rule(name: "a", command: "echo a")"#, "rule: []", "rule"),
+        ("experimental = false", "experimental: true", "experimental"),
+        (r#"warnings = "+1""#, r#"warnings: "+1""#, "warnings"),
+        (r#"warnings = """#, r#"warn_list: "+1""#, "warn_list"),
+        (r#"warnings = "+1""#, r#""warn-list": "-2""#, "warn_list"),
+        (
+            r#"supported_targets = "js""#,
+            r#"supported_targets: "js""#,
+            "supported_targets",
+        ),
+        (
+            r#"supported_targets = "js""#,
+            r#""supported-targets": "+native""#,
+            "supported_targets",
+        ),
+        (
+            "proof_enabled = true",
+            r#""proof-enabled": false"#,
+            "proof_enabled",
+        ),
+        (
+            "virtual(has_default: true)",
+            r#"virtual: { "has-default": false }"#,
+            "virtual",
+        ),
+        (
+            "virtual(has_default: true)",
+            r#"virtual_pkg: { "has-default": true }"#,
+            "virtual_pkg",
+        ),
+        (
+            r#"virtual(implement: "example/lib")"#,
+            r#"implement: "example/other""#,
+            "implement",
+        ),
+    ] {
+        for source in [
+            format!("{declaration}\noptions({option})"),
+            format!("options({option})\n{declaration}"),
+        ] {
+            let error = convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("duplicate field `{field}`"),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_accepts_legacy_options() {
     for (source, json) in [
         (
             r#"options(name: "main")"#,
@@ -1897,7 +1942,7 @@ fn convert_pkg_dsl_rejects_duplicate_import_option_spellings() {
         let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
         assert_eq!(
             error.to_string(),
-            format!("Duplicate key '{kind}-import' found in moon.pkg options."),
+            format!("duplicate field `{kind}-import`"),
         );
     }
 }
@@ -1953,28 +1998,40 @@ fn convert_pkg_json_imports_are_unconditional() {
 }
 
 #[test]
-fn convert_pkg_dsl_options_imports_preserve_precedence() {
-    let dsl = crate::moon_pkg::parse(
-        r#"
-#cfg(target = "native")
-import { "example/lib/native" }
-#cfg(target = "native")
-import { "example/lib/test" } for "test"
-#cfg(target = "native")
-import { "example/lib/wbtest" } for "wbtest"
-options(
-  "import": ["example/lib/common"],
-  "test-import": [],
-  "wbtest-import": [],
-)
-"#,
-    )
-    .unwrap();
-    let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
-    assert_eq!(pkg.imports.len(), 1);
-    assert_eq!(pkg.imports[0].get_path(), "example/lib/common");
-    assert!(pkg.test_imports.is_empty());
-    assert!(pkg.wbtest_imports.is_empty());
+fn convert_pkg_dsl_rejects_import_blocks_with_legacy_options() {
+    for (source, field) in [
+        (r#"import {} options("import": [])"#, "import"),
+        (
+            r#"import { "example/lib", "example/lib" } options("import": ["example/other"])"#,
+            "import",
+        ),
+        (
+            r#"import {} for "test" options(test_import: [])"#,
+            "test-import",
+        ),
+        (
+            r#"import { "example/lib" } for "test" options("test-import": [])"#,
+            "test-import",
+        ),
+        (
+            r#"import {} for "wbtest" options(wbtest_import: [])"#,
+            "wbtest-import",
+        ),
+        (
+            r#"import { "example/lib" } for "wbtest" options("wbtest-import": [])"#,
+            "wbtest-import",
+        ),
+    ] {
+        let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        let error = convert_pkg_dsl_to_package(moon_pkg::parse(source).unwrap(), &log).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("duplicate field `{field}`"),
+            "{source}"
+        );
+        // Reject ambiguous declarations before producing duplicate-item warnings.
+        assert!(capture.take().is_empty());
+    }
 }
 
 #[test]
@@ -2100,18 +2157,16 @@ fn convert_pkg_imports_warns_and_preserves_duplicate_items() {
 }
 
 #[test]
-fn convert_pkg_dsl_overrides_imports_before_normalization() {
-    let dsl = moon_pkg::parse(
-        r#"
-import { "example/unused", "example/unused" }
-options("import": ["example/replacement"])
-"#,
-    )
-    .unwrap();
-    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    let pkg = convert_pkg_dsl_to_package(dsl, &user_log).unwrap();
-    assert!(matches!(&pkg.imports[..], [Import::Simple(path)] if path == "example/replacement"));
-    assert!(capture.take().is_empty());
+fn convert_pkg_dsl_import_options_allow_other_import_kinds() {
+    assert_pkg_dsl_matches_json(
+        r#"import { "example/lib" }
+options(test_import: ["example/test"], wbtest_import: ["example/wbtest"])"#,
+        serde_json_lenient::json!({
+            "import": ["example/lib"],
+            "test-import": ["example/test"],
+            "wbtest-import": ["example/wbtest"],
+        }),
+    );
 }
 
 #[test]
@@ -2289,23 +2344,18 @@ fn convert_pkg_dsl_supports_supported_targets_shorthand() {
 }
 
 #[test]
-fn convert_pkg_dsl_prefers_supported_targets_over_options_supported_targets() {
-    let json = crate::moon_pkg::parse(
-        r#"
-supported_targets = "js"
-options(
-  "supported-targets": "+native",
-)
-"#,
-    )
-    .unwrap();
-    let (pkg, decl_kind) = convert_test_pkg_dsl(json, true).unwrap();
-
+fn legacy_main_warning_recommends_pkgtype() {
+    let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+    let pkg =
+        convert_pkg_dsl_to_package(moon_pkg::parse(r#"options(name: "main")"#).unwrap(), &log)
+            .unwrap();
+    assert!(pkg.is_main);
+    let warnings = capture.take();
+    assert_eq!(warnings.len(), 1);
     assert_eq!(
-        pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
-        vec![Js]
+        warnings[0].message,
+        "The `name` field in `moon.pkg` is deprecated. Use `pkgtype(kind: \"executable\")` for an executable package."
     );
-    assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
 }
 
 #[test]
@@ -2493,21 +2543,20 @@ rule(name: "rule1", command: "exe2")
 
 #[test]
 fn convert_pkg_dsl_rejects_mixed_dev_build_and_pre_build() {
-    let json = crate::moon_pkg::parse(
-        r#"
+    for (option, field) in [
+        ("dev_build", "dev_build"),
+        ("pre-build", "pre_build"),
+        ("pre_build", "pre_build"),
+    ] {
+        let source = format!(
+            r#"
 dev_build(rule: "rule1", input: "abc", output: "def")
-options(
-  "pre-build": [],
-)
-"#,
-    )
-    .unwrap();
-
-    let err = convert_test_pkg_dsl(json, true).unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("`dev_build` cannot be used together with `pre-build`")
-    );
+options("{option}": [])
+"#
+        );
+        let err = convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), true).unwrap_err();
+        assert_eq!(err.to_string(), format!("duplicate field `{field}`"));
+    }
 }
 
 #[test]
