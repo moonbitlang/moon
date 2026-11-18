@@ -16,23 +16,27 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! MSVC-specific command helpers for the direct native backend.
+//! MSVC command construction for generated C and direct native payloads.
 
 use std::path::Path;
 
+use super::{CCConfig, LinkerConfig, OutputType, render_link_arg};
+
 use moonutil::compiler_flags::{
-    MsvcCrtPolicy, NativeAllocator, NativeLinkArg, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
+    CC, CCKind, MsvcCrtPolicy, NativeAllocator, Toolchain, WINDOWS_MSVC_C_STANDARD_FLAG,
     WINDOWS_MSVC_DEFAULT_LIBS,
 };
 
-pub(crate) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
+use crate::model::NativeLinkArg;
+
+pub(in crate::build_lower) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
     toolchain
         .msvc_environment()
         .map(|environment| environment.command_env().to_vec())
         .unwrap_or_default()
 }
 
-pub(crate) fn compile_runtime_command(
+pub(in crate::build_lower) fn compile_runtime_command(
     toolchain: &Toolchain,
     source: &Path,
     dest: &Path,
@@ -69,7 +73,7 @@ pub(crate) fn compile_runtime_command(
     command
 }
 
-pub(crate) fn link_executable_command(
+pub(in crate::build_lower) fn link_executable_command(
     toolchain: &Toolchain,
     sources: &[String],
     link_args: &[NativeLinkArg],
@@ -92,9 +96,75 @@ pub(crate) fn link_executable_command(
         "/subsystem:console".to_string(),
         format!("/LIBPATH:{lib_path}"),
     ]);
-    command.extend(link_args.iter().map(|arg| arg.render(toolchain.cc())));
+    command.extend(
+        link_args
+            .iter()
+            .map(|arg| render_link_arg(arg, toolchain.cc())),
+    );
     command.extend(WINDOWS_MSVC_DEFAULT_LIBS.iter().map(|lib| lib.to_string()));
     command
+}
+
+pub(super) fn add_linker_specific_flags(cc: &CC, buf: &mut Vec<String>) {
+    if cc.uses_msvc_cli() {
+        buf.push("/nologo".to_string());
+    }
+}
+
+pub(super) fn add_linker_runtime<P: AsRef<Path>>(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &LinkerConfig<P>,
+    lpath: &str,
+) {
+    if cc.uses_msvc_cli() {
+        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
+            buf.push(
+                dunce::simplified(&dyn_lib_path.as_ref().join("libruntime.lib"))
+                    .display()
+                    .to_string(),
+            );
+        }
+        buf.push("/link".to_string());
+        buf.push(format!("/LIBPATH:{lpath}"));
+    }
+}
+
+pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
+    if !cc.uses_msvc_cli() {
+        return;
+    }
+
+    buf.push(WINDOWS_MSVC_C_STANDARD_FLAG.to_string());
+    // Large generated C files can exceed the default COFF section limit.
+    buf.push("/bigobj".to_string());
+
+    if matches!(cc.cc_kind, CCKind::ClangCl) {
+        // Generated C relies on wrapping signed arithmetic. Older clang-cl
+        // versions otherwise optimize as if signed overflow cannot occur.
+        buf.push("/clang:-fwrapv".to_string());
+    }
+
+    if !has_user_flags {
+        buf.push("/utf-8".to_string());
+        buf.push("/wd4819".to_string());
+    }
+    buf.push("/nologo".to_string());
+}
+
+pub(super) fn add_cc_runtime_flags(cc: &CC, toolchain: &Toolchain, buf: &mut Vec<String>) {
+    if cc.uses_msvc_cli()
+        && let Some(crt) = toolchain.msvc_crt_policy()
+    {
+        buf.push(crt.compiler_flag().to_string());
+    }
+}
+
+pub(super) fn add_cc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
+    if cc.uses_msvc_cli() && config.output_ty != OutputType::Object {
+        buf.push("/link".to_string());
+        buf.push(format!("/LIBPATH:{lpath}"));
+    }
 }
 
 #[cfg(test)]

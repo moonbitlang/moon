@@ -40,6 +40,7 @@ shlex.workspace = true
 tracing.workspace = true
 regex.workspace = true
 dunce.workspace = true
+colored.workspace = true
 
 serde = { workspace = true, features = ["rc"] }
 

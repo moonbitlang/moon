@@ -18,7 +18,7 @@
 
 use std::path::Path;
 
-use super::{ARKind, CC, CCConfig, CCKind, LinkerConfig, OutputType};
+use super::{ARKind, CC, CCKind};
 
 impl CC {
     fn probe_prog_name(cc_path: &Path, name: &str) -> Option<String> {
@@ -149,43 +149,4 @@ pub(super) fn resolve_apple_libtool_path() -> Option<std::path::PathBuf> {
     let libtool = String::from_utf8_lossy(&output.stdout);
     let libtool = std::path::PathBuf::from(libtool.lines().next()?.trim());
     libtool.is_file().then_some(libtool)
-}
-
-pub(super) fn add_cc_specific_flags(cc: &CC, buf: &mut Vec<String>) {
-    // The flags are required by the generated C runtime. See:
-    // https://github.com/moonbitlang/core/issues/1594#issuecomment-2649652455
-    if cc.is_full_featured_gcc_like() {
-        buf.push("-fwrapv".to_string());
-        buf.push("-fno-strict-aliasing".to_string());
-        // Fusing operations changes rounding and can disagree with other backends.
-        buf.push("-ffp-contract=off".to_string());
-        // Apple clang is usually detected as SystemCC on macOS.
-        if matches!(cc.cc_kind, CCKind::Clang)
-            || (cfg!(target_os = "macos") && matches!(cc.cc_kind, CCKind::SystemCC))
-        {
-            buf.push("-Wno-unused-value".to_string());
-        }
-    }
-}
-
-pub(super) fn add_linker_common_libraries<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-) {
-    if cc.is_gcc_like() {
-        if cc.should_link_libm() {
-            buf.push("-lm".to_string());
-        }
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
-        }
-    }
-}
-
-pub(super) fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.should_link_libm() && config.output_ty != OutputType::Object {
-        buf.push("-lm".to_string());
-    }
 }

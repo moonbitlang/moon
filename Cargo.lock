@@ -2077,6 +2077,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcstr",
+ "colored",
  "dunce",
  "expect-test",
  "ignore",

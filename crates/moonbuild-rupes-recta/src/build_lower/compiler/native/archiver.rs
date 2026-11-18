@@ -16,9 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Native archive construction and selected library inputs.
+
 use std::path::Path;
 
-use super::{ARKind, ArchiverConfig, CC, CompilerPaths, moonbitrun_object, tcc};
+use moonutil::compiler_flags::{ARKind, CC, CompilerPaths, NativeAllocator};
+
+use super::{BuildCommand, add_library_input};
+
+#[derive(Clone, Default)]
+pub(in crate::build_lower) struct ArchiverConfig {
+    pub archive_moonbitrun: bool,
+    pub native_allocator: NativeAllocator,
+}
 
 fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
     match cc.ar_kind {
@@ -43,49 +53,40 @@ fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
             buf.push(dunce::simplified(Path::new(dest)).display().to_string());
         }
         ARKind::TccAr => {
-            tcc::add_archiver_flags(
-                buf,
-                &dunce::simplified(Path::new(dest)).display().to_string(),
-            );
+            buf.push("-ar".to_string());
+            buf.push("rcs".to_string());
+            buf.push(dunce::simplified(Path::new(dest)).display().to_string());
         }
     }
 }
 
-fn add_archiver_moonbitrun(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &ArchiverConfig,
-    paths: &CompilerPaths,
-) {
-    if let Some(object) = moonbitrun_object(
-        cc,
-        config.archive_moonbitrun,
-        config.native_allocator,
-        &paths.lib_path,
-    ) {
-        buf.push(dunce::simplified(Path::new(&object)).display().to_string());
-    }
-}
-
-pub fn make_archiver_command_resolved<S>(
+pub(in crate::build_lower) fn make_archiver_command<S>(
     cc: CC,
     config: ArchiverConfig,
     src: &[S],
     dest: &str,
     paths: &CompilerPaths,
-) -> Vec<String>
+) -> BuildCommand
 where
     S: AsRef<str>,
 {
     let mut buf = vec![cc.ar_path.clone()];
+    let mut inputs = Vec::new();
 
     add_archiver_flags(&cc, &mut buf, dest);
-    add_archiver_moonbitrun(&cc, &mut buf, &config, paths);
+    if config.archive_moonbitrun
+        && let Some(path) = paths.moonbitrun_object(&cc, config.native_allocator)
+    {
+        add_library_input(&mut buf, &mut inputs, path);
+    }
     buf.extend(src.iter().map(|s| {
         dunce::simplified(Path::new(s.as_ref()))
             .display()
             .to_string()
     }));
 
-    buf
+    BuildCommand {
+        commandline: buf.into(),
+        extra_inputs: inputs,
+    }
 }

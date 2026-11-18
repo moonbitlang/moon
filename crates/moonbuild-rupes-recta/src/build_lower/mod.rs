@@ -660,7 +660,7 @@ mod tests {
             BuildCStubsInfo {
                 effective_native_toolchain: toolchain.clone(),
                 debug_info: false,
-                opt_level: moonutil::compiler_flags::OptLevel::None,
+                opt_level: crate::model::CCOptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
                 link_args: Vec::new(),
             },
@@ -677,11 +677,11 @@ mod tests {
             MakeExecutableInfo {
                 effective_native_toolchain: toolchain.clone(),
                 c_debug_info: false,
-                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
+                c_opt_level: crate::model::CCOptLevel::Debug,
                 c_flags: Vec::new(),
                 link_args: vec![
-                    moonutil::compiler_flags::NativeLinkArg::Library("dep".into()),
-                    moonutil::compiler_flags::NativeLinkArg::SearchPath("pkg/lib".into()),
+                    crate::model::NativeLinkArg::Library("dep".into()),
+                    crate::model::NativeLinkArg::SearchPath("pkg/lib".into()),
                 ],
                 link_c_stubs: vec![target.package],
                 native_allocator: NativeAllocator::Default,
@@ -942,7 +942,7 @@ mod tests {
             target,
             MakeExecutableInfo {
                 c_debug_info: true,
-                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
+                c_opt_level: crate::model::CCOptLevel::Debug,
                 effective_native_toolchain: Toolchain::from_path_probe(CC {
                     cc_kind: CCKind::Clang,
                     cc_path: "/toolchain/bin/clang".to_string(),

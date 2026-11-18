@@ -14,6 +14,22 @@ Moon resolves the effective toolchain's compiler and archiver through the shared
 Every effective native toolchain exposed to build lowering satisfies this invariant, so command
 construction consumes the resolved paths without performing PATH lookup.
 
+Native compiler, linker, and archiver command construction belongs to RR's
+`build_lower/compiler/native`, with separate `gnu`, `tcc`, `msvc`, and
+`archiver` implementation modules. Its command configuration types are private to lowering;
+C optimization policy and ordered link arguments are crate-private RR model
+types shared with planning. `moonutil::compiler_flags` owns toolchain discovery, ABI/CRT and allocator policy,
+and queries for toolchain resources. C compilation uses the selected `Toolchain`
+for both runtime and package sources, including compiler-wrapper and MSVC
+environment handling.
+
+Command constructors return the existing `BuildCommand`, recording any selected
+`libmoonbitrun.o` or `libbacktrace.a` in `extra_inputs` as they add its argument.
+Wrapping an archiver preserves those inputs. Common lowering does not inspect
+rendered arguments to infer selected libraries; opaque user flags remain opaque.
+Optional backtrace-library checks and TCC's macOS SDK query still run on demand
+through the toolchain module. They are not eager probes for every Native request.
+
 If either executable cannot be resolved, toolchain resolution fails immediately with an error that
 identifies the missing compiler or archiver role. TCC uses the same resolved executable path for
 both roles because archiving is performed with `tcc -ar`.
