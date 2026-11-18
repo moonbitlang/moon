@@ -707,8 +707,7 @@ mod tests {
         };
         let mut dependency_info = moon_mod();
         dependency_info.name = dependency_source.name().to_string();
-        let dependency_module =
-            modules.add_module(dependency_source.clone(), dependency_info.clone().into());
+        let dependency_module = modules.add_module(dependency_source.clone());
         let mut packages = DiscoverResult::default();
         packages.test_register_module(module, moon_mod());
         packages.test_register_module(dependency_module, dependency_info);

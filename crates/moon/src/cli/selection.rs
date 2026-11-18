@@ -25,7 +25,6 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{DiscoveredProject, discover::FmtProject, model::PackageId};
-use moonutil::resolution::{DirSyncResult, ModuleDependencyGraph};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
     target::TargetBackend,
@@ -281,27 +280,15 @@ pub(super) fn filter_pkg_by_dir(
             let pkg = discovered.pkg_dirs.get_package(pkg_id);
             dunce::simplified(&pkg.root_path) == dunce::simplified(dir)
         })
-        .ok_or_else(|| {
-            report_package_not_found(
-                dir,
-                &discovered.module_graph,
-                &discovered.module_dirs,
-                discovered.local_modules(),
-            )
-        })
+        .ok_or_else(|| report_package_not_found(dir, discovered))
 }
 
 /// Given an invalid input path, report a helpful error message indicating why
 /// no package could be found.
-fn report_package_not_found(
-    input_path: &Path,
-    module_graph: &ModuleDependencyGraph,
-    module_dirs: &DirSyncResult,
-    main_modules: &[moonutil::resolution::ModuleId],
-) -> anyhow::Error {
+fn report_package_not_found(input_path: &Path, discovered: &DiscoveredProject) -> anyhow::Error {
     let m_def_and_dir = |id| {
-        let module_dir = module_dirs.get(id).expect("Module should exist");
-        let m_def = &**module_graph.module_info(id);
+        let module_dir = discovered.module_dirs.get(id).expect("Module should exist");
+        let m_def = discovered.module_info(id);
         (m_def, module_dir)
     };
 
@@ -311,7 +298,7 @@ fn report_package_not_found(
     let mut inside_module_root = None;
 
     // Find the most plausible module that the path belongs to
-    for &mid in main_modules {
+    for &mid in discovered.local_modules() {
         let (m_def, module_dir) = m_def_and_dir(mid);
         let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
         if input_path.starts_with(m_packages_root) {

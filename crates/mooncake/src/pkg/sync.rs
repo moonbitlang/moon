@@ -26,9 +26,7 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
-    resolution::{
-        DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule, ResolvedRootModules,
-    },
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedRootModules},
     user_log::UserLog,
 };
 use semver::Version;
@@ -61,7 +59,7 @@ pub fn auto_sync(
     let module = read_module_desc_file_in_dir(&dirs.source_dir)?;
     let module = Arc::new(module);
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
-    let (roots, _) = ResolvedModule::only_one_module(source, module);
+    let (roots, _) = ResolvedRootModules::only_one_module(source, module);
 
     let (module_graph, sync_result) = super::install::install_impl(
         dirs,
@@ -84,12 +82,12 @@ fn resolve_workspace_sync(
     workspace: &WorkspaceLayout,
     jobs: Option<usize>,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
-    let mut roots = ResolvedRootModules::with_key();
+    let mut roots = ResolvedRootModules::new();
     for member_dir in workspace.members() {
         let module = read_module_desc_file_in_dir(member_dir)?;
         let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, member_dir)?;
-        roots.insert(ResolvedModule::new(source, module));
+        roots.insert(source, module);
     }
 
     let (module_graph, sync_result) = super::install::install_impl(
@@ -132,7 +130,7 @@ pub fn auto_sync_for_single_file_rr(
         ..Default::default()
     });
     let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;
-    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
+    let (roots, _) = ResolvedRootModules::only_one_module(ms, Arc::clone(&m));
 
     let (module_graph, dir_sync_result) = super::install::install_impl(
         dirs,

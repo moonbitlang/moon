@@ -42,9 +42,7 @@ use moonutil::{
     manifest::{read_module_manifest, warn_module_manifest},
     package::resolve_supported_targets,
     project::ProjectManifest,
-    resolution::{
-        DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind, ResolvedModule,
-    },
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     user_log::UserLog,
 };
 use slotmap::SlotMap;
@@ -91,9 +89,9 @@ pub fn discover_for_build(
         if emit_warnings {
             warn_module_manifest(dir, format, &manifest, user_log);
         }
-        if manifest.name != module_graph.module_info(id).name {
+        if manifest.name != source.name().to_string() {
             return Err(DiscoverError::ModuleNameMismatch {
-                registry: module_graph.module_info(id).name.clone(),
+                registry: source.name().to_string(),
                 read: manifest.name,
             });
         }
@@ -194,7 +192,8 @@ pub fn discover_for_fmt(
             packages.insert(path, id);
         }
         project.modules.push(FmtModule {
-            module: ResolvedModule::new(source, Arc::new(manifest)),
+            source,
+            manifest,
             manifest_format,
             packages,
         });
@@ -236,10 +235,10 @@ mod tests {
         let project = discover_for_fmt(&dir, &ProjectManifest::None, &log)?;
         assert_eq!(project.packages.len(), 1);
 
-        let module = &project.modules[0].module;
+        let module = &project.modules[0];
         let (graph, id) = moonutil::resolution::ModuleDependencyGraph::only_one_module(
-            module.source().clone(),
-            module.module_info().as_ref().clone(),
+            module.source.clone(),
+            module.manifest.clone(),
         );
         let mut dirs = moonutil::resolution::DirSyncResult::default();
         dirs.insert(id, dir);
@@ -271,10 +270,10 @@ mod tests {
             ModuleSource::from_local_module(&root, &root_dir)?,
             root,
         );
-        let dependency_id = graph.add_module(
-            ModuleSource::from_local_module(&dependency, &dependency_dir)?,
-            std::sync::Arc::new(dependency),
-        );
+        let dependency_id = graph.add_module(ModuleSource::from_local_module(
+            &dependency,
+            &dependency_dir,
+        )?);
         let mut dirs = DirSyncResult::default();
         dirs.insert(root_id, root_dir.clone());
         dirs.insert(dependency_id, dependency_dir.clone());
@@ -462,7 +461,7 @@ mod tests {
                 ModuleSource::from_local_module(&app, &app_dir)?,
                 app.clone(),
             );
-            let dep_id = module_graph.add_module(source, std::sync::Arc::new(dep.clone()));
+            let dep_id = module_graph.add_module(source);
             let mut dirs = DirSyncResult::default();
             dirs.insert(app_id, app_dir.clone());
             dirs.insert(dep_id, dep_dir.clone());

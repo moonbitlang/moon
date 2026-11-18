@@ -73,7 +73,7 @@ pub fn build_execution_plan_for_fmt(
 
     let mode = match project.modules.as_slice() {
         [module] => TargetLayoutMode::Mono {
-            main_module: module.module.source().clone(),
+            main_module: module.source.clone(),
         },
         _ => TargetLayoutMode::Workspace,
     };
@@ -171,14 +171,13 @@ fn format_moon_mod_node(
     input: &FmtModule,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
-    let module = &input.module;
-    let ModuleSourceKind::Local(module_dir) = module.source().source() else {
+    let ModuleSourceKind::Local(module_dir) = input.source.source() else {
         unreachable!("formatting only discovers local modules");
     };
     let moon_mod = module_dir.join(MOON_MOD);
 
     let target_moon_mod = layout.format_artifact_path(
-        &PackageFQN::new(module.source().clone(), PackagePath::empty()),
+        &PackageFQN::new(input.source.clone(), PackagePath::empty()),
         OsStr::new(MOON_MOD),
     );
 
@@ -199,7 +198,7 @@ fn format_moon_mod_node(
                 &module_dir.join(MOON_MOD_JSON),
                 &target_moon_mod,
                 &moon_mod,
-                module.module_info(),
+                &input.manifest,
                 module_dir,
             )?;
         }

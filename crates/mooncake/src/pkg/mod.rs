@@ -21,7 +21,7 @@ use std::{path::Path, sync::Arc};
 use moonutil::{
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::ProjectManifest,
-    resolution::{ModuleSource, ResolvedModule, ResolvedRootModules},
+    resolution::{ModuleSource, ResolvedRootModules},
 };
 
 pub mod add;
@@ -43,7 +43,7 @@ pub(crate) fn roots_for_selected_module(
     project_manifest: &ProjectManifest,
 ) -> anyhow::Result<ResolvedRootModules> {
     if let ProjectManifest::Workspace(workspace) = project_manifest {
-        let mut roots = ResolvedRootModules::with_key();
+        let mut roots = ResolvedRootModules::new();
         for member_dir in workspace.members() {
             let member = if member_dir == module_dir {
                 Arc::clone(&module)
@@ -51,12 +51,12 @@ pub(crate) fn roots_for_selected_module(
                 Arc::new(read_module_desc_file_in_dir(member_dir)?)
             };
             let source = ModuleSource::from_local_module(&member, member_dir)?;
-            roots.insert(ResolvedModule::new(source, member));
+            roots.insert(source, member);
         }
         return Ok(roots);
     }
 
     let source = ModuleSource::from_local_module(&module, module_dir)?;
-    let (roots, _) = ResolvedModule::only_one_module(source, module);
+    let (roots, _) = ResolvedRootModules::only_one_module(source, module);
     Ok(roots)
 }

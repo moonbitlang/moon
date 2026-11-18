@@ -21,5 +21,5 @@
 pub use crate::mooncakes::{
     CORE_MODULE, DEFAULT_VERSION, DirSyncResult, ModuleId, ModuleName, ModuleSource,
     ModuleSourceKind,
-    result::{DependencyEdge, ModuleDependencyGraph, ResolvedModule, ResolvedRootModules},
+    result::{DependencyEdge, ModuleDependencyGraph, ResolvedRootModules},
 };

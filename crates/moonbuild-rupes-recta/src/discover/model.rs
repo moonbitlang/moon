@@ -26,7 +26,7 @@ use std::{
 
 use moonutil::manifest::{ManifestFormat, MoonMod, MoonModRule};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
-use moonutil::resolution::{ModuleId, ModuleSource, ResolvedModule};
+use moonutil::resolution::{ModuleId, ModuleSource};
 use moonutil::{constants::MOON_PKG_JSON, target::TargetBackend};
 use slotmap::{SecondaryMap, SlotMap};
 
@@ -245,7 +245,8 @@ pub struct FmtProject {
 
 #[derive(Debug)]
 pub(crate) struct FmtModule {
-    pub(crate) module: ResolvedModule,
+    pub(crate) source: ModuleSource,
+    pub(crate) manifest: MoonMod,
     pub(crate) manifest_format: ManifestFormat,
     pub(crate) packages: BTreeMap<PackagePath, PackageId>,
 }

@@ -22,25 +22,35 @@ use std::{
     sync::Arc,
 };
 
+use indexmap::IndexMap;
 use moonutil::{
-    manifest::{MoonMod, read_module_desc_file_in_dir},
+    dependency::SourceDependencyInfo, manifest::read_module_desc_file_in_dir,
     resolution::ModuleName,
 };
 use semver::Version;
 
 use crate::registry::{Registry, RegistryVersionInfo, VersionReader};
 
-/// Registry access, manifest caches, and diagnostics for module resolution.
+/// Requirements in declaration order, shared by traversal and graph construction.
+pub(super) type ModuleDependencies = IndexMap<String, SourceDependencyInfo>;
+
+/// Reading a local manifest supplies its actual version as well as its requirements.
+pub(super) struct LocalModuleMetadata {
+    pub(super) version: Version,
+    pub(super) dependencies: Arc<ModuleDependencies>,
+}
+
+/// Registry access, dependency metadata caches, and diagnostics for module resolution.
 pub(crate) struct ModuleResolutionContext<'a, R: Registry> {
     registry: &'a R,
     errors: Vec<super::ModuleResolutionError>,
     registry_modules: HashMap<ModuleName, HashMap<Version, RegistryModule>>,
-    local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
+    local_module_cache: HashMap<PathBuf, Arc<LocalModuleMetadata>>,
 }
 
-/// The manifest and advisory status come from the same registry observation.
+/// Requirements and advisory status come from the same registry observation.
 struct RegistryModule {
-    manifest: Arc<MoonMod>,
+    dependencies: Arc<ModuleDependencies>,
     /// `Some("")` means deprecated without a reason; `None` means not deprecated.
     deprecation_reason: Option<String>,
 }
@@ -73,29 +83,24 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
         self.registry.version_reader()
     }
 
-    /// Accept a completed read. Only the resolver updates its manifest and
+    /// Accept a completed read. Only the resolver updates its dependency and
     /// advisory cache; tasks never borrow the mutable resolution context.
-    pub(crate) fn record_registry_module(
+    pub(super) fn record_registry_module(
         &mut self,
         name: &ModuleName,
         version: &Version,
         info: RegistryVersionInfo,
-    ) -> Arc<MoonMod> {
+    ) -> Arc<ModuleDependencies> {
         let module = self
             .registry_modules
             .entry(name.clone())
             .or_default()
             .entry(version.clone())
             .or_insert_with(|| RegistryModule {
-                manifest: Arc::new(MoonMod {
-                    name: name.to_string(),
-                    version: Some(version.clone()),
-                    deps: info.deps,
-                    ..Default::default()
-                }),
+                dependencies: Arc::new(info.deps),
                 deprecation_reason: info.yanked.then(|| info.yanked_reason.unwrap_or_default()),
             });
-        Arc::clone(&module.manifest)
+        Arc::clone(&module.dependencies)
     }
 
     /// Advisory status observed during traversal, without another registry read.
@@ -113,15 +118,23 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
 
     /// Resolve a local module from its **canonical** path.
     /// Return read errors unchanged; the caller adds dependency-edge context.
-    pub(crate) fn resolve_local_module(&mut self, path: &Path) -> anyhow::Result<Arc<MoonMod>> {
+    pub(super) fn resolve_local_module(
+        &mut self,
+        path: &Path,
+    ) -> anyhow::Result<Arc<LocalModuleMetadata>> {
         if let Some(module) = self.local_module_cache.get(path) {
             return Ok(Arc::clone(module));
         }
 
-        let module = read_module_desc_file_in_dir(path)?;
-        let rc_module = Arc::new(module);
+        // Parse and validate the full declaration before retaining only the
+        // metadata needed for module resolution.
+        let manifest = read_module_desc_file_in_dir(path)?;
+        let module = Arc::new(LocalModuleMetadata {
+            version: manifest.version.expect("Expected version in module"),
+            dependencies: Arc::new(manifest.deps),
+        });
         self.local_module_cache
-            .insert(path.to_owned(), Arc::clone(&rc_module));
-        Ok(rc_module)
+            .insert(path.to_owned(), Arc::clone(&module));
+        Ok(module)
     }
 }

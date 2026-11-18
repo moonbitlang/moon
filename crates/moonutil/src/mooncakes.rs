@@ -345,7 +345,7 @@ pub mod result {
     use std::{collections::HashMap, convert::Infallible, str::FromStr, sync::Arc};
 
     use petgraph::graphmap::DiGraphMap;
-    use slotmap::SlotMap;
+    use slotmap::{SecondaryMap, SlotMap};
 
     use crate::{constants::MOD_NAME_STDLIB, module::MoonMod};
 
@@ -372,33 +372,45 @@ pub mod result {
         }
     }
 
-    #[derive(Debug, Clone)]
-    pub struct ResolvedModule {
-        source: ModuleSource,
-        value: Arc<MoonMod>,
+    /// Selected input modules and the declarations used to begin resolution.
+    /// Their IDs remain valid when this collection becomes a dependency graph.
+    #[derive(Debug, Clone, Default)]
+    pub struct ResolvedRootModules {
+        sources: SlotMap<ModuleId, ModuleSource>,
+        manifests: SecondaryMap<ModuleId, Arc<MoonMod>>,
     }
 
-    pub type ResolvedRootModules = SlotMap<ModuleId, ResolvedModule>;
-
-    impl ResolvedModule {
-        pub fn new(source: ModuleSource, value: Arc<MoonMod>) -> Self {
-            Self { source, value }
+    impl ResolvedRootModules {
+        pub fn new() -> Self {
+            Self::default()
         }
 
-        pub fn source(&self) -> &ModuleSource {
-            &self.source
+        pub fn insert(&mut self, source: ModuleSource, manifest: Arc<MoonMod>) -> ModuleId {
+            let id = self.sources.insert(source);
+            self.manifests.insert(id, manifest);
+            id
         }
 
-        pub fn module_info(&self) -> &Arc<MoonMod> {
-            &self.value
+        pub fn iter(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource, &Arc<MoonMod>)> {
+            self.sources
+                .iter()
+                .map(|(id, source)| (id, source, &self.manifests[id]))
+        }
+
+        pub fn len(&self) -> usize {
+            self.sources.len()
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.sources.is_empty()
         }
 
         pub fn only_one_module(
             source: ModuleSource,
             module: Arc<MoonMod>,
         ) -> (ResolvedRootModules, ModuleId) {
-            let mut roots = SlotMap::with_key();
-            let id = roots.insert(Self::new(source, module));
+            let mut roots = Self::new();
+            let id = roots.insert(source, module);
             (roots, id)
         }
     }
@@ -414,12 +426,12 @@ pub mod result {
 
         /// A reverse mapping to query the unique ID of a module from its source.
         rev_map: HashMap<ModuleSource, ModuleId>,
-        /// The mapping from the unique IDs of modules to their source.
-        ///
-        /// Note that once we're out of the resolver, reverse-finding the ID
-        /// from [`ModuleSource`]s is no longer needed, so this mapping is
-        /// unidirectional (even though `ModuleSource`s are unique).
-        mapping: ResolvedRootModules,
+        /// Selected sources for all modules; dependency metadata stays in the resolver.
+        mapping: SlotMap<ModuleId, ModuleSource>,
+
+        /// Original input declarations, retained for workspace edits and synthetic
+        /// roots. Build consumers read complete source manifests during discovery.
+        root_manifests: SecondaryMap<ModuleId, Arc<MoonMod>>,
 
         /// The real dependency graph. Edges are labelled with the key of the dependency.
         ///
@@ -432,16 +444,14 @@ pub mod result {
             &self.input_module_ids
         }
 
-        pub fn resolved_module(&self, id: ModuleId) -> &ResolvedModule {
+        pub fn module_source(&self, id: ModuleId) -> &ModuleSource {
             &self.mapping[id]
         }
 
-        pub fn module_source(&self, id: ModuleId) -> &ModuleSource {
-            self.resolved_module(id).source()
-        }
-
-        pub fn module_info(&self, id: ModuleId) -> &Arc<MoonMod> {
-            self.resolved_module(id).module_info()
+        /// The declaration supplied for an input root before resolution.
+        /// Dependencies, including the installed standard library, have no root manifest.
+        pub fn root_manifest(&self, id: ModuleId) -> Option<&Arc<MoonMod>> {
+            self.root_manifests.get(id)
         }
 
         pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyEdge> {
@@ -483,18 +493,18 @@ pub mod result {
         }
 
         pub fn all_modules_and_id(&self) -> impl Iterator<Item = (ModuleId, &ModuleSource)> {
-            self.mapping.iter().map(|x| (x.0, &x.1.source))
+            self.mapping.iter()
         }
 
         pub fn all_modules(&self) -> impl Iterator<Item = &ModuleSource> {
-            self.mapping.iter().map(|(_id, src)| &src.source)
+            self.mapping.values()
         }
 
         pub fn only_one_module(
             ms: ModuleSource,
             module: MoonMod,
         ) -> (ModuleDependencyGraph, ModuleId) {
-            let (roots, id) = ResolvedModule::only_one_module(ms, Arc::new(module));
+            let (roots, id) = ResolvedRootModules::only_one_module(ms, Arc::new(module));
             (Self::from_root_modules(roots), id)
         }
 
@@ -503,16 +513,18 @@ pub mod result {
         }
 
         pub fn from_root_modules(root_modules: ResolvedRootModules) -> Self {
-            let input_module_ids = root_modules.iter().map(|(id, _)| id).collect();
-            let rev_map = root_modules
+            let ResolvedRootModules { sources, manifests } = root_modules;
+            let input_module_ids = sources.keys().collect();
+            let rev_map = sources
                 .iter()
-                .map(|(id, module)| (module.source().clone(), id))
+                .map(|(id, source)| (source.clone(), id))
                 .collect();
 
             Self {
                 input_module_ids,
                 stdlib: None,
-                mapping: root_modules,
+                mapping: sources,
+                root_manifests: manifests,
                 dep_graph: DiGraphMap::new(),
                 rev_map,
             }
@@ -523,6 +535,7 @@ pub mod result {
                 input_module_ids: Vec::new(),
                 stdlib: None,
                 mapping: SlotMap::with_key(),
+                root_manifests: SecondaryMap::new(),
                 dep_graph: DiGraphMap::new(),
                 rev_map: HashMap::new(),
             }
@@ -548,14 +561,13 @@ pub mod result {
             }
         }
 
-        pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
+        pub fn add_module(&mut self, mod_source: ModuleSource) -> ModuleId {
             // check if it's already inserted
             if let Some(id) = self.rev_map.get(&mod_source) {
                 *id
             } else {
                 // Add module definition
-                let val = ResolvedModule::new(mod_source.clone(), module);
-                let id = self.mapping.insert(val);
+                let id = self.mapping.insert(mod_source.clone());
                 self.rev_map.insert(mod_source, id);
 
                 // Add a dependency to the standard library module

@@ -1195,7 +1195,8 @@ mod tests {
             )
             .unwrap();
             let roots =
-                moonutil::resolution::ResolvedModule::only_one_module(source, Arc::new(root)).0;
+                moonutil::resolution::ResolvedRootModules::only_one_module(source, Arc::new(root))
+                    .0;
             let graph = crate::resolver::resolve_modules(
                 &crate::resolver::ModuleResolutionConfig {
                     registry: &registry,
@@ -3588,7 +3589,7 @@ mod tests {
     fn deprecated_dependencies_warn_after_mvs_selection() {
         use crate::registry::mock::create_mock_module;
         use crate::resolver::{ModuleResolutionConfig, prepare_roots, resolve_modules};
-        use moonutil::resolution::{ModuleSource, ResolvedModule, ResolvedRootModules};
+        use moonutil::resolution::{ModuleSource, ResolvedRootModules};
         use serde_json::json;
         let dir = tempfile::tempdir().unwrap();
         let home = MoonHomeLayout::new(dir.path().to_owned());
@@ -3659,7 +3660,7 @@ mod tests {
             home,
             &quiet_user_log(),
         );
-        let mut roots = ResolvedRootModules::with_key();
+        let mut roots = ResolvedRootModules::new();
         for (name, deps) in [
             (
                 "app/a",
@@ -3675,7 +3676,7 @@ mod tests {
         ] {
             let module = Arc::new(create_mock_module(name, "1.0.0", deps));
             let source = ModuleSource::from_local_module(&module, &dir.path().join(name)).unwrap();
-            roots.insert(ResolvedModule::new(source, module));
+            roots.insert(source, module);
         }
         let config = ModuleResolutionConfig {
             registry: &registry,

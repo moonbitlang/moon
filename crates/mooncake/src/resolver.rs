@@ -276,7 +276,7 @@ pub(crate) fn prepare_roots(
     // used to execute them; reject those before any resolution or acquisition.
     let removed_bin_deps = root
         .iter()
-        .map(|(_, root)| root.module_info())
+        .map(|(_, _, manifest)| manifest)
         .filter(|module| {
             module.ext.get("bin-deps").is_some_and(|value| {
                 !value.is_null() && !value.as_object().is_some_and(|deps| deps.is_empty())
@@ -387,8 +387,6 @@ pub(crate) fn resolve_modules<R: Registry>(
 mod tests {
     use std::sync::Arc;
 
-    use moonutil::resolution::ResolvedModule;
-
     use super::*;
     use crate::registry::mock::{MockRegistry, create_mock_module};
 
@@ -401,16 +399,16 @@ mod tests {
         ));
         let source =
             ModuleSource::from_version("app/main".into(), "0.1.0".parse().unwrap()).unwrap();
-        let (roots, root_id) = ResolvedModule::only_one_module(source, root);
+        let (roots, root_id) = ResolvedRootModules::only_one_module(source, Arc::clone(&root));
         let mut graph = prepare_roots(roots).unwrap();
 
-        // There is no core manifest on disk. The supplied module is authoritative;
+        // There is no core manifest on disk. The supplied source is authoritative;
         // resolution must neither reread it nor replace it with the installed core.
         let dir = tempfile::tempdir().unwrap();
         let core_path = dir.path().join("unread-core");
         let core = Arc::new(create_mock_module("moonbitlang/core", "9.0.0", []));
         let core_source = ModuleSource::from_stdlib(&core, &core_path).unwrap();
-        let core_id = graph.add_module(core_source.clone(), Arc::clone(&core));
+        let core_id = graph.add_module(core_source.clone());
         graph.register_stdlib(core_id);
 
         let mut registry = MockRegistry::new();
@@ -425,7 +423,8 @@ mod tests {
         assert_eq!(resolved.input_module_ids(), &[root_id]);
         assert_eq!(resolved.stdlib(), Some(core_id));
         assert_eq!(resolved.module_source(core_id), &core_source);
-        assert!(Arc::ptr_eq(resolved.module_info(core_id), &core));
+        assert!(Arc::ptr_eq(resolved.root_manifest(root_id).unwrap(), &root));
+        assert!(resolved.root_manifest(core_id).is_none());
         assert_eq!(resolved.module_count(), 3);
         for (id, _) in resolved.all_modules_and_id() {
             if id != core_id {

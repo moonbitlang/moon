@@ -75,7 +75,7 @@ fn parallel_discovery_preserves_package_ids_files_and_module_boundaries() -> any
     ] {
         let module = read_module_desc_file_in_dir(&dir)?;
         let source = ModuleSource::from_local_module(&module, &dir)?;
-        let id = graph.add_module(source, std::sync::Arc::new(module));
+        let id = graph.add_module(source);
         dirs.insert(id, dir);
     }
     let mut baseline = None;

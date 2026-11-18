@@ -630,7 +630,7 @@ fn resolve_run_selection(
     let package = super::selection::filter_pkg_by_dir(discovered, &dir)?;
     let module = discovered.pkg_dirs.get_package(package).module;
     let target_backend = selected_target_backend
-        .or_else(|| discovered.module_graph.module_info(module).preferred_target)
+        .or_else(|| discovered.module_info(module).preferred_target)
         .unwrap_or_default();
     Ok(ResolvedRunSelection {
         package,

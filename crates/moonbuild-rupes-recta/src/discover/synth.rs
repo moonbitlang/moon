@@ -51,7 +51,13 @@ pub(crate) fn build_synth_single_file_package(
     let &[mid] = env.input_module_ids() else {
         panic!("No multiple main modules are supported")
     };
-    discovered.set_module_info(mid, Arc::clone(env.module_info(mid)));
+    discovered.set_module_info(
+        mid,
+        Arc::clone(
+            env.root_manifest(mid)
+                .expect("synthetic root has a manifest"),
+        ),
+    );
 
     // Resolve ModuleSource for the ModuleId
     let module_src = env

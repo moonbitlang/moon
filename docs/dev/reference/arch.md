@@ -419,6 +419,25 @@ library while extending the graph with selected dependencies. It does not
 locate the installed toolchain or reload its core manifest. Registry metadata
 and local dependency manifests are still read during dependency traversal.
 
+The graph stores selected module sources and dependency edges. It retains the
+original declarations only for input roots, through `root_manifest`: workspace
+synchronization edits these declarations, and standalone-file discovery needs
+its synthetic root declaration. `ResolvedRootModules` owns the sources and
+declarations together before resolution and transfers its ID allocation table
+to the graph, preserving the root IDs.
+
+Inside the resolver, traversal and graph construction share ordered dependency
+requirements, not `MoonMod` values. Registry reads supply `RegistryVersionInfo`;
+the context retains its requirements and deprecation status from the same
+observation without synthesizing a module declaration. Local reads still parse
+and validate complete manifests, then retain only their actual versions and
+requirements. Input root requirements are extracted once from their retained
+declarations. None of this dependency metadata is exposed as a complete
+source-manifest index by the graph.
+Once sources are available, RR discovery reads their complete module declarations
+and checks their names against the selected sources. Build configuration and
+package selection consume these declarations through `DiscoveredProject`.
+
 Binary dependency execution has been removed. Nonempty `bin-deps` declarations
 in input/root modules are rejected during module resolution, before dependency
 acquisition. Empty declarations are accepted. Old dependency manifests

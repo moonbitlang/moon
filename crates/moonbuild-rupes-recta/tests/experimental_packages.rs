@@ -21,7 +21,7 @@
 use moonbuild_rupes_recta::{DiscoveryConfig, discover_synced_project};
 use moonutil::{
     manifest::read_module_desc_file_in_dir,
-    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule},
+    resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedRootModules},
     target::TargetBackend::{self, Js, Native},
     user_log::{UserLog, UserLogEntryLevel},
 };
@@ -204,15 +204,15 @@ fn experimental_warnings_only_report_imports_from_root_modules() {
                 format!(r#"import {{ "example/dep/{imported_package}" }}"#),
             )
             .unwrap();
-            let (mut roots, app_id) = ResolvedModule::only_one_module(
+            let (mut roots, app_id) = ResolvedRootModules::only_one_module(
                 ModuleSource::from_local_module(&app, &app_dir).unwrap(),
                 app.clone().into(),
             );
             if workspace_member {
-                roots.insert(ResolvedModule::new(source.clone(), dep.clone().into()));
+                roots.insert(source.clone(), dep.clone().into());
             }
             let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
-            let dep_id = module_graph.add_module(source.clone(), dep.clone().into());
+            let dep_id = module_graph.add_module(source.clone());
             module_graph.add_dependency(app_id, dep_id, &"example/dep".parse().unwrap());
             let mut module_dirs = DirSyncResult::new();
             module_dirs.insert(app_id, app_dir.clone());

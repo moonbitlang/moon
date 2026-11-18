@@ -35,7 +35,7 @@ use moonutil::{
     },
     resolution::{
         DependencyEdge, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource,
-        ModuleSourceKind, ResolvedModule, ResolvedRootModules,
+        ModuleSourceKind, ResolvedRootModules,
     },
     user_log::UserLog,
 };
@@ -201,14 +201,14 @@ fn workspace_roots(
     member_dirs: &[PathBuf],
     user_log: &UserLog,
 ) -> anyhow::Result<ResolvedRootModules> {
-    let mut roots = ResolvedRootModules::with_key();
+    let mut roots = ResolvedRootModules::new();
 
     for member_dir in member_dirs {
         let (format, module) = read_module_manifest(member_dir, false)?;
         warn_module_manifest(member_dir, format, &module, user_log);
         let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, member_dir)?;
-        roots.insert(ResolvedModule::new(source, module));
+        roots.insert(source, module);
     }
 
     Ok(roots)
@@ -223,7 +223,11 @@ fn sync_workspace_manifests(module_graph: &ModuleDependencyGraph) -> anyhow::Res
             module_graph.module_source(id)
         ))?;
 
-        let mut module = Arc::unwrap_or_clone(Arc::clone(module_graph.module_info(id)));
+        let mut module = Arc::unwrap_or_clone(Arc::clone(
+            module_graph
+                .root_manifest(id)
+                .expect("input root has a manifest"),
+        ));
         if !sync_manifest_versions(module_graph, id, &mut module)? {
             continue;
         }

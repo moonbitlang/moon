@@ -834,7 +834,9 @@ mod tests {
     use super::*;
     use expect_test::expect;
     use moonutil::manifest::MoonMod;
-    use moonutil::resolution::{DependencyEdge, ModuleSource, ModuleSourceKind, ResolvedModule};
+    use moonutil::resolution::{
+        DependencyEdge, ModuleSource, ModuleSourceKind, ResolvedRootModules,
+    };
     use std::sync::Arc;
 
     fn local_source(name: &str, version: &str, path: &str) -> ModuleSource {
@@ -895,27 +897,15 @@ mod tests {
     }
 
     fn shared_subgraph() -> (ModuleDependencyGraph, ModuleId) {
-        let (roots, root) = ResolvedModule::only_one_module(
+        let (roots, root) = ResolvedRootModules::only_one_module(
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
         let mut env = ModuleDependencyGraph::from_root_modules(roots);
-        let dep_a = env.add_module(
-            local_source("alice/a", "0.1.0", "/workspace/a"),
-            local_module("alice/a", "0.1.0"),
-        );
-        let dep_b = env.add_module(
-            local_source("alice/b", "0.1.0", "/workspace/b"),
-            local_module("alice/b", "0.1.0"),
-        );
-        let shared = env.add_module(
-            local_source("alice/shared", "0.1.0", "/workspace/shared"),
-            local_module("alice/shared", "0.1.0"),
-        );
-        let leaf = env.add_module(
-            local_source("alice/leaf", "0.1.0", "/workspace/leaf"),
-            local_module("alice/leaf", "0.1.0"),
-        );
+        let dep_a = env.add_module(local_source("alice/a", "0.1.0", "/workspace/a"));
+        let dep_b = env.add_module(local_source("alice/b", "0.1.0", "/workspace/b"));
+        let shared = env.add_module(local_source("alice/shared", "0.1.0", "/workspace/shared"));
+        let leaf = env.add_module(local_source("alice/leaf", "0.1.0", "/workspace/leaf"));
 
         env.add_dependency(root, dep_a, &regular_dep("alice/a"));
         env.add_dependency(root, dep_b, &regular_dep("alice/b"));
@@ -928,24 +918,15 @@ mod tests {
 
     #[test]
     fn tree_render_uses_three_column_unicode_indent() {
-        let (roots, root_id) = ResolvedModule::only_one_module(
+        let (roots, root_id) = ResolvedRootModules::only_one_module(
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
         let mut env = ModuleDependencyGraph::from_root_modules(roots);
 
-        let dep_a = env.add_module(
-            local_source("alice/a", "0.1.0", "/workspace/a"),
-            local_module("alice/a", "0.1.0"),
-        );
-        let dep_b = env.add_module(
-            local_source("alice/b", "0.1.0", "/workspace/b"),
-            local_module("alice/b", "0.1.0"),
-        );
-        let dep_c = env.add_module(
-            local_source("alice/c", "0.1.0", "/workspace/c"),
-            local_module("alice/c", "0.1.0"),
-        );
+        let dep_a = env.add_module(local_source("alice/a", "0.1.0", "/workspace/a"));
+        let dep_b = env.add_module(local_source("alice/b", "0.1.0", "/workspace/b"));
+        let dep_c = env.add_module(local_source("alice/c", "0.1.0", "/workspace/c"));
 
         env.add_dependency(root_id, dep_a, &regular_dep("alice/a"));
         env.add_dependency(root_id, dep_b, &regular_dep("alice/b"));
@@ -998,15 +979,12 @@ mod tests {
 
     #[test]
     fn tree_render_stops_cycles_without_deduplication() {
-        let (roots, root) = ResolvedModule::only_one_module(
+        let (roots, root) = ResolvedRootModules::only_one_module(
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
         let mut env = ModuleDependencyGraph::from_root_modules(roots);
-        let dep = env.add_module(
-            local_source("alice/dep", "0.1.0", "/workspace/dep"),
-            local_module("alice/dep", "0.1.0"),
-        );
+        let dep = env.add_module(local_source("alice/dep", "0.1.0", "/workspace/dep"));
         env.add_dependency(root, dep, &regular_dep("alice/dep"));
         env.add_dependency(dep, root, &regular_dep("alice/root"));
 
@@ -1047,15 +1025,15 @@ mod tests {
 
     #[test]
     fn tree_render_marks_workspace_members() {
-        let mut roots = moonutil::resolution::ResolvedRootModules::with_key();
-        let app = roots.insert(ResolvedModule::new(
+        let mut roots = moonutil::resolution::ResolvedRootModules::new();
+        let app = roots.insert(
             local_source("alice/app", "0.1.0", "/workspace/app"),
             local_module("alice/app", "0.1.0"),
-        ));
-        let liba = roots.insert(ResolvedModule::new(
+        );
+        let liba = roots.insert(
             local_source("alice/liba", "0.1.1", "/workspace/liba"),
             local_module("alice/liba", "0.1.1"),
-        ));
+        );
         let mut env = ModuleDependencyGraph::from_root_modules(roots);
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 
@@ -1070,24 +1048,15 @@ mod tests {
 
     #[test]
     fn tree_json_uses_deterministic_module_and_edge_order() {
-        let (roots, root_id) = ResolvedModule::only_one_module(
+        let (roots, root_id) = ResolvedRootModules::only_one_module(
             local_source("alice/root", "0.1.0", "/workspace/root"),
             local_module("alice/root", "0.1.0"),
         );
         let mut env = ModuleDependencyGraph::from_root_modules(roots);
 
-        let dep_a = env.add_module(
-            local_source("alice/a", "0.1.0", "/workspace/a"),
-            local_module("alice/a", "0.1.0"),
-        );
-        let dep_b = env.add_module(
-            local_source("alice/b", "0.1.0", "/workspace/b"),
-            local_module("alice/b", "0.1.0"),
-        );
-        let dep_c = env.add_module(
-            local_source("alice/c", "0.1.0", "/workspace/c"),
-            local_module("alice/c", "0.1.0"),
-        );
+        let dep_a = env.add_module(local_source("alice/a", "0.1.0", "/workspace/a"));
+        let dep_b = env.add_module(local_source("alice/b", "0.1.0", "/workspace/b"));
+        let dep_c = env.add_module(local_source("alice/c", "0.1.0", "/workspace/c"));
 
         env.add_dependency(root_id, dep_a, &regular_dep("alice/a"));
         env.add_dependency(root_id, dep_b, &regular_dep("alice/b"));
@@ -1161,15 +1130,15 @@ mod tests {
 
     #[test]
     fn tree_json_marks_workspace_members() {
-        let mut roots = moonutil::resolution::ResolvedRootModules::with_key();
-        let app = roots.insert(ResolvedModule::new(
+        let mut roots = moonutil::resolution::ResolvedRootModules::new();
+        let app = roots.insert(
             local_source("alice/app", "0.1.0", "/workspace/app"),
             local_module("alice/app", "0.1.0"),
-        ));
-        let liba = roots.insert(ResolvedModule::new(
+        );
+        let liba = roots.insert(
             local_source("alice/liba", "0.1.1", "/workspace/liba"),
             local_module("alice/liba", "0.1.1"),
-        ));
+        );
         let mut env = ModuleDependencyGraph::from_root_modules(roots);
         env.add_dependency(app, liba, &regular_dep("alice/liba"));
 

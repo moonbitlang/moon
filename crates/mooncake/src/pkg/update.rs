@@ -22,7 +22,7 @@ use anyhow::{Context, bail};
 use moonutil::{
     manifest::read_module_desc_file_in_dir,
     project::ProjectManifest,
-    resolution::{ModuleSource, ModuleSourceKind, ResolvedModule, ResolvedRootModules},
+    resolution::{ModuleSource, ModuleSourceKind, ResolvedRootModules},
     user_log::UserLog,
 };
 use semver::Version;
@@ -63,11 +63,11 @@ pub async fn update(
             .collect(),
         ProjectManifest::None => bail!("registry refresh requires a module or workspace"),
     };
-    let mut roots = ResolvedRootModules::with_key();
+    let mut roots = ResolvedRootModules::new();
     for path in module_dirs {
         let module = Arc::new(read_module_desc_file_in_dir(path)?);
         let source = ModuleSource::from_local_module(&module, path)?;
-        roots.insert(ResolvedModule::new(source, module));
+        roots.insert(source, module);
     }
     let config = ModuleResolutionConfig {
         registry,

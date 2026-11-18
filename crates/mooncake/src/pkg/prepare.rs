@@ -22,8 +22,6 @@
 //! owns the selected roots and standard library. The resolver already accepts the
 //! resulting graph without locating the toolchain or reading its core manifest.
 
-use std::sync::Arc;
-
 use anyhow::Context;
 use moonutil::{
     constants::MOONBITLANG_CORE,
@@ -41,7 +39,7 @@ pub(super) fn prepare_build_modules(
 ) -> anyhow::Result<ModuleDependencyGraph> {
     let includes_core = roots
         .iter()
-        .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
+        .any(|(_, _, manifest)| manifest.name == MOONBITLANG_CORE);
     if includes_core && roots.len() != 1 {
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }
@@ -63,7 +61,7 @@ fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     let loaded_core =
         read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
-    let id = module_graph.add_module(source, Arc::new(loaded_core));
+    let id = module_graph.add_module(source);
     module_graph.register_stdlib(id);
 
     Ok(())

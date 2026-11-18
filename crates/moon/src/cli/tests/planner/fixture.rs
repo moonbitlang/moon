@@ -19,7 +19,7 @@
 use clap::Parser;
 use moonbuild::execution::BuildInput;
 use moonbuild::{BuildMeta, compile::BuildSession};
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use moonbuild_rupes_recta::{
     DiscoveredProject, ResolvedProject, build_plan::ArtifactKey, model::PackageId,
@@ -110,8 +110,7 @@ impl PlanningFixture {
         let core_dir =
             dunce::canonicalize(crate_root.join("src/cli/tests/planner/fixtures/core_dependency"))?;
         let core = read_module_desc_file_in_dir(&core_dir)?;
-        let core_id =
-            module_graph.add_module(ModuleSource::from_stdlib(&core, &core_dir)?, Arc::new(core));
+        let core_id = module_graph.add_module(ModuleSource::from_stdlib(&core, &core_dir)?);
         module_graph.register_stdlib(core_id);
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(root_id, source_dir.clone());

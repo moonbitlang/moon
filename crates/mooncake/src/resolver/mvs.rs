@@ -27,7 +27,6 @@ use anyhow::anyhow;
 use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
-    manifest::MoonMod,
     resolution::{
         DependencyEdge, ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind,
     },
@@ -37,21 +36,24 @@ use semver::Version;
 use tokio::task::JoinSet;
 use tracing::Instrument;
 
-use super::{ModuleResolutionError, ModuleResolver, context::ModuleResolutionContext};
+use super::{
+    ModuleResolutionError, ModuleResolver,
+    context::{ModuleDependencies, ModuleResolutionContext},
+};
 use crate::registry::{Registry, RegistryModuleNotFound, RegistryVersionNotFound, VersionReader};
 
 struct GatheredRequirements {
     versions: HashMap<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>,
-    manifests: HashMap<ModuleSource, Arc<MoonMod>>,
+    dependencies: HashMap<ModuleSource, Arc<ModuleDependencies>>,
 }
 
-type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
+type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<ModuleDependencies>)>;
 
 /// Where to read a module, without any incoming dependency's version constraint.
 /// Unlike a ModuleSource, a local target has no actual version until it is read.
-/// Input roots already carry their manifest and need no further read.
+/// Input roots already carry their requirements and need no further read.
 enum DependencyTarget {
-    Root(ModuleSource, Arc<MoonMod>),
+    Root(ModuleSource, Arc<ModuleDependencies>),
     Local { name: ModuleName, path: PathBuf },
     Registry(ModuleSource),
 }
@@ -211,7 +213,7 @@ fn workspace_version_override_warning(
 #[tracing::instrument(level = "debug", skip_all)]
 async fn gather_requirements<R: Registry>(
     context: &mut ModuleResolutionContext<'_, R>,
-    module_graph: &ModuleDependencyGraph,
+    roots: Vec<(ModuleSource, Arc<ModuleDependencies>)>,
     workspace_roots: &WorkspaceRoots,
     user_log: &UserLog,
 ) -> GatheredRequirements {
@@ -219,33 +221,24 @@ async fn gather_requirements<R: Registry>(
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
 
     // Collect all version constraints for each dependency.
-    let mut working_list = module_graph
-        .input_module_ids()
-        .iter()
-        .map(|&id| {
-            (
-                module_graph.module_source(id).clone(),
-                Arc::clone(module_graph.module_info(id)),
-            )
-        })
-        .collect::<Vec<_>>();
-    // Mark roots visited before traversal, and retain each visited manifest so
+    let mut working_list = roots;
+    // Mark roots visited before traversal, and retain each module's requirements so
     // final graph construction uses the same metadata without further lookups.
-    let mut loaded_modules = working_list.iter().cloned().collect::<HashMap<_, _>>();
+    let mut dependencies = working_list.iter().cloned().collect::<HashMap<_, _>>();
     let mut registry_requests = HashMap::<ModuleSource, Vec<ModuleName>>::new();
     let mut read_failures = Vec::new();
     let reader = Rc::new(context.version_reader());
     let mut queries = JoinSet::new();
     if tracing::enabled!(tracing::Level::DEBUG) {
-        for &id in module_graph.input_module_ids() {
-            tracing::debug!(module = %module_graph.module_source(id), "registered root module");
+        for (source, _) in &working_list {
+            tracing::debug!(module = %source, "registered root module");
         }
     }
 
     loop {
-        while let Some((source, module)) = working_list.pop() {
+        while let Some((source, module_dependencies)) = working_list.pop() {
             tracing::debug!(module = %source, "visiting module dependencies");
-            for (name, req) in &module.deps {
+            for (name, req) in module_dependencies.iter() {
                 let module_name = name.as_str().into();
                 let target = match locate_module_dependency(
                     req,
@@ -293,11 +286,11 @@ async fn gather_requirements<R: Registry>(
                     continue;
                 }
 
-                let (ms, module) = match target {
+                let (ms, module_dependencies) = match target {
                     DependencyTarget::Registry(_) => {
                         unreachable!("registry query was dispatched above")
                     }
-                    DependencyTarget::Root(source, module) => (source, module),
+                    DependencyTarget::Root(source, dependencies) => (source, dependencies),
                     DependencyTarget::Local { name, path } => {
                         let module = match context.resolve_local_module(&path) {
                             Ok(module) => module,
@@ -312,7 +305,7 @@ async fn gather_requirements<R: Registry>(
                         };
                         let ms = match ModuleSource::new_full(
                             name,
-                            module.version.clone().expect("Expected version in module"),
+                            module.version.clone(),
                             ModuleSourceKind::Local(path),
                         ) {
                             Ok(source) => source,
@@ -334,12 +327,12 @@ async fn gather_requirements<R: Registry>(
                             });
                             continue;
                         }
-                        (ms, module)
+                        (ms, Arc::clone(&module.dependencies))
                     }
                 };
-                if let Entry::Vacant(entry) = loaded_modules.entry(ms.clone()) {
-                    entry.insert(Arc::clone(&module));
-                    working_list.push((ms.clone(), module));
+                if let Entry::Vacant(entry) = dependencies.entry(ms.clone()) {
+                    entry.insert(Arc::clone(&module_dependencies));
+                    working_list.push((ms.clone(), module_dependencies));
                 }
                 gathered_versions
                     .entry(module_name)
@@ -360,11 +353,12 @@ async fn gather_requirements<R: Registry>(
         };
         match result {
             Ok(info) => {
-                let module = context.record_registry_module(source.name(), source.version(), info);
+                let module_dependencies =
+                    context.record_registry_module(source.name(), source.version(), info);
                 tracing::debug!(module = %source, "resolved registry dependency");
-                loaded_modules.insert(source.clone(), Arc::clone(&module));
+                dependencies.insert(source.clone(), Arc::clone(&module_dependencies));
                 // Expand this result before waiting for any slower sibling.
-                working_list.push((source, module));
+                working_list.push((source, module_dependencies));
             }
             Err(error) => {
                 let dependant = registry_requests[&source][0].clone();
@@ -401,7 +395,7 @@ async fn gather_requirements<R: Registry>(
     }
     GatheredRequirements {
         versions: gathered_versions,
-        manifests: loaded_modules,
+        dependencies,
     }
 }
 
@@ -415,28 +409,40 @@ async fn mvs_resolve<R: Registry>(
     module_graph: &mut ModuleDependencyGraph,
     user_log: &UserLog,
 ) -> bool {
-    let workspace_roots = module_graph
+    let roots = module_graph
         .input_module_ids()
         .iter()
         .map(|&id| {
             (
-                module_graph.module_source(id).name().clone(),
-                (
-                    module_graph.module_source(id).clone(),
-                    Arc::clone(module_graph.module_info(id)),
+                module_graph.module_source(id).clone(),
+                Arc::new(
+                    module_graph
+                        .root_manifest(id)
+                        .expect("input root has a manifest")
+                        .deps
+                        .clone(),
                 ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let workspace_roots = roots
+        .iter()
+        .map(|(source, dependencies)| {
+            (
+                source.name().clone(),
+                (source.clone(), Arc::clone(dependencies)),
             )
         })
         .collect::<WorkspaceRoots>();
     // Only traversal awaits registry I/O. Selection and graph construction
-    // below compute directly from the gathered manifests.
-    let gathered = gather_requirements(context, module_graph, &workspace_roots, user_log).await;
+    // below compute directly from the gathered requirements.
+    let gathered = gather_requirements(context, roots, &workspace_roots, user_log).await;
     if context.any_errors() {
         return false;
     }
     let GatheredRequirements {
         versions: gathered_versions,
-        manifests: loaded_modules,
+        dependencies,
     } = gathered;
 
     tracing::debug!("selecting minimal version for each compatibility set");
@@ -490,10 +496,7 @@ async fn mvs_resolve<R: Registry>(
                 module_id = ?id,
                 "reusing root module"
             );
-            (
-                Arc::clone(module_graph.module_info(id)),
-                module_graph.module_source(id).clone(),
-            )
+            module_graph.module_source(id).clone()
         })
         .collect::<Vec<_>>();
     let mut visited = module_graph
@@ -502,12 +505,10 @@ async fn mvs_resolve<R: Registry>(
         .map(|&id| (module_graph.module_source(id).clone(), id))
         .collect::<HashMap<_, _>>();
 
-    while let Some((module, module_source)) = working_list.pop() {
-        let pkg = module_source;
-
+    while let Some(pkg) = working_list.pop() {
         let curr_id = *visited.get(&pkg).unwrap();
 
-        for (dep_name, req) in &module.deps {
+        for (dep_name, req) in dependencies[&pkg].iter() {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
 
@@ -540,15 +541,10 @@ async fn mvs_resolve<R: Registry>(
             let id = if let Some(id) = visited.get(resolved) {
                 *id
             } else {
-                let dep_module = Arc::clone(
-                    loaded_modules
-                        .get(resolved)
-                        .expect("selected modules were loaded during traversal"),
-                );
-                let id = module_graph.add_module(resolved.clone(), Arc::clone(&dep_module));
+                let id = module_graph.add_module(resolved.clone());
                 tracing::debug!(module = %resolved, module_id = ?id, "inserted resolved module");
                 visited.insert(resolved.clone(), id);
-                working_list.push((dep_module, resolved.clone()));
+                working_list.push(resolved.clone());
                 id
             };
             tracing::debug!(
@@ -584,7 +580,7 @@ fn locate_module_dependency(
     module_name
         .validate_version(req.version())
         .map_err(|err| ModuleResolutionError::Other(err.into()))?;
-    if let Some((source, module)) = workspace_roots.get(module_name) {
+    if let Some((source, dependencies)) = workspace_roots.get(module_name) {
         if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
             user_log.warn(warning);
         }
@@ -593,7 +589,10 @@ fn locate_module_dependency(
             resolved = %source,
             "resolved dependency to workspace module"
         );
-        return Ok(DependencyTarget::Root(source.clone(), Arc::clone(module)));
+        return Ok(DependencyTarget::Root(
+            source.clone(),
+            Arc::clone(dependencies),
+        ));
     }
 
     if let Some(path) = req.path()
@@ -658,8 +657,9 @@ mod test {
 
     use expect_test::expect;
     use moonutil::dependency::SourceLocalDependencyInfo;
+    use moonutil::manifest::MoonMod;
     use moonutil::resolution::ModuleId;
-    use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
+    use moonutil::resolution::{DependencyEdge, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
     use tokio::{runtime::Builder, task::LocalSet};
 
@@ -722,7 +722,7 @@ mod test {
             "0.1.0",
             [("dep/two", "0.1.0")],
         ));
-        let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
+        let (roots, _) = ResolvedRootModules::only_one_module(root_ms.clone(), Arc::clone(&root));
         let mut context = ModuleResolutionContext::new(&registry);
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         // The caller can await MVS within an existing runtime; the solver
@@ -745,42 +745,8 @@ mod test {
         let mt = module_graph.module_source(id);
         expect!["dep/three@0.1.0"].assert_eq(&format!("{mt:?}"));
 
-        let module_info = module_graph.module_info(id);
-        expect![[r#"
-            MoonMod {
-                name: "dep/three",
-                version: Some(
-                    Version {
-                        major: 0,
-                        minor: 1,
-                        patch: 0,
-                    },
-                ),
-                private: None,
-                deps: {
-                    "dep/two": 0.1.0,
-                },
-                readme: None,
-                repository: None,
-                license: None,
-                keywords: None,
-                description: None,
-                compile_flags: None,
-                link_flags: None,
-                checksum: None,
-                source: None,
-                rule: None,
-                ext: Null,
-                warn_list: None,
-                include: None,
-                exclude: None,
-                preferred_target: None,
-                supported_targets: None,
-                scripts: None,
-                __moonbit_unstable_prebuild: None,
-            }
-        "#]]
-        .assert_debug_eq(module_info);
+        // Resolution retains the original root declaration for later manifest edits.
+        assert!(Arc::ptr_eq(module_graph.root_manifest(id).unwrap(), &root));
 
         let deps = module_graph.deps(id).collect::<Vec<_>>();
         expect![[r#"
@@ -812,6 +778,13 @@ mod test {
             ]
         "#]]
         .assert_debug_eq(&all_packages);
+
+        for (module_id, _) in module_graph.all_modules_and_id() {
+            assert_eq!(
+                module_graph.root_manifest(module_id).is_some(),
+                module_id == id
+            );
+        }
 
         let all_packages_and_id = module_graph.all_modules_and_id().collect::<Vec<_>>();
         expect![[r#"
@@ -928,16 +901,16 @@ mod test {
     fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> ResolvedRootModules {
         let root = root.into();
         let root_src = create_mock_local_source(&root);
-        ResolvedModule::only_one_module(root_src, root).0
+        ResolvedRootModules::only_one_module(root_src, root).0
     }
 
     fn create_mock_workspace_roots<const N: usize>(
         roots: [(&str, Arc<MoonMod>); N],
     ) -> ResolvedRootModules {
-        let mut resolved_roots = ResolvedRootModules::with_key();
+        let mut resolved_roots = ResolvedRootModules::new();
         for (path, root) in roots {
             let source = create_mock_workspace_source(&root, path);
-            resolved_roots.insert(ResolvedModule::new(source, root));
+            resolved_roots.insert(source, root);
         }
         resolved_roots
     }
@@ -1018,10 +991,10 @@ mod test {
                 panic!("expected local target");
             };
             let module = context.resolve_local_module(&path).unwrap();
-            assert_eq!(module.version, Some(Version::new(1, 1, 0)));
+            assert_eq!(module.version, Version::new(1, 1, 0));
             let mut root = create_mock_module("test/root", "1.0.0", []);
             root.deps.insert(name.to_string(), req);
-            let roots = ResolvedModule::only_one_module(dependant.clone(), Arc::new(root)).0;
+            let roots = ResolvedRootModules::only_one_module(dependant.clone(), Arc::new(root)).0;
             let mut graph = ModuleDependencyGraph::from_root_modules(roots);
             assert_eq!(
                 resolve_silently(&mut MvsSolver, &mut context, &mut graph),
@@ -1582,9 +1555,27 @@ mod test {
             ("/workspace/app", Arc::clone(&app)),
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
+        let input_roots = roots
+            .iter()
+            .map(|(id, source, manifest)| (id, source.clone(), Arc::clone(manifest)))
+            .collect::<Vec<_>>();
         let mut module_graph = ModuleDependencyGraph::from_root_modules(roots);
         let status = resolve_silently(&mut resolver, &mut context, &mut module_graph);
         assert!(status, "Resolve failed");
+
+        // Workspace overrides reuse the input identities and original declarations;
+        // a later workspace sync must edit these rather than registry metadata.
+        assert_eq!(
+            module_graph.input_module_ids(),
+            input_roots.iter().map(|(id, _, _)| *id).collect::<Vec<_>>()
+        );
+        for (id, source, manifest) in &input_roots {
+            assert_eq!(module_graph.module_source(*id), source);
+            assert!(Arc::ptr_eq(
+                module_graph.root_manifest(*id).unwrap(),
+                manifest
+            ));
+        }
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
 
