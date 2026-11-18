@@ -145,8 +145,7 @@ fn known_option_types_are_checked_even_when_warnings_are_suppressed() {
     let log = UserLog::new(log::LevelFilter::Off);
     for source in [
         "warnings = 123",
-        r#"warnings = "+a"
-options("warn-list": false)"#,
+        r#"options("warn-list": false)"#,
         "options = false",
         r#"options(link: {"native": {"cc-flags": 123}})"#,
         r#"options("alert-list": false)"#,

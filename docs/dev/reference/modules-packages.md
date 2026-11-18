@@ -74,7 +74,11 @@ formatter adapter additionally supplies repeated rule keys required by moonfmt;
 fields; it does not construct an intermediate `MoonPkgJSON`. Legacy
 `moon.pkg.json` files use their own `MoonPkgJSON` converter. Both converters share
 package-kind resolution, import warnings, formatter defaults, and rule validation.
-DSL normalization combines declarations and applies `options(...)` overrides.
+DSL normalization combines repeatable declarations and rejects duplicate fields
+across direct declarations and `options(...)`, including equivalent spellings.
+`warnings` and legacy warning options cannot be combined; neither can
+`supported_targets` and its legacy option, or `dev_build` and legacy prebuild
+options. Duplicate configuration is an error even when values agree or are empty.
 The converter consumes recognized fields, preserving legacy option aliases and
 type checks, and reports remaining keys as warnings. Nested configuration keys
 are checked too. The same diagnostics apply to JSON manifests. Module diagnostics
@@ -104,9 +108,8 @@ Package settings also have these direct declarations: `proof_enabled`,
 `virtual(has_default: ...)` declares a virtual package, and
 `virtual(implement: ...)` normalizes to the legacy `implement` field. The two
 `virtual` forms cannot be combined. They use the same value types, defaults, and
-validation as their legacy options. Each may appear only once. Like `formatter` and `pkgtype`, they are
-subject to `options(...)` overrides: an option with the same spelling replaces
-the direct declaration, while an alias spelling is rejected as a duplicate field.
+validation as their legacy options. Like `formatter` and `pkgtype`, each field
+may be configured either directly or through `options(...)`, but not both.
 
 The compiler also reads package configuration, so accepting a declaration in
 Moon alone does not make it usable with older compilers. Direct declarations
@@ -114,12 +117,12 @@ require companion compiler support and formatter support to preserve their
 spelling through `moon fmt`; see the [package configuration manual](../../manual/src/package.md).
 
 In `moon.pkg`, multiple import blocks are combined in source order,
-separately for regular, test, and whitebox-test imports. Legacy import fields in
-`options(...)` replace all corresponding blocks, including when the replacement
-is empty. Both
+separately for regular, test, and whitebox-test imports. A legacy import field in
+`options(...)` cannot be combined with blocks of the same import kind, even when
+the block or option is empty. Different import kinds can use different forms. Both
 `test-import`/`test_import` and `wbtest-import`/`wbtest_import`
 spellings are accepted; specifying both spellings of the same option is an error.
-After these overrides, importing the same package more than once is allowed. It
+Importing the same package more than once is allowed. It
 emits one warning per package and import kind when the repeated declarations are
 active for a common backend; unconditional declarations always overlap, and
 declarations with disjoint [import conditions](cond-comp.md) do not warn.
