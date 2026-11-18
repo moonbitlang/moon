@@ -16,9 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -257,6 +260,10 @@ pub struct MoonPkgJSON {
     #[serde(alias = "warn_list")]
     #[schemars(rename = "warn-list")]
     pub warn_list: Option<String>,
+
+    /// Alert options read from the manifest by moonc.
+    #[serde(rename = "alert-list", skip_serializing_if = "Option::is_none")]
+    pub alert_list: Option<String>,
 
     /// Whether this package participates in proof-oriented workflows.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -564,6 +571,10 @@ pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_js_builtin_string: Option<bool>,
 
+    /// Use the compiler's FFI byte representation for WasmGC.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_ffi_bytes: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_string_constants: Option<String>,
 }
@@ -734,6 +745,7 @@ pub struct MoonPkg {
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
+    pub alert_list: Option<String>,
     pub proof_enabled: bool,
 
     pub targets: Option<CondExprs>,
@@ -861,12 +873,19 @@ pub fn convert_pkg_dsl_to_package(
     dsl: moon_pkg::Dsl,
     user_log: &UserLog,
 ) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true, user_log)?.0)
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(
+        dsl,
+        Path::new("moon.pkg"),
+        true,
+        user_log,
+    )?
+    .0)
 }
 
 /// Collect declarations and apply legacy option precedence before decoding fields.
 fn normalize_pkg_dsl(
     dsl: moon_pkg::Dsl,
+    path: &Path,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(Map<String, Value>, PackageImports)> {
@@ -926,12 +945,19 @@ fn normalize_pkg_dsl(
         map.remove("virtual");
         map.insert(String::from("implement"), target);
     }
-    if let Value::Object(options) = map.remove("options").unwrap_or_default() {
+    if let Some(options) = map.remove("options") {
+        let options = Map::<String, Value>::deserialize(options)
+            .context("`options` in moon.pkg must be an object")?;
         let mut seen_import_keys = HashSet::new();
         for (k, v) in options {
             if let Some((key, imports)) = imports.get_mut(&k) {
                 if !seen_import_keys.insert(key) {
                     bail!("Duplicate key '{key}' found in moon.pkg options.");
+                }
+                if emit_warnings {
+                    let mut unknown = Vec::new();
+                    crate::manifest_diagnostics::import_fields(&v, &k, &mut unknown);
+                    crate::manifest_diagnostics::warn(&unknown, path, user_log);
                 }
                 *imports = pkg_json_imports_to_imports(serde_json_lenient::from_value(v)?);
             } else {
@@ -940,14 +966,15 @@ fn normalize_pkg_dsl(
         }
     }
     if let Some(warnings) = map.remove("warnings") {
-        let warnings = match warnings {
-            Value::String(s) => s,
-            _ => String::new(),
-        };
-        let legacy_warn_list = match map.remove("warn-list") {
-            Some(Value::String(s)) => s,
-            _ => String::new(),
-        };
+        let warnings =
+            String::deserialize(warnings).context("`warnings` in moon.pkg must be a string")?;
+        let legacy_warn_list = map
+            .remove("warn-list")
+            .map(Option::<String>::deserialize)
+            .transpose()
+            .context("`warn-list` in moon.pkg must be a string")?
+            .flatten()
+            .unwrap_or_default();
         let merged = format!("{warnings}{legacy_warn_list}");
         if !merged.is_empty() {
             map.insert(String::from("warn-list"), Value::String(merged));
@@ -987,41 +1014,53 @@ fn normalize_pkg_dsl(
 
 pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     dsl: moon_pkg::Dsl,
+    path: &Path,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    let (map, imports) = normalize_pkg_dsl(dsl, emit_warnings, user_log)?;
+    let (map, imports) = normalize_pkg_dsl(dsl, path, emit_warnings, user_log)?;
+    let mut options = PackageOptions {
+        fields: map,
+        unknown: Vec::new(),
+    };
+    crate::manifest_diagnostics::package_untagged_fields(&options.fields, &mut options.unknown)?;
     // Keep explicit declarations until their conflicts have been checked.
-    let name: Option<String> = read_dsl_option(&map, "name", None)?;
-    let experimental: Option<bool> = read_dsl_option(&map, "experimental", None)?;
-    let allow_experimental_packages = read_dsl_option(
-        &map,
+    let name: Option<String> = options.read("name", None)?;
+    let experimental: Option<bool> = options.read("experimental", None)?;
+    let allow_experimental_packages = options.read(
         "allow_experimental_packages",
         Some("allow-experimental-packages"),
     )?;
-    let is_main = read_dsl_option(&map, "is_main", Some("is-main"))?;
-    let pkgtype = read_dsl_option(&map, "pkgtype", None)?;
-    let link = read_dsl_option(&map, "link", None)?;
-    let formatter: Option<MoonPkgFormatterJSON> = read_dsl_option(&map, "formatter", None)?;
-    let warn_list = read_dsl_option(&map, "warn_list", Some("warn-list"))?;
-    let proof_enabled: Option<bool> =
-        read_dsl_option(&map, "proof_enabled", Some("proof-enabled"))?;
-    let targets = read_dsl_option(&map, "targets", None)?;
-    let pre_build = read_dsl_option(&map, "pre_build", Some("pre-build"))?;
-    let local_rules: Option<Vec<MoonModRule>> = read_dsl_option(&map, "rule", None)?;
-    let bin_name = read_dsl_option(&map, "bin_name", Some("bin-name"))?;
-    let bin_target: Option<String> = read_dsl_option(&map, "bin_target", Some("bin-target"))?;
-    let supported_targets = read_dsl_option(&map, "supported_targets", Some("supported-targets"))?;
-    let native_stub = read_dsl_option(&map, "native_stub", Some("native-stub"))?;
-    let virtual_pkg = read_dsl_option(&map, "virtual_pkg", Some("virtual"))?;
-    let implement = read_dsl_option(&map, "implement", None)?;
-    let overrides = read_dsl_option(&map, "overrides", None)?;
+    let is_main = options.read("is_main", Some("is-main"))?;
+    let pkgtype = options.read("pkgtype", None)?;
+    let link = options.read("link", None)?;
+    let formatter: Option<MoonPkgFormatterJSON> = options.read("formatter", None)?;
+    let warn_list = options.read("warn_list", Some("warn-list"))?;
+    let alert_list = options.read("alert-list", None)?;
+    // TODO: Remove recognition when moonc stops reading this deprecated option.
+    // This does not restore Moon's removed test-import-all behavior.
+    let legacy_test_import_all: Option<bool> = options.read("test-import-all", None)?;
+    let proof_enabled: Option<bool> = options.read("proof_enabled", Some("proof-enabled"))?;
+    let targets = options.read("targets", None)?;
+    let pre_build = options.read("pre_build", Some("pre-build"))?;
+    let local_rules: Option<Vec<MoonModRule>> = options.read("rule", None)?;
+    let bin_name = options.read("bin_name", Some("bin-name"))?;
+    let bin_target: Option<String> = options.read("bin_target", Some("bin-target"))?;
+    let supported_targets = options.read("supported_targets", Some("supported-targets"))?;
+    let native_stub = options.read("native_stub", Some("native-stub"))?;
+    let virtual_pkg = options.read("virtual_pkg", Some("virtual"))?;
+    let implement = options.read("implement", None)?;
+    let overrides = options.read("overrides", None)?;
     let max_concurrent_tests =
-        read_dsl_option(&map, "max_concurrent_tests", Some("max-concurrent-tests"))?;
-    let regex_backend = read_dsl_option(&map, "regex_backend", Some("regex-backend"))?;
-    // Unknown options are ignored, as they are in moon.pkg.json.
-
+        options.read("max_concurrent_tests", Some("max-concurrent-tests"))?;
+    let regex_backend = options.read("regex_backend", Some("regex-backend"))?;
     if emit_warnings {
+        options.unknown.extend(options.fields.keys().cloned());
+        crate::manifest_diagnostics::warn(&options.unknown, path, user_log);
+        if legacy_test_import_all.is_some() {
+            user_log
+                .warn("`test-import-all` in moon.pkg is deprecated; use explicit imports instead.");
+        }
         imports.warn_duplicates(user_log);
     }
     let (is_main, force_link) = resolve_package_kind(
@@ -1054,6 +1093,7 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
             formatter: formatter.unwrap_or_default().into(),
             link: link.and_then(BoolOrLink::into_link),
             warn_list,
+            alert_list,
             proof_enabled: proof_enabled.unwrap_or(false),
             targets,
             pre_build,
@@ -1072,21 +1112,33 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     ))
 }
 
-/// Decode one optional DSL field, accepting its legacy spelling while rejecting
-/// duplicate spellings just as the JSON deserializer does.
-fn read_dsl_option<T: DeserializeOwned>(
-    options: &Map<String, Value>,
-    name: &str,
-    alias: Option<&str>,
-) -> anyhow::Result<Option<T>> {
-    let value = options.get(name);
-    let alias_value = alias.and_then(|alias| options.get(alias));
-    if value.is_some() && alias_value.is_some() {
-        bail!("duplicate field `{name}`");
-    }
-    match value.or(alias_value) {
-        Some(value) => Ok(Option::<T>::deserialize(value)?),
-        None => Ok(None),
+/// Decodes the normalized options once and retains their unknown field paths.
+struct PackageOptions {
+    fields: Map<String, Value>,
+    unknown: Vec<String>,
+}
+
+impl PackageOptions {
+    fn read<T: DeserializeOwned>(
+        &mut self,
+        name: &str,
+        alias: Option<&str>,
+    ) -> anyhow::Result<Option<T>> {
+        let value = self.fields.remove(name);
+        let alias_value = alias.and_then(|alias| self.fields.remove(alias));
+        if value.is_some() && alias_value.is_some() {
+            bail!("duplicate field `{name}`");
+        }
+        let key = if value.is_some() {
+            name
+        } else {
+            alias.unwrap_or(name)
+        };
+        match value.or(alias_value) {
+            Some(value) => crate::manifest_diagnostics::deserialize(&value, key, &mut self.unknown)
+                .with_context(|| format!("invalid `{key}` in moon.pkg")),
+            None => Ok(None),
+        }
     }
 }
 
@@ -1156,6 +1208,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         formatter: j.formatter.unwrap_or_default().into(),
         link: j.link.and_then(BoolOrLink::into_link),
         warn_list: j.warn_list,
+        alert_list: j.alert_list,
         proof_enabled: j.proof_enabled.unwrap_or(false),
         targets: j.targets,
         pre_build: j.pre_build,
@@ -1260,6 +1313,7 @@ fn convert_test_pkg_dsl(
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     convert_pkg_dsl_to_package_with_supported_targets_decl(
         dsl,
+        Path::new("moon.pkg"),
         emit_warnings,
         &UserLog::new(log::LevelFilter::Error),
     )
@@ -1284,6 +1338,7 @@ fn assert_pkg_dsl_matches_json(source: &str, json: Value) {
         let (json_log, json_capture) = UserLog::captured(log::LevelFilter::Warn);
         let (actual, actual_decl) = convert_pkg_dsl_to_package_with_supported_targets_decl(
             moon_pkg::parse(source).unwrap(),
+            Path::new("moon.pkg"),
             emit_warnings,
             &dsl_log,
         )
@@ -1347,7 +1402,6 @@ options(
   overrides: ["example/impl"],
   "max-concurrent-tests": 8,
   "regex-backend": "table",
-  "unknown-option": true,
 )
 "#,
         serde_json_lenient::json!({
@@ -1865,6 +1919,7 @@ fn convert_pkg_imports_warns_and_preserves_duplicate_items() {
                 let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
                 let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(
                     dsl,
+                    Path::new("moon.pkg"),
                     emit_warnings,
                     &user_log,
                 )
@@ -1977,6 +2032,7 @@ import {{ "example/lib" {alias} }} {suffix}
                     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
                     let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(
                         dsl,
+                        Path::new("moon.pkg"),
                         emit_warnings,
                         &user_log,
                     )

@@ -67,6 +67,7 @@ mod inline_test;
 mod install_atomic_rename;
 mod js_test_build_only;
 mod main_package;
+mod manifest_diagnostics;
 #[cfg(unix)]
 mod mbti;
 mod moon_bench;

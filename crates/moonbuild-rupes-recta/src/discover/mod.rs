@@ -264,6 +264,7 @@ mod tests {
                 std::fs::copy(fixture.join(relative).join(file), target.join(file))?;
             }
         }
+        let root_dir = std::fs::canonicalize(root_dir)?;
         let root = moonutil::manifest::read_module_desc_file_in_dir(&root_dir)?;
         let dependency = moonutil::manifest::read_module_desc_file_in_dir(&dependency_dir)?;
         let (mut graph, root_id) = ModuleDependencyGraph::only_one_module(
@@ -275,19 +276,36 @@ mod tests {
             std::sync::Arc::new(dependency),
         );
         let mut dirs = DirSyncResult::default();
-        dirs.insert(root_id, root_dir);
+        dirs.insert(root_id, root_dir.clone());
         dirs.insert(dependency_id, dependency_dir.clone());
 
         for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
             let (log, capture) = UserLog::captured(level);
             discover_for_build(&graph, &dirs, Some(2), &log)?;
             let warnings = capture.take();
-            assert_eq!(warnings.len(), usize::from(level == log::LevelFilter::Warn));
-            if let Some(warning) = warnings.first() {
+            let messages: Vec<_> = warnings
+                .iter()
+                .map(|warning| warning.message.as_str())
+                .collect();
+            if level == log::LevelFilter::Warn {
                 assert_eq!(
-                    warning.message,
-                    "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                    messages,
+                    [
+                        format!(
+                            "Unknown configuration key `project-future` in `{}`.",
+                            root_dir.join("moon.mod").display()
+                        )
+                        .as_str(),
+                        "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead.",
+                        format!(
+                            "Unknown configuration key `project-future` in `{}`.",
+                            root_dir.join("moon.pkg").display()
+                        )
+                        .as_str(),
+                    ]
                 );
+            } else {
+                assert!(messages.is_empty());
             }
         }
         // Suppressing a dependency's author-facing warnings must not suppress

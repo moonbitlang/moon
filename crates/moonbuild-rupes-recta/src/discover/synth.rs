@@ -92,6 +92,7 @@ pub(crate) fn build_synth_single_file_package(
         },
         link: None,
         warn_list: None,
+        alert_list: None,
         proof_enabled: false,
         targets: None,
         pre_build: None,

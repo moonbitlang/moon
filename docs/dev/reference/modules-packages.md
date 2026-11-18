@@ -52,8 +52,21 @@ fields; it does not construct an intermediate `MoonPkgJSON`. Legacy
 `moon.pkg.json` files use their own `MoonPkgJSON` converter. Both converters share
 package-kind resolution, import warnings, formatter defaults, and rule validation.
 DSL normalization combines declarations and applies `options(...)` overrides.
-The converter then reads the normalized fields without mutating the map,
-preserving legacy option aliases and type checks. Unknown options are ignored.
+The converter consumes recognized fields, preserving legacy option aliases and
+type checks, and reports remaining keys as warnings. Nested configuration keys
+are checked too. The same diagnostics apply to JSON manifests. Module diagnostics
+are retained with the parsed manifest until its role in resolution is known.
+
+Unknown-key warnings are emitted for input modules and their packages, and are
+suppressed for dependencies and the standard library. `--quiet` suppresses these
+warnings. Known fields with invalid types remain errors in every module, even
+when warnings are suppressed. This does not change the DSL's accepted declaration
+syntax or explicit errors for unsupported dependency sources.
+
+Compiler-consumed settings are also represented and type-checked by Moon,
+including package `alert-list` and `link.wasm-gc.use-ffi-bytes`. The deprecated
+`test-import-all` spelling still read by the compiler receives a deprecation
+warning; it does not restore Moon's removed implicit test imports.
 
 Package settings also have these direct declarations: `proof_enabled`,
 `max_concurrent_tests`, and `regex_backend` use assignments;

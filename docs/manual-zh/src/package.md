@@ -30,6 +30,18 @@
 `options(...)` 形式。格式化和 JSON 到 DSL 的迁移由工具链中的 `moonfmt`
 提供。较旧的格式化工具可能会把直接声明改写成等价的 `options(...)` 形式。
 
+## 配置诊断
+
+`options(...)`、JSON 清单及嵌套配置中的未知键会产生警告。例如，
+`link.native.cc_link_flags` 会触发警告，因为正确拼写是 `cc-link-flags`。
+警告不会中止命令，可通过 `--quiet` 隐藏；依赖中的未知键警告默认不显示。
+此规则同时适用于模块和包配置。
+
+已知字段的类型错误会报错，包括依赖中的配置以及使用 `--quiet` 时。
+例如，`warnings = 123` 无效，因为 `warnings` 必须是字符串。
+由编译器消费的配置，例如 `options("alert-list": "+all")` 和布尔类型的
+`link.wasm-gc.use-ffi-bytes`，也由 Moon 识别并检查类型。
+
 ## 实验性包
 
 在包的 `moon.pkg` 顶层声明 `experimental = true` 后，直接依赖它的包会收到警告。

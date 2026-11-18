@@ -82,6 +82,10 @@ pub struct MoonMod {
     #[serde(flatten)]
     pub ext: serde_json_lenient::Value,
 
+    /// Parse-time diagnostics retained until the caller knows the module's role.
+    #[serde(skip)]
+    pub unknown_fields: Vec<String>,
+
     pub warn_list: Option<String>,
 
     /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
@@ -312,6 +316,18 @@ impl TryFrom<MoonModJSON> for MoonMod {
             checksum: j.checksum,
             source,
             rule: j.rule.map(MoonModJSONRules::into_vec),
+            unknown_fields: j
+                .ext
+                .as_object()
+                .into_iter()
+                // The resolver still diagnoses removed binary dependencies.
+                .flat_map(|fields| {
+                    fields
+                        .keys()
+                        .filter(|key| key.as_str() != "bin-deps")
+                        .cloned()
+                })
+                .collect(),
             ext: j.ext,
 
             warn_list: j.warn_list,

@@ -28,28 +28,45 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
     for (name, source) in [
         (
             "moon.pkg",
-            r#"options(future: true, link: {"native": {"cc_link_flags": "-lm"}}, formatter: {"future": true})"#,
+            r#"options(
+  future: true,
+  link: {"native": {"cc_link_flags": "-lm"}},
+  formatter: {"future": true},
+  "import": [{"path": "test/dependency", "future": true}],
+  "pre-build": [{"input": "a", "output": "b", "command": "echo", "future": true}]
+)"#,
         ),
         (
             "moon.pkg.json",
-            r#"{"future": true, "link": {"native": {"cc_link_flags": "-lm"}}, "formatter": {"future": true}}"#,
+            r#"{
+  "future": true,
+  "link": {"native": {"cc_link_flags": "-lm"}},
+  "formatter": {"future": true},
+  "import": [{"path": "test/dependency", "future": true}],
+  "pre-build": [{"input": "a", "output": "b", "command": "echo", "future": true}]
+}"#,
         ),
     ] {
         let path = dir.path().join(name);
         std::fs::write(&path, source).unwrap();
         for emit_warnings in [true, false] {
             let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-            let (package, _) = read_package_desc_file_from_path_with_supported_targets_decl(
+            read_package_desc_file_from_path_with_supported_targets_decl(
                 &path,
                 &log,
                 true,
                 emit_warnings,
             )
             .unwrap();
-            assert!(!package.is_main);
             let warnings = capture.take();
-            assert_eq!(warnings.len(), if emit_warnings { 3 } else { 0 });
-            for key in ["future", "link.native.cc_link_flags", "formatter.future"] {
+            assert_eq!(warnings.len(), if emit_warnings { 5 } else { 0 });
+            for key in [
+                "future",
+                "link.native.cc_link_flags",
+                "formatter.future",
+                "import[0].future",
+                "pre-build[0].future",
+            ] {
                 if emit_warnings {
                     assert!(
                         warnings
@@ -66,32 +83,40 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
 #[test]
 fn module_unknown_key_warnings_reuse_the_parsed_manifest() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("moon.mod");
-    std::fs::write(
-        &path,
-        r#"
-name = "test/diagnostics"
+    for (name, source) in [
+        (
+            "moon.mod",
+            r#"name = "test/diagnostics"
 options(future: true)
 rule(name: "generate", command: "echo", typo: true)
 "#,
-    )
-    .unwrap();
-    let (format, module) = read_module_manifest(dir.path(), false).unwrap();
-    std::fs::remove_file(path).unwrap();
-    let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    warn_module_manifest(dir.path(), format, &module, &log);
-    let warnings = capture.take();
-    assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(
-        warnings
-            .iter()
-            .any(|warning| warning.message.contains("`future`"))
-    );
-    assert!(
-        warnings
-            .iter()
-            .any(|warning| warning.message.contains("`rule[0].typo`"))
-    );
+        ),
+        (
+            "moon.mod.json",
+            r#"{
+  "name": "test/diagnostics",
+  "future": true,
+  "rule": [{"name": "generate", "command": "echo", "typo": true}]
+}"#,
+        ),
+    ] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, source).unwrap();
+        let (format, module) = read_module_manifest(dir.path(), true).unwrap();
+        std::fs::remove_file(path).unwrap();
+        let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        warn_module_manifest(dir.path(), format, &module, &log);
+        let warnings = capture.take();
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        for key in ["future", "rule[0].typo"] {
+            assert!(
+                warnings
+                    .iter()
+                    .any(|warning| warning.message.contains(&format!("`{key}`"))),
+                "{warnings:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -106,6 +131,7 @@ options("warn-list": false)"#,
         r#"options(link: {"native": {"cc-flags": 123}})"#,
         r#"options("alert-list": false)"#,
         r#"options(link: {"wasm-gc": {"use-ffi-bytes": "true"}})"#,
+        r#"options("pre-build": [{"input": "a", "output": "b", "rule": "generate", "command": 123}])"#,
     ] {
         let path = dir.path().join("moon.pkg");
         std::fs::write(&path, source).unwrap();
@@ -123,7 +149,7 @@ options("warn-list": false)"#,
             format!("name = \"test/diagnostics\"\n{source}"),
         )
         .unwrap();
-        assert!(read_module_manifest(dir.path(), false).is_err(), "{source}");
+        assert!(read_module_manifest(dir.path(), true).is_err(), "{source}");
     }
 }
 
@@ -137,7 +163,6 @@ fn compiler_owned_options_are_not_unknown_keys() {
 regex_backend = "table"
 options(
   "alert-list": "+all",
-  "test-import-all": true,
   link: {"wasm-gc": {
     "use-js-builtin-string": true,
     "imported-string-constants": "strings",
@@ -148,6 +173,29 @@ options(
     )
     .unwrap();
     let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, false, true).unwrap();
+    let (package, _) =
+        read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, false, true)
+            .unwrap();
+    assert_eq!(package.alert_list.as_deref(), Some("+all"));
+    assert_eq!(
+        package.link.unwrap().wasm_gc.unwrap().use_ffi_bytes,
+        Some(true)
+    );
     assert!(capture.take().is_empty());
+}
+
+#[test]
+fn json_duplicate_known_fields_remain_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = r#"{"name": "test/first", "name": "test/second"}"#;
+    let path = dir.path().join("moon.pkg.json");
+    std::fs::write(&path, source).unwrap();
+    let log = UserLog::new(log::LevelFilter::Off);
+    let error =
+        read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false)
+            .unwrap_err();
+    assert!(format!("{error:#}").contains("duplicate field `name`"));
+    std::fs::write(dir.path().join("moon.mod.json"), source).unwrap();
+    let error = read_module_manifest(dir.path(), true).unwrap_err();
+    assert!(format!("{error:#}").contains("duplicate field `name`"));
 }
