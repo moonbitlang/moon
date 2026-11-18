@@ -39,8 +39,7 @@ use crate::{
 };
 
 pub use crate::module::{
-    ModuleDBJSON, MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, PackagesSelectorJSON,
-    convert_module_to_mod_json,
+    MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
 };
 pub use crate::package::{MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind};
 

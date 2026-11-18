@@ -90,7 +90,9 @@ passes when no resolved module declares a script.
 Stdout must contain one build configuration JSON value with the optional fields
 `vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has no effect. Stderr
 carries script diagnostics. A failed script or invalid JSON output fails the
-build.
+build. Moonbuild owns these script transport types privately. After validating
+package names against the resolved project, it supplies RR with the link
+configuration and module output types defined in `moonbuild_rupes_recta::prebuild`.
 
 MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
 Their target is always linear-memory Wasm, independently of the project backend;

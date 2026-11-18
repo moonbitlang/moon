@@ -118,6 +118,14 @@ source updates. Shared diff rendering for these reports and `moon info` lives
 in Moon's private `diff` module. `BuildSession` retains build-lock and rebuild
 ownership.
 
+Moon's private `test_metadata` module owns the compiler-produced test-info JSON
+model shared by driver generation, filtering, and reporting. Rendering that
+metadata into MoonBit source belongs to `cli::generate_test_driver`, using the
+templates in `crates/moon/template/test_driver_project`. The template project is
+checked and format-checked by `cargo xtask ci`. RR plans the generation action
+and encodes its existing `TargetKind` as `--driver-kind`; it does not consume the
+test-info JSON model or driver templates.
+
 `moon bench` remains sequential by default to avoid contention affecting
 measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
 `--no-parallelize` overrides it.

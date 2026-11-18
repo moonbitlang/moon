@@ -18,12 +18,12 @@
 
 use std::{collections::BTreeSet, ops::Range, str::FromStr};
 
+use crate::test_metadata::{MbtTestInfo, MooncGenTestInfo};
 use indexmap::IndexMap;
 use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
 };
-use moonutil::test_metadata::{MbtTestInfo, MooncGenTestInfo};
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub(crate) struct TestIndexRange {
@@ -508,8 +508,8 @@ pub(crate) fn apply_filter(
 #[cfg(test)]
 mod test {
     use super::{GlobPatternMatcher, TestIndexRange, indices_to_ranges};
+    use crate::test_metadata::{MbtTestInfo, MooncGenTestInfo};
     use expect_test::expect;
-    use moonutil::test_metadata::{MbtTestInfo, MooncGenTestInfo};
 
     #[test]
     fn test_indices_to_ranges() {

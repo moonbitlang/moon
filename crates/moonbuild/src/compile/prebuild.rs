@@ -29,18 +29,51 @@ use anyhow::{Context, anyhow};
 use log::warn;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject,
-    prebuild::{ModulePrebuildOutput, PrebuildOutput},
+    prebuild::{LinkConfig, ModulePrebuildOutput, PrebuildOutput, RerunIfKind},
 };
 use moonutil::{
-    build_script::{BuildScriptEnvironment, BuildScriptOutput, Paths},
     constants::{MOON_MOD, MOON_MOD_JSON},
     manifest::preferred_manifest_in_dir,
     project::SourceTargetDirs,
     resolution::ModuleName,
 };
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use super::build_standalone_wasm;
+
+/// Represents the environment a build script receives
+#[derive(Serialize)]
+struct BuildScriptEnvironment {
+    env: HashMap<String, String>,
+    paths: Paths,
+}
+
+#[derive(Serialize)]
+struct Paths {
+    /// The directory containing the current module, i.e. the parent directory
+    /// of its module manifest.
+    module_root: String,
+    /// The directory that the build script can write to. This directory resides
+    /// within the `target` directory of the project building this module.
+    out_dir: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct BuildScriptOutput {
+    /// Rerun conditions. **DOES NOT WORK NOW**
+    #[serde(default)]
+    rerun_if: Vec<RerunIfKind>,
+    // TODO: How much of these vars are useful? We don't fetch link flags from
+    // here any more. However, they might still be useful for future
+    // match-replace in code.
+    // TODO: what about array-like vars? like commandline args
+    #[serde(default)]
+    vars: HashMap<String, String>,
+    #[serde(default)]
+    /// Configurations to linking
+    link_configs: Vec<LinkConfig>,
+}
 
 #[instrument(skip_all)]
 pub(super) fn run_prebuild_config(

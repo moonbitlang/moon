@@ -19,40 +19,13 @@
 use crate::dependency::SourceDependencyInfo;
 use crate::manifest::{MoonModJSONFormatErrorKind, NameError};
 use crate::mooncakes::ModuleName;
-use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
+use crate::package::{SupportedTargetsConfig, resolve_supported_targets};
 use crate::target::TargetBackend;
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ModuleDBJSON {
-    pub source_dir: String,
-    pub name: String,
-    pub packages: Vec<PackageJSON>,
-    pub deps: Vec<String>,
-    pub backend: String,
-    pub opt_level: String,
-    pub source: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PackagesSelectorJSON {
-    pub backend: String,
-    pub opt_level: String,
-}
-
-#[test]
-fn packages_selector_json_matches_compiler_contract() {
-    let value = serde_json_lenient::to_string(&PackagesSelectorJSON {
-        backend: "wasm-gc".to_string(),
-        opt_level: "debug".to_string(),
-    })
-    .unwrap();
-    assert_eq!(value, r#"{"backend":"wasm-gc","opt_level":"debug"}"#);
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MoonMod {

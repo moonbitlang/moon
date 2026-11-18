@@ -20,7 +20,6 @@
 
 mod binaries;
 pub mod build_options;
-pub mod build_script;
 pub mod cache;
 pub mod child_process;
 mod cli;
@@ -53,7 +52,6 @@ pub mod scripts;
 pub mod shlex;
 pub mod supported_targets;
 pub mod target;
-pub mod test_metadata;
 pub mod text;
 pub mod toolchain;
 pub mod user_log;

@@ -54,6 +54,7 @@ excludes = [
     "!crates/moon/tests/test_cases/tool_commands.rs",
     "crates/**/tests/fixtures/**",
     "!crates/**/tests/fixtures/**/*.rs",
+    "crates/moon/template/**",
     "crates/moonbuild/template/**",
     "third_party/**",
     ".justfile",

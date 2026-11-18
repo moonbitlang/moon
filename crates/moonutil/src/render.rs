@@ -26,7 +26,26 @@ use clap::ValueEnum;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
-use crate::{error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel};
+use crate::error_code_docs::get_error_code_doc;
+
+#[derive(Debug, Default, ValueEnum, Clone, PartialEq, Copy, PartialOrd)]
+pub enum DiagnosticLevel {
+    Info,
+    #[value(alias = "warning")]
+    Warn,
+    #[default]
+    Error,
+}
+
+impl std::fmt::Display for DiagnosticLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+        })
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PatchJSON {

@@ -29,45 +29,13 @@ use serde_json_lenient::{Map, Value};
 
 pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
-    cond_expr::{CompileCondition, CondExprs},
+    cond_expr::CondExprs,
     manifest::unknown_field_paths,
     module::MoonModRule,
     moon_pkg,
     target::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     user_log::UserLog,
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct PackageJSON {
-    pub is_main: bool,
-    pub is_third_party: bool,
-    pub root_path: String,
-    pub root: String,
-    pub rel: String,
-    pub files: IndexMap<PathBuf, CompileCondition>,
-    // white box test
-    pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
-    // black box test
-    pub test_files: IndexMap<PathBuf, CompileCondition>,
-    // *.mbt.md
-    pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
-    pub deps: Vec<AliasJSON>,
-    pub wbtest_deps: Vec<AliasJSON>,
-    pub test_deps: Vec<AliasJSON>,
-    pub artifact: String,
-    pub check_command: Option<Vec<String>>,
-    pub wbtest_check_command: Option<Vec<String>>,
-    pub test_check_command: Option<Vec<String>>,
-    pub supported_targets: Vec<TargetBackend>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AliasJSON {
-    pub path: String,
-    pub alias: String,
-    pub fspath: String,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 pub struct MoonPkgFormatterJSON {

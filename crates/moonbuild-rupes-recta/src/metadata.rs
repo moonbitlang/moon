@@ -27,10 +27,10 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexMap;
 use moonutil::{
     cond_expr::{CompileCondition, OptLevel},
-    manifest::ModuleDBJSON,
-    package::{AliasJSON, PackageJSON},
     target::TargetBackend,
 };
+
+use serde::{Deserialize, Serialize};
 
 use crate::{
     ResolvedProject,
@@ -40,6 +40,50 @@ use crate::{
     target_layout::ArtifactPathResolver,
 };
 
+/// Generated package metadata for serialization by the build coordinator.
+#[derive(Debug, Serialize, Deserialize)]
+struct ModuleDBJSON {
+    source_dir: String,
+    name: String,
+    packages: Vec<PackageJSON>,
+    deps: Vec<String>,
+    backend: String,
+    opt_level: String,
+    source: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct PackageJSON {
+    is_main: bool,
+    is_third_party: bool,
+    root_path: String,
+    root: String,
+    rel: String,
+    files: IndexMap<PathBuf, CompileCondition>,
+    // white box test
+    wbtest_files: IndexMap<PathBuf, CompileCondition>,
+    // black box test
+    test_files: IndexMap<PathBuf, CompileCondition>,
+    // *.mbt.md
+    mbt_md_files: IndexMap<PathBuf, CompileCondition>,
+    deps: Vec<AliasJSON>,
+    wbtest_deps: Vec<AliasJSON>,
+    test_deps: Vec<AliasJSON>,
+    artifact: String,
+    check_command: Option<Vec<String>>,
+    wbtest_check_command: Option<Vec<String>>,
+    test_check_command: Option<Vec<String>>,
+    supported_targets: Vec<TargetBackend>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AliasJSON {
+    path: String,
+    alias: String,
+    fspath: String,
+}
+
 /// `moonc check` command arguments keyed by their generated `.mi` output path.
 ///
 /// The executable path is intentionally omitted so metadata stays independent
@@ -48,7 +92,7 @@ use crate::{
 pub type CheckCommandMap<'a> = BTreeMap<PathBuf, &'a [String]>;
 
 /// Generate the full legacy `packages.json` document shared by IDE plugins and
-/// other tools.
+/// other tools. The returned document owns its data and only exposes serialization.
 pub fn gen_metadata_json(
     ctx: &ResolvedProject,
     source_dir: &Path,
@@ -56,7 +100,7 @@ pub fn gen_metadata_json(
     opt_level: OptLevel,
     backend: TargetBackend,
     check_commands: &CheckCommandMap<'_>,
-) -> ModuleDBJSON {
+) -> impl Serialize + use<> {
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
             let main_module = ctx.module_graph.module_source(main_module_id);
