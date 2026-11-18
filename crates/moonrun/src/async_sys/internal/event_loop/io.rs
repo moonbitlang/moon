@@ -16,20 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use crate::async_host::{AsyncHostError, AsyncHostResult};
-#[cfg(unix)]
-use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
-
-#[cfg(unix)]
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
-}
 
 ported_fns! {
     #[ported(
@@ -51,34 +38,6 @@ ported_fns! {
     #[cfg(windows)]
     pub(crate) fn cleanup_wsa() -> i32 {
         unsafe { windows_sys::Win32::Networking::WinSock::WSACleanup() }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/io_unix.c",
-        original = "moonbitlang_async_read"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn read(fd: RawFd, buf: &mut [u8]) -> AsyncHostResult<usize> {
-        let ret = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
-        if ret < 0 {
-            Err(last_native_error())
-        } else {
-            usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
-        }
-    }
-
-    #[ported(
-        source = "src/internal/event_loop/io_unix.c",
-        original = "moonbitlang_async_write"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn write(fd: RawFd, buf: &[u8]) -> AsyncHostResult<usize> {
-        let ret = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
-        if ret < 0 {
-            Err(last_native_error())
-        } else {
-            usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
-        }
     }
 
     #[ported(

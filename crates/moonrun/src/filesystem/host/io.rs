@@ -28,7 +28,7 @@ use std::os::fd::AsRawFd;
 use std::os::windows::io::AsRawHandle;
 
 use super::HostFs;
-use crate::filesystem::FsOperation;
+use crate::filesystem::{FsOperation, os};
 use crate::resource::Resource;
 
 impl HostFs {
@@ -39,13 +39,13 @@ impl HostFs {
         destination: &mut [u8],
     ) -> AsyncHostResult<usize> {
         self.authorize(FsOperation::ReadResource(file.file_grant()))?;
-        crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), destination)
+        Ok(os::io::read(file.as_file()?.as_raw_fd(), destination)?)
     }
 
     #[cfg(unix)]
     pub(crate) fn write_immediate(&self, file: &Resource, source: &[u8]) -> AsyncHostResult<usize> {
         self.authorize(FsOperation::WriteResource(file.file_grant()))?;
-        crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), source)
+        Ok(os::io::write(file.as_file()?.as_raw_fd(), source)?)
     }
 
     /// Start a read whose completion is owned by Async Host.
@@ -58,21 +58,11 @@ impl HostFs {
         &self,
         file: &Resource,
         buffer: &mut [u8],
-        transferred: &mut u32,
         overlapped: *mut windows_sys::Win32::System::IO::OVERLAPPED,
-    ) -> AsyncHostResult<i32> {
-        let len =
-            u32::try_from(buffer.len()).map_err(|_| crate::async_host::AsyncHostError::Fault)?;
+    ) -> AsyncHostResult<usize> {
+        u32::try_from(buffer.len()).map_err(|_| crate::async_host::AsyncHostError::Fault)?;
         self.authorize(FsOperation::ReadResource(file.file_grant()))?;
-        Ok(unsafe {
-            windows_sys::Win32::Storage::FileSystem::ReadFile(
-                file.as_file()?.as_raw_handle(),
-                buffer.as_mut_ptr().cast(),
-                len,
-                transferred,
-                overlapped,
-            )
-        })
+        Ok(unsafe { os::io::read(file.as_file()?.as_raw_handle(), buffer, overlapped)? })
     }
 
     /// Start a write whose completion is owned by Async Host.
@@ -85,20 +75,10 @@ impl HostFs {
         &self,
         file: &Resource,
         buffer: &[u8],
-        transferred: &mut u32,
         overlapped: *mut windows_sys::Win32::System::IO::OVERLAPPED,
-    ) -> AsyncHostResult<i32> {
-        let len =
-            u32::try_from(buffer.len()).map_err(|_| crate::async_host::AsyncHostError::Fault)?;
+    ) -> AsyncHostResult<usize> {
+        u32::try_from(buffer.len()).map_err(|_| crate::async_host::AsyncHostError::Fault)?;
         self.authorize(FsOperation::WriteResource(file.file_grant()))?;
-        Ok(unsafe {
-            windows_sys::Win32::Storage::FileSystem::WriteFile(
-                file.as_file()?.as_raw_handle(),
-                buffer.as_ptr().cast(),
-                len,
-                transferred,
-                overlapped,
-            )
-        })
+        Ok(unsafe { os::io::write(file.as_file()?.as_raw_handle(), buffer, overlapped)? })
     }
 }

@@ -31,3 +31,6 @@ pub(crate) use path::entry_before_directory_suffix;
 
 #[cfg(test)]
 pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
+
+#[cfg(test)]
+pub(crate) use os::io::PORTED_SYMBOLS as IO_PORTED_SYMBOLS;
