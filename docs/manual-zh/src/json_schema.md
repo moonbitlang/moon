@@ -2,28 +2,25 @@
 
 ## moon.mod.json
 
-规范 JSON 使用与模块声明对应的字段名。`import` 是模块名到依赖配置的映射；
-`rule` 使用数组，即使只有一条规则也是如此。
+支持的用户配置格式是旧 JSON 和 `moon.mod` 自定义格式。旧 JSON 保持已有字段名：
 
 ```json
 {
   "name": "example/app",
-  "import": { "example/dep": "1.2.3" },
-  "warnings": "+a",
-  "preferred_target": "js",
-  "supported_targets": "js",
-  "rule": [
-    { "name": "generate", "command": "generator $input -o $output" }
-  ]
+  "deps": { "example/dep": "1.2.3" },
+  "warn-list": "+a",
+  "preferred-target": "js",
+  "supported-targets": "js"
 }
 ```
 
-读取时仍接受旧名称 `deps`、`warn-list`、`preferred-target`、`supported-targets`，
-以及单个对象形式的 `rule`。序列化统一使用规范名称和规则数组。
-规范名称与对应的旧别名不能同时设置，规则名必须唯一。
-
-项目构建使用 `moon.mod`。`moon fmt` 可以将两种 JSON 写法迁移到该格式；
+修改 JSON 配置的命令仍按此格式写回。`moon fmt` 将它迁移为 `moon.mod`；
 `--check` 和 `--warn` 保留输入文件。
+
+### 内部标准化表示
+
+以下 schema 描述 Moon 的内部标准化 JSON 表示，供维护使用。它不用于校验用户编写的
+`moon.mod.json`，也不代表受支持的输入格式或稳定的 JSON 导出接口。
 
 <iframe src="source/mod_json_schema.html" width="100%" height="500px" frameborder="0"></iframe>
 

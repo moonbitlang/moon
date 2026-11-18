@@ -99,12 +99,15 @@ fn deserialize_rules<'de, D: serde::Deserializer<'de>>(
     )
 }
 
-// TODO: Remove the legacy field aliases when legacy module JSON support is retired.
+/// Internal normalized module representation, without a stable JSON input contract.
+/// User manifests use the legacy JSON names or the DSL. Deserialization accepts
+/// legacy names through aliases; accepting other spellings is incidental.
+// TODO: Remove legacy input aliases only if user-authored JSON support is retired.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schemars(
-    title = "JSON schema for MoonBit moon.mod.json files",
-    description = "A module of MoonBit lang"
+    title = "Internal normalized module JSON",
+    description = "Unstable internal representation; not a user manifest format or a compatibility promise"
 )]
 pub struct MoonModJSON {
     /// name of the module
