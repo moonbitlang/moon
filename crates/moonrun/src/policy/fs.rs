@@ -25,6 +25,42 @@ use super::{sandbox_denied, transfer};
 use anyhow::Context;
 use globset::{GlobBuilder, GlobMatcher};
 
+/// Filesystem policy access, independent of native open modes and resource
+/// provenance. The filesystem domain derives this set from the complete
+/// operation; rule groups only check the requested access.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AccessRights {
+    read: bool,
+    write: bool,
+}
+
+impl AccessRights {
+    pub(crate) const NONE: Self = Self {
+        read: false,
+        write: false,
+    };
+    pub(crate) const READ: Self = Self {
+        read: true,
+        write: false,
+    };
+    pub(crate) const WRITE: Self = Self {
+        read: false,
+        write: true,
+    };
+    pub(crate) const READ_WRITE: Self = Self::READ.union(Self::WRITE);
+
+    pub(crate) const fn union(self, other: Self) -> Self {
+        Self {
+            read: self.read || other.read,
+            write: self.write || other.write,
+        }
+    }
+
+    pub(crate) const fn contains(self, required: Self) -> bool {
+        (!required.read || self.read) && (!required.write || self.write)
+    }
+}
+
 /// Checks filesystem operations against every source's rules.
 ///
 /// This is not a virtual filesystem. `HostFs` resolves runtime paths before
@@ -50,13 +86,12 @@ impl FsPolicy {
     pub(crate) fn authorize(
         &self,
         path: Option<&Path>,
-        read: bool,
-        write: bool,
+        required: AccessRights,
         target: &str,
     ) -> AsyncHostResult<()> {
         self.rule_groups
             .iter()
-            .try_for_each(|group| group.authorize(path, read, write, target))
+            .try_for_each(|group| group.authorize(path, required, target))
     }
 }
 
@@ -139,24 +174,23 @@ impl FsRules {
     pub(crate) fn authorize(
         &self,
         resolved_path: Option<&Path>,
-        read: bool,
-        write: bool,
+        required: AccessRights,
         target: &str,
     ) -> AsyncHostResult<()> {
         let Some(path) = resolved_path else {
             return sandbox_denied(
-                match (read, write) {
-                    (true, false) => "file read",
-                    (false, true) => "file write",
+                match required {
+                    AccessRights::READ => "file read",
+                    AccessRights::WRITE => "file write",
                     _ => "file access",
                 },
                 Some(target),
             );
         };
-        if read && !Self::allows(&self.read_rules, path) {
+        if required.contains(AccessRights::READ) && !Self::allows(&self.read_rules, path) {
             return sandbox_denied("file read", Some(target));
         }
-        if write && !Self::allows(&self.write_rules, path) {
+        if required.contains(AccessRights::WRITE) && !Self::allows(&self.write_rules, path) {
             return sandbox_denied("file write", Some(target));
         }
         Ok(())
@@ -253,13 +287,12 @@ mod tests {
         selected.policy.filesystem()
     }
 
-    fn authorize(policy: &FsPolicy, path: &Path, read: bool, write: bool) -> AsyncHostResult<()> {
+    fn authorize(policy: &FsPolicy, path: &Path, required: AccessRights) -> AsyncHostResult<()> {
         let parent = std::fs::canonicalize(path.parent().unwrap()).unwrap();
         let resolved = parent.join(path.file_name().unwrap());
         policy.authorize(
             Some(&resolved),
-            read,
-            write,
+            required,
             &format!("{:?}", path.as_os_str()),
         )
     }
@@ -271,7 +304,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        authorize(&policy, &allowed.join("new.txt"), false, true).unwrap();
+        authorize(&policy, &allowed.join("new.txt"), AccessRights::WRITE).unwrap();
     }
 
     #[test]
@@ -283,7 +316,7 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![allowed], tmp.path());
 
-        let error = authorize(&policy, &denied.join("new.txt"), false, true).unwrap_err();
+        let error = authorize(&policy, &denied.join("new.txt"), AccessRights::WRITE).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -295,8 +328,8 @@ mod tests {
         let policy = policy(vec![PathBuf::from("allowed")], Vec::new(), tmp.path());
         let path = allowed.join("new.txt");
 
-        authorize(&policy, &path, true, false).unwrap();
-        let error = authorize(&policy, &path, false, true).unwrap_err();
+        authorize(&policy, &path, AccessRights::READ).unwrap();
+        let error = authorize(&policy, &path, AccessRights::WRITE).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -307,7 +340,7 @@ mod tests {
         std::fs::create_dir(&allowed).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("allowed")], tmp.path());
 
-        let error = authorize(&policy, &allowed.join("new.txt"), true, false).unwrap_err();
+        let error = authorize(&policy, &allowed.join("new.txt"), AccessRights::READ).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -321,7 +354,7 @@ mod tests {
         );
 
         let error = policy
-            .authorize(None, true, false, "\"<untracked resource>\"")
+            .authorize(None, AccessRights::READ, "\"<untracked resource>\"")
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -333,6 +366,6 @@ mod tests {
         std::fs::create_dir(&denied).unwrap();
         let policy = policy(Vec::new(), vec![PathBuf::from("*")], tmp.path());
 
-        authorize(&policy, &denied.join("new.txt"), false, true).unwrap();
+        authorize(&policy, &denied.join("new.txt"), AccessRights::WRITE).unwrap();
     }
 }

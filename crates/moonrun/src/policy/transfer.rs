@@ -195,6 +195,7 @@ impl Policy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::AccessRights;
     use crate::policy::config::PolicyConfig;
 
     fn compile(config: PolicyConfig) -> Policy {
@@ -243,12 +244,20 @@ mod tests {
         for rules in [rules, decoded] {
             rules
                 .filesystem()
-                .authorize(Some(std::path::Path::new("file")), true, false, "file")
+                .authorize(
+                    Some(std::path::Path::new("file")),
+                    AccessRights::READ,
+                    "file",
+                )
                 .unwrap();
             assert!(
                 rules
                     .filesystem()
-                    .authorize(Some(std::path::Path::new("file")), false, true, "file")
+                    .authorize(
+                        Some(std::path::Path::new("file")),
+                        AccessRights::WRITE,
+                        "file"
+                    )
                     .is_err()
             );
             #[cfg(unix)]
@@ -388,13 +397,13 @@ mod tests {
         let decoded = Policy::from_transfer(&contents).unwrap();
         decoded
             .filesystem()
-            .authorize(Some(&root), true, false, "allowed")
+            .authorize(Some(&root), AccessRights::READ, "allowed")
             .unwrap();
         let other = std::path::PathBuf::from("/not-required-to-exist/allowed-�");
         assert!(
             decoded
                 .filesystem()
-                .authorize(Some(&other), true, false, "other")
+                .authorize(Some(&other), AccessRights::READ, "other")
                 .is_err()
         );
     }
@@ -411,7 +420,11 @@ mod tests {
         assert!(
             decoded
                 .filesystem()
-                .authorize(Some(std::path::Path::new("file")), true, false, "file")
+                .authorize(
+                    Some(std::path::Path::new("file")),
+                    AccessRights::READ,
+                    "file"
+                )
                 .is_err()
         );
     }

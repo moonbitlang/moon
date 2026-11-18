@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use super::host::{FileOpenOptions, FsError, HostFs};
 use super::os::RawFile;
 use super::path::{canonicalize_entry_path, canonicalize_existing_prefix, directory_path};
+use crate::policy::AccessRights;
 
 /// A pathname lookup uses either Runtime cwd or an acquired directory's base.
 /// It never inherits the grant for operations on the directory handle itself.
@@ -111,7 +112,7 @@ impl HostFs {
         let object: fn(&Path) -> Result<PathBuf, FsError> = canonicalize_existing_prefix;
         let entry: fn(&Path) -> Result<PathBuf, FsError> = canonicalize_entry_path;
         let mut read_metadata = false;
-        let (target, resolve, read, write) = match operation {
+        let (target, resolve, required) = match operation {
             FsOperation::Rename {
                 source,
                 destination,
@@ -119,17 +120,19 @@ impl HostFs {
                 self.authorize(FsOperation::ChangeEntry(source))?;
                 return self.authorize(FsOperation::ChangeEntry(destination));
             }
-            FsOperation::InspectEntry(path) => (FsTarget::Path(path), entry, true, false),
-            FsOperation::ChangeEntry(path) => (FsTarget::Path(path), entry, false, true),
-            FsOperation::Read(path) => (FsTarget::Path(path), object, true, false),
+            FsOperation::InspectEntry(path) => (FsTarget::Path(path), entry, AccessRights::READ),
+            FsOperation::ChangeEntry(path) => (FsTarget::Path(path), entry, AccessRights::WRITE),
+            FsOperation::Read(path) => (FsTarget::Path(path), object, AccessRights::READ),
             // Composite writes and recursive creation retain their existing
             // followed-target check, without inspecting intermediate entries.
             FsOperation::Write(path)
             | FsOperation::WriteFile(path)
-            | FsOperation::CreateDirectories(path) => (FsTarget::Path(path), object, false, true),
+            | FsOperation::CreateDirectories(path) => {
+                (FsTarget::Path(path), object, AccessRights::WRITE)
+            }
             FsOperation::Kind(FsTarget::File(_)) => return Ok(()),
             FsOperation::Kind(target) | FsOperation::Metadata(target) => {
-                (target, object, true, false)
+                (target, object, AccessRights::READ)
             }
             FsOperation::OpenAsync {
                 path,
@@ -140,30 +143,43 @@ impl HostFs {
                 read_metadata = metadata;
                 // Preserve the permission check before invalid-option errors.
                 // Append changes positioning, not access.
-                let (read, write) = match access {
-                    0 | 3 => (true, false),
-                    1 => (false, true),
-                    _ => (true, true),
+                let required = match access {
+                    0 | 3 => AccessRights::READ,
+                    1 => AccessRights::WRITE,
+                    _ => AccessRights::READ_WRITE,
                 };
-                (
-                    FsTarget::Path(path),
-                    object,
-                    read,
-                    write || create_mode != 0,
-                )
+                let required = if create_mode != 0 {
+                    required.union(AccessRights::WRITE)
+                } else {
+                    required
+                };
+                (FsTarget::Path(path), object, required)
             }
-            FsOperation::OpenWithOptions { path, options } => (
-                FsTarget::Path(path),
-                object,
-                options.read,
-                options.write
+            FsOperation::OpenWithOptions { path, options } => {
+                let required = if options.read {
+                    AccessRights::READ
+                } else {
+                    AccessRights::NONE
+                };
+                let required = if options.write
                     || options.append
                     || options.create
                     || options.create_new
-                    || options.truncate,
-            ),
+                    || options.truncate
+                {
+                    required.union(AccessRights::WRITE)
+                } else {
+                    required
+                };
+                (FsTarget::Path(path), object, required)
+            }
             FsOperation::AccessCheck { path, access } => {
-                (FsTarget::Path(path), object, access != 2, access == 2)
+                let required = if access == 2 {
+                    AccessRights::WRITE
+                } else {
+                    AccessRights::READ
+                };
+                (FsTarget::Path(path), object, required)
             }
             FsOperation::Lock {
                 exclusive: false, ..
@@ -171,12 +187,12 @@ impl HostFs {
             FsOperation::Lock {
                 file,
                 exclusive: true,
-            } => (FsTarget::File(file), object, false, true),
+            } => (FsTarget::File(file), object, AccessRights::WRITE),
             // Windows handle watching retains its existing admission. Linux
             // inotify supplies a pathname; macOS kqueue supplies a file grant.
             #[cfg(windows)]
             FsOperation::Watch(FsTarget::File(_)) => return Ok(()),
-            FsOperation::Watch(target) => (target, object, true, false),
+            FsOperation::Watch(target) => (target, object, AccessRights::READ),
         };
         let (path, diagnostic) = match target {
             FsTarget::Path(FsPath::Cwd(path)) => (
@@ -225,7 +241,7 @@ impl HostFs {
             }
         }
         policy
-            .authorize(resolved.as_deref(), read, write, &diagnostic)
+            .authorize(resolved.as_deref(), required, &diagnostic)
             .map_err(|_| FsError::Denied)?;
         if read_metadata {
             // Preserve the separate, subsequent read admission for extra open
@@ -239,7 +255,7 @@ impl HostFs {
             };
             let resolved = path.as_deref().and_then(|path| object(path).ok());
             policy
-                .authorize(resolved.as_deref(), true, false, &diagnostic)
+                .authorize(resolved.as_deref(), AccessRights::READ, &diagnostic)
                 .map_err(|_| FsError::Denied)?;
         }
         Ok(())
