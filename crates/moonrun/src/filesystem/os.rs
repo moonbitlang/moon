@@ -19,6 +19,7 @@
 //! Operating-system filesystem mechanisms, independent of runtime policy and ABIs.
 
 pub(super) mod directory;
+pub(super) mod io;
 pub(super) mod openat;
 pub(super) mod unlinkat;
 
@@ -43,18 +44,18 @@ pub(super) fn raw_file(file: &std::fs::File) -> RawFile {
 /// Runs one blocking OS call. Callers may bracket it with cancellation, but the
 /// filesystem mechanism does not depend on a worker or a guest ABI.
 pub(super) trait BlockingIo {
-    fn run<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T>;
+    fn run<T>(&self, operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T>;
 }
 
 pub(super) struct DirectIo;
 
 impl BlockingIo for DirectIo {
-    fn run<T>(&self, operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    fn run<T>(&self, operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
         operation()
     }
 }
 
-use std::{io, path::Path};
+use std::path::Path;
 
 /// Cross-device copying is a permitted Windows fallback, never a guarantee.
 /// Unix rename does not copy between filesystems.
@@ -70,7 +71,11 @@ pub(super) struct RenameOptions {
 }
 
 #[cfg(unix)]
-pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -> io::Result<()> {
+pub(super) fn rename(
+    old_path: &Path,
+    new_path: &Path,
+    options: RenameOptions,
+) -> std::io::Result<()> {
     let RenameOptions {
         replace,
         cross_device: _cross_device,
@@ -104,14 +109,18 @@ pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -
         )
     };
     if ret < 0 {
-        Err(io::Error::last_os_error())
+        Err(std::io::Error::last_os_error())
     } else {
         Ok(())
     }
 }
 
 #[cfg(windows)]
-pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -> io::Result<()> {
+pub(super) fn rename(
+    old_path: &Path,
+    new_path: &Path,
+    options: RenameOptions,
+) -> std::io::Result<()> {
     let RenameOptions {
         replace,
         cross_device,
@@ -147,17 +156,17 @@ pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -
         )
     };
     if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
+        return Err(std::io::Error::last_os_error());
     }
     let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
 
     let filename_len = new_path
         .len()
         .checked_sub(1)
-        .ok_or_else(|| io::Error::from_raw_os_error(ERROR_INVALID_PARAMETER as i32))?;
+        .ok_or_else(|| std::io::Error::from_raw_os_error(ERROR_INVALID_PARAMETER as i32))?;
     let buffer_size = std::mem::size_of::<FILE_RENAME_INFO>()
         .checked_add(filename_len * std::mem::size_of::<u16>())
-        .ok_or_else(|| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
+        .ok_or_else(|| std::io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
     // The variable-length Win32 structure contains pointer-aligned fields.
     let mut buffer = vec![0usize; buffer_size.div_ceil(std::mem::size_of::<usize>())];
     let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
@@ -165,7 +174,7 @@ pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -
         (*info).Anonymous.Flags = if replace { 3 } else { 0 };
         (*info).RootDirectory = std::ptr::null_mut();
         (*info).FileNameLength = u32::try_from(filename_len * std::mem::size_of::<u16>())
-            .map_err(|_| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
+            .map_err(|_| std::io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?;
         std::ptr::copy_nonoverlapping(
             new_path.as_ptr(),
             (*info).FileName.as_mut_ptr(),
@@ -179,14 +188,14 @@ pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -
             FileRenameInfoEx,
             info.cast(),
             u32::try_from(buffer_size)
-                .map_err(|_| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?,
+                .map_err(|_| std::io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?,
         )
     };
     if ret != 0 {
         return Ok(());
     }
 
-    let error = io::Error::last_os_error();
+    let error = std::io::Error::last_os_error();
     drop(handle);
     if error.raw_os_error() != Some(ERROR_INVALID_PARAMETER as i32) {
         return Err(error);
@@ -202,17 +211,17 @@ pub(super) fn rename(old_path: &Path, new_path: &Path, options: RenameOptions) -
         0
     };
     if unsafe { MoveFileExW(old_path.as_ptr(), new_path.as_ptr(), flags) } == 0 {
-        Err(io::Error::last_os_error())
+        Err(std::io::Error::last_os_error())
     } else {
         Ok(())
     }
 }
 
 #[cfg(unix)]
-fn path_to_cstring(path: &Path) -> io::Result<std::ffi::CString> {
+fn path_to_cstring(path: &Path) -> std::io::Result<std::ffi::CString> {
     use std::os::unix::ffi::OsStrExt;
     std::ffi::CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))
+        .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))
 }
 
 #[cfg(windows)]

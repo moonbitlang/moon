@@ -3104,34 +3104,33 @@ impl AsyncHost {
         }
         let file = result.kind.resource_ref(&handles, fd_handle)?;
         let mut bytes_transferred = 0;
-        let success = match result.kind {
+        let outcome = match result.kind {
             HostIoKind::File => {
                 let overlapped = result.overlapped_ptr();
                 // The result owns the buffer/OVERLAPPED and retains the resource
                 // until completion before exposing the result to guest code.
                 unsafe {
-                    self.filesystem.read_overlapped(
-                        file,
-                        &mut result.buffer,
-                        &mut bytes_transferred,
-                        overlapped,
-                    )?
+                    self.filesystem
+                        .read_overlapped(file, &mut result.buffer, overlapped)
                 }
             }
             HostIoKind::Socket => {
                 let buffer = socket_buffer(&mut result.buffer)?;
-                unsafe {
-                    i32::from(
-                        ws::WSARecv(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            &mut result.socket_flags,
-                            result.overlapped_ptr(),
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSARecv(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        &mut result.socket_flags,
+                        result.overlapped_ptr(),
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::SocketWithAddr => {
@@ -3142,40 +3141,39 @@ impl AsyncHost {
                 let flags = std::ptr::addr_of_mut!(result.socket_flags);
                 let addr = result.addr_buffer.as_mut_ptr().cast::<ws::SOCKADDR>();
                 let overlapped = result.overlapped_ptr();
-                unsafe {
-                    i32::from(
-                        ws::WSARecvFrom(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            flags,
-                            addr,
-                            addr_len,
-                            overlapped,
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSARecvFrom(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        flags,
+                        addr,
+                        addr_len,
+                        overlapped,
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
                 return Err(AsyncHostError::Inval);
             }
         };
-        if success != 0 {
-            return i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault);
-        }
-        let errno = match result.kind {
-            HostIoKind::Socket | HostIoKind::SocketWithAddr => last_wsa_errno(),
-            _ => last_errno(),
-        };
-        if errno == ERROR_HANDLE_EOF as i32 {
-            Ok(0)
-        } else if errno == ERROR_IO_PENDING as i32 {
-            result.mark_pending(Arc::clone(file))?;
-            Err(AsyncHostError::Native(errno))
-        } else {
-            Err(AsyncHostError::Native(errno))
+        match outcome {
+            Ok(bytes) => i32::try_from(bytes).map_err(|_| AsyncHostError::Fault),
+            Err(AsyncHostError::Native(errno)) if errno == ERROR_HANDLE_EOF as i32 => Ok(0),
+            Err(error) => {
+                if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32)
+                {
+                    result.mark_pending(Arc::clone(file))?;
+                }
+                Err(error)
+            }
         }
     }
 
@@ -3315,70 +3313,69 @@ impl AsyncHost {
             self.network.check_connect(&result.addr_buffer)?;
         }
         let mut bytes_transferred = 0;
-        let success = match result.kind {
+        let outcome = match result.kind {
             HostIoKind::File => {
                 let overlapped = result.overlapped_ptr();
                 // The result owns the buffer/OVERLAPPED and retains the resource
                 // until completion before exposing the result to guest code.
                 unsafe {
-                    self.filesystem.write_overlapped(
-                        file,
-                        &result.buffer,
-                        &mut bytes_transferred,
-                        overlapped,
-                    )?
+                    self.filesystem
+                        .write_overlapped(file, &result.buffer, overlapped)
                 }
             }
             HostIoKind::Socket => {
                 let buffer = socket_buffer(&mut result.buffer)?;
-                unsafe {
-                    i32::from(
-                        ws::WSASend(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            result.socket_flags,
-                            result.overlapped_ptr(),
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSASend(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        result.socket_flags,
+                        result.overlapped_ptr(),
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::SocketWithAddr => {
                 let buffer = socket_buffer(&mut result.buffer)?;
-                unsafe {
-                    i32::from(
-                        ws::WSASendTo(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            result.socket_flags,
-                            result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
-                            result.addr_len,
-                            result.overlapped_ptr(),
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSASendTo(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        result.socket_flags,
+                        result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
+                        result.addr_len,
+                        result.overlapped_ptr(),
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
                 return Err(AsyncHostError::Inval);
             }
         };
-        if success != 0 {
-            i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-        } else {
-            let errno = match result.kind {
-                HostIoKind::Socket | HostIoKind::SocketWithAddr => last_wsa_errno(),
-                _ => last_errno(),
-            };
-            let error = AsyncHostError::Native(errno);
-            if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32) {
-                result.mark_pending(Arc::clone(file))?;
+        match outcome {
+            Ok(bytes) => i32::try_from(bytes).map_err(|_| AsyncHostError::Fault),
+            Err(error) => {
+                if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32)
+                {
+                    result.mark_pending(Arc::clone(file))?;
+                }
+                Err(error)
             }
-            Err(error)
         }
     }
 

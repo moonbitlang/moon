@@ -133,7 +133,9 @@ ported_fns! {
         let file = file.take().ok_or(AsyncHostError::Badf)?;
 
         let mut buf = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        let n = read_from_native_file(raw_file_handle(&file)?, &mut buf, position)?;
+        let n = crate::filesystem::os::io::read_blocking(
+            raw_file_handle(&file)?, &mut buf, u64::try_from(position).ok(), &super::CancellableIo,
+        )?;
         buf.truncate(n);
         *result = Some(buf);
         Ok(n as i64)
@@ -151,7 +153,9 @@ ported_fns! {
         ))?;
         let file = file.take().ok_or(AsyncHostError::Badf)?;
 
-        let n = write_to_native_file(raw_file_handle(&file)?, data, position)?;
+        let n = crate::filesystem::os::io::write_blocking(
+            raw_file_handle(&file)?, data, u64::try_from(position).ok(), &super::CancellableIo,
+        )?;
         Ok(n as i64)
     }
 
@@ -643,88 +647,6 @@ pub(super) fn handle_is_socket(handle: RawFile) -> bool {
 }
 
 #[cfg(unix)]
-fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
-    let ret = if position < 0 {
-        loop {
-            let ret = with_cancellable_region(|| {
-                Ok(unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) })
-            })?;
-            if ret >= 0 {
-                break ret;
-            }
-            let errno = std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or_else(|| AsyncHostError::Inval.errno());
-            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
-                break ret;
-            }
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let ready = with_cancellable_region(|| Ok(unsafe { libc::poll(&mut pfd, 1, -1) }))?;
-            if ready < 0 {
-                break -1;
-            }
-        }
-    } else {
-        // Async's io.mbt submits positioned Unix I/O as non-cancellable.
-        // Match native: the guest waits for pread instead of cancelling it.
-        unsafe {
-            libc::pread(
-                fd,
-                buf.as_mut_ptr().cast(),
-                buf.len(),
-                position as libc::off_t,
-            )
-        }
-    };
-    native_io_result(ret)
-}
-
-#[cfg(unix)]
-fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
-    let ret = if position < 0 {
-        loop {
-            let ret = with_cancellable_region(|| {
-                Ok(unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) })
-            })?;
-            if ret >= 0 {
-                break ret;
-            }
-            let errno = std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or_else(|| AsyncHostError::Inval.errno());
-            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
-                break ret;
-            }
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLOUT,
-                revents: 0,
-            };
-            let ready = with_cancellable_region(|| Ok(unsafe { libc::poll(&mut pfd, 1, -1) }))?;
-            if ready < 0 {
-                break -1;
-            }
-        }
-    } else {
-        // Positioned Unix writes are also non-cancellable in async's io.mbt;
-        // leave pwrite outside the region, as in native thread_pool.c.
-        unsafe {
-            libc::pwrite(
-                fd,
-                data.as_ptr().cast(),
-                data.len(),
-                position as libc::off_t,
-            )
-        }
-    };
-    native_io_result(ret)
-}
-
-#[cfg(unix)]
 fn file_kind_by_path(
     parent: Option<&Resource>,
     path: OsString,
@@ -982,165 +904,6 @@ fn path_to_cstring(path: OsString) -> AsyncHostResult<std::ffi::CString> {
     use std::os::unix::ffi::OsStringExt;
 
     std::ffi::CString::new(path.into_vec()).map_err(|_| AsyncHostError::Inval)
-}
-
-#[cfg(unix)]
-fn native_io_result(ret: libc::ssize_t) -> AsyncHostResult<usize> {
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
-    }
-}
-
-#[cfg(windows)]
-fn read_from_native_file(handle: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
-    use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, HANDLE};
-    use windows_sys::Win32::Storage::FileSystem::ReadFile;
-    use windows_sys::Win32::System::IO::OVERLAPPED;
-
-    let overlapped = std::mem::MaybeUninit::<OVERLAPPED>::zeroed();
-    let overlapped = unsafe {
-        let mut overlapped = overlapped.assume_init();
-        if position > 0 {
-            overlapped.Anonymous.Anonymous.Offset = position as u32;
-            overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
-        }
-        overlapped
-    };
-    let mut overlapped = overlapped;
-    let mut bytes_transferred = 0;
-    let overlapped_ptr = if position < 0 {
-        std::ptr::null_mut()
-    } else {
-        &mut overlapped
-    };
-    let handle = handle as HANDLE;
-    // Synchronous Windows file handles can advance the current file pointer
-    // even when ReadFile receives an OVERLAPPED offset. Keep read_at/pread
-    // semantics by restoring the original pointer before returning.
-    let saved_position = if position < 0 {
-        None
-    } else {
-        Some(current_file_pointer(handle)?)
-    };
-    let result = with_cancellable_region(|| {
-        Ok(unsafe {
-            ReadFile(
-                handle,
-                buf.as_mut_ptr().cast(),
-                u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault)?,
-                &mut bytes_transferred,
-                overlapped_ptr,
-            )
-        })
-    })?;
-    let result = if result != 0 {
-        usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-    } else {
-        let error = std::io::Error::last_os_error();
-        let is_eof = matches!(
-            error.raw_os_error(),
-            Some(errno) if errno == ERROR_HANDLE_EOF as i32 || errno == ERROR_BROKEN_PIPE as i32
-        );
-        if is_eof {
-            Ok(0)
-        } else {
-            Err(native_io_error(error))
-        }
-    };
-    if let Some(saved_position) = saved_position
-        && let Err(restore_error) = restore_file_pointer(handle, saved_position)
-    {
-        return match result {
-            Ok(_) => Err(restore_error),
-            Err(error) => Err(error),
-        };
-    }
-    result
-}
-
-#[cfg(windows)]
-fn write_to_native_file(handle: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::WriteFile;
-    use windows_sys::Win32::System::IO::OVERLAPPED;
-
-    let overlapped = std::mem::MaybeUninit::<OVERLAPPED>::zeroed();
-    let overlapped = unsafe {
-        let mut overlapped = overlapped.assume_init();
-        if position > 0 {
-            overlapped.Anonymous.Anonymous.Offset = position as u32;
-            overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
-        }
-        overlapped
-    };
-    let mut overlapped = overlapped;
-    let mut bytes_transferred = 0;
-    let overlapped_ptr = if position < 0 {
-        std::ptr::null_mut()
-    } else {
-        &mut overlapped
-    };
-    let handle = handle as HANDLE;
-    // See read_from_native_file: positioned writes must not alter the stream
-    // offset seen by following non-positioned writes.
-    let saved_position = if position < 0 {
-        None
-    } else {
-        Some(current_file_pointer(handle)?)
-    };
-    let result = with_cancellable_region(|| {
-        Ok(unsafe {
-            WriteFile(
-                handle,
-                data.as_ptr().cast(),
-                u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?,
-                &mut bytes_transferred,
-                overlapped_ptr,
-            )
-        })
-    })?;
-    let result = if result != 0 {
-        usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-    } else {
-        Err(last_native_error())
-    };
-    if let Some(saved_position) = saved_position
-        && let Err(restore_error) = restore_file_pointer(handle, saved_position)
-    {
-        return match result {
-            Ok(_) => Err(restore_error),
-            Err(error) => Err(error),
-        };
-    }
-    result
-}
-
-#[cfg(windows)]
-fn current_file_pointer(handle: windows_sys::Win32::Foundation::HANDLE) -> AsyncHostResult<i64> {
-    use windows_sys::Win32::Storage::FileSystem::{FILE_CURRENT, SetFilePointerEx};
-
-    let mut current = 0;
-    if unsafe { SetFilePointerEx(handle, 0, &mut current, FILE_CURRENT) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(current)
-    }
-}
-
-#[cfg(windows)]
-fn restore_file_pointer(
-    handle: windows_sys::Win32::Foundation::HANDLE,
-    position: i64,
-) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Storage::FileSystem::{FILE_BEGIN, SetFilePointerEx};
-
-    if unsafe { SetFilePointerEx(handle, position, std::ptr::null_mut(), FILE_BEGIN) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(windows)]
@@ -1779,15 +1542,6 @@ fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
     }
     buffer.extend_from_slice(&0u16.to_ne_bytes());
     buffer.into_boxed_slice()
-}
-
-#[cfg(windows)]
-fn native_io_error(error: std::io::Error) -> AsyncHostError {
-    AsyncHostError::Native(
-        error
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
 }
 
 #[cfg(all(test, windows))]
