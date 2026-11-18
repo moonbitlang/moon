@@ -61,6 +61,10 @@ pub(crate) enum FsTarget<'a> {
 /// Metadata and kind queries share semantics across pathname and handle access;
 /// entry changes require a path, while locking requires an acquired file.
 pub(crate) enum FsOperation<'a> {
+    ReadResource(&'a FileGrant),
+    WriteResource(&'a FileGrant),
+    Flush(&'a FileGrant),
+    Chmod(FsPath<'a>),
     Read(FsPath<'a>),
     Write(FsPath<'a>),
     Kind(FsTarget<'a>),
@@ -113,6 +117,13 @@ impl HostFs {
         let entry: fn(&Path) -> Result<PathBuf, FsError> = canonicalize_entry_path;
         let mut read_metadata = false;
         let (target, resolve, required) = match operation {
+            // Existing fs policy admits I/O on acquired resources without
+            // rechecking their saved paths. Native access modes and resource
+            // validity are still enforced by execution. Keep this decision in
+            // Host Filesystem rather than bypassing it at the call sites.
+            FsOperation::ReadResource(_file)
+            | FsOperation::WriteResource(_file)
+            | FsOperation::Flush(_file) => return Ok(()),
             FsOperation::Rename {
                 source,
                 destination,
@@ -126,6 +137,7 @@ impl HostFs {
             // Composite writes and recursive creation retain their existing
             // followed-target check, without inspecting intermediate entries.
             FsOperation::Write(path)
+            | FsOperation::Chmod(path)
             | FsOperation::WriteFile(path)
             | FsOperation::CreateDirectories(path) => {
                 (FsTarget::Path(path), object, AccessRights::WRITE)

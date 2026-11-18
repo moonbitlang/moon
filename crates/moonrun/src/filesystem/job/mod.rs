@@ -598,7 +598,7 @@ impl Job {
                 })
                 .map_err(Into::into),
             Kind::Chmod { path, .. } => filesystem
-                .authorize(FsOperation::Write(FsPath::Cwd(path)))
+                .authorize(FsOperation::Chmod(FsPath::Cwd(path)))
                 .map_err(Into::into),
             Kind::Flock { file, exclusive } => {
                 let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
@@ -628,12 +628,26 @@ impl Job {
                     .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
                     .map_err(Into::into)
             }
-            Kind::Read { .. }
-            | Kind::Write { .. }
-            | Kind::ReadConsole { .. }
-            | Kind::WriteConsole { .. }
-            | Kind::Fsync { .. }
-            | Kind::Readdir { .. } => Ok(()),
+            Kind::Read { file, .. } | Kind::ReadConsole { file, .. } => filesystem
+                .authorize(FsOperation::ReadResource(
+                    file.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
+                ))
+                .map_err(Into::into),
+            Kind::Write { file, .. } | Kind::WriteConsole { file, .. } => filesystem
+                .authorize(FsOperation::WriteResource(
+                    file.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
+                ))
+                .map_err(Into::into),
+            Kind::Fsync { file, .. } => filesystem
+                .authorize(FsOperation::Flush(
+                    file.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
+                ))
+                .map_err(Into::into),
+            Kind::Readdir { dir, .. } => filesystem
+                .authorize(FsOperation::ReadResource(
+                    dir.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
+                ))
+                .map_err(Into::into),
         }
     }
 

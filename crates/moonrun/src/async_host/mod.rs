@@ -2783,6 +2783,8 @@ impl AsyncHost {
         let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let dst = memory.read_exact_mut(dst, len)?;
         self.with_resource(handle, |file| {
+            self.filesystem
+                .authorize(FsOperation::ReadResource(file.file_grant()))?;
             crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), dst)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
@@ -2800,6 +2802,8 @@ impl AsyncHost {
         let src = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let src = memory.read_exact(src, len)?;
         self.with_resource(handle, |file| {
+            self.filesystem
+                .authorize(FsOperation::WriteResource(file.file_grant()))?;
             crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), src)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
@@ -3123,6 +3127,8 @@ impl AsyncHost {
         let success = match result.kind {
             HostIoKind::File => {
                 let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
+                self.filesystem
+                    .authorize(FsOperation::ReadResource(file.file_grant()))?;
                 unsafe {
                     ReadFile(
                         file.as_file()?.as_raw_handle(),
@@ -3334,6 +3340,8 @@ impl AsyncHost {
         let success = match result.kind {
             HostIoKind::File => {
                 let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
+                self.filesystem
+                    .authorize(FsOperation::WriteResource(file.file_grant()))?;
                 unsafe {
                     WriteFile(
                         file.as_file()?.as_raw_handle(),
@@ -6804,6 +6812,109 @@ mod tests {
         host.free_job(allowed_link_job).unwrap();
         host.close_fd(parent_fd).unwrap();
         host.free_job(parent_open_job).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_resource_io_does_not_recheck_the_opening_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        let moved = tmp.path().join("moved");
+        std::fs::write(&file, b"keep").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = ['file']\nwrite = ['file']").unwrap();
+        let host = host_with_policy(&policy_file);
+        let open = host
+            .insert_job(FilesystemJob::open_legacy(
+                file.clone().into_os_string(),
+                2,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+        host.run_job(open).unwrap();
+        let fd = host.open_job_get_fd(open).unwrap();
+        let resource = host.acquire_resource(fd).unwrap();
+
+        std::fs::rename(&file, &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, &file).unwrap();
+        // The old path now resolves outside the grant. Existing fs semantics
+        // still permit native I/O, while metadata rechecks that saved path.
+        let metadata = host
+            .insert_job(FilesystemJob::file_size(Arc::clone(&resource)))
+            .unwrap();
+        host.run_job(metadata).unwrap();
+        assert_eq!(
+            host.with_job(metadata, |job| job.err()).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+
+        let read = host
+            .insert_job(FilesystemJob::read(Arc::clone(&resource), 4, 0))
+            .unwrap();
+        let write = host
+            .insert_job(FilesystemJob::write(
+                Arc::clone(&resource),
+                b"edit".to_vec(),
+                0,
+            ))
+            .unwrap();
+        let flush = host
+            .insert_job(FilesystemJob::fsync(resource, false))
+            .unwrap();
+        for (handle, expected) in [(read, 4), (write, 4), (flush, 0)] {
+            host.run_job(handle).unwrap();
+            assert_eq!(host.with_job(handle, |job| job.err()).unwrap(), 0);
+            assert_eq!(host.with_job(handle, |job| job.ret()).unwrap(), expected);
+        }
+        let mut bytes = [0; 4];
+        host.get_read_result(&mut bytes[..], read, 0, 0, 4).unwrap();
+        assert_eq!(&bytes, b"keep");
+        assert_eq!(std::fs::read(&moved).unwrap(), b"edit");
+        // Unix event-loop I/O uses an immediate path rather than a Job.
+        assert_eq!(host.read_fd(&mut bytes[..], fd, 0, 0, 4).unwrap(), 4);
+        assert_eq!(&bytes, b"edit");
+        let mut update = *b"next";
+        assert_eq!(host.write_fd(&mut update[..], fd, 0, 0, 4).unwrap(), 4);
+        assert_eq!(std::fs::read(&moved).unwrap(), b"editnext");
+        for job in [open, metadata, read, write, flush] {
+            host.free_job(job).unwrap();
+        }
+        host.close_fd(fd).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn chmod_job_requires_target_write_permission() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        std::fs::write(&file, b"keep").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        for (permission, allowed) in [("read", false), ("write", true)] {
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            std::fs::write(&policy_file, format!("[fs]\n{permission} = ['file']")).unwrap();
+            let host = host_with_policy(&policy_file);
+            let job = host
+                .insert_job(FilesystemJob::chmod(file.clone().into_os_string(), 0o600))
+                .unwrap();
+            host.run_job(job).unwrap();
+            assert_eq!(
+                host.with_job(job, |job| job.err()).unwrap(),
+                if allowed {
+                    0
+                } else {
+                    AsyncHostError::PermissionDenied.errno()
+                }
+            );
+            assert_eq!(
+                std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+                if allowed { 0o600 } else { 0o644 }
+            );
+            host.free_job(job).unwrap();
+        }
     }
 
     #[test]
