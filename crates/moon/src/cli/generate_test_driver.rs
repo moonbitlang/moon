@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
 use indexmap::IndexMap;
-use moonutil::cli_support::UniversalFlags;
 use moonutil::{
     constants::{
         MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,

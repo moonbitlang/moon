@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::cli_support::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
 use moonutil::version::{get_moon_version, get_moonc_version, get_moonrun_version};
 

@@ -232,7 +232,8 @@ fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
 
-    moonutil::cli_support::dialoguer_ctrlc_handler();
+    let _ = dialoguer::console::Term::stdout().show_cursor();
+    std::process::exit(1);
 }
 
 #[cfg(windows)]

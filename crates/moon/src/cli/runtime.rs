@@ -231,7 +231,7 @@ fn finish_json(
 }
 
 fn dispatch(
-    flags: moonutil::cli_support::UniversalFlags,
+    flags: crate::cli::UniversalFlags,
     command: MoonBuildSubcommands,
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {

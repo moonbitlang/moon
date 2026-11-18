@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
+use mooncake::cli::AutoSyncFlags;
 use std::{
     collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
@@ -27,9 +29,9 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
 use moonutil::{
-    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, project::PackageDirs,
-    render::DiagnosticLevel, resolution::ModuleId, target::TargetBackend, user_log::UserLog,
+    build_options::RunMode, command_output::CommandOutput, constants::PRELUDE_PROOF_FILE,
+    project::PackageDirs, render::DiagnosticLevel, resolution::ModuleId, target::TargetBackend,
+    user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;

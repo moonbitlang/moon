@@ -20,6 +20,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
 use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
 use moonbuild_rupes_recta::{
@@ -30,7 +31,6 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::pkg::tree::ResolvedTree;
 use moonutil::{
-    cli_support::UniversalFlags,
     command_output::CommandOutput,
     project::PackageDirs,
     resolution::{ModuleDependencyGraph, ModuleId, ModuleSourceKind},

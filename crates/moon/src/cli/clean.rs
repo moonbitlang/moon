@@ -16,8 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
-use moonutil::{cli_support::UniversalFlags, locks::lock_directory, user_log::UserLog};
+use moonutil::{locks::lock_directory, user_log::UserLog};
 
 /// Remove local build outputs or configured global caches.
 #[derive(Debug, clap::Parser)]

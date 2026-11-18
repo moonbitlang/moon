@@ -30,8 +30,8 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{BackendConfig, PackageId},
 };
+use mooncake::cli::AutoSyncFlags;
 use mooncake::pkg::sync::SyncOutputOptions;
-use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{

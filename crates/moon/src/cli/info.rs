@@ -18,6 +18,7 @@
 
 mod imp;
 
+use mooncake::cli::AutoSyncFlags;
 use std::path::PathBuf;
 
 use anyhow::bail;
@@ -31,7 +32,6 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode,
-    cli_support::AutoSyncFlags,
     command_output::CommandOutput,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},

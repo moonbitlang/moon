@@ -18,8 +18,8 @@
 
 use crate::run::TestIndexRange;
 use anyhow::Context;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::{
-    cli_support::AutoSyncFlags,
     command_output::CommandOutput,
     project::PackageDirs,
     target::{TargetBackend, lower_surface_targets},

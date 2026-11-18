@@ -112,7 +112,7 @@ pub(super) fn json_command(command: SearchSubcommand) -> Box<dyn JsonCommand> {
 impl JsonCommand for SearchJsonCommand {
     fn run(
         &self,
-        _flags: &moonutil::cli_support::UniversalFlags,
+        _flags: &crate::cli::UniversalFlags,
         output: &CommandOutput,
     ) -> JsonCommandOutcome {
         search_json_outcome(run_search_json(&self.command, output.user_log()))

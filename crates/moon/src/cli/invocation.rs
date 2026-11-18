@@ -18,15 +18,14 @@
 
 //! Side-effect-free selection of one top-level invocation.
 
+use crate::cli::UniversalFlags;
 use std::{
     ffi::{OsStr, OsString},
     path::PathBuf,
 };
 
 use clap::{CommandFactory, Parser, error::ErrorKind};
-use moonutil::{
-    cli_support::UniversalFlags, command_output::CommandOutput, user_log::UserLogCapture,
-};
+use moonutil::{command_output::CommandOutput, user_log::UserLogCapture};
 
 use super::{
     MoonBuildCli, MoonBuildSubcommands, VersionSubcommand, cram::CramCommand, moonx, tool,

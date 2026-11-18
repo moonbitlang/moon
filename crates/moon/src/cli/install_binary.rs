@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild::compile::{BuildSession, MetadataOutput};
@@ -31,7 +32,6 @@ use mooncake::{
 };
 use moonutil::{
     build_options::RunMode,
-    cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
     project::PackageDirs,
     resolution::{ModuleName, ModuleSourceKind},

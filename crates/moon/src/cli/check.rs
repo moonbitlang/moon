@@ -37,6 +37,7 @@
 //! 6. After a successful check, generated interfaces that differ from the
 //!    package's `pkg.generated.mbti` are copied over it.
 //!
+use crate::cli::UniversalFlags;
 use anyhow::Context;
 use log::LevelFilter;
 use moonbuild::BuildMeta;
@@ -45,9 +46,8 @@ use moonbuild::execution::{ActionFailureKind, BuildInput};
 use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::build_options::RunMode;
-use moonutil::cli_support::AutoSyncFlags;
-use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::project::{PackageDirs, ProjectProbe};
