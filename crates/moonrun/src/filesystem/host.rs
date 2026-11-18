@@ -150,6 +150,19 @@ pub(crate) struct HostFs {
     pub(super) working_directory: Arc<WorkingDirectory>,
 }
 
+// Domain executors require an explicit filesystem even in scheduler-only tests.
+// Production construction must continue to supply Runtime state and policy.
+#[cfg(test)]
+impl Default for HostFs {
+    fn default() -> Self {
+        Self::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        )
+    }
+}
+
 impl HostFs {
     pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
         self.working_directory.resolve_path(path)

@@ -28,7 +28,7 @@ use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
 use crate::async_sys::internal::fd_util;
-use crate::filesystem::{FsOperation, FsPath, FsTarget, HostFs};
+use crate::filesystem::{FsPath, HostFs};
 use crate::guest_memory::GuestMemory;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
@@ -209,43 +209,6 @@ enum Kind {
 }
 
 impl Job {
-    pub(crate) fn configure_paths(&mut self, filesystem: &HostFs) {
-        let resolve = |p: &mut OsString| {
-            *p = filesystem.resolve_path(p);
-        };
-        match &mut self.kind {
-            Kind::Open {
-                parent: None,
-                filename,
-                ..
-            } => resolve(filename),
-            Kind::Statx {
-                parent: None, path, ..
-            }
-            | Kind::FileKindByPath {
-                parent: None, path, ..
-            }
-            | Kind::FileTimeByPath { path, .. }
-            | Kind::Access { path, .. }
-            | Kind::Chmod { path, .. }
-            | Kind::RemoveAt { parent: None, path }
-            | Kind::Remove { path, .. }
-            | Kind::Symlink { path, .. }
-            | Kind::Mkdir { path, .. }
-            | Kind::Rmdir { path, .. }
-            | Kind::Realpath { path, .. } => resolve(path),
-            Kind::Rename {
-                old_path, new_path, ..
-            } => {
-                resolve(old_path);
-                resolve(new_path);
-            }
-            #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => resolve(path),
-            _ => {}
-        };
-    }
-
     // Unlike native, validate the stat layout before opening can create or
     // truncate a file. Adapters preserve the Job-error protocol by turning
     // rejection into an already-failed Job.
@@ -518,140 +481,7 @@ impl Job {
         }
     }
 
-    pub(crate) fn check_policy(&self, filesystem: &HostFs) -> AsyncHostResult<()> {
-        match &self.kind {
-            Kind::Open {
-                parent,
-                filename,
-                access,
-                create_mode,
-                request,
-                ..
-            } => {
-                filesystem.authorize(FsOperation::OpenAsync {
-                    path: job_path(parent.as_deref(), filename)?,
-                    access: *access,
-                    create_mode: *create_mode,
-                    read_metadata: request.mask() & !STAT_OPEN_IDENTITY != 0,
-                })?;
-                Ok(())
-            }
-            Kind::Fstatx { file, request, .. } => {
-                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
-                let target = FsTarget::File(file.file_grant());
-                filesystem
-                    .authorize(if request.mask() == STAT_FILE_KIND {
-                        FsOperation::Kind(target)
-                    } else {
-                        FsOperation::Metadata(target)
-                    })
-                    .map_err(Into::into)
-            }
-            Kind::Statx {
-                parent,
-                path,
-                follow_symlink,
-                ..
-            }
-            | Kind::FileKindByPath {
-                parent,
-                path,
-                follow_symlink,
-            } => {
-                let path = job_path(parent.as_deref(), path)?;
-                filesystem
-                    .authorize(if *follow_symlink {
-                        FsOperation::Metadata(FsTarget::Path(path))
-                    } else {
-                        FsOperation::InspectEntry(path)
-                    })
-                    .map_err(Into::into)
-            }
-            Kind::FileSize { file, .. } | Kind::FileTime { file, .. } => {
-                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
-                filesystem
-                    .authorize(FsOperation::Metadata(FsTarget::File(file.file_grant())))
-                    .map_err(Into::into)
-            }
-            Kind::FileTimeByPath {
-                path,
-                follow_symlink,
-                ..
-            } => filesystem
-                .authorize(if *follow_symlink {
-                    FsOperation::Metadata(FsTarget::Path(FsPath::Cwd(path)))
-                } else {
-                    FsOperation::InspectEntry(FsPath::Cwd(path))
-                })
-                .map_err(Into::into),
-            Kind::Realpath { path, .. } => filesystem
-                .authorize(FsOperation::Read(FsPath::Cwd(path)))
-                .map_err(Into::into),
-            #[cfg(target_os = "linux")]
-            Kind::InotifyAddWatch { path, .. } => filesystem
-                .authorize(FsOperation::Watch(FsTarget::Path(FsPath::Cwd(path))))
-                .map_err(Into::into),
-            Kind::Access { path, access } => filesystem
-                .authorize(FsOperation::AccessCheck {
-                    path: FsPath::Cwd(path),
-                    access: *access,
-                })
-                .map_err(Into::into),
-            Kind::Chmod { path, .. } => filesystem
-                .authorize(FsOperation::Chmod(FsPath::Cwd(path)))
-                .map_err(Into::into),
-            Kind::Flock { file, exclusive } => {
-                let file = file.as_deref().ok_or(AsyncHostError::Badf)?;
-                filesystem
-                    .authorize(FsOperation::Lock {
-                        file: file.file_grant(),
-                        exclusive: *exclusive,
-                    })
-                    .map_err(Into::into)
-            }
-            Kind::Remove { path } => filesystem
-                .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
-                .map_err(Into::into),
-            Kind::RemoveAt { parent, path } => filesystem
-                .authorize(FsOperation::ChangeEntry(job_path(parent.as_deref(), path)?))
-                .map_err(Into::into),
-            Kind::Rename {
-                old_path, new_path, ..
-            } => filesystem
-                .authorize(FsOperation::Rename {
-                    source: FsPath::Cwd(old_path),
-                    destination: FsPath::Cwd(new_path),
-                })
-                .map_err(Into::into),
-            Kind::Symlink { path, .. } | Kind::Mkdir { path, .. } | Kind::Rmdir { path } => {
-                filesystem
-                    .authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))
-                    .map_err(Into::into)
-            }
-            Kind::Read { file, .. } | Kind::ReadConsole { file, .. } => filesystem
-                .authorize(FsOperation::ReadResource(
-                    file.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
-                ))
-                .map_err(Into::into),
-            Kind::Write { file, .. } | Kind::WriteConsole { file, .. } => filesystem
-                .authorize(FsOperation::WriteResource(
-                    file.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
-                ))
-                .map_err(Into::into),
-            Kind::Fsync { file, .. } => filesystem
-                .authorize(FsOperation::Flush(
-                    file.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
-                ))
-                .map_err(Into::into),
-            Kind::Readdir { dir, .. } => filesystem
-                .authorize(FsOperation::ReadResource(
-                    dir.as_ref().ok_or(AsyncHostError::Badf)?.file_grant(),
-                ))
-                .map_err(Into::into),
-        }
-    }
-
-    pub(crate) fn run(&mut self) -> AsyncHostResult<i64> {
+    pub(crate) fn run(&mut self, filesystem: &HostFs) -> AsyncHostResult<i64> {
         match &mut self.kind {
             Kind::Open {
                 parent,
@@ -663,152 +493,88 @@ impl Job {
                 mode,
                 request,
                 result,
-            } => {
-                let parent = parent.take();
-                runner::run_open_job(
-                    parent.as_deref(),
-                    result,
-                    std::mem::take(filename),
-                    *access,
-                    *create_mode,
-                    *append,
-                    *sync,
-                    *mode,
-                    *request,
-                )
-            }
+            } => runner::run_open_job(
+                filesystem,
+                parent,
+                result,
+                filename,
+                *access,
+                *create_mode,
+                *append,
+                *sync,
+                *mode,
+                *request,
+            ),
             Kind::Fstatx {
                 file,
                 request,
                 result,
-            } => match file.take() {
-                Some(file) => stat::run_fstatx_job(&file, *request, result),
-                None => Err(AsyncHostError::Badf),
-            },
+            } => stat::run_fstatx_job(filesystem, file, *request, result),
             Kind::Statx {
                 parent,
                 path,
                 request,
                 follow_symlink,
                 result,
-            } => {
-                let parent = parent.take();
-                stat::run_statx_job(
-                    parent.as_deref(),
-                    std::mem::take(path),
-                    *request,
-                    *follow_symlink,
-                    result,
-                )
-            }
+            } => stat::run_statx_job(filesystem, parent, path, *request, *follow_symlink, result),
             Kind::Read {
                 file,
                 len,
                 position,
                 result,
-            } => match file.take() {
-                Some(file) => runner::run_read_job(&file, *len, *position, result),
-                None => Err(AsyncHostError::Badf),
-            },
+            } => runner::run_read_job(filesystem, file, *len, *position, result),
             Kind::Write {
                 file,
                 data,
                 position,
-            } => match file.take() {
-                Some(file) => runner::run_write_job(&file, data, *position),
-                None => Err(AsyncHostError::Badf),
-            },
-            Kind::ReadConsole { file, len, result } => match file.take() {
-                Some(file) => console::read(&file, *len, result),
-                None => Err(AsyncHostError::Badf),
-            },
-            Kind::WriteConsole { file, data } => match file.take() {
-                Some(file) => console::write(&file, data),
-                None => Err(AsyncHostError::Badf),
-            },
+            } => runner::run_write_job(filesystem, file, data, *position),
+            Kind::ReadConsole { file, len, result } => {
+                console::read(filesystem, file, *len, result)
+            }
+            Kind::WriteConsole { file, data } => console::write(filesystem, file, data),
             Kind::FileKindByPath {
                 parent,
                 path,
                 follow_symlink,
-            } => {
-                let parent = parent.take();
-                runner::run_file_kind_by_path_job(
-                    parent.as_deref(),
-                    std::mem::take(path),
-                    *follow_symlink,
-                )
-            }
-            Kind::FileSize { file, result } => match file.take() {
-                Some(file) => runner::run_file_size_job(&file, result),
-                None => Err(AsyncHostError::Badf),
-            },
-            Kind::FileTime { file, result } => match file.take() {
-                Some(file) => runner::run_file_time_job(&file, result),
-                None => Err(AsyncHostError::Badf),
-            },
+            } => runner::run_file_kind_by_path_job(filesystem, parent, path, *follow_symlink),
+            Kind::FileSize { file, result } => runner::run_file_size_job(filesystem, file, result),
+            Kind::FileTime { file, result } => runner::run_file_time_job(filesystem, file, result),
             Kind::FileTimeByPath {
                 path,
                 follow_symlink,
                 result,
-            } => runner::run_file_time_by_path_job(std::mem::take(path), *follow_symlink, result),
-            Kind::Access { path, access } => runner::run_access_job(std::mem::take(path), *access),
-            Kind::Chmod { path, mode } => runner::run_chmod_job(std::mem::take(path), *mode),
-            Kind::Fsync { file, only_data } => match file.take() {
-                Some(file) => runner::run_fsync_job(&file, *only_data),
-                None => Err(AsyncHostError::Badf),
-            },
-            Kind::Flock { file, exclusive } => match file.take() {
-                Some(file) => runner::run_flock_job(&file, *exclusive),
-                None => Err(AsyncHostError::Badf),
-            },
-            Kind::Remove { path } => runner::run_remove_job(std::mem::take(path)),
-            Kind::RemoveAt { parent, path } => {
-                let parent = parent.take();
-                runner::run_removeat_job(parent.as_deref(), std::mem::take(path))
-            }
+            } => runner::run_file_time_by_path_job(filesystem, path, *follow_symlink, result),
+            Kind::Access { path, access } => runner::run_access_job(filesystem, path, *access),
+            Kind::Chmod { path, mode } => runner::run_chmod_job(filesystem, path, *mode),
+            Kind::Fsync { file, only_data } => runner::run_fsync_job(filesystem, file, *only_data),
+            Kind::Flock { file, exclusive } => runner::run_flock_job(filesystem, file, *exclusive),
+            Kind::Remove { path } => runner::run_remove_job(filesystem, path),
+            Kind::RemoveAt { parent, path } => runner::run_removeat_job(filesystem, parent, path),
             Kind::Rename {
                 old_path,
                 new_path,
                 replace,
-            } => {
-                runner::run_rename_job(std::mem::take(old_path), std::mem::take(new_path), *replace)
-            }
+            } => runner::run_rename_job(filesystem, old_path, new_path, *replace),
             Kind::Symlink {
                 target,
                 path,
                 force_symlink,
-            } => runner::run_symlink_job(
-                std::mem::take(target),
-                std::mem::take(path),
-                *force_symlink,
-            ),
-            Kind::Mkdir { path, mode } => runner::run_mkdir_job(std::mem::take(path), *mode),
-            Kind::Rmdir { path } => runner::run_rmdir_job(std::mem::take(path)),
+            } => runner::run_symlink_job(filesystem, target, path, *force_symlink),
+            Kind::Mkdir { path, mode } => runner::run_mkdir_job(filesystem, path, *mode),
+            Kind::Rmdir { path } => runner::run_rmdir_job(filesystem, path),
             Kind::Readdir {
                 dir,
                 buffer,
                 len,
                 restart,
-            } => match (dir.take(), buffer.as_mut()) {
-                (Some(dir), Some(buffer)) => {
-                    runner::run_readdir_job(&dir, buffer.as_mut_slice(), *len, *restart)
-                }
-                _ => Err(AsyncHostError::Badf),
-            },
+            } => runner::run_readdir_job(filesystem, dir, buffer, *len, *restart),
             #[cfg(target_os = "linux")]
             Kind::InotifyAddWatch {
                 inotify,
                 path,
                 is_dir,
-            } => match inotify.take() {
-                Some(inotify) => {
-                    runner::run_inotify_add_watch_job(&inotify, std::mem::take(path), *is_dir)
-                }
-                None => Err(AsyncHostError::Badf),
-            },
-            Kind::Realpath { path, result } => {
-                runner::run_realpath_job(std::mem::take(path), result)
-            }
+            } => runner::run_inotify_add_watch_job(filesystem, inotify, path, *is_dir),
+            Kind::Realpath { path, result } => runner::run_realpath_job(filesystem, path, result),
         }
     }
 
@@ -1083,6 +849,21 @@ fn job_path<'a>(parent: Option<&Resource>, path: &'a OsStr) -> AsyncHostResult<F
     }
 }
 
+// Consume an admitted pathname for execution. Directory-relative names stay
+// relative to the retained native handle; only unanchored names use Runtime cwd.
+fn take_execution_path(
+    filesystem: &HostFs,
+    parent: Option<&Resource>,
+    path: &mut OsString,
+) -> OsString {
+    let path = std::mem::take(path);
+    if parent.is_some() {
+        path
+    } else {
+        filesystem.resolve_path(&path)
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     [runner::PORTED_SYMBOLS, console::PORTED_SYMBOLS].concat()
@@ -1152,12 +933,9 @@ mod tests {
             Arc::new(Env::ambient()),
             Arc::new(WorkingDirectory::Ambient),
         );
-        let job = Job::file_kind_by_path(Some(Arc::new(parent)), "child".into(), true);
+        let mut job = Job::file_kind_by_path(Some(Arc::new(parent)), "child".into(), true);
 
-        assert_eq!(
-            job.check_policy(&filesystem),
-            Err(AsyncHostError::PermissionDenied)
-        );
+        assert_eq!(job.run(&filesystem), Err(AsyncHostError::PermissionDenied));
     }
 
     #[cfg(target_os = "linux")]
@@ -1173,12 +951,9 @@ mod tests {
             Arc::new(WorkingDirectory::Ambient),
         );
         let watcher = Resource::new(crate::async_sys::fs::watch_inotify::create().unwrap());
-        let job = Job::inotify_add_watch(Arc::new(watcher), file.path().into(), false);
+        let mut job = Job::inotify_add_watch(Arc::new(watcher), file.path().into(), false);
 
-        assert_eq!(
-            job.check_policy(&filesystem),
-            Err(AsyncHostError::PermissionDenied)
-        );
+        assert_eq!(job.run(&filesystem), Err(AsyncHostError::PermissionDenied));
     }
 
     #[test]
@@ -1201,15 +976,12 @@ mod tests {
                 Arc::new(cwd),
             );
             let path = path.clone().into_os_string();
-            for job in [
+            for mut job in [
                 Job::access(path.clone(), 0),
                 Job::file_kind_by_path(None, path.clone(), true),
                 Job::file_kind_by_path(None, path, false),
             ] {
-                assert_eq!(
-                    job.check_policy(&filesystem),
-                    Err(AsyncHostError::PermissionDenied),
-                );
+                assert_eq!(job.run(&filesystem), Err(AsyncHostError::PermissionDenied));
             }
         }
     }
@@ -1240,11 +1012,9 @@ mod tests {
         let parent = Arc::new(Resource::new(
             std::fs::File::open(&held).unwrap().into_raw_fd(),
         ));
-        let open = Job::open(Some(parent), "../secret".into(), 0, 0, false, 0, 0, 0, 8).unwrap();
-        assert_eq!(
-            open.check_policy(&filesystem),
-            Err(AsyncHostError::PermissionDenied)
-        );
+        let mut open =
+            Job::open(Some(parent), "../secret".into(), 0, 0, false, 0, 0, 0, 8).unwrap();
+        assert_eq!(open.run(&filesystem), Err(AsyncHostError::PermissionDenied));
 
         filesystem.remove_directory_all(&held).unwrap();
         let mut replace = Job::symlink(
@@ -1252,13 +1022,9 @@ mod tests {
             held.into_os_string(),
             false,
         );
-        replace.check_policy(&filesystem).unwrap();
-        replace.run().unwrap();
+        replace.run(&filesystem).unwrap();
 
-        assert_eq!(
-            open.check_policy(&filesystem),
-            Err(AsyncHostError::PermissionDenied),
-        );
+        assert_eq!(open.run(&filesystem), Err(AsyncHostError::PermissionDenied));
     }
 
     #[test]
@@ -1281,7 +1047,7 @@ mod tests {
             Arc::new(WorkingDirectory::Fixed(root.path().to_owned())),
         );
         let mut open = Job::open_legacy(original.clone().into_os_string(), 3, 0, false, 0, 0);
-        open.run().unwrap();
+        open.run(&filesystem).unwrap();
         let Kind::Open {
             result: Some(result),
             ..
@@ -1293,7 +1059,7 @@ mod tests {
             panic!("unpublished resource")
         };
         let parent = Arc::new(parent);
-        let jobs = [
+        let mut jobs = [
             Job::open(
                 Some(Arc::clone(&parent)),
                 "file".into(),
@@ -1307,21 +1073,24 @@ mod tests {
             )
             .unwrap(),
             Job::remove_at(Some(Arc::clone(&parent)), "file".into()),
-            Job::file_kind_by_path(Some(parent), "file".into(), true),
+            Job::file_kind_by_path(Some(Arc::clone(&parent)), "file".into(), true),
         ];
-        for job in &jobs {
-            job.check_policy(&filesystem).unwrap();
-        }
+        // Execute a baseline lookup; keep the mutation Jobs unexecuted until
+        // after the move so denial must protect both the moved and new trees.
+        Job::file_kind_by_path(Some(Arc::clone(&parent)), "file".into(), true)
+            .run(&filesystem)
+            .unwrap();
         std::fs::rename(&original, &moved).unwrap();
         std::fs::create_dir(&original).unwrap();
         std::fs::write(original.join("file"), b"replacement").unwrap();
-        for job in &jobs {
-            assert_eq!(
-                job.check_policy(&filesystem),
-                Err(AsyncHostError::PermissionDenied)
-            );
+        for job in &mut jobs {
+            assert_eq!(job.run(&filesystem), Err(AsyncHostError::PermissionDenied));
         }
         assert_eq!(std::fs::read(moved.join("file")).unwrap(), b"keep");
+        assert_eq!(
+            std::fs::read(original.join("file")).unwrap(),
+            b"replacement"
+        );
     }
 
     #[test]
@@ -1336,10 +1105,7 @@ mod tests {
             Arc::new(WorkingDirectory::Fixed(directory.path().to_owned())),
         );
         let mut job = Job::rmdir(OsString::new());
-        job.check_policy(&filesystem).unwrap();
-        job.configure_paths(&filesystem);
-
-        let result = job.run();
+        let result = job.run(&filesystem);
         assert!(directory.path().is_dir());
         assert!(result.is_err());
     }
@@ -1434,7 +1200,7 @@ mod tests {
 
         let mut job = Job::realpath(link.into_os_string());
 
-        assert_eq!(job.run(), Ok(0));
+        assert_eq!(job.run(&HostFs::default()), Ok(0));
         let Kind::Realpath {
             result: Some(RealpathJobResult::Unpublished(buffer)),
             ..
@@ -1480,7 +1246,7 @@ mod tests {
         let mut job = Job::flock(std::sync::Arc::clone(&file), true);
         drop(file);
 
-        let _ = job.run();
+        let _ = job.run(&HostFs::default());
 
         assert!(file_ref.upgrade().is_none());
     }

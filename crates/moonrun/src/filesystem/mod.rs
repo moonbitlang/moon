@@ -23,6 +23,7 @@ mod host;
 mod job;
 mod os;
 mod path;
+mod resource_ops;
 
 pub(crate) use authorization::{FileGrant, FsOperation, FsPath, FsTarget};
 pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};

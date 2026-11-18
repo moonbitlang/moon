@@ -985,7 +985,7 @@ mod tests {
                     if job.job_key == make_job_key(2) {
                         run_resume.recv_timeout(Duration::from_secs(5)).unwrap();
                     }
-                    super::super::run_host_job(&mut job.job);
+                    super::super::run_host_job(&mut job.job, &crate::filesystem::HostFs::default());
                 },
                 move |result| {
                     completed.send((result.job_key, result.job.err())).unwrap();
