@@ -14,16 +14,6 @@
         "null"
       ]
     },
-    "deps": {
-      "description": "third-party dependencies of the module",
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": {
-        "$ref": "#/definitions/SourceDependencyInfo"
-      }
-    },
     "description": {
       "description": "description of this module",
       "type": [
@@ -39,6 +29,16 @@
       ],
       "items": {
         "type": "string"
+      }
+    },
+    "import": {
+      "description": "third-party dependencies of the module",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "$ref": "#/definitions/SourceDependencyInfo"
       }
     },
     "include": {
@@ -72,7 +72,7 @@
       "description": "name of the module",
       "type": "string"
     },
-    "preferred-target": {
+    "preferred_target": {
       "description": "The preferred target backend of this module.\n\nToolchains are recommended to use this target as the default target when the user is not specifying or overriding in any other ways. However, this is merely a recommendation, and tools may deviate from this value at any time.",
       "type": [
         "string",
@@ -99,14 +99,13 @@
     },
     "rule": {
       "description": "Rules that can be referenced by package-level `dev_build` entries.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/MoonModJSONRules"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/MoonModRule"
+      }
     },
     "scripts": {
       "description": "Scripts related to the current module.",
@@ -125,7 +124,7 @@
         "null"
       ]
     },
-    "supported-targets": {
+    "supported_targets": {
       "description": "Supported backend set for all packages in this module.\n\nThis uses the same expression/list grammar as `moon.pkg.json`.",
       "anyOf": [
         {
@@ -143,7 +142,7 @@
         "null"
       ]
     },
-    "warn-list": {
+    "warnings": {
       "description": "Warn list setting of the module",
       "type": [
         "string",
@@ -152,19 +151,6 @@
     }
   },
   "definitions": {
-    "MoonModJSONRules": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/MoonModRule"
-        },
-        {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/MoonModRule"
-          }
-        }
-      ]
-    },
     "MoonModRule": {
       "type": "object",
       "required": [

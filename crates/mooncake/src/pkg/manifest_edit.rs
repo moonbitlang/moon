@@ -19,8 +19,8 @@
 //! Text patching support for `moon.mod`.
 //!
 //! A serde-based patch would drop comments because the `moon.mod` parser lowers the file to a
-//! JSON-like structure. That structure is intentionally kept compatible with the old
-//! `moon.mod.json` model, so it does not preserve source locations either.
+//! sequence of declarations with JSON-shaped values. These values do not preserve
+//! comments or source locations.
 //!
 //! After discussion with @bobzhang, we patch `moon.mod` text directly in `moon` instead of
 //! round-tripping through an AST and `moonfmt`. This keeps comments intact and avoids depending on

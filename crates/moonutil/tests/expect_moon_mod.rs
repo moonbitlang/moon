@@ -19,9 +19,9 @@
 use std::path::PathBuf;
 
 use moonutil::manifest::{
-    MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
-    read_module_desc_file_in_dir, read_module_desc_file_in_dir_with_legacy, read_module_from_dsl,
-    read_module_manifest, warn_module_manifest, write_module_dsl_to_file,
+    MoonMod, MoonModJSON, MoonModRule, convert_module_to_mod_json, read_module_desc_file_in_dir,
+    read_module_desc_file_in_dir_with_legacy, read_module_from_dsl, read_module_manifest,
+    warn_module_manifest, write_module_dsl_to_file,
 };
 use moonutil::package::SupportedTargetsConfig;
 use moonutil::target::TargetBackend;
@@ -119,7 +119,7 @@ fn read_module_from_dsl_basic() {
         {
           "name": "example/dsl_only",
           "version": "0.1.0",
-          "deps": {
+          "import": {
             "moonbitlang/cli": "0.1.2",
             "moonbitlang/core": "0.4.8",
             "moonbitlang/x": "0.4.6"
@@ -148,7 +148,7 @@ fn read_module_from_dsl_basic() {
               ]
             }
           },
-          "warn-list": "-unused-deprecated",
+          "warnings": "-unused-deprecated",
           "include": [
             "src/**",
             "README.mbt.md"
@@ -161,7 +161,7 @@ fn read_module_from_dsl_basic() {
             "prebuild": "node ./prebuild.js",
             "postbuild": "echo done"
           },
-          "preferred-target": "wasm-gc"
+          "preferred_target": "wasm-gc"
         }"#]]
     .assert_eq(&actual);
 }
@@ -422,7 +422,7 @@ rule(name: "rule1", command: "exe2")
     let err = read_module_from_dsl(&path).unwrap_err();
     assert!(
         err.to_string()
-            .contains("Duplicate rule name `rule1` found in moon.mod."),
+            .contains("Duplicate rule name `rule1` found in module manifest."),
         "{err:?}"
     );
 }
@@ -443,7 +443,7 @@ rule(name: "rule2", command: "exe2 $input -o $output")
     let module = read_module_from_dsl(&path).unwrap();
     let module_json = convert_module_to_mod_json(module);
     assert!(module_json.rule.is_some());
-    write_module_dsl_to_file(&module_json, &dir).unwrap();
+    write_module_dsl_to_file(&module_json, &dir.join("moon.mod")).unwrap();
 
     let module = read_module_from_dsl(&path).unwrap();
     let rule = module.rule.unwrap();
@@ -478,7 +478,7 @@ fn read_module_json_accepts_object_rule() {
 }
 
 #[test]
-fn moon_mod_json_conversion_serializes_single_rule_as_object() {
+fn moon_mod_json_conversion_serializes_single_rule_as_array() {
     let module_json = convert_module_to_mod_json(MoonMod {
         name: "example/mod".to_string(),
         rule: Some(vec![MoonModRule {
@@ -493,22 +493,24 @@ fn moon_mod_json_conversion_serializes_single_rule_as_object() {
     expect_test::expect![[r#"
         {
           "name": "example/mod",
-          "deps": {},
-          "rule": {
-            "name": "rule1",
-            "command": "exe1"
-          }
+          "import": {},
+          "rule": [
+            {
+              "name": "rule1",
+              "command": "exe1"
+            }
+          ]
         }"#]]
     .assert_eq(&actual);
 }
 
 #[test]
-fn manifest_facade_exposes_moon_mod_json_rules() {
+fn module_json_exposes_rule_arrays() {
     let module_json = MoonModJSON {
         name: "example/mod".to_string(),
         version: None,
         private: None,
-        deps: None,
+        import: None,
         readme: None,
         repository: None,
         license: None,
@@ -518,13 +520,13 @@ fn manifest_facade_exposes_moon_mod_json_rules() {
         link_flags: None,
         checksum: None,
         source: None,
-        rule: Some(MoonModJSONRules::Single(MoonModRule {
+        rule: Some(vec![MoonModRule {
             extra: Default::default(),
             name: "rule1".to_string(),
             command: "exe1".to_string(),
-        })),
+        }]),
         ext: Default::default(),
-        warn_list: None,
+        warnings: None,
         include: None,
         exclude: None,
         scripts: None,
@@ -538,10 +540,12 @@ fn manifest_facade_exposes_moon_mod_json_rules() {
     expect_test::expect![[r#"
         {
           "name": "example/mod",
-          "rule": {
-            "name": "rule1",
-            "command": "exe1"
-          }
+          "rule": [
+            {
+              "name": "rule1",
+              "command": "exe1"
+            }
+          ]
         }"#]]
     .assert_eq(&actual);
 }
@@ -569,7 +573,7 @@ fn moon_mod_json_conversion_serializes_multiple_rules_as_array() {
     expect_test::expect![[r#"
         {
           "name": "example/mod",
-          "deps": {},
+          "import": {},
           "rule": [
             {
               "name": "rule1",
@@ -625,7 +629,7 @@ fn write_module_dsl_uses_canonical_sections() {
     )
     .unwrap();
 
-    write_module_dsl_to_file(&module, &dir).unwrap();
+    write_module_dsl_to_file(&module, &dir.join("moon.mod")).unwrap();
 
     let actual = std::fs::read_to_string(dir.join("moon.mod")).unwrap();
     expect_test::expect![[r#"
@@ -664,7 +668,7 @@ fn write_module_dsl_rejects_unversioned_registry_deps() {
     )
     .unwrap();
 
-    let err = write_module_dsl_to_file(&module, &dir).unwrap_err();
+    let err = write_module_dsl_to_file(&module, &dir.join("moon.mod")).unwrap_err();
     assert!(
         err.to_string()
             .contains("moon.mod only supports versioned registry dependencies in `import`, found `example/no-version`"),

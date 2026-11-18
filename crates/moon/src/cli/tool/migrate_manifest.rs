@@ -51,14 +51,19 @@ pub(crate) fn run_migrate_manifest(cmd: MigrateManifestSubcommand) -> anyhow::Re
             .file_name()
             .context("migrated manifest destination should have a file name")?,
     );
-    let status = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonfmt)
-        .arg(&cmd.old)
-        .arg("-o")
-        .arg(&formatted)
-        .status()
-        .context("failed to run moonfmt while migrating a manifest")?;
-    if !status.success() {
-        return Ok(status.code().unwrap_or(1));
+    if cmd.old.file_name() == Some(std::ffi::OsStr::new(moonutil::constants::MOON_MOD_JSON)) {
+        let module = moonutil::manifest::read_module_from_json(&cmd.old)?;
+        moonutil::manifest::write_module_dsl_to_file(&module.into(), &formatted)?;
+    } else {
+        let status = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonfmt)
+            .arg(&cmd.old)
+            .arg("-o")
+            .arg(&formatted)
+            .status()
+            .context("failed to run moonfmt while migrating a manifest")?;
+        if !status.success() {
+            return Ok(status.code().unwrap_or(1));
+        }
     }
 
     std::fs::rename(&formatted, &cmd.dest).with_context(|| {

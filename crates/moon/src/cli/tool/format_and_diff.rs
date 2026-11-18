@@ -39,24 +39,34 @@ pub(crate) struct FormatAndDiffSubcommand {
 }
 
 pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
-    let mut moonfmt = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonfmt);
-    moonfmt
-        .arg("-exit-code")
-        .arg(&cmd.old)
-        .arg("-o")
-        .arg(&cmd.new);
-    let mut execution = moonfmt
-        .args(&cmd.args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
+    if cmd.old.file_name() == Some(std::ffi::OsStr::new(moonutil::constants::MOON_MOD_JSON)) {
+        anyhow::ensure!(
+            cmd.args.is_empty(),
+            "module JSON migration does not accept formatter arguments"
+        );
+        let module = moonutil::manifest::read_module_from_json(&cmd.old)?;
+        moonutil::manifest::write_module_dsl_to_file(&module.into(), &cmd.new)?;
+        // Converting JSON to DSL always changes the source text.
+    } else {
+        let mut moonfmt = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonfmt);
+        moonfmt
+            .arg("-exit-code")
+            .arg(&cmd.old)
+            .arg("-o")
+            .arg(&cmd.new);
+        let mut execution = moonfmt
+            .args(&cmd.args)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()?;
 
-    let x = execution.wait()?;
-    let exit_code = x.code().unwrap_or(1);
-    if exit_code == 0 {
-        // when the return code is 0, it means no difference
-        return Ok(0);
+        let x = execution.wait()?;
+        let exit_code = x.code().unwrap_or(1);
+        if exit_code == 0 {
+            // when the return code is 0, it means no difference
+            return Ok(0);
+        }
     }
 
     // handle the case when there are differences
