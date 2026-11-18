@@ -113,10 +113,14 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
 
 Implementation-wise:
 
-- Steps 1 and 2 is handled in the RR pipeline's crate.
-  You can also see a low-level implementation doc comment at its [entry point][rr_home].
-- Step 3, as well as wrappers around step 1 and 2 to adapt to the various subcommands,
-  are all located in [the `rr_build` module of the main binary crate][moon_rr_build].
+- `moonbuild::prepare` synchronizes dependencies and prepares script declarations.
+  [RR][rr_home] handles package discovery, package resolution, planning, and
+  lowering; `moonbuild::compile` prepares external inputs and drives planning
+  and lowering.
+- `moonbuild::metadata` publishes build metadata, and `moonbuild::execution`
+  executes the resulting graphs. [Moon's `rr_build` module][moon_rr_build]
+  adapts command flags and intents and still orchestrates prebuild configuration
+  before compilation.
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:
@@ -838,3 +842,8 @@ Scoped documents are atomically replaced before the selector, and the backend
 index is replaced last. Readers therefore never follow a newly published index
 to a partially written document or stale selector. Byte-identical metadata is
 left untouched.
+
+`moonbuild::metadata::publish_check_metadata` owns this publication sequence,
+including the compiler's `all_pkgs.json` for each plan. The command layer decides
+whether a check publishes metadata and holds the target-directory lock.
+`moon doc` uses the scoped-document writer without publishing a selector or index.

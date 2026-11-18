@@ -953,23 +953,12 @@ fn run_planned_checks(
         .execution_config(&cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
-    for (build_meta, build_input) in &planned_runs {
-        // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(build_meta)?;
-        if publish_metadata {
-            rr_build::generate_metadata(source_dir, build_meta, build_input)?;
-        }
-    }
     if publish_metadata {
-        // The compiler's universal format selects one active projection.
-        // Before the split, repeated publication made the final planned
-        // backend authoritative, so retain that deterministic behavior.
-        let selected = &planned_runs
-            .last()
-            .expect("non-empty planned runs were checked above")
-            .0;
-        rr_build::generate_metadata_selector(selected)?;
-        rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
+        moonbuild::metadata::publish_check_metadata(source_dir, &planned_runs)?;
+    } else {
+        for (build_meta, _) in &planned_runs {
+            moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
+        }
     }
 
     let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();

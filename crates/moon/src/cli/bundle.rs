@@ -159,7 +159,7 @@ fn run_bundle_rr_from_discovered(
     } else {
         // Generate all_pkgs.json for indirect dependency resolution
         for (build_meta, _) in &planned_runs {
-            rr_build::generate_all_pkgs_json(build_meta)?;
+            moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
         }
         let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
         let build_input = BuildInput::compose(build_inputs)?;

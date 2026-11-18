@@ -190,7 +190,7 @@ fn run_cram_test(
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
-        rr_build::generate_all_pkgs_json(&build_meta)?;
+        moonbuild::metadata::generate_all_pkgs_json(&build_meta)?;
         let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {

@@ -1031,7 +1031,7 @@ fn run_test_workflow(
     }
 
     for (build_meta, _) in &build_metas_and_filters {
-        rr_build::generate_all_pkgs_json(build_meta)?;
+        moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
     }
     let build_config = cmd
         .build_flags
