@@ -45,7 +45,6 @@ use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
-use moonutil::child_process::ChildOutputMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
@@ -644,9 +643,8 @@ fn run_check_impl(
         return Ok(ret_value);
     }
 
-    let discovered =
-        sync_and_discover_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
-            .context("Failed to calculate build plan")?;
+    let discovered = sync_and_discover_check_project(cli, cmd, &dirs, output.user_log())
+        .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
         _lock = lock_directory(&dirs.target_dir, output.user_log()).with_context(|| {
@@ -692,15 +690,7 @@ fn run_check_for_single_file_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_jobs(cmd.build_flags.jobs)
-    .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
-        quiet: false,
-        child_output: if json.is_some() {
-            ChildOutputMode::Capture
-        } else {
-            ChildOutputMode::Inherit
-        },
-    });
+    .with_jobs(cmd.build_flags.jobs);
     let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         dirs,
@@ -827,7 +817,7 @@ fn run_check_normal_internal_rr(
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
-    let discovered = sync_and_discover_check_project(cli, cmd, dirs, user_log, json.is_some())
+    let discovered = sync_and_discover_check_project(cli, cmd, dirs, user_log)
         .context("Failed to calculate build plan")?;
     let _lock;
     if !cli.dry_run {
@@ -1023,22 +1013,13 @@ fn sync_and_discover_check_project(
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-    json: bool,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_jobs(cmd.build_flags.jobs)
-    .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
-        quiet: false,
-        child_output: if json {
-            ChildOutputMode::Capture
-        } else {
-            ChildOutputMode::Inherit
-        },
-    });
+    .with_jobs(cmd.build_flags.jobs);
     rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 

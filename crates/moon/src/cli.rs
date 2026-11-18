@@ -181,6 +181,7 @@ pub(crate) enum MoonBuildSubcommands {
     Install(InstallSubcommand),
     Tree(TreeSubcommand),
     Fetch(FetchSubcommand),
+    RunPostadd(RunPostaddSubcommand),
     Search(SearchSubcommand),
     View(ViewSubcommand),
     Work(WorkSubcommand),

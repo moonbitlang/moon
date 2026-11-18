@@ -673,34 +673,8 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
     Ok(())
 }
 
-// TODO: Re-enable when a published lijunchen/test_postadd version uses
-// moon.mod and moon.pkg instead of JSON manifests.
-/*
 #[test]
-fn test_postadd_script() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
-    let dir = TestDir::new("test_postadd_script.in");
-    let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
-    assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
-
-    let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
-
-    let out = moon_process_cmd(&dir)
-        .env("MOON_IGNORE_POSTADD", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .args(["add", "lijunchen/test_postadd"])
-        .output()
-        .unwrap();
-    let out = String::from_utf8(out.stderr).unwrap();
-    assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
-}
-*/
-
-#[test]
-fn test_postadd_failure_retries_unfinished_installations() {
+fn test_postadd_is_explicit_and_repeatable() {
     let dir = TestDir::new("test_postadd_retry.in");
     let moon_home = tempfile::tempdir().unwrap();
     let moon_path = std::env::join_paths(
@@ -723,12 +697,30 @@ fn test_postadd_failure_retries_unfinished_installations() {
         );
     }
 
+    // Installing both dependencies succeeds even though their hooks would fail.
     moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("MOON_REGISTRY_API", "0")
         .env_remove("MOON_IGNORE_POSTADD")
         .env("PATH", &moon_path)
         .args(["tree", "--package"])
+        .assert()
+        .success()
+        .stderr_eq(snapbox::str![[r#"
+...
+Warning: Skipped postadd for testuser/[..]; use `moon run-postadd --help` to run it explicitly.
+...
+"#]]);
+    for name in ["first", "second"] {
+        let source = dir.join(format!(".mooncakes/testuser/{name}"));
+        assert!(source.join("moon.mod").is_file());
+        assert!(!source.join("generated.mbt").exists());
+    }
+
+    // Execution is opt-in per module. Failure preserves the installed sources.
+    moon_cmd(&dir)
+        .env("PATH", &moon_path)
+        .args(["run-postadd", "testuser/first"])
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
@@ -736,36 +728,64 @@ fn test_postadd_failure_retries_unfinished_installations() {
 [..]failed to execute postadd script[..]
 ...
 "#]]);
-    // Package iteration order is unspecified. Neither the failed package nor
-    // any later package may be mistaken for a completed installation.
-    for name in ["first", "second"] {
-        assert!(!dir.join(format!(".mooncakes/testuser/{name}")).exists());
-    }
-
+    assert!(dir.join(".mooncakes/testuser/first/moon.mod").is_file());
     std::fs::copy(
         dir.join("hook-input.txt"),
         dir.join(".mooncakes/testuser/hook-input.txt"),
     )
     .unwrap();
+
+    let generated = dir.join(".mooncakes/testuser/first/generated.mbt");
+    for _ in 0..2 {
+        moon_cmd(&dir)
+            .env("PATH", &moon_path)
+            .args(["run-postadd", "testuser/first"])
+            .assert()
+            .success();
+        assert!(generated.is_file());
+        assert!(
+            !dir.join(".mooncakes/testuser/second/generated.mbt")
+                .exists()
+        );
+        std::fs::remove_file(&generated).unwrap();
+    }
     moon_cmd(&dir)
-        .env("MOON_HOME", moon_home.path())
-        .env("MOON_REGISTRY_API", "0")
-        .env_remove("MOON_IGNORE_POSTADD")
+        .args(["run-postadd", "testuser/first", "--dry-run"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]moon tool embed --text -i ../hook-input.txt -o generated.mbt --name generated[..]
+"#]]);
+    assert!(!generated.exists());
+
+    // Fetched or otherwise local modules can use the same entry point via -C.
+    moon_cmd(&dir)
         .env("PATH", &moon_path)
-        .args(["tree", "--package"])
+        .args(["-C", ".mooncakes/testuser/second", "run-postadd"])
         .assert()
         .success();
-    for name in ["first", "second"] {
-        assert!(
-            dir.join(format!(".mooncakes/testuser/{name}/generated.mbt"))
-                .is_file()
+    assert!(
+        dir.join(".mooncakes/testuser/second/generated.mbt")
+            .is_file()
+    );
+
+    moon_cmd(&dir)
+        .args(["run-postadd", "testuser/missing"])
+        .assert()
+        .failure()
+        .stderr_eq("Error: Module `testuser/missing` is not installed in this project's .mooncakes directory\n");
+    moon_cmd(&dir)
+        .args(["run-postadd", "testuser/first@1.0.0"])
+        .assert()
+        .failure()
+        .stderr_eq(
+            "Error: `moon run-postadd` expects an installed module name without a version\n",
         );
-    }
 }
 
 #[test]
-fn test_fetch_and_binary_install_run_legacy_postadd() {
-    let dir = TestDir::new_empty();
+fn test_fetch_and_binary_install_skip_legacy_postadd() {
+    let dir = TestDir::new("test_fetch_postadd.in");
     let moon_home = tempfile::TempDir::new().expect("failed to create temporary MOON_HOME");
     let registry = tempfile::TempDir::new().expect("failed to create temporary registry");
     let registry_index = registry.path().join("git/index");
@@ -806,30 +826,22 @@ fn test_fetch_and_binary_install_run_legacy_postadd() {
         )),
     )
     .expect("test PATH should be valid");
-    let manifest = br#"name = "testuser/postadd"
-version = "1.0.0"
-source = "src"
-options(scripts: { "postadd": "moon tool embed --text -i src/tool/generated.txt -o src/tool/generated.mbt --name generated" })
-"#.to_vec();
     cache_registry_package(
         moon_home.path(),
         "testuser/postadd",
         "1.0.0",
         &[
-            ("moon.mod", manifest),
+            "moon.mod",
+            "src/tool/moon.pkg",
+            "src/tool/generated.txt",
+            "src/tool/main.mbt",
+        ]
+        .map(|file| {
             (
-                "src/tool/moon.pkg",
-                br#"
-pkgtype(kind: "executable")
-"#
-                .to_vec(),
-            ),
-            ("src/tool/generated.txt", b"42".to_vec()),
-            (
-                "src/tool/main.mbt",
-                br#"fn main { println(generated) }"#.to_vec(),
-            ),
-        ],
+                file,
+                std::fs::read(dir.join(format!("registry/{file}"))).unwrap(),
+            )
+        }),
     );
     let output = std::process::Command::new("git")
         .current_dir(&local_index)
@@ -881,28 +893,45 @@ pkgtype(kind: "executable")
         .args(["fetch", "--no-update", "testuser/postadd@1.0.0"])
         .assert()
         .success();
-    assert!(
-        dir.join(".repos/testuser/postadd/1.0.0/src/tool/generated.mbt")
-            .is_file()
-    );
+    let fetched = dir.join(".repos/testuser/postadd/1.0.0");
+    assert!(!fetched.join("src/tool/generated.mbt").exists());
 
+    // A registry install does not silently execute the hook either. This
+    // fixture needs its generated source, so compilation must fail.
     let bin_dir = dir.join("bin");
-    let install = moon_cmd(&dir)
+    moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .env("PATH", &moon_path)
         .args(["install", "testuser/postadd/tool@1.0.0", "--bin"])
         .arg(&bin_dir)
         .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+...
+Warning: Skipped postadd for testuser/postadd; use `moon run-postadd --help` to run it explicitly.
+...
+"#]]);
+
+    // Users can explicitly prepare fetched sources and install from that path.
+    moon_cmd(&fetched)
+        .env("PATH", &moon_path)
+        .args(["run-postadd"])
+        .assert()
         .success();
-    let stderr = String::from_utf8_lossy(&install.get_output().stderr);
+    assert!(fetched.join("src/tool/generated.mbt").is_file());
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["install", "--path"])
+        .arg(fetched.join("src/tool"))
+        .arg("--bin")
+        .arg(&bin_dir)
+        .assert()
+        .success();
     assert!(
-        stderr.contains("Registry index updated successfully"),
-        "local registry update did not succeed:\n{stderr}"
+        bin_dir
+            .join(format!("tool{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
     );
-    #[cfg(unix)]
-    assert!(bin_dir.join("tool").is_file());
-    #[cfg(windows)]
-    assert!(bin_dir.join("tool.exe").is_file());
 }
 
 /// A registry whose cached latest is 1.0.0 and remote latest is 1.1.0.

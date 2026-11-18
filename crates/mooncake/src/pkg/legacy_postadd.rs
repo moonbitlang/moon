@@ -18,30 +18,31 @@
 
 //! Compatibility execution for the legacy `scripts.postadd` hook.
 //!
-//! Registry source acquisition deliberately does not call this module. The
-//! remaining command paths opt into the legacy behavior after source has been
-//! materialized, so rejecting postadd in the future does not change the
-//! Registry interface.
+//! Source installation only warns. Execution belongs to `moon run-postadd`.
+
+// TODO: Remove the compatibility command after remaining toolchain integration
+// use cases are reported in project issues and migrated away from postadd.
 
 use std::path::Path;
 
 use anyhow::bail;
-use moonutil::{child_process::ManagedChildRunner, manifest::read_module_desc_file_in_dir};
+use moonutil::{child_process::ManagedChildRunner, manifest::MoonMod, user_log::UserLog};
 
-/// Run the legacy hook declared by the materialized module at `module_dir`.
-pub fn run(module_dir: &Path, runner: &ManagedChildRunner) -> anyhow::Result<()> {
-    if std::env::var_os("MOON_IGNORE_POSTADD").is_some() {
-        return Ok(());
-    }
-    let module = read_module_desc_file_in_dir(module_dir)?;
-    let Some(postadd) = module
+pub fn warn_skipped(module: &MoonMod, user_log: &UserLog) {
+    if module
         .scripts
         .as_ref()
-        .and_then(|scripts| scripts.get("postadd"))
-    else {
-        return Ok(());
-    };
+        .is_some_and(|scripts| scripts.contains_key("postadd"))
+    {
+        user_log.warn(format!(
+            "Skipped postadd for {}; use `moon run-postadd --help` to run it explicitly.",
+            module.name
+        ));
+    }
+}
 
+/// Run the legacy hook declared by the materialized module at `module_dir`.
+pub fn run(module_dir: &Path, postadd: &str, runner: &ManagedChildRunner) -> anyhow::Result<()> {
     let postadd = postadd.split(' ').collect::<Vec<_>>();
     let Some((command, args)) = postadd.split_first() else {
         return Ok(());
@@ -81,22 +82,10 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        std::fs::write(
-            sandbox.path().join("moon.mod"),
-            format!(
-                r#"
-name = "test/postadd"
-version = "0.1.0"
-options(scripts: {{ "postadd": "{}" }})
-"#,
-                script.display()
-            ),
-        )
-        .unwrap();
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
         let child = ManagedChildRunner::new(ChildOutputMode::Capture, &user_log);
 
-        run(sandbox.path(), &child).unwrap();
+        run(sandbox.path(), script.to_str().unwrap(), &child).unwrap();
 
         let entries = capture.take();
         assert_eq!(entries.len(), 2);
@@ -116,7 +105,7 @@ options(scripts: {{ "postadd": "{}" }})
         let (user_log, capture) = UserLog::captured(LevelFilter::Warn);
         let child = ManagedChildRunner::new(ChildOutputMode::Capture, &user_log);
 
-        let error = run(sandbox.path(), &child).unwrap_err();
+        let error = run(sandbox.path(), script.to_str().unwrap(), &child).unwrap_err();
 
         assert!(
             error

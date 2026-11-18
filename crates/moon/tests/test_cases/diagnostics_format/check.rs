@@ -459,7 +459,7 @@ import {
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_postadd_output() {
+fn test_moon_check_complete_json_reports_skipped_postadd() {
     let report = parse_complete_json(
         json_command_with_postadd(&["check", "--json"], "moon --version").success(),
     );
@@ -471,37 +471,33 @@ fn test_moon_check_complete_json_captures_postadd_output() {
             .unwrap()
             .iter()
             .any(|message| {
-                message["level"] == "info"
+                message["level"] == "warning"
                     && message["message"]
                         .as_str()
                         .unwrap()
-                        .contains("postadd script wrote to stdout")
+                        .contains("Skipped postadd for testuser/postadd")
             })
     );
 }
 
 #[test]
-fn test_moon_check_complete_json_captures_postadd_failure() {
+fn test_moon_check_complete_json_does_not_execute_failing_postadd() {
     let report = parse_complete_json(
-        json_command_with_postadd(&["check", "--json"], "moon check --not-a-real-option").failure(),
+        json_command_with_postadd(&["check", "--json"], "moon check --not-a-real-option").success(),
     );
 
-    assert_eq!(report["status"], "failure");
+    assert_eq!(report["status"], "success");
     assert!(
         report["messages"]
             .as_array()
             .unwrap()
             .iter()
             .any(|message| {
-                message["level"] == "error"
+                message["level"] == "warning"
                     && message["message"]
                         .as_str()
                         .unwrap()
-                        .contains("postadd script wrote to stderr")
-                    && message["message"]
-                        .as_str()
-                        .unwrap()
-                        .contains("--not-a-real-option")
+                        .contains("Skipped postadd for testuser/postadd")
             })
     );
 }

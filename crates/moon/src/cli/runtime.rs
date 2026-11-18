@@ -250,6 +250,7 @@ fn dispatch(
         Coverage(command) => super::run_coverage(flags, command, output),
         Doc(command) => super::run_doc(flags, command, output).map(Into::into),
         Fetch(command) => super::fetch_cli(flags, command, output.user_log()).map(Into::into),
+        RunPostadd(command) => super::run_postadd_cli(flags, command, output).map(Into::into),
         Work(command) => super::work_cli(flags, command, output.user_log()).map(Into::into),
         Fmt(command) => super::run_fmt(&flags, command, output).map(Into::into),
         GenerateBuildMatrix(command) => {

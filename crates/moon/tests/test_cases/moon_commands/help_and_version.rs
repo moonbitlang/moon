@@ -32,6 +32,7 @@ fn test_moon_help() {
               install                Install a binary package globally
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
+              run-postadd            Explicitly run a legacy postadd script (temporary compatibility command)
               search                 Search modules and package summaries in the registry
               view                   View a registry module or a user's published modules
               work                   Workspace maintenance commands

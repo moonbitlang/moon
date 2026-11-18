@@ -76,26 +76,26 @@ test/app@1.0.0 (local [..]):
 }
 
 #[test]
-fn test_moon_tree_package_json_captures_postadd_output() {
+fn test_moon_tree_package_json_reports_skipped_postadd() {
     json_command_with_postadd(&["tree", "--package", "--json"], "moon --version")
         .success()
         .stderr_eq("")
         .stdout_eq(snapbox::str![[r#"
-{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"info","message":"postadd script wrote to stdout:/nmoon [..]"}]}
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"warning","message":"Skipped postadd for testuser/postadd; use `moon run-postadd --help` to run it explicitly."}]}
 
 "#]]);
 }
 
 #[test]
-fn test_moon_tree_package_json_captures_postadd_failure() {
+fn test_moon_tree_package_json_does_not_execute_failing_postadd() {
     json_command_with_postadd(
         &["tree", "--package", "--json"],
         "moon check --not-a-real-option",
     )
-    .failure()
+    .success()
     .stderr_eq("")
     .stdout_eq(snapbox::str![[r#"
-{"version":3,"status":"failure","error":"Failed to resolve the module dependency graph: When installing packages: failed to execute postadd script in [..],/ncommand: moon","target":null,"root":[],"nodes":[],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"error","message":"postadd script wrote to stderr:/nerror: unexpected argument '--not-a-real-option' found/n/n[..]Usage: moon check [OPTIONS] [PATH].../n/nFor more information, try '--help'."}]}
+{"version":3,"status":"success","error":null,"target":"wasm","root":[0],"nodes":[{"module":"test/root","version":"0.1.0","source":{"kind":"local","path":"[..]"},"rel":"lib"}],"edges":[],"logs":[{"level":"info","message":"Using cached testuser/postadd@1.0.0"},{"level":"warning","message":"Skipped postadd for testuser/postadd; use `moon run-postadd --help` to run it explicitly."}]}
 
 "#]]);
 }

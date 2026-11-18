@@ -18,12 +18,6 @@
 
 //! Selection of dependency sources used by one resolution.
 
-// TODO: Separate source availability from installation completion. Cache original
-// sources even when they declare postadd, but run hooks in writable installation
-// directories. Persist pending/completed/skipped hook state instead of inferring
-// completion from a manifest, then schedule hooks according to dependencies with
-// bounded concurrency. Caching hook outputs needs separately defined build inputs.
-
 mod global;
 mod project;
 
@@ -31,7 +25,6 @@ use std::path::PathBuf;
 
 use moonutil::{
     cache::CacheRoot,
-    child_process::ChildOutputMode,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSourceKind},
     user_log::UserLog,
 };
@@ -55,14 +48,11 @@ pub(crate) trait DependencySource {
 /// Select the dependency source adapter for one resolution.
 ///
 /// The project-local `.mooncakes` directory and the shared immutable cache are
-/// hidden behind the same [`DependencySource`] seam. The project implementation
-/// stores the output mode for its legacy postadd behavior; the immutable
-/// implementation never executes that hook.
+/// hidden behind the same [`DependencySource`] seam. Neither executes scripts.
 pub(crate) fn select<'a>(
     project_dir: impl Into<PathBuf>,
     cache: &'a CacheRoot,
     resolved: &ModuleDependencyGraph,
-    postadd_output: ChildOutputMode,
     jobs: Option<usize>,
 ) -> anyhow::Result<Box<dyn DependencySource + 'a>> {
     let has_registry_sources = resolved
@@ -72,11 +62,7 @@ pub(crate) fn select<'a>(
         return Ok(Box::new(ImmutableDependencySource::new(root, jobs)));
     }
 
-    Ok(Box::new(ProjectDependencySource::new(
-        project_dir,
-        postadd_output,
-        jobs,
-    )))
+    Ok(Box::new(ProjectDependencySource::new(project_dir, jobs)))
 }
 
 #[cfg(test)]
@@ -91,7 +77,6 @@ mod tests {
 
     use moonutil::{
         cache::{CacheKind, CacheRoot},
-        child_process::ChildOutputMode,
         manifest::MoonMod,
         resolution::{ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
         user_log::UserLog,
@@ -236,14 +221,7 @@ mod tests {
         let cache = global_cache(&sandbox.path().join("cache"));
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let source = select(
-            sandbox.path().join(".mooncakes"),
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, None).unwrap();
 
         let first = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -264,33 +242,32 @@ mod tests {
     }
 
     #[test]
-    fn postadd_is_rejected_before_publication() {
+    fn postadd_sources_are_cached_without_executing_hooks() {
         let sandbox = tempfile::TempDir::new().unwrap();
         let cache_dir = sandbox.path().join("cache");
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(true);
         let (resolved, module) = test_env();
-        let source = select(
-            sandbox.path().join(".mooncakes"),
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, None).unwrap();
         let directory = ImmutableDependencySource::new(&cache_dir, None)
             .source_dir(resolved.module_source(module));
 
-        let error = source
-            .ensure(&registry, &resolved, false, &user_log())
-            .unwrap_err();
-
+        let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        source
+            .ensure(&registry, &resolved, false, &user_log)
+            .unwrap();
         assert!(
-            format!("{error:#}").contains("scripts.postadd"),
-            "{error:#}"
+            capture
+                .take()
+                .iter()
+                .any(|entry| entry.message.contains("Skipped postadd"))
         );
         assert_eq!(registry.installations.load(Ordering::SeqCst), 1);
-        assert!(!directory.exists());
+        assert!(directory.join("moon.mod").is_file());
+        source
+            .ensure(&registry, &resolved, true, &user_log)
+            .unwrap();
+        assert_eq!(registry.installations.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -299,14 +276,7 @@ mod tests {
         let cache = global_cache(&sandbox.path().join("cache"));
         let registry = TestRegistry::new(false);
         let (resolved, _) = test_env();
-        let source = select(
-            sandbox.path().join(".mooncakes"),
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, None).unwrap();
 
         let error = source
             .ensure(&registry, &resolved, true, &user_log())
@@ -329,27 +299,13 @@ mod tests {
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
-                let source = select(
-                    &project_dir,
-                    &cache,
-                    &resolved,
-                    ChildOutputMode::Inherit,
-                    None,
-                )
-                .unwrap();
+                let source = select(&project_dir, &cache, &resolved, None).unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
             });
             let second = scope.spawn(|| {
-                let source = select(
-                    &project_dir,
-                    &cache,
-                    &resolved,
-                    ChildOutputMode::Inherit,
-                    None,
-                )
-                .unwrap();
+                let source = select(&project_dir, &cache, &resolved, None).unwrap();
                 source
                     .ensure(registry.as_ref(), &resolved, false, &user_log())
                     .unwrap();
@@ -372,14 +328,7 @@ mod tests {
         let first_registry = TestRegistry::new(false);
         let second_registry = TestRegistry::new(false).with_checksum(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
-        let source = select(
-            sandbox.path().join(".mooncakes"),
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, None).unwrap();
 
         let first = source
             .ensure(&first_registry, &resolved, false, &user_log())
@@ -410,14 +359,7 @@ mod tests {
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(false).with_checksum_after_first_read(SECOND_CHECKSUM);
         let (resolved, module) = test_env();
-        let source = select(
-            sandbox.path().join(".mooncakes"),
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, None).unwrap();
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log())
@@ -446,14 +388,7 @@ mod tests {
         let cache = global_cache(&cache_dir);
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
-        let source = select(
-            sandbox.path().join(".mooncakes"),
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved, None).unwrap();
         let directory = ImmutableDependencySource::new(&cache_dir, None)
             .source_dir(resolved.module_source(module));
         std::fs::create_dir_all(&directory).unwrap();
@@ -494,14 +429,7 @@ mod tests {
         let registry = TestRegistry::new(false);
         let (resolved, module) = test_env();
         let user_log = user_log();
-        let source = select(
-            &project_dir,
-            &cache,
-            &resolved,
-            ChildOutputMode::Inherit,
-            None,
-        )
-        .unwrap();
+        let source = select(&project_dir, &cache, &resolved, None).unwrap();
 
         let paths = source
             .ensure(&registry, &resolved, false, &user_log)

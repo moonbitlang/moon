@@ -192,8 +192,7 @@ and Moon-managed setup-child output remain separate mechanisms.
 
 ## Moon-managed setup children
 
-Moon-managed setup children currently include legacy `postadd` hooks. Their
-output mode is selected explicitly at the command seam:
+Moon-managed child output mode is selected explicitly at the command seam:
 
 ```rust
 enum ChildOutputMode {
@@ -202,19 +201,20 @@ enum ChildOutputMode {
 }
 ```
 
-Human commands inherit the child's stdout and stderr. Machine-readable command
-modes that synchronize dependencies, currently `check --json` and
-`tree --package --json`, capture both channels, close the child's stdin, and
-wait for completion before producing the Command Result. Non-empty output from
-a successful child becomes an informational User Log entry; output from a
-failed child becomes an error. User Log filtering and child-output mode remain
+Inherited mode forwards the child's stdout and stderr. The runner also supports
+capturing both channels and closing the child's stdin: non-empty output from a
+successful child becomes an informational User Log entry; output from a failed
+child becomes an error. User Log filtering and child-output mode remain
 independent decisions: capture is never inferred from the User Log destination.
 
-Registry adapters only acquire and verify source. Project-local dependency
-installation invokes the isolated legacy-postadd module after materialization,
-while immutable cached sources reject postadd and never receive process-output
-policy. Package prebuild tasks remain build-graph work owned by the build
-executor. User programs remain Process Passthrough.
+Source installation skips legacy `postadd` scripts and reports a User Log
+warning. This applies to project-local sources, immutable cached sources,
+`fetch`, and registry binary installation. The temporary `moon run-postadd
+[MODULE]` command explicitly runs one installed dependency's script, or the
+current module's script when no name is given, with inherited child output.
+Every invocation runs the script again; failure preserves the source directory.
+Package prebuild tasks remain build-graph work owned by the build executor.
+User programs remain Process Passthrough.
 
 ## Regression coverage
 
@@ -237,7 +237,7 @@ Public CLI tests cover:
 - complete JSON stdout and trace files for successful and failed JSON checks;
 - complete JSON stdout with empty stderr for successful and failed registry
   searches;
-- JSON tree capture for successful and failed module and package trees, plus
-  JSON check capture for successful and failed legacy postadd hooks and nested
-  binary-dependency builds; and
+- JSON tree capture for successful and failed module and package trees, skipped
+  postadd warnings in JSON check and tree results, and nested binary-dependency
+  builds; and
 - existing `moon run` trace and temporary-project cleanup invariants.

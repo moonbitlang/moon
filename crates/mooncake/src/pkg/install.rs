@@ -117,13 +117,8 @@ pub(crate) fn install_impl(
     } else {
         user_log.clone()
     };
-    let dependency_source = dependency_source::select(
-        &dirs.mooncakes_dir,
-        source_cache,
-        &res,
-        output_options.child_output,
-        jobs,
-    )?;
+    let dependency_source =
+        dependency_source::select(&dirs.mooncakes_dir, source_cache, &res, jobs)?;
     let dependency_paths =
         dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
 

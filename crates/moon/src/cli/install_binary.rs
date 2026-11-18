@@ -30,7 +30,6 @@ use mooncake::{
 };
 use moonutil::{
     build_options::RunMode,
-    child_process::{ChildOutputMode, ManagedChildRunner},
     cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::lock_directory,
@@ -260,8 +259,8 @@ pub(super) fn install_binary(
     let module_dir = tmp_dir.path();
 
     registry.materialize_source_to(&module, module_dir, user_log)?;
-    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(module_dir, &child)?;
+    let manifest = moonutil::manifest::read_module_desc_file_in_dir(module_dir)?;
+    legacy_postadd::warn_skipped(&manifest, user_log);
 
     let filter = PackageFilter::package_path(path.package.clone(), install_all);
 
