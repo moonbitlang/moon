@@ -17,9 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::MoonBuildCli;
+use crate::cli::UniversalFlags;
 use clap::{Arg, Command, CommandFactory};
 use clap_complete::{Shell, generate};
-use moonutil::cli_support::UniversalFlags;
 use std::io::{self, Write};
 
 /// Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout

@@ -18,7 +18,7 @@
 
 use std::{ffi::OsStr, path::Path};
 
-use crate::mooncakes::ModuleName;
+use crate::resolution::ModuleName;
 
 pub const MOON_MOD: &str = "moon.mod";
 pub const MOON_MOD_JSON: &str = "moon.mod.json";

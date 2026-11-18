@@ -86,11 +86,10 @@ use fix::FixSubcommand;
 use fmt::FmtSubcommand;
 use generate_test_driver::GenerateTestDriverSubcommand;
 use info::InfoSubcommand;
-use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
-use moonutil::cli_support::{
+use mooncake::cli::{
     DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
-    UniversalFlags,
 };
+use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
 use new::NewSubcommand;
 use prove::ProveSubcommand;
 use run::RunSubcommand;
@@ -123,6 +122,43 @@ fn standalone_mbtx_path<'a>(
         "standalone `.mbtx` `{command}` expects exactly one `PATH`"
     );
     Ok(Some(path))
+}
+
+#[derive(Debug, clap::Parser, serde::Serialize, Clone)]
+#[clap(next_help_heading = "Common Options")]
+struct UniversalFlags {
+    #[clap(flatten)]
+    source_tgt_dir: moonutil::project::SourceTargetDirs,
+
+    #[clap(skip)]
+    #[serde(skip)]
+    workspace_env: moonutil::project::WorkspaceEnv,
+
+    /// Suppress output
+    #[clap(long, short = 'q', global = true)]
+    quiet: bool,
+
+    /// Increase verbosity
+    #[clap(long, short = 'v', global = true)]
+    verbose: bool,
+
+    /// Trace the execution of the program
+    #[clap(long, global = true)]
+    trace: bool,
+
+    /// Do not actually run the command
+    #[clap(long, global = true)]
+    dry_run: bool,
+
+    /// Unstable flags to MoonBuild.
+    #[clap(long, short = 'Z', default_value = "", env = "MOON_UNSTABLE")]
+    unstable_feature: Box<moonutil::features::FeatureGate>,
+}
+
+impl UniversalFlags {
+    fn user_log_level(&self) -> log::LevelFilter {
+        moonutil::user_log::user_log_level(self.verbose, self.quiet)
+    }
 }
 
 #[derive(Debug, clap::Parser)]

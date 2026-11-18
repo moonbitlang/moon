@@ -39,8 +39,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
-use moonutil::cli_support::{AutoSyncFlags, UniversalFlags};
+use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::target::SurfaceTarget;
 use tracing::instrument;

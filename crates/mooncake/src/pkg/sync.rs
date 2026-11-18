@@ -23,7 +23,6 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use moonutil::{
     cache::CacheRoot,
-    cli_support::AutoSyncFlags,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
     resolution::{
@@ -32,12 +31,27 @@ use moonutil::{
     user_log::UserLog,
 };
 use semver::Version;
+use serde::{Deserialize, Serialize};
 
 /// User-visible output policy while synchronizing dependencies.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
     /// Suppress dependency acquisition progress below error level.
     pub quiet: bool,
+}
+
+#[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
+#[clap(next_help_heading = "Manifest Options")]
+pub struct AutoSyncFlags {
+    /// Do not sync dependencies, assuming local dependencies are up-to-date
+    #[clap(long)]
+    pub frozen: bool,
+}
+
+impl AutoSyncFlags {
+    pub fn dont_sync(&self) -> bool {
+        self.frozen
+    }
 }
 
 /// Given the specified source directory, resolve the module dependency relation

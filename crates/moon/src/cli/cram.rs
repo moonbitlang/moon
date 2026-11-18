@@ -29,8 +29,8 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::{
-    cli_support::AutoSyncFlags,
     command_output::CommandOutput,
     path_normalizer::PathNormalizer,
     project::PackageDirs,

@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use clap::Parser;
 use moonbuild::execution::BuildInput;
 use moonbuild::{BuildMeta, compile::BuildSession};
@@ -25,7 +26,6 @@ use moonbuild_rupes_recta::{
     DiscoveredProject, ResolvedProject, build_plan::ArtifactKey, model::PackageId,
 };
 use moonutil::{
-    cli_support::UniversalFlags,
     cond_expr::OptLevel,
     manifest::read_module_desc_file_in_dir,
     project::{SourceTargetDirs, WorkspaceEnv},

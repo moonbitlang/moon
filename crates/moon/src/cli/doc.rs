@@ -23,7 +23,7 @@ use std::path::Path;
 use anyhow::{Context as _, bail};
 use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::cli_support::AutoSyncFlags;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;

@@ -57,7 +57,19 @@ invocation dispatch. Engine completes help/version and parse errors using the
 embedded frontend and bound streams, before any artifact preparation. Only valid
 execution requests launch the preparation helper. Ordinary Moon command
 definitions remain in Moon; guest virtual spawn does not interpret or admit
-those commands.
+those commands. Moon's `UniversalFlags` is private to its CLI. Package-management
+flags and subcommand payloads live in `mooncake::cli`; `MooncakeFlags` contains
+directory selection, workspace context, verbosity and dry-run options, without
+Moon's tracing or build feature flags. Dependency synchronization owns
+`AutoSyncFlags` in `mooncake::pkg::sync`, reexported by the package-management CLI.
+
+Moon still sends the existing stdin tuple, including its `trace` and
+`unstable_feature` fields and the legacy `build_graph` field, for compatibility
+with supported binaries. `MooncakeFlags` accepts that payload while ignoring the
+extra fields. Narrowing the sender's representation is deferred until supported
+receivers accept it. Ctrl-C cleanup belongs to each command frontend: Moon's
+watch and upgrade handlers restore the terminal cursor before exiting, and
+upgrade also performs its Windows executable recovery.
 
 The selector owns the interaction between Clap and compatibility grammar. It
 first selects executable-name and hidden-tool parsers, then parses ordinary

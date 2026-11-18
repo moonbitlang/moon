@@ -19,8 +19,8 @@
 // Output snapshots for `moon deprecate --dry-run` and `moon view`.
 // These exercise the renderers directly with registry responses as fixtures.
 
+use mooncake::cli::DeprecateSubcommand;
 use mooncake::registry::{RegistryModuleManifest, RegistryRelease, RegistryUserModules};
-use moonutil::cli_support::DeprecateSubcommand;
 use serde_json::json;
 
 use super::{

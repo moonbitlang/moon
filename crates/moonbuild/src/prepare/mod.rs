@@ -23,10 +23,9 @@ pub use single_file::discover_single_file_project;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{DiscoveredProject, DiscoveryConfig, resolve::ProjectResolutionError};
-use mooncake::pkg::sync::{SyncOutputOptions, auto_sync};
+use mooncake::pkg::sync::{AutoSyncFlags, SyncOutputOptions, auto_sync};
 use moonutil::{
     cache::CacheRoot,
-    cli_support::AutoSyncFlags,
     project::{PackageDirs, WorkspaceEnv},
     resolution::{DirSyncResult, ModuleDependencyGraph},
     user_log::UserLog,

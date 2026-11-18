@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use std::{fs::File, io::Write, str::FromStr};
 
 use anyhow::{Context, bail};
@@ -26,7 +27,6 @@ use mooncake::registry::{
 };
 use moonutil::{
     MOON_HOME,
-    cli_support::UniversalFlags,
     command_output::CommandOutput,
     resolution::ModuleName,
     user_log::{UserLog, UserLogEntry, UserLogEntryLevel},

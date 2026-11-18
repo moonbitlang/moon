@@ -16,15 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
+use mooncake::cli::AutoSyncFlags;
 use moonutil::{
     build_options::RunMode,
-    cli_support::AutoSyncFlags,
-    cli_support::UniversalFlags,
     command_output::CommandOutput,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},

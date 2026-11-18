@@ -18,6 +18,7 @@
 
 use std::{collections::BTreeSet, path::Path};
 
+use crate::cli::UniversalFlags;
 use anyhow::bail;
 use moonbuild::execution::{BuildConfig, OutputStyle};
 use moonbuild_rupes_recta::{
@@ -28,7 +29,6 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode,
-    cli_support::UniversalFlags,
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
     features::FeatureGate,

@@ -22,21 +22,23 @@ use std::{
     process::{Command, Stdio},
 };
 
+use crate::cli::UniversalFlags;
 use anyhow::bail;
-use mooncake::registry::{RegistryClient, RegistryRelease};
-use moonutil::cli_support::{
-    DeprecateSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, UniversalFlags,
+use mooncake::cli::{
+    DeprecateSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
 };
+use mooncake::registry::{RegistryClient, RegistryRelease};
 use moonutil::command_output::CommandOutput;
 use moonutil::user_log::UserLog;
 use serde::Serialize;
 
 use super::{process, search::sanitize_registry_text};
 
-// TODO: Remove this wrapper once released mooncake versions accept flags
-// without the removed `build_graph` field in their stdin payload.
+// TODO: Send mooncake::cli::MooncakeFlags once supported mooncake releases accept
+// payloads without Moon's `trace`, `unstable_feature`, and legacy `build_graph`
+// fields. Until then, preserve the complete existing stdin representation.
 #[derive(Serialize)]
-struct MooncakeFlags {
+struct LegacyMooncakeFlags {
     #[serde(flatten)]
     flags: UniversalFlags,
     build_graph: bool,
@@ -60,7 +62,7 @@ pub(super) fn execute_cli<T: Serialize>(
     match child.stdin.take() {
         Some(mut stdin) => {
             let data = (
-                MooncakeFlags {
+                LegacyMooncakeFlags {
                     flags: cli,
                     build_graph: false,
                 },
@@ -208,6 +210,73 @@ mod tests {
 
     use super::*;
     use crate::cli::{MoonBuildCli, MoonBuildSubcommands};
+
+    #[test]
+    fn legacy_stdin_payload_is_preserved_and_accepted_by_mooncake_flags() {
+        let cli = MoonBuildCli::try_parse_from([
+            "moon",
+            "-C",
+            "project",
+            "--target-dir",
+            "output",
+            "--trace",
+            "--verbose",
+            "--dry-run",
+            "-Z",
+            "rr_export_module_graph",
+            "package",
+            "--frozen",
+            "--list",
+        ])
+        .unwrap();
+        let Some(MoonBuildSubcommands::Package(command)) = cli.subcommand else {
+            panic!("expected the package command");
+        };
+        let payload = serde_json::to_value((
+            LegacyMooncakeFlags {
+                flags: cli.flags,
+                build_graph: false,
+            },
+            MooncakeSubcommands::Package(command),
+        ))
+        .unwrap();
+        let command = json!({"Package": {
+            "auto_sync_flags": {"frozen": true},
+            "list": true,
+        }});
+        // Keep the fields required by existing binaries, including Moon-only
+        // options, until the supported receivers accept the narrower payload.
+        assert_eq!(
+            payload,
+            json!([{
+                "source_tgt_dir": {"cwd": "project", "target_dir": "output"},
+                "quiet": false,
+                "verbose": true,
+                "trace": true,
+                "dry_run": true,
+                "unstable_feature": "rr_export_module_graph",
+                "build_graph": false,
+            }, command])
+        );
+
+        let (flags, decoded_command): (mooncake::cli::MooncakeFlags, MooncakeSubcommands) =
+            serde_json::from_value(payload).unwrap();
+        assert!(matches!(
+            flags.workspace_env,
+            moonutil::project::WorkspaceEnv::Auto
+        ));
+        // A new receiver reads all package-management options without carrying
+        // the sender's build flags into its own CLI or serialized representation.
+        assert_eq!(
+            serde_json::to_value((flags, decoded_command)).unwrap(),
+            json!([{
+                "source_tgt_dir": {"cwd": "project", "target_dir": "output"},
+                "quiet": false,
+                "verbose": true,
+                "dry_run": true,
+            }, command])
+        );
+    }
 
     #[test]
     fn deprecate_preserves_the_private_command_payload() {

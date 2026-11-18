@@ -25,6 +25,7 @@ pub(super) mod format_workspace;
 pub(super) mod generate_node_test_package_config;
 pub(super) mod migrate_manifest;
 
+use crate::cli::UniversalFlags;
 use archive::*;
 use demangle::*;
 use embed::*;
@@ -32,7 +33,6 @@ use format_and_diff::*;
 use format_workspace::*;
 use generate_node_test_package_config::*;
 use migrate_manifest::*;
-use moonutil::cli_support::UniversalFlags;
 
 #[derive(Debug, clap::Parser)]
 pub(super) struct ToolSubcommand {

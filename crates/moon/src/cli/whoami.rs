@@ -18,9 +18,10 @@
 
 use std::{fs::File, io::BufReader};
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
 use mooncake::registry::Credentials;
-use moonutil::{MOON_HOME, cli_support::UniversalFlags};
+use moonutil::MOON_HOME;
 
 /// Show login status and username
 #[derive(Debug, clap::Parser)]

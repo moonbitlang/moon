@@ -2178,7 +2178,6 @@ dependencies = [
  "ariadne",
  "clap",
  "colored",
- "dialoguer",
  "dunce",
  "expect-test",
  "find-msvc-tools",
