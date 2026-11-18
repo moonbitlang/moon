@@ -16,17 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
-
 use anyhow::bail;
 use clap::ValueEnum;
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    cond_expr::{CompileCondition, OptLevel},
-    constants::O_EXT,
-};
+use crate::constants::O_EXT;
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
 #[repr(u8)]
@@ -223,119 +217,4 @@ impl TargetBackend {
     pub fn all() -> &'static [Self] {
         Self::value_variants()
     }
-}
-
-pub fn backend_filter(
-    files_and_con: &IndexMap<PathBuf, CompileCondition>,
-    debug_flag: bool,
-    target_backend: TargetBackend,
-) -> Vec<std::path::PathBuf> {
-    files_and_con
-        .iter()
-        .filter_map(|(file, cond)| {
-            if cond.eval(OptLevel::from_debug_flag(debug_flag), target_backend) {
-                Some(file)
-            } else {
-                None
-            }
-        })
-        .cloned()
-        .collect()
-}
-
-#[test]
-fn test_backend_filter() {
-    use expect_test::expect;
-
-    let cond = CompileCondition {
-        backend: vec![
-            TargetBackend::Js,
-            TargetBackend::Wasm,
-            TargetBackend::WasmGC,
-        ],
-        optlevel: vec![OptLevel::Debug, OptLevel::Release],
-    };
-
-    let files: IndexMap<PathBuf, CompileCondition> = IndexMap::from([
-        (PathBuf::from("a.mbt"), cond.clone()),
-        (PathBuf::from("a_test.mbt"), cond.clone()),
-        (PathBuf::from("b.mbt"), cond.clone()),
-        (PathBuf::from("b_test.mbt"), cond.clone()),
-        (
-            PathBuf::from("x.js.mbt"),
-            CompileCondition {
-                backend: vec![TargetBackend::Js],
-                optlevel: vec![OptLevel::Debug, OptLevel::Release],
-            },
-        ),
-        (
-            PathBuf::from("x_test.js.mbt"),
-            CompileCondition {
-                backend: vec![TargetBackend::Js],
-                optlevel: vec![OptLevel::Debug, OptLevel::Release],
-            },
-        ),
-        (
-            PathBuf::from("x.wasm.mbt"),
-            CompileCondition {
-                backend: vec![TargetBackend::Wasm],
-                optlevel: vec![OptLevel::Debug, OptLevel::Release],
-            },
-        ),
-        (
-            PathBuf::from("x_test.wasm.mbt"),
-            CompileCondition {
-                backend: vec![TargetBackend::Wasm],
-                optlevel: vec![OptLevel::Debug, OptLevel::Release],
-            },
-        ),
-        (
-            PathBuf::from("x.wasm-gc.mbt"),
-            CompileCondition {
-                backend: vec![TargetBackend::WasmGC],
-                optlevel: vec![OptLevel::Debug, OptLevel::Release],
-            },
-        ),
-        (
-            PathBuf::from("x_test.wasm-gc.mbt"),
-            CompileCondition {
-                backend: vec![TargetBackend::WasmGC],
-                optlevel: vec![OptLevel::Debug, OptLevel::Release],
-            },
-        ),
-    ]);
-
-    expect![[r#"
-        [
-            "a.mbt",
-            "a_test.mbt",
-            "b.mbt",
-            "b_test.mbt",
-            "x.js.mbt",
-            "x_test.js.mbt",
-        ]
-    "#]]
-    .assert_debug_eq(&backend_filter(&files, false, TargetBackend::Js));
-    expect![[r#"
-        [
-            "a.mbt",
-            "a_test.mbt",
-            "b.mbt",
-            "b_test.mbt",
-            "x.wasm.mbt",
-            "x_test.wasm.mbt",
-        ]
-    "#]]
-    .assert_debug_eq(&backend_filter(&files, false, TargetBackend::Wasm));
-    expect![[r#"
-        [
-            "a.mbt",
-            "a_test.mbt",
-            "b.mbt",
-            "b_test.mbt",
-            "x.wasm-gc.mbt",
-            "x_test.wasm-gc.mbt",
-        ]
-    "#]]
-    .assert_debug_eq(&backend_filter(&files, false, TargetBackend::WasmGC));
 }

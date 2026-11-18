@@ -78,9 +78,7 @@ fn test_js_format() {
     let _ = get_stdout(&dir, ["build", "--target", "js", "--release"]);
     let t = dir.join(BUILD_DIR).join("js").join("release").join("build");
     check(
-        std::fs::read_to_string(t.join("lib0").join("lib0.js"))
-            .unwrap()
-            .replace_crlf_to_lf(),
+        read(t.join("lib0").join("lib0.js")),
         expect![[r#"
             function _M0FP38username5hello4lib05hello() {
               return "Hello, world!";
@@ -89,9 +87,7 @@ fn test_js_format() {
         "#]],
     );
     check(
-        std::fs::read_to_string(t.join("lib1").join("lib1.js"))
-            .unwrap()
-            .replace_crlf_to_lf(),
+        read(t.join("lib1").join("lib1.js")),
         expect![[r#"
             function _M0FP38username5hello4lib15hello() {
               return "Hello, world!";
@@ -100,9 +96,7 @@ fn test_js_format() {
         "#]],
     );
     check(
-        std::fs::read_to_string(t.join("lib2").join("lib2.js"))
-            .unwrap()
-            .replace_crlf_to_lf(),
+        read(t.join("lib2").join("lib2.js")),
         expect![[r#"
             function _M0FP38username5hello4lib25hello() {
               return "Hello, world!";
@@ -111,9 +105,7 @@ fn test_js_format() {
         "#]],
     );
     check(
-        std::fs::read_to_string(t.join("lib3").join("lib3.js"))
-            .unwrap()
-            .replace_crlf_to_lf(),
+        read(t.join("lib3").join("lib3.js")),
         expect![[r#"
             (() => {
               function _M0FP38username5hello4lib35hello() {

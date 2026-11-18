@@ -144,7 +144,7 @@ fn test_moonfmt() {
         .current_dir(&dir)
         .output()
         .unwrap();
-    let out = String::from_utf8(out.stdout).unwrap().replace_crlf_to_lf();
+    let out = String::from_utf8(out.stdout).unwrap().replace("\r\n", "\n");
     check(
         &out,
         expect![[r#"
