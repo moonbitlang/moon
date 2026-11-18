@@ -35,8 +35,6 @@ colored.workspace = true
 indexmap.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json_lenient.workspace = true
-serde_ignored.workspace = true
-serde-untagged.workspace = true
 clap.workspace = true
 dialoguer.workspace = true
 dunce.workspace = true

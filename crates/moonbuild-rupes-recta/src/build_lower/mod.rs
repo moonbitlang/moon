@@ -207,7 +207,6 @@ mod tests {
             source: None,
             rule: None,
             ext: Default::default(),
-            unknown_fields: Vec::new(),
             warn_list: None,
             include: None,
             exclude: None,

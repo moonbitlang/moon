@@ -57,9 +57,11 @@ type checks, and reports remaining keys as warnings. Nested configuration keys
 are checked too. The same diagnostics apply to JSON manifests. Module diagnostics
 are retained with the parsed manifest until its role in resolution is known.
 
-Compatibility forms such as boolean/object `link` and map/list imports dispatch
-by input shape when decoding. This keeps nested unknown-field diagnostics in
-the normal deserialization path without a second parse or a separate field list.
+Configuration objects retain unknown fields through Serde's `flatten`; ordinary
+traversal then collects their paths for diagnostics. Compatibility forms such as
+boolean/object `link` and map/list imports use derived deserialization. Accepted
+fields and aliases are defined by the types, without a second parse or a separate
+field list.
 Prebuild entries decode both `command` and `rule` before selecting the direct
 command when both are present, so a malformed unused field is still rejected.
 

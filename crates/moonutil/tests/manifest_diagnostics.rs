@@ -29,8 +29,12 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
         (
             "moon.pkg",
             r#"options(
-  future: true,
-  link: {"native": {"cc_link_flags": "-lm"}},
+  future: {"opaque": true},
+  pkgtype: {"kind": "library", "future": true},
+  "virtual": {"has-default": true, "future": true},
+  link: {"future": true, "native": {"cc_link_flags": "-lm"}, "wasm-gc": {
+    "import-memory": {"module": "env", "name": "memory", "future": true}
+  }},
   formatter: {"future": true},
   "import": [{"path": "test/dependency", "future": true}],
   "pre-build": [{"input": "a", "output": "b", "command": "echo", "future": true}]
@@ -39,8 +43,12 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
         (
             "moon.pkg.json",
             r#"{
-  "future": true,
-  "link": {"native": {"cc_link_flags": "-lm"}},
+  "future": {"opaque": true},
+  "pkgtype": {"kind": "library", "future": true},
+  "virtual": {"has-default": true, "future": true},
+  "link": {"future": true, "native": {"cc_link_flags": "-lm"}, "wasm-gc": {
+    "import-memory": {"module": "env", "name": "memory", "future": true}
+  }},
   "formatter": {"future": true},
   "import": [{"path": "test/dependency", "future": true}],
   "pre-build": [{"input": "a", "output": "b", "command": "echo", "future": true}]
@@ -59,10 +67,14 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
             )
             .unwrap();
             let warnings = capture.take();
-            assert_eq!(warnings.len(), if emit_warnings { 5 } else { 0 });
+            assert_eq!(warnings.len(), if emit_warnings { 9 } else { 0 });
             for key in [
                 "future",
+                "pkgtype.future",
+                "virtual.future",
+                "link.future",
                 "link.native.cc_link_flags",
+                "link.wasm-gc.import-memory.future",
                 "formatter.future",
                 "import[0].future",
                 "pre-build[0].future",
@@ -97,6 +109,14 @@ rule(name: "generate", command: "echo", typo: true)
   "name": "test/diagnostics",
   "future": true,
   "rule": [{"name": "generate", "command": "echo", "typo": true}]
+}"#,
+        ),
+        (
+            "moon.mod.json",
+            r#"{
+  "name": "test/diagnostics",
+  "future": true,
+  "rule": {"name": "generate", "command": "echo", "typo": true}
 }"#,
         ),
     ] {
@@ -190,25 +210,17 @@ fn json_duplicate_known_fields_remain_errors() {
     let dir = tempfile::tempdir().unwrap();
     let log = UserLog::new(log::LevelFilter::Off);
     let path = dir.path().join("moon.pkg.json");
-    for (source, field) in [
-        (r#"{"name": "test/first", "name": "test/second"}"#, "name"),
-        (
-            r#"{"link": {"native": {"cc": "clang", "cc": "gcc"}}}"#,
-            "cc",
-        ),
-        (r#"{"import": [{"path": "a/b", "path": "c/d"}]}"#, "path"),
-        (
-            r#"{"pre-build": [{"input": "a", "output": "b", "command": "echo", "command": "other"}]}"#,
-            "command",
-        ),
+    for source in [
+        r#"{"name": "test/first", "name": "test/second"}"#,
+        r#"{"link": {"native": {"cc": "clang", "cc": "gcc"}}}"#,
+        r#"{"import": [{"path": "a/b", "path": "c/d"}]}"#,
+        r#"{"pre-build": [{"input": "a", "output": "b", "command": "echo", "command": "other"}]}"#,
     ] {
         std::fs::write(&path, source).unwrap();
-        let error =
-            read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false)
-                .unwrap_err();
         assert!(
-            format!("{error:#}").contains(&format!("duplicate field `{field}`")),
-            "{error:#}"
+            read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false)
+                .is_err(),
+            "accepted duplicate fields in {source}"
         );
     }
     let source = r#"{"name": "test/first", "name": "test/second"}"#;

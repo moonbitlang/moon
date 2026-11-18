@@ -82,10 +82,6 @@ pub struct MoonMod {
     #[serde(flatten)]
     pub ext: serde_json_lenient::Value,
 
-    /// Parse-time diagnostics retained until the caller knows the module's role.
-    #[serde(skip)]
-    pub unknown_fields: Vec<String>,
-
     pub warn_list: Option<String>,
 
     /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
@@ -108,22 +104,16 @@ pub struct MoonMod {
 pub struct MoonModRule {
     pub name: String,
     pub command: String,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: serde_json_lenient::Map<String, serde_json_lenient::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum MoonModJSONRules {
     Single(MoonModRule),
     Multiple(Vec<MoonModRule>),
-}
-
-impl<'de> Deserialize<'de> for MoonModJSONRules {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        serde_untagged::UntaggedEnumVisitor::new()
-            .map(|value| value.deserialize().map(Self::Single))
-            .seq(|value| value.deserialize().map(Self::Multiple))
-            .deserialize(deserializer)
-    }
 }
 
 impl MoonModJSONRules {
@@ -325,18 +315,6 @@ impl TryFrom<MoonModJSON> for MoonMod {
             checksum: j.checksum,
             source,
             rule: j.rule.map(MoonModJSONRules::into_vec),
-            unknown_fields: j
-                .ext
-                .as_object()
-                .into_iter()
-                // The resolver still diagnoses removed binary dependencies.
-                .flat_map(|fields| {
-                    fields
-                        .keys()
-                        .filter(|key| key.as_str() != "bin-deps")
-                        .cloned()
-                })
-                .collect(),
             ext: j.ext,
 
             warn_list: j.warn_list,

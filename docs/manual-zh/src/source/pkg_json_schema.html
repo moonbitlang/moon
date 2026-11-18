@@ -507,41 +507,38 @@
           "type": "string"
         },
         {
-          "$ref": "#/definitions/PkgJSONImportObject"
-        }
-      ]
-    },
-    "PkgJSONImportObject": {
-      "type": "object",
-      "required": [
-        "path"
-      ],
-      "properties": {
-        "alias": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "import-all": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "path": {
-          "type": "string"
-        },
-        "value": {
-          "type": [
-            "array",
-            "null"
+          "type": "object",
+          "required": [
+            "path"
           ],
-          "items": {
-            "type": "string"
+          "properties": {
+            "alias": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "import-all": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "value": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
-      }
+      ]
     },
     "PkgType": {
       "description": "The `pkgtype(kind: \"...\")` declaration in `moon.pkg`.",

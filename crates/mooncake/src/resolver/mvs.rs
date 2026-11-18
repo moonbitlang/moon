@@ -771,7 +771,6 @@ mod test {
                 source: None,
                 rule: None,
                 ext: Null,
-                unknown_fields: [],
                 warn_list: None,
                 include: None,
                 exclude: None,

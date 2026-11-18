@@ -2377,10 +2377,12 @@ mod tests {
     fn resolve_prebuild_rule_command_uses_module_rule() {
         let module = test_module(vec![
             moonutil::manifest::MoonModRule {
+                extra: Default::default(),
                 name: "rule1".to_string(),
                 command: "exe1".to_string(),
             },
             moonutil::manifest::MoonModRule {
+                extra: Default::default(),
                 name: "rule2".to_string(),
                 command: "exe2".to_string(),
             },
@@ -2396,10 +2398,12 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_uses_package_local_rule() {
         let module = test_module(vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "module_rule".to_string(),
             command: "module_exe".to_string(),
         }]);
         let local_rules = vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "local_rule".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -2419,10 +2423,12 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_prefers_package_local_rule() {
         let module = test_module(vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "module_exe".to_string(),
         }]);
         let local_rules = vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -2442,6 +2448,7 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_rejects_unknown_rule() {
         let module = test_module(vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "exe1".to_string(),
         }]);
