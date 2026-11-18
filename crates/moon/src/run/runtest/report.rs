@@ -51,7 +51,8 @@ fn print_test_result_json(res: &TestCaseResult) {
             // In JSON mode, do not emit anything for successful tests.
             // If verbose success output is desired, callers should disable json.
         }
-        Failed | RuntimeError | ExpectTestFailed | SnapshotTestFailed | ExpectPanic => {
+        Failed | RuntimeError | ExpectTestFailed | SnapshotTestFailed | FileSnapshotFailed
+        | ExpectPanic => {
             // Repopulate test_name from metadata when available
             let test_name = res
                 .meta
@@ -90,6 +91,23 @@ fn print_test_result_normal(
     let message = &output.message;
     let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
 
+    if let Ok(Some(report)) = super::file_snapshot::parse(message)
+        && !matches!(res.kind, TestResultKind::Passed)
+    {
+        let _ = formatter.write_failure(&mut std::io::stdout());
+        println!();
+        if matches!(res.kind, TestResultKind::ExpectTestFailed) {
+            let mut body = output.as_ref().clone();
+            body.message = report.body_error.clone();
+            let _ = render_expect_fail(pkg_src, &body);
+        } else if !report.body_error.is_empty() {
+            println!("{}", report.body_error);
+        }
+        if let Err(error) = report.render(pkg_src, output) {
+            println!("Unable to display snapshot differences: {error:#}");
+        }
+        return;
+    }
     match res.kind {
         TestResultKind::Passed => {
             if message.starts_with(BATCHBENCH) {
@@ -114,6 +132,9 @@ fn print_test_result_normal(
             let _ = formatter.write_failure(&mut std::io::stdout());
             println!();
             let _ = render_expect_fail(pkg_src, output);
+        }
+        TestResultKind::FileSnapshotFailed => {
+            unreachable!("file snapshot reports are handled above")
         }
         TestResultKind::SnapshotTestFailed => {
             let _ = formatter.write_failure(&mut std::io::stdout());

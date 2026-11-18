@@ -34,6 +34,14 @@ pub(crate) fn perform_promotion(
     pkg_src: &DiscoverResult,
     results: &ReplaceableTestResults,
 ) -> anyhow::Result<(usize, PackageFilter)> {
+    super::file_snapshot::validate_claims(
+        pkg_src,
+        results
+            .map
+            .values()
+            .flat_map(|target| target.map.values())
+            .flat_map(|cases| cases.values()),
+    )?;
     let mut res = PackageFilter::default();
 
     let mut to_update_snapshot = vec![];
@@ -43,7 +51,7 @@ pub(crate) fn perform_promotion(
         for (file, v) in &target_result.map {
             for (idx, result) in v {
                 match result.kind {
-                    TestResultKind::SnapshotTestFailed => {
+                    TestResultKind::SnapshotTestFailed | TestResultKind::FileSnapshotFailed => {
                         info!(?target, file, idx, "Need to update snapshot");
                         res.add_one(
                             *target,
@@ -89,6 +97,8 @@ fn promote_all_snapshots<'a>(
     pkg_src: &DiscoverResult,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
+    let results: Vec<_> = results.into_iter().collect();
+    super::file_snapshot::promote(pkg_src, &results)?;
     apply_snapshot(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
 }
 
@@ -97,5 +107,15 @@ fn promote_all_expects<'a>(
     pkg_src: &DiscoverResult,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
-    apply_expect(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
+    let results = results
+        .into_iter()
+        .map(|result| {
+            let mut raw = result.raw.as_ref().clone();
+            if let Some(report) = super::file_snapshot::parse(&raw.message)? {
+                raw.message = report.body_error;
+            }
+            Ok(raw)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    apply_expect(pkg_src, &results)
 }
