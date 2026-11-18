@@ -24,7 +24,7 @@ use super::selection::{
 use crate::cli::profile;
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
-use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
+use crate::run::{ReplaceableTestResults, TestFilter, TestIndex, TestIndexRange};
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
@@ -37,7 +37,7 @@ use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::{PackageId, TargetKind};
-use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
+use moonutil::build_options::{RunMode, TestArtifacts};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};

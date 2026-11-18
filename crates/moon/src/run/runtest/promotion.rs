@@ -19,14 +19,13 @@
 //! Handles test promotion
 
 use anyhow::Context;
-use moonbuild::expect::{apply_expect, apply_snapshot};
 use moonbuild_rupes_recta::discover::DiscoverResult;
 use tracing::info;
 
 use crate::run::PackageFilter;
-use moonutil::build_options::TestIndexRange;
 
-use super::{ReplaceableTestResults, TestCaseResult, TestResultKind};
+use super::expect::{apply_expect, apply_snapshot};
+use super::{ReplaceableTestResults, TestCaseResult, TestIndexRange, TestResultKind};
 
 /// Perform promotion on all test snapshots and expect tests met. Returns
 /// the total number of tests promoted, along with a filter indicating which

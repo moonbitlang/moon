@@ -57,6 +57,7 @@
     Check the discussion at [core#2684](https://github.com/moonbitlang/core/issues/2684).
 */
 
+mod expect;
 mod filter;
 mod promotion;
 mod report;
@@ -70,10 +71,6 @@ use std::{
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
-use moonbuild::{
-    expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING},
-    runtest::{TestDriverEvent, TestStatistics},
-};
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey, discover::DiscoverResult, model::BuildTarget,
 };
@@ -84,13 +81,47 @@ use moonutil::{
     },
     test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
 use super::{run_with_parallelism, runtime::TestArgs, section_capture::SectionCapture};
+use expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
 use filter::apply_filter;
-pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
+pub(crate) use filter::{PackageFilter, TestFilter, TestIndex, TestIndexRange};
 pub(crate) use promotion::perform_promotion;
 use report::{BATCHBENCH, print_test_result};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+enum TestDriverEvent {
+    #[serde(rename = "start")]
+    Start { file: String, index: u32 },
+    #[serde(rename = "result")]
+    Result {
+        file: String,
+        index: u32,
+        message: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct TestStatistics {
+    package: String,
+    filename: String,
+    index: String,
+    test_name: String,
+    message: String,
+}
+
+impl std::fmt::Display for TestStatistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}::{}::test#{}, message: {}",
+            self.package, self.filename, self.test_name, self.message
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct TestOutlineEntry {
@@ -1022,7 +1053,7 @@ fn parse_one_test_result(
         ExpectTestFailed
     } else if result.message.starts_with(SNAPSHOT_TESTING) {
         // FIXME: file access HERE?!
-        if moonbuild::expect::snapshot_eq(pkg_src, result)
+        if expect::snapshot_eq(pkg_src, result)
             .with_context(|| format!("Failed to read snapshot for {}", result.test_name))?
         {
             Passed

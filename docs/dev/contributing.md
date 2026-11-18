@@ -36,7 +36,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | Build metadata publication | [`moonbuild/src/metadata.rs`](../../crates/moonbuild/src/metadata.rs) |
 | Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
 | Test invocation and result reporting | [`moon/src/run/runtime.rs`](../../crates/moon/src/run/runtime.rs), [`run/runtest/report.rs`](../../crates/moon/src/run/runtest/report.rs) |
-| Test result data and expect/snapshot promotion | [`moonbuild/src/runtest.rs`](../../crates/moonbuild/src/runtest.rs), [`expect.rs`](../../crates/moonbuild/src/expect.rs) |
+| Test result data and expect/snapshot promotion | [`moon/src/run/runtest.rs`](../../crates/moon/src/run/runtest.rs), [`expect.rs`](../../crates/moon/src/run/runtest/expect.rs) |
 | Package management and registry access | [`mooncake/src/pkg`](../../crates/mooncake/src/pkg), [`resolver`](../../crates/mooncake/src/resolver), [`registry`](../../crates/mooncake/src/registry) |
 | Dependency edits preserving manifest comments | [`mooncake/src/pkg/manifest_edit.rs`](../../crates/mooncake/src/pkg/manifest_edit.rs) |
 | Paths, feature flags, and shared types | [`moonutil/src`](../../crates/moonutil/src) |

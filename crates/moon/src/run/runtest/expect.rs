@@ -16,16 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::runtest::TestStatistics;
+//! Interpret expect/snapshot failures and apply their source updates.
+
+use super::TestStatistics;
+use crate::diff::write_diff;
 use anstyle::{AnsiColor, Style};
 use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use core::fmt;
 use moonbuild_rupes_recta::discover::DiscoverResult;
-use similar::DiffOp;
-use similar::DiffTag;
-use similar::TextDiff;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io::Write;
@@ -33,24 +33,13 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Debug, Default)]
-pub struct PackagePatch {
+struct PackagePatch {
     patches: HashMap<String, Vec<BufferExpect>>,
-}
-
-impl PackagePatch {
-    pub fn add(&mut self, filename: &str, patch: BufferExpect) {
-        match self.patches.get_mut(filename) {
-            Some(vec) => vec.push(patch),
-            None => {
-                self.patches.insert(filename.to_string(), vec![patch]);
-            }
-        }
-    }
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct BufferExpect {
+struct BufferExpect {
     range: line_index::TextRange,
     // only for debug
     line_start: i32,
@@ -71,24 +60,22 @@ pub struct BufferExpect {
 }
 
 // something like array out of bounds, moonbit panic & abort catch by js
-pub const ERROR: &str = "Error";
+pub(super) const ERROR: &str = "Error";
 // something like division by zero, overflow, etc.
-pub const RUNTIME_ERROR: &str = "RuntimeError";
+pub(super) const RUNTIME_ERROR: &str = "RuntimeError";
 // control by moonbit
-pub const FAILED: &str = "FAILED";
-// control by moonbit
-pub const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
-pub const SNAPSHOT_TESTING: &str = "@SNAPSHOT_TESTING ";
+pub(super) const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
+pub(super) const SNAPSHOT_TESTING: &str = "@SNAPSHOT_TESTING ";
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TargetKind {
+enum TargetKind {
     Trivial,
     Pipe,
     Call,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Target {
+struct Target {
     left_border_line_start: u32,
     left_border_col_start: u32,
 
@@ -104,7 +91,7 @@ pub struct Target {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct LocationJson {
+struct LocationJson {
     filename: String,
     start_line: u32,
     start_column: u32,
@@ -113,15 +100,17 @@ pub struct LocationJson {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct ExpectFailedRaw {
-    pub loc: LocationJson,
-    pub args_loc: Vec<Option<LocationJson>>,
-    pub expect: Option<String>,
-    pub actual: Option<String>,
-    pub expect_base64: Option<String>,
-    pub actual_base64: Option<String>,
-    pub snapshot: Option<bool>,
-    pub mode: Option<String>,
+struct ExpectFailedRaw {
+    loc: LocationJson,
+    args_loc: Vec<Option<LocationJson>>,
+    expect: Option<String>,
+    actual: Option<String>,
+    expect_base64: Option<String>,
+    actual_base64: Option<String>,
+    // Retain validation of this legacy field; the event prefix selects its kind.
+    #[serde(rename = "snapshot")]
+    _snapshot: Option<bool>,
+    mode: Option<String>,
 }
 
 impl std::str::FromStr for ExpectFailedRaw {
@@ -159,7 +148,7 @@ fn parse_snapshot_result(
 }
 
 #[derive(Debug)]
-pub struct SnapshotResult {
+struct SnapshotResult {
     loc: Location,
     expect_file: PathBuf,
     actual: String,
@@ -167,11 +156,11 @@ pub struct SnapshotResult {
 
 #[derive(Debug)]
 struct Location {
-    pub filename: String,
-    pub line_start: u32,
-    pub col_start: u32,
-    pub line_end: u32,
-    pub col_end: u32,
+    filename: String,
+    line_start: u32,
+    col_start: u32,
+    line_end: u32,
+    col_end: u32,
 }
 
 impl Location {
@@ -204,18 +193,18 @@ impl fmt::Display for Location {
 struct Replace {
     // inspect(1234)
     // ^............^
-    pub loc: Location,
+    loc: Location,
 
     // "1234"
-    pub actual: String,
+    actual: String,
     // inspect(1234)
     //          ^..^
-    pub actual_loc: Location,
+    actual_loc: Location,
 
-    pub expect: String,
-    pub expect_loc: Option<Location>,
+    expect: String,
+    expect_loc: Option<Location>,
 
-    pub mode: Option<String>,
+    mode: Option<String>,
 }
 
 impl Replace {
@@ -769,7 +758,7 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn apply_snapshot<'a>(
+pub(super) fn apply_snapshot<'a>(
     pkg_src: &DiscoverResult,
     outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
@@ -804,7 +793,7 @@ pub fn apply_snapshot<'a>(
     Ok(())
 }
 
-pub fn apply_expect<'a>(
+pub(super) fn apply_expect<'a>(
     pkg_src: &DiscoverResult,
     messages: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
@@ -826,152 +815,6 @@ const DIFF_MIN_CTX: usize = 5;
 /// without chunking.
 const MIN_LINES_FOR_CHUNKING: usize = 20;
 
-const DIFF_CONTEXT_STYLE: Style = AnsiColor::BrightBlack.on_default();
-const DIFF_REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
-const DIFF_REMOVED_EMPHASIS_STYLE: Style = AnsiColor::BrightRed.on_default().underline();
-const DIFF_ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();
-const DIFF_ADDED_EMPHASIS_STYLE: Style = AnsiColor::BrightGreen.on_default().underline();
-const DIFF_MISSING_NEWLINE_STYLE: Style = Style::new().dimmed();
-
-/// Write the difference between strings `expected` and `actual` to the provided
-/// writer `to`, in unified diff format.
-///
-/// The function uses a number of heuristics to determine the best format for
-/// the diff output. Inline diffs will not show newline differences, short diffs
-/// will be displayed in full, and long diffs will be chunked.
-/// ANSI styles are always rendered; the destination writer decides whether to
-/// retain or strip them.
-pub fn write_diff(
-    expected: &str,
-    actual: &str,
-    max_non_chunk_lines: usize,
-    diff_ctx: usize,
-    mut to: impl Write,
-) -> std::io::Result<()> {
-    // Determine if we want to chunk the diff output
-    let expected_lines = expected.lines().count();
-    let actual_lines = actual.lines().count();
-    let use_chunking = expected_lines > max_non_chunk_lines || actual_lines > max_non_chunk_lines;
-    let inline = expected_lines <= 1 && actual_lines <= 1;
-
-    let diff = similar::TextDiff::configure()
-        .algorithm(similar::Algorithm::Patience)
-        .diff_lines(expected, actual);
-
-    if inline {
-        write_hunk(&diff, diff.ops(), &mut to, false, false)?;
-    } else if use_chunking {
-        let grouped = diff.grouped_ops(diff_ctx);
-        for hunk in grouped {
-            write_hunk(&diff, &hunk, &mut to, true, true)?;
-        }
-    } else {
-        write_hunk(&diff, diff.ops(), &mut to, false, true)?;
-    }
-
-    Ok(())
-}
-
-#[test]
-fn diff_color_follows_destination_writer() {
-    let render = |choice| {
-        let mut writer = anstream::AutoStream::new(Vec::new(), choice);
-        write_diff("old\n", "new\n", 1, 2, &mut writer).unwrap();
-        writer.into_inner()
-    };
-
-    let colored = render(anstream::ColorChoice::AlwaysAnsi);
-    assert!(
-        colored.contains(&b'\x1b'),
-        "output was not colored: {colored:?}"
-    );
-
-    let plain = render(anstream::ColorChoice::Never);
-    assert!(!plain.contains(&b'\x1b'));
-    assert!(
-        plain.starts_with(b"-old\n+new\n"),
-        "unexpected diff: {plain:?}"
-    );
-}
-
-/// Write a hunk of diff
-fn write_hunk<'a>(
-    orig_diff: &'a TextDiff<'a, 'a, 'a, str>,
-    hunk: &[DiffOp],
-    mut to: impl Write,
-    header: bool,
-    report_missing_nl: bool,
-) -> std::io::Result<()> {
-    if header {
-        let header = similar::udiff::UnifiedHunkHeader::new(hunk);
-        writeln!(to, "{DIFF_CONTEXT_STYLE}{header}{DIFF_CONTEXT_STYLE:#}")?;
-    }
-
-    for op in hunk {
-        if op.tag() == DiffTag::Equal {
-            // Print plain lines
-            for line in orig_diff.iter_changes(op) {
-                write!(to, " {}", line.value())?;
-                report_missing_nl_f(&mut to, report_missing_nl, line.missing_newline())?;
-            }
-        } else {
-            for change in orig_diff.iter_inline_changes(op) {
-                match change.tag() {
-                    similar::ChangeTag::Equal => {
-                        unreachable!("Equal should have been handled earlier")
-                    }
-                    similar::ChangeTag::Delete => {
-                        write!(to, "{DIFF_REMOVED_STYLE}-{DIFF_REMOVED_STYLE:#}")?;
-                        for &(emph, slice) in change.values() {
-                            if emph {
-                                write!(
-                                    to,
-                                    "{DIFF_REMOVED_EMPHASIS_STYLE}{slice}{DIFF_REMOVED_EMPHASIS_STYLE:#}"
-                                )?;
-                            } else {
-                                write!(to, "{DIFF_REMOVED_STYLE}{slice}{DIFF_REMOVED_STYLE:#}")?;
-                            }
-                        }
-                    }
-                    similar::ChangeTag::Insert => {
-                        write!(to, "{DIFF_ADDED_STYLE}+{DIFF_ADDED_STYLE:#}")?;
-                        for &(emph, slice) in change.values() {
-                            if emph {
-                                write!(
-                                    to,
-                                    "{DIFF_ADDED_EMPHASIS_STYLE}{slice}{DIFF_ADDED_EMPHASIS_STYLE:#}"
-                                )?;
-                            } else {
-                                write!(to, "{DIFF_ADDED_STYLE}{slice}{DIFF_ADDED_STYLE:#}")?;
-                            }
-                        }
-                    }
-                }
-
-                report_missing_nl_f(&mut to, report_missing_nl, change.missing_newline())?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn report_missing_nl_f(
-    mut to: impl Write,
-    report_missing_newlines: bool,
-    missing: bool,
-) -> Result<(), std::io::Error> {
-    if missing {
-        writeln!(to)?;
-        if report_missing_newlines {
-            writeln!(
-                to,
-                "{DIFF_MISSING_NEWLINE_STYLE}\\ No newline at end of file{DIFF_MISSING_NEWLINE_STYLE:#}"
-            )?;
-        }
-    }
-    Ok(())
-}
-
 fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
     const LABEL_STYLE: Style = Style::new().bold();
     const EXPECTED_STYLE: Style = AnsiColor::Red.on_default();
@@ -983,7 +826,10 @@ fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
     )
 }
 
-pub fn render_expect_fail(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow::Result<()> {
+pub(super) fn render_expect_fail(
+    pkg_src: &DiscoverResult,
+    output: &TestStatistics,
+) -> anyhow::Result<()> {
     assert!(output.message.starts_with(EXPECT_FAILED));
     let rep = parse_expect_failed_message(pkg_src, output)?;
 
@@ -1017,7 +863,10 @@ pub fn render_expect_fail(pkg_src: &DiscoverResult, output: &TestStatistics) -> 
     Ok(())
 }
 
-pub fn snapshot_eq(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow::Result<bool> {
+pub(super) fn snapshot_eq(
+    pkg_src: &DiscoverResult,
+    output: &TestStatistics,
+) -> anyhow::Result<bool> {
     assert!(output.message.starts_with(SNAPSHOT_TESTING));
     let snapshot = parse_snapshot_result(pkg_src, output)?;
     let filename = snapshot.loc.filename;
@@ -1042,7 +891,7 @@ pub fn snapshot_eq(pkg_src: &DiscoverResult, output: &TestStatistics) -> anyhow:
     Ok(eq)
 }
 
-pub fn render_snapshot_fail(
+pub(super) fn render_snapshot_fail(
     pkg_src: &DiscoverResult,
     output: &TestStatistics,
 ) -> anyhow::Result<(bool, String, String)> {

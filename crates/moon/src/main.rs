@@ -19,6 +19,7 @@
 #![warn(clippy::clone_on_ref_ptr)]
 
 mod cli;
+mod diff;
 mod dry_run;
 mod panic;
 mod run;
