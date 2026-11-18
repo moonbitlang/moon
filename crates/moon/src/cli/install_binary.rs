@@ -803,7 +803,7 @@ fn build_and_install_packages(
 /// same-filesystem replacement. `src` is copied rather than moved because the
 /// caller owns the build artifact; for `moon install`, it must remain in
 /// `_build` for subsequent no-op commands.
-pub(crate) fn install_file_atomically(
+pub(super) fn install_file_atomically(
     src: &Path,
     install_dir: &Path,
     dst_name: impl AsRef<Path>,

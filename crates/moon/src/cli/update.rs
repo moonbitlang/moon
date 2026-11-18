@@ -33,9 +33,9 @@ use super::UniversalFlags;
 /// Otherwise, synchronize the Git registry index and symbols as before. This
 /// mode also works outside a project.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct UpdateSubcommand {}
+pub(super) struct UpdateSubcommand {}
 
-pub(crate) fn update_cli(
+pub(super) fn update_cli(
     cli: UniversalFlags,
     _cmd: UpdateSubcommand,
     output: &CommandOutput,

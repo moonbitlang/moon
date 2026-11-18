@@ -38,7 +38,7 @@ use moonutil::{cli_support::UniversalFlags, toolchain::BINARIES};
     ),
     after_help = "Resources:\n    Docs: https://docs.moonbitlang.com\n    Skills: https://github.com/moonbitlang/skills\n\n    Use `moon explain --diagnostic` to list diagnostic codes and names.\n    Use `moon explain --attribute` to list attributes."
 )]
-pub(crate) struct ExplainSubcommand {
+pub(super) struct ExplainSubcommand {
     /// Explain diagnostics. Without a query, list diagnostic codes and names.
     #[clap(
         long,
@@ -59,7 +59,7 @@ pub(crate) struct ExplainSubcommand {
     pub attribute: Option<String>,
 }
 
-pub(crate) fn run_explain(_cli: &UniversalFlags, cmd: ExplainSubcommand) -> anyhow::Result<i32> {
+pub(super) fn run_explain(_cli: &UniversalFlags, cmd: ExplainSubcommand) -> anyhow::Result<i32> {
     if let Some(query) = cmd.diagnostic.as_deref() {
         return match query {
             "" => list_diagnostics(),

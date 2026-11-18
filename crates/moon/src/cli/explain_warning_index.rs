@@ -17,14 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WarningEntry {
-    pub(crate) mnemonic: &'static str,
-    pub(crate) description: &'static str,
-    pub(crate) id: u16,
+pub(super) struct WarningEntry {
+    pub(super) mnemonic: &'static str,
+    pub(super) description: &'static str,
+    pub(super) id: u16,
 }
 
 impl WarningEntry {
-    pub(crate) fn render_markdown(&self) -> String {
+    pub(super) fn render_markdown(&self) -> String {
         format!(
             r#"# E{id:04}
 
@@ -498,11 +498,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
     },
 ];
 
-pub(crate) fn get_warning_entry(id: u16) -> Option<&'static WarningEntry> {
+pub(super) fn get_warning_entry(id: u16) -> Option<&'static WarningEntry> {
     WARNING_ENTRIES.iter().find(|entry| entry.id == id)
 }
 
-pub(crate) fn get_warning_entries_by_mnemonic(mnemonic: &str) -> Vec<&'static WarningEntry> {
+pub(super) fn get_warning_entries_by_mnemonic(mnemonic: &str) -> Vec<&'static WarningEntry> {
     WARNING_ENTRIES
         .iter()
         .filter(|entry| entry.mnemonic.eq_ignore_ascii_case(mnemonic))
@@ -510,7 +510,7 @@ pub(crate) fn get_warning_entries_by_mnemonic(mnemonic: &str) -> Vec<&'static Wa
 }
 
 #[cfg(test)]
-pub(crate) fn warning_entries() -> &'static [WarningEntry] {
+pub(super) fn warning_entries() -> &'static [WarningEntry] {
     WARNING_ENTRIES
 }
 

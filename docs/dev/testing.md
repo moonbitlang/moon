@@ -16,7 +16,7 @@ not by itself justify changing which boundaries they exercise.
 
 | Level | What it should prove | Execution and examples |
 | --- | --- | --- |
-| Ordinary: unit or phase/component | A rule or phase produces the correct values, errors, selection, or Build Plan | Call the owning API, with fixtures where needed; no compiler/runtime execution. [command selection](../../crates/moon/src/cli/invocation.rs), [resolver](../../crates/mooncake/src/resolver), [planner](../../crates/moon/src/tests/planner/mod.rs). |
+| Ordinary: unit or phase/component | A rule or phase produces the correct values, errors, selection, or Build Plan | Call the owning API, with fixtures where needed; no compiler/runtime execution. [command selection](../../crates/moon/src/cli/invocation.rs), [resolver](../../crates/mooncake/src/resolver), [planner](../../crates/moon/src/cli/tests/planner/mod.rs). |
 | CLI integration | The executable connects argv, dispatch, exit status, streams, or process lifecycle correctly | Run the real CLI with a small fixture; controlled child tools can isolate forwarding. [Validation smoke test](../../crates/moon/tests/test_cases/debug_flag_test/mod.rs), [testcli forwarding](../../crates/moon/tests/test_cases/testcli.rs). |
 | End-to-end (E2E) | A user workflow succeeds with the real downstream components and state it depends on | Exercise the complete workflow, including real compilation/execution where required. [inline async test](../../crates/moon/tests/test_cases/moon_test/mod.rs), [multi-target execution](../../crates/moon/tests/test_cases/targets/mod.rs). |
 
@@ -24,13 +24,15 @@ Reuse discovered packages for planner comparisons when discovery is not the
 contract. Select the backend before resolving backend-specific imports, as the
 command does. For dependency-free single-module planning scenarios,
 use `PlanningFixture::with_core_dependency` to keep the standard-library input fixed.
-Its [core declarations](../../crates/moon/src/tests/planner/fixtures/core_dependency/README.md)
+Its [core declarations](../../crates/moon/src/cli/tests/planner/fixtures/core_dependency/README.md)
 exercise dependency edges without reading the installed SDK's core manifests.
 This deliberately stops tracking the SDK's exact package composition; it is
 appropriate when that composition is not the contract under test. Keep real SDK
 compatibility checks in tests that execute the compiler/runtime.
-The [planning fixture](../../crates/moon/src/tests/planner/fixture.rs)
+The [planning fixture](../../crates/moon/src/cli/tests/planner/fixture.rs)
 is not a substitute for testing CLI wiring, execution, or file mutation.
+These tests live within `cli` so command planning entry points need not be
+exposed to the rest of the binary. Their execution boundary is unchanged.
 
 These are testing responsibilities, not Cargo target names.
 `tests/test_cases` still contains both CLI integration and end-to-end tests.
@@ -58,7 +60,7 @@ Choose a fixture for its role and execution boundary:
 
 | Fixture | Contract and boundary |
 | --- | --- |
-| [core_dependency](../../crates/moon/src/tests/planner/fixtures/core_dependency/README.md) | Core-specific implicit imports, installed artifact paths, and no local core compilation. Also supplies a fixed environment for ordinary-project package-selection and profile tests. |
+| [core_dependency](../../crates/moon/src/cli/tests/planner/fixtures/core_dependency/README.md) | Core-specific implicit imports, installed artifact paths, and no local core compilation. Also supplies a fixed environment for ordinary-project package-selection and profile tests. |
 | [core_project](../../crates/moon/tests/test_cases/core_project/README.md) | Core as the root module: module synchronization, coverage source merging and import exceptions, local artifact production, and source/blackbox compiler commands. No compiler execution. |
 | [dummy_core](../../crates/moon/tests/test_cases/dummy_core) | Existing core-project backend matrix: check/build/test planner snapshots, CLI bundle/coverage dry-runs, and package-index paths. Keep these assertions when adding smaller core cases. |
 | [query_symbol.in/core](../../crates/moon/tests/test_cases/query_symbol.in/core) | A compilable core project for the real IDE documentation query. Primitive declarations and `builtin.dummy` keep the queried project small; this is not a generic planner fixture. |
@@ -112,7 +114,7 @@ Apply the same discipline to phase tests. When a rule crosses phases, give each
 boundary its own focused assertion: an implicit import must appear in the
 resolved dependency graph, its interface must be tracked as a compile input,
 and the generated compiler command must pass the intended `-i` alias. The
-[core dependency scenarios](../../crates/moon/src/tests/planner/core_dependency.rs)
+[core dependency scenarios](../../crates/moon/src/cli/tests/planner/core_dependency.rs)
 keep builtin and prelude separate at each boundary. A correct command alone
 does not prove that changing its input will invalidate the build.
 
@@ -168,7 +170,7 @@ Run the smallest relevant test target and filter, for example:
 ```sh
 cargo test -p moon --bin moon handoff_parsing_is_pure_and_keeps_the_program_argument_tail
 cargo test -p moon --test mod cli_reports_selector_conflicts_before_planning
-cargo test -p moon --bin moon tests::planner
+cargo test -p moon --bin moon cli::tests::planner
 cargo test -p moon --test mod test_cases::moon_test::test_async_test_inline -- --exact
 cargo fmt --all --check
 cargo clippy -p moon --all-targets -- -D warnings

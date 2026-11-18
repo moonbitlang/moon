@@ -51,12 +51,12 @@ const PERF_PERMISSION_HINT: &str = concat!(
 const PERF_SCRIPT_LIBRARY_SEPARATOR: &str = " (";
 const PERF_SYMBOL_OFFSET_SEPARATOR: &str = "+0x";
 const MOON_RUN_PROFILE_COMMAND: &str = "`moon run --profile`";
-pub(crate) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
+pub(super) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
 const MOON_PROFILE_COMMAND: &str = "`moon --profile`";
 const PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE: &str = "Profile mode reports performance only; run `moon test` without `--profile` for pass/fail validation.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProfileBackend {
+pub(super) enum ProfileBackend {
     Xctrace,
     Perf,
 }
@@ -246,26 +246,26 @@ struct CapturedProfile {
     parsed: ParsedProfile,
 }
 
-pub(crate) struct ProfileRequest {
+pub(super) struct ProfileRequest {
     /// Native executable that xctrace should launch.
-    pub(crate) executable: PathBuf,
+    pub(super) executable: PathBuf,
     /// Executable path to report to users, when it differs from the launched path.
-    pub(crate) display_executable: Option<PathBuf>,
+    pub(super) display_executable: Option<PathBuf>,
     /// Arguments passed after the executable in the profiled invocation.
-    pub(crate) args: Vec<String>,
+    pub(super) args: Vec<String>,
     /// Working directory used for the profiled process.
-    pub(crate) current_dir: Option<PathBuf>,
+    pub(super) current_dir: Option<PathBuf>,
     /// Directory where the trace, exported data, stdout/stderr, and JSON report are written.
-    pub(crate) output_dir: PathBuf,
+    pub(super) output_dir: PathBuf,
     /// Moon command mode that requested the profile.
-    pub(crate) run_mode: RunMode,
+    pub(super) run_mode: RunMode,
     /// Backend used to build the profiled executable.
-    pub(crate) target_backend: TargetBackend,
+    pub(super) target_backend: TargetBackend,
     /// Optimization profile used to build the profiled executable.
-    pub(crate) opt_level: OptLevel,
+    pub(super) opt_level: OptLevel,
 }
 
-pub(crate) fn run_profiled_run(
+pub(super) fn run_profiled_run(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
     output: &CommandOutput,
@@ -327,7 +327,7 @@ fn run_profile_materialized(
 }
 
 /// Record, export, parse, and report one already-built executable.
-pub(crate) fn profile_executable(
+pub(super) fn profile_executable(
     cli: &UniversalFlags,
     request: ProfileRequest,
     output: &CommandOutput,
@@ -522,7 +522,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     })
 }
 
-pub(crate) fn profile_tests(
+pub(super) fn profile_tests(
     cli: &UniversalFlags,
     source_dir: &Path,
     target_dir: &Path,
@@ -681,7 +681,7 @@ fn sanitize_path_component(input: &str) -> String {
 }
 
 /// Place profile output beside the canonical artifact layout for the run mode.
-pub(crate) fn default_output_dir(
+pub(super) fn default_output_dir(
     target_dir: &Path,
     target_backend: TargetBackend,
     opt_level: OptLevel,
@@ -769,7 +769,7 @@ fn current_profile_backend(command_name: &str) -> anyhow::Result<ProfileBackend>
     }
 }
 
-pub(crate) fn ensure_profile_available(command_name: &str) -> anyhow::Result<ProfileBackend> {
+pub(super) fn ensure_profile_available(command_name: &str) -> anyhow::Result<ProfileBackend> {
     let profiler_backend = current_profile_backend(command_name)?;
     match profiler_backend {
         ProfileBackend::Xctrace => xcrun_executable(command_name)?,

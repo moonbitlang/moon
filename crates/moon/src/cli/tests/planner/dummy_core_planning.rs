@@ -30,7 +30,7 @@ fn dummy_core_check_graph_matches_snapshots() {
     let fixture = PlanningFixture::new("dummy_core").expect("fixture should resolve");
 
     let (cli, cmd) = parse_check_command(&["check", "--dry-run", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/check_default.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/check_default.jsonl.snap"].assert_eq(
         &fixture
             .plan_check_with_cli(&cli, &cmd)
             .expect("default check graph should plan"),
@@ -38,7 +38,7 @@ fn dummy_core_check_graph_matches_snapshots() {
 
     let (cli, cmd) =
         parse_check_command(&["check", "--dry-run", "--target", "wasm", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/check_wasm.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/check_wasm.jsonl.snap"].assert_eq(
         &fixture
             .plan_check_with_cli(&cli, &cmd)
             .expect("wasm check graph should plan"),
@@ -46,14 +46,14 @@ fn dummy_core_check_graph_matches_snapshots() {
 
     let (cli, cmd) =
         parse_check_command(&["check", "--dry-run", "--target", "wasm-gc", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/check_wasm_gc.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/check_wasm_gc.jsonl.snap"].assert_eq(
         &fixture
             .plan_check_with_cli(&cli, &cmd)
             .expect("wasm-gc check graph should plan"),
     );
 
     let (cli, cmd) = parse_check_command(&["check", "--dry-run", "--target", "js", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/check_js.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/check_js.jsonl.snap"].assert_eq(
         &fixture
             .plan_check_with_cli(&cli, &cmd)
             .expect("js check graph should plan"),
@@ -65,7 +65,7 @@ fn dummy_core_build_graph_matches_snapshots() {
     let fixture = PlanningFixture::new("dummy_core").expect("fixture should resolve");
 
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/build_default.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/build_default.jsonl.snap"].assert_eq(
         &fixture
             .plan_build_with_cli(&cli, &cmd)
             .expect("default build graph should plan"),
@@ -73,7 +73,7 @@ fn dummy_core_build_graph_matches_snapshots() {
 
     let (cli, cmd) =
         parse_build_command(&["build", "--dry-run", "--target", "wasm", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/build_wasm.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/build_wasm.jsonl.snap"].assert_eq(
         &fixture
             .plan_build_with_cli(&cli, &cmd)
             .expect("wasm build graph should plan"),
@@ -81,14 +81,14 @@ fn dummy_core_build_graph_matches_snapshots() {
 
     let (cli, cmd) =
         parse_build_command(&["build", "--dry-run", "--target", "wasm-gc", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/build_wasm_gc.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/build_wasm_gc.jsonl.snap"].assert_eq(
         &fixture
             .plan_build_with_cli(&cli, &cmd)
             .expect("wasm-gc build graph should plan"),
     );
 
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--target", "js", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/build_js.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/build_js.jsonl.snap"].assert_eq(
         &fixture
             .plan_build_with_cli(&cli, &cmd)
             .expect("js build graph should plan"),
@@ -100,14 +100,14 @@ fn dummy_core_test_graph_matches_snapshots() {
     let fixture = PlanningFixture::new("dummy_core").expect("fixture should resolve");
 
     let (cli, cmd) = parse_test_command(&["test", "--dry-run", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/test_default.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/test_default.jsonl.snap"].assert_eq(
         &fixture
             .plan_test_with_cli(&cli, &cmd)
             .expect("default test graph should plan"),
     );
 
     let (cli, cmd) = parse_test_command(&["test", "--dry-run", "--target", "wasm", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/test_wasm.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/test_wasm.jsonl.snap"].assert_eq(
         &fixture
             .plan_test_with_cli(&cli, &cmd)
             .expect("wasm test graph should plan"),
@@ -115,14 +115,14 @@ fn dummy_core_test_graph_matches_snapshots() {
 
     let (cli, cmd) =
         parse_test_command(&["test", "--dry-run", "--target", "wasm-gc", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/test_wasm_gc.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/test_wasm_gc.jsonl.snap"].assert_eq(
         &fixture
             .plan_test_with_cli(&cli, &cmd)
             .expect("wasm-gc test graph should plan"),
     );
 
     let (cli, cmd) = parse_test_command(&["test", "--dry-run", "--target", "js", "--sort-input"]);
-    expect_file!["../../../tests/test_cases/dummy_core/test_js.jsonl.snap"].assert_eq(
+    expect_file!["../../../../tests/test_cases/dummy_core/test_js.jsonl.snap"].assert_eq(
         &fixture
             .plan_test_with_cli(&cli, &cmd)
             .expect("js test graph should plan"),

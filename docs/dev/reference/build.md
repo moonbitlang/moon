@@ -153,7 +153,7 @@ default optimization profile by subcommand:
 - `moon bench` and `moon bundle` use the release profile.
 
 This policy is centralized in `BuildFlags::effective_profile()` in
-`crates/moon/src/build_flags.rs`. The CLI adapter's
+`crates/moon/src/cli/build_flags.rs`. The CLI adapter's
 `BuildFlags::compile_config()` converts those flags and the resolved
 backend into `DebugInfoRequest`, selecting requested symbol detail and native
 runtime backtrace support separately. A default `moon run` for the Native target

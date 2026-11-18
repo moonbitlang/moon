@@ -40,8 +40,8 @@ use moonutil::{
 use serde::Serialize;
 
 use super::{
+    deps::require_selected_module,
     invocation::{JsonCommand, JsonCommandOutcome},
-    require_selected_module,
 };
 
 const MODULE_TREE_JSON_VERSION: u32 = 1;
@@ -57,7 +57,7 @@ const TREE_JSON_ERROR_EXIT_CODE: i32 = -1;
 /// JSON output represents shared dependencies once and preserves their
 /// relationships as edges.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct TreeSubcommand {
+pub(super) struct TreeSubcommand {
     /// Output one complete JSON result to stdout
     #[clap(long)]
     pub json: bool,
@@ -96,7 +96,7 @@ impl ResolvedPackageTree {
     }
 }
 
-pub(crate) fn tree_cli(
+pub(super) fn tree_cli(
     cli: UniversalFlags,
     cmd: TreeSubcommand,
     output: &CommandOutput,
@@ -241,7 +241,7 @@ struct TreeJsonCommand {
     command: TreeSubcommand,
 }
 
-pub(crate) fn json_command(command: TreeSubcommand) -> Box<dyn JsonCommand> {
+pub(super) fn json_command(command: TreeSubcommand) -> Box<dyn JsonCommand> {
     Box::new(TreeJsonCommand { command })
 }
 

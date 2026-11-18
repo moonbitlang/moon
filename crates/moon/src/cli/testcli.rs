@@ -20,7 +20,7 @@ use std::{ffi::OsString, path::Path, process::Command};
 
 use moonutil::toolchain;
 
-pub(crate) fn prepare(current_dir: Option<&Path>, args: Vec<OsString>) -> anyhow::Result<Command> {
+pub(super) fn prepare(current_dir: Option<&Path>, args: Vec<OsString>) -> anyhow::Result<Command> {
     let mut command = super::process::command_in_effective_dir(current_dir, |dir| {
         Ok(dir.map_or_else(
             || toolchain::BINARIES.moonrun.clone(),

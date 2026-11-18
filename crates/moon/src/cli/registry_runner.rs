@@ -20,7 +20,7 @@ use moonutil::user_log::UserLog;
 use std::path::Path;
 
 /// Prepare one already-acquired or already-built artifact for final execution.
-pub(crate) fn prepare_artifact(
+pub(super) fn prepare_artifact(
     artifact: &Path,
     experimental_policy: Option<&Path>,
     policy_source_dir: Option<&Path>,

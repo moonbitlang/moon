@@ -65,7 +65,7 @@ const MAX_ROUNDS: usize = 4;
 /// if compiler diagnostics remain. At most four rounds write files, followed
 /// by a check of the final contents.
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct FixSubcommand {
+pub(super) struct FixSubcommand {
     /// Package directory or source file to fix (file paths restrict edits to that file)
     #[clap(name = "PATH")]
     pub path: Vec<PathBuf>,
@@ -115,7 +115,7 @@ impl FixSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_fix(
+pub(super) fn run_fix(
     cli: &UniversalFlags,
     cmd: &FixSubcommand,
     output: &CommandOutput,

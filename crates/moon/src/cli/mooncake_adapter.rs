@@ -42,7 +42,7 @@ struct MooncakeFlags {
     build_graph: bool,
 }
 
-pub(crate) fn execute_cli<T: Serialize>(
+pub(super) fn execute_cli<T: Serialize>(
     cli: UniversalFlags,
     cmd: T,
     args: &[&str],
@@ -81,7 +81,7 @@ pub(crate) fn execute_cli<T: Serialize>(
     }
 }
 
-pub(crate) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyhow::Result<Command> {
+pub(super) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyhow::Result<Command> {
     let current_moon = std::env::current_exe()?;
     let mut command = process::command_in_effective_dir(current_dir, |current_dir| {
         Ok(current_dir.map_or_else(
@@ -99,7 +99,7 @@ pub(crate) fn prepare_direct(current_dir: Option<&Path>, args: &[&str]) -> anyho
     Ok(command)
 }
 
-pub(crate) fn publish_cli(
+pub(super) fn publish_cli(
     mut cli: UniversalFlags,
     cmd: PublishSubcommand,
     user_log: &UserLog,
@@ -113,7 +113,7 @@ pub(crate) fn publish_cli(
     )
 }
 
-pub(crate) fn package_cli(
+pub(super) fn package_cli(
     mut cli: UniversalFlags,
     cmd: PackageSubcommand,
     user_log: &UserLog,
@@ -127,7 +127,7 @@ pub(crate) fn package_cli(
     )
 }
 
-pub(crate) fn deprecate_cli(
+pub(super) fn deprecate_cli(
     mut cli: UniversalFlags,
     cmd: DeprecateSubcommand,
     output: &CommandOutput,

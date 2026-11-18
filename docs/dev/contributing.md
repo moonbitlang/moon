@@ -26,7 +26,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | Area | Entry points |
 | --- | --- |
 | CLI parsing and command orchestration | [`moon/src/cli`](../../crates/moon/src/cli), [`cli.rs`](../../crates/moon/src/cli.rs) |
-| CLI build options and target selection | [`moon/src/build_flags.rs`](../../crates/moon/src/build_flags.rs), [`filter.rs`](../../crates/moon/src/filter.rs) |
+| CLI build options and target selection | [`moon/src/cli/build_flags.rs`](../../crates/moon/src/cli/build_flags.rs), [`selection.rs`](../../crates/moon/src/cli/selection.rs) |
 | Dry-run rendering | [`moon/src/dry_run.rs`](../../crates/moon/src/dry_run.rs) |
 | Dependency sync and script declaration preparation | [`moonbuild/src/prepare`](../../crates/moonbuild/src/prepare) |
 | Package discovery, package resolution, planning, and lowering | [`moonbuild-rupes-recta/src`](../../crates/moonbuild-rupes-recta/src/lib.rs) |

@@ -48,13 +48,13 @@ use super::{BuildFlags, UniversalFlags};
 /// Run cram tests with project binaries on PATH (experimental)
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(disable_help_subcommand(true))]
-pub(crate) struct CramSubcommand {
+pub(super) struct CramSubcommand {
     #[clap(subcommand)]
     pub command: Option<CramCommand>,
 }
 
 #[derive(Clone, Debug, Subcommand)]
-pub(crate) enum CramCommand {
+pub(super) enum CramCommand {
     Test(CramTestSubcommand),
 
     #[clap(external_subcommand)]
@@ -63,7 +63,7 @@ pub(crate) enum CramCommand {
 
 /// Build native executables, then run cram tests with their directories on PATH
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct CramTestSubcommand {
+pub(super) struct CramTestSubcommand {
     /// Build native release executables
     #[clap(long)]
     pub release: bool,
@@ -78,7 +78,7 @@ pub(crate) struct CramTestSubcommand {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub(crate) enum CramTarget {
+pub(super) enum CramTarget {
     Native,
 }
 
@@ -90,7 +90,7 @@ struct ParsedCramArgs {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_cram(
+pub(super) fn run_cram(
     cli: &UniversalFlags,
     cmd: CramSubcommand,
     output: &CommandOutput,
@@ -154,7 +154,7 @@ fn run_cram_test(
         moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
-    let planned_runs = crate::cli::plan_build_rr_from_discovered(
+    let planned_runs = super::build::plan_build_rr_from_discovered(
         &session,
         cli,
         &build_cmd,
@@ -200,7 +200,7 @@ fn run_cram_test(
     Ok(ProcessAction::Delegate(command))
 }
 
-pub(crate) fn prepare_moon_cram(
+pub(super) fn prepare_moon_cram(
     current_dir: Option<&Path>,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> anyhow::Result<Command> {

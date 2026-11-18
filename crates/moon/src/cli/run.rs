@@ -43,11 +43,11 @@ use moonutil::{
 };
 use tracing::{Level, instrument};
 
-use crate::filter::ensure_package_supports_backend;
+use super::selection::ensure_package_supports_backend;
 
 use super::{BuildFlags, UniversalFlags};
 
-pub(crate) struct ResolvedRunSelection {
+pub(super) struct ResolvedRunSelection {
     package: PackageId,
     target_backend: TargetBackend,
 }
@@ -79,9 +79,9 @@ impl ResolvedRunSelection {
 /// Run a main package
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
-pub(crate) struct RunSubcommand {
+pub(super) struct RunSubcommand {
     #[clap(skip)]
-    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
+    pub(super) handoff: Option<moonutil::run_handoff::RunHandoff>,
 
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
     #[clap(group = "run_source")]
@@ -105,7 +105,7 @@ pub(crate) struct RunSubcommand {
 
     /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
     #[clap(long = "wasm-policy", value_name = "PATH")]
-    pub(crate) moonrun_policy: Option<PathBuf>,
+    pub(super) moonrun_policy: Option<PathBuf>,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
@@ -143,7 +143,7 @@ impl RunOutputVerbosity {
 }
 
 /// Controls how `moon run` builds the executable before it is consumed.
-pub(crate) struct BuildRunExecutableOptions {
+pub(super) struct BuildRunExecutableOptions {
     /// Whether dry-run output should include the final executable invocation.
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
@@ -164,7 +164,7 @@ impl BuildRunExecutableOptions {
         }
     }
 
-    pub(crate) fn for_profile(cli: &UniversalFlags) -> Self {
+    pub(super) fn for_profile(cli: &UniversalFlags) -> Self {
         Self {
             // The dry-run output should show the profiled invocation, not the
             // plain executable command that `moon run` would normally print.
@@ -176,7 +176,7 @@ impl BuildRunExecutableOptions {
     }
 }
 
-pub(crate) struct EmbeddedMbtxPolicy {
+pub(super) struct EmbeddedMbtxPolicy {
     source: PathBuf,
     source_dir_override: Option<PathBuf>,
 }
@@ -187,14 +187,14 @@ pub(crate) struct EmbeddedMbtxPolicy {
 /// either runs the program or explicitly releases the lock. Other consumers can
 /// reuse the same build stage without releasing the lock between planning and
 /// compilation.
-pub(crate) struct RunExecutable {
+pub(super) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
-    pub(crate) executable: PathBuf,
+    pub(super) executable: PathBuf,
     /// Backend configuration used to build and execute this artifact.
-    pub(crate) backend: BackendConfig,
-    pub(crate) opt_level: moonutil::cond_expr::OptLevel,
-    pub(crate) target_dir: PathBuf,
-    pub(crate) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
+    pub(super) backend: BackendConfig,
+    pub(super) opt_level: moonutil::cond_expr::OptLevel,
+    pub(super) target_dir: PathBuf,
+    pub(super) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
     lock: Option<BuildSession>,
@@ -207,7 +207,7 @@ struct BuildExecutableFromPlanOptions {
 }
 
 impl RunExecutable {
-    pub(crate) fn ensure_build_success(&self) -> anyhow::Result<()> {
+    pub(super) fn ensure_build_success(&self) -> anyhow::Result<()> {
         if let Some(build_exit_code) = self.build_exit_code
             && build_exit_code != 0
         {
@@ -217,7 +217,7 @@ impl RunExecutable {
     }
 
     /// Release the target-directory lock without running the executable.
-    pub(crate) fn release_lock(&mut self) {
+    pub(super) fn release_lock(&mut self) {
         drop(self.lock.take());
     }
 }
@@ -370,7 +370,7 @@ fn build_wasm_file_executable_from_arg(
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_run(
+pub(super) fn run_run(
     cli: &UniversalFlags,
     mut cmd: RunSubcommand,
     output: &CommandOutput,
@@ -423,7 +423,7 @@ pub(crate) fn run_run(
 /// This handles the same package-vs-single-file selection as `moon run`, but
 /// stops before executing the artifact. Callers can then run it, print
 /// `--build-only` metadata, or pass it to another tool.
-pub(crate) fn build_run_executable(
+pub(super) fn build_run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
@@ -537,7 +537,7 @@ fn build_package_executable(
 
 /// Selects the run package and backend, resolves packages, then plans the run.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_run_rr_from_discovered(
+pub(super) fn plan_run_rr_from_discovered(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
@@ -594,7 +594,7 @@ fn get_run_cmd(
     cmd
 }
 
-pub(crate) fn effective_moonrun_policy<'a>(
+pub(super) fn effective_moonrun_policy<'a>(
     cli_policy: Option<&'a Path>,
     embedded_policy: Option<&'a EmbeddedMbtxPolicy>,
 ) -> (Option<&'a Path>, Option<&'a Path>) {
@@ -626,8 +626,8 @@ fn resolve_run_selection(
     discovered: &DiscoveredProject,
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<ResolvedRunSelection, anyhow::Error> {
-    let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
-    let package = crate::filter::filter_pkg_by_dir(discovered, &dir)?;
+    let (dir, _filename) = super::selection::canonicalize_with_filename(Path::new(input_path))?;
+    let package = super::selection::filter_pkg_by_dir(discovered, &dir)?;
     let module = discovered.pkg_dirs.get_package(package).module;
     let target_backend = selected_target_backend
         .or_else(|| discovered.module_graph.module_info(module).preferred_target)
@@ -729,7 +729,7 @@ fn build_single_file_executable(
         user_log,
         &resolved,
     )?;
-    let package = crate::filter::local_packages(&resolved)
+    let package = super::selection::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
     let directive = if value_tracing {

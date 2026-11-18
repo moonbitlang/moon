@@ -38,9 +38,9 @@ use moonutil::{
     user_log::UserLog,
 };
 
-use crate::{
-    cli::BuildFlags,
-    filter::{
+use super::{
+    BuildFlags,
+    selection::{
         canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
@@ -57,7 +57,7 @@ use super::UniversalFlags;
 /// `--target` inspects backend-specific interfaces and reports differences, but
 /// does not change which backend is written to `pkg.generated.mbti`.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct InfoSubcommand {
+pub(super) struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -96,7 +96,7 @@ impl PackageSelection {
         discovered: &DiscoveredProject,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = crate::filter::local_packages(discovered).collect();
+        let package_ids: Vec<_> = super::selection::local_packages(discovered).collect();
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
@@ -109,9 +109,7 @@ impl PackageSelection {
         }
 
         if !cmd.path.is_empty() {
-            let path_packages = select_packages(&cmd.path, user_log, |dir| {
-                filter_pkg_by_dir(discovered, dir)
-            })?;
+            let path_packages = select_packages(discovered, &cmd.path, user_log)?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
                 mode: SelectionMode::Paths,
@@ -249,7 +247,7 @@ fn calc_user_intent_for_info(
     Ok(intents.into())
 }
 
-pub(crate) fn run_info(
+pub(super) fn run_info(
     cli: UniversalFlags,
     cmd: InfoSubcommand,
     output: &CommandOutput,

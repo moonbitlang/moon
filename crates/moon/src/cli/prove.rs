@@ -34,9 +34,9 @@ use moonutil::{
 use serde::Deserialize;
 use tracing::instrument;
 
-use crate::{
-    cli::BuildFlags,
-    filter::{
+use super::{
+    BuildFlags,
+    selection::{
         canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
         package_supports_backend,
     },
@@ -49,7 +49,7 @@ const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
 /// Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing
 /// `moonbit_builtin_prelude.mlw` to replace the toolchain's proof prelude.
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct ProveSubcommand {
+pub(super) struct ProveSubcommand {
     /// The file-system path to the package or file in package to prove
     #[clap(name = "PATH")]
     pub path: Option<PathBuf>,
@@ -106,7 +106,7 @@ impl ProveSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_prove(
+pub(super) fn run_prove(
     cli: &UniversalFlags,
     cmd: &ProveSubcommand,
     output: &CommandOutput,
@@ -162,7 +162,7 @@ pub(crate) fn run_prove(
     let discovered =
         moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let target_backend =
-        crate::filter::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
+        super::selection::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
     let intent = calc_user_intent(
         path_filter,
         module_dir.as_deref(),

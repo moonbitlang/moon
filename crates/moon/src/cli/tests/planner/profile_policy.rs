@@ -18,7 +18,7 @@
 
 use moonutil::{build_options::RunMode, cond_expr::OptLevel};
 
-use crate::build_flags::BuildFlags;
+use crate::cli::build_flags::BuildFlags;
 
 // Phase 1: profile selection is a pure flag-to-profile decision and should be
 // tested without involving any planner graph.

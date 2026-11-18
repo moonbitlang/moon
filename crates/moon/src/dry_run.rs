@@ -18,6 +18,10 @@
 
 //! Render concrete execution actions without adapting them to an executor.
 
+//! Shared rendering of planned build commands and runtime commands.
+//! CLI dry runs and verbose test execution use the same display rules without
+//! depending on each other's command handling.
+
 use moonbuild::execution::BuildInput;
 use std::{
     collections::{HashMap, HashSet},

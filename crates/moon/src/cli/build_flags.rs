@@ -40,7 +40,7 @@ use moonutil::{
 use tracing::{Level, info, instrument};
 
 #[derive(Debug, clap::Parser, Clone)]
-pub struct BuildFlags {
+pub(super) struct BuildFlags {
     /// Emit debug information
     #[clap(long, short = 'g')]
     pub debug: bool,
@@ -137,7 +137,7 @@ impl BuildFlags {
     /// resolved here while both the original flags and that backend are available;
     /// RR receives one completed configuration with no CLI parsing types.
     #[instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) fn compile_config(
+    pub(super) fn compile_config(
         &self,
         cli: &UniversalFlags,
         target_backend: TargetBackend,
@@ -222,7 +222,7 @@ impl BuildFlags {
         Ok(config)
     }
 
-    pub(crate) fn execution_config(
+    pub(super) fn execution_config(
         &self,
         unstable_features: &FeatureGate,
         verbose: bool,
@@ -321,7 +321,7 @@ fn warn_local_legacy_supported_targets(discovered: &DiscoveredProject, user_log:
 
 /// Interpret a patch filename, using the command-selected target kind when
 /// it has no explicit whitebox or blackbox suffix.
-pub(crate) fn build_patch_directive_for_package(
+pub(super) fn build_patch_directive_for_package(
     pkg: PackageId,
     value_tracing: Option<PackageId>,
     patch_file: Option<&Path>,

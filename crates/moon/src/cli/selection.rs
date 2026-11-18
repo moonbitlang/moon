@@ -32,7 +32,7 @@ use moonutil::{
     user_log::UserLog,
 };
 
-pub(crate) fn local_packages(
+pub(super) fn local_packages(
     discovered: &DiscoveredProject,
 ) -> impl Iterator<Item = PackageId> + '_ {
     discovered.local_modules().iter().flat_map(|&module_id| {
@@ -46,7 +46,7 @@ pub(crate) fn local_packages(
 
 /// Select a standalone file's Target Backends before package resolution:
 /// explicit targets, then the file's preferred backend, then the project default.
-pub(crate) fn single_file_target_backends(
+pub(super) fn single_file_target_backends(
     discovered: &DiscoveredProject,
     selected_target_backends: &[TargetBackend],
     preferred_backend: Option<TargetBackend>,
@@ -61,7 +61,7 @@ pub(crate) fn single_file_target_backends(
 }
 
 /// The preferred target that all local modules agree on, if any.
-pub(crate) fn local_modules_preferred_target(
+pub(super) fn local_modules_preferred_target(
     discovered: &DiscoveredProject,
     user_log: &UserLog,
 ) -> Option<TargetBackend> {
@@ -83,7 +83,11 @@ pub(crate) fn local_modules_preferred_target(
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
-pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Option<String>)> {
+// TODO(command-path-selection): Hide this and `filter_pkg_by_dir` behind a
+// complete path-selection operation once it preserves test selectors' distinct
+// handling of canonicalization errors, package-lookup errors, and multiple files
+// in the same package. Package-deduplicating selection cannot replace that flow.
+pub(super) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Option<String>)> {
     let input_path = dunce::canonicalize(path).with_context(|| {
         format!(
             "Failed to canonicalize input filter directory `{}`",
@@ -117,7 +121,22 @@ pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf
     }
 }
 
-pub(crate) fn select_packages<I, F>(
+/// Select package paths once, retaining the first selector for each package.
+/// Invalid paths fail; paths outside the current project's packages are reported
+/// and skipped. Commands do not provide their own directory lookup policy.
+pub(super) fn select_packages<I>(
+    discovered: &DiscoveredProject,
+    paths: I,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<(PathBuf, PackageId)>>
+where
+    I: IntoIterator,
+    I::Item: AsRef<Path>,
+{
+    select_paths(paths, user_log, |dir| filter_pkg_by_dir(discovered, dir))
+}
+
+fn select_paths<I, F>(
     paths: I,
     user_log: &UserLog,
     mut filter_pkg_by_dir: F,
@@ -205,7 +224,7 @@ where
 }
 
 /// Perform fuzzy matching over package names and return the matching package IDs.
-pub(crate) fn match_packages_by_name_rr(
+pub(super) fn match_packages_by_name_rr(
     discovered: &DiscoveredProject,
     main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
@@ -245,7 +264,7 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 ///
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
-pub(crate) fn filter_pkg_by_dir(
+pub(super) fn filter_pkg_by_dir(
     discovered: &DiscoveredProject,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
@@ -274,7 +293,7 @@ pub(crate) fn filter_pkg_by_dir(
 
 /// Given an invalid input path, report a helpful error message indicating why
 /// no package could be found.
-pub(crate) fn report_package_not_found(
+fn report_package_not_found(
     input_path: &Path,
     module_graph: &ModuleDependencyGraph,
     module_dirs: &DirSyncResult,
@@ -360,7 +379,7 @@ pub(crate) fn report_package_not_found(
     )
 }
 
-pub(crate) fn format_supported_backends(
+pub(super) fn format_supported_backends(
     discovered: &DiscoveredProject,
     pkg_id: PackageId,
 ) -> String {
@@ -374,7 +393,7 @@ pub(crate) fn format_supported_backends(
     format!("[{}]", targets.join(", "))
 }
 
-pub(crate) fn package_supports_backend(
+pub(super) fn package_supports_backend(
     discovered: &DiscoveredProject,
     pkg_id: PackageId,
     target_backend: TargetBackend,
@@ -387,14 +406,14 @@ pub(crate) fn package_supports_backend(
 }
 
 #[derive(Debug)]
-pub(crate) struct TargetPackageGroup {
+pub(super) struct TargetPackageGroup {
     pub target_backend: TargetBackend,
     pub packages: Vec<PackageId>,
 }
 
 /// One single-backend plan selected before package resolution.
 #[derive(Debug)]
-pub(crate) struct BackendPlanSelection {
+pub(super) struct BackendPlanSelection {
     pub target_backend: TargetBackend,
     /// Packages selected for this backend, or `None` when planning expands the
     /// command's own selector against the resolved project.
@@ -402,7 +421,7 @@ pub(crate) struct BackendPlanSelection {
 }
 
 impl BackendPlanSelection {
-    pub(crate) fn command_selector(target_backend: TargetBackend) -> Self {
+    pub(super) fn command_selector(target_backend: TargetBackend) -> Self {
         Self {
             target_backend,
             packages: None,
@@ -419,7 +438,7 @@ impl From<TargetPackageGroup> for BackendPlanSelection {
     }
 }
 
-pub(crate) fn preferred_target_backend_for_package(
+pub(super) fn preferred_target_backend_for_package(
     discovered: &DiscoveredProject,
     pkg_id: PackageId,
 ) -> TargetBackend {
@@ -430,7 +449,7 @@ pub(crate) fn preferred_target_backend_for_package(
         .unwrap_or_default()
 }
 
-pub(crate) fn group_packages_by_preferred_backend(
+pub(super) fn group_packages_by_preferred_backend(
     discovered: &DiscoveredProject,
     packages: impl IntoIterator<Item = PackageId>,
 ) -> Vec<TargetPackageGroup> {
@@ -451,7 +470,7 @@ pub(crate) fn group_packages_by_preferred_backend(
         .collect()
 }
 
-pub(crate) fn ensure_package_supports_backend(
+pub(super) fn ensure_package_supports_backend(
     discovered: &DiscoveredProject,
     pkg_id: PackageId,
     target_backend: TargetBackend,
@@ -469,7 +488,7 @@ pub(crate) fn ensure_package_supports_backend(
     );
 }
 
-pub(crate) fn ensure_packages_support_backend<I>(
+pub(super) fn ensure_packages_support_backend<I>(
     discovered: &DiscoveredProject,
     packages: I,
     target_backend: TargetBackend,
@@ -509,7 +528,7 @@ where
     );
 }
 
-pub(crate) fn select_supported_packages<I>(
+pub(super) fn select_supported_packages<I>(
     discovered: &DiscoveredProject,
     paths: I,
     target_backend: TargetBackend,
@@ -522,9 +541,7 @@ where
     let mut selected = Vec::new();
     let mut unsupported = Vec::new();
 
-    for (path, pkg_id) in
-        select_packages(paths, user_log, |dir| filter_pkg_by_dir(discovered, dir))?
-    {
+    for (path, pkg_id) in select_packages(discovered, paths, user_log)? {
         if package_supports_backend(discovered, pkg_id, target_backend) {
             selected.push(pkg_id);
         } else {
@@ -559,7 +576,7 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct PackageMatchResult {
+pub(super) struct PackageMatchResult {
     pub matched: Vec<PackageId>,
     pub missing: Vec<String>,
 }
@@ -569,7 +586,7 @@ pub(crate) struct PackageMatchResult {
 /// Candidates are provided as a list of package IDs that belong to the current module. Names are
 /// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
 /// suggestions. Results are deduplicated while preserving the order returned by the matcher.
-pub(crate) fn match_packages_with_fuzzy<I, S>(
+pub(super) fn match_packages_with_fuzzy<I, S>(
     discovered: &DiscoveredProject,
     candidates: impl IntoIterator<Item = PackageId>,
     names: I,
@@ -620,26 +637,30 @@ where
     PackageMatchResult { matched, missing }
 }
 
-/// From a canonicalized directory path, find the corresponding package ID in `FmtProject`.
-///
-/// This is a simpler version of `filter_pkg_by_dir` for the formatter case, which doesn't
-/// have the full `ResolvedProject` available.
-pub(crate) fn filter_pkg_by_dir_for_fmt(
-    resolved: &FmtProject,
-    dir: &Path,
-) -> anyhow::Result<PackageId> {
-    resolved
-        .package_roots()
-        .find(|(_, root)| dunce::simplified(root) == dunce::simplified(dir))
-        .map(|(id, _)| id)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Cannot find package to format at path `{}`.\n\
-                 Hint: Make sure the path points to a package directory containing `{}`.",
-                dir.display(),
-                MOON_PKG
-            )
-        })
+/// Apply the same path selection rules to the formatter's lightweight project.
+pub(super) fn select_fmt_packages<I>(
+    project: &FmtProject,
+    paths: I,
+    user_log: &UserLog,
+) -> anyhow::Result<Vec<(PathBuf, PackageId)>>
+where
+    I: IntoIterator,
+    I::Item: AsRef<Path>,
+{
+    select_paths(paths, user_log, |dir| {
+        project
+            .package_roots()
+            .find(|(_, root)| dunce::simplified(root) == dunce::simplified(dir))
+            .map(|(id, _)| id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Cannot find package to format at path `{}`.\n\
+                     Hint: Make sure the path points to a package directory containing `{}`.",
+                    dir.display(),
+                    MOON_PKG
+                )
+            })
+    })
 }
 
 #[cfg(test)]
