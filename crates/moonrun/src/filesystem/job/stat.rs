@@ -27,7 +27,8 @@ use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
 use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::resource::Resource;
+use crate::filesystem::{FsOperation, FsTarget, HostFs};
+use crate::resource::{Resource, ResourceRef};
 
 // Discriminants of moonbitlang/async's FileKind ABI.
 pub(super) const FILE_KIND_UNKNOWN: i32 = 0;
@@ -254,11 +255,19 @@ fn windows_timestamp(ticks: i64) -> StatTimestamp {
 }
 
 pub(super) fn run_fstatx_job(
-    file: &Resource,
+    filesystem: &HostFs,
+    file: &mut Option<ResourceRef>,
     request: StatRequest,
     result: &mut Option<PackedStat>,
 ) -> AsyncHostResult<i64> {
-    *result = Some(PackedStat::new(request, query_handle(file, request)?));
+    let target = FsTarget::File(file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant());
+    filesystem.authorize(if request.mask() == STAT_FILE_KIND {
+        FsOperation::Kind(target)
+    } else {
+        FsOperation::Metadata(target)
+    })?;
+    let file = file.take().ok_or(AsyncHostError::Badf)?;
+    *result = Some(PackedStat::new(request, query_handle(&file, request)?));
     Ok(0)
 }
 
@@ -270,7 +279,7 @@ pub(crate) fn stdio_kind(file: &Resource) -> AsyncHostResult<i32> {
         .ok_or_else(|| AsyncHostError::Native(crate::async_sys::os_error::stub::get_enotsup()))
 }
 
-fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatValues> {
+pub(super) fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatValues> {
     #[cfg(unix)]
     let raw = file.as_file()?.as_raw_fd();
     #[cfg(windows)]
@@ -292,12 +301,23 @@ fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatVa
 }
 
 pub(super) fn run_statx_job(
-    parent: Option<&Resource>,
-    path: OsString,
+    filesystem: &HostFs,
+    parent: &mut Option<ResourceRef>,
+    path: &mut OsString,
     request: StatRequest,
     follow_symlink: bool,
     result: &mut Option<PackedStat>,
 ) -> AsyncHostResult<i64> {
+    let target = super::job_path(parent.as_deref(), path)?;
+    filesystem.authorize(if follow_symlink {
+        FsOperation::Metadata(FsTarget::Path(target))
+    } else {
+        FsOperation::InspectEntry(target)
+    })?;
+    let path = super::take_execution_path(filesystem, parent.as_deref(), path);
+    let parent = parent.take();
+    let parent = parent.as_deref();
+
     #[cfg(unix)]
     let parent = parent
         .map(|resource| resource.as_file().map(|file| file.as_raw_fd()))
@@ -1083,17 +1103,29 @@ mod tests {
             0
         );
         let _master = unsafe { OwnedFd::from_raw_fd(master) };
-        let slave = Resource::new(slave);
+        let slave = std::sync::Arc::new(Resource::new(slave));
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut result = None;
-        run_fstatx_job(&slave, request, &mut result).unwrap();
+        run_fstatx_job(
+            &HostFs::default(),
+            &mut Some(std::sync::Arc::clone(&slave)),
+            request,
+            &mut result,
+        )
+        .unwrap();
         assert_eq!(stdio_kind(&slave).unwrap(), 8);
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(8));
 
         let null = std::fs::File::open("/dev/null").unwrap();
-        let null = Resource::new(unsafe { libc::dup(null.as_raw_fd()) });
+        let null = std::sync::Arc::new(Resource::new(unsafe { libc::dup(null.as_raw_fd()) }));
         let mut result = None;
-        run_fstatx_job(&null, request, &mut result).unwrap();
+        run_fstatx_job(
+            &HostFs::default(),
+            &mut Some(std::sync::Arc::clone(&null)),
+            request,
+            &mut result,
+        )
+        .unwrap();
         assert_eq!(stdio_kind(&null).unwrap(), 7);
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(7));
     }
@@ -1115,7 +1147,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(job.run(), Ok(0));
+        assert_eq!(job.run(&HostFs::default()), Ok(0));
 
         let result = job.stat_result().unwrap();
         assert_eq!(result.as_bytes()[0..4], 40_u32.to_le_bytes());
@@ -1235,11 +1267,12 @@ mod tests {
         assert_ne!(parent, INVALID_HANDLE_VALUE);
         let request = StatRequest::new(STAT_FILE_KIND | STAT_FILE_SIZE, 24).unwrap();
 
-        let parent = Resource::new(parent);
+        let parent = std::sync::Arc::new(Resource::new(parent));
         let mut result = None;
         run_statx_job(
-            Some(&parent),
-            OsString::from("child"),
+            &HostFs::default(),
+            &mut Some(parent),
+            &mut OsString::from("child"),
             request,
             true,
             &mut result,
@@ -1255,17 +1288,29 @@ mod tests {
     fn windows_fstatx_reports_socket_kind_before_get_file_type_error() {
         assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
         let raw_socket = crate::async_sys::socket::make_tcp_socket(4).unwrap();
-        let resource = Resource::tcp_socket(raw_socket, 4);
+        let resource = std::sync::Arc::new(Resource::tcp_socket(raw_socket, 4));
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut result = None;
 
-        run_fstatx_job(&resource, request, &mut result).unwrap();
+        run_fstatx_job(
+            &HostFs::default(),
+            &mut Some(std::sync::Arc::clone(&resource)),
+            request,
+            &mut result,
+        )
+        .unwrap();
 
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(4));
 
         let request = StatRequest::new(STAT_FILE_SIZE, 16).unwrap();
         let mut result = None;
-        run_fstatx_job(&resource, request, &mut result).unwrap();
+        run_fstatx_job(
+            &HostFs::default(),
+            &mut Some(std::sync::Arc::clone(&resource)),
+            request,
+            &mut result,
+        )
+        .unwrap();
         assert_eq!(&result.unwrap().as_bytes()[4..8], &0_u32.to_le_bytes());
 
         drop(resource);

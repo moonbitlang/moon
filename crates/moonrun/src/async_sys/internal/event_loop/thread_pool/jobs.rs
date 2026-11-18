@@ -83,7 +83,7 @@ mod tests {
     fn sleep_job_runs_without_error() {
         let mut job = make_sleep_job(0);
 
-        run_host_job(&mut job);
+        run_host_job(&mut job, &crate::filesystem::HostFs::default());
 
         assert_eq!(job_get_ret(&job), 0);
         assert_eq!(job_get_err(&job), 0);

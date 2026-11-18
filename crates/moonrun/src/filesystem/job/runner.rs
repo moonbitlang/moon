@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Blocking filesystem operations executed by Filesystem Jobs.
+//! Concrete Host Filesystem operations executed by Jobs.
+//!
+//! Each executor interprets and authorizes its inputs before consuming acquired
+//! references or applying native effects. The helpers below implement mechanism;
+//! Job dispatch does not perform a separate permission or pathname pass.
 
 use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use std::ffi::OsString;
@@ -29,16 +33,16 @@ use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
-use crate::resource::{Resource, ResourcePublication};
+use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 #[cfg(windows)]
 use super::stat::{
     FILE_KIND_CHAR_DEVICE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE, FILE_KIND_REGULAR,
     FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
 };
-use super::stat::{PackedStat, StatRequest, StatValues, run_fstatx_job};
-use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
-use crate::filesystem::FileGrant;
+use super::stat::{PackedStat, StatRequest, StatValues, query_handle};
+use super::{FileTimeResult, OpenJobResult, RealpathJobResult, job_path, take_execution_path};
+use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs};
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -53,12 +57,16 @@ pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
 }
 
 ported_fns! {
-    #[ported(source = "src/internal/event_loop/fs.c", original = "openat_job_worker")]
+    #[ported(
+        source = "src/internal/event_loop/fs.c",
+        original = "openat_job_worker"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_open_job(
-        parent: Option<&Resource>,
+        filesystem: &HostFs,
+        parent: &mut Option<ResourceRef>,
         result: &mut Option<OpenJobResult>,
-        filename: OsString,
+        filename: &mut OsString,
         access: i32,
         create_mode: i32,
         append: bool,
@@ -66,17 +74,33 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::OpenAsync {
+            path: job_path(parent.as_deref(), filename)?,
+            access,
+            create_mode,
+            read_metadata: request.mask() & !super::STAT_OPEN_IDENTITY != 0,
+        })?;
+        let filename = take_execution_path(filesystem, parent.as_deref(), filename);
+        let parent = parent.take();
+        let parent = parent.as_deref();
+
         let filename_for_provenance = match parent {
             Some(parent) => super::super::os::directory::path(raw_file_handle(parent)?)
                 .ok()
                 .map(|base| base.join(&filename)),
             None => Some(std::path::PathBuf::from(&filename)),
         };
-        let file = open_raw_native_file(parent.map(raw_file_handle).transpose()?, filename, access, create_mode, append, sync, mode)?;
-        let resource = Resource::new_with_file_grant(
-            file,
-            FileGrant::from_opened_path(filename_for_provenance),
-        );
+        let file = open_raw_native_file(
+            parent.map(raw_file_handle).transpose()?,
+            filename,
+            access,
+            create_mode,
+            append,
+            sync,
+            mode,
+        )?;
+        let resource =
+            Resource::new_with_file_grant(file, FileGrant::from_opened_path(filename_for_provenance));
         // Unlike async Workers, synchronous calls do not mask ordinary signals.
         // An unnecessary stat can therefore return EINTR after open succeeds.
         // Callers cannot tell which syscall was interrupted and may retry open,
@@ -84,9 +108,9 @@ ported_fns! {
         let stat = if request.mask() == 0 {
             PackedStat::new(request, StatValues::default())
         } else {
-            let mut stat = None;
-            run_fstatx_job(&resource, request, &mut stat)?;
-            stat.ok_or(AsyncHostError::Io)?
+            // Opening already admitted the complete metadata request. This
+            // acquisition receipt must not run a second saved-path check.
+            PackedStat::new(request, query_handle(&resource, request)?)
         };
         *result = Some(OpenJobResult {
             resource: ResourcePublication::Unpublished(resource),
@@ -95,33 +119,39 @@ ported_fns! {
         Ok(0)
     }
 
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "read_job_worker"
-    )]
+    #[ported(runtime = "thread_pool.c", original = "read_job_worker")]
     pub(super) fn run_read_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         len: u32,
         position: i64,
         result: &mut Option<Vec<u8>>,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ReadResource(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
         let mut buf = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        let n = read_from_native_file(raw_file_handle(file)?, &mut buf, position)?;
+        let n = read_from_native_file(raw_file_handle(&file)?, &mut buf, position)?;
         buf.truncate(n);
         *result = Some(buf);
         Ok(n as i64)
     }
 
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "write_job_worker"
-    )]
+    #[ported(runtime = "thread_pool.c", original = "write_job_worker")]
     pub(super) fn run_write_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         data: &[u8],
         position: i64,
     ) -> AsyncHostResult<i64> {
-        let n = write_to_native_file(raw_file_handle(file)?, data, position)?;
+        filesystem.authorize(FsOperation::WriteResource(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        let n = write_to_native_file(raw_file_handle(&file)?, data, position)?;
         Ok(n as i64)
     }
 
@@ -132,10 +162,21 @@ ported_fns! {
         replacement = "statx_job_worker with STAT_FILE_KIND"
     )]
     pub(super) fn run_file_kind_by_path_job(
-        parent: Option<&Resource>,
-        path: OsString,
+        filesystem: &HostFs,
+        parent: &mut Option<ResourceRef>,
+        path: &mut OsString,
         follow_symlink: bool,
     ) -> AsyncHostResult<i64> {
+        let target = job_path(parent.as_deref(), path)?;
+        filesystem.authorize(if follow_symlink {
+            FsOperation::Metadata(FsTarget::Path(target))
+        } else {
+            FsOperation::InspectEntry(target)
+        })?;
+        let path = take_execution_path(filesystem, parent.as_deref(), path);
+        let parent = parent.take();
+        let parent = parent.as_deref();
+
         file_kind_by_path(parent, path, follow_symlink).map(i64::from)
     }
 
@@ -146,10 +187,16 @@ ported_fns! {
         replacement = "fstatx_job_worker with STAT_FILE_SIZE"
     )]
     pub(super) fn run_file_size_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         result: &mut i64,
     ) -> AsyncHostResult<i64> {
-        *result = file_size(raw_file_handle(file)?)?;
+        filesystem.authorize(FsOperation::Metadata(FsTarget::File(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        )))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        *result = file_size(raw_file_handle(&file)?)?;
         Ok(0)
     }
 
@@ -160,10 +207,16 @@ ported_fns! {
         replacement = "fstatx_job_worker with timestamp properties"
     )]
     pub(super) fn run_file_time_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         result: &mut Option<FileTimeResult>,
     ) -> AsyncHostResult<i64> {
-        *result = Some(FileTimeResult::new(file_time(raw_file_handle(file)?)?));
+        filesystem.authorize(FsOperation::Metadata(FsTarget::File(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        )))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        *result = Some(FileTimeResult::new(file_time(raw_file_handle(&file)?)?));
         Ok(0)
     }
 
@@ -174,10 +227,19 @@ ported_fns! {
         replacement = "statx_job_worker with timestamp properties"
     )]
     pub(super) fn run_file_time_by_path_job(
-        path: OsString,
+        filesystem: &HostFs,
+        path: &mut OsString,
         follow_symlink: bool,
         result: &mut Option<FileTimeResult>,
     ) -> AsyncHostResult<i64> {
+        let target = FsPath::Cwd(path);
+        filesystem.authorize(if follow_symlink {
+            FsOperation::Metadata(FsTarget::Path(target))
+        } else {
+            FsOperation::InspectEntry(target)
+        })?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         *result = Some(FileTimeResult::new(file_time_by_path(
             path,
             follow_symlink,
@@ -189,41 +251,62 @@ ported_fns! {
         source = "src/internal/event_loop/fs.c",
         original = "access_job_worker"
     )]
-    pub(super) fn run_access_job(path: OsString, access: i32) -> AsyncHostResult<i64> {
+    pub(super) fn run_access_job(
+        filesystem: &HostFs,
+        path: &mut OsString,
+        access: i32,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::AccessCheck {
+            path: FsPath::Cwd(path),
+            access,
+        })?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         access_native_path(path, access)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "chmod_job_worker"
-    )]
-    pub(super) fn run_chmod_job(path: OsString, mode: i32) -> AsyncHostResult<i64> {
+    #[ported(source = "src/internal/event_loop/fs.c", original = "chmod_job_worker")]
+    pub(super) fn run_chmod_job(
+        filesystem: &HostFs,
+        path: &mut OsString,
+        mode: i32,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Chmod(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         chmod_native_path(path, mode)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "fsync_job_worker"
-    )]
+    #[ported(source = "src/internal/event_loop/fs.c", original = "fsync_job_worker")]
     pub(super) fn run_fsync_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         only_data: bool,
     ) -> AsyncHostResult<i64> {
-        sync_native_file(raw_file_handle(file)?, only_data)?;
+        filesystem.authorize(FsOperation::Flush(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        sync_native_file(raw_file_handle(&file)?, only_data)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "flock_job_worker"
-    )]
+    #[ported(source = "src/internal/event_loop/fs.c", original = "flock_job_worker")]
     pub(super) fn run_flock_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         exclusive: bool,
     ) -> AsyncHostResult<i64> {
-        lock_native_file(raw_file_handle(file)?, exclusive)?;
+        filesystem.authorize(FsOperation::Lock {
+            file: file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+            exclusive,
+        })?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        lock_native_file(raw_file_handle(&file)?, exclusive)?;
         Ok(0)
     }
 
@@ -231,13 +314,28 @@ ported_fns! {
         source = "src/internal/event_loop/fs.c",
         original = "remove_job_worker"
     )]
-    pub(super) fn run_remove_job(path: OsString) -> AsyncHostResult<i64> {
+    pub(super) fn run_remove_job(filesystem: &HostFs, path: &mut OsString) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         remove_native_path(path)?;
         Ok(0)
     }
 
-    #[ported(source = "src/internal/event_loop/fs.c", original = "removeat_job_worker")]
-    pub(super) fn run_removeat_job(parent: Option<&Resource>, path: OsString) -> AsyncHostResult<i64> {
+    #[ported(
+        source = "src/internal/event_loop/fs.c",
+        original = "removeat_job_worker"
+    )]
+    pub(super) fn run_removeat_job(
+        filesystem: &HostFs,
+        parent: &mut Option<ResourceRef>,
+        path: &mut OsString,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(job_path(parent.as_deref(), path)?))?;
+        let path = take_execution_path(filesystem, parent.as_deref(), path);
+        let parent = parent.take();
+        let parent = parent.as_deref();
+
         super::super::os::unlinkat::remove_at(
             parent.map(raw_file_handle).transpose()?,
             &path,
@@ -251,13 +349,26 @@ ported_fns! {
         original = "rename_job_worker"
     )]
     pub(super) fn run_rename_job(
-        old_path: OsString,
-        new_path: OsString,
+        filesystem: &HostFs,
+        old_path: &mut OsString,
+        new_path: &mut OsString,
         replace: bool,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Rename {
+            source: FsPath::Cwd(old_path),
+            destination: FsPath::Cwd(new_path),
+        })?;
+        let old_path = filesystem.resolve_path(&std::mem::take(old_path));
+        let new_path = filesystem.resolve_path(&std::mem::take(new_path));
+
         crate::filesystem::os::rename(
-            std::path::Path::new(&old_path), std::path::Path::new(&new_path),
-            crate::filesystem::os::RenameOptions { replace, cross_device: crate::filesystem::os::CrossDevice::AllowCopy })?;
+            std::path::Path::new(&old_path),
+            std::path::Path::new(&new_path),
+            crate::filesystem::os::RenameOptions {
+                replace,
+                cross_device: crate::filesystem::os::CrossDevice::AllowCopy,
+            },
+        )?;
         Ok(0)
     }
 
@@ -266,28 +377,36 @@ ported_fns! {
         original = "symlink_job_worker"
     )]
     pub(super) fn run_symlink_job(
-        target: OsString,
-        path: OsString,
+        filesystem: &HostFs,
+        target: &mut OsString,
+        path: &mut OsString,
         force_symlink: bool,
     ) -> AsyncHostResult<i64> {
-        symlink_native_path(target, path, force_symlink)?;
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
+        symlink_native_path(std::mem::take(target), path, force_symlink)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "mkdir_job_worker"
-    )]
-    pub(super) fn run_mkdir_job(path: OsString, mode: i32) -> AsyncHostResult<i64> {
+    #[ported(source = "src/internal/event_loop/fs.c", original = "mkdir_job_worker")]
+    pub(super) fn run_mkdir_job(
+        filesystem: &HostFs,
+        path: &mut OsString,
+        mode: i32,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         mkdir_native_path(path, mode)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "rmdir_job_worker"
-    )]
-    pub(super) fn run_rmdir_job(path: OsString) -> AsyncHostResult<i64> {
+    #[ported(source = "src/internal/event_loop/fs.c", original = "rmdir_job_worker")]
+    pub(super) fn run_rmdir_job(filesystem: &HostFs, path: &mut OsString) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         rmdir_native_path(path)?;
         Ok(0)
     }
@@ -297,15 +416,22 @@ ported_fns! {
         original = "readdir_job_worker"
     )]
     pub(super) fn run_readdir_job(
-        dir: &Resource,
-        buffer: &mut [u8],
+        filesystem: &HostFs,
+        dir: &mut Option<ResourceRef>,
+        buffer: &mut Option<crate::async_host::CBufferLease>,
         len: u32,
         restart: bool,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ReadResource(
+            dir.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let dir = dir.take().ok_or(AsyncHostError::Badf)?;
+        let buffer = buffer.as_mut().ok_or(AsyncHostError::Badf)?.as_mut_slice();
+
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         let _directory_cursor = dir.lock_directory_cursor();
         let buffer = buffer.get_mut(..len).ok_or(AsyncHostError::Fault)?;
-        read_native_dir(dir, buffer, restart)
+        read_native_dir(&dir, buffer, restart)
     }
 
     #[ported(
@@ -314,10 +440,15 @@ ported_fns! {
     )]
     #[cfg(target_os = "linux")]
     pub(super) fn run_inotify_add_watch_job(
-        inotify: &Resource,
-        path: OsString,
+        filesystem: &HostFs,
+        inotify: &mut Option<ResourceRef>,
+        path: &mut OsString,
         is_dir: bool,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Watch(FsTarget::Path(FsPath::Cwd(path))))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+        let inotify = inotify.take().ok_or(AsyncHostError::Badf)?;
+
         use std::ffi::CString;
         use std::os::unix::ffi::OsStringExt;
 
@@ -327,9 +458,8 @@ ported_fns! {
         } else {
             libc::IN_MODIFY
         };
-        let watch = unsafe {
-            libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags)
-        };
+        let watch =
+            unsafe { libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags) };
         if watch < 0 {
             return Err(last_native_error());
         }
@@ -341,9 +471,13 @@ ported_fns! {
         original = "realpath_job_worker"
     )]
     pub(super) fn run_realpath_job(
-        path: OsString,
+        filesystem: &HostFs,
+        path: &mut OsString,
         result: &mut Option<RealpathJobResult>,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Read(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         *result = Some(RealpathJobResult::Unpublished(realpath_native_path(path)?));
         Ok(0)
     }

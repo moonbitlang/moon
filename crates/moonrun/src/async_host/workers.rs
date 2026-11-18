@@ -182,7 +182,7 @@ mod tests {
             move |job| {
                 started.send(()).unwrap();
                 worker_may_proceed.recv().unwrap();
-                thread_pool::run_host_job(&mut job.job);
+                thread_pool::run_host_job(&mut job.job, &crate::filesystem::HostFs::default());
             },
             WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completed.send(completion_id).unwrap()

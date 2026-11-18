@@ -53,8 +53,10 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+#[cfg(any(target_os = "macos", windows))]
+use crate::filesystem::FsTarget;
 use crate::filesystem::HostFs;
-use crate::filesystem::{FsOperation, FsPath, FsTarget};
+use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
@@ -2731,30 +2733,11 @@ impl AsyncHost {
     }
 
     pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_resource(handle, |file| {
-            self.filesystem
-                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-            crate::filesystem::stdio_kind(file)
-        })
+        self.with_resource(handle, |file| self.filesystem.resource_stdio_kind(file))
     }
 
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_resource(handle, |file| {
-            self.filesystem
-                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-            #[cfg(unix)]
-            {
-                crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-            }
-            #[cfg(windows)]
-            {
-                if file.resource_class().is_socket() {
-                    crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
-                } else {
-                    crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-                }
-            }
-        })
+        self.with_resource(handle, |file| self.filesystem.resource_kind(file))
     }
 
     pub(crate) fn set_cloexec(&self, handle: HostHandle) -> AsyncHostResult<()> {
@@ -2784,8 +2767,7 @@ impl AsyncHost {
         let dst = memory.read_exact_mut(dst, len)?;
         self.with_resource(handle, |file| {
             self.filesystem
-                .authorize(FsOperation::ReadResource(file.file_grant()))?;
-            crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), dst)
+                .read_immediate(file, dst)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
     }
@@ -2803,8 +2785,7 @@ impl AsyncHost {
         let src = memory.read_exact(src, len)?;
         self.with_resource(handle, |file| {
             self.filesystem
-                .authorize(FsOperation::WriteResource(file.file_grant()))?;
-            crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), src)
+                .write_immediate(file, src)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
     }
@@ -3108,7 +3089,6 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::{ERROR_HANDLE_EOF, ERROR_IO_PENDING};
         use windows_sys::Win32::Networking::WinSock as ws;
-        use windows_sys::Win32::Storage::FileSystem::ReadFile;
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
@@ -3126,17 +3106,16 @@ impl AsyncHost {
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
-                let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
-                self.filesystem
-                    .authorize(FsOperation::ReadResource(file.file_grant()))?;
+                let overlapped = result.overlapped_ptr();
+                // The result owns the buffer/OVERLAPPED and retains the resource
+                // until completion before exposing the result to guest code.
                 unsafe {
-                    ReadFile(
-                        file.as_file()?.as_raw_handle(),
-                        result.buffer.as_mut_ptr().cast(),
-                        len,
+                    self.filesystem.read_overlapped(
+                        file,
+                        &mut result.buffer,
                         &mut bytes_transferred,
-                        result.overlapped_ptr(),
-                    )
+                        overlapped,
+                    )?
                 }
             }
             HostIoKind::Socket => {
@@ -3318,7 +3297,6 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
         use windows_sys::Win32::Networking::WinSock as ws;
-        use windows_sys::Win32::Storage::FileSystem::WriteFile;
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
@@ -3339,17 +3317,16 @@ impl AsyncHost {
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
-                let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
-                self.filesystem
-                    .authorize(FsOperation::WriteResource(file.file_grant()))?;
+                let overlapped = result.overlapped_ptr();
+                // The result owns the buffer/OVERLAPPED and retains the resource
+                // until completion before exposing the result to guest code.
                 unsafe {
-                    WriteFile(
-                        file.as_file()?.as_raw_handle(),
-                        result.buffer.as_ptr().cast(),
-                        len,
+                    self.filesystem.write_overlapped(
+                        file,
+                        &result.buffer,
                         &mut bytes_transferred,
-                        result.overlapped_ptr(),
-                    )
+                        overlapped,
+                    )?
                 }
             }
             HostIoKind::Socket => {
@@ -3587,11 +3564,7 @@ impl AsyncHost {
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            self.filesystem.authorize(FsOperation::Lock {
-                file: file.file_grant(),
-                exclusive,
-            })?;
-            crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
+            self.filesystem.try_lock_resource(file, exclusive)
         })
     }
 
@@ -3610,9 +3583,6 @@ impl AsyncHost {
 
     fn run_policy_checked_job(filesystem: &HostFs, process: &HostProcess, job: &mut Job) {
         let preparation = match job.payload_mut() {
-            JobPayload::Filesystem(fs_job) => fs_job.check_policy(filesystem).map(|()| {
-                fs_job.configure_paths(filesystem);
-            }),
             JobPayload::Process(process_job) => process.prepare_job(process_job),
             _ => Ok(()),
         };
@@ -3620,7 +3590,7 @@ impl AsyncHost {
             job.set_err(error.errno());
             return;
         }
-        thread_pool::run_host_job(job);
+        thread_pool::run_host_job(job, filesystem);
         if let Err(error) = Self::finish_process_job(process, job) {
             job.set_err(error.errno());
         }
@@ -7320,7 +7290,7 @@ mod tests {
         let key = key_from_handle(job_handle);
         let mut job = host.jobs.borrow_mut().take_ready_job(key).unwrap();
 
-        thread_pool::run_host_job(&mut job);
+        thread_pool::run_host_job(&mut job, &host.filesystem);
 
         assert_eq!(job.err(), 0);
         assert!(matches!(
@@ -7722,13 +7692,14 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        let filesystem = Arc::clone(&host.filesystem);
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
             move |worker_job| {
                 started_sender.send(worker_job.completion_id).unwrap();
                 release_receiver.recv().unwrap();
-                thread_pool::run_host_job(&mut worker_job.job);
+                thread_pool::run_host_job(&mut worker_job.job, &filesystem);
             },
             WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completion_sender.send(completion_id).unwrap()
@@ -7769,6 +7740,7 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        let filesystem = Arc::clone(&host.filesystem);
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
@@ -7777,7 +7749,7 @@ mod tests {
                 if worker_job.job_key == first_key {
                     release_receiver.recv().unwrap();
                 }
-                thread_pool::run_host_job(&mut worker_job.job);
+                thread_pool::run_host_job(&mut worker_job.job, &filesystem);
             },
             WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completion_sender.send(completion_id).unwrap()
