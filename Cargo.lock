@@ -2057,6 +2057,7 @@ dependencies = [
  "indexmap",
  "json-structural-diff",
  "line-index",
+ "log",
  "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",

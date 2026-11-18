@@ -18,6 +18,7 @@
 
 use anyhow::Context;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -27,7 +28,6 @@ use moonutil::build_options::RunMode;
 use moonutil::cache::{CacheKind, resolve_cache_root};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::locks::lock_directory;
 use moonutil::project::PackageDirs;
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
@@ -44,7 +44,6 @@ use crate::filter::{
 };
 use crate::rr_build;
 
-use crate::rr_build::CalcUserIntentOutput;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -56,7 +55,7 @@ struct ResolvedBuildSelection {
 }
 
 impl ResolvedBuildSelection {
-    fn into_user_intent(self) -> CalcUserIntentOutput {
+    fn into_user_intent(self) -> BuildRequest {
         self.packages
             .into_iter()
             .map(UserIntent::Build)
@@ -136,16 +135,14 @@ pub(crate) fn run_build(
     }
 
     let discovered = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
-    let result =
-        run_build_rr_from_discovered(cli, &cmd, &dirs, false, &targets, discovered, output)
-            .with_context(|| match targets.as_slice() {
-                [target] => format!("failed to run build for target {target:?}"),
-                _ => format!("failed to run build for targets {targets:?}"),
-            })?;
+    let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())?;
+    let result = run_build_rr_from_discovered(
+        &session, cli, &cmd, &dirs, false, &targets, discovered, output,
+    )
+    .with_context(|| match targets.as_slice() {
+        [target] => format!("failed to run build for target {target:?}"),
+        _ => format!("failed to run build for targets {targets:?}"),
+    })?;
     Ok(if result.ok { 0 } else { 1 })
 }
 
@@ -192,10 +189,7 @@ fn run_build_for_single_file_rr(
     );
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, user_log)?;
-    }
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
     let package = rr_build::local_packages(&resolved)
         .next()
@@ -211,18 +205,16 @@ fn run_build_for_single_file_rr(
             user_log,
             &resolved,
         )?;
-        planned_runs.push(rr_build::plan_resolved_build_from_intent(
+        planned_runs.push(session.plan(
             compile_config,
-            user_log,
             vec![UserIntent::Build(package)].into(),
             resolved.clone(),
             cmd.build_flags.jobs,
             cmd.auto_sync_flags.frozen,
-            cli.dry_run,
         )?);
     }
 
-    let ok = execute_planned_builds(cli, cmd, planned_runs, source_dir, target_dir, output)?;
+    let ok = execute_planned_builds(&session, cli, cmd, planned_runs, source_dir, output)?;
     Ok(if ok { 0 } else { 1 })
 }
 
@@ -273,11 +265,9 @@ fn run_build_rr(
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let discovered = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log())?;
-    }
+    let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())?;
     run_build_rr_from_discovered(
+        &session,
         cli,
         cmd,
         dirs,
@@ -290,9 +280,10 @@ fn run_build_rr(
 
 /// Plans and executes a build from a discovered project.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run build.
+/// The supplied session protects planning and execution with the target-directory lock.
 #[allow(clippy::too_many_arguments)]
 fn run_build_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
@@ -316,6 +307,7 @@ fn run_build_rr_from_discovered(
         }
     };
     let planned_runs = plan_build_rr_from_discovered(
+        session,
         cli,
         cmd,
         target_dir,
@@ -332,7 +324,7 @@ fn run_build_rr_from_discovered(
         });
     }
 
-    let ok = execute_planned_builds(cli, cmd, planned_runs, source_dir, target_dir, output)?;
+    let ok = execute_planned_builds(session, cli, cmd, planned_runs, source_dir, output)?;
     Ok(WatchOutput {
         ok,
         additional_ignored_paths: prebuild_list.ignored_paths,
@@ -344,11 +336,11 @@ fn run_build_rr_from_discovered(
 ///
 /// A successful build then reports its outputs; see [`built_outputs`].
 fn execute_planned_builds(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     planned_runs: Vec<(BuildMeta, BuildInput)>,
     source_dir: &Path,
-    target_dir: &Path,
     output: &CommandOutput,
 ) -> anyhow::Result<bool> {
     let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
@@ -361,15 +353,16 @@ fn execute_planned_builds(
         return Ok(true);
     }
 
-    for build_meta in &build_metas {
-        moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
-    }
     let build_input = BuildInput::compose(build_inputs)?;
     let config = cmd
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose);
-    let result =
-        moonbuild::execution::execute_build(&config, build_input, target_dir, output.user_log())?;
+    let result = session.execute(
+        &config,
+        build_input,
+        &build_metas.iter().collect::<Vec<_>>(),
+        MetadataOutput::Compiler,
+    )?;
     result.print_info(cli.quiet, "building")?;
     let outputs = built_outputs(&build_metas);
     output.write_result(|writer| {
@@ -483,6 +476,7 @@ fn write_built_outputs_json(
 }
 
 pub(crate) fn plan_build_rr_from_resolved(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
@@ -506,19 +500,18 @@ pub(crate) fn plan_build_rr_from_resolved(
         compile_config.backend.target_backend(),
         user_log,
     )?;
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn plan_build_rr_from_resolved_with_scope(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
@@ -541,19 +534,18 @@ fn plan_build_rr_from_resolved_with_scope(
         &scoped_packages,
         compile_config.backend.target_backend(),
     );
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn plan_build_rr_from_selection(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
@@ -571,20 +563,19 @@ fn plan_build_rr_from_selection(
         user_log,
         &resolved_project,
     )?;
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         selection.into_user_intent(),
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_build_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
@@ -602,6 +593,7 @@ pub(crate) fn plan_build_rr_from_discovered(
         .into_iter()
         .map(|selection| {
             plan_build_rr_for_selection(
+                session,
                 cli,
                 cmd,
                 target_dir,
@@ -643,6 +635,7 @@ fn select_build_plans(
 }
 
 fn plan_build_rr_for_selection(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
@@ -656,6 +649,7 @@ fn plan_build_rr_for_selection(
     } = selection;
     match packages {
         None => plan_build_rr_from_resolved(
+            session,
             cli,
             cmd,
             target_dir,
@@ -666,6 +660,7 @@ fn plan_build_rr_for_selection(
         // Raw user selector paths/package names have already been resolved
         // into PackageIds. RR uses those resolved identities.
         Some(packages) if has_explicit_build_selector(cmd) => plan_build_rr_from_selection(
+            session,
             cli,
             cmd,
             target_dir,
@@ -675,6 +670,7 @@ fn plan_build_rr_for_selection(
             user_log,
         ),
         Some(packages) => plan_build_rr_from_resolved_with_scope(
+            session,
             cli,
             cmd,
             target_dir,
@@ -773,7 +769,7 @@ fn calc_user_intent(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     user_log: &UserLog,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     if !path_filters.is_empty() {
         let selected =
             select_supported_packages(discovered, path_filters, target_backend, user_log)?;
@@ -810,7 +806,7 @@ fn calc_user_intent_from_scoped_packages(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     supported_packages: &[PackageId],
     target_backend: TargetBackend,
-) -> CalcUserIntentOutput {
+) -> BuildRequest {
     let linkable_pkgs = get_linkable_pkgs(
         discovered,
         target_backend,

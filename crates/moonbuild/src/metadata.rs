@@ -19,8 +19,8 @@
 //! Publish build metadata consumed by the compiler and developer tools.
 //!
 //! RR constructs the package documents; this module owns serialization and
-//! filesystem publication. Callers hold the target-directory lock and skip
-//! publication for dry runs.
+//! filesystem publication. `BuildSession` calls it under the target-directory
+//! lock before execution and skips publication for dry runs.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -35,25 +35,25 @@ use crate::{BuildMeta, execution::BuildInput};
 
 /// Generate the backend/profile/run-mode-scoped `packages.json` document.
 ///
-/// `build_meta` and `build_input` must describe the same plan. This writes only
-/// the scoped document, leaving the universal selector and index untouched.
+/// `build_meta` and the check commands must describe the same invocation.
+/// This writes only the scoped document, leaving the universal selector and
+/// index untouched.
 #[instrument(level = Level::DEBUG, skip_all)]
-pub fn generate_metadata(
+pub(super) fn generate_metadata(
     source_dir: &Path,
     build_meta: &BuildMeta,
-    build_input: &BuildInput,
+    check_commands: &moonbuild_rupes_recta::metadata::CheckCommandMap<'_>,
 ) -> anyhow::Result<()> {
     let layout = build_meta.artifact_paths.target_layout();
     let scoped_metadata_file = layout.packages_json_path(build_meta.target_backend());
 
-    let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
         &build_meta.resolved_project,
         source_dir,
         &build_meta.artifact_paths,
         build_meta.opt_level,
         build_meta.target_backend(),
-        &check_commands,
+        check_commands,
     );
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
     write_metadata_if_changed(&scoped_metadata_file, &meta)
@@ -66,22 +66,23 @@ pub fn generate_metadata(
 /// discover a new index before its documents and selector are ready.
 /// An empty invocation leaves existing metadata untouched.
 #[instrument(level = Level::DEBUG, skip_all)]
-pub fn publish_check_metadata(
+pub(super) fn publish_check_metadata(
     source_dir: &Path,
-    planned_runs: &[(BuildMeta, BuildInput)],
+    build_metas: &[&BuildMeta],
+    check_commands: &moonbuild_rupes_recta::metadata::CheckCommandMap<'_>,
 ) -> anyhow::Result<()> {
-    let Some((first, _)) = planned_runs.first() else {
+    let Some(first) = build_metas.first() else {
         return Ok(());
     };
-    for (build_meta, build_input) in planned_runs {
+    for build_meta in build_metas {
         generate_all_pkgs_json(build_meta)?;
-        generate_metadata(source_dir, build_meta, build_input)?;
+        generate_metadata(source_dir, build_meta, check_commands)?;
     }
 
     // The compiler's universal format selects one active projection.
     // Before the split, repeated publication made the final planned
     // backend authoritative, so retain that deterministic behavior.
-    let selected = &planned_runs.last().expect("non-empty planned runs").0;
+    let selected = build_metas.last().expect("non-empty planned runs");
     let selector = moonutil::manifest::PackagesSelectorJSON {
         backend: selected.target_backend().to_string(),
         opt_level: selected.opt_level.as_str().to_string(),
@@ -95,9 +96,9 @@ pub fn publish_check_metadata(
     write_metadata_if_changed(&metadata_file, &selector)?;
 
     let metadata_file = first.artifact_paths.target_layout().packages_index_path();
-    let backends = planned_runs
+    let backends = build_metas
         .iter()
-        .map(|(build_meta, _)| build_meta.target_backend())
+        .map(|build_meta| build_meta.target_backend())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .map(|backend| backend.to_string())
@@ -144,7 +145,7 @@ fn write_metadata_if_changed(metadata_file: &Path, metadata: &str) -> anyhow::Re
     Ok(())
 }
 
-fn collect_check_commands_by_output(
+pub(super) fn collect_check_commands_by_output(
     build_input: &BuildInput,
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap<'_> {
     let mut commands = BTreeMap::new();
@@ -170,7 +171,7 @@ fn check_command_args_without_executable(args: &[String]) -> Option<&[String]> {
 }
 
 /// Write the artifact paths needed by the compiler for indirect dependencies.
-pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
+pub(super) fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
     let all_pkgs_path = build_meta
         .artifact_paths
         .target_layout()

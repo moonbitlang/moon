@@ -18,37 +18,26 @@
 
 //! Adapt command flags and intents to Rupes Recta builds.
 //!
-//! Build metadata publication and graph execution belong to `moonbuild`.
-//! TODO: Move the remaining reusable build orchestration there once prebuild
-//! scripts can compile standalone files without calling back into CLI commands.
+//! Build lifecycle, prebuild configuration, metadata publication, and execution
+//! belong to `moonbuild::compile::BuildSession`.
 
 use std::{collections::BTreeSet, path::Path};
 
 use anyhow::Context;
-use moonbuild::{
-    BuildMeta,
-    execution::{BuildInput, resolve_parallelism},
-    prepare::ProjectPreparationConfig,
-};
+use moonbuild::{execution::BuildInput, prepare::ProjectPreparationConfig};
 use moonbuild_rupes_recta::{
     CompileConfig, DiscoveredProject, ResolvedProject,
     build_lower::WarningCondition,
-    build_plan::{ArtifactKey, InputDirective},
+    build_plan::InputDirective,
     discover::FmtProject,
     fmt::FmtConfig,
-    intent::UserIntent,
-    model::{
-        BackendConfig, DebugInfoRequest, DebugSymbols, ENV_MOONBIT_NEW_NATIVE, NativeTarget,
-        OperatingSystem, PackageId, TargetKind,
-    },
-    target_layout::{ArtifactPathResolver, TargetLayout},
+    model::{DebugInfoRequest, DebugSymbols, PackageId, TargetKind},
 };
 use moonutil::{
     build_options::RunMode,
     cli_support::UniversalFlags,
-    compiler_flags,
     cond_expr::OptLevel as BuildProfile,
-    constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
+    constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
     package::SupportedTargetsDeclKind,
     project::{PackageDirs, ProjectManifest},
     target::TargetBackend,
@@ -60,7 +49,6 @@ use crate::build_flags::BuildFlags;
 
 mod dry_run;
 mod generated_mbti;
-mod prebuild;
 #[cfg(test)]
 pub(crate) use dry_run::write_build_graph;
 pub(crate) use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_with_normalizer};
@@ -86,54 +74,6 @@ pub(crate) fn sync_and_discover_project(
         synced_modules,
         user_log,
     )?)
-}
-
-/// The output of a calculate user intent operation.
-pub struct CalcUserIntentOutput {
-    /// The list of user intents; will be expanded to requested artifacts later.
-    pub intents: Vec<UserIntent>,
-    /// The input directive that the user wants to apply to the packages
-    pub directive: InputDirective,
-}
-
-impl CalcUserIntentOutput {
-    pub fn new(intents: Vec<UserIntent>, directive: InputDirective) -> Self {
-        Self { intents, directive }
-    }
-
-    fn requested_artifacts(
-        &self,
-        resolved_project: &ResolvedProject,
-        user_log: &UserLog,
-        target_backend: TargetBackend,
-    ) -> Vec<ArtifactKey> {
-        let mut artifacts = Vec::new();
-        for intent in &self.intents {
-            intent.append_artifacts(
-                resolved_project,
-                &mut artifacts,
-                user_log,
-                &self.directive,
-                target_backend,
-            );
-        }
-        artifacts
-    }
-}
-
-impl From<Vec<UserIntent>> for CalcUserIntentOutput {
-    fn from(intents: Vec<UserIntent>) -> Self {
-        Self {
-            intents,
-            directive: InputDirective::default(),
-        }
-    }
-}
-
-impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
-    fn from((intents, directive): (Vec<UserIntent>, InputDirective)) -> Self {
-        Self { intents, directive }
-    }
 }
 
 fn warn_local_legacy_supported_targets(discovered: &DiscoveredProject, user_log: &UserLog) {
@@ -273,11 +213,6 @@ pub(crate) fn prepare_resolved_build(
         )?;
     }
 
-    let main_module = match resolved_project.local_modules() {
-        &[module_id] => Some(resolved_project.module_info(module_id)),
-        _ => None,
-    };
-
     // TODO: remove this once LLVM backend is well supported
     if target_backend == TargetBackend::LLVM {
         user_log.warn(
@@ -285,11 +220,6 @@ pub(crate) fn prepare_resolved_build(
         );
     }
     warn_local_legacy_supported_targets(resolved_project, user_log);
-
-    // std or no-std?
-    // Ultimately we want to determine this from config instead of special cases.
-    let is_core = main_module.is_some_and(|module| module.name == MOONBITLANG_CORE);
-    info!("is_core: {}", is_core);
 
     let opt_level = build_flags.effective_profile(action);
     let strip = build_flags.strip_for(action);
@@ -312,192 +242,32 @@ pub(crate) fn prepare_resolved_build(
         runtime_backtrace: target_backend.is_native()
             && (!strip || (action == RunMode::Run && opt_level == BuildProfile::Debug)),
     };
-    let collect_ref_cycle = std::env::var("MOON_COLLECT_REF_CYCLE").as_deref() == Ok("1");
-    let backend = match target_backend {
-        TargetBackend::Wasm => BackendConfig::Wasm {
-            use_wat: build_flags.output_wat,
-            wasi_link: cli.unstable_feature.wasi_link
-                && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
-            new_allocator: std::env::var("MOON_WASM_NEW_ALLOCATOR").as_deref() == Ok("1"),
-            collect_ref_cycle,
-            separate_compilation: std::env::var("MOON_SEPARATE_COMPILATION").as_deref() == Ok("1"),
-        },
-        TargetBackend::WasmGC => BackendConfig::WasmGc {
-            use_wat: build_flags.output_wat,
-        },
-        TargetBackend::Js => BackendConfig::Js,
-        TargetBackend::Native => {
-            let new_native_env = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
-            BackendConfig::Native {
-                direct_object_candidate: NativeTarget::from_host_with_new_native_env(
-                    std::env::consts::ARCH,
-                    std::env::consts::OS,
-                    new_native_env.as_deref(),
-                ),
-                allocator: compiler_flags::NativeAllocator::from_env()?,
-                collect_ref_cycle,
-                os: std::env::consts::OS
-                    .parse::<OperatingSystem>()
-                    .expect("Unknown"),
-                compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
-            }
-        }
-        TargetBackend::LLVM => BackendConfig::Llvm {
-            allocator: compiler_flags::NativeAllocator::from_env()?,
-            os: std::env::consts::OS
-                .parse::<OperatingSystem>()
-                .expect("Unknown"),
-            compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
-        },
-    };
+    let backend = moonbuild::compile::prepare_backend(
+        target_backend,
+        build_flags.output_wat,
+        cli.unstable_feature.wasi_link,
+    )?;
     info!("Final backend configuration: {:?}", backend);
-    let stdlib_path = (!is_core).then(moonutil::toolchain::core);
-    if target_backend == TargetBackend::LLVM
-        && !cli.dry_run
-        && let Some(core_root) = &stdlib_path
-    {
-        // Not every toolchain ships the LLVM bundle. Catch its missing prelude
-        // before moonc tries to load the interface and reports an internal error.
-        let prelude = moonutil::toolchain::core_package_mi_in(
-            core_root,
-            target_backend,
-            "prelude",
-            "prelude",
-        );
-        anyhow::ensure!(
-            prelude.is_file(),
-            "toolchain is incomplete: missing `prelude.mi` for target `llvm`"
-        );
-    }
-    let target_layout = TargetLayout::from_resolved_project(
-        target_dir.to_owned(),
+    let mut config = moonbuild::compile::prepare_config(
         resolved_project,
-        opt_level,
-        action,
-    );
-    let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
-    Ok(CompileConfig {
-        target_dir: target_dir.to_owned(),
+        target_dir,
         backend,
         opt_level,
         action,
         debug_info,
-        stdlib_path,
-        artifact_paths,
-        enable_coverage: build_flags.enable_coverage,
-        debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
-        // In legacy impl, dry run always forces no JSON.
-        moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
-        docs_serve: false,
-        warning_condition: if build_flags.deny_warn {
-            WarningCondition::Deny
-        } else {
-            WarningCondition::Default
-        },
-        warn_list: build_flags.warn_list.clone(),
-    })
-}
-
-/// Plan a build graph from an already resolved project and command intent.
-///
-/// At this boundary, command adapters have already resolved user selectors and
-/// command-specific directives into `CalcUserIntentOutput`. RR consumes those
-/// identities plus precomputed build-context paths from the command adapter.
-/// For actual builds, callers hold the target-directory lock while prebuild
-/// scripts run and their outputs are consumed. Dry-run callers leave locking to
-/// this function: it locks only when the resolved backend and modules require
-/// scripts, and keeps the lock through planning.
-#[instrument(level = Level::DEBUG, skip_all)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_resolved_build_from_intent(
-    cx: CompileConfig,
-    user_log: &UserLog,
-    intent: CalcUserIntentOutput,
-    resolved_project: ResolvedProject,
-    jobs: Option<usize>,
-    frozen: bool,
-    dry_run: bool,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let target_dir = cx.target_dir.clone();
-    info!("User intent calculated: {:?}", intent.intents);
-
-    // Decide once, after backend selection, whether planning will execute a
-    // script. Dry runs that only lower commands must not acquire a write lock.
-    let run_prebuild = cx.action != RunMode::Check
-        && cx.backend.target_backend().is_native()
-        && resolved_project
-            .module_graph
-            .all_modules_and_id()
-            .any(|(m, _)| {
-                resolved_project
-                    .module_info(m)
-                    .__moonbit_unstable_prebuild
-                    .is_some()
-            });
-    let _dry_run_lock = if dry_run && run_prebuild {
-        Some(moonutil::locks::lock_directory(&target_dir, user_log)?)
-    } else {
-        None
-    };
-    let prebuild_config = if run_prebuild {
-        info!("Running prebuild configuration");
-        Some(prebuild::run_prebuild_config(
-            &resolved_project,
-            &cx,
-            resolve_parallelism(jobs),
-            frozen,
-        )?)
-    } else {
-        info!("Skipping prebuild configuration: no applicable scripts");
-        None
-    };
-
-    info!("Expanding user intents to requested artifacts");
-    let requested_artifacts =
-        intent.requested_artifacts(&resolved_project, user_log, cx.backend.target_backend());
-    info!("Begin lowering to build graph");
-    let compile_output = moonbuild::compile::compile(
-        &cx,
-        &resolved_project,
-        &requested_artifacts,
-        &intent.directive,
-        prebuild_config.as_ref(),
-        user_log,
+        cli.dry_run,
     )?;
-
-    if cx.debug_export_build_plan
-        && let Some(plan) = compile_output.build_plan
-    {
-        info!("Exporting build plan DOT file");
-        moonbuild_rupes_recta::util::print_build_plan_dot(
-            &plan,
-            &resolved_project.module_graph,
-            &resolved_project.pkg_dirs,
-            &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
-        )?;
-    }
-
-    let artifacts = compile_output
-        .execution_plan
-        .requested_artifact_paths()
-        .map(|(artifact, paths)| (artifact.clone(), paths.to_vec()))
-        .collect();
-    let build_meta = BuildMeta {
-        resolved_project,
-        artifacts,
-        backend: cx.backend.clone(),
-        opt_level: cx.opt_level,
-        artifact_paths: cx.artifact_paths.clone(),
+    config.enable_coverage = build_flags.enable_coverage;
+    config.debug_export_build_plan = cli.unstable_feature.rr_export_build_plan;
+    // In legacy impl, dry run always forces no JSON.
+    config.moonc_output_json = !cli.dry_run && build_flags.output_style().needs_moonc_json();
+    config.warning_condition = if build_flags.deny_warn {
+        WarningCondition::Deny
+    } else {
+        WarningCondition::Default
     };
-
-    let input = BuildInput::new(
-        compile_output.execution_plan,
-        Some(cx.backend.target_backend()),
-    );
-
-    info!("Build planning completed successfully");
-
-    Ok((build_meta, input))
+    config.warn_list = build_flags.warn_list.clone();
+    Ok(config)
 }
 
 pub fn plan_fmt(

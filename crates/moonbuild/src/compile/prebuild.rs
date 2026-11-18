@@ -40,10 +40,7 @@ use moonutil::{
 };
 use tracing::instrument;
 
-use crate::{
-    cli::run::{build_standalone_wasm, effective_moonrun_policy},
-    run::{ExecutionMode, command_for_with_moonrun_policy_source_dir},
-};
+use super::build_standalone_wasm;
 
 #[instrument(skip_all)]
 pub(super) fn run_prebuild_config(
@@ -169,15 +166,12 @@ fn run_script_cmd(
         }
         .single_file_package_dirs(dir.join(prebuild))?;
         let built = build_standalone_wasm(dirs, frozen, false)?;
-        let (policy, policy_source_dir) =
-            effective_moonrun_policy(None, built.embedded_mbtx_policy.as_ref());
-        Ok(command_for_with_moonrun_policy_source_dir(
-            ExecutionMode::MoonRun,
-            &built.executable,
-            None,
-            policy,
-            policy_source_dir,
-        ))
+        let mut cmd = Command::new(dunce::simplified(&moonutil::toolchain::BINARIES.moonrun));
+        if let Some(policy) = &built.policy_source {
+            cmd.arg("--policy").arg(dunce::simplified(policy));
+        }
+        cmd.arg(dunce::simplified(&built.executable)).arg("--");
+        Ok(cmd)
     } else {
         Err(anyhow!(
             "Unknown extension for build script `{}` of module {}.

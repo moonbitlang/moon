@@ -18,6 +18,7 @@
 
 use anyhow::{Context, bail};
 use colored::Colorize;
+use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::prepare::ProjectPreparationConfig;
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey,
@@ -32,7 +33,6 @@ use moonutil::{
     build_options::RunMode,
     cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
-    locks::lock_directory,
     project::PackageDirs,
     resolution::{ModuleName, ModuleSourceKind},
     target::TargetBackend,
@@ -635,7 +635,7 @@ fn build_selected_package(
 
     user_log.info(format!("Building `{}`...", pkg.full_pkg_name));
 
-    let _lock = lock_directory(&prepared.target_dir, user_log)?;
+    let session = BuildSession::new(&prepared.target_dir, false, user_log)?;
     let build_flags = BuildFlags {
         release: true,
         warn_list: Some("-a".to_string()),
@@ -652,23 +652,19 @@ fn build_selected_package(
         &prepared.resolved_project,
     )?;
     let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         prepared.resolved_project.clone(),
         build_flags.jobs,
         false,
-        false,
     )?;
 
-    moonbuild::metadata::generate_all_pkgs_json(&build_meta)?;
-
-    let result = moonbuild::execution::execute_build(
+    let result = session.execute(
         &build_flags.execution_config(&cli.unstable_feature, cli.verbose),
         build_graph,
-        &prepared.target_dir,
-        user_log,
+        &[&build_meta],
+        MetadataOutput::Compiler,
     )?;
     if !result.successful() {
         result.print_info(quiet, "building").ok();

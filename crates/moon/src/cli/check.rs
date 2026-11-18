@@ -40,6 +40,7 @@
 use anyhow::Context;
 use log::LevelFilter;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::{ActionFailureKind, BuildInput};
 use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -49,7 +50,6 @@ use moonutil::cli_support::AutoSyncFlags;
 use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
-use moonutil::locks::lock_directory;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
@@ -65,7 +65,7 @@ use crate::filter::{
     group_packages_by_preferred_backend, package_supports_backend,
     preferred_target_backend_for_package, select_packages, select_supported_packages,
 };
-use crate::rr_build::{self, CalcUserIntentOutput};
+use crate::rr_build;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -645,17 +645,15 @@ fn run_check_impl(
 
     let discovered = sync_and_discover_check_project(cli, cmd, &dirs, output.user_log())
         .context("Failed to calculate build plan")?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log()).with_context(|| {
+    let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())
+        .with_context(|| {
             format!(
                 "failed to acquire build lock in target directory `{}`",
                 dirs.target_dir.display()
             )
         })?;
-    }
     let result = run_check_normal_rr_from_discovered(
-        cli, cmd, &dirs, false, &targets, discovered, output, json,
+        &session, cli, cmd, &dirs, false, &targets, discovered, output, json,
     )
     .with_context(|| match targets.as_slice() {
         [target] => format!("failed to run check for target {target:?}"),
@@ -706,15 +704,12 @@ fn run_check_for_single_file_rr(
     );
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, user_log).with_context(|| {
-            format!(
-                "failed to acquire build lock in target directory `{}`",
-                target_dir.display()
-            )
-        })?;
-    }
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log).with_context(|| {
+        format!(
+            "failed to acquire build lock in target directory `{}`",
+            target_dir.display()
+        )
+    })?;
 
     let mut planned_runs = Vec::with_capacity(target_backends.len());
     for target_backend in target_backends {
@@ -730,27 +725,26 @@ fn run_check_for_single_file_rr(
         let intent =
             get_user_intents_single_file(&resolved, compile_config.backend.target_backend())?;
         planned_runs.push(
-            rr_build::plan_resolved_build_from_intent(
-                compile_config,
-                user_log,
-                intent,
-                resolved.clone(),
-                cmd.build_flags.jobs,
-                cmd.auto_sync_flags.frozen,
-                cli.dry_run,
-            )
-            .context("Failed to calculate build plan")?,
+            session
+                .plan(
+                    compile_config,
+                    intent,
+                    resolved.clone(),
+                    cmd.build_flags.jobs,
+                    cmd.auto_sync_flags.frozen,
+                )
+                .context("Failed to calculate build plan")?,
         );
     }
 
-    run_planned_checks(cli, cmd, dirs, planned_runs, true, output, json)
+    run_planned_checks(&session, cli, cmd, dirs, planned_runs, true, output, json)
         .map(|ok| if ok { 0 } else { 1 })
 }
 
 fn get_user_intents_single_file(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     _backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     let m_packages = discovered
         .pkg_dirs
         .packages_for_module(discovered.local_modules()[0])
@@ -819,16 +813,15 @@ fn run_check_normal_internal_rr(
     let user_log = output.user_log();
     let discovered = sync_and_discover_check_project(cli, cmd, dirs, user_log)
         .context("Failed to calculate build plan")?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
+    let session =
+        BuildSession::new(&dirs.target_dir, cli.dry_run, user_log).with_context(|| {
             format!(
                 "failed to acquire build lock in target directory `{}`",
                 dirs.target_dir.display()
             )
         })?;
-    }
     run_check_normal_rr_from_discovered(
+        &session,
         cli,
         cmd,
         dirs,
@@ -842,9 +835,10 @@ fn run_check_normal_internal_rr(
 
 /// Plans and executes a check from a discovered project.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run check.
+/// The supplied session protects planning and execution with the target-directory lock.
 #[allow(clippy::too_many_arguments)]
 fn run_check_normal_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
@@ -869,6 +863,7 @@ fn run_check_normal_rr_from_discovered(
         }
     };
     let planned_runs = plan_check_rr_from_discovered(
+        session,
         cli,
         cmd,
         source_dir,
@@ -890,6 +885,7 @@ fn run_check_normal_rr_from_discovered(
     }
 
     let ok = run_planned_checks(
+        session,
         cli,
         cmd,
         dirs,
@@ -909,8 +905,10 @@ fn run_check_normal_rr_from_discovered(
 /// Finalizes metadata and executes checks planned by either resolution front
 /// end.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run check.
+/// The supplied session protects planning and execution with the target-directory lock.
+#[allow(clippy::too_many_arguments)]
 fn run_planned_checks(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
@@ -923,11 +921,7 @@ fn run_planned_checks(
         return Ok(true);
     }
 
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        ..
-    } = dirs;
+    let PackageDirs { source_dir, .. } = dirs;
     if cli.dry_run {
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
@@ -943,29 +937,32 @@ fn run_planned_checks(
         .execution_config(&cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
-    if publish_metadata {
-        moonbuild::metadata::publish_check_metadata(source_dir, &planned_runs)?;
+    let metadata = if publish_metadata {
+        MetadataOutput::Check(source_dir)
     } else {
-        for (build_meta, _) in &planned_runs {
-            moonbuild::metadata::generate_all_pkgs_json(build_meta)?;
-        }
-    }
+        MetadataOutput::Compiler
+    };
 
     let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
     let build_input = BuildInput::compose(build_inputs)?;
     let successful = if let Some(json) = json {
         json.record_editable_sources(&build_metas, &build_input);
-        let result = moonbuild::execution::execute_build_json(
+        let result = session.execute_json(
             &cfg.with_suppressed_progress(true),
             build_input,
-            target_dir,
+            &build_metas.iter().collect::<Vec<_>>(),
+            metadata,
         )?;
         let successful = result.successful();
         json.append_build(result, output.user_log());
         successful
     } else {
-        let result =
-            moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+        let result = session.execute(
+            &cfg,
+            build_input,
+            &build_metas.iter().collect::<Vec<_>>(),
+            metadata,
+        )?;
         result.print_summary(cli.quiet);
         if !result.successful() {
             output.user_log().error("failed when checking project");
@@ -1026,6 +1023,7 @@ fn sync_and_discover_check_project(
 /// Selects backend plans, resolves packages, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_check_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     source_dir: &Path,
@@ -1050,6 +1048,7 @@ pub(crate) fn plan_check_rr_from_discovered(
         .into_iter()
         .map(|selection| {
             plan_check_rr_for_selection(
+                session,
                 cli,
                 cmd,
                 target_dir,
@@ -1107,6 +1106,7 @@ fn select_check_plans(
 
 /// Plans one backend for the packages selected before resolution.
 fn plan_check_rr_for_selection(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     target_dir: &Path,
@@ -1134,14 +1134,12 @@ fn plan_check_rr_for_selection(
         compile_config.backend.target_backend(),
         cmd,
     );
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }
 
@@ -1284,7 +1282,7 @@ fn filter_packages_for_backend(
 fn calc_user_intent(
     packages: Vec<PackageId>,
     patch_file: Option<&Path>,
-) -> anyhow::Result<CalcUserIntentOutput> {
+) -> anyhow::Result<BuildRequest> {
     let directive = build_directive_for_selected_packages(&packages, patch_file)?;
     Ok((
         packages.into_iter().map(UserIntent::Check).collect(),
@@ -1300,7 +1298,7 @@ fn calc_user_intent(
 /// interface, so checking another backend never rewrites it. A check with
 /// `--patch-file` does not reflect the package sources and publishes nothing.
 fn add_generated_mbti_intents(
-    intent: &mut CalcUserIntentOutput,
+    intent: &mut BuildRequest,
     resolved: &moonbuild_rupes_recta::ResolvedProject,
     target_backend: TargetBackend,
     cmd: &CheckSubcommand,

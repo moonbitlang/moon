@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
-use moonbuild::BuildMeta;
 use moonbuild::execution::BuildInput;
+use moonbuild::{BuildMeta, compile::BuildSession};
 use std::{path::PathBuf, sync::Arc};
 
 use moonbuild_rupes_recta::{
@@ -209,14 +209,17 @@ impl PlanningFixture {
         cmd: &TestSubcommand,
         selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         crate::cli::test::plan_test_or_bench_rr_from_discovered(
+            &session,
             cli,
             &borrowed,
             &self.target_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )
         .map(|plans| {
             plans
@@ -245,14 +248,17 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BenchSubcommand,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         crate::cli::test::plan_test_or_bench_rr_from_discovered(
+            &session,
             cli,
             &borrowed,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?.as_slice(),
             self.discovered.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )
         .map(|plans| {
             plans
@@ -276,9 +282,11 @@ impl PlanningFixture {
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<PlannedGraph> {
         let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         let (target_backend, resolved_project) =
             self.select_and_resolve(cmd.build_flags.resolve_single_target_backend()?, &user_log)?;
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
+            &session,
             cli,
             cmd,
             &self.target_dir,
@@ -303,13 +311,16 @@ impl PlanningFixture {
         cmd: &BuildSubcommand,
         selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         crate::cli::build::plan_build_rr_from_discovered(
+            &session,
             cli,
             cmd,
             &self.target_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )
         .map(|plans| {
             plans
@@ -325,13 +336,16 @@ impl PlanningFixture {
         cmd: &BundleSubcommand,
         selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         crate::cli::bundle::plan_bundle_rr_from_discovered(
+            &session,
             cli,
             cmd,
             &self.target_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )
         .map(|plans| {
             plans
@@ -365,14 +379,17 @@ impl PlanningFixture {
         cmd: &CheckSubcommand,
         selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         crate::cli::check::plan_check_rr_from_discovered(
+            &session,
             cli,
             cmd,
             &self.source_dir,
             &self.target_dir,
             selected_target_backend.as_slice(),
             self.discovered.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )
         .map(|plans| {
             plans
@@ -395,6 +412,8 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &RunSubcommand,
     ) -> anyhow::Result<PlannedGraph> {
+        let user_log = UserLog::new(cli.user_log_level());
+        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
         let mut cmd = cmd.clone();
         if cmd.command.is_none()
             && let Some(input) = cmd.package_or_mbt_file.as_deref()
@@ -405,12 +424,13 @@ impl PlanningFixture {
             }
         }
         let (build_meta, build_graph) = crate::cli::run::plan_run_rr_from_discovered(
+            &session,
             cli,
             &cmd,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.discovered.clone(),
-            &UserLog::new(cli.user_log_level()),
+            &user_log,
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
     }
