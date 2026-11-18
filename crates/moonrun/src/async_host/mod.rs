@@ -53,8 +53,10 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+#[cfg(any(target_os = "macos", windows))]
+use crate::filesystem::FsTarget;
 use crate::filesystem::HostFs;
-use crate::filesystem::{FsOperation, FsPath, FsTarget};
+use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
@@ -3109,7 +3111,7 @@ impl AsyncHost {
                 // until completion before exposing the result to guest code.
                 unsafe {
                     self.filesystem.read_overlapped(
-                        &file,
+                        file,
                         &mut result.buffer,
                         &mut bytes_transferred,
                         overlapped,
@@ -3320,7 +3322,7 @@ impl AsyncHost {
                 // until completion before exposing the result to guest code.
                 unsafe {
                     self.filesystem.write_overlapped(
-                        &file,
+                        file,
                         &result.buffer,
                         &mut bytes_transferred,
                         overlapped,
