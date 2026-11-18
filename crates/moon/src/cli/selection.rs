@@ -411,33 +411,6 @@ pub(super) struct TargetPackageGroup {
     pub packages: Vec<PackageId>,
 }
 
-/// One single-backend plan selected before package resolution.
-#[derive(Debug)]
-pub(super) struct BackendPlanSelection {
-    pub target_backend: TargetBackend,
-    /// Packages selected for this backend, or `None` when planning expands the
-    /// command's own selector against the resolved project.
-    pub packages: Option<Vec<PackageId>>,
-}
-
-impl BackendPlanSelection {
-    pub(super) fn command_selector(target_backend: TargetBackend) -> Self {
-        Self {
-            target_backend,
-            packages: None,
-        }
-    }
-}
-
-impl From<TargetPackageGroup> for BackendPlanSelection {
-    fn from(group: TargetPackageGroup) -> Self {
-        Self {
-            target_backend: group.target_backend,
-            packages: Some(group.packages),
-        }
-    }
-}
-
 pub(super) fn preferred_target_backend_for_package(
     discovered: &DiscoveredProject,
     pkg_id: PackageId,

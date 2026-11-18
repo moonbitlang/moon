@@ -16,13 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+mod selection;
+
 use anyhow::Context;
 use moonbuild::BuildMeta;
-use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
+use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonbuild_rupes_recta::model::PackageId;
 use moonbuild_rupes_recta::pkg_name::PackageFQN;
 use moonutil::build_options::RunMode;
 use moonutil::cache::{CacheKind, resolve_cache_root};
@@ -35,33 +36,12 @@ use moonutil::user_log::UserLog;
 use serde::Serialize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tracing::{Level, instrument};
-
-use super::selection::{
-    BackendPlanSelection, TargetPackageGroup, ensure_packages_support_backend,
-    group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
-    select_packages, select_supported_packages,
-};
+use tracing::instrument;
 
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
 use super::{BuildFlags, UniversalFlags};
-
-#[derive(Debug, Clone)]
-struct ResolvedBuildSelection {
-    packages: Vec<PackageId>,
-}
-
-impl ResolvedBuildSelection {
-    fn into_user_intent(self) -> BuildRequest {
-        self.packages
-            .into_iter()
-            .map(UserIntent::Build)
-            .collect::<Vec<_>>()
-            .into()
-    }
-}
 
 /// Build the current package
 ///
@@ -473,101 +453,7 @@ fn write_built_outputs_json(
     Ok(())
 }
 
-pub(super) fn plan_build_rr_from_resolved(
-    session: &BuildSession,
-    cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let compile_config = cmd.build_flags.compile_config(
-        cli,
-        target_backend,
-        target_dir,
-        RunMode::Build,
-        user_log,
-        &resolved_project,
-    )?;
-    let intent = calc_user_intent(
-        &cmd.path,
-        cmd.package.as_deref(),
-        &resolved_project,
-        compile_config.backend.target_backend(),
-        user_log,
-    )?;
-    session.plan(
-        compile_config,
-        intent,
-        resolved_project,
-        cmd.build_flags.jobs,
-        cmd.auto_sync_flags.frozen,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn plan_build_rr_from_resolved_with_scope(
-    session: &BuildSession,
-    cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    scoped_packages: Vec<PackageId>,
-    user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let compile_config = cmd.build_flags.compile_config(
-        cli,
-        target_backend,
-        target_dir,
-        RunMode::Build,
-        user_log,
-        &resolved_project,
-    )?;
-    let intent = calc_user_intent_from_scoped_packages(
-        &resolved_project,
-        &scoped_packages,
-        compile_config.backend.target_backend(),
-    );
-    session.plan(
-        compile_config,
-        intent,
-        resolved_project,
-        cmd.build_flags.jobs,
-        cmd.auto_sync_flags.frozen,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn plan_build_rr_from_selection(
-    session: &BuildSession,
-    cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
-    target_dir: &Path,
-    target_backend: TargetBackend,
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    selection: ResolvedBuildSelection,
-    user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let compile_config = cmd.build_flags.compile_config(
-        cli,
-        target_backend,
-        target_dir,
-        RunMode::Build,
-        user_log,
-        &resolved_project,
-    )?;
-    session.plan(
-        compile_config,
-        selection.into_user_intent(),
-        resolved_project,
-        cmd.build_flags.jobs,
-        cmd.auto_sync_flags.frozen,
-    )
-}
-
-/// Selects backend plans, resolves packages, then plans each selected backend.
+/// Select complete requests, resolve their backends, then plan each request.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn plan_build_rr_from_discovered(
     session: &BuildSession,
@@ -578,268 +464,31 @@ pub(super) fn plan_build_rr_from_discovered(
     discovered: moonbuild_rupes_recta::DiscoveredProject,
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
-    let selections = select_build_plans(&discovered, cmd, selected_target_backends, user_log)?;
-    let target_backends = selections
+    let requests =
+        selection::select_requests(&discovered, cmd, selected_target_backends, user_log)?;
+    let target_backends = requests
         .iter()
-        .map(|selection| selection.target_backend)
+        .map(|(backend, _)| *backend)
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
-    selections
+    requests
         .into_iter()
-        .map(|selection| {
-            plan_build_rr_for_selection(
-                session,
+        .map(|(target_backend, request)| {
+            let compile_config = cmd.build_flags.compile_config(
                 cli,
-                cmd,
+                target_backend,
                 target_dir,
-                selection,
-                resolved_project.clone(),
+                RunMode::Build,
                 user_log,
+                &resolved_project,
+            )?;
+            session.plan(
+                compile_config,
+                request,
+                resolved_project.clone(),
+                cmd.build_flags.jobs,
+                cmd.auto_sync_flags.frozen,
             )
         })
         .collect()
-}
-
-fn select_build_plans(
-    discovered: &moonbuild_rupes_recta::DiscoveredProject,
-    cmd: &BuildSubcommand,
-    selected_target_backends: &[TargetBackend],
-    user_log: &UserLog,
-) -> anyhow::Result<Vec<BackendPlanSelection>> {
-    if selected_target_backends.is_empty() {
-        let selections = resolve_build_target_selections(discovered, cmd, None, user_log)?;
-        if selections.is_empty() && !has_explicit_build_selector(cmd) {
-            return Ok(vec![BackendPlanSelection::command_selector(
-                super::selection::local_modules_preferred_target(discovered, user_log)
-                    .unwrap_or_default(),
-            )]);
-        }
-        return Ok(selections.into_iter().map(Into::into).collect());
-    }
-
-    let mut plans = Vec::new();
-    for &target_backend in selected_target_backends {
-        if has_explicit_build_selector(cmd) {
-            let selections =
-                resolve_build_target_selections(discovered, cmd, Some(target_backend), user_log)?;
-            plans.extend(selections.into_iter().map(Into::into));
-        } else {
-            plans.push(BackendPlanSelection::command_selector(target_backend));
-        }
-    }
-    Ok(plans)
-}
-
-fn plan_build_rr_for_selection(
-    session: &BuildSession,
-    cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
-    target_dir: &Path,
-    selection: BackendPlanSelection,
-    resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    user_log: &UserLog,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let BackendPlanSelection {
-        target_backend,
-        packages,
-    } = selection;
-    match packages {
-        None => plan_build_rr_from_resolved(
-            session,
-            cli,
-            cmd,
-            target_dir,
-            target_backend,
-            resolved_project,
-            user_log,
-        ),
-        // Raw user selector paths/package names have already been resolved
-        // into PackageIds. RR uses those resolved identities.
-        Some(packages) if has_explicit_build_selector(cmd) => plan_build_rr_from_selection(
-            session,
-            cli,
-            cmd,
-            target_dir,
-            target_backend,
-            resolved_project,
-            ResolvedBuildSelection { packages },
-            user_log,
-        ),
-        Some(packages) => plan_build_rr_from_resolved_with_scope(
-            session,
-            cli,
-            cmd,
-            target_dir,
-            target_backend,
-            resolved_project,
-            packages,
-            user_log,
-        ),
-    }
-}
-
-fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
-    !cmd.path.is_empty() || cmd.package.is_some()
-}
-
-fn resolve_build_target_selections(
-    discovered: &moonbuild_rupes_recta::DiscoveredProject,
-    cmd: &BuildSubcommand,
-    selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
-) -> anyhow::Result<Vec<TargetPackageGroup>> {
-    if let Some(target_backend) = selected_target_backend {
-        let packages =
-            resolve_selected_build_packages(discovered, cmd, Some(target_backend), user_log)?;
-        if packages.is_empty() {
-            return Ok(Vec::new());
-        }
-        return Ok(vec![TargetPackageGroup {
-            target_backend,
-            packages,
-        }]);
-    }
-
-    let selected = resolve_selected_build_packages(discovered, cmd, None, user_log)?;
-    let mut selections = group_packages_by_preferred_backend(discovered, selected);
-
-    for selection in &mut selections {
-        selection.packages = selection
-            .packages
-            .iter()
-            .copied()
-            .filter(|&pkg| package_supports_backend(discovered, pkg, selection.target_backend))
-            .collect();
-    }
-    selections.retain(|selection| !selection.packages.is_empty());
-
-    Ok(selections)
-}
-
-fn resolve_selected_build_packages(
-    discovered: &moonbuild_rupes_recta::DiscoveredProject,
-    cmd: &BuildSubcommand,
-    target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
-) -> anyhow::Result<Vec<PackageId>> {
-    if !cmd.path.is_empty() {
-        if let Some(target_backend) = target_backend {
-            return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
-        }
-        return Ok(select_packages(discovered, &cmd.path, user_log)?
-            .into_iter()
-            .map(|(_, pkg_id)| pkg_id)
-            .collect());
-    }
-
-    if let Some(package_filter) = cmd.package.as_deref() {
-        let pkgs = match_packages_by_name_rr(
-            discovered,
-            discovered.local_modules(),
-            package_filter,
-            user_log,
-        );
-        if let Some(target_backend) = target_backend {
-            ensure_packages_support_backend(discovered, pkgs.iter().copied(), target_backend)?;
-        }
-        return Ok(pkgs);
-    }
-
-    Ok(super::selection::local_packages(discovered)
-        .filter(|&pkg_id| {
-            target_backend
-                .is_none_or(|backend| package_supports_backend(discovered, pkg_id, backend))
-        })
-        .collect())
-}
-
-/// Generate user intent
-/// If any packages are linkable, compile those; otherwise, compile everything
-/// to core.
-#[instrument(level = Level::DEBUG, skip_all)]
-fn calc_user_intent(
-    path_filters: &[PathBuf],
-    package_filter: Option<&str>,
-    discovered: &moonbuild_rupes_recta::DiscoveredProject,
-    target_backend: TargetBackend,
-    user_log: &UserLog,
-) -> Result<BuildRequest, anyhow::Error> {
-    if !path_filters.is_empty() {
-        let selected =
-            select_supported_packages(discovered, path_filters, target_backend, user_log)?;
-        Ok(selected
-            .into_iter()
-            .map(UserIntent::Build)
-            .collect::<Vec<_>>()
-            .into())
-    } else if let Some(package_filter) = package_filter {
-        let pkgs = match_packages_by_name_rr(
-            discovered,
-            discovered.local_modules(),
-            package_filter,
-            user_log,
-        );
-        ensure_packages_support_backend(discovered, pkgs.iter().copied(), target_backend)?;
-        Ok(pkgs
-            .into_iter()
-            .map(UserIntent::Build)
-            .collect::<Vec<_>>()
-            .into())
-    } else {
-        Ok(calc_user_intent_from_scoped_packages(
-            discovered,
-            &super::selection::local_packages(discovered)
-                .filter(|&pkg_id| package_supports_backend(discovered, pkg_id, target_backend))
-                .collect::<Vec<_>>(),
-            target_backend,
-        ))
-    }
-}
-
-fn calc_user_intent_from_scoped_packages(
-    discovered: &moonbuild_rupes_recta::DiscoveredProject,
-    supported_packages: &[PackageId],
-    target_backend: TargetBackend,
-) -> BuildRequest {
-    let linkable_pkgs = get_linkable_pkgs(
-        discovered,
-        target_backend,
-        supported_packages.iter().copied(),
-    );
-    let intents: Vec<_> = if linkable_pkgs.is_empty() {
-        supported_packages
-            .iter()
-            .copied()
-            .filter(|&pkg_id| {
-                let pkg = discovered.pkg_dirs.get_package(pkg_id);
-                !pkg.is_stdlib
-            })
-            .map(UserIntent::Build)
-            .collect()
-    } else {
-        linkable_pkgs.into_iter().map(UserIntent::Build).collect()
-    };
-    intents.into()
-}
-
-fn get_linkable_pkgs(
-    discovered: &moonbuild_rupes_recta::DiscoveredProject,
-    target_backend: TargetBackend,
-    packages: impl Iterator<Item = PackageId>,
-) -> Vec<PackageId> {
-    let mut linkable_pkgs = vec![];
-    for pkg_id in packages {
-        let pkg = discovered.pkg_dirs.get_package(pkg_id);
-        if pkg.raw.force_link
-            || pkg
-                .raw
-                .link
-                .as_ref()
-                .is_some_and(|link| link.need_link(target_backend))
-            || pkg.raw.is_main
-        {
-            linkable_pkgs.push(pkg_id)
-        }
-    }
-    linkable_pkgs
 }

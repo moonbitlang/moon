@@ -17,10 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::selection::{
-    BackendPlanSelection, TargetPackageGroup, canonicalize_with_filename,
-    ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
-    group_packages_by_preferred_backend, match_packages_with_fuzzy, package_supports_backend,
-    select_packages,
+    TargetPackageGroup, canonicalize_with_filename, ensure_packages_support_backend,
+    filter_pkg_by_dir, format_supported_backends, group_packages_by_preferred_backend,
+    match_packages_with_fuzzy, package_supports_backend, select_packages,
 };
 use crate::cli::profile;
 use crate::run::collect_test_outline;
@@ -50,6 +49,34 @@ use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
+
+// TODO(test-request-selection): Remove this intermediate state when test/bench
+// selection returns complete BuildRequest/TestFilter pairs for each backend.
+#[derive(Debug)]
+struct BackendPlanSelection {
+    target_backend: TargetBackend,
+    /// Packages selected for this backend, or `None` when planning expands the
+    /// command's own selector against the discovered project.
+    packages: Option<Vec<PackageId>>,
+}
+
+impl BackendPlanSelection {
+    fn command_selector(target_backend: TargetBackend) -> Self {
+        Self {
+            target_backend,
+            packages: None,
+        }
+    }
+}
+
+impl From<TargetPackageGroup> for BackendPlanSelection {
+    fn from(group: TargetPackageGroup) -> Self {
+        Self {
+            target_backend: group.target_backend,
+            packages: Some(group.packages),
+        }
+    }
+}
 
 struct ResolvedTestPathFilter {
     package: PackageId,

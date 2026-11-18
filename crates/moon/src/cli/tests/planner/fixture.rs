@@ -281,20 +281,13 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<PlannedGraph> {
-        let user_log = UserLog::new(cli.user_log_level());
-        let session = BuildSession::new(&self.target_dir, true, &user_log)?;
-        let (target_backend, resolved_project) =
-            self.select_and_resolve(cmd.build_flags.resolve_single_target_backend()?, &user_log)?;
-        let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
-            &session,
-            cli,
-            cmd,
-            &self.target_dir,
-            target_backend,
-            resolved_project,
-            &user_log,
-        )?;
-        Ok(PlannedGraph::new(build_meta, build_graph))
+        let mut plans = self.plan_build_all_with_cli(cli, cmd)?;
+        anyhow::ensure!(
+            plans.len() == 1,
+            "expected one backend plan, got {}",
+            plans.len()
+        );
+        Ok(plans.pop().expect("checked exactly one plan"))
     }
 
     pub(super) fn plan_build_all_with_cli(

@@ -24,8 +24,8 @@ use super::fixture::{
 };
 use moonutil::target::{TargetBackend, lower_surface_targets};
 
-// Most tests enter at planning with resolved dependencies. Run selection tests
-// also exercise production package/backend selection before resolving imports.
+// Exercise command-specific backend selection and the resulting build graphs.
+// Build and run tests enter through production selection before resolving imports.
 
 fn assert_graph_text_contains_and_omits(graph: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
@@ -733,4 +733,38 @@ fn module_supported_targets_intersection_filters_check_planning() {
         .plan_check_with_cli(&cli, &cmd)
         .expect("llvm check graph should plan");
     assert_graph_inputs(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+}
+
+#[test]
+fn build_default_fallback_reselects_packages_after_empty_preferred_groups() {
+    let fixture = PlanningFixture::new("build_preferred_backend_fallback.in")
+        .expect("fixture should discover");
+    let (cli, cmd) = parse_build_command(&["build", "--dry-run"]);
+    let runs = fixture
+        .plan_build_all_with_cli(&cli, &cmd)
+        .expect("the default backend should build the supported packages");
+
+    assert_root_package_runs(
+        runs,
+        &[(TargetBackend::Wasm, &["selection/js", "selection/native"])],
+    );
+}
+
+#[test]
+fn explicit_build_paths_do_not_fall_back_from_empty_preferred_groups() {
+    let fixture = PlanningFixture::new("build_preferred_backend_fallback.in")
+        .expect("fixture should discover");
+    let path = fixture.case_dir().join("js_preferred");
+    let path = path.to_str().expect("fixture path should be UTF-8");
+    let (cli, cmd) = parse_build_command(&["build", path, "--dry-run"]);
+    let runs = fixture
+        .plan_build_all_with_cli(&cli, &cmd)
+        .expect("an unsupported implicit backend should leave explicit paths unselected");
+    assert!(runs.is_empty());
+
+    let (cli, cmd) = parse_build_command(&["build", path, "--target", "wasm", "--dry-run"]);
+    let runs = fixture
+        .plan_build_all_with_cli(&cli, &cmd)
+        .expect("an explicit supported backend should select the package");
+    assert_root_package_runs(runs, &[(TargetBackend::Wasm, &["selection/js"])]);
 }
