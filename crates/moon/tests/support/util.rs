@@ -23,7 +23,7 @@ use std::{
 };
 
 use expect_test::Expect;
-use moonutil::{compiler_flags, target::TargetBackend, text::StringExt};
+use moonutil::{compiler_flags, target::TargetBackend};
 #[cfg(unix)]
 use regex::Regex;
 use sha2::{Digest, Sha256};
@@ -309,9 +309,10 @@ pub(crate) fn cache_registry_package(
     (zip_path, index_path)
 }
 
+/// Read test text with CRLF normalized for cross-platform assertions and edits.
 #[track_caller]
 pub(crate) fn read<P: AsRef<Path>>(p: P) -> String {
-    std::fs::read_to_string(p).unwrap().replace_crlf_to_lf()
+    std::fs::read_to_string(p).unwrap().replace("\r\n", "\n")
 }
 
 /// Asserts the `shlex`'d result of the given string is equal to the expected

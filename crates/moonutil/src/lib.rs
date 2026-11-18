@@ -52,7 +52,6 @@ pub mod scripts;
 pub mod shlex;
 pub mod supported_targets;
 pub mod target;
-pub mod text;
 pub mod toolchain;
 pub mod user_log;
 pub mod version;
