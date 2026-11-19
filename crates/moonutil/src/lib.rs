@@ -43,7 +43,6 @@ pub mod path;
 pub mod path_normalizer;
 pub mod policy_transport;
 pub mod project;
-pub mod render;
 pub mod resolution;
 pub mod run_handoff;
 pub mod scripts;

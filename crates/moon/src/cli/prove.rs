@@ -25,13 +25,15 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use moonbuild::BuildMeta;
-use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
+use moonbuild::{
+    BuildMeta,
+    compile::{BuildRequest, BuildSession, MetadataOutput},
+    execution::DiagnosticLevel,
+};
 use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
 use moonutil::{
     build_options::RunMode, command_output::CommandOutput, constants::PRELUDE_PROOF_FILE,
-    project::PackageDirs, render::DiagnosticLevel, resolution::ModuleId, target::TargetBackend,
-    user_log::UserLog,
+    project::PackageDirs, resolution::ModuleId, target::TargetBackend, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;

@@ -20,7 +20,7 @@ use std::{collections::BTreeSet, path::Path};
 
 use crate::cli::UniversalFlags;
 use anyhow::bail;
-use moonbuild::execution::{BuildConfig, OutputStyle};
+use moonbuild::execution::{BuildConfig, DiagnosticLevel, OutputStyle};
 use moonbuild_rupes_recta::{
     CompileConfig, DiscoveredProject, ResolvedProject,
     build_lower::WarningCondition,
@@ -33,7 +33,6 @@ use moonutil::{
     constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
     features::FeatureGate,
     package::SupportedTargetsDeclKind,
-    render::DiagnosticLevel,
     target::{SurfaceTarget, TargetBackend},
     user_log::UserLog,
 };

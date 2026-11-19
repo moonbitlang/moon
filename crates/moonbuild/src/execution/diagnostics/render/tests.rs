@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::*;
+use crate::execution::diagnostics::Loc;
 
 #[test]
 fn render_diagnostics_accepts_no_location_diagnostic_json() {
