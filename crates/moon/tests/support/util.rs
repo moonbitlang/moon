@@ -289,7 +289,7 @@ pub(crate) fn cache_registry_package(
     let zip = archive.finish().unwrap().into_inner();
 
     let layout = moonutil::MoonHomeLayout::new(moon_home.to_path_buf());
-    let module_name: moonutil::resolution::ModuleName = name.into();
+    let module_name: moonutil::module_name::ModuleName = name.into();
     let version = version.parse().unwrap();
     let zip_path = layout.registry_source_archive_path(&module_name, &version);
     std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();

@@ -24,7 +24,7 @@ use anyhow::{Context, bail};
 use moonutil::{
     MoonHomeLayout,
     cache::{CacheKind, CacheRoot, resolve_cache_root_for_home},
-    resolution::ModuleName,
+    module_name::ModuleName,
 };
 use once_cell::sync::OnceCell;
 use semver::Version;

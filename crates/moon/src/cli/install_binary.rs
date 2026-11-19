@@ -33,8 +33,9 @@ use mooncake::{
 };
 use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON},
+    module_name::ModuleName,
     project::PackageDirs,
-    resolution::{ModuleName, ModuleSourceKind},
+    resolution::ModuleSourceKind,
     target::TargetBackend,
     user_log::UserLog,
 };

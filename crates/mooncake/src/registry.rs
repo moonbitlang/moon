@@ -44,8 +44,8 @@ pub use executable::ResolvedExecutablePackage;
 pub use http::HttpVersionReader;
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
-use moonutil::resolution::{ModuleName, ModuleSource};
 use moonutil::user_log::UserLog;
+use moonutil::{module_name::ModuleName, resolution::ModuleSource};
 use semver::Version;
 
 /// Validate syntax needed to interpolate a username into a module manifest.

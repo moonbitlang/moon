@@ -185,6 +185,12 @@ Name/version agreement is checked when constructing a module source, before
 manifest mutation or registry acquisition. Local modules may omit their version;
 the internal default used for them is not a declared release.
 
+`moonutil::module_name` owns the shared name representation and name/version
+validation rules. Both manifest validation and `resolution::ModuleSource`
+construction use those rules; declarations do not depend on the resolution
+result model. Mooncake reexports `ModuleName` and `ModuleVersionError` for clients
+of its registry and package-management interfaces.
+
 Other name forms, such as `containers` or `rabbit/containers/new`, are legacy.
 Local manifests accept names without a username; registry CLI coordinates
 require at least a username and a module component. Module-only commands such

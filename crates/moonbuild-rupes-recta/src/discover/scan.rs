@@ -31,8 +31,9 @@ use moonutil::{
         ManifestFormat, MoonMod, preferred_manifest_in_dir,
         read_package_desc_file_from_path_with_supported_targets_decl, warn_known_shadowed_manifest,
     },
+    module_name::ModuleName,
     package::{MoonPkg, SupportedTargetsDeclKind},
-    resolution::{ModuleName, ModuleSource},
+    resolution::ModuleSource,
     user_log::UserLog,
 };
 use relative_path::PathExt;

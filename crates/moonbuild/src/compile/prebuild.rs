@@ -34,8 +34,8 @@ use moonbuild_rupes_recta::{
 use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON},
     manifest::preferred_manifest_in_dir,
+    module_name::ModuleName,
     project::SourceTargetDirs,
-    resolution::ModuleName,
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;

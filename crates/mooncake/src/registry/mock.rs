@@ -24,7 +24,7 @@ use std::{
 };
 
 use moonutil::{
-    dependency::SourceDependencyInfo, manifest::MoonMod, resolution::ModuleName, user_log::UserLog,
+    dependency::SourceDependencyInfo, manifest::MoonMod, module_name::ModuleName, user_log::UserLog,
 };
 use semver::Version;
 

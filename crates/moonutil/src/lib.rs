@@ -35,6 +35,7 @@ pub mod front_matter;
 pub mod locks;
 pub mod manifest;
 mod module;
+pub mod module_name;
 mod moon_dir;
 pub mod moon_pkg;
 pub mod package;

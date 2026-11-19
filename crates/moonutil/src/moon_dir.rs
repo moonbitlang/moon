@@ -25,7 +25,7 @@ use semver::Version;
 
 use crate::{
     constants::{BUILD_DIR, PRELUDE_PROOF_DIR},
-    resolution::ModuleName,
+    module_name::ModuleName,
     target::TargetBackend,
 };
 
