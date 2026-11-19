@@ -83,6 +83,24 @@ impl FsPolicy {
         }
     }
 
+    /// Capture both permissions from the same resolved target used for admission.
+    /// Each policy source must grant a right for it to survive intersection.
+    pub(crate) fn granted_access(&self, path: Option<&Path>) -> AccessRights {
+        let Some(path) = path else {
+            return AccessRights::NONE;
+        };
+        AccessRights {
+            read: self
+                .rule_groups
+                .iter()
+                .all(|group| FsRules::allows(&group.read_rules, path)),
+            write: self
+                .rule_groups
+                .iter()
+                .all(|group| FsRules::allows(&group.write_rules, path)),
+        }
+    }
+
     pub(crate) fn authorize(
         &self,
         path: Option<&Path>,

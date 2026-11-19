@@ -6783,7 +6783,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn legacy_resource_io_does_not_recheck_the_opening_path() {
+    fn resource_io_and_metadata_keep_the_opening_grant() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("file");
         let moved = tmp.path().join("moved");
@@ -6807,16 +6807,14 @@ mod tests {
 
         std::fs::rename(&file, &moved).unwrap();
         std::os::unix::fs::symlink(&moved, &file).unwrap();
-        // The old path now resolves outside the grant. Existing fs semantics
-        // still permit native I/O, while metadata rechecks that saved path.
+        // The old path now resolves outside the configured rule. Both I/O and
+        // metadata retain the authority captured when this file was opened.
         let metadata = host
             .insert_job(FilesystemJob::file_size(Arc::clone(&resource)))
             .unwrap();
         host.run_job(metadata).unwrap();
-        assert_eq!(
-            host.with_job(metadata, |job| job.err()).unwrap(),
-            AsyncHostError::PermissionDenied.errno()
-        );
+        assert_eq!(host.with_job(metadata, |job| job.err()).unwrap(), 0);
+        assert_eq!(host.get_file_size_result(metadata).unwrap(), 4);
 
         let read = host
             .insert_job(FilesystemJob::read(Arc::clone(&resource), 4, 0))

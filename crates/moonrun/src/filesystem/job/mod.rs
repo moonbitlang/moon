@@ -875,6 +875,9 @@ pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
 }
 
 #[cfg(test)]
+mod grant_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
