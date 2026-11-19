@@ -254,8 +254,9 @@ fn run_build_script_for_module(
         .with_context(|| {
             format!("failed to spawn prebuild script `{prebuild}` for module `{module}`")
         })?;
-    // TODO: Remove this stdin transport once compatibility with scripts reading
-    // the legacy JSON input is no longer required.
+    // TODO(1.0): After the deprecation window, remove the stdin JSON pipe, writer
+    // thread and input serialization. Scripts use MOON_* environment variables;
+    // stdout JSON remains the output protocol.
     let stdin = cmd.stdin.take().expect("Didn't get stdin");
     let join = std::thread::spawn(move || {
         let mut stdin = stdin;

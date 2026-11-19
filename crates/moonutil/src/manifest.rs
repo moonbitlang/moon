@@ -472,6 +472,14 @@ pub fn warn_module_manifest(
         unknown.extend(unknown_field_paths(&rule.extra, &format!("rule[{index}]")));
     }
     warn_unknown_fields(&unknown, &dir.join(manifest), user_log);
+    // TODO(1.0): Drop this migration notice when prebuild stdin JSON is removed.
+    // Warn about the protocol, without guessing whether a script reads stdin.
+    if let Some(script) = &module.__moonbit_unstable_prebuild {
+        user_log.warn(format!(
+            "Legacy stdin JSON for prebuild script `{script}` in module `{}` is deprecated and will be removed; read `MOON_MOD`, `MOON_BUILD_DIR`, and the other `MOON_*` environment variables instead.",
+            module.name
+        ));
+    }
     if matches!(format, ManifestFormat::Legacy) {
         return;
     }

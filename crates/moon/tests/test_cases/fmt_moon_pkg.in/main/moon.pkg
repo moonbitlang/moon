@@ -2,6 +2,4 @@ import {
   "test/fmt_moon_pkg/lib"
 }
 
-options(
-  "is-main": true
-)
+pkgtype(kind: "executable")
