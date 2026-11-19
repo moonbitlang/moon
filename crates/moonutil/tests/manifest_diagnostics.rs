@@ -457,3 +457,56 @@ fn prebuild_entries_reject_command_with_rule() {
         );
     }
 }
+
+#[test]
+fn module_warning_aliases_reject_duplicate_declarations() {
+    let dir = tempfile::tempdir().unwrap();
+    for (warnings, legacy) in [
+        (r#""+a""#, r#""+a""#),
+        (r#""+a""#, r#""-a""#),
+        (r#""""#, r#""""#),
+        (r#""+a""#, "false"),
+    ] {
+        for declaration in [
+            format!("warnings = {warnings}\noptions(\"warn-list\": {legacy})"),
+            format!("options(warnings: {warnings}, \"warn-list\": {legacy})"),
+        ] {
+            std::fs::write(
+                dir.path().join("moon.mod"),
+                format!("name = \"test/warnings\"\n{declaration}"),
+            )
+            .unwrap();
+            let error = read_module_manifest(dir.path(), false).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "Duplicate key 'warnings' found in moon.mod."
+            );
+        }
+    }
+}
+
+#[test]
+fn module_warning_spellings_remain_individually_supported() {
+    let dir = tempfile::tempdir().unwrap();
+    for (filename, source) in [
+        ("moon.mod", "name = \"test/warnings\"\nwarnings = \"+a-b\""),
+        (
+            "moon.mod",
+            "name = \"test/warnings\"\noptions(warnings: \"+a-b\")",
+        ),
+        (
+            "moon.mod",
+            "name = \"test/warnings\"\noptions(\"warn-list\": \"+a-b\")",
+        ),
+        (
+            "moon.mod.json",
+            r#"{"name": "test/warnings", "warn-list": "+a-b"}"#,
+        ),
+    ] {
+        let path = dir.path().join(filename);
+        std::fs::write(&path, source).unwrap();
+        let (_, module) = read_module_manifest(dir.path(), true).unwrap();
+        assert_eq!(module.warn_list.as_deref(), Some("+a-b"));
+        std::fs::remove_file(path).unwrap();
+    }
+}
