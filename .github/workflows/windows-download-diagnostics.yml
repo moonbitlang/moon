@@ -1,0 +1,115 @@
+# moon: The build system and package manager for MoonBit.
+# Copyright (C) 2026 International Digital Economy Academy
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+name: Windows download diagnostics
+
+# A branch-only experiment: pushing it must not start the regular CI or CD.
+on:
+  push:
+    branches: [codex/diagnose-windows-upgrade-download]
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Record runner image and Windows build
+        shell: pwsh
+        run: |
+          "ImageOS=$env:ImageOS"
+          "ImageVersion=$env:ImageVersion"
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' |
+            Select-Object ProductName, DisplayVersion, CurrentBuild, UBR |
+            Format-List
+          Get-Command powershell, pwsh | Select-Object Name, Source | Format-List
+          # Match the execution policy set by the normal Windows setup step.
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+      - name: Compare downloads in both PowerShell hosts on the same runner
+        shell: pwsh
+        run: |
+          $probeScript = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/diagnose-windows-download.ps1'
+          $probeRoot = Join-Path $env:RUNNER_TEMP 'moon-windows-download-diagnostics'
+          $results = @()
+          try {
+            foreach ($program in @('powershell', 'pwsh')) {
+              foreach ($channel in @('latest', 'nightly')) {
+                $caseName = "$program-$channel"
+                Write-Output "::group::$caseName"
+                $destination = Join-Path $probeRoot $caseName
+                New-Item -ItemType Directory -Path $destination -Force | Out-Null
+                $start = [System.Diagnostics.ProcessStartInfo]::new()
+                $start.FileName = (Get-Command $program).Source
+                $start.ArgumentList.Add($probeScript)
+                $start.UseShellExecute = $false
+                # Match Command::output(): capture both streams and close stdin.
+                $start.RedirectStandardInput = $true
+                $start.RedirectStandardOutput = $true
+                $start.RedirectStandardError = $true
+                $start.Environment['MOON_HOME'] = $destination
+                $start.Environment['MOON_TOOLCHAIN_ROOT'] = $destination
+                $start.Environment.Remove('MOONBIT_INSTALL_DEV') | Out-Null
+                $start.Environment.Remove('MOONBIT_INSTALL_VERSION') | Out-Null
+                if ($channel -eq 'nightly') {
+                  $start.Environment['MOONBIT_INSTALL_VERSION'] = 'nightly'
+                }
+                $process = [System.Diagnostics.Process]::new()
+                $process.StartInfo = $start
+                try {
+                  $process.Start() | Out-Null
+                  $process.StandardInput.Close()
+                  $stdout = $process.StandardOutput.ReadToEndAsync()
+                  $stderr = $process.StandardError.ReadToEndAsync()
+                  $timedOut = -not $process.WaitForExit(240000)
+                  if ($timedOut) {
+                    $process.Kill($true)
+                    $process.WaitForExit()
+                  }
+                  Write-Output '--- stdout ---'
+                  Write-Output $stdout.GetAwaiter().GetResult()
+                  Write-Output '--- stderr ---'
+                  Write-Output $stderr.GetAwaiter().GetResult()
+                  Write-Output "exit=$($process.ExitCode); timedOut=$timedOut"
+                  $results += [pscustomobject]@{
+                    Case = $caseName
+                    ExitCode = $process.ExitCode
+                    TimedOut = $timedOut
+                  }
+                } finally {
+                  $process.Dispose()
+                  Remove-Item -LiteralPath $destination -Recurse -Force
+                  Write-Output '::endgroup::'
+                }
+              }
+            }
+          } finally {
+            if (Test-Path -LiteralPath $probeRoot) {
+              Remove-Item -LiteralPath $probeRoot -Recurse -Force
+            }
+            $results | Format-Table -AutoSize
+          }
+          if ($results | Where-Object { $_.ExitCode -ne 0 -or $_.TimedOut }) {
+            throw 'One or more download probes failed; see the full child output above.'
+          }
