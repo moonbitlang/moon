@@ -68,9 +68,12 @@ Feature: Selecting tests by package name
         """
 
   Rule: A file filter requires exactly one selected package
+    Moon exits with -1 for this CLI error. Unix exposes the low byte (255),
+    whereas Windows preserves -1. Both native statuses are checked explicitly.
+
     Scenario: A file filter is ambiguous across matched packages
       When I test packages matching "y" with file filter "asdf"
-      Then the command exits with status 255
+      Then the command exits with status 255 on Unix and -1 on Windows
       And stdout is empty
       And stderr is exactly:
         """

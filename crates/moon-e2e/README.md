@@ -31,6 +31,9 @@ links to the specifications rather than repeating their expected values.
 - Each command has explicit exit-status and output expectations. Empty streams
   are checked explicitly. Messages, counts, ordering, selected inputs and file
   results belong in the feature, not in Rust constants or templates.
+- For an error code whose native representation differs, the exit-status step
+  states both Unix and Windows expectations. In particular, Moon's `-1` error
+  exit is observed as `255` on Unix and `-1` on Windows.
 - `stdout/stderr is exactly` compares the entire stream with only line endings
   normalized. Output docstrings include a final newline; additional blank lines
   inside them are significant.

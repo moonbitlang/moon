@@ -171,10 +171,13 @@ impl UniversalFlags {
 }
 
 #[derive(Debug, clap::Parser)]
+// Keep help formatting independent of other workspace crates enabling
+// clap's `wrap_help` feature (for example, the Cucumber test runner).
 #[clap(
     name = "moon",
     about = "The build system and package manager for MoonBit.",
-    override_usage = "moon [OPTIONS] <COMMAND>"
+    override_usage = "moon [OPTIONS] <COMMAND>",
+    term_width = 0
 )]
 struct MoonBuildCli {
     #[clap(subcommand)]

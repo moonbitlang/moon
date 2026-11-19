@@ -32,8 +32,13 @@ fn succeeds(world: &mut World) {
     );
 }
 
-#[then(expr = "the command exits with status {int}")]
-fn exits_with_status(world: &mut World, status: i32) {
+#[then(expr = "the command exits with status {int} on Unix and {int} on Windows")]
+fn exits_with_status(world: &mut World, unix_status: i32, windows_status: i32) {
+    let status = if cfg!(windows) {
+        windows_status
+    } else {
+        unix_status
+    };
     world.output = Some(
         world
             .output
