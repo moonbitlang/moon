@@ -55,6 +55,7 @@ mod runtime;
 mod search;
 mod selection;
 mod shell_completion;
+mod target;
 mod test;
 mod testcli;
 #[cfg(test)]

@@ -22,7 +22,8 @@ use super::fixture::{
     planned_check_package_runs, planned_graph_inputs, planned_requested_artifacts,
     planned_root_package_runs, planned_target_backends,
 };
-use moonutil::target::{TargetBackend, lower_surface_targets};
+use crate::cli::target::lower_surface_targets;
+use moonutil::target::TargetBackend;
 
 // Exercise command-specific backend selection and the resulting build graphs.
 // Build and run tests enter through production selection before resolving imports.

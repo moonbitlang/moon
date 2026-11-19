@@ -35,6 +35,7 @@ mod driver;
 #[cfg(test)]
 mod tests;
 
+use crate::cli::target::SurfaceTarget;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -43,7 +44,6 @@ use crate::cli::UniversalFlags;
 use anyhow::Context;
 use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::target::SurfaceTarget;
 use tracing::instrument;
 
 use super::BuildFlags;

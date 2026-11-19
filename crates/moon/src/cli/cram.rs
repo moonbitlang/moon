@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::SurfaceTarget;
 use std::{
     ffi::{OsStr, OsString},
     io::Write,
@@ -31,10 +32,8 @@ use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use mooncake::cli::AutoSyncFlags;
 use moonutil::{
-    command_output::CommandOutput,
-    path_normalizer::PathNormalizer,
-    project::PackageDirs,
-    target::{SurfaceTarget, TargetBackend},
+    command_output::CommandOutput, path_normalizer::PathNormalizer, project::PackageDirs,
+    target::TargetBackend,
 };
 use tracing::instrument;
 

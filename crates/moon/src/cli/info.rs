@@ -18,6 +18,7 @@
 
 mod imp;
 
+use crate::cli::target::{SurfaceTarget, lower_surface_targets};
 use mooncake::cli::AutoSyncFlags;
 use std::path::PathBuf;
 
@@ -30,10 +31,7 @@ use moonbuild_rupes_recta::{
     DiscoveredProject, ResolvedProject, RunMode, intent::UserIntent, model::PackageId,
 };
 use moonutil::{
-    command_output::CommandOutput,
-    project::PackageDirs,
-    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
-    user_log::UserLog,
+    command_output::CommandOutput, project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
 use super::{

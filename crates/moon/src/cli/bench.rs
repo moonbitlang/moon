@@ -16,14 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::lower_surface_targets;
 use crate::run::TestIndexRange;
 use anyhow::Context;
 use mooncake::cli::AutoSyncFlags;
-use moonutil::{
-    command_output::CommandOutput,
-    project::PackageDirs,
-    target::{TargetBackend, lower_surface_targets},
-};
+use moonutil::{command_output::CommandOutput, project::PackageDirs, target::TargetBackend};
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
