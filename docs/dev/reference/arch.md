@@ -266,12 +266,14 @@ configuration, such as `check`, should not capture that environment just to
 construct a build plan. This does not disable package pre-build rules.
 
 Dependency synchronization is explicit in the normal project path. Command
-adapters call `moonbuild::prepare::sync_module_dependencies`, then pass the
-synced module graph and source directories to RR for package discovery and
-package relationship resolution. `ProjectPreparationConfig` owns sync policy
-and directly contains RR's `DiscoveryConfig`, which only carries coverage and
-discovery parallelism settings. Discovery-only callers do not need registry,
-workspace, or download settings.
+adapters call `moonbuild::prepare::sync_and_discover_project`, which synchronizes
+modules through Mooncake and passes their graph and source directories to RR
+for package discovery. `ProjectPreparationConfig` owns sync policy and keeps
+RR's `DiscoveryConfig` private. Commands select packages and backends from the
+returned `DiscoveredProject` before resolving package relationships. RR callers
+that already have synchronized modules can use `discover_synced_project`
+directly with `DiscoveryConfig`, which only carries coverage and discovery
+parallelism settings; they do not need registry, workspace, or download settings.
 
 Single-file preparation also belongs to `moonbuild::prepare`: it reads script
 declarations, normalizes versioned imports, consults cached registry metadata

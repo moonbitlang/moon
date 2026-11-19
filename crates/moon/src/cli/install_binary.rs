@@ -550,14 +550,13 @@ fn prepare_native_build(
     })?;
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false)
         .with_sync_output(sync_output);
-    let synced_modules =
-        moonbuild::prepare::sync_module_dependencies(&preparation_config, &package_dirs, user_log)?;
-    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
-        &preparation_config.discovery,
-        synced_modules,
-        &[moonutil::target::TargetBackend::Native],
+    let discovered = moonbuild::prepare::sync_and_discover_project(
+        &preparation_config,
+        &package_dirs,
         user_log,
     )?;
+    let resolved_project =
+        discovered.resolve_packages(&[moonutil::target::TargetBackend::Native], user_log)?;
     let target_dir = package_dirs.target_dir;
 
     let main_module_id = resolved_project

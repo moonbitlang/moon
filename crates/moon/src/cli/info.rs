@@ -25,10 +25,9 @@ use anyhow::bail;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
-use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
+use moonbuild::prepare::{ProjectPreparationConfig, sync_and_discover_project};
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ResolvedProject, RunMode, discover_synced_project, intent::UserIntent,
-    model::PackageId,
+    DiscoveredProject, ResolvedProject, RunMode, intent::UserIntent, model::PackageId,
 };
 use moonutil::{
     command_output::CommandOutput,
@@ -267,12 +266,7 @@ pub(super) fn run_info(
         cmd.auto_sync_flags.frozen,
         build_flags.enable_coverage,
     );
-    let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
-    let discovered = discover_synced_project(
-        &preparation_config.discovery,
-        synced_modules,
-        output.user_log(),
-    )?;
+    let discovered = sync_and_discover_project(&preparation_config, &dirs, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &discovered, output.user_log())?;
 
     let requested_targets = cmd

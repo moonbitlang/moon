@@ -77,8 +77,7 @@ fn push_prebuild_paths(
 mod tests {
     use super::*;
 
-    use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
-    use moonbuild_rupes_recta::resolve::prepare_synced_project;
+    use moonbuild::prepare::{ProjectPreparationConfig, sync_and_discover_project};
     use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
 
     #[test]
@@ -106,15 +105,10 @@ name = "user/empty"
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_modules =
-            sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
-        let resolved = prepare_synced_project(
-            &preparation_config.discovery,
-            synced_modules,
-            moonutil::target::TargetBackend::all(),
-            &user_log,
-        )
-        .unwrap();
+        let discovered = sync_and_discover_project(&preparation_config, &dirs, &user_log).unwrap();
+        let resolved = discovered
+            .resolve_packages(moonutil::target::TargetBackend::all(), &user_log)
+            .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         assert!(watch_paths.ignored_paths.is_empty());
@@ -161,15 +155,10 @@ dev_build(
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_modules =
-            sync_module_dependencies(&preparation_config, &dirs, &user_log).unwrap();
-        let resolved = prepare_synced_project(
-            &preparation_config.discovery,
-            synced_modules,
-            moonutil::target::TargetBackend::all(),
-            &user_log,
-        )
-        .unwrap();
+        let discovered = sync_and_discover_project(&preparation_config, &dirs, &user_log).unwrap();
+        let resolved = discovered
+            .resolve_packages(moonutil::target::TargetBackend::all(), &user_log)
+            .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         let root = std::fs::canonicalize(temp_dir.path()).unwrap();

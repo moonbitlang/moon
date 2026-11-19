@@ -38,7 +38,7 @@ pub struct ProjectPreparationConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     dependency_source_cache: CacheRoot,
-    pub discovery: DiscoveryConfig,
+    discovery: DiscoveryConfig,
 }
 
 impl ProjectPreparationConfig {
@@ -94,7 +94,7 @@ pub enum ProjectPreparationError {
 /// Resolve module sources and versions and synchronize their directories for
 /// package discovery. This does not resolve package imports.
 #[instrument(skip_all)]
-pub fn sync_module_dependencies(
+fn sync_module_dependencies(
     cfg: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -120,6 +120,7 @@ pub fn sync_module_dependencies(
 }
 
 /// Synchronize module dependencies and discover packages.
+/// Callers can select packages and backends before resolving package imports.
 /// This step does not acquire the target-directory lock.
 pub fn sync_and_discover_project(
     preparation_config: &ProjectPreparationConfig,
