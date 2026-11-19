@@ -31,6 +31,7 @@ pub use moonutil::{
     MOON_HOME,
     constants::{MOON_MOD, MOON_MOD_JSON},
     manifest::{MoonMod, read_module_desc_file_in_dir, read_module_from_json},
+    module_name::{ModuleName, ModuleVersionError},
     project::{PackageDirs, ProjectManifest},
     toolchain::{BINARIES, toolchain_root},
     user_log::UserLog,

@@ -18,7 +18,8 @@
 
 use moonutil::{
     constants::MOD_NAME_STDLIB,
-    resolution::{DEFAULT_VERSION, ModuleName, ModuleSource},
+    module_name::ModuleName,
+    resolution::{DEFAULT_VERSION, ModuleSource},
 };
 use semver::Version;
 

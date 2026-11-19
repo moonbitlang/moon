@@ -23,8 +23,11 @@ use std::sync::Arc;
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::project::ProjectManifest;
-use moonutil::resolution::{ModuleDependencyGraph, ModuleId, ModuleName};
 use moonutil::user_log::UserLog;
+use moonutil::{
+    module_name::ModuleName,
+    resolution::{ModuleDependencyGraph, ModuleId},
+};
 
 use crate::pkg::roots_for_selected_module;
 use crate::registry;

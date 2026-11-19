@@ -24,7 +24,7 @@ use super::{RegistryConfig, RegistryVersionInfo};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    MoonHomeLayout, dependency::SourceDependencyInfo, resolution::ModuleName, user_log::UserLog,
+    MoonHomeLayout, dependency::SourceDependencyInfo, module_name::ModuleName, user_log::UserLog,
 };
 use once_cell::sync::OnceCell;
 use semver::Version;

@@ -28,9 +28,8 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
     manifest::MoonMod,
-    resolution::{
-        DependencyEdge, ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind,
-    },
+    module_name::ModuleName,
+    resolution::{DependencyEdge, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     user_log::UserLog,
 };
 use semver::Version;

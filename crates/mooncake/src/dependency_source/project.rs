@@ -361,7 +361,10 @@ mod test {
     use std::collections::{HashMap, HashSet};
 
     use arcstr::ArcStr;
-    use moonutil::resolution::{ModuleName, ModuleSource, ModuleSourceKind};
+    use moonutil::{
+        module_name::ModuleName,
+        resolution::{ModuleSource, ModuleSourceKind},
+    };
 
     fn to_state(s: &str) -> super::DepDirState {
         let mut state = super::DepDirState::new();

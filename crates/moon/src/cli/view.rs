@@ -28,7 +28,7 @@ use mooncake::registry::{
 use moonutil::{
     MOON_HOME,
     command_output::CommandOutput,
-    resolution::ModuleName,
+    module_name::ModuleName,
     user_log::{UserLog, UserLogEntry, UserLogEntryLevel},
 };
 use semver::Version;

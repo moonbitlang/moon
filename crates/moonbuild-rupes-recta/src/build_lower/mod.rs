@@ -109,10 +109,9 @@ mod tests {
         },
         cond_expr::OptLevel,
         manifest::MoonMod,
+        module_name::ModuleName,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{
-            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
-        },
+        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
         target::TargetBackend,
         toolchain::BINARIES,
     };

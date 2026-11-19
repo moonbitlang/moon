@@ -24,7 +24,7 @@ use std::{
 
 use moonutil::{
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    resolution::ModuleName,
+    module_name::ModuleName,
 };
 use semver::Version;
 

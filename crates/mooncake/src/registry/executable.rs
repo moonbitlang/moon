@@ -17,10 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::{
-    resolution::{ModuleName, ModuleSource},
-    user_log::UserLog,
-};
+use moonutil::{module_name::ModuleName, resolution::ModuleSource, user_log::UserLog};
 use semver::Version;
 
 use super::{Registry, RegistryClient, path as registry_path};

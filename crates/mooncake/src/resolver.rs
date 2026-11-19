@@ -18,11 +18,13 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use moonutil::resolution::{
-    ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
-    ResolvedRootModules,
-};
 use moonutil::user_log::UserLog;
+use moonutil::{
+    module_name::ModuleName,
+    resolution::{
+        ModuleDependencyGraph, ModuleId, ModuleSource, ModuleSourceKind, ResolvedRootModules,
+    },
+};
 use semver::Version;
 use thiserror::Error;
 

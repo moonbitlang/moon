@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::dependency::SourceDependencyInfo;
+use crate::module_name::ModuleName;
 use crate::package::{SupportedTargetsConfig, resolve_supported_targets};
-use crate::resolution::ModuleName;
 use crate::target::TargetBackend;
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
@@ -253,7 +253,7 @@ pub enum ModuleValidationError {
     #[error("`version` bad format")]
     Version(#[from] semver::Error),
     #[error(transparent)]
-    ModuleVersion(#[from] crate::resolution::ModuleVersionError),
+    ModuleVersion(#[from] crate::module_name::ModuleVersionError),
     #[error("`preferred_target` is not a valid backend")]
     PreferredTarget(anyhow::Error),
     #[error("`supported_targets` bad format")]
