@@ -23,7 +23,7 @@ fn manifest_diagnostics_reach_build_commands() {
     let dir = TestDir::new_empty();
     std::fs::write(
         dir.join("moon.mod"),
-        "name = \"test/diagnostics\"\noptions(future: true)",
+        "name = \"test/diagnostics\"\noptions(checksum: \"obsolete\")",
     )
     .unwrap();
     std::fs::write(dir.join("main.mbt"), "fn main {}\n").unwrap();
@@ -33,6 +33,7 @@ fn manifest_diagnostics_reach_build_commands() {
 regex_backend = "table"
 options(
   "alert-list": "+all",
+  "bin-name": "obsolete-name",
   link: {
     "native": { "cc_link_flags": "-lm" },
     "wasm-gc": { "use-ffi-bytes": true }
@@ -47,7 +48,8 @@ options(
         .assert()
         .success()
         .stderr_eq(snapbox::str![[r#"
-Warning: Unknown configuration key `future` in `[..]/moon.mod`.
+Warning: Unknown configuration key `checksum` in `[..]/moon.mod`.
+Warning: Unknown configuration key `bin-name` in `[..]/moon.pkg`.
 Warning: Unknown configuration key `link.native.cc_link_flags` in `[..]/moon.pkg`.
 Finished. moon: ran 2 tasks, now up to date
 

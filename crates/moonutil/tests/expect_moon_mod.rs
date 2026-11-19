@@ -149,14 +149,6 @@ fn read_module_from_dsl_basic() {
             }
           },
           "warnings": "-unused-deprecated",
-          "include": [
-            "src/**",
-            "README.mbt.md"
-          ],
-          "exclude": [
-            "target/**",
-            "**/*.tmp"
-          ],
           "scripts": {
             "prebuild": "node ./prebuild.js",
             "postbuild": "echo done"
@@ -196,52 +188,6 @@ fn module_manifest_only_warns_when_both_formats_exist() {
             );
         }
     }
-}
-
-#[test]
-fn deprecated_field_warnings_reuse_the_parsed_manifest() {
-    let temporary = tempfile::tempdir().unwrap();
-    let dir = temporary.path();
-    std::fs::copy(
-        fixture_dir("module_deprecated_packaging").join("moon.mod"),
-        dir.join("moon.mod"),
-    )
-    .unwrap();
-    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-
-    let path = dir.join("moon.mod");
-    let (format, module) = read_module_manifest(dir, false).unwrap();
-    std::fs::remove_file(&path).unwrap();
-    warn_module_manifest(dir, format, &module, &user_log);
-
-    let entries = capture.take();
-    assert_eq!(entries.len(), 1);
-    assert_eq!(
-        entries[0].message,
-        format!(
-            "`include` and `exclude` in `{}` are deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-            dir.join("moon.mod").display()
-        )
-    );
-}
-
-#[test]
-fn module_warnings_use_the_selected_manifest_path() {
-    let dir = fixture_dir("module_deprecated_formats");
-    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-
-    let (format, module) = read_module_manifest(&dir, true).unwrap();
-    warn_module_manifest(&dir, format, &module, &user_log);
-
-    let entries = capture.take();
-    assert_eq!(entries.len(), 2);
-    assert_eq!(
-        entries[1].message,
-        format!(
-            "`include` in `{}` is deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-            dir.join("moon.mod").display()
-        )
-    );
 }
 
 #[test]
@@ -421,7 +367,8 @@ rule(name: "rule1", command: "exe2")
 
     let err = read_module_from_dsl(&path).unwrap_err();
     assert!(
-        err.to_string()
+        err.root_cause()
+            .to_string()
             .contains("Duplicate rule name `rule1` found in module manifest."),
         "{err:?}"
     );
@@ -518,7 +465,6 @@ fn module_json_exposes_rule_arrays() {
         description: None,
         compile_flags: None,
         link_flags: None,
-        checksum: None,
         source: None,
         rule: Some(vec![MoonModRule {
             extra: Default::default(),
@@ -527,8 +473,6 @@ fn module_json_exposes_rule_arrays() {
         }]),
         ext: Default::default(),
         warnings: None,
-        include: None,
-        exclude: None,
         scripts: None,
         preferred_target: None,
         supported_targets: None,
@@ -623,7 +567,6 @@ fn write_module_dsl_uses_canonical_sections() {
           "warn-list": "+w1-w2",
           "readme": "README.md",
           "license": "Apache-2.0",
-          "include": ["src/**", "README.md"],
           "supported-targets": ["wasm-gc", "js"]
         }"#,
     )
@@ -647,11 +590,7 @@ fn write_module_dsl_uses_canonical_sections() {
 
         warnings = "+w1-w2"
 
-        supported_targets = [ "wasm-gc", "js" ]
-
-        options(
-          "include": [ "src/**", "README.md" ],
-        )"#]]
+        supported_targets = [ "wasm-gc", "js" ]"#]]
     .assert_eq(&actual);
 }
 

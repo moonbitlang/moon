@@ -34,7 +34,7 @@ blocks and empty option lists also count as declarations. Regular, test, and
 whitebox imports are independent. Multiple `rule` and `dev_build` declarations
 remain supported; rule names must be unique.
 
-Other settings, including `bin-name`, `bin-target`, `overrides`, structured
+Other settings, including `overrides`, structured
 `link`, `native-stub`, and per-file `targets`, still belong in `options(...)`.
 
 These declarations require matching compiler support. Compilers that do not
@@ -50,6 +50,13 @@ warnings. For example, `link.native.cc_link_flags` warns because the accepted
 spelling is `cc-link-flags`. Warnings do not stop the command and are suppressed
 by `--quiet`; unknown-key warnings in dependencies are suppressed by default.
 This applies to both module and package configuration.
+
+The removed module field `checksum` and package fields `bin-name` / `bin-target`
+follow this unknown-key policy. Module fields `include` and `exclude` are errors
+in the current project and workspace members, including empty values, because
+ignoring old file filters could package unintended files. Move those filters to
+`.gitignore` or `.moonignore`; `.moonignore` overrides `.gitignore` in the same
+directory. These obsolete filters are ignored in dependencies.
 
 Known fields with incorrect types are errors, including in dependencies and
 with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a

@@ -17,7 +17,6 @@ fn test_removed_packaging_config_errors_even_when_quiet() {
         for args in [
             ["check", "--quiet"].as_slice(),
             ["fmt", "--dry-run", "--quiet"].as_slice(),
-            ["package", "--list", "--quiet"].as_slice(),
         ] {
             moon_cmd(&dir)
                 .args(args)

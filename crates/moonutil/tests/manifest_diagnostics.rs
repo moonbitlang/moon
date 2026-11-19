@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::manifest::{
-    read_module_manifest, read_package_desc_file_from_path_with_supported_targets_decl,
-    warn_module_manifest,
+    read_dependency_module_manifest, read_module_manifest,
+    read_package_desc_file_from_path_with_supported_targets_decl, warn_module_manifest,
 };
 use moonutil::user_log::UserLog;
 
@@ -161,6 +161,9 @@ fn removed_packaging_fields_are_errors_in_both_module_formats() {
             // Presence is an error, including empty or null values. These
             // controls must not silently stop filtering published files.
             for value in [r#"["src/**"]"#, "[]", "null", "123"] {
+                if name == "moon.mod" && value == "null" {
+                    continue; // null is not part of the module DSL syntax.
+                }
                 let source = if name == "moon.mod" {
                     format!("name = \"test/removed\"\noptions({field}: {value})")
                 } else {
@@ -174,6 +177,9 @@ fn removed_packaging_fields_are_errors_in_both_module_formats() {
                         "`{field}` is no longer supported in module manifests; use `.gitignore` or `.moonignore` to control packaged files. `.moonignore` overrides `.gitignore` in the same directory."
                     )
                 );
+                if name == "moon.mod" {
+                    read_dependency_module_manifest(dir.path()).unwrap();
+                }
             }
         }
     }

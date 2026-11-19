@@ -22,18 +22,6 @@
         }
       ]
     },
-    "bin-name": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "bin-target": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "experimental": {
       "description": "Mark this package as experimental, warning packages that depend on it.",
       "type": [

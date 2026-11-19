@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use moonutil::{
     locks::lock_directory,
-    manifest::{MoonMod, read_module_desc_file_in_dir},
+    manifest::{MoonMod, read_dependency_module_manifest},
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     toolchain,
     user_log::UserLog,
@@ -234,7 +234,7 @@ fn validate_cached_source(
 }
 
 fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<MoonMod> {
-    let manifest = read_module_desc_file_in_dir(directory)?;
+    let manifest = read_dependency_module_manifest(directory)?;
     if manifest.name != module.name().to_string()
         || manifest.version.as_ref() != Some(module.version())
     {

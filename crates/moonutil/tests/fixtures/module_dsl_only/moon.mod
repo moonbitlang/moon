@@ -23,8 +23,6 @@ options(
   warnings: "-unused",
   "warn-list": "-deprecated",
   "preferred-target": "wasm-gc",
-  "include": ["src/**", "README.mbt.md"],
-  "exclude": ["target/**", "**/*.tmp"],
   "scripts": {
     "prebuild": "node ./prebuild.js",
     "postbuild": "echo done",
