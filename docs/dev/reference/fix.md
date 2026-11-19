@@ -10,8 +10,11 @@ the contract in `lib/xml/computil/diagnostic_fix.mli` of its repository.
 1. Run the same check as `moon check` for the selected paths and target
    backends, with JSON diagnostics, no diagnostic limit, no patch file, and
    without publishing `pkg.generated.mbti` (it would describe the code before
-   its fixes). Ordinary compiler errors may still propose fixes, such as an
-   unused `mut`. Tool failures, executor-reported interruption, and compiler
+   its fixes). Enable warning `+99` (`pending_deprecated`) to request migration
+   fixes for pending deprecations. Explicit `--warn-list` settings follow `+99`,
+   so users can override it with `--warn-list -99`. Ordinary compiler errors may
+   still propose fixes, such as an unused `mut`. Tool failures,
+   executor-reported interruption, and compiler
    failures without error diagnostics stop the run before applying any fixes
    from that check.
 2. From the execution plan, record which editable local source files each
