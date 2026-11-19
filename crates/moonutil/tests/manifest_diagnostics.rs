@@ -93,6 +93,69 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
 }
 
 #[test]
+fn obsolete_stub_link_settings_warn_in_both_package_formats() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, source) in [
+        (
+            "moon.pkg",
+            r#"options(link: {"native": {
+  "stub-cc-link-flags": "-lunused",
+  "stub-lib-deps": ["unused.o"]
+}})"#,
+        ),
+        (
+            "moon.pkg.json",
+            r#"{"link": {"native": {
+  "stub-cc-link-flags": "-lunused",
+  "stub-lib-deps": ["unused.o"]
+}}}"#,
+        ),
+    ] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, source).unwrap();
+        for emit_warnings in [true, false] {
+            let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+            read_package_desc_file_from_path_with_supported_targets_decl(
+                &path,
+                &log,
+                true,
+                emit_warnings,
+            )
+            .unwrap();
+            let warnings: Vec<_> = capture
+                .take()
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect();
+            let expected = if emit_warnings {
+                vec![
+                    format!(
+                        "`link.native.stub-cc-link-flags` in `{}` is deprecated and has no effect; C stubs are archived without a separate link step.",
+                        path.display()
+                    ),
+                    format!(
+                        "Unknown configuration key `link.native.stub-lib-deps` in `{}`.",
+                        path.display()
+                    ),
+                ]
+            } else {
+                vec![]
+            };
+            assert_eq!(warnings, expected);
+        }
+
+        // Recognizing a deprecated field still enforces its declared type,
+        // including when diagnostics are suppressed for dependencies.
+        std::fs::write(&path, source.replace("\"-lunused\"", "123")).unwrap();
+        let log = UserLog::new(log::LevelFilter::Off);
+        assert!(
+            read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false,)
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn module_unknown_key_warnings_reuse_the_parsed_manifest() {
     let dir = tempfile::tempdir().unwrap();
     for (name, source) in [

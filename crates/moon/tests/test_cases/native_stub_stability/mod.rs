@@ -1,6 +1,32 @@
 #[cfg(unix)]
 use crate::get_stdout_with_envs;
-use crate::{TestDir, get_stdout};
+use crate::{TestDir, get_stdout, moon_cmd};
+
+#[test]
+fn test_obsolete_stub_link_settings_do_not_affect_native_builds() {
+    // Given real C stubs and obsolete settings that would fail if interpreted
+    // as shell arguments or linker inputs.
+    let dir = TestDir::new("native_stub_archive_membership");
+    std::fs::write(
+        dir.join("lib/moon.pkg"),
+        r#"options(
+  "native-stub": ["entry.c", "old.c"],
+  link: {"native": {
+    "stub-cc-link-flags": "'",
+    "stub-lib-deps": ["does-not-exist.o"]
+  }}
+)"#,
+    )
+    .unwrap();
+
+    // When compiled, archived and linked with the real native toolchain,
+    // the executable still calls the C stub successfully.
+    moon_cmd(&dir)
+        .args(["run", "main", "--target", "native"])
+        .assert()
+        .success()
+        .stdout_eq("1\n");
+}
 
 /// Ensure that the C stub linking order is stable and does not change between runs.
 ///
