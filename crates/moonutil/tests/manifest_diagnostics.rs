@@ -30,6 +30,8 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
             "moon.pkg",
             r#"options(
   future: {"opaque": true},
+  "bin-name": 123,
+  "bin-target": "removed-backend",
   pkgtype: {"kind": "library", "future": true},
   "virtual": {"has-default": true, "future": true},
   link: {"future": true, "native": {"cc_link_flags": "-lm"}, "wasm-gc": {
@@ -44,6 +46,8 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
             "moon.pkg.json",
             r#"{
   "future": {"opaque": true},
+  "bin-name": 123,
+  "bin-target": "removed-backend",
   "pkgtype": {"kind": "library", "future": true},
   "virtual": {"has-default": true, "future": true},
   "link": {"future": true, "native": {"cc_link_flags": "-lm"}, "wasm-gc": {
@@ -67,9 +71,11 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
             )
             .unwrap();
             let warnings = capture.take();
-            assert_eq!(warnings.len(), if emit_warnings { 9 } else { 0 });
+            assert_eq!(warnings.len(), if emit_warnings { 11 } else { 0 });
             for key in [
                 "future",
+                "bin-name",
+                "bin-target",
                 "pkgtype.future",
                 "virtual.future",
                 "link.future",
@@ -148,13 +154,39 @@ fn removed_stub_link_settings_are_unknown_in_both_package_formats() {
 }
 
 #[test]
+fn removed_packaging_fields_are_errors_in_both_module_formats() {
+    for name in ["moon.mod", "moon.mod.json"] {
+        let dir = tempfile::tempdir().unwrap();
+        for field in ["include", "exclude"] {
+            // Presence is an error, including empty or null values. These
+            // controls must not silently stop filtering published files.
+            for value in [r#"["src/**"]"#, "[]", "null", "123"] {
+                let source = if name == "moon.mod" {
+                    format!("name = \"test/removed\"\noptions({field}: {value})")
+                } else {
+                    format!(r#"{{"name": "test/removed", "{field}": {value}}}"#)
+                };
+                std::fs::write(dir.path().join(name), source).unwrap();
+                let err = read_module_manifest(dir.path(), true).unwrap_err();
+                assert_eq!(
+                    err.root_cause().to_string(),
+                    format!(
+                        "`{field}` is no longer supported in module manifests; use `.gitignore` or `.moonignore` to control packaged files. `.moonignore` overrides `.gitignore` in the same directory."
+                    )
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn module_unknown_key_warnings_reuse_the_parsed_manifest() {
     let dir = tempfile::tempdir().unwrap();
     for (name, source) in [
         (
             "moon.mod",
             r#"name = "test/diagnostics"
-options(future: true)
+options(future: true, checksum: 123)
 rule(name: "generate", command: "echo", typo: true)
 "#,
         ),
@@ -163,6 +195,7 @@ rule(name: "generate", command: "echo", typo: true)
             r#"{
   "name": "test/diagnostics",
   "future": true,
+  "checksum": 123,
   "rule": [{"name": "generate", "command": "echo", "typo": true}]
 }"#,
         ),
@@ -171,6 +204,7 @@ rule(name: "generate", command: "echo", typo: true)
             r#"{
   "name": "test/diagnostics",
   "future": true,
+  "checksum": 123,
   "rule": {"name": "generate", "command": "echo", "typo": true}
 }"#,
         ),
@@ -182,8 +216,8 @@ rule(name: "generate", command: "echo", typo: true)
         let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
         warn_module_manifest(dir.path(), format, &module, &log);
         let warnings = capture.take();
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-        for key in ["future", "rule[0].typo"] {
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
+        for key in ["future", "checksum", "rule[0].typo"] {
             assert!(
                 warnings
                     .iter()

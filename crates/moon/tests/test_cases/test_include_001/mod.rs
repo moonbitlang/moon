@@ -6,25 +6,28 @@ fn test_include_001() {
 }
 
 #[test]
-fn test_deprecated_packaging_config_warns_during_check() {
+fn test_removed_packaging_config_errors_even_when_quiet() {
     let dir = TestDir::new("test_include_001.in");
-    let stderr = get_stderr(&dir, ["check"]);
-    let warning = "`include` in `$ROOT/moon.mod` is deprecated";
-    assert_eq!(
-        stderr.matches(warning).count(),
-        1,
-        "expected exactly one deprecation warning, got:\n{stderr}"
-    );
-}
-
-#[test]
-fn test_deprecated_packaging_config_warns_during_fmt() {
-    let dir = TestDir::new("test_include_001.in");
-    let stderr = get_stderr(&dir, ["fmt", "--dry-run"]);
-    let warning = "`include` in `$ROOT/moon.mod` is deprecated";
-    assert_eq!(
-        stderr.matches(warning).count(),
-        1,
-        "expected exactly one deprecation warning, got:\n{stderr}"
-    );
+    for field in ["include", "exclude"] {
+        std::fs::write(
+            dir.join("moon.mod"),
+            format!("name = \"username/hello\"\nsource = \"src\"\noptions({field}: [])"),
+        )
+        .unwrap();
+        for args in [
+            ["check", "--quiet"].as_slice(),
+            ["fmt", "--dry-run", "--quiet"].as_slice(),
+            ["package", "--list", "--quiet"].as_slice(),
+        ] {
+            moon_cmd(&dir)
+                .args(args)
+                .assert()
+                .failure()
+                .stderr_eq(snapbox::str![[r#"
+...
+[..]`[..]` is no longer supported in module manifests; use `.gitignore` or `.moonignore` to control packaged files. `.moonignore` overrides `.gitignore` in the same directory.
+...
+"#]]);
+        }
+    }
 }

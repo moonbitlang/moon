@@ -38,7 +38,7 @@ fn write_file(path: &Path, content: &str) {
 }
 
 #[test]
-fn deprecated_packaging_config_reports_workspace_member_manifest() {
+fn removed_packaging_config_reports_workspace_member_manifest() {
     let dir = TestDir::new("workspace_basic.in");
     write_file(
         &dir.join("app/moon.mod"),
@@ -57,12 +57,11 @@ options(
 )"#,
     );
 
-    let stderr = get_stderr(&dir, ["check"]);
-    let warning = "`include` in `$ROOT/app/moon.mod` is deprecated";
-    assert_eq!(
-        stderr.matches(warning).count(),
-        1,
-        "expected the warning to identify the workspace member manifest, got:\n{stderr}"
+    let stderr = get_err_stderr(&dir, ["check", "--quiet"]);
+    assert!(stderr.contains("$ROOT/app/moon.mod"), "{stderr}");
+    assert!(
+        stderr.contains("`include` is no longer supported"),
+        "{stderr}"
     );
 }
 
