@@ -24,13 +24,13 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
-#[ported(source = "src/internal/event_loop/signal.c")]
+#[ported(runtime = "signal.c")]
 #[cfg(unix)]
 pub(super) fn start_signal_handler(context: &mut ImportContext<'_>) -> crate::async_host::AsyncHostResult<()> {
     context.host.start_signal_handler()
 }
 
-#[ported(source = "src/internal/event_loop/signal.c")]
+#[ported(runtime = "signal.c")]
 #[cfg(unix)]
 pub(super) fn terminate_signal_handler(context: &mut ImportContext<'_>) {
     context.host.terminate_signal_handler();
@@ -43,7 +43,7 @@ pub(super) fn get_signal_by_index(
     signal::get_signal_by_index(index)
 }
 
-#[ported(source = "src/internal/event_loop/signal.c")]
+#[ported(runtime = "signal.c")]
 #[cfg(any(unix, windows))]
 pub(super) fn set_global_cancellation_signals(
     context: &mut ImportContext<'_>,
@@ -61,7 +61,7 @@ pub(super) fn set_global_cancellation_signals(
         .set_cancellation_signals(&all_signals, &signals)
 }
 
-#[ported(source = "src/internal/event_loop/signal.c")]
+#[ported(runtime = "signal.c")]
 #[cfg(windows)]
 pub(super) fn set_console_control_handler(
     context: &mut ImportContext<'_>,
