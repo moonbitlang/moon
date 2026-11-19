@@ -25,9 +25,30 @@ $ProgressPreference = 'SilentlyContinue'
 $VerbosePreference = 'Continue'
 $downloadFailures = 0
 
+# Hash through .NET so diagnostics do not depend on PowerShell module discovery.
+function Write-DownloadInfo([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '')
+        Write-Output "[download-probe] file=$Path bytes=$($stream.Length) SHA256=$hash"
+    } finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 Write-Output "[download-probe] started $(Get-Date -Format o)"
 $PSVersionTable | Format-List
-Get-ExecutionPolicy -List | Format-Table -AutoSize
+Write-Output "[download-probe] PSModulePath=$env:PSModulePath"
+Write-Output "[download-probe] WinPSModulePath=$env:WinPSModulePath"
+try {
+    Get-ExecutionPolicy -List | Format-Table -AutoSize
+} catch {
+    Write-Output '[download-probe] execution policy diagnostic failed; continuing downloads'
+    $_ | Format-List * -Force
+    $_.Exception.ToString()
+}
 Write-Output "[download-probe] TLS defaults: $([Net.ServicePointManager]::SecurityProtocol)"
 Write-Output "[download-probe] stdin redirected: $([Console]::IsInputRedirected)"
 Write-Output "[download-probe] MOON_HOME=$env:MOON_HOME"
@@ -47,7 +68,7 @@ try {
     $installer = Invoke-RestMethod -Uri "$baseUrl/install/powershell.ps1"
     $installerPath = Join-Path $env:MOON_HOME 'upstream-installer.ps1'
     [IO.File]::WriteAllText($installerPath, [string]$installer, [Text.UTF8Encoding]::new($false))
-    Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath | Format-List
+    Write-DownloadInfo $installerPath
 } catch {
     $downloadFailures++
     Write-Output '[download-probe] installer fetch failed'
@@ -70,7 +91,7 @@ foreach ($download in @(
             throw 'Downloaded file is empty.'
         }
         Get-Item -LiteralPath $archive | Select-Object Name, Length | Format-List
-        Get-FileHash -Algorithm SHA256 -LiteralPath $archive | Format-List
+        Write-DownloadInfo $archive
         Write-Output '[download-probe] download succeeded'
     } catch {
         $downloadFailures++
