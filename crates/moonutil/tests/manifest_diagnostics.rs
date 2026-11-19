@@ -93,7 +93,7 @@ fn unknown_package_keys_warn_without_rejecting_the_package() {
 }
 
 #[test]
-fn obsolete_stub_link_settings_warn_in_both_package_formats() {
+fn removed_stub_link_settings_are_unknown_in_both_package_formats() {
     let dir = tempfile::tempdir().unwrap();
     for (name, source) in [
         (
@@ -103,10 +103,11 @@ fn obsolete_stub_link_settings_warn_in_both_package_formats() {
   "stub-lib-deps": ["unused.o"]
 }})"#,
         ),
+        // Removed fields accept arbitrary values, like other unknown keys.
         (
             "moon.pkg.json",
             r#"{"link": {"native": {
-  "stub-cc-link-flags": "-lunused",
+  "stub-cc-link-flags": 123,
   "stub-lib-deps": ["unused.o"]
 }}}"#,
         ),
@@ -130,7 +131,7 @@ fn obsolete_stub_link_settings_warn_in_both_package_formats() {
             let expected = if emit_warnings {
                 vec![
                     format!(
-                        "`link.native.stub-cc-link-flags` in `{}` is deprecated and has no effect; C stubs are archived without a separate link step.",
+                        "Unknown configuration key `link.native.stub-cc-link-flags` in `{}`.",
                         path.display()
                     ),
                     format!(
@@ -143,15 +144,6 @@ fn obsolete_stub_link_settings_warn_in_both_package_formats() {
             };
             assert_eq!(warnings, expected);
         }
-
-        // Recognizing a deprecated field still enforces its declared type,
-        // including when diagnostics are suppressed for dependencies.
-        std::fs::write(&path, source.replace("\"-lunused\"", "123")).unwrap();
-        let log = UserLog::new(log::LevelFilter::Off);
-        assert!(
-            read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false,)
-                .is_err()
-        );
     }
 }
 

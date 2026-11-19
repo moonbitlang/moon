@@ -94,13 +94,11 @@ Package C stubs are handled separately:
 2. all stub object files in the package are archived together
 3. the final executable links against that per-package archive
 
-`link.native.stub-cc-flags` controls stub compilation. The old
-`stub-cc-link-flags` setting is deprecated and ignored because archiving has no
-separate link step. Moon warns when it appears in a local package manifest.
-The former internal `stub-lib-deps` field is treated as an unknown configuration
-key. Dependency warnings are suppressed by default. Final executable link flags
-belong in `link.native.cc-link-flags` on the executable package; prebuild link
-inputs also reach the final executable link.
+`link.native.stub-cc-flags` controls stub compilation. The removed
+`stub-cc-link-flags` and former internal `stub-lib-deps` fields follow the normal
+unknown-key warning policy. Dependency warnings are suppressed by default.
+Final executable link flags belong in `link.native.cc-link-flags` on the
+executable package; prebuild link inputs also reach the final executable link.
 
 The runtime uses the same explicit multi-step shape for ordinary native builds:
 

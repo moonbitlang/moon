@@ -459,11 +459,6 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
 
-    /// Deprecated and ignored: C stubs are archived without a separate link step.
-    // TODO: Remove this typed compatibility field when support for the deprecated
-    // setting is dropped. Until then, keep type validation and warn on its use.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stub_cc_link_flags: Option<String>,
     #[serde(flatten, skip_serializing)]
     #[schemars(skip)]
     pub extra: Map<String, Value>,
@@ -759,17 +754,11 @@ pub struct MoonPkg {
 
 impl MoonPkg {
     /// Nested configuration is shared by the JSON and DSL package decoders.
-    pub(crate) fn warn_manifest_fields(&self, path: &Path, user_log: &UserLog) {
+    pub(crate) fn unknown_fields(&self) -> Vec<String> {
         let mut unknown = Vec::new();
         if let Some(link) = &self.link {
             unknown.extend(unknown_field_paths(&link.extra, "link"));
             if let Some(native) = &link.native {
-                if native.stub_cc_link_flags.is_some() {
-                    user_log.warn(format!(
-                        "`link.native.stub-cc-link-flags` in `{}` is deprecated and has no effect; C stubs are archived without a separate link step.",
-                        path.display()
-                    ));
-                }
                 unknown.extend(unknown_field_paths(&native.extra, "link.native"));
             }
             if let Some(js) = &link.js {
@@ -817,7 +806,7 @@ impl MoonPkg {
                 generate;
             unknown.extend(unknown_field_paths(extra, &format!("pre-build[{index}]")));
         }
-        crate::manifest::warn_unknown_fields(&unknown, path, user_log);
+        unknown
     }
 }
 
@@ -1141,7 +1130,7 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         local_rules,
     };
     if emit_warnings {
-        package.warn_manifest_fields(path, user_log);
+        crate::manifest::warn_unknown_fields(&package.unknown_fields(), path, user_log);
     }
     Ok((package, supported_targets_decl_kind))
 }

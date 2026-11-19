@@ -396,7 +396,7 @@ fn read_package_from_json_with_supported_targets_decl(
     let contents = std::fs::read_to_string(path)?;
     let j: MoonPkgJSON = serde_json_lenient::from_str(&contents)
         .with_context(|| format!("Failed to parse {path:?}"))?;
-    let unknown = if emit_warnings {
+    let mut unknown = if emit_warnings {
         j.consumed_unknown_fields()
     } else {
         Vec::new()
@@ -404,8 +404,8 @@ fn read_package_from_json_with_supported_targets_decl(
     let package =
         convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings, user_log)?;
     if emit_warnings {
+        unknown.extend(package.0.unknown_fields());
         warn_unknown_fields(&unknown, path, user_log);
-        package.0.warn_manifest_fields(path, user_log);
     }
     Ok(package)
 }

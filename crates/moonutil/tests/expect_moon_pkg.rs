@@ -649,7 +649,6 @@ fn expect_options() {
                             cc_link_flags: None,
                             stub_cc: None,
                             stub_cc_flags: None,
-                            stub_cc_link_flags: None,
                             extra: {
                                 "cflags": Array [
                                     String("-flag1"),

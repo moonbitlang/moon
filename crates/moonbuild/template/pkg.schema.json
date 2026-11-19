@@ -424,13 +424,6 @@
             "string",
             "null"
           ]
-        },
-        "stub-cc-link-flags": {
-          "description": "Deprecated and ignored: C stubs are archived without a separate link step.",
-          "type": [
-            "string",
-            "null"
-          ]
         }
       }
     },

@@ -244,7 +244,6 @@ mod tests {
                         cc_link_flags: None,
                         stub_cc: None,
                         stub_cc_flags: None,
-                        stub_cc_link_flags: None,
                     }),
                 });
             }
@@ -526,7 +525,6 @@ mod tests {
                 cc_link_flags: None,
                 stub_cc: None,
                 stub_cc_flags: None,
-                stub_cc_link_flags: None,
             }),
         });
         let with_flags = packages.test_add_package(

@@ -8,7 +8,6 @@ options(
       "cc-link-flags": "cclinkflags",
       "stub-cc": "stubcc",
       "stub-cc-flags": "stubccflags",
-      "stub-cc-link-flags": "stubcclinkflags",
     },
   },
 )
