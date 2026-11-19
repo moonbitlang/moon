@@ -655,7 +655,6 @@ mod tests {
                 debug_info: false,
                 opt_level: crate::model::CCOptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
-                link_args: Vec::new(),
             },
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {

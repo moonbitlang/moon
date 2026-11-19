@@ -943,29 +943,11 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let mut link_args = native_config
-            .and_then(|native| native.stub_cc_link_flags.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .map(NativeLinkArg::Opaque)
-            .collect();
-
         let effective_native_toolchain = self
             .native_toolchains
             .get(&NativeToolchainRole::CStubs(target))
             .expect("C-stub toolchain should be selected before action planning")
             .clone();
-
-        if let Some(prebuild) = self.prebuild_config {
-            prebuild.append_link_args(std::iter::once(target), &mut link_args);
-        }
 
         // Backtrace-only requests concern MoonBit source locations. They must
         // not change the debug or optimization settings of user-written C stubs.
@@ -982,7 +964,6 @@ impl<'a> BuildPlanConstructor<'a> {
             debug_info,
             opt_level,
             cc_flags,
-            link_args,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);
         Ok(())

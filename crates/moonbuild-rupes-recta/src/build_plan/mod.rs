@@ -469,10 +469,6 @@ pub struct BuildCStubsInfo {
     pub(crate) opt_level: CCOptLevel,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
-    /// Legacy C-stub link inputs retained for manifest compatibility.
-    /// The current static-archive realization does not consume them.
-    #[allow(unused)]
-    pub(crate) link_args: Vec<NativeLinkArg>,
 }
 
 #[derive(Debug)]
@@ -570,8 +566,6 @@ pub enum BuildPlanConstructError {
     MalformedCCLinkFlags(PackageFQNWithSource),
     #[error("Malformed stub cc flags in package {0}")]
     MalformedStubCCFlags(PackageFQNWithSource),
-    #[error("Malformed stub cc link flags in package {0}")]
-    MalformedStubCCLinkFlags(PackageFQNWithSource),
     #[error("Invalid pre-build rule in package {package}: {message}")]
     InvalidPrebuildRule {
         package: PackageFQNWithSource,

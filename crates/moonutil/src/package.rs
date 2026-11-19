@@ -459,16 +459,11 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
 
-    /// Legacy linker flags for C stubs, retained for manifest compatibility
+    /// Deprecated and ignored: C stubs are archived without a separate link step.
+    // TODO: Remove this typed compatibility field when support for the deprecated
+    // setting is dropped. Until then, keep type validation and warn on its use.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_link_flags: Option<String>,
-
-    /// Compiled stub object files as dependencies for the executable
-    ///
-    /// (should not be present in the `pkg.json`, generated and populated later)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub stub_lib_deps: Option<Vec<String>>,
     #[serde(flatten, skip_serializing)]
     #[schemars(skip)]
     pub extra: Map<String, Value>,
@@ -764,11 +759,17 @@ pub struct MoonPkg {
 
 impl MoonPkg {
     /// Nested configuration is shared by the JSON and DSL package decoders.
-    pub(crate) fn unknown_fields(&self) -> Vec<String> {
+    pub(crate) fn warn_manifest_fields(&self, path: &Path, user_log: &UserLog) {
         let mut unknown = Vec::new();
         if let Some(link) = &self.link {
             unknown.extend(unknown_field_paths(&link.extra, "link"));
             if let Some(native) = &link.native {
+                if native.stub_cc_link_flags.is_some() {
+                    user_log.warn(format!(
+                        "`link.native.stub-cc-link-flags` in `{}` is deprecated and has no effect; C stubs are archived without a separate link step.",
+                        path.display()
+                    ));
+                }
                 unknown.extend(unknown_field_paths(&native.extra, "link.native"));
             }
             if let Some(js) = &link.js {
@@ -816,7 +817,7 @@ impl MoonPkg {
                 generate;
             unknown.extend(unknown_field_paths(extra, &format!("pre-build[{index}]")));
         }
-        unknown
+        crate::manifest::warn_unknown_fields(&unknown, path, user_log);
     }
 }
 
@@ -1140,7 +1141,7 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         local_rules,
     };
     if emit_warnings {
-        crate::manifest::warn_unknown_fields(&package.unknown_fields(), path, user_log);
+        package.warn_manifest_fields(path, user_log);
     }
     Ok((package, supported_targets_decl_kind))
 }
