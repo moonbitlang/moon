@@ -28,7 +28,7 @@ use moonbuild_rupes_recta::{
     DiscoveredProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
-    model::{BackendConfig, PackageId},
+    model::PackageId,
 };
 use mooncake::cli::AutoSyncFlags;
 use mooncake::pkg::sync::SyncOutputOptions;
@@ -189,8 +189,8 @@ pub(super) struct EmbeddedMbtxPolicy {
 pub(super) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(super) executable: PathBuf,
-    /// Backend configuration used to build and execute this artifact.
-    pub(super) backend: BackendConfig,
+    /// Target backend used for runtime selection and profiling.
+    pub(super) target_backend: TargetBackend,
     pub(super) opt_level: moonutil::cond_expr::OptLevel,
     pub(super) target_dir: PathBuf,
     pub(super) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
@@ -358,7 +358,7 @@ fn build_wasm_file_executable_from_arg(
 
     Ok(RunExecutable {
         executable: wasm_path,
-        backend: BackendConfig::WasmGc { use_wat: false },
+        target_backend: TargetBackend::WasmGC,
         opt_level: moonutil::cond_expr::OptLevel::Debug,
         target_dir: print_dir.clone(),
         embedded_mbtx_policy: None,
@@ -520,7 +520,6 @@ fn build_package_executable(
         cli,
         cmd,
         source_dir,
-        target_dir,
         &build_meta,
         build_graph,
         session,
@@ -582,7 +581,7 @@ fn get_run_cmd(
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::from(&build_meta.backend),
+        crate::run::ExecutionMode::from(build_meta.target_backend()),
         executable,
         None,
         moonrun_policy,
@@ -750,7 +749,6 @@ fn build_single_file_executable(
         cli,
         cmd,
         source_dir,
-        target_dir,
         &build_meta,
         build_graph,
         session,
@@ -773,7 +771,6 @@ fn build_executable_from_plan(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     source_dir: &Path,
-    target_dir: &Path,
     build_meta: &BuildMeta,
     build_graph: BuildInput,
     session: BuildSession,
@@ -784,7 +781,7 @@ fn build_executable_from_plan(
         cmd.moonrun_policy.as_deref(),
         options.embedded_mbtx_policy.as_ref(),
     );
-    if cli.dry_run {
+    let (build_exit_code, lock) = if cli.dry_run {
         output.write_result(|writer| {
             crate::dry_run::write_dry_run(writer, &build_graph, source_dir)?;
 
@@ -798,38 +795,34 @@ fn build_executable_from_plan(
             }
             Ok::<_, std::io::Error>(())
         })?;
-        return Ok(RunExecutable {
-            executable: get_run_executable(build_meta).to_path_buf(),
-            backend: build_meta.backend.clone(),
-            opt_level: build_meta.opt_level,
-            target_dir: target_dir.to_path_buf(),
-            embedded_mbtx_policy: options.embedded_mbtx_policy,
-            source_dir: source_dir.to_path_buf(),
-            build_exit_code: None,
-            lock: None,
-        });
-    }
-
-    let build_config = cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose)
-        .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = session.execute(
-        &build_config,
-        build_graph,
-        &[build_meta],
-        MetadataOutput::Compiler,
-    )?;
+        (None, None)
+    } else {
+        let build_config = cmd
+            .build_flags
+            .execution_config(&cli.unstable_feature, cli.verbose)
+            .with_suppressed_progress(options.output.suppress_build_progress());
+        let build_result = session.execute(
+            &build_config,
+            build_graph,
+            &[build_meta],
+            MetadataOutput::Compiler,
+        )?;
+        (Some(build_result.return_code_for_success()), Some(session))
+    };
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        backend: build_meta.backend.clone(),
+        target_backend: build_meta.target_backend(),
         opt_level: build_meta.opt_level,
-        target_dir: target_dir.to_path_buf(),
+        target_dir: build_meta
+            .artifact_paths
+            .target_layout()
+            .target_base_dir()
+            .to_path_buf(),
         embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
-        build_exit_code: Some(build_result.return_code_for_success()),
-        lock: Some(session),
+        build_exit_code,
+        lock,
     })
 }
 
@@ -869,7 +862,7 @@ fn run_executable(
         return Ok(0);
     }
     let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::from(&executable.backend),
+        crate::run::ExecutionMode::from(executable.target_backend),
         executable.executable.as_path(),
         None,
         moonrun_policy,

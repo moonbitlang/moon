@@ -296,7 +296,7 @@ fn run_profile_materialized(
     )?;
     built.ensure_build_success()?;
 
-    let target_backend = built.backend.target_backend();
+    let target_backend = built.target_backend;
     if target_backend != TargetBackend::Native {
         bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
     }
