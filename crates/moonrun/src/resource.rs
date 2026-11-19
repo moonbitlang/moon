@@ -162,12 +162,10 @@ impl Resource {
         })
     }
 
-    pub(crate) fn new_with_file_grant(raw: fd_util::stub::RawFd, grant: FileGrant) -> Self {
-        if raw == invalid_raw_file() {
-            return Self::invalid();
-        }
+    /// Transfer an opened file and its grant into the resource.
+    pub(crate) fn from_file(file: std::fs::File, grant: FileGrant) -> Self {
         Self::from_payload(ResourcePayload::File {
-            raw: owned_raw_file(raw),
+            raw: file.into(),
             async_pipe_writer: false,
             grant,
         })

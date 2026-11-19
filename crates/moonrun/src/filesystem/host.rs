@@ -55,6 +55,45 @@ pub(crate) struct FileOpenOptions {
     pub(crate) truncate: bool,
 }
 
+impl FileOpenOptions {
+    fn openat_options(&self) -> std::io::Result<super::os::openat::OpenOptions> {
+        use super::os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+        // Preserve std::OpenOptions validation separately from opening the file.
+        // Async jobs retain their own scalar-option contract.
+        let write = self.write || self.append;
+        if (!write && (!self.read || self.create || self.create_new || self.truncate))
+            || (self.append && self.truncate && !self.create_new)
+        {
+            return Err(std::io::ErrorKind::InvalidInput.into());
+        }
+        Ok(OpenOptions {
+            access: if self.read && write {
+                Access::ReadWrite
+            } else if write {
+                Access::Write
+            } else {
+                Access::Read
+            },
+            type_constraint: TypeConstraint::Any,
+            follow_symlink: true,
+            is_async: false,
+            create: if self.create_new {
+                CreateMode::Exclusive
+            } else {
+                match (self.create, self.truncate) {
+                    (false, false) => CreateMode::Open,
+                    (false, true) => CreateMode::Truncate,
+                    (true, false) => CreateMode::Create,
+                    (true, true) => CreateMode::CreateOrTruncate,
+                }
+            },
+            append: self.append,
+            sync: Sync::None,
+            permission: 0o666,
+        })
+    }
+}
+
 /// An acquired directory, independent of guest descriptor numbering and rights.
 /// Its pathname is queried only for authorization and path-only operations.
 pub(crate) struct Directory {
@@ -248,14 +287,13 @@ impl HostFs {
     }
 
     pub(crate) fn write_file(&self, path: &Path, contents: &[u8]) -> Result<(), FsError> {
-        self.authorize(FsOperation::WriteFile(FsPath::Cwd(path.as_os_str())))?;
-        Ok(fs::write(self.resolve_path(path.as_os_str()), contents)?)
+        self.write_file_with(path, || Ok(contents))
     }
 
-    pub(crate) fn write_file_with<E>(
+    pub(crate) fn write_file_with<E, B: AsRef<[u8]>>(
         &self,
         path: &Path,
-        contents: impl FnOnce() -> Result<Vec<u8>, E>,
+        contents: impl FnOnce() -> Result<B, E>,
     ) -> Result<(), E>
     where
         E: From<FsError>,
@@ -290,10 +328,7 @@ impl HostFs {
         path: &Path,
         options: FileOpenOptions,
     ) -> Result<fs::File, FsError> {
-        use super::os::{
-            DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
-        };
+        use super::os::{DirectIo, openat};
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
         self.authorize(FsOperation::OpenWithOptions {
@@ -303,42 +338,11 @@ impl HostFs {
             },
             options: &options,
         })?;
-        let write = options.write || options.append;
-        // Preserve std::OpenOptions validation before reaching a destructive
-        // native open. Native async jobs have their own scalar-option contract.
-        if (!write && (!options.read || options.create || options.create_new || options.truncate))
-            || (options.append && options.truncate && !options.create_new)
-        {
-            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).into());
-        }
+        let options = options.openat_options()?;
         Ok(openat::open(
             Some(super::os::raw_file(&directory.file)),
             path.as_os_str(),
-            &OpenOptions {
-                access: if options.read && write {
-                    Access::ReadWrite
-                } else if write {
-                    Access::Write
-                } else {
-                    Access::Read
-                },
-                type_constraint: TypeConstraint::Any,
-                follow_symlink: true,
-                is_async: false,
-                create: if options.create_new {
-                    CreateMode::Exclusive
-                } else {
-                    match (options.create, options.truncate) {
-                        (false, false) => CreateMode::Open,
-                        (false, true) => CreateMode::Truncate,
-                        (true, false) => CreateMode::Create,
-                        (true, true) => CreateMode::CreateOrTruncate,
-                    }
-                },
-                append: options.append,
-                sync: Sync::None,
-                permission: 0o666,
-            },
+            &options,
             &DirectIo,
         )?)
     }
