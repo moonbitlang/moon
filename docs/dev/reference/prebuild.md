@@ -148,7 +148,12 @@ package in that module. A package-local rule takes precedence over a module
 rule with the same name. Multiple `rule` and `dev_build` declarations are
 allowed.
 
-Each `dev_build` entry selects a rule and supplies its inputs and outputs:
+Each `dev_build` entry supplies its inputs and outputs and exactly one of
+`rule` (a reusable rule's name) or `command` (a direct command). Supplying both
+is an error. The same requirement applies to legacy `pre-build` entries,
+including in JSON manifests.
+
+For example, to select a rule:
 
 ```moonbit
 rule(

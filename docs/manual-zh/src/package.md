@@ -28,6 +28,13 @@
 import 配置。空块和空的选项列表也算显式声明。普通、黑盒测试和白盒测试 import 相互独立。
 仍可声明多个 `rule` 和 `dev_build`，其中规则名必须唯一。
 
+每条 `dev_build` 或旧 `pre-build` 必须在 `command` 和 `rule` 中选择一项，
+同时指定两项会报错，JSON 清单中的条目也遵循此规则。
+
+在 `moon.mod` 中，每个模块依赖只能声明一次。`import` 内部，或 `import` 与
+`options(deps: ...)` 之间的重复模块名都会报错，即使版本相同。
+两种形式声明的不同依赖仍会合并。
+
 其他配置，包括 `overrides`、结构化的 `link`、
 `native-stub` 和按文件配置的 `targets`，仍需写在 `options(...)` 中。
 

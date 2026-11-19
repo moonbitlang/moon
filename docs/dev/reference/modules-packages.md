@@ -53,6 +53,11 @@ the module constraints, supported targets must be valid, and rule names must be
 unique. DSL-specific dependency restrictions and declaration precedence are
 handled by the DSL decoder.
 
+Each module dependency may be declared only once in `moon.mod`. Repeated names
+inside an `import` block, or between that block and `options(deps: ...)`, are
+errors even when the versions agree. Distinct dependencies from the two forms
+are combined.
+
 Supported user inputs are the DSL and legacy JSON. Legacy module JSON uses
 `deps`, `warn-list`, `preferred-target`, and `supported-targets`; `rule` accepts
 an object or an array, with unique rule names. Commands that update a JSON
@@ -93,8 +98,8 @@ traversal then collects their paths for diagnostics. Compatibility forms such as
 boolean/object `link` and map/list imports use derived deserialization. Accepted
 fields and aliases are defined by the types, without a second parse or a separate
 field list.
-Prebuild entries decode both `command` and `rule` before selecting the direct
-command when both are present, so a malformed unused field is still rejected.
+Prebuild entries require exactly one of `command` or `rule`. Both fields are
+type-checked, and supplying both is an error in either manifest format.
 
 Unknown-key warnings are emitted for input modules and their packages, and are
 suppressed for dependencies and the standard library. `--quiet` suppresses these

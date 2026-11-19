@@ -34,6 +34,13 @@ blocks and empty option lists also count as declarations. Regular, test, and
 whitebox imports are independent. Multiple `rule` and `dev_build` declarations
 remain supported; rule names must be unique.
 
+Each `dev_build` or legacy `pre-build` entry must specify exactly one of
+`command` or `rule`. Supplying both is an error, including in JSON manifests.
+
+In `moon.mod`, declare each module dependency only once. Repeated module names
+in `import`, or between `import` and `options(deps: ...)`, are errors even when
+the versions agree. Distinct dependencies from the two forms are combined.
+
 Other settings, including `overrides`, structured
 `link`, `native-stub`, and per-file `targets`, still belong in `options(...)`.
 
