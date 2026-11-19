@@ -24,8 +24,8 @@ use std::{
     sync::LazyLock,
 };
 
+use crate::RunMode;
 use moonutil::{
-    build_options::RunMode,
     compiler_flags::Toolchain,
     cond_expr::OptLevel,
     package::JsFormat,

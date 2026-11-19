@@ -22,11 +22,11 @@ use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::pkg_name::PackageFQN;
 use mooncake::cli::AutoSyncFlags;
-use moonutil::build_options::RunMode;
 use moonutil::cache::{CacheKind, resolve_cache_root};
 use moonutil::command_output::CommandOutput;
 use moonutil::project::PackageDirs;
@@ -113,7 +113,7 @@ pub(super) fn run_build(
         return Ok(ret_value);
     }
 
-    let discovered = sync_and_discover_build_project(cli, &cmd, &dirs, output.user_log())?;
+    let discovered = sync_and_discover_build_project(&cmd, &dirs, output.user_log())?;
     let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())?;
     let result = run_build_rr_from_discovered(
         &session, cli, &cmd, &dirs, false, &targets, discovered, output,
@@ -146,7 +146,6 @@ fn run_build_for_single_file_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs)
     .with_dependency_source_cache(
@@ -215,7 +214,6 @@ fn run_build_internal(
 }
 
 fn sync_and_discover_build_project(
-    cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -223,7 +221,6 @@ fn sync_and_discover_build_project(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
@@ -242,7 +239,7 @@ fn run_build_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
-    let discovered = sync_and_discover_build_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_build_project(cmd, dirs, output.user_log())?;
     let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())?;
     run_build_rr_from_discovered(
         &session,

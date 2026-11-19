@@ -19,7 +19,7 @@
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
+    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject, RunMode,
     build_lower::{WarningCondition, lower_build_plan},
     build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
@@ -29,7 +29,6 @@ use moonbuild_rupes_recta::{
     target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
 };
 use moonutil::{
-    build_options::RunMode,
     cond_expr::OptLevel,
     manifest::read_module_desc_file_in_dir,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},

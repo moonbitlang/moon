@@ -26,9 +26,9 @@ use std::{
     sync::LazyLock,
 };
 
+use crate::RunMode;
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
-    build_options::RunMode,
     compiler_flags::{self, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
@@ -734,7 +734,7 @@ impl<'a> BuildPlanConstructor<'a> {
             // commands project them into compiler inputs.
             let uses_mbtp = matches!(
                 self.config.action,
-                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
+                crate::RunMode::Check | crate::RunMode::Prove
             );
             let file_set = self.package_file_set(target.package);
             let mbtp_files = if uses_mbtp {
@@ -772,7 +772,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let proof_warn_list = (pkg.raw.proof_enabled
             && !matches!(
                 self.config.action,
-                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
+                crate::RunMode::Check | crate::RunMode::Prove
             ))
         .then_some(PROOF_ENABLED_WARN_SUPPRESSIONS);
         let package_warn_list = cat_opt(pkg.raw.warn_list.clone(), proof_warn_list);

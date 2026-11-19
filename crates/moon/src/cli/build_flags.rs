@@ -22,13 +22,12 @@ use crate::cli::UniversalFlags;
 use anyhow::bail;
 use moonbuild::execution::{BuildConfig, DiagnosticLevel, OutputStyle};
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, ResolvedProject,
+    CompileConfig, DiscoveredProject, ResolvedProject, RunMode,
     build_lower::WarningCondition,
     build_plan::InputDirective,
     model::{DebugInfoRequest, DebugSymbols, PackageId, TargetKind},
 };
 use moonutil::{
-    build_options::RunMode,
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
     features::FeatureGate,

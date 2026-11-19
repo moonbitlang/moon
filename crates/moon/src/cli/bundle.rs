@@ -21,10 +21,9 @@ use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
-use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
+use moonbuild_rupes_recta::{RunMode, build_lower::WarningCondition, intent::UserIntent};
 use mooncake::cli::AutoSyncFlags;
 use moonutil::{
-    build_options::RunMode,
     command_output::CommandOutput,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
@@ -72,7 +71,7 @@ pub(super) fn run_bundle(
     }
 
     let targets = lower_surface_targets(&surface_targets);
-    let discovered = sync_and_discover_bundle_project(&cli, &cmd, &dirs, output.user_log())?;
+    let discovered = sync_and_discover_bundle_project(&cmd, &dirs, output.user_log())?;
     let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())?;
     run_bundle_rr_from_discovered(&session, &cli, &cmd, &dirs, &targets, discovered, output)
         .with_context(|| match targets.as_slice() {
@@ -102,7 +101,7 @@ pub(super) fn run_bundle_internal_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let discovered = sync_and_discover_bundle_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_bundle_project(cmd, dirs, output.user_log())?;
     let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())?;
     run_bundle_rr_from_discovered(
         &session,
@@ -167,7 +166,6 @@ fn run_bundle_rr_from_discovered(
 }
 
 fn sync_and_discover_bundle_project(
-    cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -175,7 +173,6 @@ fn sync_and_discover_bundle_project(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)

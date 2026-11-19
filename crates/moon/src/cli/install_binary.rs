@@ -22,6 +22,7 @@ use colored::Colorize;
 use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::prepare::ProjectPreparationConfig;
 use moonbuild_rupes_recta::{
+    RunMode,
     build_plan::ArtifactKey,
     intent::UserIntent,
     model::{BuildTarget, PackageId, TargetKind},
@@ -31,7 +32,6 @@ use mooncake::{
     registry::{RegistryClient, path::RegistryPath},
 };
 use moonutil::{
-    build_options::RunMode,
     constants::{MOON_MOD, MOON_MOD_JSON},
     project::PackageDirs,
     resolution::{ModuleName, ModuleSourceKind},
@@ -535,7 +535,6 @@ struct PreparedNativeBuild {
 }
 
 fn prepare_native_build(
-    cli: &UniversalFlags,
     module_name: &ModuleName,
     module_dir: &Path,
     package_dirs: PackageDirs,
@@ -549,9 +548,8 @@ fn prepare_native_build(
             module_dir.display()
         )
     })?;
-    let preparation_config =
-        ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
-            .with_sync_output(sync_output);
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false)
+        .with_sync_output(sync_output);
     let synced_modules =
         moonbuild::prepare::sync_module_dependencies(&preparation_config, &package_dirs, user_log)?;
     let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
@@ -694,7 +692,6 @@ fn build_and_install_packages(
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let prepared = prepare_native_build(
-        cli,
         module_name,
         module_dir,
         package_dirs,

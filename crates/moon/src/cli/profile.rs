@@ -28,8 +28,8 @@ use std::{
 use anyhow::{Context, bail};
 use chrono::Local;
 use moonbuild::BuildMeta;
+use moonbuild_rupes_recta::RunMode;
 use moonutil::{
-    build_options::RunMode,
     command_output::CommandOutput,
     cond_expr::OptLevel,
     target::{SurfaceTarget, TargetBackend},
@@ -1899,7 +1899,8 @@ fn render_attribution_entries(out: &mut String, entries: &[ProfileAttributionEnt
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use moonutil::{build_options::RunMode, cond_expr::OptLevel, target::TargetBackend};
+    use moonbuild_rupes_recta::RunMode;
+    use moonutil::{cond_expr::OptLevel, target::TargetBackend};
 
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,

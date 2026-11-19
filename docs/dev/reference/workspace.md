@@ -74,6 +74,10 @@ When commands create `PackageDirs`, this becomes a `ProjectManifest` value:
 - `ProjectManifest::Workspace(layout)`
   - workspace behavior
 
+`WorkspaceEnv` is consumed during project selection. Build preparation and
+dependency synchronization use the selected `ProjectManifest` directly, without
+another workspace-mode flag that could contradict it.
+
 `module_dir` is orthogonal:
 
 - it does not decide whether workspace mode is enabled

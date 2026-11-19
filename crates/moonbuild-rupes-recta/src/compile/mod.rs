@@ -18,13 +18,40 @@
 
 use std::path::PathBuf;
 
-use moonutil::{build_options::RunMode, cond_expr::OptLevel};
+use moonutil::cond_expr::OptLevel;
 
 use crate::{
     build_lower::WarningCondition,
     model::{BackendConfig, DebugInfoRequest},
     target_layout::ArtifactPathResolver,
 };
+
+/// Build operation selecting planning rules and the target-directory layout.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum RunMode {
+    Bench,
+    Build,
+    Check,
+    Prove,
+    Run,
+    Test,
+    Bundle,
+    Format,
+}
+
+impl RunMode {
+    pub fn to_dir_name(self) -> &'static str {
+        match self {
+            Self::Bench => "bench",
+            Self::Build | Self::Run => "build",
+            Self::Check => "check",
+            Self::Prove => "prove",
+            Self::Test => "test",
+            Self::Bundle => "bundle",
+            Self::Format => "format",
+        }
+    }
+}
 
 /// Build configuration shared by planning and lowering.
 pub struct CompileConfig {
@@ -34,7 +61,7 @@ pub struct CompileConfig {
     pub backend: BackendConfig,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
-    /// The action done in this operation, currently only used in legacy directory layout
+    /// The build operation selecting planning rules and the target-directory layout.
     pub action: RunMode,
     /// Debug information requested before the Native payload form is selected.
     pub debug_info: DebugInfoRequest,
@@ -64,8 +91,8 @@ pub struct CompileConfig {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use crate::RunMode;
     use moonutil::{
-        build_options::RunMode,
         cond_expr::OptLevel,
         manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},

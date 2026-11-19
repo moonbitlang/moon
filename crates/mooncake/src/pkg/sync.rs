@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use moonutil::{
     cache::CacheRoot,
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
+    project::{PackageDirs, ProjectManifest, WorkspaceLayout},
     resolution::{
         DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule, ResolvedRootModules,
     },
@@ -61,7 +61,8 @@ impl AutoSyncFlags {
 }
 
 /// Given the specified source directory, resolve the module dependency relation
-/// and their directories
+/// and their directories. The selected `ProjectManifest` is authoritative;
+/// workspace selection has already been resolved by project discovery.
 ///
 /// TODO: support registry config
 pub fn auto_sync(
@@ -69,12 +70,9 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     user_log: &UserLog,
-    workspace_env: WorkspaceEnv,
     jobs: Option<usize>,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
-    if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
-        && !matches!(workspace_env, WorkspaceEnv::Off)
-    {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
+    if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest {
         return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace, jobs);
     }
 
@@ -93,7 +91,7 @@ pub fn auto_sync(
         jobs,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((module_graph, sync_result, None))
+    Ok((module_graph, sync_result))
 }
 
 fn resolve_workspace_sync(
@@ -103,7 +101,7 @@ fn resolve_workspace_sync(
     user_log: &UserLog,
     workspace: &WorkspaceLayout,
     jobs: Option<usize>,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in workspace.members() {
         let module = read_module_desc_file_in_dir(member_dir)?;
@@ -122,11 +120,7 @@ fn resolve_workspace_sync(
         jobs,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((
-        module_graph,
-        sync_result,
-        Some(workspace.manifest().clone()),
-    ))
+    Ok((module_graph, sync_result))
 }
 
 pub fn auto_sync_for_single_file_rr(

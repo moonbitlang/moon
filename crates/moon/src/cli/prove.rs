@@ -30,10 +30,12 @@ use moonbuild::{
     compile::{BuildRequest, BuildSession, MetadataOutput},
     execution::DiagnosticLevel,
 };
-use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
+use moonbuild_rupes_recta::{
+    RunMode, build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget,
+};
 use moonutil::{
-    build_options::RunMode, command_output::CommandOutput, constants::PRELUDE_PROOF_FILE,
-    project::PackageDirs, resolution::ModuleId, target::TargetBackend, user_log::UserLog,
+    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, project::PackageDirs,
+    resolution::ModuleId, target::TargetBackend, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -160,7 +162,6 @@ pub(super) fn run_prove(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(build_flags.jobs);
     let discovered =

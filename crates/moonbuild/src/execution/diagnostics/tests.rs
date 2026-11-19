@@ -25,7 +25,7 @@ use moonutil::target::TargetBackend;
 
 fn composed_build_input() -> BuildInput {
     use moonbuild_rupes_recta::{
-        CompileConfig, DiscoveryConfig,
+        CompileConfig, DiscoveryConfig, RunMode,
         build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         fmt::{FmtConfig, build_execution_plan_for_fmt_file},
@@ -33,7 +33,6 @@ fn composed_build_input() -> BuildInput {
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
     use moonutil::{
-        build_options::RunMode,
         cond_expr::OptLevel,
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
         user_log::user_log_level,

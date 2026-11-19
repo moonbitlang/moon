@@ -25,17 +25,17 @@ use crate::{
 };
 use anyhow::Context;
 use moonbuild_rupes_recta::{
+    RunMode,
     build_plan::ArtifactKey,
     intent::UserIntent,
     model::{DebugInfoRequest, DebugSymbols},
 };
 use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::{
-    build_options::RunMode,
     cache::{CacheKind, resolve_cache_root},
     cond_expr::OptLevel,
     front_matter::MbtxFrontMatter,
-    project::{SingleFilePackageDirs, WorkspaceEnv},
+    project::SingleFilePackageDirs,
     target::TargetBackend,
     user_log::{UserLog, user_log_level},
 };
@@ -78,13 +78,12 @@ pub fn build_standalone_wasm(
     };
     let user_log = UserLog::new(user_log_level(verbose, !verbose));
     std::fs::create_dir_all(&dirs.target_dir).context("failed to create target directory")?;
-    let preparation =
-        ProjectPreparationConfig::new_with_load_defaults(frozen, false, WorkspaceEnv::default())
-            .with_sync_output(SyncOutputOptions { quiet: !verbose })
-            .with_dependency_source_cache(
-                resolve_cache_root(CacheKind::DependencySources)
-                    .context("Failed to resolve the module dependency graph")?,
-            );
+    let preparation = ProjectPreparationConfig::new_with_load_defaults(frozen, false)
+        .with_sync_output(SyncOutputOptions { quiet: !verbose })
+        .with_dependency_source_cache(
+            resolve_cache_root(CacheKind::DependencySources)
+                .context("Failed to resolve the module dependency graph")?,
+        );
     let (discovered, _) =
         discover_single_file_project(&preparation, &dirs, &input_path, true, &user_log)?;
     let resolved = discovered.resolve_packages(&[TargetBackend::Wasm], &user_log)?;

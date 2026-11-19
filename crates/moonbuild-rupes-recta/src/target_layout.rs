@@ -29,9 +29,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use moonutil::{
-    build_options::RunMode, cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend,
-};
+use crate::RunMode;
+use moonutil::{cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend};
 
 use crate::{
     ResolvedProject,

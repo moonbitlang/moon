@@ -85,12 +85,8 @@ pub(super) fn run_bench(
     let display_backend_hint = targets.len() > 1;
     let bench_cmd: super::test::TestLikeSubcommand<'_> = (&cmd).into();
     super::test::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
-    let discovered = super::test::sync_and_discover_test_or_bench_project(
-        &cli,
-        &bench_cmd,
-        &dirs,
-        output.user_log(),
-    )?;
+    let discovered =
+        super::test::sync_and_discover_test_or_bench_project(&bench_cmd, &dirs, output.user_log())?;
     super::test::run_test_or_bench_from_discovered(
         &cli,
         &bench_cmd,

@@ -112,14 +112,13 @@ pub(super) fn compile(
 #[cfg(test)]
 mod tests {
     use moonbuild_rupes_recta::{
-        DiscoveryConfig,
+        DiscoveryConfig, RunMode,
         build_lower::WarningCondition,
         model::TargetKind,
         prepare_synced_project,
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
     use moonutil::{
-        build_options::RunMode,
         compiler_flags::{CompilerPaths, NativeAllocator},
         cond_expr::OptLevel,
         manifest::read_module_manifest,
