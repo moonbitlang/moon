@@ -496,6 +496,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         description: "Fragile cancellable async code inside `defer`/`errdefer`",
         id: 98,
     },
+    WarningEntry {
+        mnemonic: "pending_deprecated",
+        description: "Usage of an API marked `#pending_deprecated`, to migrate with `moon fix`.",
+        id: 99,
+    },
 ];
 
 pub(super) fn get_warning_entry(id: u16) -> Option<&'static WarningEntry> {
