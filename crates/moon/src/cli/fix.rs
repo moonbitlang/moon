@@ -75,7 +75,7 @@ pub(super) struct FixSubcommand {
     #[clap(long, value_delimiter = ',')]
     pub target: Vec<SurfaceTarget>,
 
-    /// Warn list config (applied after enabling pending_deprecated with +99)
+    /// Warn list config (pending deprecation warnings are enabled by default)
     #[clap(long, allow_hyphen_values = true)]
     pub warn_list: Option<String>,
 
