@@ -352,12 +352,9 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         description: options.read("description", None)?,
         compile_flags: options.read("compile-flags", None)?,
         link_flags: options.read("link-flags", None)?,
-        checksum: options.read("checksum", None)?,
         source: options.read("source", Some("root-dir"))?,
         rule: options.read("rule", None)?,
         warn_list: options.read("warnings", None)?,
-        include: options.read("include", None)?,
-        exclude: options.read("exclude", None)?,
         scripts: options.read("scripts", None)?,
         preferred_target: preferred_target
             .as_deref()
@@ -477,19 +474,6 @@ pub fn warn_module_manifest(
             user_log,
         );
     }
-    let manifest_path = dir.join(MOON_MOD);
-    let deprecated_fields = match (module.include.is_some(), module.exclude.is_some()) {
-        (true, true) => Some(("`include` and `exclude`", "are")),
-        (true, false) => Some(("`include`", "is")),
-        (false, true) => Some(("`exclude`", "is")),
-        (false, false) => None,
-    };
-    if let Some((fields, verb)) = deprecated_fields {
-        user_log.warn(format!(
-            "{fields} in `{}` {verb} deprecated; use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-            manifest_path.display()
-        ));
-    }
 }
 
 pub fn warn_known_shadowed_manifest(
@@ -573,8 +557,34 @@ pub fn read_module_desc_file_in_dir_with_legacy(
     Ok(read_module_manifest(dir, allow_legacy)?.1)
 }
 
-/// Read the preferred manifest, retaining its format for warnings and migration.
+/// Read a project manifest, retaining its format for warnings and migration.
 pub fn read_module_manifest(
+    dir: &Path,
+    allow_legacy: bool,
+) -> anyhow::Result<(ManifestFormat, MoonMod)> {
+    let (format, module) = load_module_manifest(dir, allow_legacy)?;
+    // Only authors can migrate packaging rules. Dependency filters do not affect
+    // this project's archive; rejecting them would break existing consumers.
+    for field in ["include", "exclude"] {
+        if module.ext.get(field).is_some() {
+            let filename = match format {
+                ManifestFormat::New => MOON_MOD,
+                ManifestFormat::Legacy => MOON_MOD_JSON,
+            };
+            return Err(ModuleValidationError::RemovedPackagingField(field))
+                .with_context(|| format!("failed to load `{}`", dir.join(filename).display()));
+        }
+    }
+    Ok((format, module))
+}
+
+/// Read a dependency, allowing obsolete packaging filters from published modules.
+/// All ordinary parsing and semantic validation still applies.
+pub fn read_dependency_module_manifest(dir: &Path) -> anyhow::Result<MoonMod> {
+    Ok(load_module_manifest(dir, false)?.1)
+}
+
+fn load_module_manifest(
     dir: &Path,
     allow_legacy: bool,
 ) -> anyhow::Result<(ManifestFormat, MoonMod)> {

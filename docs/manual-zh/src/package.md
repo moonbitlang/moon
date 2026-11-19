@@ -28,7 +28,7 @@
 import 配置。空块和空的选项列表也算显式声明。普通、黑盒测试和白盒测试 import 相互独立。
 仍可声明多个 `rule` 和 `dev_build`，其中规则名必须唯一。
 
-其他配置，包括 `bin-name`、`bin-target`、`overrides`、结构化的 `link`、
+其他配置，包括 `overrides`、结构化的 `link`、
 `native-stub` 和按文件配置的 `targets`，仍需写在 `options(...)` 中。
 
 这些声明需要配套的编译器支持。不识别这些声明的编译器会报告
@@ -42,6 +42,11 @@ import 配置。空块和空的选项列表也算显式声明。普通、黑盒�
 `link.native.cc_link_flags` 会触发警告，因为正确拼写是 `cc-link-flags`。
 警告不会中止命令，可通过 `--quiet` 隐藏；依赖中的未知键警告默认不显示。
 此规则同时适用于模块和包配置。
+
+已移除的模块字段 `checksum` 和包字段 `bin-name` / `bin-target` 遵循上述未知键策略。
+当前项目和 workspace 成员中的模块字段 `include` 和 `exclude` 则会报错，即使值为空，
+因为忽略旧过滤条件可能把非预期文件打包。请将过滤条件迁移到 `.gitignore` 或 `.moonignore`；
+同目录下 `.moonignore` 优先于 `.gitignore`。依赖中的这两个旧字段会被忽略。
 
 已知字段的类型错误会报错，包括依赖中的配置以及使用 `--quiet` 时。
 例如，`warnings = 123` 无效，因为 `warnings` 必须是字符串。

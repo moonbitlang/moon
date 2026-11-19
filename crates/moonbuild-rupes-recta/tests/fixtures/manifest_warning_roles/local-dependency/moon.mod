@@ -1,2 +1,2 @@
 name = "test/dep"
-options("dependency-future": true)
+options("dependency-future": true, include: ["src/**"], exclude: ["test/**"])

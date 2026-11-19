@@ -28,7 +28,7 @@ use arcstr::ArcStr;
 use moonutil::{
     constants::MOONBITLANG_CORE,
     locks::lock_directory,
-    manifest::read_module_desc_file_in_dir,
+    manifest::read_dependency_module_manifest,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     toolchain,
     user_log::UserLog,
@@ -95,7 +95,7 @@ impl ProjectDependencySource {
                     continue;
                 }
                 let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/").into();
-                let module = moonutil::manifest::read_module_desc_file_in_dir(&pkg.path());
+                let module = moonutil::manifest::read_dependency_module_manifest(&pkg.path());
                 let version = module.map(|m| m.version).ok().flatten();
                 pkg_list.insert(pkg_name, version);
             }
@@ -302,7 +302,7 @@ fn sync(
         dep_dir.jobs,
     )?;
     for (source, staging) in sources.into_iter().zip(staged) {
-        let manifest = read_module_desc_file_in_dir(staging.path())?;
+        let manifest = read_dependency_module_manifest(staging.path())?;
         let name = source.module.name();
         let directory = pkg_to_dir(dep_dir, &name.username, &name.unqual);
         if directory.exists() {

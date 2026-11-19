@@ -402,7 +402,7 @@ pub enum DiscoverError {
     #[error("Unable to load local workspace rooted at path '{path}', error: {inner}")]
     CantReadLocalWorkspace { path: PathBuf, inner: anyhow::Error },
 
-    #[error("Unable to read local `moon.mod.json` at path '{path}', error: {inner}")]
+    #[error("Unable to read local module manifest at path '{path}', error: {inner:#}")]
     CantReadLocalModuleFile { path: PathBuf, inner: anyhow::Error },
 
     #[error(

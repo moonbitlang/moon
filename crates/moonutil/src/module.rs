@@ -46,7 +46,6 @@ pub struct MoonMod {
 
     pub compile_flags: Option<Vec<String>>,
     pub link_flags: Option<Vec<String>>,
-    pub checksum: Option<String>,
     pub source: Option<String>,
     pub rule: Option<Vec<MoonModRule>>,
 
@@ -55,15 +54,6 @@ pub struct MoonMod {
     pub ext: serde_json_lenient::Value,
 
     pub warn_list: Option<String>,
-
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    pub include: Option<Vec<String>>,
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    pub exclude: Option<Vec<String>>,
 
     pub preferred_target: Option<TargetBackend>,
     pub supported_targets: Option<SupportedTargetsConfig>,
@@ -164,10 +154,6 @@ pub struct MoonModJSON {
     #[schemars(skip)]
     pub link_flags: Option<Vec<String>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub checksum: Option<String>,
-
     /// source code directory of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "root-dir")]
@@ -190,18 +176,6 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "warnings", alias = "warn-list")]
     pub warnings: Option<String>,
-
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<String>>,
-
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude: Option<Vec<String>>,
 
     /// Scripts related to the current module.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -260,6 +234,10 @@ pub enum ModuleValidationError {
     SupportedTargets(anyhow::Error),
     #[error("Duplicate rule name `{0}` found in module manifest.")]
     DuplicateRule(String),
+    #[error(
+        "`{0}` is no longer supported in module manifests; use `.gitignore` or `.moonignore` to control packaged files. `.moonignore` overrides `.gitignore` in the same directory."
+    )]
+    RemovedPackagingField(&'static str),
 }
 
 impl MoonMod {
@@ -316,13 +294,10 @@ impl TryFrom<MoonModJSON> for MoonMod {
             description: j.description,
             compile_flags: j.compile_flags,
             link_flags: j.link_flags,
-            checksum: j.checksum,
             source: j.source,
             rule: j.rule,
             ext: j.ext,
             warn_list: j.warnings,
-            include: j.include,
-            exclude: j.exclude,
             scripts: j.scripts,
             preferred_target: j
                 .preferred_target
@@ -351,15 +326,11 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
 
         compile_flags: m.compile_flags,
         link_flags: m.link_flags,
-        checksum: m.checksum,
         source: m.source,
         rule: m.rule,
         ext: m.ext,
 
         warnings: m.warn_list,
-
-        include: m.include,
-        exclude: m.exclude,
 
         scripts: m.scripts,
 

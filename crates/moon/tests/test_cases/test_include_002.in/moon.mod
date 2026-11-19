@@ -13,7 +13,3 @@ keywords = [ ]
 description = ""
 
 source = "src"
-
-options(
-  "include": [ "moon.mod", "*.mbt", "*.txt" ],
-)

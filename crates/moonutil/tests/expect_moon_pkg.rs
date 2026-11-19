@@ -115,8 +115,6 @@ fn expect_import() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -160,8 +158,6 @@ fn expect_is_main() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -209,8 +205,6 @@ fn expect_formatter() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -263,8 +257,6 @@ fn expect_supported_targets() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 Js,
@@ -308,8 +300,6 @@ fn expect_supported_targets_expr() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Js,
             },
@@ -351,8 +341,6 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 WasmGC,
             },
@@ -391,8 +379,6 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {},
             native_stub: None,
             virtual_pkg: None,
@@ -466,8 +452,6 @@ fn expect_build() {
                     },
                 ],
             ),
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -749,12 +733,6 @@ fn expect_options() {
                 },
             ),
             pre_build: None,
-            bin_name: Some(
-                "name",
-            ),
-            bin_target: Some(
-                Wasm,
-            ),
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -819,8 +797,6 @@ fn expect_max_concurrent_tests() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -866,8 +842,6 @@ fn expect_virtual_implement() {
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,

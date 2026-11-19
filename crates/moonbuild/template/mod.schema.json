@@ -21,16 +21,6 @@
         "null"
       ]
     },
-    "exclude": {
-      "description": "Deprecated. Use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
-    },
     "import": {
       "description": "third-party dependencies of the module",
       "type": [
@@ -39,16 +29,6 @@
       ],
       "additionalProperties": {
         "$ref": "#/definitions/SourceDependencyInfo"
-      }
-    },
-    "include": {
-      "description": "Deprecated. Use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
       }
     },
     "keywords": {

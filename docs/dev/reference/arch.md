@@ -437,7 +437,8 @@ have also been removed.
 Remove `bin-deps` from the root manifest and run portable Wasm tools with
 `moonx` instead. Pin the tool version in the command. Tools without published
 executable assets need to publish them before consumers can migrate. The
-`bin-name` and `bin-target` package metadata fields remain supported.
+`bin-name` and `bin-target` package metadata fields have also been removed;
+existing entries follow the unknown-key warning policy.
 
 There are two kinds of sources that dependencies come from:
 

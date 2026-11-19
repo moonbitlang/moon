@@ -269,16 +269,6 @@ pub struct MoonPkgJSON {
     #[schemars(skip)]
     pub rule: Option<Vec<MoonModRule>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "bin-name")]
-    #[schemars(rename = "bin-name")]
-    pub bin_name: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "bin-target")]
-    #[schemars(rename = "bin-target")]
-    pub bin_target: Option<String>,
-
     /// Supported backend set for this package.
     ///
     /// This accepts either expression syntax (for example: `"js"` or
@@ -733,9 +723,6 @@ pub struct MoonPkg {
 
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
 
-    pub bin_name: Option<String>,
-    pub bin_target: Option<TargetBackend>,
-
     pub supported_targets: IndexSet<TargetBackend>,
 
     pub native_stub: Option<Vec<String>>,
@@ -1060,8 +1047,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     let targets = options.read("targets", None)?;
     let pre_build = options.read("pre_build", Some("pre-build"))?;
     let local_rules: Option<Vec<MoonModRule>> = options.read("rule", None)?;
-    let bin_name = options.read("bin_name", Some("bin-name"))?;
-    let bin_target: Option<String> = options.read("bin_target", Some("bin-target"))?;
     let supported_targets = options.read("supported_targets", Some("supported-targets"))?;
     let native_stub = options.read("native_stub", Some("native-stub"))?;
     let virtual_pkg = options.read("virtual_pkg", Some("virtual"))?;
@@ -1093,10 +1078,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         emit_warnings,
         user_log,
     )?;
-    let bin_target = bin_target
-        .as_deref()
-        .map(TargetBackend::str_to_backend)
-        .transpose()?;
     let (supported_targets, supported_targets_decl_kind) =
         resolve_supported_targets(supported_targets.as_ref())?;
     validate_local_rules(local_rules.as_deref().unwrap_or_default())?;
@@ -1118,8 +1099,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         proof_enabled: proof_enabled.unwrap_or(false),
         targets,
         pre_build,
-        bin_name,
-        bin_target,
         supported_targets,
         native_stub,
         virtual_pkg,
@@ -1184,11 +1163,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         emit_warnings,
         user_log,
     )?;
-    let bin_target = j
-        .bin_target
-        .as_deref()
-        .map(TargetBackend::str_to_backend)
-        .transpose()?;
     let (supported_backends, supported_targets_decl_kind) =
         resolve_supported_targets(j.supported_targets.as_ref())?;
     validate_local_rules(j.rule.as_deref().unwrap_or_default())?;
@@ -1210,8 +1184,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         proof_enabled: j.proof_enabled.unwrap_or(false),
         targets: j.targets,
         pre_build: j.pre_build,
-        bin_name: j.bin_name,
-        bin_target,
         supported_targets: supported_backends,
         native_stub: j.native_stub,
         virtual_pkg: j.virtual_pkg,
@@ -1391,8 +1363,6 @@ options(
   link: { "wasm": { "heap-start-address": 2214592512 } },
   "proof-enabled": true,
   targets: { "native.mbt": "native" },
-  "bin-name": "app",
-  "bin-target": "wasm-gc",
   "native-stub": ["stub.c"],
   virtual: { "has-default": true },
   implement: "example/virtual",
@@ -1421,8 +1391,6 @@ options(
             "link": {"wasm": {"heap-start-address": 2214592512_u32}},
             "proof-enabled": true,
             "targets": {"native.mbt": "native"},
-            "bin-name": "app",
-            "bin-target": "wasm-gc",
             "native-stub": ["stub.c"],
             "virtual": {"has-default": true},
             "implement": "example/virtual",
@@ -1488,8 +1456,6 @@ fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
             "pre_build",
             r#"[{"input": "a", "output": "b", "command": "generate"}]"#,
         ),
-        ("bin_name", r#""app""#),
-        ("bin_target", r#""wasm""#),
         ("native_stub", r#"["stub.c"]"#),
         ("virtual_pkg", r#"{"has-default": true}"#),
         ("max_concurrent_tests", "4294967295"),

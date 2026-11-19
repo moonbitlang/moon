@@ -27,7 +27,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use moonutil::{
     constants::MOONBITLANG_CORE,
-    manifest::read_module_desc_file_in_dir,
+    manifest::read_dependency_module_manifest,
     resolution::{ModuleDependencyGraph, ModuleSource, ResolvedRootModules},
     toolchain,
 };
@@ -61,7 +61,7 @@ pub(super) fn prepare_build_modules(
 fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     let core_dir = toolchain::core();
     let loaded_core =
-        read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
+        read_dependency_module_manifest(&core_dir).context("Cannot load the core file")?;
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
     let id = module_graph.add_module(source, Arc::new(loaded_core));
     module_graph.register_stdlib(id);

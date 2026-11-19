@@ -124,8 +124,6 @@ pub fn f() -> Unit {{
                 targets: None,
                 pre_build: None,
                 rule: None,
-                bin_name: None,
-                bin_target: None,
                 supported_targets: None,
                 native_stub: None,
                 virtual_pkg: None,
@@ -159,15 +157,11 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
 
         compile_flags: None,
         link_flags: None,
-        checksum: None,
         source: None,
         rule: None,
         ext: Default::default(),
 
         warnings: None,
-
-        include: None,
-        exclude: None,
 
         scripts: None,
         preferred_target: None,
@@ -230,8 +224,6 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
         targets: None,
         pre_build: None,
         rule: None,
-        bin_name: None,
-        bin_target: None,
         supported_targets: None,
         native_stub: None,
         virtual_pkg: None,

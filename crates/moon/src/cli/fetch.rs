@@ -94,7 +94,7 @@ pub(super) fn fetch_cli(
     }
 
     registry.materialize_source_to(&module, &pkg_dir, user_log)?;
-    let manifest = moonutil::manifest::read_module_desc_file_in_dir(&pkg_dir)?;
+    let manifest = moonutil::manifest::read_dependency_module_manifest(&pkg_dir)?;
     legacy_postadd::warn_skipped(&manifest, user_log);
 
     if !cli.quiet {

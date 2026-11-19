@@ -23,7 +23,7 @@ use std::{
 };
 
 use moonutil::{
-    manifest::{MoonMod, read_module_desc_file_in_dir},
+    manifest::{MoonMod, read_dependency_module_manifest},
     module_name::ModuleName,
 };
 use semver::Version;
@@ -118,7 +118,7 @@ impl<'a, R: Registry> ModuleResolutionContext<'a, R> {
             return Ok(Arc::clone(module));
         }
 
-        let module = read_module_desc_file_in_dir(path)?;
+        let module = read_dependency_module_manifest(path)?;
         let rc_module = Arc::new(module);
         self.local_module_cache
             .insert(path.to_owned(), Arc::clone(&rc_module));
