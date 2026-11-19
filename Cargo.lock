@@ -2175,7 +2175,6 @@ dependencies = [
  "anstyle",
  "anyhow",
  "arcstr",
- "ariadne",
  "clap",
  "colored",
  "dunce",

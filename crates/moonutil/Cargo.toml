@@ -39,7 +39,6 @@ clap.workspace = true
 dunce.workspace = true
 semver.workspace = true
 petgraph.workspace = true
-ariadne.workspace = true
 log.workspace = true
 thiserror.workspace = true
 schemars.workspace = true

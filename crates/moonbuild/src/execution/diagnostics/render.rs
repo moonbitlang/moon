@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Source lookup, generated-source mapping, and terminal diagnostic rendering.
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -24,121 +26,24 @@ use std::{
 use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
 use log::{error, warn};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-use crate::error_code_docs::get_error_code_doc;
+use moonutil::error_code_docs::get_error_code_doc;
 
-#[derive(Debug, Default, ValueEnum, Clone, PartialEq, Copy, PartialOrd)]
-pub enum DiagnosticLevel {
-    Info,
-    #[value(alias = "warning")]
-    Warn,
-    #[default]
-    Error,
-}
+use super::{DiagnosticLevel, MooncDiagnostic, Position};
 
-impl std::fmt::Display for DiagnosticLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-        })
-    }
+#[derive(Debug, Deserialize)]
+struct PatchJSON {
+    // Validate the full patch envelope even though rendering only reads patches.
+    #[serde(rename = "drops")]
+    _drops: Vec<String>,
+    patches: Vec<PatchItem>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PatchJSON {
-    pub drops: Vec<String>,
-    pub patches: Vec<PatchItem>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PatchItem {
-    pub name: String,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
-pub struct MooncDiagnostic {
-    pub path: String,
-    pub loc: Loc,
-    pub level: String,
-    pub message: String,
-    pub error_code: u32,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub children: Vec<MooncDiagnostic>,
-}
-
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Loc {
-    pub start: Position,
-    pub end: Position,
-}
-
-impl Loc {
-    fn zero() -> Self {
-        Self {
-            start: Position { line: 0, col: 0 },
-            end: Position { line: 0, col: 0 },
-        }
-    }
-
-    fn parse_span(text: &str) -> Option<Self> {
-        let (start, end) = text.split_once('-')?;
-
-        Some(Self {
-            start: Position::parse(start)?,
-            end: Position::parse(end)?,
-        })
-    }
-
-    fn as_range(&self) -> (&Position, &Position) {
-        (&self.start, &self.end)
-    }
-}
-
-impl Serialize for Loc {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&format!(
-            "{}:{}-{}:{}",
-            self.start.line, self.start.col, self.end.line, self.end.col
-        ))
-    }
-}
-
-impl<'de> Deserialize<'de> for Loc {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let text = String::deserialize(deserializer)?;
-        if text.is_empty() {
-            return Ok(Self::zero());
-        }
-        let loc = Self::parse_span(&text)
-            .ok_or_else(|| serde::de::Error::custom(format!("invalid location: {text}")))?;
-        Ok(loc)
-    }
-}
-
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Position {
-    pub line: usize,
-    pub col: usize,
-}
-
-impl Position {
-    fn parse(text: &str) -> Option<Self> {
-        let (line, col) = text.split_once(':')?;
-        Some(Self {
-            line: line.parse::<usize>().ok()?,
-            col: col.parse::<usize>().ok()?,
-        })
-    }
+struct PatchItem {
+    name: String,
+    content: String,
 }
 
 struct DiagnosticSource {
@@ -178,7 +83,7 @@ impl DiagnosticSource {
 ///
 /// Create a fresh cache for each batch so subsequent builds observe file edits.
 #[derive(Default)]
-pub struct DiagnosticSources {
+pub(super) struct DiagnosticSources {
     // Keep disk-only source-map reads separate from patch-enabled lookups.
     files: HashMap<(PathBuf, Option<PathBuf>), Option<DiagnosticSource>>,
     source_maps: HashMap<String, Option<SourceMap>>,
@@ -295,8 +200,9 @@ struct SourceMapping {
 }
 
 impl MooncDiagnostic {
-    // TODO: swap names for `render` and `render_diagnostics`
-    pub fn render_diagnostics(
+    // TODO: Accept a writer when build commands complete the ADR 0004 output
+    // migration; keep the current stderr behavior until then.
+    pub(super) fn render_diagnostics(
         &self,
         use_fancy: bool,
         check_patch_file: Option<&PathBuf>,
@@ -444,7 +350,7 @@ impl MooncDiagnostic {
         }
     }
 
-    pub fn formatted_error_code(&self) -> String {
+    fn formatted_error_code(&self) -> String {
         format!("{:04}", self.error_code)
     }
 }

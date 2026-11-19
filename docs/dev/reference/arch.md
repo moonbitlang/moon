@@ -759,7 +759,14 @@ and with maximal parallelism subject to dependencies and its job limits.
 The private `moonbuild::execution::n2` module owns n2 adaptation, the `.moon_db`
 location and database access, root lookup, scheduling, and progress capture.
 Its parent `execution` module owns `BuildConfig`, `BuildInput`, execution entry
-points, and diagnostic processing. `BuildInput` keeps the Execution Plan and
+points, and action failure classification. Its private `diagnostics` module
+owns compiler diagnostic decoding, generated-driver path rewriting, filtering,
+deduplication, limits, and counts; the nested `render` module owns source lookup,
+source-map interpretation, and terminal rendering. Only `DiagnosticLevel` is
+exposed alongside the execution configuration; the compiler wire model and
+source caches remain private. Shared error-code documentation stays in
+`moonutil::error_code_docs` for both rendering and `moon explain`.
+`BuildInput` keeps the Execution Plan and
 action-backend metadata together through composition. The CLI translates its
 flags into `BuildConfig`; execution does not depend on CLI parsing types.
 Shared artifact paths remain in Rupes Recta's `target_layout` module.

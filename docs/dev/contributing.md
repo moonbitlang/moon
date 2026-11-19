@@ -35,7 +35,8 @@ Check which `moon` your shell resolves before testing an installed build.
 | Build planning and external-input preparation | [`moonbuild/src/compile.rs`](../../crates/moonbuild/src/compile.rs) |
 | Generated package metadata model | [`moonbuild-rupes-recta/src/metadata.rs`](../../crates/moonbuild-rupes-recta/src/metadata.rs) |
 | Build metadata publication | [`moonbuild/src/metadata.rs`](../../crates/moonbuild/src/metadata.rs) |
-| Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
+| Execution Plans and n2 scheduling | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
+| Compiler diagnostics and source rendering | [`moonbuild/src/execution/diagnostics.rs`](../../crates/moonbuild/src/execution/diagnostics.rs), [`diagnostics/render.rs`](../../crates/moonbuild/src/execution/diagnostics/render.rs) |
 | Test invocation and result reporting | [`moon/src/run/runtime.rs`](../../crates/moon/src/run/runtime.rs), [`run/runtest/report.rs`](../../crates/moon/src/run/runtest/report.rs) |
 | Test result data and expect/snapshot promotion | [`moon/src/run/runtest.rs`](../../crates/moon/src/run/runtest.rs), [`expect.rs`](../../crates/moon/src/run/runtest/expect.rs) |
 | Package management and registry access | [`mooncake/src/pkg`](../../crates/mooncake/src/pkg), [`resolver`](../../crates/mooncake/src/resolver), [`registry`](../../crates/mooncake/src/registry) |
