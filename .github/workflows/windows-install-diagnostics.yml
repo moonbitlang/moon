@@ -36,10 +36,12 @@ jobs:
           persist-credentials: false
 
       - name: Record runner image and Windows build
+        id: image
         shell: pwsh
         run: |
           "ImageOS=$env:ImageOS"
           "ImageVersion=$env:ImageVersion"
+          "version=$env:ImageVersion" >> $env:GITHUB_OUTPUT
           Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' |
             Select-Object ProductName, DisplayVersion, CurrentBuild, UBR |
             Format-List
@@ -48,6 +50,9 @@ jobs:
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
       - name: Compare full installations in both PowerShell hosts on the same runner
+        # The old image already passed three times; preserve runner time while
+        # retrying allocations to obtain the image associated with the failure.
+        if: steps.image.outputs.version == '20261116.315.1'
         shell: pwsh
         run: |
           $probeScript = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/diagnose-windows-install.ps1'
