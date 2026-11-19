@@ -185,6 +185,7 @@ mod tests {
             create_mode,
             read_metadata: false,
         })
+        .map(|_| ())
         .map_err(Into::into)
     }
 

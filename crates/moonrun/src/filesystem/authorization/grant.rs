@@ -18,37 +18,30 @@
 
 //! Opaque authority retained with an acquired file.
 
-use std::path::PathBuf;
+use crate::policy::AccessRights;
 
-/// File authorization context retained with a Resource.
-///
-/// Stdio is explicitly granted by the host. Other files retain pathname-based
-/// policy: the saved opening path is re-resolved for each protected operation.
-/// That path is neither stable object identity nor a snapshot of capabilities.
-/// Callers must not depend on its representation or inspect path availability.
+/// Authority captured at acquisition, independent of the file's later pathname.
+/// OS access modes and ABI descriptor rights remain additional restrictions.
 #[derive(Debug)]
 pub(crate) struct FileGrant(pub(super) GrantSource);
 
 #[derive(Debug)]
 pub(super) enum GrantSource {
     Stdio,
-    Path(PathBuf),
+    Acquired(AccessRights),
     Untracked,
 }
 
 impl FileGrant {
     /// Inherited or explicitly bound standard streams are host-provided grants.
-    /// Native access modes and operation-specific handle checks still apply.
     /// FIXME: Guest spawn also rebinds source resources as stdio grants. Revisit
     /// this when adding attenuation to resource delegation.
     pub(crate) const STDIO: Self = Self(GrantSource::Stdio);
 
-    /// Pipes and other resources without recorded pathname provenance.
-    /// Absence of a pathname does not itself imply permission or denial.
+    /// Pipes and other resources acquired outside filesystem path admission.
     pub(crate) const UNTRACKED: Self = Self(GrantSource::Untracked);
 
-    pub(crate) fn from_opened_path(path: Option<PathBuf>) -> Self {
-        path.and_then(|path| std::fs::canonicalize(path).ok())
-            .map_or(Self::UNTRACKED, |path| Self(GrantSource::Path(path)))
+    pub(in crate::filesystem) fn acquired(access: AccessRights) -> Self {
+        Self(GrantSource::Acquired(access))
     }
 }

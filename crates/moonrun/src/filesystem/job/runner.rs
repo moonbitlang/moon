@@ -74,7 +74,7 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
-        filesystem.authorize(FsOperation::OpenAsync {
+        let granted = filesystem.authorize(FsOperation::OpenAsync {
             path: job_path(parent.as_deref(), filename)?,
             access,
             create_mode,
@@ -84,12 +84,6 @@ ported_fns! {
         let parent = parent.take();
         let parent = parent.as_deref();
 
-        let filename_for_provenance = match parent {
-            Some(parent) => super::super::os::directory::path(raw_file_handle(parent)?)
-                .ok()
-                .map(|base| base.join(&filename)),
-            None => Some(std::path::PathBuf::from(&filename)),
-        };
         let parent_handle = parent.map(raw_file_handle).transpose()?;
         let options = open_options(access, create_mode, append, sync, mode)?;
         let file = super::super::os::openat::open(
@@ -98,8 +92,7 @@ ported_fns! {
             &options,
             &super::CancellableIo,
         )?;
-        let resource =
-            Resource::from_file(file, FileGrant::from_opened_path(filename_for_provenance));
+        let resource = Resource::from_file(file, FileGrant::acquired(granted));
         // Unlike async Workers, synchronous calls do not mask ordinary signals.
         // An unnecessary stat can therefore return EINTR after open succeeds.
         // Callers cannot tell which syscall was interrupted and may retry open,

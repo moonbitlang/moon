@@ -489,8 +489,10 @@ mod tests {
         assert!(host.read_file(file).unwrap().starts_with(b"TZif"));
         let path = FsPath::Cwd(file.as_os_str());
         for access in [0, 1] {
-            host.authorize(FsOperation::AccessCheck { path, access })
+            let granted = host
+                .authorize(FsOperation::AccessCheck { path, access })
                 .unwrap();
+            assert_eq!(granted, crate::policy::AccessRights::READ);
         }
         for operation in [
             FsOperation::AccessCheck { path, access: 2 },
@@ -717,42 +719,6 @@ mod tests {
             path: OsStr::new("/"),
         })));
         assert!(result.is_err(), "{result:?}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resource_authorization_rechecks_saved_path() {
-        use crate::filesystem::FileGrant;
-
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        let denied = tmp.path().join("denied");
-        std::fs::create_dir(&allowed).unwrap();
-        std::fs::create_dir(&denied).unwrap();
-        let resource_path = allowed.join("resource.txt");
-        let denied_file = denied.join("target.txt");
-        std::fs::write(&resource_path, "allowed").unwrap();
-        std::fs::write(&denied_file, "denied").unwrap();
-        let grant = FileGrant::from_opened_path(Some(resource_path.clone()));
-        let policy_file = tmp.path().join("policy.toml");
-        std::fs::write(
-            &policy_file,
-            "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
-        )
-        .unwrap();
-        let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
-
-        std::fs::remove_file(&resource_path).unwrap();
-        std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
-
-        let metadata = host.authorize(FsOperation::Metadata(FsTarget::File(&grant)));
-        let lock = host.authorize(FsOperation::Lock {
-            file: &grant,
-            exclusive: true,
-        });
-        assert!(matches!(metadata, Err(FsError::Denied)));
-        assert!(matches!(lock, Err(FsError::Denied)));
     }
 
     #[cfg(unix)]
