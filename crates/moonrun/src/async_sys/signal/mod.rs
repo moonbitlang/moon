@@ -51,8 +51,8 @@ pub(crate) use unix::{
 
 ported_fns! {
     #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_start_signal_handler"
+        runtime = "signal.c",
+        original = "moonbit_rt_start_signal_handler"
     )]
     #[cfg(unix)]
     pub(crate) fn start_signal_handler(
@@ -67,8 +67,8 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_terminate_signal_handler"
+        runtime = "signal.c",
+        original = "moonbit_rt_terminate_signal_handler"
     )]
     #[cfg(unix)]
     pub(crate) fn terminate_signal_handler(
@@ -80,8 +80,8 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_set_global_cancellation_signals"
+        runtime = "signal.c",
+        original = "moonbit_rt_set_global_cancellation_signals"
     )]
     pub(crate) fn set_global_cancellation_signals(
         receiver: &SignalReceiver,
@@ -92,8 +92,8 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/signal.c",
-        original = "moonbitlang_async_set_console_control_handler"
+        runtime = "signal.c",
+        original = "moonbit_rt_set_console_control_handler"
     )]
     #[cfg(windows)]
     pub(crate) fn set_console_control_handler(
