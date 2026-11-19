@@ -289,6 +289,9 @@ mod windows {
         let exe = "powershell";
         let status = std::process::Command::new(exe)
             .arg(&script_path)
+            // Let Windows PowerShell rebuild its module paths; a parent PowerShell 7
+            // session can otherwise make it load incompatible modules through Moon.
+            .env_remove("PSModulePath")
             .status()
             .with_context(|| format!("failed to execute command:\n{}", script))?;
         match status.code() {
