@@ -1302,7 +1302,6 @@ mod tests {
             debug_info: false,
             opt_level: crate::model::CCOptLevel::None,
             cc_flags: Vec::new(),
-            link_args: Vec::new(),
         }
     }
 

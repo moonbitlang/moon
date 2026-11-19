@@ -459,16 +459,6 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
 
-    /// Legacy linker flags for C stubs, retained for manifest compatibility
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stub_cc_link_flags: Option<String>,
-
-    /// Compiled stub object files as dependencies for the executable
-    ///
-    /// (should not be present in the `pkg.json`, generated and populated later)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub stub_lib_deps: Option<Vec<String>>,
     #[serde(flatten, skip_serializing)]
     #[schemars(skip)]
     pub extra: Map<String, Value>,
