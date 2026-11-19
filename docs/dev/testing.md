@@ -127,15 +127,57 @@ uses a local async implementation supplied by the fixture's workspace.
 
 BDD describes the behavior; a Scrut-style transcript puts explanation around
 executable commands and expected output. Neither determines the test level.
-Use Rust with scenario comments for workflows needing direct filesystem or
-structured assertions. Consider Markdown for CLI workflows that read naturally
-as shell sessions; the existing [native Moon Cram fixture](../../crates/moon/tests/test_cases/cram/tests/cram/main.mooncram)
-shows that format. Before migrating, verify the runner uses the Cargo-built CLI,
-isolates fixtures, checks the intended streams/status, and runs on supported
-platforms. Native `moon-cram` and the `moon testcli` WASM runner have different
-command models. Scenario comments explain intent but are not executable step
-definitions; adopt a BDD runner only when its execution model improves the
-workflow without obscuring the assertions.
+
+For Cucumber E2E tests, start with the
+[topic index](../../crates/moon-e2e/README.md). It links each feature to its Rust
+steps and explains how to run a topic or scenario. The independent `moon-e2e`
+crate runs the real CLI, compiler, and runtime. Unit and phase tests remain in
+the owning crate; using Gherkin does not change their execution boundary.
+
+Existing source fixtures stay in `moon/tests/test_cases`. Package-selection
+scenarios share read-only source and own a private build directory. Scenarios
+that generate interfaces or package archives use private source copies through
+`moon_test_util::test_dir::TestDir`. Moon's ordinary tests keep their existing
+`Fixture` and command helpers.
+
+The two exclusion fixtures retain their `moon.test` files as archive input:
+those filenames appear in the expected package lists. These files are no longer
+executed as transcripts. The custom transcript runner has been removed; all its
+active scenarios now run in `moon-e2e`. Adjacent Rust tests for quiet output,
+removed manifest options and ignore-file precedence remain separate.
+
+Every protected expectation must be visible in the feature: exit status,
+stdout/stderr (including empty streams), diagnostics, order, compiler arguments,
+and file results. Steps execute actions and compare the supplied expectations;
+they must not hide additional behavior assertions in Rust snapshots or output
+templates. Prefer explicit source-selection, dependency and generated-interface
+assertions over complete compiler-command or package-index snapshots. Avoid
+directory-tree assertions unless directory contents are the behavior being
+tested, and do not snapshot compiled `.core` contents. See the index's
+[reading conventions](../../crates/moon-e2e/README.md#read-the-expectations).
+Update feature expectations by reviewing the behavior and editing the feature;
+`UPDATE_EXPECT` does not rewrite Gherkin steps or tables.
+
+The E2E crate is a default workspace member, so normal CI `cargo test` includes
+it. It has its own Cucumber runner; use its documented topic/name filters and
+keep libtest flags on ordinary Rust test targets.
+
+The E2E command helper asks Cargo for the `moon` and `moonrun` executables once
+per process, using the workspace manifest and the default target layout to
+reuse normal build artifacts. It uses Cargo's reported paths rather than
+looking for an installed `moon` or guessing `target/debug`. Cucumber is only a
+dev dependency of `moon-e2e`; testing `moon` alone does not compile it.
+
+Keep independent examples in separate scenarios, and keep dependent workflow
+steps in one scenario. Compare migration timings: splitting a transcript's
+shared build directory into isolated scenarios can repeat compilation.
+
+Use ordinary Rust tests for focused phase behavior. The existing
+[native Moon Cram fixture](../../crates/moon/tests/test_cases/cram/tests/cram/main.mooncram)
+also shows an executable shell transcript. Native `moon-cram` and the
+`moon testcli` WASM runner have different command models. Before migrating any
+format, verify it uses the Cargo-built CLI, isolates fixtures, checks the
+intended streams/status, and runs on supported platforms.
 
 ## Clean up an existing test
 

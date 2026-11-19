@@ -48,6 +48,8 @@ ctrlc = { version = "3.4.4", features = ["termination"] }
 dunce = "1.0.4"
 escargot = "0.5.15"
 expect-test = "1.5.0"
+cucumber = { version = "0.23.0", default-features = false, features = ["macros"] }
+futures-executor = "0.3"
 find-msvc-tools = "0.1.9"
 # Keep native build helper features consistent for workspace and standalone builds.
 cc = { version = "1", features = ["parallel"] }

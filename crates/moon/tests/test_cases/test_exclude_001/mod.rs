@@ -1,11 +1,6 @@
 use super::*;
 
 #[test]
-fn test_exclude_001() {
-    run_moon_cmdtest("test_exclude_001.in");
-}
-
-#[test]
 fn test_moonignore_overrides_gitignore() {
     let dir = TestDir::new("test_exclude_001.in");
     std::fs::write(dir.join("gitignored.txt"), "included by .moonignore\n").unwrap();

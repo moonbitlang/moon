@@ -16,6 +16,24 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod exec;
-mod parse;
-pub mod run;
+use cucumber::{given, when};
+
+use super::World;
+
+#[given(expr = "a packaging project with {string}")]
+fn packaging_project(world: &mut World, policy: String) {
+    let case = match policy.as_str() {
+        "re-included directories" => "test_include_001.in",
+        "re-included extensions" => "test_include_002.in",
+        "a later file re-inclusion" => "test_include_003.in",
+        "an ignored directory" => "test_exclude_001.in",
+        "an ignored extension" => "test_exclude_002.in",
+        _ => panic!("unknown packaging policy: {policy}"),
+    };
+    world.copy_case(case);
+}
+
+#[when("I list the package archive contents")]
+fn list_archive(world: &mut World) {
+    world.output = Some(world.command().args(["package", "--list"]).assert());
+}
