@@ -16,7 +16,7 @@
 #
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-name: Windows download diagnostics
+name: Windows installation diagnostics
 
 # A branch-only experiment: pushing it must not start the regular CI or CD.
 on:
@@ -27,9 +27,9 @@ permissions:
   contents: read
 
 jobs:
-  download:
+  install:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,11 +47,12 @@ jobs:
           # Match the execution policy set by the normal Windows setup step.
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
-      - name: Compare downloads in both PowerShell hosts on the same runner
+      - name: Compare full installations in both PowerShell hosts on the same runner
         shell: pwsh
         run: |
-          $probeScript = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/diagnose-windows-download.ps1'
-          $probeRoot = Join-Path $env:RUNNER_TEMP 'moon-windows-download-diagnostics'
+          $probeScript = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/diagnose-windows-install.ps1'
+          $probeRoot = Join-Path $env:RUNNER_TEMP 'moon-windows-install-diagnostics'
+          $originalUserPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
           $results = @()
           try {
             foreach ($program in @('powershell', 'pwsh')) {
@@ -77,39 +78,61 @@ jobs:
                 }
                 $process = [System.Diagnostics.Process]::new()
                 $process.StartInfo = $start
+                $result = [pscustomobject]@{
+                  Case = $caseName
+                  ExitCode = -1
+                  TimedOut = $false
+                  MoonExists = $false
+                  MooncExists = $false
+                  HarnessError = $false
+                }
                 try {
                   $process.Start() | Out-Null
                   $process.StandardInput.Close()
                   $stdout = $process.StandardOutput.ReadToEndAsync()
                   $stderr = $process.StandardError.ReadToEndAsync()
-                  $timedOut = -not $process.WaitForExit(240000)
-                  if ($timedOut) {
+                  $result.TimedOut = -not $process.WaitForExit(480000)
+                  if ($result.TimedOut) {
                     $process.Kill($true)
                     $process.WaitForExit()
                   }
+                  $result.ExitCode = $process.ExitCode
                   Write-Output '--- stdout ---'
                   Write-Output $stdout.GetAwaiter().GetResult()
                   Write-Output '--- stderr ---'
                   Write-Output $stderr.GetAwaiter().GetResult()
-                  Write-Output "exit=$($process.ExitCode); timedOut=$timedOut"
-                  $results += [pscustomobject]@{
-                    Case = $caseName
-                    ExitCode = $process.ExitCode
-                    TimedOut = $timedOut
-                  }
+                  $result.MoonExists = [IO.File]::Exists((Join-Path $destination 'bin/moon.exe'))
+                  $result.MooncExists = [IO.File]::Exists((Join-Path $destination 'bin/moonc.exe'))
+                  $result | Format-List
+                } catch {
+                  $harnessError = $_
+                  $result.HarnessError = $true
+                  [Console]::Error.WriteLine('[install-probe] HARNESS ERROR (child status retained)')
+                  [Console]::Error.WriteLine($harnessError.Exception.ToString())
                 } finally {
-                  $process.Dispose()
-                  Remove-Item -LiteralPath $destination -Recurse -Force
+                  $results += $result
+                  # Cleanup diagnostics must never replace the install failure.
+                  try {
+                    $process.Dispose()
+                    [Environment]::SetEnvironmentVariable('PATH', $originalUserPath, 'User')
+                    Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction Continue
+                    $archive = Join-Path $env:USERPROFILE 'moonbit.zip'
+                    if (Test-Path -LiteralPath $archive) {
+                      Remove-Item -LiteralPath $archive -Force -ErrorAction Continue
+                    }
+                  } catch {
+                    [Console]::Error.WriteLine("[install-probe] ADDITIONAL CLEANUP ERROR: $($_.Exception)")
+                  }
                   Write-Output '::endgroup::'
                 }
               }
             }
           } finally {
             if (Test-Path -LiteralPath $probeRoot) {
-              Remove-Item -LiteralPath $probeRoot -Recurse -Force
+              Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction Continue
             }
             $results | Format-Table -AutoSize
           }
-          if ($results | Where-Object { $_.ExitCode -ne 0 -or $_.TimedOut }) {
-            throw 'One or more download probes failed; see the full child output above.'
+          if ($results | Where-Object { $_.ExitCode -ne 0 -or $_.TimedOut -or $_.HarnessError -or -not $_.MoonExists -or -not $_.MooncExists }) {
+            throw 'One or more installation probes failed; see the original errors and child output above.'
           }
