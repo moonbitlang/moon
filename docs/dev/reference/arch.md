@@ -132,6 +132,11 @@ Implementation-wise:
   it before launching user programs; test promotion and its partial rebuild
   share a new session. Standalone Wasm callers use
   `moonbuild::compile::build_standalone_wasm` without constructing CLI arguments.
+- Build results retain the `TargetBackend` identity needed by metadata, runtime
+  selection, and profiling. Backend-specific compiler settings stay in
+  `CompileConfig` and are consumed during planning and lowering; running an
+  artifact does not require that configuration. The run result takes its target
+  directory from the build's artifact path resolver.
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:

@@ -849,7 +849,7 @@ async fn run_one_test_executable(
     };
 
     let mut cmd = crate::run::command_for_with_moonrun_policy(
-        crate::run::ExecutionMode::from(&ctx.build_meta.backend),
+        crate::run::ExecutionMode::from(ctx.build_meta.target_backend()),
         &executable,
         Some(&test.args),
         ctx.moonrun_policy.as_deref(),

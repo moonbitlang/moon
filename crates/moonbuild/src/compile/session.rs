@@ -137,12 +137,13 @@ impl BuildSession {
         );
         let target_dir = &self.target_dir;
         let user_log = &self.user_log;
+        let target_backend = cx.backend.target_backend();
         info!("User intent calculated: {:?}", intent.intents);
 
         // Decide once, after backend selection, whether planning will execute a
         // script. Dry runs that only lower commands must not acquire a write lock.
         let run_prebuild = cx.action != RunMode::Check
-            && cx.backend.target_backend().is_native()
+            && target_backend.is_native()
             && resolved_project
                 .module_graph
                 .all_modules_and_id()
@@ -172,7 +173,7 @@ impl BuildSession {
 
         info!("Expanding user intents to requested artifacts");
         let requested_artifacts =
-            intent.requested_artifacts(&resolved_project, user_log, cx.backend.target_backend());
+            intent.requested_artifacts(&resolved_project, user_log, target_backend);
         info!("Begin lowering to build graph");
         let compile_output = super::compile(
             &cx,
@@ -203,15 +204,12 @@ impl BuildSession {
         let build_meta = BuildMeta {
             resolved_project,
             artifacts,
-            backend: cx.backend.clone(),
+            target_backend,
             opt_level: cx.opt_level,
-            artifact_paths: cx.artifact_paths.clone(),
+            artifact_paths: cx.artifact_paths,
         };
 
-        let input = BuildInput::new(
-            compile_output.execution_plan,
-            Some(cx.backend.target_backend()),
-        );
+        let input = BuildInput::new(compile_output.execution_plan, Some(target_backend));
 
         info!("Build planning completed successfully");
 
