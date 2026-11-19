@@ -49,6 +49,14 @@ these overrides, and `paths` contains `module_root` and `out_dir`. `module_root`
 remains the module directory; `out_dir` now contains the real directory provided
 as `MOON_BUILD_DIR`.
 
+The stdin JSON input is deprecated and will be removed. Input modules (including
+workspace members) receive a migration warning when their manifest declares a
+prebuild script; dependency modules do not. `--quiet` suppresses this warning.
+The notice applies to the protocol and does not detect whether a script reads
+stdin. Read inputs from the environment instead: `MOON_MOD` identifies the
+manifest, `MOON_BUILD_DIR` replaces `paths.out_dir`, and the working directory
+is the module root. Stdout JSON remains the script's result protocol.
+
 Host OS and architecture describe the Moon process's platform. Backend and
 profile describe the project build, even when the prebuild script itself is
 compiled to Wasm. They reflect effective

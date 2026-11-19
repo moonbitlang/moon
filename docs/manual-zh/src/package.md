@@ -69,6 +69,20 @@ import 配置。空块和空的选项列表也算显式声明。普通、黑盒�
 由编译器消费的配置，例如 `options("alert-list": "+all")` 和布尔类型的
 `link.wasm-gc.use-ffi-bytes`，也由 Moon 识别并检查类型。
 
+已弃用的包配置也会在当前项目和 workspace 成员中产生警告，依赖中的警告默认抑制。
+请将 `is-main: true` 替换为 `pkgtype(kind: "executable")`，将库包的布尔
+`link: true` 替换为 `pkgtype(kind: "foreign_library")`。值为 false 的旧标志，
+以及可执行包的布尔 `link`，直接删除即可。结构化 `link` 仍是后端配置。
+`link.*.exports` 已弃用，请改用源码中的 `#export_name` 属性；空导出列表也会警告。
+需要产出供外部宿主使用的库文件时，请声明 `pkgtype(kind: "foreign_library")`。
+这些旧字段将在后续移除。
+
+模块 prebuild 脚本还会收到协议迁移提示：旧 stdin JSON 输入即将移除，
+请改为读取 `MOON_MOD`、`MOON_BUILD_DIR` 等 `MOON_*` 环境变量。
+stdout JSON 继续作为结果协议。该提示仅针对当前项目和 workspace 成员，
+即使当前后端不运行脚本也会显示；它不会检测脚本是否读取 stdin。
+`--quiet` 会抑制上述弃用警告。
+
 ## 实验性包
 
 在包的 `moon.pkg` 顶层声明 `experimental = true` 后，直接依赖它的包会收到警告。

@@ -82,6 +82,23 @@ string. Compiler-consumed settings such as `options("alert-list": "+all")`
 and the boolean `link.wasm-gc.use-ffi-bytes` are also recognized and type-checked
 by Moon.
 
+Deprecated package settings also warn in the current project and workspace
+members, with dependency warnings suppressed. Replace `is-main: true` with
+`pkgtype(kind: "executable")`, and boolean `link: true` on a library with
+`pkgtype(kind: "foreign_library")`. Remove false flags and boolean `link` on
+executable packages. Structured `link` remains backend configuration.
+`link.*.exports` is deprecated in favor of source-level `#export_name` attributes;
+empty export lists also warn. Declare `pkgtype(kind: "foreign_library")` when
+producing a library artifact for a foreign host. These legacy fields are
+scheduled for removal.
+
+Module prebuild scripts receive an additional migration notice: their legacy
+stdin JSON input will be removed. Read `MOON_MOD`, `MOON_BUILD_DIR`, and the other
+`MOON_*` environment variables instead. Stdout JSON remains the result protocol.
+This notice is shown for input modules only, even if the current backend does
+not run the script; it does not detect stdin reads. `--quiet` suppresses all
+these deprecation warnings.
+
 ## Experimental packages
 
 Declare `experimental = true` at the top level of a package's `moon.pkg` to

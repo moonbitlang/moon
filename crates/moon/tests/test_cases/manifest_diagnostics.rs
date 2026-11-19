@@ -23,20 +23,20 @@ fn manifest_diagnostics_reach_build_commands() {
     let dir = TestDir::new_empty();
     std::fs::write(
         dir.join("moon.mod"),
-        "name = \"test/diagnostics\"\noptions(checksum: \"obsolete\", scripts: {\"prebuild\": \"unused-command\"})",
+        "name = \"test/diagnostics\"\noptions(checksum: \"obsolete\", scripts: {\"prebuild\": \"unused-command\"}, \"--moonbit-unstable-prebuild\": \"build.js\")",
     )
     .unwrap();
     std::fs::write(dir.join("main.mbt"), "fn main {}\n").unwrap();
     std::fs::write(
         dir.join("moon.pkg"),
-        r#"pkgtype(kind: "executable")
-regex_backend = "table"
+        r#"regex_backend = "table"
 options(
+  "is-main": true,
   "alert-list": "+all",
   "bin-name": "obsolete-name",
   link: {
     "native": { "cc_link_flags": "-lm" },
-    "wasm-gc": { "use-ffi-bytes": true }
+    "wasm-gc": { "use-ffi-bytes": true, "exports": [] }
   }
 )
 "#,
@@ -50,8 +50,11 @@ options(
         .stderr_eq(snapbox::str![[r#"
 Warning: Unknown configuration key `checksum` in `[..]/moon.mod`.
 Warning: Unknown configuration key `scripts.prebuild` in `[..]/moon.mod`.
+Warning: Legacy stdin JSON for prebuild script `build.js` in module `test/diagnostics` is deprecated and will be removed; read `MOON_MOD`, `MOON_BUILD_DIR`, and the other `MOON_*` environment variables instead.
 Warning: Unknown configuration key `bin-name` in `[..]/moon.pkg`.
+Warning: `is-main: true` is deprecated; use `pkgtype(kind: "executable")` instead.
 Warning: Unknown configuration key `link.native.cc_link_flags` in `[..]/moon.pkg`.
+Warning: `link.wasm-gc.exports` is deprecated; use `#export_name` attributes in MoonBit source instead.
 Finished. moon: ran 2 tasks, now up to date
 
 "#]]);

@@ -530,6 +530,7 @@ fn test_prebuild_config_mbtx_invalid_json() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Warning: Legacy stdin JSON for prebuild script `build config.mbtx` in module `username/hello` is deprecated and will be removed; read `MOON_MOD`, `MOON_BUILD_DIR`, and the other `MOON_*` environment variables instead.
 Error: failed to run build for target Native
 
 Caused by:

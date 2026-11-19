@@ -562,6 +562,32 @@ pub struct Link {
 }
 
 impl Link {
+    // TODO(1.0): Remove backend exports fields and their lowering after the
+    // deprecation window; exports then belong to source-level #export_name.
+    fn warn_deprecated_exports(&self, user_log: &UserLog) {
+        for (backend, exports) in [
+            (
+                "wasm",
+                self.wasm.as_ref().and_then(|cfg| cfg.exports.as_ref()),
+            ),
+            (
+                "wasm-gc",
+                self.wasm_gc.as_ref().and_then(|cfg| cfg.exports.as_ref()),
+            ),
+            ("js", self.js.as_ref().and_then(|cfg| cfg.exports.as_ref())),
+            (
+                "native",
+                self.native.as_ref().and_then(|cfg| cfg.exports.as_ref()),
+            ),
+        ] {
+            if exports.is_some() {
+                user_log.warn(format!(
+                    "`link.{backend}.exports` is deprecated; use `#export_name` attributes in MoonBit source instead."
+                ));
+            }
+        }
+    }
+
     pub fn need_link(&self, target: TargetBackend) -> bool {
         match target {
             Wasm | WasmGC | Js => true,
@@ -1103,6 +1129,9 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     };
     if emit_warnings {
         crate::manifest::warn_unknown_fields(&package.unknown_fields(), path, user_log);
+        if let Some(link) = &package.link {
+            link.warn_deprecated_exports(user_log);
+        }
     }
     Ok((package, supported_targets_decl_kind))
 }
@@ -1184,9 +1213,14 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         regex_backend: j.regex_backend,
         local_rules: j.rule,
     };
+    if emit_warnings && let Some(link) = &result.link {
+        link.warn_deprecated_exports(user_log);
+    }
     Ok((result, supported_targets_decl_kind))
 }
 
+// TODO(1.0): Remove the is-main and boolean link compatibility paths after the
+// deprecation window. Keep structured link configuration and pkgtype resolution.
 fn resolve_package_kind(
     pkgtype: Option<&PkgType>,
     is_main: Option<bool>,
@@ -1242,7 +1276,29 @@ fn resolve_package_kind(
             }
             (want_main, want_force_link)
         }
-        None => (is_main.unwrap_or(false), legacy_force_link),
+        None => {
+            if emit_warnings {
+                if let Some(is_main) = is_main {
+                    let migration = if is_main {
+                        "use `pkgtype(kind: \"executable\")` instead"
+                    } else {
+                        "remove it"
+                    };
+                    user_log.warn(format!("`is-main: {is_main}` is deprecated; {migration}."));
+                }
+                if let Some(BoolOrLink::Bool(link)) = link {
+                    let migration = if !link {
+                        "remove it"
+                    } else if is_main == Some(true) {
+                        "remove it from executable packages"
+                    } else {
+                        "use `pkgtype(kind: \"foreign_library\")` instead"
+                    };
+                    user_log.warn(format!("`link: {link}` is deprecated; {migration}."));
+                }
+            }
+            (is_main.unwrap_or(false), legacy_force_link)
+        }
     };
     Ok(flags)
 }

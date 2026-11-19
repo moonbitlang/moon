@@ -108,6 +108,21 @@ warnings. Known fields with invalid types remain errors in every module, even
 when warnings are suppressed. This does not change the DSL's accepted declaration
 syntax or explicit errors for unsupported dependency sources.
 
+The same author-facing warning policy covers deprecated package `is-main`,
+boolean `link`, and `link.{wasm,wasm-gc,js,native}.exports`, including declarations
+without `pkgtype` and empty export lists. Package-kind flags still select their
+existing kinds; use `pkgtype(kind: "executable")` or
+`pkgtype(kind: "foreign_library")` instead, and remove false flags. An executable
+already links, so its boolean `link` can be removed. Structured `link` remains
+backend configuration. Source-level `#export_name` attributes replace manifest
+exports. These compatibility fields are scheduled for removal.
+
+Declaring a module prebuild script also warns that its legacy stdin JSON input
+will be removed in favor of the `MOON_*` environment variables. This is a protocol
+migration notice, emitted when reading an input module's manifest even if the
+current command or backend skips the script. It does not detect stdin reads.
+Dependency declarations do not emit these notices. See [prebuild](prebuild.md).
+
 Package `name` is an unknown field, including `name: "main"`; it neither names a
 package nor selects an executable. Declare `pkgtype(kind: "executable")` for an
 executable package. Module `scripts` only recognizes `postadd`, which is invoked
