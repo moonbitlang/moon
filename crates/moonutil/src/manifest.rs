@@ -265,20 +265,14 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         }
     }
 
-    // Preserve the module DSL's warning-list concatenation at its input boundary.
     if let Some(warnings) = map.remove("warnings") {
+        if map.contains_key("warn-list") {
+            bail!("Duplicate key 'warnings' found in moon.mod.");
+        }
         let warnings =
             String::deserialize(warnings).context("`warnings` in moon.mod must be a string")?;
-        let legacy = map
-            .remove("warn-list")
-            .map(Option::<String>::deserialize)
-            .transpose()
-            .context("`warn-list` in moon.mod must be a string")?
-            .flatten()
-            .unwrap_or_default();
-        let merged = format!("{warnings}{legacy}");
-        if !merged.is_empty() {
-            map.insert("warnings".into(), Value::String(merged));
+        if !warnings.is_empty() {
+            map.insert("warnings".into(), Value::String(warnings));
         }
     } else if let Some(legacy) = map.remove("warn-list") {
         map.insert("warnings".into(), legacy);
@@ -294,8 +288,8 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         }
     }
 
-    // Legacy options(deps: ...) is decoded only here. Both spellings contribute
-    // semantic module dependencies; DSL imports keep their existing precedence.
+    // Legacy options(deps: ...) and import blocks may contribute distinct
+    // dependencies, but neither can silently replace an existing declaration.
     let mut deps = map
         .remove("deps")
         .map(IndexMap::<String, SourceDependencyInfo>::deserialize)
@@ -315,12 +309,17 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
                 .with_context(|| format!(
                     "moon.mod only supports versioned registry dependencies in `import`, found `{spec}`"
                 ))?;
-            deps.insert(
-                name.to_owned(),
-                SourceDependencyInfo::Simple(
-                    version.parse().map_err(ModuleValidationError::Version)?,
-                ),
-            );
+            if deps
+                .insert(
+                    name.to_owned(),
+                    SourceDependencyInfo::Simple(
+                        version.parse().map_err(ModuleValidationError::Version)?,
+                    ),
+                )
+                .is_some()
+            {
+                bail!("Duplicate dependency `{name}` found in moon.mod.");
+            }
         }
     }
     validate_module_dsl_deps(Some(&deps))?;

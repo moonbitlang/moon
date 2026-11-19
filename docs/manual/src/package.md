@@ -34,6 +34,13 @@ blocks and empty option lists also count as declarations. Regular, test, and
 whitebox imports are independent. Multiple `rule` and `dev_build` declarations
 remain supported; rule names must be unique.
 
+Each `dev_build` or legacy `pre-build` entry must specify exactly one of
+`command` or `rule`. Supplying both is an error, including in JSON manifests.
+
+In `moon.mod`, declare each module dependency only once. Repeated module names
+in `import`, or between `import` and `options(deps: ...)`, are errors even when
+the versions agree. Distinct dependencies from the two forms are combined.
+
 Other settings, including `overrides`, structured
 `link`, `native-stub`, and per-file `targets`, still belong in `options(...)`.
 
@@ -64,9 +71,10 @@ Module `scripts` recognizes only the legacy `postadd` entry for explicit
 `moon run-postadd` execution. Other names, such as `prebuild` and `postbuild`,
 warn as unknown keys; they do not register build hooks.
 
-In `moon.mod`, declaring both `preferred_target` and `preferred-target`, or both
-`supported_targets` and `supported-targets`, is an error. This also applies when
-the values agree or both spellings occur in `options(...)`.
+In `moon.mod`, declaring both spellings of `warnings` / `warn-list`,
+`preferred_target` / `preferred-target`, or `supported_targets` /
+`supported-targets` is an error. This also applies when the values agree or are
+empty, or both spellings occur in `options(...)`.
 
 Known fields with incorrect types are errors, including in dependencies and
 with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a

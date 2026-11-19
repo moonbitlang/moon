@@ -599,7 +599,7 @@ pub enum MoonPkgGenerate {
 impl<'de> Deserialize<'de> for MoonPkgGenerate {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         // Both forms share one object shape. Decode every known field before
-        // selecting the command, so an unused field cannot hide a type error.
+        // checking that exactly one command source was provided.
         #[derive(Deserialize)]
         struct Generate {
             input: StringOrArray,
@@ -623,23 +623,23 @@ impl<'de> Deserialize<'de> for MoonPkgGenerate {
             rule,
             extra,
         } = Generate::deserialize(deserializer)?;
-        // Preserve the direct-command precedence when both are provided.
-        if let Some(command) = command {
-            Ok(Self::Direct {
+        match (command, rule) {
+            (Some(command), None) => Ok(Self::Direct {
                 input,
                 output,
                 command,
                 extra,
-            })
-        } else if let Some(rule) = rule {
-            Ok(Self::Rule {
+            }),
+            (None, Some(rule)) => Ok(Self::Rule {
                 input,
                 output,
                 rule,
                 extra,
-            })
-        } else {
-            Err(serde::de::Error::custom("expected `command` or `rule`"))
+            }),
+            (Some(_), Some(_)) => Err(serde::de::Error::custom(
+                "`command` and `rule` cannot be used together",
+            )),
+            (None, None) => Err(serde::de::Error::custom("expected `command` or `rule`")),
         }
     }
 }
