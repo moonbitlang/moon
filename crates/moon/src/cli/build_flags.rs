@@ -19,6 +19,7 @@
 use std::{collections::BTreeSet, path::Path};
 
 use crate::cli::UniversalFlags;
+use crate::cli::target::{SurfaceTarget, lower_surface_targets};
 use anyhow::bail;
 use moonbuild::execution::{BuildConfig, DiagnosticLevel, OutputStyle};
 use moonbuild_rupes_recta::{
@@ -32,7 +33,7 @@ use moonutil::{
     constants::{BLACKBOX_TEST_PATCH, WHITEBOX_TEST_PATCH},
     features::FeatureGate,
     package::SupportedTargetsDeclKind,
-    target::{SurfaceTarget, TargetBackend},
+    target::TargetBackend,
     user_log::UserLog,
 };
 use tracing::{Level, info, instrument};
@@ -245,7 +246,7 @@ impl BuildFlags {
         if targets.len() > 1 {
             bail!("`--target` only supports one target backend");
         }
-        let backends = moonutil::target::lower_surface_targets(targets);
+        let backends = lower_surface_targets(targets);
         if backends.len() == 1 {
             Ok(Some(backends[0]))
         } else {

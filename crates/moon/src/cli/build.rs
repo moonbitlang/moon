@@ -18,6 +18,7 @@
 
 mod selection;
 
+use crate::cli::target::lower_surface_targets;
 use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildSession, MetadataOutput};
@@ -31,7 +32,6 @@ use moonutil::cache::{CacheKind, resolve_cache_root};
 use moonutil::command_output::CommandOutput;
 use moonutil::project::PackageDirs;
 use moonutil::target::TargetBackend;
-use moonutil::target::lower_surface_targets;
 use moonutil::user_log::UserLog;
 use serde::Serialize;
 use std::io::Write;

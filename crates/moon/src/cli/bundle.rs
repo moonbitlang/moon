@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::cli::UniversalFlags;
+use crate::cli::target::{SurfaceTarget, lower_surface_targets};
 use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
@@ -24,10 +25,7 @@ use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{RunMode, build_lower::WarningCondition, intent::UserIntent};
 use mooncake::cli::AutoSyncFlags;
 use moonutil::{
-    command_output::CommandOutput,
-    project::PackageDirs,
-    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
-    user_log::UserLog,
+    command_output::CommandOutput, project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 use std::path::Path;
 use tracing::instrument;

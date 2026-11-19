@@ -406,7 +406,7 @@ impl CapturedBuildExecution<'_> {
 /// The caller must hold the target-directory lock. All executions in
 /// that directory share one n2 database, and n2 does not lock it internally.
 #[instrument(skip_all)]
-pub fn execute_build(
+pub(crate) fn execute_build(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
@@ -454,7 +454,7 @@ impl JsonBuildOutput {
 }
 
 /// Execute a build while returning all Moonc diagnostics to the CLI seam.
-pub fn execute_build_json(
+pub(crate) fn execute_build_json(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
@@ -539,7 +539,7 @@ fn collect_captured_build_json(
 /// Test builds may report diagnostics for generated drivers using their
 /// source-tree paths. The test build metadata lets the diagnostic processing
 /// stage resolve those paths through the target layout.
-pub fn execute_test_build(
+pub(crate) fn execute_test_build(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
@@ -558,7 +558,7 @@ pub fn execute_test_build(
 /// Rebuild only the requested outputs and their prerequisites, for example
 /// after snapshot promotion. The caller holds the same target lock as a full build.
 #[instrument(skip_all)]
-pub fn execute_build_partial<'a>(
+pub(crate) fn execute_build_partial<'a>(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,

@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::SurfaceTarget;
 use std::{
     collections::HashMap,
     ffi::OsStr,
@@ -30,10 +31,7 @@ use chrono::Local;
 use moonbuild::BuildMeta;
 use moonbuild_rupes_recta::RunMode;
 use moonutil::{
-    command_output::CommandOutput,
-    cond_expr::OptLevel,
-    target::{SurfaceTarget, TargetBackend},
-    toolchain::BINARIES,
+    command_output::CommandOutput, cond_expr::OptLevel, target::TargetBackend, toolchain::BINARIES,
 };
 use serde::Serialize;
 

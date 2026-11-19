@@ -22,6 +22,7 @@ use super::selection::{
     match_packages_with_fuzzy, package_supports_backend, select_packages,
 };
 use crate::cli::profile;
+use crate::cli::target::{SurfaceTarget, lower_surface_targets};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{ReplaceableTestResults, TestFilter, TestIndex, TestIndexRange};
@@ -41,7 +42,7 @@ use moonbuild_rupes_recta::model::{PackageId, TargetKind};
 use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
-use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
+use moonutil::target::TargetBackend;
 use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

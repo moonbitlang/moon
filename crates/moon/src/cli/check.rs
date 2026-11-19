@@ -38,6 +38,7 @@
 //!    package's `pkg.generated.mbti` are copied over it.
 //!
 use crate::cli::UniversalFlags;
+use crate::cli::target::lower_surface_targets;
 use anyhow::Context;
 use log::LevelFilter;
 use moonbuild::BuildMeta;
@@ -52,7 +53,6 @@ use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::TargetBackend;
-use moonutil::target::lower_surface_targets;
 use moonutil::user_log::{UserLog, UserLogCapture, UserLogEntry, UserLogEntryLevel};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};

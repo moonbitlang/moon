@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::SurfaceTarget;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
@@ -37,7 +38,7 @@ use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
     cache::{CacheKind, resolve_cache_root},
     constants::is_moon_pkg_exist,
-    target::{SurfaceTarget, TargetBackend},
+    target::TargetBackend,
     user_log::UserLog,
 };
 use tracing::{Level, instrument};
