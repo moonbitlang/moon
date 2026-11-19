@@ -169,9 +169,6 @@ pub enum SupportedTargetsDeclKind {
     description = "A package of MoonBit language"
 )]
 pub struct MoonPkgJSON {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-
     /// Mark this package as experimental, warning packages that depend on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<bool>,
@@ -702,7 +699,6 @@ pub struct SubPackageInMoonPkg {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
-    pub name: Option<String>,
     #[serde(default)]
     pub experimental: bool,
     pub allow_experimental_packages: Option<AllowExperimentalPackages>,
@@ -1028,7 +1024,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         manifest: "moon.pkg",
     };
     // Keep explicit declarations until their conflicts have been checked.
-    let name: Option<String> = options.read("name", None)?;
     let experimental: Option<bool> = options.read("experimental", None)?;
     let allow_experimental_packages = options.read(
         "allow_experimental_packages",
@@ -1072,7 +1067,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     }
     let (is_main, force_link) = resolve_package_kind(
         pkgtype.as_ref(),
-        name.as_deref(),
         is_main,
         link.as_ref(),
         emit_warnings,
@@ -1083,7 +1077,6 @@ pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     validate_local_rules(local_rules.as_deref().unwrap_or_default())?;
 
     let package = MoonPkg {
-        name: None,
         experimental: experimental.unwrap_or(false),
         allow_experimental_packages,
         is_main,
@@ -1157,7 +1150,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
 
     let (is_main, force_link) = resolve_package_kind(
         j.pkgtype.as_ref(),
-        j.name.as_deref(),
         j.is_main,
         j.link.as_ref(),
         emit_warnings,
@@ -1168,7 +1160,6 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     validate_local_rules(j.rule.as_deref().unwrap_or_default())?;
 
     let result = MoonPkg {
-        name: None,
         experimental: j.experimental.unwrap_or(false),
         allow_experimental_packages: j.allow_experimental_packages,
         is_main,
@@ -1198,21 +1189,11 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
 
 fn resolve_package_kind(
     pkgtype: Option<&PkgType>,
-    name: Option<&str>,
     is_main: Option<bool>,
     link: Option<&BoolOrLink>,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(bool, bool)> {
-    // Legacy `is-main`, including the deprecated `name == "main"` alias.
-    let mut legacy_is_main = is_main.unwrap_or(false);
-    if name == Some("main") {
-        legacy_is_main = true;
-        if emit_warnings {
-            let warning = "The `name` field in `moon.pkg` is deprecated. Use `pkgtype(kind: \"executable\")` for an executable package.";
-            user_log.warn(warning);
-        }
-    }
     // Legacy `force_link` from the boolean `link: true` (a structured
     // `link: { ... }` config is not a force-link signal).
     let legacy_force_link = match link {
@@ -1261,7 +1242,7 @@ fn resolve_package_kind(
             }
             (want_main, want_force_link)
         }
-        None => (legacy_is_main, legacy_force_link),
+        None => (is_main.unwrap_or(false), legacy_force_link),
     };
     Ok(flags)
 }
@@ -1552,10 +1533,6 @@ fn convert_pkg_dsl_rejects_duplicate_options() {
 #[test]
 fn convert_pkg_dsl_accepts_legacy_options() {
     for (source, json) in [
-        (
-            r#"options(name: "main")"#,
-            serde_json_lenient::json!({"name": "main"}),
-        ),
         (
             r#"options(link: true)"#,
             serde_json_lenient::json!({"link": true}),
@@ -2130,21 +2107,6 @@ fn convert_pkg_dsl_supports_supported_targets_shorthand() {
         vec![Js]
     );
     assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
-}
-
-#[test]
-fn legacy_main_warning_recommends_pkgtype() {
-    let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    let pkg =
-        convert_pkg_dsl_to_package(moon_pkg::parse(r#"options(name: "main")"#).unwrap(), &log)
-            .unwrap();
-    assert!(pkg.is_main);
-    let warnings = capture.take();
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(
-        warnings[0].message,
-        "The `name` field in `moon.pkg` is deprecated. Use `pkgtype(kind: \"executable\")` for an executable package."
-    );
 }
 
 #[test]

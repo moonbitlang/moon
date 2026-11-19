@@ -1,2 +1,2 @@
 // A distinct unknown key identifies warnings from the dependency.
-options("dependency-future": true, "supported-targets": "js")
+options("dependency-future": true, "supported-targets": "js", name: "main")

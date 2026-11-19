@@ -48,6 +48,15 @@ import 配置。空块和空的选项列表也算显式声明。普通、黑盒�
 因为忽略旧过滤条件可能把非预期文件打包。请将过滤条件迁移到 `.gitignore` 或 `.moonignore`；
 同目录下 `.moonignore` 优先于 `.gitignore`。依赖中的这两个旧字段会被忽略。
 
+已移除的包字段 `name` 遵循上述未知键策略，包括 `name: "main"`。
+请使用 `pkgtype(kind: "executable")` 声明可执行包。模块 `scripts` 仅识别
+由 `moon run-postadd` 显式执行的旧 `postadd` 配置。其他名称，例如 `prebuild`
+和 `postbuild`，会作为未知键警告，不会注册构建钩子。
+
+在 `moon.mod` 中，`preferred_target` 和 `preferred-target`，或 `supported_targets`
+和 `supported-targets`，不能同时声明。即使值相同，或两种拼写都出现在
+`options(...)` 中，也会报错。
+
 已知字段的类型错误会报错，包括依赖中的配置以及使用 `--quiet` 时。
 例如，`warnings = 123` 无效，因为 `warnings` 必须是字符串。
 由编译器消费的配置，例如 `options("alert-list": "+all")` 和布尔类型的

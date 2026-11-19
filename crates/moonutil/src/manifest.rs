@@ -265,7 +265,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         }
     }
 
-    // Keep the DSL's existing merge and precedence rules at its input boundary.
+    // Preserve the module DSL's warning-list concatenation at its input boundary.
     if let Some(warnings) = map.remove("warnings") {
         let warnings =
             String::deserialize(warnings).context("`warnings` in moon.mod must be a string")?;
@@ -287,8 +287,10 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         ("preferred_target", "preferred-target"),
         ("supported_targets", "supported-targets"),
     ] {
-        if let Some(value) = map.remove(legacy) {
-            map.entry(canonical.to_owned()).or_insert(value);
+        if let Some(value) = map.remove(legacy)
+            && map.insert(canonical.to_owned(), value).is_some()
+        {
+            bail!("Duplicate key '{canonical}' found in moon.mod.");
         }
     }
 
@@ -459,6 +461,14 @@ pub fn warn_module_manifest(
         .filter(|key| key.as_str() != "bin-deps")
         .cloned()
         .collect();
+    unknown.extend(
+        module
+            .scripts
+            .iter()
+            .flat_map(|scripts| scripts.keys())
+            .filter(|name| name.as_str() != "postadd")
+            .map(|name| format!("scripts.{name}")),
+    );
     for (index, rule) in module.rule.iter().flatten().enumerate() {
         unknown.extend(unknown_field_paths(&rule.extra, &format!("rule[{index}]")));
     }

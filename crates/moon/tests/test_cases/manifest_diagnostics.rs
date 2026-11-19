@@ -23,7 +23,7 @@ fn manifest_diagnostics_reach_build_commands() {
     let dir = TestDir::new_empty();
     std::fs::write(
         dir.join("moon.mod"),
-        "name = \"test/diagnostics\"\noptions(checksum: \"obsolete\")",
+        "name = \"test/diagnostics\"\noptions(checksum: \"obsolete\", scripts: {\"prebuild\": \"unused-command\"})",
     )
     .unwrap();
     std::fs::write(dir.join("main.mbt"), "fn main {}\n").unwrap();
@@ -49,6 +49,7 @@ options(
         .success()
         .stderr_eq(snapbox::str![[r#"
 Warning: Unknown configuration key `checksum` in `[..]/moon.mod`.
+Warning: Unknown configuration key `scripts.prebuild` in `[..]/moon.mod`.
 Warning: Unknown configuration key `bin-name` in `[..]/moon.pkg`.
 Warning: Unknown configuration key `link.native.cc_link_flags` in `[..]/moon.pkg`.
 Finished. moon: ran 2 tasks, now up to date
@@ -71,6 +72,55 @@ Error: Failed to calculate build plan
 Caused by:
     0: Failed when discovering packages
     1: Unable to read `moon.pkg` for module 'test/diagnostics@0.0.0 (local [..])' package '' at path '[..]', error: `warnings` in moon.pkg must be a string
+
+"#]]);
+}
+
+#[test]
+fn removed_package_name_requires_explicit_pkgtype() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod"), "name = \"test/removed-name\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "options(name: \"main\")\n").unwrap();
+    std::fs::write(dir.join("main.mbt"), "fn main { println(\"ok\") }\n").unwrap();
+
+    moon_cmd(&dir)
+        .args(["run", ".", "--target", "wasm-gc"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Warning: Unknown configuration key `name` in `[..]/moon.pkg`.
+Error: `.` is not a main package
+
+"#]]);
+
+    std::fs::write(dir.join("moon.pkg"), "pkgtype(kind: \"executable\")\n").unwrap();
+    moon_cmd(&dir)
+        .args(["run", ".", "--target", "wasm-gc", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("ok\n")
+        .stderr_eq("");
+}
+
+#[test]
+fn duplicate_module_target_aliases_are_errors_even_when_quiet() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/aliases\"\npreferred_target = \"wasm\"\noptions(\"preferred-target\": 123)\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    moon_cmd(&dir)
+        .args(["check", "--quiet"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to calculate build plan
+
+Caused by:
+    0: Failed to resolve the module dependency graph
+    1: Duplicate key 'preferred_target' found in moon.mod.
 
 "#]]);
 }

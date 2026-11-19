@@ -65,6 +65,10 @@ input or interoperability contract. The decoder's aliases incidentally accept
 normalized names, but that does not promise support for normalized JSON inputs
 or mixtures of legacy and normalized fields.
 
+In `moon.mod`, `preferred_target` / `preferred-target` and `supported_targets` /
+`supported-targets` are alternate spellings of one setting. Declaring both is an
+error, whether directly or inside `options(...)`, even if their values agree.
+
 Output boundaries translate normalized fields back to legacy names. The
 formatter adapter additionally supplies repeated rule keys required by moonfmt;
 `moon fmt`, including `--check` and `--warn`, uses it for module JSON migration.
@@ -97,6 +101,12 @@ suppressed for dependencies and the standard library. `--quiet` suppresses these
 warnings. Known fields with invalid types remain errors in every module, even
 when warnings are suppressed. This does not change the DSL's accepted declaration
 syntax or explicit errors for unsupported dependency sources.
+
+Package `name` is an unknown field, including `name: "main"`; it neither names a
+package nor selects an executable. Declare `pkgtype(kind: "executable")` for an
+executable package. Module `scripts` only recognizes `postadd`, which is invoked
+explicitly through `moon run-postadd`. Other script names, including `prebuild`
+and `postbuild`, produce unknown-key warnings and do not register lifecycle hooks.
 
 Compiler-consumed settings are also represented and type-checked by Moon,
 including package `alert-list` and `link.wasm-gc.use-ffi-bytes`. The deprecated
