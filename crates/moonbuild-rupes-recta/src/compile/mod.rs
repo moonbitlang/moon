@@ -135,7 +135,6 @@ mod tests {
 
     fn moon_pkg(is_main: bool) -> MoonPkg {
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main,

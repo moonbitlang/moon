@@ -58,6 +58,16 @@ ignoring old file filters could package unintended files. Move those filters to
 `.gitignore` or `.moonignore`; `.moonignore` overrides `.gitignore` in the same
 directory. These obsolete filters are ignored in dependencies.
 
+The removed package field `name` follows this unknown-key policy, including
+`name: "main"`. Use `pkgtype(kind: "executable")` to declare an executable.
+Module `scripts` recognizes only the legacy `postadd` entry for explicit
+`moon run-postadd` execution. Other names, such as `prebuild` and `postbuild`,
+warn as unknown keys; they do not register build hooks.
+
+In `moon.mod`, declaring both `preferred_target` and `preferred-target`, or both
+`supported_targets` and `supported-targets`, is an error. This also applies when
+the values agree or both spellings occur in `options(...)`.
+
 Known fields with incorrect types are errors, including in dependencies and
 with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a
 string. Compiler-consumed settings such as `options("alert-list": "+all")`
