@@ -403,3 +403,57 @@ fn json_duplicate_known_fields_remain_errors() {
     let error = read_module_manifest(dir.path(), true).unwrap_err();
     assert!(format!("{error:#}").contains("duplicate field `name`"));
 }
+
+#[test]
+fn module_imports_reject_repeated_dependencies() {
+    let dir = tempfile::tempdir().unwrap();
+    for version in ["1.0.0", "2.0.0"] {
+        for declarations in [
+            format!("import {{ \"test/dep@1.0.0\", \"test/dep@{version}\" }}"),
+            format!(
+                "import {{ \"test/dep@{version}\" }}\noptions(deps: {{\"test/dep\": \"1.0.0\"}})"
+            ),
+        ] {
+            std::fs::write(
+                dir.path().join("moon.mod"),
+                format!("name = \"test/duplicates\"\n{declarations}"),
+            )
+            .unwrap();
+            let error = read_module_manifest(dir.path(), false).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "Duplicate dependency `test/dep` found in moon.mod."
+            );
+        }
+    }
+}
+
+#[test]
+fn prebuild_entries_reject_command_with_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = UserLog::new(log::LevelFilter::Off);
+    for (filename, source) in [
+        (
+            "moon.pkg",
+            r#"dev_build(input: "a", output: "b", command: "echo", rule: "generate")"#,
+        ),
+        (
+            "moon.pkg",
+            r#"options("pre-build": [{"input": "a", "output": "b", "command": "echo", "rule": "generate"}])"#,
+        ),
+        (
+            "moon.pkg.json",
+            r#"{"pre-build": [{"input": "a", "output": "b", "command": "echo", "rule": "generate"}]}"#,
+        ),
+    ] {
+        let path = dir.path().join(filename);
+        std::fs::write(&path, source).unwrap();
+        let error =
+            read_package_desc_file_from_path_with_supported_targets_decl(&path, &log, true, false)
+                .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("`command` and `rule` cannot be used together"),
+            "{error:#}"
+        );
+    }
+}
