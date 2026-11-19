@@ -18,7 +18,7 @@
 
 use anyhow::{Context, bail};
 use mooncake::{
-    pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand},
+    pkg::{add::AddSubcommand, remove::RemoveSubcommand},
     registry::{
         RegistryClient,
         path::{ModuleNotFound, parse_install_package_path, parse_module_path},
@@ -149,6 +149,66 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
     } else {
         Some(PathBuf::from(base))
     }
+}
+
+/// Install a binary package globally
+#[derive(Debug, clap::Parser)]
+#[clap(
+    group = clap::ArgGroup::new("git_ref").multiple(false),
+    verbatim_doc_comment,
+    after_help = "Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+Paste a public GitHub directory permalink containing a full 40-character
+commit SHA to install from its source archive. For branches or tags, use the
+repository URL, PATH_IN_REPO, and --branch or --tag instead."
+)]
+pub(super) struct InstallSubcommand {
+    #[clap(
+        value_name = "SOURCE",
+        required_unless_present = "path",
+        help = "Package path, local path, or git URL",
+        long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nUse `/...` suffix to install all matching main packages."
+    )]
+    source: Option<String>,
+
+    #[clap(
+        value_name = "PATH_IN_REPO",
+        help = "Filesystem path inside git repo (git SOURCE only)",
+        long_help = "Filesystem path inside the repository source.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
+    )]
+    path_in_repo: Option<String>,
+
+    /// Specify installation directory (default: ~/.moon/bin/)
+    #[clap(long, value_name = "DIR")]
+    bin: Option<PathBuf>,
+
+    /// Install from local path instead of registry
+    #[clap(
+        long,
+        conflicts_with = "source",
+        conflicts_with = "git_ref",
+        conflicts_with = "path_in_repo"
+    )]
+    path: Option<PathBuf>,
+
+    /// Git revision to checkout (commit hash, requires git URL)
+    #[clap(long, group = "git_ref", requires = "source")]
+    rev: Option<String>,
+
+    /// Git branch to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "source")]
+    branch: Option<String>,
+
+    /// Git tag to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "source")]
+    tag: Option<String>,
 }
 
 pub(super) fn install_cli(

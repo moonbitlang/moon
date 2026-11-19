@@ -78,7 +78,7 @@ use check::CheckSubcommand;
 use clean::CleanSubcommand;
 use coverage::CoverageSubcommand;
 use cram::CramSubcommand;
-use deps::RunPostaddSubcommand;
+use deps::{InstallSubcommand, RunPostaddSubcommand};
 use doc::DocSubcommand;
 use explain::ExplainSubcommand;
 use fetch::FetchSubcommand;
@@ -89,7 +89,7 @@ use info::InfoSubcommand;
 use mooncake::cli::{
     DeprecateSubcommand, LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
 };
-use mooncake::pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand};
+use mooncake::pkg::{add::AddSubcommand, remove::RemoveSubcommand};
 use new::NewSubcommand;
 use prove::ProveSubcommand;
 use run::RunSubcommand;

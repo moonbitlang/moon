@@ -40,6 +40,8 @@ Check which `moon` your shell resolves before testing an installed build.
 | Test invocation and result reporting | [`moon/src/run/runtime.rs`](../../crates/moon/src/run/runtime.rs), [`run/runtest/report.rs`](../../crates/moon/src/run/runtest/report.rs) |
 | Test result data and expect/snapshot promotion | [`moon/src/run/runtest.rs`](../../crates/moon/src/run/runtest.rs), [`expect.rs`](../../crates/moon/src/run/runtest/expect.rs) |
 | Package management and registry access | [`mooncake/src/pkg`](../../crates/mooncake/src/pkg), [`resolver`](../../crates/mooncake/src/resolver), [`registry`](../../crates/mooncake/src/registry) |
+| Module dependency synchronization | [`mooncake/src/pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
+| Binary installation commands | [`moon/src/cli/deps.rs`](../../crates/moon/src/cli/deps.rs), [`install_binary.rs`](../../crates/moon/src/cli/install_binary.rs) |
 | Shared package-management CLI and stdin payloads | [`mooncake/src/cli.rs`](../../crates/mooncake/src/cli.rs), [`pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
 | Module identities and resolved dependency graphs | [`moonutil/src/resolution.rs`](../../crates/moonutil/src/resolution.rs) |
 | Dependency edits preserving manifest comments | [`mooncake/src/pkg/manifest_edit.rs`](../../crates/mooncake/src/pkg/manifest_edit.rs) |

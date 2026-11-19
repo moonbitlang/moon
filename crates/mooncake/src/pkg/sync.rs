@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Sync dependencies with mod/pkg definition
+//! Resolve module dependencies and synchronize their source directories.
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use indexmap::IndexMap;
 use moonutil::{
@@ -32,6 +32,12 @@ use moonutil::{
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
+
+use super::prepare::prepare_build_modules;
+use crate::{
+    dependency_source, registry,
+    resolver::{ModuleResolutionConfig, resolve_modules},
+};
 
 /// User-visible output policy while synchronizing dependencies.
 #[derive(Debug, Clone, Copy, Default)]
@@ -77,8 +83,8 @@ pub fn auto_sync(
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
-    let (module_graph, sync_result) = super::install::install_impl(
-        dirs,
+    let (module_graph, sync_result) = sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         output_options,
         user_log,
@@ -106,8 +112,8 @@ fn resolve_workspace_sync(
         roots.insert(ResolvedModule::new(source, module));
     }
 
-    let (module_graph, sync_result) = super::install::install_impl(
-        dirs,
+    let (module_graph, sync_result) = sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         output_options,
         user_log,
@@ -148,8 +154,8 @@ pub fn auto_sync_for_single_file_rr(
     let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
-    let (module_graph, dir_sync_result) = super::install::install_impl(
-        dirs,
+    let (module_graph, dir_sync_result) = sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         output_options,
         user_log,
@@ -160,4 +166,39 @@ pub fn auto_sync_for_single_file_rr(
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((module_graph, dir_sync_result))
+}
+
+/// Resolve and acquire dependencies for the supplied root modules.
+pub(super) fn sync_roots(
+    mooncakes_dir: &Path,
+    roots: ResolvedRootModules,
+    output_options: SyncOutputOptions,
+    user_log: &UserLog,
+    dont_sync: bool,
+    source_cache: &CacheRoot,
+    jobs: Option<usize>,
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
+    let module_graph = prepare_build_modules(roots)?;
+
+    let registry = if dont_sync {
+        registry::default_registry(user_log).for_frozen_dependencies()
+    } else {
+        registry::default_registry(user_log)
+    };
+    let module_resolution_config = ModuleResolutionConfig {
+        registry: &registry,
+        warn_deprecated: true,
+    };
+
+    let res = resolve_modules(&module_resolution_config, module_graph, user_log)?;
+    let dependency_user_log = if output_options.quiet {
+        user_log.with_level(log::LevelFilter::Error)
+    } else {
+        user_log.clone()
+    };
+    let dependency_source = dependency_source::select(mooncakes_dir, source_cache, &res, jobs)?;
+    let dependency_paths =
+        dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
+
+    Ok((res, dependency_paths))
 }
