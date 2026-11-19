@@ -338,7 +338,7 @@ fn known_option_types_are_checked_even_when_warnings_are_suppressed() {
     for source in [
         "warnings = 123",
         "options = false",
-        "warnings = \"+a\"\noptions(\"warn-list\": false)",
+        "options(\"warn-list\": false)",
     ] {
         std::fs::write(
             dir.path().join("moon.mod"),

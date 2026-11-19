@@ -70,9 +70,10 @@ input or interoperability contract. The decoder's aliases incidentally accept
 normalized names, but that does not promise support for normalized JSON inputs
 or mixtures of legacy and normalized fields.
 
-In `moon.mod`, `preferred_target` / `preferred-target` and `supported_targets` /
-`supported-targets` are alternate spellings of one setting. Declaring both is an
-error, whether directly or inside `options(...)`, even if their values agree.
+In `moon.mod`, `warnings` / `warn-list`, `preferred_target` / `preferred-target`,
+and `supported_targets` / `supported-targets` are alternate spellings of their
+respective settings. Declaring both spellings is an error, whether directly or
+inside `options(...)`, even if their values agree or are empty.
 
 Output boundaries translate normalized fields back to legacy names. The
 formatter adapter additionally supplies repeated rule keys required by moonfmt;

@@ -265,20 +265,14 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         }
     }
 
-    // Preserve the module DSL's warning-list concatenation at its input boundary.
     if let Some(warnings) = map.remove("warnings") {
+        if map.contains_key("warn-list") {
+            bail!("Duplicate key 'warnings' found in moon.mod.");
+        }
         let warnings =
             String::deserialize(warnings).context("`warnings` in moon.mod must be a string")?;
-        let legacy = map
-            .remove("warn-list")
-            .map(Option::<String>::deserialize)
-            .transpose()
-            .context("`warn-list` in moon.mod must be a string")?
-            .flatten()
-            .unwrap_or_default();
-        let merged = format!("{warnings}{legacy}");
-        if !merged.is_empty() {
-            map.insert("warnings".into(), Value::String(merged));
+        if !warnings.is_empty() {
+            map.insert("warnings".into(), Value::String(warnings));
         }
     } else if let Some(legacy) = map.remove("warn-list") {
         map.insert("warnings".into(), legacy);

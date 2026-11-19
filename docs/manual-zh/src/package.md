@@ -60,9 +60,9 @@ import 配置。空块和空的选项列表也算显式声明。普通、黑盒�
 由 `moon run-postadd` 显式执行的旧 `postadd` 配置。其他名称，例如 `prebuild`
 和 `postbuild`，会作为未知键警告，不会注册构建钩子。
 
-在 `moon.mod` 中，`preferred_target` 和 `preferred-target`，或 `supported_targets`
-和 `supported-targets`，不能同时声明。即使值相同，或两种拼写都出现在
-`options(...)` 中，也会报错。
+在 `moon.mod` 中，`warnings` 和 `warn-list`、`preferred_target` 和 `preferred-target`，
+或 `supported_targets` 和 `supported-targets`，不能同时声明。
+即使值相同或为空，或两种拼写都出现在 `options(...)` 中，也会报错。
 
 已知字段的类型错误会报错，包括依赖中的配置以及使用 `--quiet` 时。
 例如，`warnings = 123` 无效，因为 `warnings` 必须是字符串。

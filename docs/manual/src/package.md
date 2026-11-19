@@ -71,9 +71,10 @@ Module `scripts` recognizes only the legacy `postadd` entry for explicit
 `moon run-postadd` execution. Other names, such as `prebuild` and `postbuild`,
 warn as unknown keys; they do not register build hooks.
 
-In `moon.mod`, declaring both `preferred_target` and `preferred-target`, or both
-`supported_targets` and `supported-targets`, is an error. This also applies when
-the values agree or both spellings occur in `options(...)`.
+In `moon.mod`, declaring both spellings of `warnings` / `warn-list`,
+`preferred_target` / `preferred-target`, or `supported_targets` /
+`supported-targets` is an error. This also applies when the values agree or are
+empty, or both spellings occur in `options(...)`.
 
 Known fields with incorrect types are errors, including in dependencies and
 with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a
