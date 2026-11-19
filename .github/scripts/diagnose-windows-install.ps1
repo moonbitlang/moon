@@ -33,25 +33,33 @@ function Write-InstallFailure($OriginalError, $History) {
     [Console]::Error.WriteLine($OriginalError.Exception.ToString())
     [Console]::Error.WriteLine([string]$OriginalError.InvocationInfo.PositionMessage)
     [Console]::Error.WriteLine([string]$OriginalError.ScriptStackTrace)
-    [Console]::Error.WriteLine('[install-probe] ERROR HISTORY: oldest first, including errors before rollback')
-    for ($index = $History.Count - 1; $index -ge 0; $index--) {
-        $record = $History[$index]
-        [Console]::Error.WriteLine("[install-probe] error id=$($record.FullyQualifiedErrorId)")
-        [Console]::Error.WriteLine($record.Exception.ToString())
-        [Console]::Error.WriteLine([string]$record.ErrorDetails.Message)
-        [Console]::Error.WriteLine([string]$record.InvocationInfo.PositionMessage)
-        [Console]::Error.WriteLine([string]$record.ScriptStackTrace)
-    }
     try {
+        [Console]::Error.WriteLine('[install-probe] ERROR HISTORY: oldest first, including errors before rollback')
+        for ($index = $History.Count - 1; $index -ge 0; $index--) {
+            $record = $History[$index]
+            if ($null -eq $record) {
+                [Console]::Error.WriteLine('[install-probe] null history entry')
+                continue
+            }
+            [Console]::Error.WriteLine("[install-probe] error id=$($record.FullyQualifiedErrorId) type=$($record.GetType().FullName)")
+            if ($null -ne $record.Exception) {
+                [Console]::Error.WriteLine($record.Exception.ToString())
+            } else {
+                [Console]::Error.WriteLine([string]$record)
+            }
+            [Console]::Error.WriteLine([string]$record.ErrorDetails.Message)
+            [Console]::Error.WriteLine([string]$record.InvocationInfo.PositionMessage)
+            [Console]::Error.WriteLine([string]$record.ScriptStackTrace)
+        }
         $OriginalError | Format-List * -Force
         $OriginalError.InvocationInfo | Format-List * -Force
-        Get-Module Microsoft.PowerShell.Archive | Select-Object Name, Version, Path | Format-List
     } catch {
         [Console]::Error.WriteLine("[install-probe] ADDITIONAL DIAGNOSTIC ERROR: $($_.Exception)")
     }
 }
 
 Write-Output "[install-probe] started $(Get-Date -Format o)"
+Write-Output "[install-probe] executable=$([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)"
 $PSVersionTable | Format-List
 Write-Output "[install-probe] PSModulePath=$env:PSModulePath"
 Write-Output "[install-probe] WinPSModulePath=$env:WinPSModulePath"
@@ -123,4 +131,14 @@ catch {
     $originalProbeHistory = @($Error)
     Write-InstallFailure $originalProbeError $originalProbeHistory
     exit 1
+} finally {
+    # Inspect loaded modules after the installation, without importing modules
+    # just for diagnosis. A reporting failure must not replace the install exit.
+    try {
+        Write-Output '[install-probe] loaded modules'
+        Get-Module Microsoft.PowerShell.Security, Microsoft.PowerShell.Utility, Microsoft.PowerShell.Archive |
+            Select-Object Name, Version, Path | Format-List
+    } catch {
+        [Console]::Error.WriteLine("[install-probe] ADDITIONAL MODULE DIAGNOSTIC ERROR: $($_.Exception)")
+    }
 }

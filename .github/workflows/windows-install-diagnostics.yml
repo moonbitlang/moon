@@ -28,8 +28,12 @@ permissions:
 
 jobs:
   install:
+    strategy:
+      fail-fast: false
+      matrix:
+        allocation: [baseline, new-image-1, new-image-2]
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,25 +53,30 @@ jobs:
           # Match the execution policy set by the normal Windows setup step.
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
-      - name: Compare full installations in both PowerShell hosts on the same runner
-        # The old image already passed three times; preserve runner time while
-        # retrying allocations to obtain the image associated with the failure.
-        if: steps.image.outputs.version == '20261116.315.1'
+      - name: Compare PowerShell hosts and module environments on the same runner
+        # Always collect one baseline for the new environment comparison. The
+        # other allocations only install when they obtain the failing image.
+        if: matrix.allocation == 'baseline' || steps.image.outputs.version == '20261116.315.1'
         shell: pwsh
         run: |
           $probeScript = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/diagnose-windows-install.ps1'
           $probeRoot = Join-Path $env:RUNNER_TEMP 'moon-windows-install-diagnostics'
           $originalUserPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
           $results = @()
+          $variants = @(
+            @{ Name = 'powershell-inherited'; Program = 'powershell'; ClearModulePath = $false },
+            @{ Name = 'powershell-default-modules'; Program = 'powershell'; ClearModulePath = $true },
+            @{ Name = 'pwsh-inherited'; Program = 'pwsh'; ClearModulePath = $false }
+          )
           try {
-            foreach ($program in @('powershell', 'pwsh')) {
+            foreach ($variant in $variants) {
               foreach ($channel in @('latest', 'nightly')) {
-                $caseName = "$program-$channel"
+                $caseName = "$($variant.Name)-$channel"
                 Write-Output "::group::$caseName"
-                $destination = Join-Path $probeRoot $caseName
+                $destination = Join-Path $probeRoot "case-$($results.Count)"
                 New-Item -ItemType Directory -Path $destination -Force | Out-Null
                 $start = [System.Diagnostics.ProcessStartInfo]::new()
-                $start.FileName = (Get-Command $program).Source
+                $start.FileName = (Get-Command $variant.Program).Source
                 $start.ArgumentList.Add($probeScript)
                 $start.UseShellExecute = $false
                 # Match Command::output(): capture both streams and close stdin.
@@ -78,6 +87,11 @@ jobs:
                 $start.Environment['MOON_TOOLCHAIN_ROOT'] = $destination
                 $start.Environment.Remove('MOONBIT_INSTALL_DEV') | Out-Null
                 $start.Environment.Remove('MOONBIT_INSTALL_VERSION') | Out-Null
+                # Change only the child's inherited module search path. Keep
+                # the executable, profile behavior, and installer unchanged.
+                if ($variant.ClearModulePath) {
+                  $start.Environment.Remove('PSModulePath') | Out-Null
+                }
                 if ($channel -eq 'nightly') {
                   $start.Environment['MOONBIT_INSTALL_VERSION'] = 'nightly'
                 }
