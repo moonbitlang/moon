@@ -49,7 +49,6 @@ fn expect_import() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -111,11 +110,10 @@ fn expect_import() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -141,7 +139,6 @@ fn expect_is_main() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: true,
@@ -155,11 +152,10 @@ fn expect_is_main() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -185,7 +181,6 @@ fn expect_formatter() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -203,11 +198,10 @@ fn expect_formatter() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -242,7 +236,6 @@ fn expect_supported_targets() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -256,11 +249,10 @@ fn expect_supported_targets() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 Js,
@@ -286,7 +278,6 @@ fn expect_supported_targets_expr() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -300,11 +291,10 @@ fn expect_supported_targets_expr() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Js,
             },
@@ -328,7 +318,6 @@ fn expect_supported_targets_expr_with_wasm_gc() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -342,11 +331,10 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 WasmGC,
             },
@@ -367,7 +355,6 @@ fn expect_supported_targets_expr_with_wasm_gc() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -381,11 +368,10 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {},
             native_stub: None,
             virtual_pkg: None,
@@ -418,7 +404,6 @@ fn expect_build() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -432,6 +417,7 @@ fn expect_build() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: Some(
@@ -444,6 +430,7 @@ fn expect_build() {
                             "output1.wasm",
                         ),
                         command: "exe1 $input -o $output",
+                        extra: {},
                     },
                     Direct {
                         input: String(
@@ -453,11 +440,10 @@ fn expect_build() {
                             "output2.wasm",
                         ),
                         command: "exe2 $input -o $output",
+                        extra: {},
                     },
                 ],
             ),
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -477,95 +463,25 @@ fn expect_build() {
 }
 
 #[test]
-fn expect_warnings() {
+fn expect_warnings_rejects_duplicate_configuration() {
     let actual = run(r#"
     warnings = "+unused_variable"
     options(
       "warn-list": "-deprecated_syntax",
     )
     "#);
-    expect_test::expect![[r#"
-        MoonPkg {
-            name: None,
-            experimental: false,
-            allow_experimental_packages: None,
-            is_main: false,
-            force_link: false,
-            sub_package: None,
-            imports: [],
-            wbtest_imports: [],
-            test_imports: [],
-            formatter: MoonPkgFormatter {
-                ignore: {},
-            },
-            link: None,
-            warn_list: Some(
-                "+unused_variable-deprecated_syntax",
-            ),
-            proof_enabled: false,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: {
-                Wasm,
-                WasmGC,
-                Js,
-                Native,
-                LLVM,
-            },
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            max_concurrent_tests: None,
-            regex_backend: None,
-            local_rules: None,
-        }"#]]
-    .assert_eq(&actual);
+    expect_test::expect![["Error: duplicate field `warn_list`"]].assert_eq(&actual);
 }
 
 #[test]
-fn expect_supported_targets_prefers_new_config() {
+fn expect_supported_targets_rejects_duplicate_configuration() {
     let actual = run(r#"
     supported_targets = "js"
     options(
       "supported-targets": "+native",
     )
     "#);
-    expect_test::expect![[r#"
-        MoonPkg {
-            name: None,
-            experimental: false,
-            allow_experimental_packages: None,
-            is_main: false,
-            force_link: false,
-            sub_package: None,
-            imports: [],
-            wbtest_imports: [],
-            test_imports: [],
-            formatter: MoonPkgFormatter {
-                ignore: {},
-            },
-            link: None,
-            warn_list: None,
-            proof_enabled: false,
-            targets: None,
-            pre_build: None,
-            bin_name: None,
-            bin_target: None,
-            supported_targets: {
-                Js,
-            },
-            native_stub: None,
-            virtual_pkg: None,
-            implement: None,
-            overrides: None,
-            max_concurrent_tests: None,
-            regex_backend: None,
-            local_rules: None,
-        }"#]]
-    .assert_eq(&actual);
+    expect_test::expect![["Error: duplicate field `supported_targets`"]].assert_eq(&actual);
 }
 
 #[test]
@@ -631,7 +547,6 @@ fn expect_options() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -664,6 +579,19 @@ fn expect_options() {
                                     "--flag2",
                                 ],
                             ),
+                            extra: {
+                                "heap_start_address": Number(100),
+                                "import_memory": Object {
+                                    "module": String("string"),
+                                    "name": String("string"),
+                                },
+                                "memory_limits": Object {
+                                    "min": Number(1),
+                                    "max": Number(10),
+                                },
+                                "shared_memory": Bool(true),
+                                "export_memory_name": String("name"),
+                            },
                         },
                     ),
                     wasm_gc: None,
@@ -678,6 +606,7 @@ fn expect_options() {
                             format: Some(
                                 ESM,
                             ),
+                            extra: {},
                         },
                     ),
                     native: Some(
@@ -695,13 +624,50 @@ fn expect_options() {
                             cc_link_flags: None,
                             stub_cc: None,
                             stub_cc_flags: None,
-                            stub_cc_link_flags: None,
-                            stub_lib_deps: None,
+                            extra: {
+                                "cflags": Array [
+                                    String("-flag1"),
+                                    String("-flag2"),
+                                ],
+                                "cc_link_flags": String("-flag1"),
+                                "stub_cc": String("gcc"),
+                                "stub_cflags": String("-flag2"),
+                                "stub_cc_link_flags": String("-flag1"),
+                                "stub_lib_deps": Array [
+                                    String("lib1"),
+                                    String("lib2"),
+                                ],
+                            },
                         },
                     ),
+                    extra: {
+                        "wasm_gc": Object {
+                            "exports": Array [
+                                String("f1"),
+                                String("f2"),
+                            ],
+                            "import_memory": Object {
+                                "module": String("string"),
+                                "name": String("string"),
+                            },
+                            "memory_limits": Object {
+                                "min": Number(1),
+                                "max": Number(10),
+                            },
+                            "shared_memory": Bool(true),
+                            "export_memory_name": String("name"),
+                            "flags": Array [
+                                String("--flag1"),
+                                String("--flag2"),
+                            ],
+                            "use_js_builtin_string": Bool(true),
+                            "imported_string_constants": String("string"),
+                        },
+                    },
                 },
             ),
             warn_list: None,
+            alert_list: None,
             proof_enabled: true,
             targets: Some(
                 {
@@ -758,12 +724,6 @@ fn expect_options() {
                 },
             ),
             pre_build: None,
-            bin_name: Some(
-                "name",
-            ),
-            bin_target: Some(
-                Wasm,
-            ),
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -780,6 +740,7 @@ fn expect_options() {
             virtual_pkg: Some(
                 VirtualPkg {
                     has_default: false,
+                    extra: {},
                 },
             ),
             implement: Some(
@@ -809,7 +770,6 @@ fn expect_max_concurrent_tests() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -823,11 +783,10 @@ fn expect_max_concurrent_tests() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -855,7 +814,6 @@ fn expect_virtual_implement() {
     "#);
     expect_test::expect![[r#"
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -869,11 +827,10 @@ fn expect_virtual_implement() {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: {
                 Wasm,
                 WasmGC,

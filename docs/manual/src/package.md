@@ -23,9 +23,25 @@ implements one, so `has_default` and `implement` cannot be combined.
 
 Declare each setting only once, either directly or in `options(...)`. For
 example, do not combine `proof_enabled = true` with
-`options("proof-enabled": true)`.
+`options("proof-enabled": true)`: this is an error even when the values agree.
+The same rule applies to `warnings` and `warn-list` / `warn_list`,
+`supported_targets` and `supported-targets`, and `dev_build` and
+`pre-build` / `pre_build`. Settings are not merged or overridden between forms.
 
-Other settings, including `bin-name`, `bin-target`, `overrides`, structured
+Multiple `import` blocks of the same kind still combine in source order, but
+cannot be combined with an `options(...)` import field of that kind. Empty
+blocks and empty option lists also count as declarations. Regular, test, and
+whitebox imports are independent. Multiple `rule` and `dev_build` declarations
+remain supported; rule names must be unique.
+
+Each `dev_build` or legacy `pre-build` entry must specify exactly one of
+`command` or `rule`. Supplying both is an error, including in JSON manifests.
+
+In `moon.mod`, declare each module dependency only once. Repeated module names
+in `import`, or between `import` and `options(deps: ...)`, are errors even when
+the versions agree. Distinct dependencies from the two forms are combined.
+
+Other settings, including `overrides`, structured
 `link`, `native-stub`, and per-file `targets`, still belong in `options(...)`.
 
 These declarations require matching compiler support. Compilers that do not
@@ -33,6 +49,55 @@ recognize them report `Invalid configuration` (`E4192`); use the legacy
 `options(...)` form with those toolchains. Formatting and JSON-to-DSL migration
 are provided by the toolchain's `moonfmt`. Older formatter versions may rewrite
 direct declarations into their equivalent `options(...)` form.
+
+## Configuration diagnostics
+
+Unknown keys in `options(...)`, JSON manifests, and nested settings produce
+warnings. For example, `link.native.cc_link_flags` warns because the accepted
+spelling is `cc-link-flags`. Warnings do not stop the command and are suppressed
+by `--quiet`; unknown-key warnings in dependencies are suppressed by default.
+This applies to both module and package configuration.
+
+The removed module field `checksum` and package fields `bin-name` / `bin-target`
+follow this unknown-key policy. Module fields `include` and `exclude` are errors
+in the current project and workspace members, including empty values, because
+ignoring old file filters could package unintended files. Move those filters to
+`.gitignore` or `.moonignore`; `.moonignore` overrides `.gitignore` in the same
+directory. These obsolete filters are ignored in dependencies.
+
+The removed package field `name` follows this unknown-key policy, including
+`name: "main"`. Use `pkgtype(kind: "executable")` to declare an executable.
+Module `scripts` recognizes only the legacy `postadd` entry for explicit
+`moon run-postadd` execution. Other names, such as `prebuild` and `postbuild`,
+warn as unknown keys; they do not register build hooks.
+
+In `moon.mod`, declaring both spellings of `warnings` / `warn-list`,
+`preferred_target` / `preferred-target`, or `supported_targets` /
+`supported-targets` is an error. This also applies when the values agree or are
+empty, or both spellings occur in `options(...)`.
+
+Known fields with incorrect types are errors, including in dependencies and
+with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a
+string. Compiler-consumed settings such as `options("alert-list": "+all")`
+and the boolean `link.wasm-gc.use-ffi-bytes` are also recognized and type-checked
+by Moon.
+
+Deprecated package settings also warn in the current project and workspace
+members, with dependency warnings suppressed. Replace `is-main: true` with
+`pkgtype(kind: "executable")`, and boolean `link: true` on a library with
+`pkgtype(kind: "foreign_library")`. Remove false flags and boolean `link` on
+executable packages. Structured `link` remains backend configuration.
+`link.*.exports` is deprecated in favor of source-level `#export_name` attributes;
+empty export lists also warn. Declare `pkgtype(kind: "foreign_library")` when
+producing a library artifact for a foreign host. These legacy fields are
+scheduled for removal.
+
+Module prebuild scripts receive an additional migration notice: their legacy
+stdin JSON input will be removed. Read `MOON_MOD`, `MOON_BUILD_DIR`, and the other
+`MOON_*` environment variables instead. Stdout JSON remains the result protocol.
+This notice is shown for input modules only, even if the current backend does
+not run the script; it does not detect stdin reads. `--quiet` suppresses all
+these deprecation warnings.
 
 ## Experimental packages
 

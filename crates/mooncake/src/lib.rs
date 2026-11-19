@@ -18,8 +18,21 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
+pub mod cli;
 pub(crate) mod dependency_source;
 pub mod pkg;
 pub mod registry;
 pub(crate) mod resolver;
 pub(crate) mod zip_util;
+
+// Shared inputs for package-management clients. Keep the existing type identity
+// and the common manifest, project, and toolchain implementations in moonutil.
+pub use moonutil::{
+    MOON_HOME,
+    constants::{MOON_MOD, MOON_MOD_JSON},
+    manifest::{MoonMod, read_module_desc_file_in_dir, read_module_from_json},
+    module_name::{ModuleName, ModuleVersionError},
+    project::{PackageDirs, ProjectManifest},
+    toolchain::{BINARIES, toolchain_root},
+    user_log::UserLog,
+};

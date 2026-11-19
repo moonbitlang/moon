@@ -22,10 +22,7 @@ use mooncake::registry::{
     Registry, RegistryClient, RegistryUnavailable,
     path::{ModuleNotFound, ModuleRequest},
 };
-use moonutil::{
-    resolution::{ModuleName, ModuleSource},
-    user_log::UserLog,
-};
+use moonutil::{module_name::ModuleName, resolution::ModuleSource, user_log::UserLog};
 use semver::Version;
 
 /// Select a module under the command's metadata-query policy. When remote queries

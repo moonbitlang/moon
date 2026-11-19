@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "JSON schema for MoonBit moon.mod.json files",
-  "description": "A module of MoonBit lang",
+  "title": "Internal normalized module JSON",
+  "description": "Unstable internal representation; not a user manifest format or a compatibility promise",
   "type": "object",
   "required": [
     "name"
@@ -14,16 +14,6 @@
         "null"
       ]
     },
-    "deps": {
-      "description": "third-party dependencies of the module",
-      "type": [
-        "object",
-        "null"
-      ],
-      "additionalProperties": {
-        "$ref": "#/definitions/SourceDependencyInfo"
-      }
-    },
     "description": {
       "description": "description of this module",
       "type": [
@@ -31,24 +21,14 @@
         "null"
       ]
     },
-    "exclude": {
-      "description": "Deprecated. Use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
+    "import": {
+      "description": "third-party dependencies of the module",
       "type": [
-        "array",
+        "object",
         "null"
       ],
-      "items": {
-        "type": "string"
-      }
-    },
-    "include": {
-      "description": "Deprecated. Use `.gitignore` or `.moonignore` to control which files are packaged instead. `.moonignore` overrides `.gitignore` in the same directory.",
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
+      "additionalProperties": {
+        "$ref": "#/definitions/SourceDependencyInfo"
       }
     },
     "keywords": {
@@ -72,7 +52,7 @@
       "description": "name of the module",
       "type": "string"
     },
-    "preferred-target": {
+    "preferred_target": {
       "description": "The preferred target backend of this module.\n\nToolchains are recommended to use this target as the default target when the user is not specifying or overriding in any other ways. However, this is merely a recommendation, and tools may deviate from this value at any time.",
       "type": [
         "string",
@@ -99,14 +79,13 @@
     },
     "rule": {
       "description": "Rules that can be referenced by package-level `dev_build` entries.",
-      "anyOf": [
-        {
-          "$ref": "#/definitions/MoonModJSONRules"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/MoonModRule"
+      }
     },
     "scripts": {
       "description": "Scripts related to the current module.",
@@ -125,7 +104,7 @@
         "null"
       ]
     },
-    "supported-targets": {
+    "supported_targets": {
       "description": "Supported backend set for all packages in this module.\n\nThis uses the same expression/list grammar as `moon.pkg.json`.",
       "anyOf": [
         {
@@ -143,7 +122,7 @@
         "null"
       ]
     },
-    "warn-list": {
+    "warnings": {
       "description": "Warn list setting of the module",
       "type": [
         "string",
@@ -152,19 +131,6 @@
     }
   },
   "definitions": {
-    "MoonModJSONRules": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/MoonModRule"
-        },
-        {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/MoonModRule"
-          }
-        }
-      ]
-    },
     "MoonModRule": {
       "type": "object",
       "required": [

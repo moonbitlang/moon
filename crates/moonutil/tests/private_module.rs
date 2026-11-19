@@ -109,7 +109,7 @@ fn private_survives_json_to_dsl_migration() {
             json["private"] = private.into();
         }
         let module = serde_json_lenient::from_value(json).unwrap();
-        write_module_dsl_to_file(&module, dir.path()).unwrap();
+        write_module_dsl_to_file(&module, &dir.path().join("moon.mod")).unwrap();
         assert_eq!(
             read_module_desc_file_in_dir(dir.path()).unwrap().private,
             private

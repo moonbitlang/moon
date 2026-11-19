@@ -21,23 +21,24 @@ mod server;
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
+use moonbuild::compile::{BuildSession, MetadataOutput};
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::cli_support::AutoSyncFlags;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
-use moonutil::{build_options::RunMode, locks::lock_directory, user_log::UserLog};
+use moonutil::user_log::UserLog;
 use tracing::instrument;
 
 use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
-use crate::rr_build::{self};
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct DocSubcommand {
+pub(super) struct DocSubcommand {
     /// Start a web server to serve the documentation
     #[clap(long)]
     pub serve: bool,
@@ -63,7 +64,7 @@ pub(crate) struct DocSubcommand {
 
 #[instrument(skip_all)]
 #[allow(deprecated)]
-pub(crate) fn run_doc(
+pub(super) fn run_doc(
     cli: UniversalFlags,
     cmd: DocSubcommand,
     output: &CommandOutput,
@@ -95,7 +96,7 @@ fn run_doc_query(symbol: &str, user_log: &UserLog) -> anyhow::Result<i32> {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_doc_rr(
+pub(super) fn run_doc_rr(
     cli: UniversalFlags,
     cmd: DocSubcommand,
     output: &CommandOutput,
@@ -131,15 +132,9 @@ pub(crate) fn run_doc_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     );
-    let synced_modules =
-        moonbuild::prepare::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let discovered = moonbuild_rupes_recta::discover_synced_project(
-        &preparation_config.discovery,
-        synced_modules,
-        user_log,
-    )?;
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let module_id = selected_doc_module_id(&discovered, &selected_module.root)?;
     let target_backend = discovered
         .module_info(module_id)
@@ -147,9 +142,8 @@ pub(crate) fn run_doc_rr(
         .unwrap_or_default();
     let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
 
-    let mut compile_config = rr_build::prepare_resolved_build(
+    let mut compile_config = build_flags.compile_config(
         &cli,
-        &build_flags,
         target_backend,
         target_dir,
         RunMode::Check,
@@ -158,32 +152,31 @@ pub(crate) fn run_doc_rr(
     )?;
     compile_config.docs_serve = cmd.serve;
     let intent = vec![UserIntent::Doc(module_id)].into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )?;
 
     // Early exit for dry-run
     if cli.dry_run {
-        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
+        output.write_result(|writer| {
+            crate::dry_run::write_dry_run(writer, &build_graph, source_dir)
+        })?;
         return Ok(0);
     }
 
-    let lock = lock_directory(target_dir, user_log)?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(&build_meta)?;
-    // Generate metadata for `moondoc`
-    rr_build::generate_metadata(source_dir, &build_meta, &build_graph)?;
-
     // Execute the build
     let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
-    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    let result = session.execute(
+        &cfg,
+        build_graph,
+        &[&build_meta],
+        MetadataOutput::Packages(source_dir),
+    )?;
     result.print_info(cli.quiet, "checking")?;
 
     if !result.successful() {
@@ -191,7 +184,7 @@ pub(crate) fn run_doc_rr(
     }
 
     // Release lock before serving (no writes beyond this point)
-    drop(lock);
+    drop(session);
     // Serve
     if cmd.serve {
         let static_dir = target_dir.join("doc");

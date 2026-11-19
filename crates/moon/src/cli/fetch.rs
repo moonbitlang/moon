@@ -21,11 +21,7 @@ use mooncake::{
     pkg::legacy_postadd,
     registry::{RegistryClient, path::parse_module_path},
 };
-use moonutil::{
-    child_process::{ChildOutputMode, ManagedChildRunner},
-    project::PackageDirs,
-    user_log::UserLog,
-};
+use moonutil::{project::PackageDirs, user_log::UserLog};
 
 use super::{UniversalFlags, registry_queries};
 
@@ -34,7 +30,7 @@ use super::{UniversalFlags, registry_queries};
     about = "Download a package to .repos directory (unstable)",
     before_help = "Note: This is an unstable command and may change or be removed in future versions."
 )]
-pub(crate) struct FetchSubcommand {
+pub(super) struct FetchSubcommand {
     /// The registry module name to fetch in the form of <author>/<module_name>[@<version>]
     #[clap(value_name = "MODULE[@VERSION]")]
     pub package_path: String,
@@ -44,7 +40,7 @@ pub(crate) struct FetchSubcommand {
     pub no_update: bool,
 }
 
-pub(crate) fn fetch_cli(
+pub(super) fn fetch_cli(
     cli: UniversalFlags,
     cmd: FetchSubcommand,
     user_log: &UserLog,
@@ -98,8 +94,8 @@ pub(crate) fn fetch_cli(
     }
 
     registry.materialize_source_to(&module, &pkg_dir, user_log)?;
-    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(&pkg_dir, &child)?;
+    let manifest = moonutil::manifest::read_dependency_module_manifest(&pkg_dir)?;
+    legacy_postadd::warn_skipped(&manifest, user_log);
 
     if !cli.quiet {
         println!(

@@ -37,36 +37,34 @@
 //! 6. After a successful check, generated interfaces that differ from the
 //!    package's `pkg.generated.mbti` are copied over it.
 //!
+use crate::cli::UniversalFlags;
+use crate::cli::target::lower_surface_targets;
 use anyhow::Context;
 use log::LevelFilter;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::{ActionFailureKind, BuildInput};
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::build_options::RunMode;
-use moonutil::child_process::ChildOutputMode;
-use moonutil::cli_support::AutoSyncFlags;
-use moonutil::cli_support::UniversalFlags;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
-use moonutil::locks::lock_directory;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::TargetBackend;
-use moonutil::target::lower_surface_targets;
 use moonutil::user_log::{UserLog, UserLogCapture, UserLogEntry, UserLogEntryLevel};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::instrument;
 
-use crate::filter::{
+use super::selection::{
     TargetPackageGroup, canonicalize_with_filename, ensure_package_supports_backend,
     ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
     group_packages_by_preferred_backend, package_supports_backend,
     preferred_target_backend_for_package, select_packages, select_supported_packages,
 };
-use crate::rr_build::{self, CalcUserIntentOutput};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -276,7 +274,7 @@ struct CheckJsonCommand {
     command: CheckSubcommand,
 }
 
-pub(crate) fn json_command(command: CheckSubcommand) -> Box<dyn JsonCommand> {
+pub(super) fn json_command(command: CheckSubcommand) -> Box<dyn JsonCommand> {
     Box::new(CheckJsonCommand { command })
 }
 
@@ -307,7 +305,7 @@ fn check_json_outcome(outcome: CheckJsonOutcome) -> JsonCommandOutcome {
 /// `--no-mbti` to skip this.
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
-pub(crate) struct CheckSubcommand {
+pub(super) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -429,11 +427,11 @@ fn project_check_json_diagnostic(
 
 /// Selected, non-generated local sources mapped to the Target Backends whose
 /// planned compiler actions read them; shared actions have no single backend.
-pub(crate) type EditableSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
+pub(super) type EditableSources = BTreeMap<PathBuf, BTreeSet<Option<TargetBackend>>>;
 
 /// The structured result of one check, for commands that consume its
 /// diagnostics instead of reporting them.
-pub(crate) struct CollectedCheck {
+pub(super) struct CollectedCheck {
     pub diagnostics: Vec<moonbuild::execution::JsonBuildDiagnostic>,
     pub editable_sources: EditableSources,
     pub execution_failed: bool,
@@ -442,7 +440,7 @@ pub(crate) struct CollectedCheck {
 /// Run a check with JSON diagnostics and return them with the sources each
 /// backend compiled. User logs go to `output` as in an ordinary check;
 /// diagnostics are not rendered, and no diagnostic limit applies.
-pub(crate) fn run_check_collecting(
+pub(super) fn run_check_collecting(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     output: &CommandOutput,
@@ -510,7 +508,7 @@ fn run_check_json(
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_check(
+pub(super) fn run_check(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     output: &CommandOutput,
@@ -644,20 +642,17 @@ fn run_check_impl(
         return Ok(ret_value);
     }
 
-    let discovered =
-        sync_and_discover_check_project(cli, cmd, &dirs, output.user_log(), json.is_some())
-            .context("Failed to calculate build plan")?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, output.user_log()).with_context(|| {
+    let discovered = sync_and_discover_check_project(cmd, &dirs, output.user_log())
+        .context("Failed to calculate build plan")?;
+    let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())
+        .with_context(|| {
             format!(
                 "failed to acquire build lock in target directory `{}`",
                 dirs.target_dir.display()
             )
         })?;
-    }
     let result = run_check_normal_rr_from_discovered(
-        cli, cmd, &dirs, false, &targets, discovered, output, json,
+        &session, cli, cmd, &dirs, false, &targets, discovered, output, json,
     )
     .with_context(|| match targets.as_slice() {
         [target] => format!("failed to run check for target {target:?}"),
@@ -690,17 +685,8 @@ fn run_check_for_single_file_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
-    .with_jobs(cmd.build_flags.jobs)
-    .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
-        quiet: false,
-        child_output: if json.is_some() {
-            ChildOutputMode::Capture
-        } else {
-            ChildOutputMode::Inherit
-        },
-    });
+    .with_jobs(cmd.build_flags.jobs);
     let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
         &preparation_config,
         dirs,
@@ -708,7 +694,7 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let target_backends = rr_build::single_file_target_backends(
+    let target_backends = super::selection::single_file_target_backends(
         &discovered,
         selected_target_backends,
         backend,
@@ -716,21 +702,17 @@ fn run_check_for_single_file_rr(
     );
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, user_log).with_context(|| {
-            format!(
-                "failed to acquire build lock in target directory `{}`",
-                target_dir.display()
-            )
-        })?;
-    }
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log).with_context(|| {
+        format!(
+            "failed to acquire build lock in target directory `{}`",
+            target_dir.display()
+        )
+    })?;
 
     let mut planned_runs = Vec::with_capacity(target_backends.len());
     for target_backend in target_backends {
-        let compile_config = rr_build::prepare_resolved_build(
+        let compile_config = cmd.build_flags.compile_config(
             cli,
-            &cmd.build_flags,
             target_backend,
             target_dir,
             RunMode::Check,
@@ -740,27 +722,26 @@ fn run_check_for_single_file_rr(
         let intent =
             get_user_intents_single_file(&resolved, compile_config.backend.target_backend())?;
         planned_runs.push(
-            rr_build::plan_resolved_build_from_intent(
-                compile_config,
-                user_log,
-                intent,
-                resolved.clone(),
-                cmd.build_flags.jobs,
-                cmd.auto_sync_flags.frozen,
-                cli.dry_run,
-            )
-            .context("Failed to calculate build plan")?,
+            session
+                .plan(
+                    compile_config,
+                    intent,
+                    resolved.clone(),
+                    cmd.build_flags.jobs,
+                    cmd.auto_sync_flags.frozen,
+                )
+                .context("Failed to calculate build plan")?,
         );
     }
 
-    run_planned_checks(cli, cmd, dirs, planned_runs, true, output, json)
+    run_planned_checks(&session, cli, cmd, dirs, planned_runs, true, output, json)
         .map(|ok| if ok { 0 } else { 1 })
 }
 
 fn get_user_intents_single_file(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     _backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     let m_packages = discovered
         .pkg_dirs
         .packages_for_module(discovered.local_modules()[0])
@@ -827,18 +808,17 @@ fn run_check_normal_internal_rr(
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
-    let discovered = sync_and_discover_check_project(cli, cmd, dirs, user_log, json.is_some())
+    let discovered = sync_and_discover_check_project(cmd, dirs, user_log)
         .context("Failed to calculate build plan")?;
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(&dirs.target_dir, user_log).with_context(|| {
+    let session =
+        BuildSession::new(&dirs.target_dir, cli.dry_run, user_log).with_context(|| {
             format!(
                 "failed to acquire build lock in target directory `{}`",
                 dirs.target_dir.display()
             )
         })?;
-    }
     run_check_normal_rr_from_discovered(
+        &session,
         cli,
         cmd,
         dirs,
@@ -852,9 +832,10 @@ fn run_check_normal_internal_rr(
 
 /// Plans and executes a check from a discovered project.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run check.
+/// The supplied session protects planning and execution with the target-directory lock.
 #[allow(clippy::too_many_arguments)]
 fn run_check_normal_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
@@ -879,6 +860,7 @@ fn run_check_normal_rr_from_discovered(
         }
     };
     let planned_runs = plan_check_rr_from_discovered(
+        session,
         cli,
         cmd,
         source_dir,
@@ -894,12 +876,14 @@ fn run_check_normal_rr_from_discovered(
     let mut ignored_paths = prebuild_list.ignored_paths;
     if watch {
         ignored_paths.extend(planned_runs.iter().flat_map(|(meta, _)| {
-            rr_build::generated_mbti_artifacts(meta)
-                .map(|(package, _)| rr_build::generated_mbti_dest(&meta.resolved_project, package))
+            crate::cli::generated_mbti::generated_mbti_artifacts(meta).map(|(package, _)| {
+                crate::cli::generated_mbti::generated_mbti_dest(&meta.resolved_project, package)
+            })
         }));
     }
 
     let ok = run_planned_checks(
+        session,
         cli,
         cmd,
         dirs,
@@ -919,8 +903,10 @@ fn run_check_normal_rr_from_discovered(
 /// Finalizes metadata and executes checks planned by either resolution front
 /// end.
 ///
-/// The caller must hold the target-directory lock for a non-dry-run check.
+/// The supplied session protects planning and execution with the target-directory lock.
+#[allow(clippy::too_many_arguments)]
 fn run_planned_checks(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
@@ -933,16 +919,12 @@ fn run_planned_checks(
         return Ok(true);
     }
 
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        ..
-    } = dirs;
+    let PackageDirs { source_dir, .. } = dirs;
     if cli.dry_run {
         output.write_result(|writer| {
             let build_inputs = planned_runs.into_iter().map(|(_, input)| input).collect();
             let build_input = BuildInput::compose(build_inputs).map_err(std::io::Error::other)?;
-            rr_build::write_dry_run(writer, &build_input, source_dir)?;
+            crate::dry_run::write_dry_run(writer, &build_input, source_dir)?;
             Ok::<_, std::io::Error>(())
         })?;
         return Ok(true);
@@ -953,40 +935,32 @@ fn run_planned_checks(
         .execution_config(&cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
-    for (build_meta, build_input) in &planned_runs {
-        // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(build_meta)?;
-        if publish_metadata {
-            rr_build::generate_metadata(source_dir, build_meta, build_input)?;
-        }
-    }
-    if publish_metadata {
-        // The compiler's universal format selects one active projection.
-        // Before the split, repeated publication made the final planned
-        // backend authoritative, so retain that deterministic behavior.
-        let selected = &planned_runs
-            .last()
-            .expect("non-empty planned runs were checked above")
-            .0;
-        rr_build::generate_metadata_selector(selected)?;
-        rr_build::generate_metadata_index(planned_runs.iter().map(|(build_meta, _)| build_meta))?;
-    }
+    let metadata = if publish_metadata {
+        MetadataOutput::Check(source_dir)
+    } else {
+        MetadataOutput::Compiler
+    };
 
     let (build_metas, build_inputs): (Vec<_>, Vec<_>) = planned_runs.into_iter().unzip();
     let build_input = BuildInput::compose(build_inputs)?;
     let successful = if let Some(json) = json {
         json.record_editable_sources(&build_metas, &build_input);
-        let result = moonbuild::execution::execute_build_json(
+        let result = session.execute_json(
             &cfg.with_suppressed_progress(true),
             build_input,
-            target_dir,
+            &build_metas.iter().collect::<Vec<_>>(),
+            metadata,
         )?;
         let successful = result.successful();
         json.append_build(result, output.user_log());
         successful
     } else {
-        let result =
-            moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+        let result = session.execute(
+            &cfg,
+            build_input,
+            &build_metas.iter().collect::<Vec<_>>(),
+            metadata,
+        )?;
         result.print_summary(cli.quiet);
         if !result.successful() {
             output.user_log().error("failed when checking project");
@@ -1009,8 +983,9 @@ fn run_planned_checks(
 /// written, so an up-to-date file is never touched.
 fn publish_generated_mbti(build_metas: &[BuildMeta], user_log: &UserLog) {
     for meta in build_metas {
-        for (package, generated) in rr_build::generated_mbti_artifacts(meta) {
-            let dest = rr_build::generated_mbti_dest(&meta.resolved_project, package);
+        for (package, generated) in crate::cli::generated_mbti::generated_mbti_artifacts(meta) {
+            let dest =
+                crate::cli::generated_mbti::generated_mbti_dest(&meta.resolved_project, package);
             if let Err(e) = write_if_changed(generated, &dest) {
                 user_log.warn(format!("failed to update `{}`: {e}", dest.display()));
             }
@@ -1030,32 +1005,22 @@ fn write_if_changed(src: &Path, dest: &Path) -> std::io::Result<()> {
 }
 
 fn sync_and_discover_check_project(
-    cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
-    json: bool,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
-    .with_jobs(cmd.build_flags.jobs)
-    .with_sync_output(mooncake::pkg::sync::SyncOutputOptions {
-        quiet: false,
-        child_output: if json {
-            ChildOutputMode::Capture
-        } else {
-            ChildOutputMode::Inherit
-        },
-    });
-    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
+    .with_jobs(cmd.build_flags.jobs);
+    moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_check_rr_from_discovered(
+pub(super) fn plan_check_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     source_dir: &Path,
@@ -1080,6 +1045,7 @@ pub(crate) fn plan_check_rr_from_discovered(
         .into_iter()
         .map(|selection| {
             plan_check_rr_for_selection(
+                session,
                 cli,
                 cmd,
                 target_dir,
@@ -1106,8 +1072,10 @@ fn select_check_plans(
             // Keep one empty plan so a project without packages still
             // publishes its package metadata.
             return Ok(vec![TargetPackageGroup {
-                target_backend: rr_build::local_modules_preferred_target(discovered, user_log)
-                    .unwrap_or_default(),
+                target_backend: super::selection::local_modules_preferred_target(
+                    discovered, user_log,
+                )
+                .unwrap_or_default(),
                 packages: Vec::new(),
             }]);
         }
@@ -1137,6 +1105,7 @@ fn select_check_plans(
 
 /// Plans one backend for the packages selected before resolution.
 fn plan_check_rr_for_selection(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     target_dir: &Path,
@@ -1148,9 +1117,8 @@ fn plan_check_rr_for_selection(
         target_backend,
         packages,
     } = selection;
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Check,
@@ -1164,14 +1132,12 @@ fn plan_check_rr_for_selection(
         compile_config.backend.target_backend(),
         cmd,
     );
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }
 
@@ -1194,7 +1160,7 @@ fn validate_selector_flags_before_split(
     Ok(())
 }
 
-pub(crate) fn resolve_check_target_selections(
+fn resolve_check_target_selections(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     cmd: &CheckSubcommand,
     source_dir: &Path,
@@ -1252,15 +1218,13 @@ fn resolve_selected_packages(
         if let Some(target_backend) = target_backend {
             return select_supported_packages(discovered, &cmd.path, target_backend, user_log);
         }
-        return Ok(select_packages(&cmd.path, user_log, |dir| {
-            filter_pkg_by_dir(discovered, dir)
-        })?
-        .into_iter()
-        .map(|(_, pkg_id)| pkg_id)
-        .collect());
+        return Ok(select_packages(discovered, &cmd.path, user_log)?
+            .into_iter()
+            .map(|(_, pkg_id)| pkg_id)
+            .collect());
     }
 
-    Ok(rr_build::local_packages(discovered)
+    Ok(super::selection::local_packages(discovered)
         .filter(|&pkg| {
             target_backend.is_none_or(|backend| package_supports_backend(discovered, pkg, backend))
         })
@@ -1314,7 +1278,7 @@ fn filter_packages_for_backend(
 fn calc_user_intent(
     packages: Vec<PackageId>,
     patch_file: Option<&Path>,
-) -> anyhow::Result<CalcUserIntentOutput> {
+) -> anyhow::Result<BuildRequest> {
     let directive = build_directive_for_selected_packages(&packages, patch_file)?;
     Ok((
         packages.into_iter().map(UserIntent::Check).collect(),
@@ -1330,7 +1294,7 @@ fn calc_user_intent(
 /// interface, so checking another backend never rewrites it. A check with
 /// `--patch-file` does not reflect the package sources and publishes nothing.
 fn add_generated_mbti_intents(
-    intent: &mut CalcUserIntentOutput,
+    intent: &mut BuildRequest,
     resolved: &moonbuild_rupes_recta::ResolvedProject,
     target_backend: TargetBackend,
     cmd: &CheckSubcommand,
@@ -1358,7 +1322,12 @@ fn build_directive_for_selected_packages(
     patch_file: Option<&Path>,
 ) -> anyhow::Result<moonbuild_rupes_recta::build_plan::InputDirective> {
     if let [pkg] = selected {
-        return rr_build::build_patch_directive_for_package(*pkg, false, None, patch_file, false);
+        return super::build_flags::build_patch_directive_for_package(
+            *pkg,
+            None,
+            patch_file,
+            moonbuild_rupes_recta::model::TargetKind::Source,
+        );
     }
 
     if patch_file.is_some() {

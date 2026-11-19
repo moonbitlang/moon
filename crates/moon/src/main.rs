@@ -18,18 +18,16 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-mod build_flags;
 mod cli;
-mod filter;
+mod diff;
+mod dry_run;
 mod panic;
-pub mod rr_build;
 mod run;
-#[cfg(test)]
-mod tests;
+mod test_metadata;
 mod watch;
 
 pub fn main() {
     panic::setup_panic_hook();
     let raw_args = std::env::args_os().collect();
-    std::process::exit(cli::runtime::run(raw_args));
+    std::process::exit(cli::execute(raw_args));
 }

@@ -53,7 +53,7 @@ use std::{
 use indexmap::IndexSet;
 use log::{debug, info};
 use moonutil::{
-    compiler_flags::{NativeAllocator, NativeLinkArg, OptLevel as CCOptLevel, Toolchain},
+    compiler_flags::{NativeAllocator, Toolchain},
     cond_expr::OptLevel,
     target::TargetBackend,
     user_log::UserLog,
@@ -63,8 +63,8 @@ use tracing::instrument;
 use crate::{
     CompileConfig, ResolvedProject,
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, NativeBackendMode, NativeTarget,
-        PackageId, WasmObject,
+        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, NativeBackendMode,
+        NativeLinkArg, NativeTarget, PackageId, WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
@@ -469,10 +469,6 @@ pub struct BuildCStubsInfo {
     pub(crate) opt_level: CCOptLevel,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
-    /// Legacy C-stub link inputs retained for manifest compatibility.
-    /// The current static-archive realization does not consume them.
-    #[allow(unused)]
-    pub(crate) link_args: Vec<NativeLinkArg>,
 }
 
 #[derive(Debug)]
@@ -570,8 +566,6 @@ pub enum BuildPlanConstructError {
     MalformedCCLinkFlags(PackageFQNWithSource),
     #[error("Malformed stub cc flags in package {0}")]
     MalformedStubCCFlags(PackageFQNWithSource),
-    #[error("Malformed stub cc link flags in package {0}")]
-    MalformedStubCCLinkFlags(PackageFQNWithSource),
     #[error("Invalid pre-build rule in package {package}: {message}")]
     InvalidPrebuildRule {
         package: PackageFQNWithSource,

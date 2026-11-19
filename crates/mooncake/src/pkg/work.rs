@@ -30,12 +30,13 @@ use moonutil::{
         MoonMod, convert_module_to_mod_json, read_module_manifest, warn_module_manifest,
         write_module_json_to_file,
     },
+    module_name::ModuleName,
     project::{
         MoonWork, WorkspaceEditTarget, WorkspaceLayout, workspace_manifest_path, write_workspace,
     },
     resolution::{
-        DependencyEdge, ModuleDependencyGraph, ModuleId, ModuleName, ModuleSource,
-        ModuleSourceKind, ResolvedModule, ResolvedRootModules,
+        DependencyEdge, ModuleDependencyGraph, ModuleId, ModuleSource, ModuleSourceKind,
+        ResolvedModule, ResolvedRootModules,
     },
     user_log::UserLog,
 };

@@ -24,10 +24,10 @@ fn policy(directory: &Path, document: &str) -> Policy {
         .policy
 }
 
-fn allows(policy: &Policy, path: &Path, read: bool, write: bool) -> bool {
+fn allows(policy: &Policy, path: &Path, required: AccessRights) -> bool {
     policy
         .filesystem()
-        .authorize(Some(path), read, write, "test path")
+        .authorize(Some(path), required, "test path")
         .is_ok()
 }
 
@@ -51,9 +51,16 @@ write = [{ glob = "logs/**/*.txt" }]
         ("elsewhere/top.txt", false, false),
     ] {
         let path = base.join(path);
-        assert_eq!(allows(&rules, &path, true, false), read, "{path:?}");
-        assert_eq!(allows(&rules, &path, false, true), write, "{path:?}");
-        assert_eq!(allows(&rules, &path, true, true), read && write);
+        assert_eq!(allows(&rules, &path, AccessRights::READ), read, "{path:?}");
+        assert_eq!(
+            allows(&rules, &path, AccessRights::WRITE),
+            write,
+            "{path:?}"
+        );
+        assert_eq!(
+            allows(&rules, &path, AccessRights::READ_WRITE),
+            read && write
+        );
     }
 }
 
@@ -75,15 +82,19 @@ fn excluded_globs_override_grants_regardless_of_order() {
             ("src/deep/lib.txt", true),
         ] {
             let path = base.join(path);
-            assert!(allows(&rules, &path, true, false));
+            assert!(allows(&rules, &path, AccessRights::READ));
             assert_eq!(
-                allows(&rules, &path, false, true),
+                allows(&rules, &path, AccessRights::WRITE),
                 writable,
                 "{write}: {path:?}"
             );
-            assert_eq!(allows(&rules, &path, true, true), writable);
+            assert_eq!(allows(&rules, &path, AccessRights::READ_WRITE), writable);
         }
-        assert!(!allows(&rules, &base.join("other/main.txt"), false, true));
+        assert!(!allows(
+            &rules,
+            &base.join("other/main.txt"),
+            AccessRights::WRITE
+        ));
     }
 }
 
@@ -99,8 +110,8 @@ write = [{ glob = "!**/*.mbt" }]
 "#,
     );
     for path in ["src/main.mbt", "src/main.txt", "!src/main.mbt"] {
-        assert!(!allows(&rules, &base.join(path), true, false));
-        assert!(!allows(&rules, &base.join(path), false, true));
+        assert!(!allows(&rules, &base.join(path), AccessRights::READ));
+        assert!(!allows(&rules, &base.join(path), AccessRights::WRITE));
     }
 }
 
@@ -128,12 +139,12 @@ fn excluded_globs_resolve_anchors_after_the_negation_prefix() {
         ] {
             let path = base.join(path);
             assert_eq!(
-                allows(&rules, &path, true, false),
+                allows(&rules, &path, AccessRights::READ),
                 allowed,
                 "{glob}: {path:?}"
             );
             assert_eq!(
-                allows(&rules, &path, false, true),
+                allows(&rules, &path, AccessRights::WRITE),
                 allowed,
                 "{glob}: {path:?}"
             );
@@ -153,13 +164,25 @@ read = ["!src", { glob = "./!notes.txt" }]
 write = [{ glob = "[!a]*.txt" }, { glob = "!!blocked.txt" }]
 "#,
     );
-    assert!(allows(&rules, &base.join("!src/main.mbt"), true, false));
-    assert!(allows(&rules, &base.join("!notes.txt"), true, false));
-    assert!(!allows(&rules, &base.join("notes.txt"), true, false));
-    assert!(allows(&rules, &base.join("b.txt"), false, true));
-    assert!(!allows(&rules, &base.join("a.txt"), false, true));
-    assert!(allows(&rules, &base.join("!other.txt"), false, true));
-    assert!(!allows(&rules, &base.join("!blocked.txt"), false, true));
+    assert!(allows(
+        &rules,
+        &base.join("!src/main.mbt"),
+        AccessRights::READ
+    ));
+    assert!(allows(&rules, &base.join("!notes.txt"), AccessRights::READ));
+    assert!(!allows(&rules, &base.join("notes.txt"), AccessRights::READ));
+    assert!(allows(&rules, &base.join("b.txt"), AccessRights::WRITE));
+    assert!(!allows(&rules, &base.join("a.txt"), AccessRights::WRITE));
+    assert!(allows(
+        &rules,
+        &base.join("!other.txt"),
+        AccessRights::WRITE
+    ));
+    assert!(!allows(
+        &rules,
+        &base.join("!blocked.txt"),
+        AccessRights::WRITE
+    ));
 }
 
 #[test]
@@ -192,8 +215,16 @@ write = ["*", { glob = "!private/**" }]
             ("private/main.txt", true, false),
         ] {
             let path = child_dir.join(path);
-            assert_eq!(allows(&effective, &path, true, false), read, "{path:?}");
-            assert_eq!(allows(&effective, &path, false, true), write, "{path:?}");
+            assert_eq!(
+                allows(&effective, &path, AccessRights::READ),
+                read,
+                "{path:?}"
+            );
+            assert_eq!(
+                allows(&effective, &path, AccessRights::WRITE),
+                write,
+                "{path:?}"
+            );
         }
         let bytes = effective.open_transfer().unwrap().read().unwrap();
         effective = Policy::from_transfer(&bytes).unwrap();
@@ -274,9 +305,17 @@ read = ["data[1]"]
 write = ["*"]
 "#,
     );
-    assert!(allows(&rules, &base.join("data[1]/new.bin"), true, false));
-    assert!(!allows(&rules, &base.join("data1/new.bin"), true, false));
-    assert!(allows(&rules, &base.join("anything"), false, true));
+    assert!(allows(
+        &rules,
+        &base.join("data[1]/new.bin"),
+        AccessRights::READ
+    ));
+    assert!(!allows(
+        &rules,
+        &base.join("data1/new.bin"),
+        AccessRights::READ
+    ));
+    assert!(allows(&rules, &base.join("anything"), AccessRights::WRITE));
 }
 
 #[test]
@@ -291,19 +330,26 @@ fn glob_anchors_support_source_parent_and_absolute_paths() {
 read = [{ glob = "../logs/**/*.txt" }]
 "#,
     );
-    assert!(allows(&relative, &base.join("logs/new.txt"), true, false));
+    assert!(allows(
+        &relative,
+        &base.join("logs/new.txt"),
+        AccessRights::READ
+    ));
     assert!(!allows(
         &relative,
         &source.join("logs/new.txt"),
-        true,
-        false
+        AccessRights::READ
     ));
 
     let absolute = serde_json::json!({"fs":{"read":[{"glob":base.join("logs/**/*.txt")} ]}});
     let absolute = source::resolve(serde_json::from_value(absolute).unwrap(), &source)
         .unwrap()
         .policy;
-    assert!(allows(&absolute, &base.join("logs/new.txt"), true, false));
+    assert!(allows(
+        &absolute,
+        &base.join("logs/new.txt"),
+        AccessRights::READ
+    ));
 
     let anchored = policy(
         &source,
@@ -311,12 +357,15 @@ read = [{ glob = "../logs/**/*.txt" }]
 read = [{ glob = "*.txt" }]
 "#,
     );
-    assert!(allows(&anchored, &source.join("new.txt"), true, false));
+    assert!(allows(
+        &anchored,
+        &source.join("new.txt"),
+        AccessRights::READ
+    ));
     assert!(!allows(
         &anchored,
         &base.join("config1/new.txt"),
-        true,
-        false
+        AccessRights::READ
     ));
 }
 
@@ -328,12 +377,15 @@ fn a_bare_policy_filename_anchors_globs_in_the_current_directory() {
         "[fs]\nread = [{ glob = \"logs/*.txt\" }]\n",
     );
     let base = std::fs::canonicalize(".").unwrap();
-    assert!(allows(&rules, &base.join("logs/new.txt"), true, false));
+    assert!(allows(
+        &rules,
+        &base.join("logs/new.txt"),
+        AccessRights::READ
+    ));
     assert!(!allows(
         &rules,
         &base.join("logs/deep/new.txt"),
-        true,
-        false
+        AccessRights::READ
     ));
 }
 
@@ -365,26 +417,22 @@ read = [{ glob = "public/**" }]
         assert!(allows(
             &effective,
             &child_dir.join("public/new.txt"),
-            true,
-            false
+            AccessRights::READ
         ));
         assert!(!allows(
             &effective,
             &child_dir.join("public/new.bin"),
-            true,
-            false
+            AccessRights::READ
         ));
         assert!(!allows(
             &effective,
             &child_dir.join("private/new.txt"),
-            true,
-            false
+            AccessRights::READ
         ));
         assert!(!allows(
             &effective,
             &child_dir.join("public/new.log"),
-            false,
-            true
+            AccessRights::WRITE
         ));
     }
 }
@@ -469,8 +517,8 @@ fn native_names_are_not_lossily_substituted_before_matching() {
         &base,
         "[fs]\nread = [{ glob = \"bad-�.txt\" }]\nwrite = [{ glob = \"*.txt\" }]\n",
     );
-    assert!(!allows(&rules, &base.join(&name), true, false));
-    assert!(allows(&rules, &base.join(&name), false, true));
+    assert!(!allows(&rules, &base.join(&name), AccessRights::READ));
+    assert!(allows(&rules, &base.join(&name), AccessRights::WRITE));
 }
 
 #[test]
@@ -478,16 +526,19 @@ fn glob_backslashes_follow_native_separator_rules() {
     let directory = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(directory.path()).unwrap();
     let rules = policy(&base, "[fs]\nread = [{ glob = 'logs\\*.txt' }]\n");
-    assert!(allows(&rules, &base.join(r"logs\new.txt"), true, false));
+    assert!(allows(
+        &rules,
+        &base.join(r"logs\new.txt"),
+        AccessRights::READ
+    ));
     assert_eq!(
-        allows(&rules, &base.join("logs/new.txt"), true, false),
+        allows(&rules, &base.join("logs/new.txt"), AccessRights::READ),
         cfg!(windows)
     );
     assert!(!allows(
         &rules,
         &base.join("logs/deep/new.txt"),
-        true,
-        false
+        AccessRights::READ
     ));
     #[cfg(windows)]
     for pattern in [r"C:logs\*.txt", r"\logs\*.txt"] {

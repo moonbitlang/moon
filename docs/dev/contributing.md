@@ -26,14 +26,28 @@ Check which `moon` your shell resolves before testing an installed build.
 | Area | Entry points |
 | --- | --- |
 | CLI parsing and command orchestration | [`moon/src/cli`](../../crates/moon/src/cli), [`cli.rs`](../../crates/moon/src/cli.rs) |
-| CLI integration with Rupes Recta and dry-run rendering | [`moon/src/rr_build`](../../crates/moon/src/rr_build) |
+| CLI build options and target selection | [`moon/src/cli/build_flags.rs`](../../crates/moon/src/cli/build_flags.rs), [`target.rs`](../../crates/moon/src/cli/target.rs), [`selection.rs`](../../crates/moon/src/cli/selection.rs) |
+| `moon build` package scope and request selection | [`moon/src/cli/build/selection.rs`](../../crates/moon/src/cli/build/selection.rs) |
+| Dry-run rendering | [`moon/src/dry_run.rs`](../../crates/moon/src/dry_run.rs) |
 | Dependency sync and script declaration preparation | [`moonbuild/src/prepare`](../../crates/moonbuild/src/prepare) |
 | Package discovery, package resolution, planning, and lowering | [`moonbuild-rupes-recta/src`](../../crates/moonbuild-rupes-recta/src/lib.rs) |
-| Build compilation orchestration and external-input preparation | [`moonbuild/src/compile.rs`](../../crates/moonbuild/src/compile.rs) |
-| Execution Plans, n2 scheduling, and diagnostics | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
+| Build operation and compilation configuration | [`moonbuild-rupes-recta/src/compile`](../../crates/moonbuild-rupes-recta/src/compile/mod.rs) |
+| Package identities and import visibility | [`moonbuild-rupes-recta/src/pkg_name.rs`](../../crates/moonbuild-rupes-recta/src/pkg_name.rs) |
+| Build sessions, module prebuild, and standalone Wasm compilation | [`moonbuild/src/compile`](../../crates/moonbuild/src/compile) |
+| Build planning and external-input preparation | [`moonbuild/src/compile.rs`](../../crates/moonbuild/src/compile.rs) |
+| Generated package metadata model | [`moonbuild-rupes-recta/src/metadata.rs`](../../crates/moonbuild-rupes-recta/src/metadata.rs) |
+| Build metadata publication | [`moonbuild/src/metadata.rs`](../../crates/moonbuild/src/metadata.rs) |
+| Execution Plans and n2 scheduling | [`moonbuild/src/execution`](../../crates/moonbuild/src/execution) |
+| Compiler diagnostics and source rendering | [`moonbuild/src/execution/diagnostics.rs`](../../crates/moonbuild/src/execution/diagnostics.rs), [`diagnostics/render.rs`](../../crates/moonbuild/src/execution/diagnostics/render.rs) |
 | Test invocation and result reporting | [`moon/src/run/runtime.rs`](../../crates/moon/src/run/runtime.rs), [`run/runtest/report.rs`](../../crates/moon/src/run/runtest/report.rs) |
-| Test result data and expect/snapshot promotion | [`moonbuild/src/runtest.rs`](../../crates/moonbuild/src/runtest.rs), [`expect.rs`](../../crates/moonbuild/src/expect.rs) |
+| Test result data and expect/snapshot promotion | [`moon/src/run/runtest.rs`](../../crates/moon/src/run/runtest.rs), [`expect.rs`](../../crates/moon/src/run/runtest/expect.rs) |
 | Package management and registry access | [`mooncake/src/pkg`](../../crates/mooncake/src/pkg), [`resolver`](../../crates/mooncake/src/resolver), [`registry`](../../crates/mooncake/src/registry) |
+| Registry module and package coordinate parsing | [`mooncake/src/registry/path.rs`](../../crates/mooncake/src/registry/path.rs) |
+| Module dependency synchronization | [`mooncake/src/pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
+| Binary installation commands | [`moon/src/cli/deps.rs`](../../crates/moon/src/cli/deps.rs), [`install_binary.rs`](../../crates/moon/src/cli/install_binary.rs) |
+| Shared package-management CLI and stdin payloads | [`mooncake/src/cli.rs`](../../crates/mooncake/src/cli.rs), [`pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
+| Module names and name/version validation | [`moonutil/src/module_name.rs`](../../crates/moonutil/src/module_name.rs) |
+| Module sources and resolved dependency graphs | [`moonutil/src/resolution.rs`](../../crates/moonutil/src/resolution.rs) |
 | Dependency edits preserving manifest comments | [`mooncake/src/pkg/manifest_edit.rs`](../../crates/mooncake/src/pkg/manifest_edit.rs) |
 | Paths, feature flags, and shared types | [`moonutil/src`](../../crates/moonutil/src) |
 | Wasm runtime | [Moonrun developer guide](../../crates/moonrun/docs/dev/README.md) |

@@ -60,7 +60,7 @@ fn get_existing_username(user_log: &UserLog) -> Option<String> {
 
 /// Create a new MoonBit module
 #[derive(Debug, clap::Parser)]
-pub(crate) struct NewSubcommand {
+pub(super) struct NewSubcommand {
     /// The path of the new project.
     pub path: String,
 
@@ -73,7 +73,7 @@ pub(crate) struct NewSubcommand {
     pub name: Option<String>,
 }
 
-pub(crate) fn run_new(
+pub(super) fn run_new(
     cli: &UniversalFlags,
     cmd: NewSubcommand,
     user_log: &UserLog,

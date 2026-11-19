@@ -29,9 +29,8 @@ use anyhow::{Context, bail};
 use cache::MetadataCache;
 use indexmap::IndexMap;
 use moonutil::{
-    MoonHomeLayout,
-    dependency::SourceDependencyInfo,
-    resolution::{ModuleName, ModuleSource},
+    MoonHomeLayout, dependency::SourceDependencyInfo, module_name::ModuleName,
+    resolution::ModuleSource,
 };
 use once_cell::unsync::OnceCell;
 use reqwest::StatusCode;

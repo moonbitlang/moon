@@ -20,18 +20,17 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
-use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
+use moonbuild::prepare::{ProjectPreparationConfig, sync_and_discover_project};
 use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
-    resolve::{DiscoveredProject, ResolvedProject, discover_synced_project},
+    resolve::{DiscoveredProject, ResolvedProject},
 };
-use mooncake::pkg::{sync::SyncOutputOptions, tree::ResolvedTree};
+use mooncake::pkg::tree::ResolvedTree;
 use moonutil::{
-    child_process::ChildOutputMode,
-    cli_support::UniversalFlags,
     command_output::CommandOutput,
     project::PackageDirs,
     resolution::{ModuleDependencyGraph, ModuleId, ModuleSourceKind},
@@ -41,8 +40,8 @@ use moonutil::{
 use serde::Serialize;
 
 use super::{
+    deps::require_selected_module,
     invocation::{JsonCommand, JsonCommandOutcome},
-    require_selected_module,
 };
 
 const MODULE_TREE_JSON_VERSION: u32 = 1;
@@ -58,7 +57,7 @@ const TREE_JSON_ERROR_EXIT_CODE: i32 = -1;
 /// JSON output represents shared dependencies once and preserves their
 /// relationships as edges.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct TreeSubcommand {
+pub(super) struct TreeSubcommand {
     /// Output one complete JSON result to stdout
     #[clap(long)]
     pub json: bool,
@@ -97,19 +96,14 @@ impl ResolvedPackageTree {
     }
 }
 
-pub(crate) fn tree_cli(
+pub(super) fn tree_cli(
     cli: UniversalFlags,
     cmd: TreeSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let dedupe = !cmd.no_dedupe;
     let rendered = if cmd.package {
-        let tree = resolve_selected_package_graph(
-            &cli,
-            cmd.target,
-            output.user_log(),
-            ChildOutputMode::Inherit,
-        )?;
+        let tree = resolve_selected_package_graph(&cli, cmd.target, output.user_log())?;
         render_package_tree(&tree, dedupe)
     } else {
         let resolved = resolve_selected_tree(&cli, output.user_log())?;
@@ -148,17 +142,10 @@ fn resolve_selected_package_graph(
     cli: &UniversalFlags,
     target: Option<TargetBackend>,
     user_log: &UserLog,
-    child_output: ChildOutputMode,
 ) -> anyhow::Result<ResolvedPackageTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
-    let preparation_config =
-        ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
-            .with_sync_output(SyncOutputOptions {
-                quiet: false,
-                child_output,
-            });
-    let synced = sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let discovered = discover_synced_project(&preparation_config.discovery, synced, user_log)?;
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false);
+    let discovered = sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let selected_module = discovered
         .local_modules()
         .iter()
@@ -189,7 +176,7 @@ fn run_tree_json(
     let user_log = output.user_log();
     if cmd.package {
         TreeJsonOutcome::package(
-            resolve_selected_package_graph(cli, cmd.target, user_log, ChildOutputMode::Capture)
+            resolve_selected_package_graph(cli, cmd.target, user_log)
                 .map(Box::new)
                 .map_err(|error| format!("{error:#}")),
             cmd.target,
@@ -252,7 +239,7 @@ struct TreeJsonCommand {
     command: TreeSubcommand,
 }
 
-pub(crate) fn json_command(command: TreeSubcommand) -> Box<dyn JsonCommand> {
+pub(super) fn json_command(command: TreeSubcommand) -> Box<dyn JsonCommand> {
     Box::new(TreeJsonCommand { command })
 }
 

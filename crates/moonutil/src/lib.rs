@@ -19,11 +19,8 @@
 #![warn(clippy::clone_on_ref_ptr)]
 
 mod binaries;
-pub mod build_options;
-pub mod build_script;
 pub mod cache;
 pub mod child_process;
-mod cli;
 pub mod cli_support;
 pub mod command_output;
 pub mod compiler_flags;
@@ -38,23 +35,20 @@ pub mod front_matter;
 pub mod locks;
 pub mod manifest;
 mod module;
+pub mod module_name;
 mod moon_dir;
 pub mod moon_pkg;
-mod mooncakes;
 pub mod package;
 pub mod path;
 pub mod path_normalizer;
 pub mod policy_transport;
 pub mod project;
-pub mod render;
 pub mod resolution;
 pub mod run_handoff;
 pub mod scripts;
 pub mod shlex;
 pub mod supported_targets;
 pub mod target;
-pub mod test_metadata;
-pub mod text;
 pub mod toolchain;
 pub mod user_log;
 pub mod version;

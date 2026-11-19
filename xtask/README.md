@@ -6,8 +6,8 @@ cargo xtask
 
 This runs:
 
-- `cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project check`
-- `cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project fmt --check`
+- `cargo run --bin moon -- -C crates/moon/template/test_driver_project check`
+- `cargo run --bin moon -- -C crates/moon/template/test_driver_project fmt --check`
 - `cargo fmt -- --check`
 - `cargo clippy --workspace --exclude moonrun --all-targets --all-features -- -D warnings`
 - `cargo clippy -p moonrun --all-targets -- -D warnings`
@@ -15,7 +15,7 @@ This runs:
 
 If any check fails, `xtask` prints plain copy-paste commands, for example:
 
-- `cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project fmt`
+- `cargo run --bin moon -- -C crates/moon/template/test_driver_project fmt`
 - `cargo clippy --fix --workspace --exclude moonrun --all-targets --all-features --allow-dirty --allow-staged`
 - `cargo clippy --fix -p moonrun --all-targets --allow-dirty --allow-staged`
 - `cargo clippy --fix -p moonrun --all-targets --no-default-features --features wasmtime --allow-dirty --allow-staged`

@@ -39,7 +39,7 @@ pub(crate) use scan::PackageInput;
 
 use crate::pkg_name::PackageFQN;
 use moonutil::{
-    manifest::{read_module_manifest, warn_module_manifest},
+    manifest::{read_dependency_module_manifest, read_module_manifest, warn_module_manifest},
     package::resolve_supported_targets,
     project::ProjectManifest,
     resolution::{
@@ -77,20 +77,24 @@ pub fn discover_for_build(
         let dir = dirs
             .get(id)
             .expect("resolved module has a source directory");
-        // Author-facing manifest warnings depend on the module's role, not its
-        // storage directory. Read/validation errors are still returned for every module.
+        // Author-facing diagnostics depend on the module's role, not its storage
+        // directory. Dependencies still receive ordinary parse/validation errors,
+        // but obsolete packaging filters only prevent loading project manifests.
         let emit_warnings = module_graph.input_module_ids().contains(&id)
             && !matches!(source.source(), ModuleSourceKind::Stdlib(_));
-        let (format, manifest) = read_module_manifest(dir, false).map_err(|inner| {
-            DiscoverError::CantReadModuleFile {
-                module: source.clone(),
-                path: dir.clone(),
-                inner,
-            }
-        })?;
-        if emit_warnings {
-            warn_module_manifest(dir, format, &manifest, user_log);
+        let manifest = if emit_warnings {
+            read_module_manifest(dir, false).map(|(format, manifest)| {
+                warn_module_manifest(dir, format, &manifest, user_log);
+                manifest
+            })
+        } else {
+            read_dependency_module_manifest(dir)
         }
+        .map_err(|inner| DiscoverError::CantReadModuleFile {
+            module: source.clone(),
+            path: dir.clone(),
+            inner,
+        })?;
         if manifest.name != module_graph.module_info(id).name {
             return Err(DiscoverError::ModuleNameMismatch {
                 registry: module_graph.module_info(id).name.clone(),
@@ -264,8 +268,9 @@ mod tests {
                 std::fs::copy(fixture.join(relative).join(file), target.join(file))?;
             }
         }
+        let root_dir = std::fs::canonicalize(root_dir)?;
         let root = moonutil::manifest::read_module_desc_file_in_dir(&root_dir)?;
-        let dependency = moonutil::manifest::read_module_desc_file_in_dir(&dependency_dir)?;
+        let dependency = moonutil::manifest::read_dependency_module_manifest(&dependency_dir)?;
         let (mut graph, root_id) = ModuleDependencyGraph::only_one_module(
             ModuleSource::from_local_module(&root, &root_dir)?,
             root,
@@ -275,19 +280,36 @@ mod tests {
             std::sync::Arc::new(dependency),
         );
         let mut dirs = DirSyncResult::default();
-        dirs.insert(root_id, root_dir);
+        dirs.insert(root_id, root_dir.clone());
         dirs.insert(dependency_id, dependency_dir.clone());
 
         for level in [log::LevelFilter::Warn, log::LevelFilter::Error] {
             let (log, capture) = UserLog::captured(level);
             discover_for_build(&graph, &dirs, Some(2), &log)?;
             let warnings = capture.take();
-            assert_eq!(warnings.len(), usize::from(level == log::LevelFilter::Warn));
-            if let Some(warning) = warnings.first() {
+            let messages: Vec<_> = warnings
+                .iter()
+                .map(|warning| warning.message.as_str())
+                .collect();
+            if level == log::LevelFilter::Warn {
                 assert_eq!(
-                    warning.message,
-                    "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                    messages,
+                    [
+                        format!(
+                            "Unknown configuration key `project-future` in `{}`.",
+                            root_dir.join("moon.mod").display()
+                        )
+                        .as_str(),
+                        "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead.",
+                        format!(
+                            "Unknown configuration key `project-future` in `{}`.",
+                            root_dir.join("moon.pkg").display()
+                        )
+                        .as_str(),
+                    ]
                 );
+            } else {
+                assert!(messages.is_empty());
             }
         }
         // Suppressing a dependency's author-facing warnings must not suppress

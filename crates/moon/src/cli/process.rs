@@ -22,7 +22,7 @@ use std::{
 };
 
 /// The only process-wide actions a selected Moon invocation may request.
-pub(crate) enum ProcessAction {
+pub(super) enum ProcessAction {
     Exit(i32),
     Delegate(Command),
     DelegateWithPolicyRelay(Command, moonutil::policy_transport::PolicyRelay),
@@ -35,7 +35,7 @@ impl From<i32> for ProcessAction {
 }
 
 /// Execute an action after the invocation's tracing state has been dropped.
-pub(crate) fn execute(action: ProcessAction) -> anyhow::Result<i32> {
+pub(super) fn execute(action: ProcessAction) -> anyhow::Result<i32> {
     match action {
         ProcessAction::Exit(code) => Ok(code),
         ProcessAction::Delegate(mut command) => Ok(delegate(&mut command)?.code().unwrap_or(0)),
@@ -84,7 +84,7 @@ fn delegate_with_policy_relay(
 
 /// Construct a delegated command whose executable lookup and child working
 /// directory use the same effective command directory.
-pub(crate) fn command_in_effective_dir(
+pub(super) fn command_in_effective_dir(
     current_dir: Option<&Path>,
     resolve_program: impl FnOnce(Option<&Path>) -> anyhow::Result<PathBuf>,
 ) -> anyhow::Result<Command> {
@@ -109,7 +109,7 @@ fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
 
 /// Keep the parent alive while its Windows console delivers Ctrl-C to children.
 #[cfg(windows)]
-pub(crate) fn install_ctrl_c_passthrough_handler() -> anyhow::Result<()> {
+pub(super) fn install_ctrl_c_passthrough_handler() -> anyhow::Result<()> {
     use anyhow::bail;
     use windows_sys::Win32::Foundation::{FALSE, TRUE};
     use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;

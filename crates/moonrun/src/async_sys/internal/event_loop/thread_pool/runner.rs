@@ -20,7 +20,9 @@ use super::sleep::run_sleep_job;
 use super::types::{Job, JobPayload};
 use crate::async_host::AsyncHostError;
 
-pub(crate) fn run_host_job(job: &mut Job) {
+// Dispatch uses the Runtime's filesystem; it must not construct a policy-free
+// substitute or interpret filesystem requests before domain execution.
+pub(crate) fn run_host_job(job: &mut Job, filesystem: &crate::filesystem::HostFs) {
     job.set_ret(0);
 
     let result = match job.payload_mut() {
@@ -29,7 +31,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
             run_sleep_job(*duration_ms);
             Ok(0)
         }
-        JobPayload::Filesystem(job) => job.run(),
+        JobPayload::Filesystem(job) => job.run(filesystem),
         JobPayload::Network(job) => job.run(),
         JobPayload::Process(job) => job.run(),
         JobPayload::Sqlite(job) => job.run(),

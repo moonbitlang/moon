@@ -19,7 +19,7 @@
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
+    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject, RunMode,
     build_lower::{WarningCondition, lower_build_plan},
     build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
@@ -29,7 +29,6 @@ use moonbuild_rupes_recta::{
     target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
 };
 use moonutil::{
-    build_options::RunMode,
     cond_expr::OptLevel,
     manifest::read_module_desc_file_in_dir,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource},
@@ -118,12 +117,10 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                 ),
                 None,
             ),
-            target_dir: target_dir.path().to_owned(),
             backend,
             opt_level: OptLevel::Debug,
             action: RunMode::Test,
             debug_info: DebugInfoRequest::default(),
-            stdlib_path: None,
             debug_export_build_plan: false,
             enable_coverage: false,
             moonc_output_json: false,
@@ -239,12 +236,10 @@ import { "example/conditional/helper" } for "test"
                 ),
                 None,
             ),
-            target_dir,
             backend,
             opt_level: OptLevel::Debug,
             action: RunMode::Check,
             debug_info: DebugInfoRequest::default(),
-            stdlib_path: None,
             debug_export_build_plan: false,
             enable_coverage: false,
             moonc_output_json: false,
@@ -322,22 +317,27 @@ import { "example/conditional/helper" } for "test"
             backend,
             &CheckCommandMap::new(),
         );
-        let app_metadata = metadata
-            .packages
+        let metadata = serde_json::to_value(metadata).unwrap();
+        let app_metadata = metadata["packages"]
+            .as_array()
+            .unwrap()
             .iter()
-            .find(|pkg| pkg.rel == "app")
+            .find(|pkg| pkg["rel"] == "app")
             .unwrap();
-        assert_eq!(app_metadata.deps.len(), 1);
-        assert_eq!(app_metadata.deps[0].alias, "platform");
+        assert_eq!(app_metadata["deps"].as_array().unwrap().len(), 1);
+        assert_eq!(app_metadata["deps"][0]["alias"], "platform");
         assert_eq!(
-            app_metadata.deps[0].path,
+            app_metadata["deps"][0]["path"],
             format!("example/conditional/{implementation}")
         );
         assert_eq!(
-            app_metadata.wbtest_deps.len(),
+            app_metadata["wbtest-deps"].as_array().unwrap().len(),
             usize::from(backend == Native)
         );
-        assert_eq!(app_metadata.test_deps.len(), usize::from(backend == Native));
+        assert_eq!(
+            app_metadata["test-deps"].as_array().unwrap().len(),
+            usize::from(backend == Native)
+        );
     }
 }
 

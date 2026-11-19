@@ -79,8 +79,11 @@ pub(crate) fn watching(
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            ctrlc::set_handler(moonutil::cli_support::dialoguer_ctrlc_handler)
-                .expect("Error setting Ctrl-C handler");
+            ctrlc::set_handler(|| {
+                let _ = dialoguer::console::Term::stdout().show_cursor();
+                std::process::exit(1);
+            })
+            .expect("Error setting Ctrl-C handler");
             debug!("Ctrl-C handler registered for watch mode");
         }
     }

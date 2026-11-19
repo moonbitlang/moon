@@ -20,11 +20,8 @@ options(
   },
   "compile-flags": ["-DDEBUG", "-Wall"],
   "link-flags": ["-lm"],
-  warnings: "-unused",
-  "warn-list": "-deprecated",
+  warnings: "-unused-deprecated",
   "preferred-target": "wasm-gc",
-  "include": ["src/**", "README.mbt.md"],
-  "exclude": ["target/**", "**/*.tmp"],
   "scripts": {
     "prebuild": "node ./prebuild.js",
     "postbuild": "echo done",

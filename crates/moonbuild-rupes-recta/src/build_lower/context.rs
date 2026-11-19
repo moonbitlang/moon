@@ -20,7 +20,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use moonutil::{
@@ -383,20 +383,6 @@ impl<'a> LoweringContext<'a> {
             inputs.extend(self.toolchain_include_files.iter().cloned());
         }
 
-        // These are the only Moon-owned libraries that command construction
-        // may append as standalone argv. Compare their exact rendered paths;
-        // arbitrary command arguments remain opaque to lowering.
-        // TODO: Remove this argv scan once native command construction returns
-        // the selected toolchain library paths together with its arguments.
-        if let Some(compiler_paths) = self.opt.backend.compiler_paths() {
-            for name in ["libmoonbitrun.o", "libbacktrace.a"] {
-                let path = Path::new(&compiler_paths.lib_path).join(name);
-                let rendered = path.display().to_string();
-                if command.args().iter().any(|argument| argument == &rendered) {
-                    inputs.push(path);
-                }
-            }
-        }
         inputs.extend(
             action_artifacts
                 .dependencies

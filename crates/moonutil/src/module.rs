@@ -17,42 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::dependency::SourceDependencyInfo;
-use crate::manifest::{MoonModJSONFormatErrorKind, NameError};
-use crate::mooncakes::ModuleName;
-use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
+use crate::module_name::ModuleName;
+use crate::package::{SupportedTargetsConfig, resolve_supported_targets};
 use crate::target::TargetBackend;
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ModuleDBJSON {
-    pub source_dir: String,
-    pub name: String,
-    pub packages: Vec<PackageJSON>,
-    pub deps: Vec<String>,
-    pub backend: String,
-    pub opt_level: String,
-    pub source: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PackagesSelectorJSON {
-    pub backend: String,
-    pub opt_level: String,
-}
-
-#[test]
-fn packages_selector_json_matches_compiler_contract() {
-    let value = serde_json_lenient::to_string(&PackagesSelectorJSON {
-        backend: "wasm-gc".to_string(),
-        opt_level: "debug".to_string(),
-    })
-    .unwrap();
-    assert_eq!(value, r#"{"backend":"wasm-gc","opt_level":"debug"}"#);
-}
+use std::{collections::HashSet, fmt::Debug};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MoonMod {
@@ -74,7 +46,6 @@ pub struct MoonMod {
 
     pub compile_flags: Option<Vec<String>>,
     pub link_flags: Option<Vec<String>>,
-    pub checksum: Option<String>,
     pub source: Option<String>,
     pub rule: Option<Vec<MoonModRule>>,
 
@@ -83,15 +54,6 @@ pub struct MoonMod {
     pub ext: serde_json_lenient::Value,
 
     pub warn_list: Option<String>,
-
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    pub include: Option<Vec<String>>,
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    pub exclude: Option<Vec<String>>,
 
     pub preferred_target: Option<TargetBackend>,
     pub supported_targets: Option<SupportedTargetsConfig>,
@@ -104,37 +66,38 @@ pub struct MoonMod {
 pub struct MoonModRule {
     pub name: String,
     pub command: String,
+    #[serde(flatten)]
+    #[schemars(skip)]
+    pub extra: serde_json_lenient::Map<String, serde_json_lenient::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum MoonModJSONRules {
-    Single(MoonModRule),
-    Multiple(Vec<MoonModRule>),
-}
-
-impl MoonModJSONRules {
-    fn into_vec(self) -> Vec<MoonModRule> {
-        match self {
-            Self::Single(rule) => vec![rule],
-            Self::Multiple(rules) => rules,
-        }
+// TODO: Remove the single-object input when legacy module JSON support is retired.
+fn deserialize_rules<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<MoonModRule>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Rules {
+        Single(MoonModRule),
+        Multiple(Vec<MoonModRule>),
     }
-
-    fn from_vec(mut rules: Vec<MoonModRule>) -> Option<Self> {
-        match rules.len() {
-            0 => None,
-            1 => rules.pop().map(Self::Single),
-            _ => Some(Self::Multiple(rules)),
-        }
-    }
+    Ok(
+        Option::<Rules>::deserialize(deserializer)?.map(|rules| match rules {
+            Rules::Single(rule) => vec![rule],
+            Rules::Multiple(rules) => rules,
+        }),
+    )
 }
 
+/// Internal normalized module representation, without a stable JSON input contract.
+/// User manifests use the legacy JSON names or the DSL. Deserialization accepts
+/// legacy names through aliases; accepting other spellings is incidental.
+// TODO: Remove legacy input aliases only if user-authored JSON support is retired.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schemars(
-    title = "JSON schema for MoonBit moon.mod.json files",
-    description = "A module of MoonBit lang"
+    title = "Internal normalized module JSON",
+    description = "Unstable internal representation; not a user manifest format or a compatibility promise"
 )]
 pub struct MoonModJSON {
     /// name of the module
@@ -158,7 +121,8 @@ pub struct MoonModJSON {
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfo>>")]
-    pub deps: Option<IndexMap<String, SourceDependencyInfo>>,
+    #[serde(alias = "deps")]
+    pub import: Option<IndexMap<String, SourceDependencyInfo>>,
 
     /// path to module's README file
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,18 +154,18 @@ pub struct MoonModJSON {
     #[schemars(skip)]
     pub link_flags: Option<Vec<String>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub checksum: Option<String>,
-
     /// source code directory of this module
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "root-dir")]
     pub source: Option<String>,
 
     /// Rules that can be referenced by package-level `dev_build` entries.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rule: Option<MoonModJSONRules>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_rules",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub rule: Option<Vec<MoonModRule>>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -210,19 +174,8 @@ pub struct MoonModJSON {
 
     /// Warn list setting of the module
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub warn_list: Option<String>,
-
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<String>>,
-
-    /// Deprecated. Use `.gitignore` or `.moonignore` to control which files
-    /// are packaged instead. `.moonignore` overrides `.gitignore` in the same
-    /// directory.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude: Option<Vec<String>>,
+    #[serde(rename = "warnings", alias = "warn-list")]
+    pub warnings: Option<String>,
 
     /// Scripts related to the current module.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -236,14 +189,14 @@ pub struct MoonModJSON {
     /// However, this is merely a recommendation, and tools may deviate from
     /// this value at any time.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "preferred_target", alias = "preferred-target")]
     pub preferred_target: Option<String>,
 
     /// Supported backend set for all packages in this module.
     ///
     /// This uses the same expression/list grammar as `moon.pkg.json`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "supported-targets")]
-    #[schemars(rename = "supported-targets")]
+    #[serde(rename = "supported_targets", alias = "supported-targets")]
     pub supported_targets: Option<SupportedTargetsConfig>,
 
     /// **Experimental:** A relative path to the pre-build configuration script.
@@ -263,68 +216,99 @@ pub struct MoonModJSON {
     pub __moonbit_unstable_prebuild: Option<String>,
 }
 
-impl TryFrom<MoonModJSON> for MoonMod {
-    type Error = MoonModJSONFormatErrorKind;
-    fn try_from(j: MoonModJSON) -> Result<Self, Self::Error> {
-        if j.name.is_empty() {
-            return Err(MoonModJSONFormatErrorKind::Name(NameError::EmptyName));
+#[derive(Debug, thiserror::Error)]
+pub enum ModuleValidationError {
+    #[error("`name` should not be empty")]
+    EmptyName,
+    #[error("`source` should not contain invalid chars `{0:?}`")]
+    InvalidSourceChars(Vec<char>),
+    #[error("`source` not a subdirectory of the parent directory")]
+    SourceNotSubdirectory,
+    #[error("`version` bad format")]
+    Version(#[from] semver::Error),
+    #[error(transparent)]
+    ModuleVersion(#[from] crate::module_name::ModuleVersionError),
+    #[error("`preferred_target` is not a valid backend")]
+    PreferredTarget(anyhow::Error),
+    #[error("`supported_targets` bad format")]
+    SupportedTargets(anyhow::Error),
+    #[error("Duplicate rule name `{0}` found in module manifest.")]
+    DuplicateRule(String),
+    #[error(
+        "`{0}` is no longer supported in module manifests; use `.gitignore` or `.moonignore` to control packaged files. `.moonignore` overrides `.gitignore` in the same directory."
+    )]
+    RemovedPackagingField(&'static str),
+}
+
+impl MoonMod {
+    /// Validate module semantics after either input format has decoded its fields.
+    pub(crate) fn validated(self) -> Result<Self, ModuleValidationError> {
+        if self.name.is_empty() {
+            return Err(ModuleValidationError::EmptyName);
         }
-
-        let version = match &j.version {
-            None => None,
-            Some(v) => {
-                Some(Version::parse(v.as_str()).map_err(MoonModJSONFormatErrorKind::Version)?)
-            }
-        };
-
-        let deps = match j.deps {
-            None => IndexMap::new(),
-            Some(d) => d,
-        };
-
-        ModuleName::from(j.name.as_str()).validate_version(version.as_ref())?;
-        for (name, dep) in &deps {
+        ModuleName::from(self.name.as_str()).validate_version(self.version.as_ref())?;
+        for (name, dep) in &self.deps {
             ModuleName::from(name.as_str()).validate_version(dep.version())?;
         }
+        if let Some(source) = &self.source {
+            let invalid: Vec<_> = source
+                .chars()
+                .filter(|c| ['<', '>', ':', '"', '|', '?', '*'].contains(c))
+                .collect();
+            if !invalid.is_empty() {
+                return Err(ModuleValidationError::InvalidSourceChars(invalid));
+            }
+            if source.starts_with('/') || source.starts_with('\\') {
+                return Err(ModuleValidationError::SourceNotSubdirectory);
+            }
+        }
+        resolve_supported_targets(self.supported_targets.as_ref())
+            .map_err(ModuleValidationError::SupportedTargets)?;
+        let mut names = HashSet::new();
+        for rule in self.rule.iter().flatten() {
+            if !names.insert(rule.name.as_str()) {
+                return Err(ModuleValidationError::DuplicateRule(rule.name.clone()));
+            }
+        }
+        Ok(Self {
+            source: self
+                .source
+                .map(|s| if s.is_empty() { ".".into() } else { s }),
+            ..self
+        })
+    }
+}
 
-        let source = j.source.map(|s| if s.is_empty() { ".".into() } else { s });
-        let preferred_target = j
-            .preferred_target
-            .map(|x| TargetBackend::str_to_backend(&x))
-            .transpose()
-            .map_err(MoonModJSONFormatErrorKind::PreferredBackend)?;
-        resolve_supported_targets(j.supported_targets.as_ref())
-            .map_err(MoonModJSONFormatErrorKind::SupportedTargets)?;
-
-        Ok(MoonMod {
+impl TryFrom<MoonModJSON> for MoonMod {
+    type Error = ModuleValidationError;
+    fn try_from(j: MoonModJSON) -> Result<Self, Self::Error> {
+        MoonMod {
             name: j.name,
-            version,
+            version: j.version.as_deref().map(Version::parse).transpose()?,
             private: j.private,
-            deps,
+            deps: j.import.unwrap_or_default(),
             readme: j.readme,
             repository: j.repository,
             license: j.license,
             keywords: j.keywords,
             description: j.description,
-
             compile_flags: j.compile_flags,
             link_flags: j.link_flags,
-            checksum: j.checksum,
-            source,
-            rule: j.rule.map(MoonModJSONRules::into_vec),
+            source: j.source,
+            rule: j.rule,
             ext: j.ext,
-
-            warn_list: j.warn_list,
-
-            include: j.include,
-            exclude: j.exclude,
-
+            warn_list: j.warnings,
             scripts: j.scripts,
-            preferred_target,
+            preferred_target: j
+                .preferred_target
+                .as_deref()
+                .map(TargetBackend::str_to_backend)
+                .transpose()
+                .map_err(ModuleValidationError::PreferredTarget)?,
             supported_targets: j.supported_targets,
-
             __moonbit_unstable_prebuild: j.__moonbit_unstable_prebuild,
-        })
+        }
+        .validated()
     }
 }
 
@@ -333,7 +317,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         name: m.name,
         version: m.version.map(|v| v.to_string()),
         private: m.private,
-        deps: Some(m.deps),
+        import: Some(m.deps),
         readme: m.readme,
         repository: m.repository,
         license: m.license,
@@ -342,15 +326,11 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
 
         compile_flags: m.compile_flags,
         link_flags: m.link_flags,
-        checksum: m.checksum,
         source: m.source,
-        rule: m.rule.and_then(MoonModJSONRules::from_vec),
+        rule: m.rule,
         ext: m.ext,
 
-        warn_list: m.warn_list,
-
-        include: m.include,
-        exclude: m.exclude,
+        warnings: m.warn_list,
 
         scripts: m.scripts,
 

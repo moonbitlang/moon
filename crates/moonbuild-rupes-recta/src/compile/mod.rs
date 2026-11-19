@@ -16,9 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
-
-use moonutil::{build_options::RunMode, cond_expr::OptLevel};
+use moonutil::cond_expr::OptLevel;
 
 use crate::{
     build_lower::WarningCondition,
@@ -26,23 +24,46 @@ use crate::{
     target_layout::ArtifactPathResolver,
 };
 
+/// Build operation selecting planning rules and the target-directory layout.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum RunMode {
+    Bench,
+    Build,
+    Check,
+    Prove,
+    Run,
+    Test,
+    Bundle,
+    Format,
+}
+
+impl RunMode {
+    pub fn to_dir_name(self) -> &'static str {
+        match self {
+            Self::Bench => "bench",
+            Self::Build | Self::Run => "build",
+            Self::Check => "check",
+            Self::Prove => "prove",
+            Self::Test => "test",
+            Self::Bundle => "bundle",
+            Self::Format => "format",
+        }
+    }
+}
+
 /// Build configuration shared by planning and lowering.
 pub struct CompileConfig {
-    /// Target directory, i.e. `_build/`
-    pub target_dir: PathBuf,
     /// The backend and backend-specific configuration selected for this build.
     pub backend: BackendConfig,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
-    /// The action done in this operation, currently only used in legacy directory layout
+    /// The build operation selecting planning rules and the target-directory layout.
     pub action: RunMode,
     /// Debug information requested before the Native payload form is selected.
     pub debug_info: DebugInfoRequest,
 
-    /// The path to the standard library's project root, or `None` if to not
-    /// import the standard library during compilation.
-    pub stdlib_path: Option<PathBuf>,
-    /// Physical artifact path resolver selected for this compile run.
+    /// Physical artifact paths, including the selected target directory and
+    /// optional installed standard-library root.
     pub artifact_paths: ArtifactPathResolver,
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
@@ -64,14 +85,13 @@ pub struct CompileConfig {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use crate::RunMode;
     use moonutil::{
-        build_options::RunMode,
         cond_expr::OptLevel,
         manifest::MoonMod,
+        module_name::ModuleName,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{
-            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
-        },
+        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
         target::TargetBackend,
         user_log::UserLog,
     };
@@ -102,13 +122,10 @@ mod tests {
             description: None,
             compile_flags: None,
             link_flags: None,
-            checksum: None,
             source: None,
             rule: None,
             ext: Default::default(),
             warn_list: None,
-            include: None,
-            exclude: None,
             preferred_target: None,
             supported_targets: None,
             scripts: None,
@@ -118,7 +135,6 @@ mod tests {
 
     fn moon_pkg(is_main: bool) -> MoonPkg {
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main,
@@ -132,11 +148,10 @@ mod tests {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets: TargetBackend::all().iter().copied().collect(),
             native_stub: None,
             virtual_pkg: None,
@@ -211,18 +226,18 @@ mod tests {
             main.c_stub_files = vec![PathBuf::from("main/stub.c")];
             if let Some(flags) = c_flags {
                 main.raw.link = Some(moonutil::package::Link {
+                    extra: Default::default(),
                     wasm: None,
                     wasm_gc: None,
                     js: None,
                     native: Some(moonutil::package::NativeLinkConfig {
+                        extra: Default::default(),
                         exports: None,
                         cc: None,
                         cc_flags: Some(flags.into()),
                         cc_link_flags: None,
                         stub_cc: None,
                         stub_cc_flags: None,
-                        stub_cc_link_flags: None,
-                        stub_lib_deps: None,
                     }),
                 });
             }
@@ -254,7 +269,6 @@ mod tests {
                 DebugSymbols::Full,
             ] {
                 let config = CompileConfig {
-                    target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle: false,
@@ -270,7 +284,6 @@ mod tests {
                         symbols,
                         runtime_backtrace: true,
                     },
-                    stdlib_path: None,
                     artifact_paths: ArtifactPathResolver::new(
                         TargetLayout::new(
                             PathBuf::from("_build"),
@@ -494,18 +507,18 @@ mod tests {
         );
         let mut with_flags = package(module, &module_source, "with_flags", false, true);
         with_flags.raw.link = Some(moonutil::package::Link {
+            extra: Default::default(),
             wasm: None,
             wasm_gc: None,
             js: None,
             native: Some(moonutil::package::NativeLinkConfig {
+                extra: Default::default(),
                 exports: None,
                 cc: None,
                 cc_flags: Some("-fno-inline".into()),
                 cc_link_flags: None,
                 stub_cc: None,
                 stub_cc_flags: None,
-                stub_cc_link_flags: None,
-                stub_lib_deps: None,
             }),
         });
         let with_flags = packages.test_add_package(
@@ -540,7 +553,6 @@ mod tests {
                 (OptLevel::Release, true),
             ] {
                 let config = CompileConfig {
-                    target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle,
@@ -554,7 +566,6 @@ mod tests {
                     opt_level,
                     action: RunMode::Build,
                     debug_info: DebugInfoRequest::default(),
-                    stdlib_path: None,
                     artifact_paths: ArtifactPathResolver::new(
                         TargetLayout::new(
                             PathBuf::from("_build"),
@@ -762,12 +773,10 @@ mod tests {
             None,
         );
         let config = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Run,
             debug_info: DebugInfoRequest::default(),
-            stdlib_path: None,
             artifact_paths,
             debug_export_build_plan: true,
             enable_coverage: false,
@@ -876,12 +885,10 @@ mod tests {
             None,
         );
         let config = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Prove,
             debug_info: DebugInfoRequest::default(),
-            stdlib_path: None,
             artifact_paths,
             debug_export_build_plan: false,
             enable_coverage: false,

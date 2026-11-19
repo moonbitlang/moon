@@ -26,9 +26,9 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    child_process::{ChildOutputMode, ManagedChildRunner},
     constants::MOONBITLANG_CORE,
     locks::lock_directory,
+    manifest::read_dependency_module_manifest,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     toolchain,
     user_log::UserLog,
@@ -58,19 +58,13 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
 pub(super) struct ProjectDependencySource {
     path: PathBuf,
-    postadd_output: ChildOutputMode,
     jobs: Option<usize>,
 }
 
 impl ProjectDependencySource {
-    pub(super) fn new(
-        path: impl Into<PathBuf>,
-        postadd_output: ChildOutputMode,
-        jobs: Option<usize>,
-    ) -> Self {
+    pub(super) fn new(path: impl Into<PathBuf>, jobs: Option<usize>) -> Self {
         Self {
             path: path.into(),
-            postadd_output,
             jobs,
         }
     }
@@ -101,7 +95,7 @@ impl ProjectDependencySource {
                     continue;
                 }
                 let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/").into();
-                let module = moonutil::manifest::read_module_desc_file_in_dir(&pkg.path());
+                let module = moonutil::manifest::read_dependency_module_manifest(&pkg.path());
                 let version = module.map(|m| m.version).ok().flatten();
                 pkg_list.insert(pkg_name, version);
             }
@@ -120,9 +114,7 @@ impl DependencySource for ProjectDependencySource {
         frozen: bool,
         user_log: &UserLog,
     ) -> anyhow::Result<DirSyncResult> {
-        let postadd_runner = ManagedChildRunner::new(self.postadd_output, user_log);
-        sync(self, registry, resolved, frozen, &postadd_runner, user_log)
-            .context("When installing packages")?;
+        sync(self, registry, resolved, frozen, user_log).context("When installing packages")?;
         resolve_paths(self, resolved)
     }
 }
@@ -230,7 +222,6 @@ fn sync(
     registry: &dyn RegistrySource,
     pkg_list: &ModuleDependencyGraph,
     frozen: bool,
-    postadd_runner: &ManagedChildRunner,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // If nothing needs to be installed, don't bother
@@ -281,7 +272,7 @@ fn sync(
         log::info!("Creating user {} at {}", &user, user_path.display());
         std::fs::create_dir_all(user_path)?;
     }
-    // Download the missing archives together, then run legacy hooks serially.
+    // Download and extract the missing archives before publishing their sources.
     let sources = diff
         .add_pkg
         .into_values()
@@ -310,28 +301,15 @@ fn sync(
             .collect(),
         dep_dir.jobs,
     )?;
-    // Only publish one installation at a time. Later staged sources are
-    // discarded if a hook fails, so a retry cannot mistake them for complete.
     for (source, staging) in sources.into_iter().zip(staged) {
+        let manifest = read_dependency_module_manifest(staging.path())?;
         let name = source.module.name();
         let directory = pkg_to_dir(dep_dir, &name.username, &name.unqual);
         if directory.exists() {
             std::fs::remove_dir_all(&directory)?;
         }
         std::fs::rename(staging.path(), &directory)?;
-        // A manifest is treated as installed on the next sync. Materialize only
-        // this package, and discard it on failure so retry still runs its hook.
-        if let Err(error) = legacy_postadd::run(&directory, postadd_runner) {
-            if let Err(cleanup_error) = std::fs::remove_dir_all(&directory)
-                && cleanup_error.kind() != std::io::ErrorKind::NotFound
-            {
-                return Err(error).context(format!(
-                    "Unable to remove incomplete package `{}`: {cleanup_error}",
-                    directory.display()
-                ));
-            }
-            return Err(error);
-        }
+        legacy_postadd::warn_skipped(&manifest, user_log);
     }
 
     drop(lock);
@@ -383,7 +361,10 @@ mod test {
     use std::collections::{HashMap, HashSet};
 
     use arcstr::ArcStr;
-    use moonutil::resolution::{ModuleName, ModuleSource, ModuleSourceKind};
+    use moonutil::{
+        module_name::ModuleName,
+        resolution::{ModuleSource, ModuleSourceKind},
+    };
 
     fn to_state(s: &str) -> super::DepDirState {
         let mut state = super::DepDirState::new();

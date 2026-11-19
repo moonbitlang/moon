@@ -18,17 +18,15 @@
 
 //! Module-level prebuild configuration consumed by build planning.
 //!
-//! The command layer owns script compilation, execution, and output validation.
+//! Moonbuild owns script compilation, execution, and output validation; this
+//! module owns the configuration supplied to planning.
 
 use std::collections::HashMap;
 
-use moonutil::{
-    build_script::{LinkConfig, RerunIfKind},
-    compiler_flags::NativeLinkArg,
-    resolution::ModuleId,
-};
+use moonutil::resolution::ModuleId;
+use serde::Deserialize;
 
-use crate::model::PackageId;
+use crate::model::{NativeLinkArg, PackageId};
 
 /// The output of running prebuild config scripts
 #[derive(Debug, Default)]
@@ -81,6 +79,39 @@ pub struct ModulePrebuildOutput {
     pub rerun_if: Vec<RerunIfKind>,
     /// Environment variables set by the prebuild script
     pub vars: HashMap<String, String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub enum RerunIfKind {
+    /// Rerun if the file at the given path changes.
+    File(String),
+    /// Rerun if the directory at the given path changes.
+    Dir(String),
+    /// Rerun if the environment variable with the given name changes.
+    Env(String),
+}
+
+#[derive(Deserialize, Debug)]
+pub struct LinkConfig {
+    pub package: String,
+    // TODO: these are merely a POC, more polishing needed
+    /// Link flags that needs to be propagated to dependents
+    ///
+    /// Reference: `cargo::rustc-link-arg=FLAG`
+    #[serde(default)]
+    pub link_flags: Option<String>,
+
+    /// Libraries that need linking, propagated to dependents
+    ///
+    /// Reference: `cargo::rustc-link-lib=LIB`
+    #[serde(default)]
+    pub link_libs: Vec<String>,
+
+    /// Paths that needs to be searched during linking, propagated to dependents
+    ///
+    /// `cargo::rustc-link-search=[KIND=]PATH`
+    #[serde(default)]
+    pub link_search_paths: Vec<String>,
 }
 
 #[cfg(test)]

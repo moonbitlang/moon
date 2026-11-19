@@ -1,0 +1,359 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2026 International Digital Economy Academy
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Source lookup, generated-source mapping, and terminal diagnostic rendering.
+
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+use ariadne::{Fmt, ReportKind};
+use clap::ValueEnum;
+use log::{error, warn};
+use serde::Deserialize;
+
+use moonutil::error_code_docs::get_error_code_doc;
+
+use super::{DiagnosticLevel, MooncDiagnostic, Position};
+
+#[derive(Debug, Deserialize)]
+struct PatchJSON {
+    // Validate the full patch envelope even though rendering only reads patches.
+    #[serde(rename = "drops")]
+    _drops: Vec<String>,
+    patches: Vec<PatchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchItem {
+    name: String,
+    content: String,
+}
+
+struct DiagnosticSource {
+    display_filename: String,
+    source: ariadne::Source,
+    line_offsets: Vec<usize>,
+}
+
+impl DiagnosticSource {
+    fn new(display_filename: String, content: String) -> Self {
+        // Compiler columns and Ariadne spans count Unicode scalar values.
+        // Only LF starts a compiler line; Ariadne also recognizes other
+        // separators, so its line table cannot replace this index.
+        let line_offsets = std::iter::once(0)
+            .chain(
+                content
+                    .chars()
+                    .enumerate()
+                    .filter_map(|(offset, ch)| (ch == '\n').then_some(offset + 1)),
+            )
+            .collect();
+        Self {
+            display_filename,
+            source: ariadne::Source::from(content),
+            line_offsets,
+        }
+    }
+
+    fn calculate_offset(&self, position: &Position) -> Option<usize> {
+        let line_offset = self.line_offsets.get(position.line.checked_sub(1)?)?;
+        let offset = line_offset.checked_add(position.col.checked_sub(1)?)?;
+        (offset <= self.source.len()).then_some(offset)
+    }
+}
+
+/// Source text and indexes shared by one batch of rendered diagnostics.
+///
+/// Create a fresh cache for each batch so subsequent builds observe file edits.
+#[derive(Default)]
+pub(super) struct DiagnosticSources {
+    // Keep disk-only source-map reads separate from patch-enabled lookups.
+    files: HashMap<(PathBuf, Option<PathBuf>), Option<DiagnosticSource>>,
+    source_maps: HashMap<String, Option<SourceMap>>,
+}
+
+impl DiagnosticSources {
+    fn get_file(
+        &mut self,
+        path: impl AsRef<Path>,
+        patch_file: Option<&PathBuf>,
+    ) -> Option<&DiagnosticSource> {
+        let path = path.as_ref();
+        self.files
+            .entry((path.to_owned(), patch_file.cloned()))
+            .or_insert_with(|| {
+                let (content, display_filename) = std::fs::read_to_string(path)
+                    .map(|content| (content, path.display().to_string()))
+                    .ok()
+                    .or_else(|| {
+                        patch_file.and_then(|patch_file| {
+                            MooncDiagnostic::get_content_and_filename_from_diagnostic_patch_file(
+                                patch_file,
+                                path.to_str()?,
+                            )
+                        })
+                    })?;
+                Some(DiagnosticSource::new(display_filename, content))
+            })
+            .as_ref()
+    }
+
+    fn remap(
+        &mut self,
+        path: &str,
+        start_offset: usize,
+        end_offset: usize,
+    ) -> Option<(PathBuf, usize, usize)> {
+        let path_to_map_json = format!("{path}.map.json");
+        let map = self
+            .source_maps
+            .entry(path_to_map_json.clone())
+            .or_insert_with(|| {
+                let content = std::fs::read_to_string(&path_to_map_json).ok()?;
+                serde_json_lenient::from_str::<SourceMap>(&content).ok()
+            })
+            .as_ref()?;
+        let map_path = Path::new(&path_to_map_json);
+        let (source1, start_offset) = map.to_original(start_offset, map_path)?;
+        let (source2, end_offset) = map.to_original(end_offset, map_path)?;
+        if source1 != source2 {
+            return None;
+        }
+        self.get_file(&source1, None)?;
+        Some((source1, start_offset, end_offset))
+    }
+}
+
+/// Source map for diagnostics emitted on generated `.mbt` files.
+///
+/// This is used when a `.mbt` file is produced by a third-party generator
+/// (for example `moonyacc` or other code generators), so we can map diagnostics
+/// back to the original source definition locations.
+///
+/// Small demo of the idea:
+///
+/// ```text
+/// source (toy.src):
+///   start main
+///   print "hello"
+///   end
+///
+/// generated (main.mbt):
+///   fn main {
+///     println("hello")
+///   }
+/// ```
+///
+/// `main.mbt.map.json` then maps spans in `main.mbt` back to `toy.src` so
+/// diagnostics are reported against the source DSL file.
+#[derive(Deserialize)]
+struct SourceMap {
+    mappings: Vec<SourceMapping>,
+}
+
+impl SourceMap {
+    fn to_original(&self, offset: usize, base_path: &Path) -> Option<(PathBuf, usize)> {
+        let index = self
+            .mappings
+            .binary_search_by(|mapping| {
+                if offset < mapping.generated_offset {
+                    std::cmp::Ordering::Greater
+                } else if offset > mapping.generated_offset + mapping.length {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .ok()?;
+        let mapping = &self.mappings[index];
+        let path = dunce::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
+        Some((
+            path,
+            offset - mapping.generated_offset + mapping.original_offset,
+        ))
+    }
+}
+
+#[derive(Deserialize)]
+struct SourceMapping {
+    source: String,
+    original_offset: usize,
+    generated_offset: usize,
+    length: usize,
+}
+
+impl MooncDiagnostic {
+    // TODO: Accept a writer when build commands complete the ADR 0004 output
+    // migration; keep the current stderr behavior until then.
+    pub(super) fn render_diagnostics(
+        &self,
+        use_fancy: bool,
+        check_patch_file: Option<&PathBuf>,
+        sources: &mut DiagnosticSources,
+        explain: bool,
+        render_no_loc_level: DiagnosticLevel,
+    ) -> Option<ReportKind<'static>> {
+        let diagnostic = self;
+        let bail_print_original = || {
+            eprintln!(
+                "{}",
+                serde_json_lenient::to_string(diagnostic).unwrap_or_default()
+            );
+            None
+        };
+        let (kind, color) = diagnostic.get_level_and_color();
+
+        // for no-location diagnostic, like Missing main function in the main package(4067)
+        if diagnostic.path.is_empty() {
+            // Check if this diagnostic level should be rendered based on the threshold
+            if DiagnosticLevel::from_str(&diagnostic.level, true)
+                .is_ok_and(|l| l >= render_no_loc_level)
+            {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "{}: [{}] {}",
+                        kind,
+                        diagnostic.formatted_error_code(),
+                        diagnostic.message
+                    )
+                    .fg(color)
+                );
+            }
+            return Some(kind);
+        }
+
+        let Some(source) = sources.get_file(&diagnostic.path, check_patch_file) else {
+            eprintln!(
+                "failed to read file `{}`, [{}] {}: {}",
+                diagnostic.path,
+                diagnostic.formatted_error_code(),
+                diagnostic.level,
+                diagnostic.message
+            );
+            return Some(kind);
+        };
+
+        let (start_position, end_position) = diagnostic.loc.as_range();
+        let Some(start_offset) = source.calculate_offset(start_position) else {
+            error!("failed to calculate start offset for diagnostic");
+            bail_print_original()?;
+            return None;
+        };
+        let Some(end_offset) = source.calculate_offset(end_position) else {
+            error!("failed to calculate end offset for diagnostic");
+            bail_print_original()?;
+            return None;
+        };
+
+        // Remapping if there's .map.json file
+        // TODO: log reasons for `.map.json` exists but not works.
+        let (source_path, start_offset, end_offset, patch_file) = sources
+            .remap(&diagnostic.path, start_offset, end_offset)
+            .map(|(path, start, end)| (path, start, end, None))
+            .unwrap_or_else(|| {
+                (
+                    PathBuf::from(&diagnostic.path),
+                    start_offset,
+                    end_offset,
+                    check_patch_file,
+                )
+            });
+        let source = sources
+            .get_file(&source_path, patch_file)
+            .expect("diagnostic source was already loaded");
+        let display_filename = &source.display_filename;
+
+        let mut report_builder =
+            ariadne::Report::build(kind, (display_filename, start_offset..end_offset)).with_label(
+                ariadne::Label::new((display_filename, start_offset..end_offset))
+                    .with_message((&diagnostic.message).fg(color))
+                    .with_color(color),
+            );
+
+        if explain {
+            let error_code_doc = get_error_code_doc(&diagnostic.formatted_error_code());
+            if let Some(doc) = error_code_doc {
+                report_builder = report_builder.with_help(doc.fg(color));
+            } else {
+                warn!(
+                    "Failed to get doc for error code: {}",
+                    diagnostic.formatted_error_code()
+                );
+            }
+        } else {
+            report_builder = report_builder
+                .with_message(format!("[{}]", diagnostic.formatted_error_code()).fg(color));
+        }
+
+        if !use_fancy {
+            report_builder =
+                report_builder.with_config(ariadne::Config::default().with_color(false));
+        }
+
+        match report_builder
+            .finish()
+            .eprint((display_filename, &source.source))
+        {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("internal rendering error: {e:?}");
+            }
+        };
+
+        Some(kind)
+    }
+
+    fn get_content_and_filename_from_diagnostic_patch_file(
+        patch_file: &Path,
+        diagnostic_location_path: &str,
+    ) -> Option<(String, String)> {
+        let patch_content = std::fs::read_to_string(patch_file).ok()?;
+        let patch_json: PatchJSON = serde_json_lenient::from_str(&patch_content).ok()?;
+
+        let diagnostic_filename = PathBuf::from(diagnostic_location_path)
+            .file_name()?
+            .to_str()?
+            .to_string();
+
+        patch_json
+            .patches
+            .iter()
+            .find(|it| it.name == diagnostic_filename)
+            .map(|it| (it.content.clone(), it.name.clone()))
+    }
+
+    fn get_level_and_color(&self) -> (ariadne::ReportKind<'static>, ariadne::Color) {
+        if self.level == "error" {
+            (ariadne::ReportKind::Error, ariadne::Color::Red)
+        } else if self.level == "warning" {
+            (ariadne::ReportKind::Warning, ariadne::Color::BrightYellow)
+        } else {
+            (ariadne::ReportKind::Advice, ariadne::Color::Blue)
+        }
+    }
+
+    fn formatted_error_code(&self) -> String {
+        format!("{:04}", self.error_code)
+    }
+}
+
+#[cfg(test)]
+mod tests;

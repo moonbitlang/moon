@@ -20,14 +20,12 @@
 
 pub mod compile;
 pub mod execution;
-pub mod expect;
+mod metadata;
 pub mod prepare;
-pub mod runtest;
 
 use indexmap::IndexMap;
 use moonbuild_rupes_recta::{
-    ResolvedProject, build_plan::ArtifactKey, model::BackendConfig,
-    target_layout::ArtifactPathResolver,
+    ResolvedProject, build_plan::ArtifactKey, target_layout::ArtifactPathResolver,
 };
 use moonutil::{cond_expr::OptLevel as BuildProfile, target::TargetBackend};
 use std::path::PathBuf;
@@ -41,8 +39,8 @@ pub struct BuildMeta {
     /// The list of artifacts that will be produced
     pub artifacts: IndexMap<ArtifactKey, Vec<PathBuf>>,
 
-    /// The backend and backend-specific configuration used by this build.
-    pub backend: BackendConfig,
+    /// The backend used to produce the artifacts, without compiler options.
+    target_backend: TargetBackend,
 
     /// The main optimization level used in this compile process
     pub opt_level: BuildProfile,
@@ -53,6 +51,6 @@ pub struct BuildMeta {
 
 impl BuildMeta {
     pub fn target_backend(&self) -> TargetBackend {
-        self.backend.target_backend()
+        self.target_backend
     }
 }

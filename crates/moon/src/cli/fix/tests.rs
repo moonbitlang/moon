@@ -150,3 +150,17 @@ fn failed_write_preserves_original_source() {
         .assert()
         .success();
 }
+
+#[test]
+fn fix_enables_pending_deprecated_before_explicit_warning_settings() {
+    use clap::Parser;
+
+    for (args, expected) in [
+        (vec!["fix"], "+99"),
+        (vec!["fix", "--warn-list", "-1"], "+99-1"),
+        (vec!["fix", "--warn-list", "-99"], "+99-99"),
+    ] {
+        let command = super::FixSubcommand::parse_from(args).check_command();
+        assert_eq!(command.build_flags.warn_list.as_deref(), Some(expected));
+    }
+}

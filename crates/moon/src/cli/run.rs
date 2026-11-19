@@ -16,43 +16,38 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::SurfaceTarget;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    DiscoveredProject,
+    DiscoveredProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
-    model::{BackendConfig, PackageId},
+    model::PackageId,
 };
+use mooncake::cli::AutoSyncFlags;
 use mooncake::pkg::sync::SyncOutputOptions;
-use moonutil::child_process::ChildOutputMode;
-use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{
-    PackageDirs, ProjectProbe, SingleFilePackageDirs, SourceTargetDirs, WorkspaceEnv,
-};
+use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
-    build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
     constants::is_moon_pkg_exist,
-    locks::lock_directory,
-    target::{SurfaceTarget, TargetBackend},
-    user_log::{UserLog, user_log_level},
+    target::TargetBackend,
+    user_log::UserLog,
 };
 use tracing::{Level, instrument};
 
-use crate::filter::ensure_package_supports_backend;
-use crate::rr_build;
-use crate::rr_build::CalcUserIntentOutput;
+use super::selection::ensure_package_supports_backend;
 
-use super::{BuildFlags, UniversalFlags};
+use super::{BuildFlags, TestArtifacts, UniversalFlags};
 
-pub(crate) struct ResolvedRunSelection {
+pub(super) struct ResolvedRunSelection {
     package: PackageId,
     target_backend: TargetBackend,
 }
@@ -63,7 +58,7 @@ impl ResolvedRunSelection {
         input_path: &str,
         discovered: &DiscoveredProject,
         value_tracing: bool,
-    ) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    ) -> Result<BuildRequest, anyhow::Error> {
         if !discovered.pkg_dirs.get_package(self.package).raw.is_main {
             bail!("`{}` is not a main package", input_path);
         }
@@ -84,9 +79,9 @@ impl ResolvedRunSelection {
 /// Run a main package
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
-pub(crate) struct RunSubcommand {
+pub(super) struct RunSubcommand {
     #[clap(skip)]
-    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
+    pub(super) handoff: Option<moonutil::run_handoff::RunHandoff>,
 
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
     #[clap(group = "run_source")]
@@ -110,7 +105,7 @@ pub(crate) struct RunSubcommand {
 
     /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
     #[clap(long = "wasm-policy", value_name = "PATH")]
-    pub(crate) moonrun_policy: Option<PathBuf>,
+    pub(super) moonrun_policy: Option<PathBuf>,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
@@ -139,7 +134,6 @@ impl RunOutputVerbosity {
     fn sync_output(self) -> SyncOutputOptions {
         SyncOutputOptions {
             quiet: !self.verbose,
-            child_output: ChildOutputMode::Inherit,
         }
     }
 
@@ -149,7 +143,7 @@ impl RunOutputVerbosity {
 }
 
 /// Controls how `moon run` builds the executable before it is consumed.
-pub(crate) struct BuildRunExecutableOptions {
+pub(super) struct BuildRunExecutableOptions {
     /// Whether dry-run output should include the final executable invocation.
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
@@ -170,7 +164,7 @@ impl BuildRunExecutableOptions {
         }
     }
 
-    pub(crate) fn for_profile(cli: &UniversalFlags) -> Self {
+    pub(super) fn for_profile(cli: &UniversalFlags) -> Self {
         Self {
             // The dry-run output should show the profiled invocation, not the
             // plain executable command that `moon run` would normally print.
@@ -182,7 +176,7 @@ impl BuildRunExecutableOptions {
     }
 }
 
-pub(crate) struct EmbeddedMbtxPolicy {
+pub(super) struct EmbeddedMbtxPolicy {
     source: PathBuf,
     source_dir_override: Option<PathBuf>,
 }
@@ -193,17 +187,17 @@ pub(crate) struct EmbeddedMbtxPolicy {
 /// either runs the program or explicitly releases the lock. Other consumers can
 /// reuse the same build stage without releasing the lock between planning and
 /// compilation.
-pub(crate) struct RunExecutable {
+pub(super) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
-    pub(crate) executable: PathBuf,
-    /// Backend configuration used to build and execute this artifact.
-    pub(crate) backend: BackendConfig,
-    pub(crate) opt_level: moonutil::cond_expr::OptLevel,
-    pub(crate) target_dir: PathBuf,
-    pub(crate) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
+    pub(super) executable: PathBuf,
+    /// Target backend used for runtime selection and profiling.
+    pub(super) target_backend: TargetBackend,
+    pub(super) opt_level: moonutil::cond_expr::OptLevel,
+    pub(super) target_dir: PathBuf,
+    pub(super) embedded_mbtx_policy: Option<EmbeddedMbtxPolicy>,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
-    lock: Option<std::fs::File>,
+    lock: Option<BuildSession>,
 }
 
 struct BuildExecutableFromPlanOptions {
@@ -213,7 +207,7 @@ struct BuildExecutableFromPlanOptions {
 }
 
 impl RunExecutable {
-    pub(crate) fn ensure_build_success(&self) -> anyhow::Result<()> {
+    pub(super) fn ensure_build_success(&self) -> anyhow::Result<()> {
         if let Some(build_exit_code) = self.build_exit_code
             && build_exit_code != 0
         {
@@ -223,7 +217,7 @@ impl RunExecutable {
     }
 
     /// Release the target-directory lock without running the executable.
-    pub(crate) fn release_lock(&mut self) {
+    pub(super) fn release_lock(&mut self) {
         drop(self.lock.take());
     }
 }
@@ -359,13 +353,13 @@ fn build_wasm_file_executable_from_arg(
             None,
         );
         run_cmd.args(&cmd.args);
-        let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
+        let command = crate::dry_run::format_dry_run_command(&run_cmd, &print_dir);
         output.write_result(|writer| writeln!(writer, "{command}"))?;
     }
 
     Ok(RunExecutable {
         executable: wasm_path,
-        backend: BackendConfig::WasmGc { use_wat: false },
+        target_backend: TargetBackend::WasmGC,
         opt_level: moonutil::cond_expr::OptLevel::Debug,
         target_dir: print_dir.clone(),
         embedded_mbtx_policy: None,
@@ -376,7 +370,7 @@ fn build_wasm_file_executable_from_arg(
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_run(
+pub(super) fn run_run(
     cli: &UniversalFlags,
     mut cmd: RunSubcommand,
     output: &CommandOutput,
@@ -429,7 +423,7 @@ pub(crate) fn run_run(
 /// This handles the same package-vs-single-file selection as `moon run`, but
 /// stops before executing the artifact. Callers can then run it, print
 /// `--build-only` metadata, or pass it to another tool.
-pub(crate) fn build_run_executable(
+pub(super) fn build_run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
@@ -478,63 +472,6 @@ pub(crate) fn build_run_executable(
     build_package_executable(cli, cmd, selected_target_backend, options, output)
 }
 
-/// Build a persistent standalone source as linear-memory Wasm.
-///
-/// The returned artifact is ready for a caller-owned execution path; no build
-/// lock remains held after this function returns.
-pub(crate) fn build_standalone_wasm(
-    dirs: SingleFilePackageDirs,
-    frozen: bool,
-    verbose: bool,
-) -> anyhow::Result<RunExecutable> {
-    // TODO(moonx-standalone-build-interface): Remove this command-layer adapter
-    // once standalone build planning accepts explicit source, backend, sync,
-    // and output options without UniversalFlags and RunSubcommand.
-    let cli = UniversalFlags {
-        source_tgt_dir: SourceTargetDirs {
-            cwd: None,
-            target_dir: None,
-        },
-        workspace_env: WorkspaceEnv::default(),
-        quiet: !verbose,
-        verbose,
-        trace: false,
-        dry_run: false,
-        unstable_feature: ""
-            .parse()
-            .expect("empty unstable feature set must be valid"),
-    };
-    let cmd = RunSubcommand {
-        handoff: None,
-        package_or_mbt_file: Some(dirs.input_path.to_string_lossy().into_owned()),
-        command: None,
-        build_flags: BuildFlags {
-            target: vec![SurfaceTarget::Wasm],
-            ..BuildFlags::default()
-        },
-        args: Vec::new(),
-        moonrun_policy: None,
-        auto_sync_flags: AutoSyncFlags { frozen },
-        build_only: false,
-        profile: false,
-    };
-    let output = CommandOutput::new(user_log_level(verbose, !verbose));
-    let built = build_single_file_executable(
-        &cli,
-        &cmd,
-        dirs.package_dirs,
-        dirs.input_path,
-        BuildRunExecutableOptions::for_run(&cli),
-        &output,
-    )?;
-    built.ensure_build_success()?;
-    anyhow::ensure!(
-        built.backend.target_backend() == TargetBackend::Wasm,
-        "standalone `.mbtx` build did not produce linear-memory Wasm"
-    );
-    Ok(built)
-}
-
 #[instrument(skip_all)]
 /// Build a package run target after the top-level input has been classified as
 /// a package inside a MoonBit project.
@@ -565,17 +502,14 @@ fn build_package_executable(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output());
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
     let (build_meta, build_graph) = plan_run_rr_from_discovered(
+        &session,
         cli,
         cmd,
         target_dir,
@@ -587,10 +521,9 @@ fn build_package_executable(
         cli,
         cmd,
         source_dir,
-        target_dir,
         &build_meta,
         build_graph,
-        lock,
+        session,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -602,7 +535,8 @@ fn build_package_executable(
 
 /// Selects the run package and backend, resolves packages, then plans the run.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_run_rr_from_discovered(
+pub(super) fn plan_run_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     target_dir: &Path,
@@ -622,23 +556,20 @@ pub(crate) fn plan_run_rr_from_discovered(
         cmd.build_flags.enable_value_tracing,
     )?;
     let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         target_backend,
         target_dir,
         RunMode::Run,
         user_log,
         &resolved_project,
     )?;
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }
 
@@ -651,7 +582,7 @@ fn get_run_cmd(
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::from(&build_meta.backend),
+        crate::run::ExecutionMode::from(build_meta.target_backend()),
         executable,
         None,
         moonrun_policy,
@@ -661,7 +592,7 @@ fn get_run_cmd(
     cmd
 }
 
-pub(crate) fn effective_moonrun_policy<'a>(
+pub(super) fn effective_moonrun_policy<'a>(
     cli_policy: Option<&'a Path>,
     embedded_policy: Option<&'a EmbeddedMbtxPolicy>,
 ) -> (Option<&'a Path>, Option<&'a Path>) {
@@ -693,8 +624,8 @@ fn resolve_run_selection(
     discovered: &DiscoveredProject,
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<ResolvedRunSelection, anyhow::Error> {
-    let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
-    let package = crate::filter::filter_pkg_by_dir(discovered, &dir)?;
+    let (dir, _filename) = super::selection::canonicalize_with_filename(Path::new(input_path))?;
+    let package = super::selection::filter_pkg_by_dir(discovered, &dir)?;
     let module = discovered.pkg_dirs.get_package(package).module;
     let target_backend = selected_target_backend
         .or_else(|| discovered.module_graph.module_info(module).preferred_target)
@@ -767,7 +698,6 @@ fn build_single_file_executable(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output())
@@ -787,47 +717,42 @@ fn build_single_file_executable(
         .unwrap_or(options.default_target_backend);
     let resolved = discovered.resolve_packages(&[selected_target_backend], user_log)?;
 
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
-    let compile_config = rr_build::prepare_resolved_build(
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
+    let compile_config = cmd.build_flags.compile_config(
         cli,
-        &cmd.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Run,
         user_log,
         &resolved,
     )?;
-    let package = rr_build::local_packages(&resolved)
+    let package = super::selection::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
     let directive = if value_tracing {
-        rr_build::build_patch_directive_for_package(package, false, Some(package), None, false)?
+        InputDirective {
+            value_tracing: Some(package),
+            ..Default::default()
+        }
     } else {
         Default::default()
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         resolved,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )?;
 
     build_executable_from_plan(
         cli,
         cmd,
         source_dir,
-        target_dir,
         &build_meta,
         build_graph,
-        lock,
+        session,
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
@@ -847,10 +772,9 @@ fn build_executable_from_plan(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     source_dir: &Path,
-    target_dir: &Path,
     build_meta: &BuildMeta,
     build_graph: BuildInput,
-    lock: Option<std::fs::File>,
+    session: BuildSession,
     options: BuildExecutableFromPlanOptions,
     output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
@@ -858,51 +782,47 @@ fn build_executable_from_plan(
         cmd.moonrun_policy.as_deref(),
         options.embedded_mbtx_policy.as_ref(),
     );
-    let user_log = output.user_log();
-    if cli.dry_run {
+    let (build_exit_code, lock) = if cli.dry_run {
         output.write_result(|writer| {
-            rr_build::write_dry_run(writer, &build_graph, source_dir)?;
+            crate::dry_run::write_dry_run(writer, &build_graph, source_dir)?;
 
             if options.print_dry_run_run_command {
                 let run_cmd = get_run_cmd(build_meta, &cmd.args, moonrun_policy, policy_source_dir);
                 writeln!(
                     writer,
                     "{}",
-                    rr_build::format_dry_run_command(&run_cmd, source_dir)
+                    crate::dry_run::format_dry_run_command(&run_cmd, source_dir)
                 )?;
             }
             Ok::<_, std::io::Error>(())
         })?;
-        return Ok(RunExecutable {
-            executable: get_run_executable(build_meta).to_path_buf(),
-            backend: build_meta.backend.clone(),
-            opt_level: build_meta.opt_level,
-            target_dir: target_dir.to_path_buf(),
-            embedded_mbtx_policy: options.embedded_mbtx_policy,
-            source_dir: source_dir.to_path_buf(),
-            build_exit_code: None,
-            lock: None,
-        });
-    }
-
-    // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(build_meta)?;
-
-    let build_config = cmd
-        .build_flags
-        .execution_config(&cli.unstable_feature, cli.verbose)
-        .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result =
-        moonbuild::execution::execute_build(&build_config, build_graph, target_dir, user_log)?;
+        (None, None)
+    } else {
+        let build_config = cmd
+            .build_flags
+            .execution_config(&cli.unstable_feature, cli.verbose)
+            .with_suppressed_progress(options.output.suppress_build_progress());
+        let build_result = session.execute(
+            &build_config,
+            build_graph,
+            &[build_meta],
+            MetadataOutput::Compiler,
+        )?;
+        (Some(build_result.return_code_for_success()), Some(session))
+    };
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        backend: build_meta.backend.clone(),
+        target_backend: build_meta.target_backend(),
         opt_level: build_meta.opt_level,
-        target_dir: target_dir.to_path_buf(),
+        target_dir: build_meta
+            .artifact_paths
+            .target_layout()
+            .target_base_dir()
+            .to_path_buf(),
         embedded_mbtx_policy: options.embedded_mbtx_policy,
         source_dir: source_dir.to_path_buf(),
-        build_exit_code: Some(build_result.return_code_for_success()),
+        build_exit_code,
         lock,
     })
 }
@@ -943,7 +863,7 @@ fn run_executable(
         return Ok(0);
     }
     let mut run_cmd = crate::run::command_for_with_moonrun_policy_source_dir(
-        crate::run::ExecutionMode::from(&executable.backend),
+        crate::run::ExecutionMode::from(executable.target_backend),
         executable.executable.as_path(),
         None,
         moonrun_policy,
@@ -952,7 +872,7 @@ fn run_executable(
     run_cmd.args(&cmd.args);
     let user_log = output.user_log();
     if user_log.is_enabled(log::Level::Info) {
-        user_log.info(rr_build::format_dry_run_command(
+        user_log.info(crate::dry_run::format_dry_run_command(
             &run_cmd,
             &executable.source_dir,
         ));

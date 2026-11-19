@@ -16,45 +16,68 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use super::selection::{
+    TargetPackageGroup, canonicalize_with_filename, ensure_packages_support_backend,
+    filter_pkg_by_dir, format_supported_backends, group_packages_by_preferred_backend,
+    match_packages_with_fuzzy, package_supports_backend, select_packages,
+};
 use crate::cli::profile;
-use crate::filter::canonicalize_with_filename;
-use crate::filter::ensure_packages_support_backend;
-use crate::filter::filter_pkg_by_dir;
-use crate::filter::format_supported_backends;
-use crate::filter::group_packages_by_preferred_backend;
-use crate::filter::match_packages_with_fuzzy;
-use crate::filter::package_supports_backend;
-use crate::filter::select_packages;
-use crate::filter::{BackendPlanSelection, TargetPackageGroup};
-use crate::rr_build;
-use crate::rr_build::CalcUserIntentOutput;
+use crate::cli::target::{SurfaceTarget, lower_surface_targets};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
-use crate::run::{ReplaceableTestResults, TestFilter, TestIndex};
+use crate::run::{ReplaceableTestResults, TestFilter, TestIndex, TestIndexRange};
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
 use colored::Colorize;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession};
 use moonbuild::execution::BuildConfig;
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildTarget;
-use moonbuild_rupes_recta::model::PackageId;
-use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
-use moonutil::cli_support::AutoSyncFlags;
+use moonbuild_rupes_recta::model::{PackageId, TargetKind};
+use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::locks::lock_directory;
 use moonutil::project::{PackageDirs, ProjectProbe};
-use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
+use moonutil::target::TargetBackend;
 use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
-use super::{BuildFlags, UniversalFlags};
+use super::{BuildFlags, TestArtifacts, UniversalFlags};
+
+// TODO(test-request-selection): Remove this intermediate state when test/bench
+// selection returns complete BuildRequest/TestFilter pairs for each backend.
+#[derive(Debug)]
+struct BackendPlanSelection {
+    target_backend: TargetBackend,
+    /// Packages selected for this backend, or `None` when planning expands the
+    /// command's own selector against the discovered project.
+    packages: Option<Vec<PackageId>>,
+}
+
+impl BackendPlanSelection {
+    fn command_selector(target_backend: TargetBackend) -> Self {
+        Self {
+            target_backend,
+            packages: None,
+        }
+    }
+}
+
+impl From<TargetPackageGroup> for BackendPlanSelection {
+    fn from(group: TargetPackageGroup) -> Self {
+        Self {
+            target_backend: group.target_backend,
+            packages: Some(group.packages),
+        }
+    }
+}
 
 struct ResolvedTestPathFilter {
     package: PackageId,
@@ -126,7 +149,7 @@ impl ResolvedTestSelection {
         cmd: &TestLikeSubcommand<'_>,
         target_backend: TargetBackend,
         filter: &TestFilter,
-    ) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    ) -> Result<BuildRequest, anyhow::Error> {
         match self {
             ResolvedTestSelection::Workspace { packages } => Ok(packages
                 .iter()
@@ -148,12 +171,11 @@ impl ResolvedTestSelection {
                             } else {
                                 None
                             };
-                            rr_build::build_patch_directive_for_package(
+                            super::build_flags::build_patch_directive_for_package(
                                 *pkg_id,
-                                false,
                                 trace_pkg,
                                 cmd.patch_file.as_deref(),
-                                true,
+                                TargetKind::InlineTest,
                             )
                             .context("failed to build input directive")?
                         } else {
@@ -251,13 +273,13 @@ fn print_test_outlines(
 /// `--no-parallelize` to run them sequentially without limiting build parallelism.
 #[derive(Debug, clap::Parser)]
 #[clap(group = clap::ArgGroup::new("test_index_selector").multiple(false))]
-pub(crate) struct TestSubcommand {
+pub(super) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
     /// Pass a moonrun JSON policy file to Wasm backends; ignored by other backends
     #[clap(long = "wasm-policy", value_name = "PATH")]
-    pub(crate) moonrun_policy: Option<PathBuf>,
+    pub(super) moonrun_policy: Option<PathBuf>,
 
     /// Run test in the specified package
     #[clap(short, long, num_args(1..))]
@@ -335,7 +357,7 @@ pub(crate) struct TestSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_test(
+pub(super) fn run_test(
     cli: UniversalFlags,
     mut cmd: TestSubcommand,
     output: &CommandOutput,
@@ -428,8 +450,7 @@ fn run_test_impl(
     let display_backend_hint = targets.len() > 1;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     validate_test_or_bench_invocation(cli, &test_cmd)?;
-    let discovered =
-        sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let discovered = sync_and_discover_test_or_bench_project(&test_cmd, &dirs, output.user_log())?;
     let ret_value = run_test_or_bench_from_discovered(
         cli,
         &test_cmd,
@@ -553,7 +574,6 @@ fn run_test_in_single_file_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
@@ -564,15 +584,11 @@ fn run_test_in_single_file_rr(
         user_log,
     )?;
     let target_backends =
-        rr_build::single_file_target_backends(&discovered, &targets, backend, user_log);
+        super::selection::single_file_target_backends(&discovered, &targets, backend, user_log);
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
-    let pkg = rr_build::local_packages(&resolved)
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
+    let pkg = super::selection::local_packages(&resolved)
         .next()
         .expect("Single-file project must synthesize exactly one package");
 
@@ -598,26 +614,25 @@ fn run_test_in_single_file_rr(
     let planned_runs = target_backends
         .into_iter()
         .map(|target_backend| {
-            let compile_config = rr_build::prepare_resolved_build(
+            let compile_config = build_flags.compile_config(
                 cli,
-                &build_flags,
                 target_backend,
                 target_dir,
                 RunMode::Test,
                 user_log,
                 &resolved,
             )?;
-            let directive =
-                rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
+            let directive = InputDirective {
+                value_tracing: trace_pkg,
+                ..Default::default()
+            };
             let intent = (vec![test_cmd.package_intent(pkg)], directive).into();
-            let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+            let (build_meta, build_graph) = session.plan(
                 compile_config,
-                user_log,
                 intent,
                 resolved.clone(),
                 cmd.build_flags.jobs,
                 cmd.auto_sync_flags.frozen,
-                cli.dry_run,
             )?;
             Ok((build_meta, build_graph, filter.clone()))
         })
@@ -630,12 +645,12 @@ fn run_test_in_single_file_rr(
         target_dir,
         false,
         planned_runs,
-        lock,
+        session,
         output,
     )
 }
 
-pub(crate) struct TestLikeSubcommand<'a> {
+pub(super) struct TestLikeSubcommand<'a> {
     pub run_mode: RunMode,
     pub build_flags: &'a BuildFlags,
     pub moonrun_policy: Option<&'a Path>,
@@ -721,7 +736,8 @@ impl TestLikeSubcommand<'_> {
 }
 
 /// Selects backend plans, resolves packages, then plans each selected backend.
-pub(crate) fn plan_test_or_bench_rr_from_discovered(
+pub(super) fn plan_test_or_bench_rr_from_discovered(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
@@ -761,6 +777,7 @@ pub(crate) fn plan_test_or_bench_rr_from_discovered(
         .into_iter()
         .map(|(target_backend, intent, filter)| {
             plan_test_or_bench_rr_from_intent(
+                session,
                 cli,
                 cmd,
                 target_dir,
@@ -792,7 +809,8 @@ fn select_test_plans(
     let selections = resolve_test_target_selections(discovered, cmd, user_log)?;
     if selections.is_empty() {
         return Ok(vec![BackendPlanSelection::command_selector(
-            rr_build::local_modules_preferred_target(discovered, user_log).unwrap_or_default(),
+            super::selection::local_modules_preferred_target(discovered, user_log)
+                .unwrap_or_default(),
         )]);
     }
     Ok(selections.into_iter().map(Into::into).collect())
@@ -800,20 +818,20 @@ fn select_test_plans(
 
 #[allow(clippy::too_many_arguments)]
 fn plan_test_or_bench_rr_from_intent(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
     target_backend: TargetBackend,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
-    intent: CalcUserIntentOutput,
+    intent: BuildRequest,
     filter: TestFilter,
     user_log: &UserLog,
 ) -> Result<(BuildMeta, BuildInput, TestFilter), anyhow::Error> {
     let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
 
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = build_flags.compile_config(
         cli,
-        &build_flags,
         target_backend,
         target_dir,
         if cmd.run_mode == RunMode::Bench {
@@ -824,21 +842,19 @@ fn plan_test_or_bench_rr_from_intent(
         user_log,
         &resolved_project,
     )?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         cmd.build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )?;
     Ok((build_meta, build_graph, filter))
 }
 
 #[instrument(skip_all)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_internal(
+pub(super) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
     dirs: &PackageDirs,
@@ -874,7 +890,7 @@ pub(crate) fn run_test_or_bench_internal(
     )
 }
 
-pub(crate) fn validate_test_or_bench_invocation(
+pub(super) fn validate_test_or_bench_invocation(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
 ) -> anyhow::Result<()> {
@@ -909,8 +925,7 @@ pub(crate) fn validate_test_or_bench_invocation(
     Ok(())
 }
 
-pub(crate) fn sync_and_discover_test_or_bench_project(
-    cli: &UniversalFlags,
+pub(super) fn sync_and_discover_test_or_bench_project(
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -918,10 +933,9 @@ pub(crate) fn sync_and_discover_test_or_bench_project(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
-    rr_build::sync_and_discover_project(&preparation_config, dirs, user_log)
+    moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
 }
 
 #[instrument(skip_all)]
@@ -934,7 +948,7 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
-    let discovered = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_test_or_bench_project(cmd, dirs, output.user_log())?;
     run_test_or_bench_from_discovered(
         cli,
         cmd,
@@ -951,7 +965,7 @@ fn run_test_rr(
 /// Holds the target-directory lock through planning and the initial build,
 /// then releases it before executing tests or benchmarks.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_test_or_bench_from_discovered(
+pub(super) fn run_test_or_bench_from_discovered(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
@@ -966,13 +980,10 @@ pub(crate) fn run_test_or_bench_from_discovered(
         target_dir,
         ..
     } = dirs;
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let planned_runs = plan_test_or_bench_rr_from_discovered(
+        &session,
         cli,
         cmd,
         target_dir,
@@ -987,7 +998,7 @@ pub(crate) fn run_test_or_bench_from_discovered(
         target_dir,
         display_backend_hint,
         planned_runs,
-        lock,
+        session,
         output,
     )
 }
@@ -1009,7 +1020,7 @@ fn run_test_workflow(
     target_dir: &Path,
     display_backend_hint: bool,
     planned_runs: Vec<(BuildMeta, BuildInput, TestFilter)>,
-    lock: Option<std::fs::File>,
+    session: BuildSession,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
@@ -1024,15 +1035,14 @@ fn run_test_workflow(
     let build_graph = BuildInput::compose(build_inputs)?;
 
     if cli.dry_run {
-        output.write_result(|writer| rr_build::write_dry_run(writer, &build_graph, source_dir))?;
+        output.write_result(|writer| {
+            crate::dry_run::write_dry_run(writer, &build_graph, source_dir)
+        })?;
         // Test command lines depend on generated metadata, which dry-run does
         // not materialize. Profile dry-run therefore also stops at the build graph.
         return Ok(0);
     }
 
-    for (build_meta, _) in &build_metas_and_filters {
-        rr_build::generate_all_pkgs_json(build_meta)?;
-    }
     let build_config = cmd
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose);
@@ -1042,13 +1052,7 @@ fn run_test_workflow(
         .iter()
         .map(|(meta, _)| meta)
         .collect::<Vec<_>>();
-    let result = moonbuild::execution::execute_test_build(
-        &build_config,
-        build_graph,
-        target_dir,
-        &build_metas,
-        user_log,
-    )?;
+    let result = session.execute_test(&build_config, build_graph, &build_metas)?;
     if !result.successful() {
         return Ok(result.return_code_for_success());
     }
@@ -1072,7 +1076,7 @@ fn run_test_workflow(
     }
     // n2 has closed the shared database. Test execution must not block checks
     // or other builds that use this target directory.
-    drop(lock);
+    drop(session);
     if cmd.profile {
         return profile::profile_tests(
             cli,
@@ -1150,7 +1154,7 @@ fn run_tests_with_updates(
 
             // Promotion changes build inputs. Keep it and the partial rebuild
             // under one lock, then release it before the next test run.
-            let lock = lock_directory(target_dir, user_log)?;
+            let session = BuildSession::new(target_dir, false, user_log)?;
 
             // Only the latest run can request another promotion. Keep results
             // for tests outside the rerun filter in the final report.
@@ -1192,15 +1196,13 @@ fn run_tests_with_updates(
                         .expect("test result from the last test run should be present")
                         .as_slice()
                 });
-            let result = moonbuild::execution::execute_build_partial(
+            let result = session.rebuild(
                 build_config,
                 build_graph,
-                target_dir,
-                Some(&build_meta),
-                user_log,
+                &build_meta,
                 want_files.map(PathBuf::as_path),
             )?;
-            drop(lock);
+            drop(session);
             if !result.successful() {
                 exit_code = exit_code.max(result.return_code_for_success());
                 continue 'backends;
@@ -1304,9 +1306,13 @@ fn apply_list_of_filters(
         // Currently, value tracing is only supported for single package testing
         // It's not sure whether we should support it for multiple packages
         let trace_pkg = if value_tracing { Some(pkg_id) } else { None };
-        input_directive =
-            rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file, true)
-                .context("failed to build input directive")?;
+        input_directive = super::build_flags::build_patch_directive_for_package(
+            pkg_id,
+            trace_pkg,
+            patch_file,
+            TargetKind::InlineTest,
+        )
+        .context("failed to build input directive")?;
     } else if filtered_package_ids.len() > 1 {
         let package_names = || {
             filtered_package_ids
@@ -1358,8 +1364,8 @@ fn calc_user_intent(
     out_filter: &mut TestFilter,
     target_backend: moonutil::target::TargetBackend,
     user_log: &UserLog,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
+) -> Result<BuildRequest, anyhow::Error> {
+    let all_affected_packages: Vec<_> = super::selection::local_packages(discovered).collect();
     calc_user_intent_from_packages(
         discovered,
         cmd,
@@ -1382,7 +1388,7 @@ fn calc_user_intent_from_packages(
     user_log: &UserLog,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     debug!(
         package_count = all_affected_packages.len(),
         module_count = discovered.local_modules().len(),
@@ -1605,22 +1611,22 @@ fn resolve_selected_test_packages(
     user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.explicit_path_filters.is_empty() {
-        return Ok(select_packages(cmd.explicit_path_filters, user_log, |dir| {
-            filter_pkg_by_dir(discovered, dir)
-        })?
-        .into_iter()
-        .map(|(_, pkg_id)| pkg_id)
-        .collect());
+        return Ok(
+            select_packages(discovered, cmd.explicit_path_filters, user_log)?
+                .into_iter()
+                .map(|(_, pkg_id)| pkg_id)
+                .collect(),
+        );
     }
 
     if let Some(package_filter) = cmd.package.as_deref() {
-        let all_affected_packages: Vec<_> = rr_build::local_packages(discovered).collect();
+        let all_affected_packages: Vec<_> = super::selection::local_packages(discovered).collect();
         return Ok(
             match_packages_with_fuzzy(discovered, all_affected_packages, package_filter).matched,
         );
     }
 
-    Ok(rr_build::local_packages(discovered).collect())
+    Ok(super::selection::local_packages(discovered).collect())
 }
 
 fn validate_original_package_selection_filters(
@@ -1641,7 +1647,7 @@ fn validate_original_package_selection_filters(
 
     let matched_packages = match_packages_with_fuzzy(
         discovered,
-        rr_build::local_packages(discovered),
+        super::selection::local_packages(discovered),
         package_filter,
     )
     .matched;

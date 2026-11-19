@@ -78,7 +78,6 @@ pub(crate) fn build_synth_single_file_package(
         supported.insert(b);
     }
     let moon_pkg = MoonPkg {
-        name: None,
         experimental: false,
         allow_experimental_packages: None,
         is_main: run_mode || source_kind == SingleFileSourceKind::Mbtx,
@@ -92,11 +91,10 @@ pub(crate) fn build_synth_single_file_package(
         },
         link: None,
         warn_list: None,
+        alert_list: None,
         proof_enabled: false,
         targets: None,
         pre_build: None,
-        bin_name: None,
-        bin_target: None,
         supported_targets: supported.clone(),
         native_stub: None,
         virtual_pkg: None,

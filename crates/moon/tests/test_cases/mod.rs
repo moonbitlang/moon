@@ -24,9 +24,7 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     constants::{BUILD_DIR, MBTI_GENERATED, MOON_NO_WORKSPACE, MOON_WORK_ENV},
-    path::CargoPathExt,
     target::TargetBackend,
-    text::StringExt,
     version::get_cargo_pkg_version,
 };
 
@@ -67,6 +65,7 @@ mod inline_test;
 mod install_atomic_rename;
 mod js_test_build_only;
 mod main_package;
+mod manifest_diagnostics;
 #[cfg(unix)]
 mod mbti;
 mod moon_bench;

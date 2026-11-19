@@ -13,8 +13,3 @@ keywords = [ ]
 description = ""
 
 source = "src"
-
-options(
-  exclude: [ "test/a/a.txt", "*.mbt", "*.txt" ],
-  "include": [ "moon.mod", "*.mbt", "*.txt" ],
-)

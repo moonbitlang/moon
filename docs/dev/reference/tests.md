@@ -112,8 +112,19 @@ Backends still execute one after another, and this scheduling does not split
 individual test cases into separate processes or change async-test concurrency.
 
 The private `runtest::report` module owns per-test text and JSON output, including
-benchmark summary decoding and formatting. Test result data and expect/snapshot
-promotion remain in `moonbuild`.
+benchmark summary decoding and formatting. The runner owns test result data;
+its private `expect` module interprets expect/snapshot failures and applies
+source updates. Shared diff rendering for these reports and `moon info` lives
+in Moon's private `diff` module. `BuildSession` retains build-lock and rebuild
+ownership.
+
+Moon's private `test_metadata` module owns the compiler-produced test-info JSON
+model shared by driver generation, filtering, and reporting. Rendering that
+metadata into MoonBit source belongs to `cli::generate_test_driver`, using the
+templates in `crates/moon/template/test_driver_project`. The template project is
+checked and format-checked by `cargo xtask ci`. RR plans the generation action
+and encodes its existing `TargetKind` as `--driver-kind`; it does not consume the
+test-info JSON model or driver templates.
 
 `moon bench` remains sequential by default to avoid contention affecting
 measurements. Explicit `-j N` still opts benchmarks into parallel execution, and
@@ -131,8 +142,8 @@ snapshot tests. The CLI enforces a single target backend in this mode (updating
 multiple backends at once would diverge binary outputs) and disallows patch
 files.
 
-1. After each run, the workflow reacquires the target-directory lock before
-   promotion and holds it through any partial rebuild. `perform_promotion` scans
+1. After each run, the workflow opens a new `BuildSession`, acquiring the
+   target-directory lock before promotion and holding it through any partial rebuild. `perform_promotion` scans
    that run's `ReplaceableTestResults`. For every `ExpectTestFailed` or
    `SnapshotTestFailed` case it:
 
@@ -144,7 +155,7 @@ files.
 
    - Checks the `--limit` counter (default 256 passes) to avoid infinite loops.
    - Rebuilds just the affected test artifacts by cloning the saved build graph
-     and calling `execute_build_partial` with the target nodes returned from the
+     and calling `BuildSession::rebuild` with the output paths returned from the
      filter.
    - Releases the lock before re-running the filtered subset of tests, with the
      `PackageFilter` wrapped inside a temporary `TestFilter`. Only the promoted
@@ -158,8 +169,9 @@ files.
    rerun follows. The final report retains the last observed results, including
    results for tests outside the rerun filter.
 
-During promotion the expect/snapshot helpers in `moonbuild::expect` are
-responsible for touching files. The CLI does not stream diffs; failures are still
+During promotion the helpers in Moon's private `run::runtest::expect` module
+are responsible for touching files while the caller holds the build session lock.
+The CLI does not stream diffs; failures are still
 rendered via `render_expect_fail` / `render_snapshot_fail` to provide context when
 `--update` is not active or when a promotion pass still fails.
 

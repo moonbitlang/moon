@@ -530,6 +530,7 @@ fn test_prebuild_config_mbtx_invalid_json() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
+Warning: Legacy stdin JSON for prebuild script `build config.mbtx` in module `username/hello` is deprecated and will be removed; read `MOON_MOD`, `MOON_BUILD_DIR`, and the other `MOON_*` environment variables instead.
 Error: failed to run build for target Native
 
 Caused by:
@@ -639,7 +640,8 @@ fn test_unstable_prebuild_config_uses_preferred_backend() {
         let mut module = moonutil::manifest::read_module_desc_file_in_dir(dir.as_ref()).unwrap();
         module.preferred_target =
             Some(moonutil::target::TargetBackend::str_to_backend(target).unwrap());
-        moonutil::manifest::write_module_dsl_to_file(&module.into(), dir.as_ref()).unwrap();
+        moonutil::manifest::write_module_dsl_to_file(&module.into(), &dir.join("moon.mod"))
+            .unwrap();
 
         let result = moon_cmd(&dir)
             .args(["build", "--release", "--dry-run"])

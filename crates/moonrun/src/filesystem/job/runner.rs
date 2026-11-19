@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Blocking filesystem operations executed by Filesystem Jobs.
+//! Concrete Host Filesystem operations executed by Jobs.
+//!
+//! Each executor interprets and authorizes its inputs before consuming acquired
+//! references or applying native effects. The helpers below implement mechanism;
+//! Job dispatch does not perform a separate permission or pathname pass.
 
 use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use std::ffi::OsString;
@@ -29,16 +33,16 @@ use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
-use crate::resource::{Resource, ResourcePublication};
+use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
 #[cfg(windows)]
 use super::stat::{
     FILE_KIND_CHAR_DEVICE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE, FILE_KIND_REGULAR,
     FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
 };
-use super::stat::{PackedStat, StatRequest, StatValues, run_fstatx_job};
-use super::{FileTimeResult, OpenJobResult, RealpathJobResult};
-use crate::filesystem::FileGrant;
+use super::stat::{PackedStat, StatRequest, StatValues, query_handle};
+use super::{FileTimeResult, OpenJobResult, RealpathJobResult, job_path, take_execution_path};
+use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs};
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -53,12 +57,16 @@ pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
 }
 
 ported_fns! {
-    #[ported(source = "src/internal/event_loop/fs.c", original = "openat_job_worker")]
+    #[ported(
+        source = "src/internal/event_loop/fs.c",
+        original = "openat_job_worker"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_open_job(
-        parent: Option<&Resource>,
+        filesystem: &HostFs,
+        parent: &mut Option<ResourceRef>,
         result: &mut Option<OpenJobResult>,
-        filename: OsString,
+        filename: &mut OsString,
         access: i32,
         create_mode: i32,
         append: bool,
@@ -66,17 +74,25 @@ ported_fns! {
         mode: i32,
         request: StatRequest,
     ) -> AsyncHostResult<i64> {
-        let filename_for_provenance = match parent {
-            Some(parent) => super::super::os::directory::path(raw_file_handle(parent)?)
-                .ok()
-                .map(|base| base.join(&filename)),
-            None => Some(std::path::PathBuf::from(&filename)),
-        };
-        let file = open_raw_native_file(parent.map(raw_file_handle).transpose()?, filename, access, create_mode, append, sync, mode)?;
-        let resource = Resource::new_with_file_grant(
-            file,
-            FileGrant::from_opened_path(filename_for_provenance),
-        );
+        let granted = filesystem.authorize(FsOperation::OpenAsync {
+            path: job_path(parent.as_deref(), filename)?,
+            access,
+            create_mode,
+            read_metadata: request.mask() & !super::STAT_OPEN_IDENTITY != 0,
+        })?;
+        let filename = take_execution_path(filesystem, parent.as_deref(), filename);
+        let parent = parent.take();
+        let parent = parent.as_deref();
+
+        let parent_handle = parent.map(raw_file_handle).transpose()?;
+        let options = open_options(access, create_mode, append, sync, mode)?;
+        let file = super::super::os::openat::open(
+            parent_handle,
+            &filename,
+            &options,
+            &super::CancellableIo,
+        )?;
+        let resource = Resource::from_file(file, FileGrant::acquired(granted));
         // Unlike async Workers, synchronous calls do not mask ordinary signals.
         // An unnecessary stat can therefore return EINTR after open succeeds.
         // Callers cannot tell which syscall was interrupted and may retry open,
@@ -84,9 +100,9 @@ ported_fns! {
         let stat = if request.mask() == 0 {
             PackedStat::new(request, StatValues::default())
         } else {
-            let mut stat = None;
-            run_fstatx_job(&resource, request, &mut stat)?;
-            stat.ok_or(AsyncHostError::Io)?
+            // Opening already admitted the complete metadata request. This
+            // acquisition receipt must not run a second saved-path check.
+            PackedStat::new(request, query_handle(&resource, request)?)
         };
         *result = Some(OpenJobResult {
             resource: ResourcePublication::Unpublished(resource),
@@ -95,33 +111,43 @@ ported_fns! {
         Ok(0)
     }
 
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "read_job_worker"
-    )]
+    #[ported(runtime = "thread_pool.c", original = "read_job_worker")]
     pub(super) fn run_read_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         len: u32,
         position: i64,
         result: &mut Option<Vec<u8>>,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ReadResource(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
         let mut buf = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        let n = read_from_native_file(raw_file_handle(file)?, &mut buf, position)?;
+        let n = crate::filesystem::os::io::read_blocking(
+            raw_file_handle(&file)?, &mut buf, u64::try_from(position).ok(), &super::CancellableIo,
+        )?;
         buf.truncate(n);
         *result = Some(buf);
         Ok(n as i64)
     }
 
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "write_job_worker"
-    )]
+    #[ported(runtime = "thread_pool.c", original = "write_job_worker")]
     pub(super) fn run_write_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         data: &[u8],
         position: i64,
     ) -> AsyncHostResult<i64> {
-        let n = write_to_native_file(raw_file_handle(file)?, data, position)?;
+        filesystem.authorize(FsOperation::WriteResource(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        let n = crate::filesystem::os::io::write_blocking(
+            raw_file_handle(&file)?, data, u64::try_from(position).ok(), &super::CancellableIo,
+        )?;
         Ok(n as i64)
     }
 
@@ -132,10 +158,21 @@ ported_fns! {
         replacement = "statx_job_worker with STAT_FILE_KIND"
     )]
     pub(super) fn run_file_kind_by_path_job(
-        parent: Option<&Resource>,
-        path: OsString,
+        filesystem: &HostFs,
+        parent: &mut Option<ResourceRef>,
+        path: &mut OsString,
         follow_symlink: bool,
     ) -> AsyncHostResult<i64> {
+        let target = job_path(parent.as_deref(), path)?;
+        filesystem.authorize(if follow_symlink {
+            FsOperation::Metadata(FsTarget::Path(target))
+        } else {
+            FsOperation::InspectEntry(target)
+        })?;
+        let path = take_execution_path(filesystem, parent.as_deref(), path);
+        let parent = parent.take();
+        let parent = parent.as_deref();
+
         file_kind_by_path(parent, path, follow_symlink).map(i64::from)
     }
 
@@ -146,10 +183,16 @@ ported_fns! {
         replacement = "fstatx_job_worker with STAT_FILE_SIZE"
     )]
     pub(super) fn run_file_size_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         result: &mut i64,
     ) -> AsyncHostResult<i64> {
-        *result = file_size(raw_file_handle(file)?)?;
+        filesystem.authorize(FsOperation::Metadata(FsTarget::File(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        )))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        *result = file_size(raw_file_handle(&file)?)?;
         Ok(0)
     }
 
@@ -160,10 +203,16 @@ ported_fns! {
         replacement = "fstatx_job_worker with timestamp properties"
     )]
     pub(super) fn run_file_time_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         result: &mut Option<FileTimeResult>,
     ) -> AsyncHostResult<i64> {
-        *result = Some(FileTimeResult::new(file_time(raw_file_handle(file)?)?));
+        filesystem.authorize(FsOperation::Metadata(FsTarget::File(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        )))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        *result = Some(FileTimeResult::new(file_time(raw_file_handle(&file)?)?));
         Ok(0)
     }
 
@@ -174,10 +223,19 @@ ported_fns! {
         replacement = "statx_job_worker with timestamp properties"
     )]
     pub(super) fn run_file_time_by_path_job(
-        path: OsString,
+        filesystem: &HostFs,
+        path: &mut OsString,
         follow_symlink: bool,
         result: &mut Option<FileTimeResult>,
     ) -> AsyncHostResult<i64> {
+        let target = FsPath::Cwd(path);
+        filesystem.authorize(if follow_symlink {
+            FsOperation::Metadata(FsTarget::Path(target))
+        } else {
+            FsOperation::InspectEntry(target)
+        })?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         *result = Some(FileTimeResult::new(file_time_by_path(
             path,
             follow_symlink,
@@ -189,41 +247,62 @@ ported_fns! {
         source = "src/internal/event_loop/fs.c",
         original = "access_job_worker"
     )]
-    pub(super) fn run_access_job(path: OsString, access: i32) -> AsyncHostResult<i64> {
+    pub(super) fn run_access_job(
+        filesystem: &HostFs,
+        path: &mut OsString,
+        access: i32,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::AccessCheck {
+            path: FsPath::Cwd(path),
+            access,
+        })?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         access_native_path(path, access)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "chmod_job_worker"
-    )]
-    pub(super) fn run_chmod_job(path: OsString, mode: i32) -> AsyncHostResult<i64> {
+    #[ported(source = "src/internal/event_loop/fs.c", original = "chmod_job_worker")]
+    pub(super) fn run_chmod_job(
+        filesystem: &HostFs,
+        path: &mut OsString,
+        mode: i32,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Chmod(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         chmod_native_path(path, mode)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "fsync_job_worker"
-    )]
+    #[ported(source = "src/internal/event_loop/fs.c", original = "fsync_job_worker")]
     pub(super) fn run_fsync_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         only_data: bool,
     ) -> AsyncHostResult<i64> {
-        sync_native_file(raw_file_handle(file)?, only_data)?;
+        filesystem.authorize(FsOperation::Flush(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        sync_native_file(raw_file_handle(&file)?, only_data)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "flock_job_worker"
-    )]
+    #[ported(source = "src/internal/event_loop/fs.c", original = "flock_job_worker")]
     pub(super) fn run_flock_job(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         exclusive: bool,
     ) -> AsyncHostResult<i64> {
-        lock_native_file(raw_file_handle(file)?, exclusive)?;
+        filesystem.authorize(FsOperation::Lock {
+            file: file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+            exclusive,
+        })?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
+        lock_native_file(raw_file_handle(&file)?, exclusive)?;
         Ok(0)
     }
 
@@ -231,13 +310,28 @@ ported_fns! {
         source = "src/internal/event_loop/fs.c",
         original = "remove_job_worker"
     )]
-    pub(super) fn run_remove_job(path: OsString) -> AsyncHostResult<i64> {
+    pub(super) fn run_remove_job(filesystem: &HostFs, path: &mut OsString) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         remove_native_path(path)?;
         Ok(0)
     }
 
-    #[ported(source = "src/internal/event_loop/fs.c", original = "removeat_job_worker")]
-    pub(super) fn run_removeat_job(parent: Option<&Resource>, path: OsString) -> AsyncHostResult<i64> {
+    #[ported(
+        source = "src/internal/event_loop/fs.c",
+        original = "removeat_job_worker"
+    )]
+    pub(super) fn run_removeat_job(
+        filesystem: &HostFs,
+        parent: &mut Option<ResourceRef>,
+        path: &mut OsString,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(job_path(parent.as_deref(), path)?))?;
+        let path = take_execution_path(filesystem, parent.as_deref(), path);
+        let parent = parent.take();
+        let parent = parent.as_deref();
+
         super::super::os::unlinkat::remove_at(
             parent.map(raw_file_handle).transpose()?,
             &path,
@@ -251,13 +345,26 @@ ported_fns! {
         original = "rename_job_worker"
     )]
     pub(super) fn run_rename_job(
-        old_path: OsString,
-        new_path: OsString,
+        filesystem: &HostFs,
+        old_path: &mut OsString,
+        new_path: &mut OsString,
         replace: bool,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Rename {
+            source: FsPath::Cwd(old_path),
+            destination: FsPath::Cwd(new_path),
+        })?;
+        let old_path = filesystem.resolve_path(&std::mem::take(old_path));
+        let new_path = filesystem.resolve_path(&std::mem::take(new_path));
+
         crate::filesystem::os::rename(
-            std::path::Path::new(&old_path), std::path::Path::new(&new_path),
-            crate::filesystem::os::RenameOptions { replace, cross_device: crate::filesystem::os::CrossDevice::AllowCopy })?;
+            std::path::Path::new(&old_path),
+            std::path::Path::new(&new_path),
+            crate::filesystem::os::RenameOptions {
+                replace,
+                cross_device: crate::filesystem::os::CrossDevice::AllowCopy,
+            },
+        )?;
         Ok(0)
     }
 
@@ -266,28 +373,36 @@ ported_fns! {
         original = "symlink_job_worker"
     )]
     pub(super) fn run_symlink_job(
-        target: OsString,
-        path: OsString,
+        filesystem: &HostFs,
+        target: &mut OsString,
+        path: &mut OsString,
         force_symlink: bool,
     ) -> AsyncHostResult<i64> {
-        symlink_native_path(target, path, force_symlink)?;
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
+        symlink_native_path(std::mem::take(target), path, force_symlink)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "mkdir_job_worker"
-    )]
-    pub(super) fn run_mkdir_job(path: OsString, mode: i32) -> AsyncHostResult<i64> {
+    #[ported(source = "src/internal/event_loop/fs.c", original = "mkdir_job_worker")]
+    pub(super) fn run_mkdir_job(
+        filesystem: &HostFs,
+        path: &mut OsString,
+        mode: i32,
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         mkdir_native_path(path, mode)?;
         Ok(0)
     }
 
-    #[ported(
-        source = "src/internal/event_loop/fs.c",
-        original = "rmdir_job_worker"
-    )]
-    pub(super) fn run_rmdir_job(path: OsString) -> AsyncHostResult<i64> {
+    #[ported(source = "src/internal/event_loop/fs.c", original = "rmdir_job_worker")]
+    pub(super) fn run_rmdir_job(filesystem: &HostFs, path: &mut OsString) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ChangeEntry(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         rmdir_native_path(path)?;
         Ok(0)
     }
@@ -297,15 +412,22 @@ ported_fns! {
         original = "readdir_job_worker"
     )]
     pub(super) fn run_readdir_job(
-        dir: &Resource,
-        buffer: &mut [u8],
+        filesystem: &HostFs,
+        dir: &mut Option<ResourceRef>,
+        buffer: &mut Option<crate::async_host::CBufferLease>,
         len: u32,
         restart: bool,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ReadResource(
+            dir.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let dir = dir.take().ok_or(AsyncHostError::Badf)?;
+        let buffer = buffer.as_mut().ok_or(AsyncHostError::Badf)?.as_mut_slice();
+
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         let _directory_cursor = dir.lock_directory_cursor();
         let buffer = buffer.get_mut(..len).ok_or(AsyncHostError::Fault)?;
-        read_native_dir(dir, buffer, restart)
+        read_native_dir(&dir, buffer, restart)
     }
 
     #[ported(
@@ -314,10 +436,15 @@ ported_fns! {
     )]
     #[cfg(target_os = "linux")]
     pub(super) fn run_inotify_add_watch_job(
-        inotify: &Resource,
-        path: OsString,
+        filesystem: &HostFs,
+        inotify: &mut Option<ResourceRef>,
+        path: &mut OsString,
         is_dir: bool,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Watch(FsTarget::Path(FsPath::Cwd(path))))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+        let inotify = inotify.take().ok_or(AsyncHostError::Badf)?;
+
         use std::ffi::CString;
         use std::os::unix::ffi::OsStringExt;
 
@@ -327,9 +454,8 @@ ported_fns! {
         } else {
             libc::IN_MODIFY
         };
-        let watch = unsafe {
-            libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags)
-        };
+        let watch =
+            unsafe { libc::inotify_add_watch(inotify.as_file()?.as_raw_fd(), path.as_ptr(), flags) };
         if watch < 0 {
             return Err(last_native_error());
         }
@@ -341,25 +467,26 @@ ported_fns! {
         original = "realpath_job_worker"
     )]
     pub(super) fn run_realpath_job(
-        path: OsString,
+        filesystem: &HostFs,
+        path: &mut OsString,
         result: &mut Option<RealpathJobResult>,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::Read(FsPath::Cwd(path)))?;
+        let path = filesystem.resolve_path(&std::mem::take(path));
+
         *result = Some(RealpathJobResult::Unpublished(realpath_native_path(path)?));
         Ok(0)
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn open_raw_native_file(
-    parent: Option<RawFile>,
-    filename: OsString,
+fn open_options(
     access: i32,
     create_mode: i32,
     append: bool,
     sync: i32,
     mode: i32,
-) -> AsyncHostResult<RawFile> {
-    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+) -> AsyncHostResult<super::super::os::openat::OpenOptions> {
+    use super::super::os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
     let is_async = access == 3;
     let (access, type_constraint) = match access {
         0 => (Access::Read, TypeConstraint::Any),
@@ -368,43 +495,28 @@ fn open_raw_native_file(
         3 => (Access::ListDirectory, TypeConstraint::Directory),
         _ => return Err(AsyncHostError::Inval),
     };
-    let file = openat::open(
-        parent,
-        &filename,
-        &OpenOptions {
-            access,
-            type_constraint,
-            follow_symlink: true,
-            is_async,
-            create: match create_mode {
-                0 => CreateMode::Open,
-                1 => CreateMode::Truncate,
-                2 => CreateMode::Create,
-                3 => CreateMode::CreateOrTruncate,
-                4 => CreateMode::Exclusive,
-                _ => return Err(AsyncHostError::Inval),
-            },
-            append,
-            sync: match sync {
-                0 => Sync::None,
-                1 => Sync::Data,
-                2 => Sync::All,
-                _ => return Err(AsyncHostError::Inval),
-            },
-            permission: mode as u32,
+    Ok(OpenOptions {
+        access,
+        type_constraint,
+        follow_symlink: true,
+        is_async,
+        create: match create_mode {
+            0 => CreateMode::Open,
+            1 => CreateMode::Truncate,
+            2 => CreateMode::Create,
+            3 => CreateMode::CreateOrTruncate,
+            4 => CreateMode::Exclusive,
+            _ => return Err(AsyncHostError::Inval),
         },
-        &super::CancellableIo,
-    )?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::IntoRawFd;
-        Ok(file.into_raw_fd())
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::IntoRawHandle;
-        Ok(file.into_raw_handle())
-    }
+        append,
+        sync: match sync {
+            0 => Sync::None,
+            1 => Sync::Data,
+            2 => Sync::All,
+            _ => return Err(AsyncHostError::Inval),
+        },
+        permission: mode as u32,
+    })
 }
 
 #[cfg(unix)]
@@ -506,88 +618,6 @@ pub(super) fn handle_is_socket(handle: RawFile) -> bool {
             &mut opt_len,
         ) == 0
     }
-}
-
-#[cfg(unix)]
-fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
-    let ret = if position < 0 {
-        loop {
-            let ret = with_cancellable_region(|| {
-                Ok(unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) })
-            })?;
-            if ret >= 0 {
-                break ret;
-            }
-            let errno = std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or_else(|| AsyncHostError::Inval.errno());
-            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
-                break ret;
-            }
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let ready = with_cancellable_region(|| Ok(unsafe { libc::poll(&mut pfd, 1, -1) }))?;
-            if ready < 0 {
-                break -1;
-            }
-        }
-    } else {
-        // Async's io.mbt submits positioned Unix I/O as non-cancellable.
-        // Match native: the guest waits for pread instead of cancelling it.
-        unsafe {
-            libc::pread(
-                fd,
-                buf.as_mut_ptr().cast(),
-                buf.len(),
-                position as libc::off_t,
-            )
-        }
-    };
-    native_io_result(ret)
-}
-
-#[cfg(unix)]
-fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
-    let ret = if position < 0 {
-        loop {
-            let ret = with_cancellable_region(|| {
-                Ok(unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) })
-            })?;
-            if ret >= 0 {
-                break ret;
-            }
-            let errno = std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or_else(|| AsyncHostError::Inval.errno());
-            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
-                break ret;
-            }
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLOUT,
-                revents: 0,
-            };
-            let ready = with_cancellable_region(|| Ok(unsafe { libc::poll(&mut pfd, 1, -1) }))?;
-            if ready < 0 {
-                break -1;
-            }
-        }
-    } else {
-        // Positioned Unix writes are also non-cancellable in async's io.mbt;
-        // leave pwrite outside the region, as in native thread_pool.c.
-        unsafe {
-            libc::pwrite(
-                fd,
-                data.as_ptr().cast(),
-                data.len(),
-                position as libc::off_t,
-            )
-        }
-    };
-    native_io_result(ret)
 }
 
 #[cfg(unix)]
@@ -848,165 +878,6 @@ fn path_to_cstring(path: OsString) -> AsyncHostResult<std::ffi::CString> {
     use std::os::unix::ffi::OsStringExt;
 
     std::ffi::CString::new(path.into_vec()).map_err(|_| AsyncHostError::Inval)
-}
-
-#[cfg(unix)]
-fn native_io_result(ret: libc::ssize_t) -> AsyncHostResult<usize> {
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        usize::try_from(ret).map_err(|_| AsyncHostError::Fault)
-    }
-}
-
-#[cfg(windows)]
-fn read_from_native_file(handle: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
-    use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, HANDLE};
-    use windows_sys::Win32::Storage::FileSystem::ReadFile;
-    use windows_sys::Win32::System::IO::OVERLAPPED;
-
-    let overlapped = std::mem::MaybeUninit::<OVERLAPPED>::zeroed();
-    let overlapped = unsafe {
-        let mut overlapped = overlapped.assume_init();
-        if position > 0 {
-            overlapped.Anonymous.Anonymous.Offset = position as u32;
-            overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
-        }
-        overlapped
-    };
-    let mut overlapped = overlapped;
-    let mut bytes_transferred = 0;
-    let overlapped_ptr = if position < 0 {
-        std::ptr::null_mut()
-    } else {
-        &mut overlapped
-    };
-    let handle = handle as HANDLE;
-    // Synchronous Windows file handles can advance the current file pointer
-    // even when ReadFile receives an OVERLAPPED offset. Keep read_at/pread
-    // semantics by restoring the original pointer before returning.
-    let saved_position = if position < 0 {
-        None
-    } else {
-        Some(current_file_pointer(handle)?)
-    };
-    let result = with_cancellable_region(|| {
-        Ok(unsafe {
-            ReadFile(
-                handle,
-                buf.as_mut_ptr().cast(),
-                u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault)?,
-                &mut bytes_transferred,
-                overlapped_ptr,
-            )
-        })
-    })?;
-    let result = if result != 0 {
-        usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-    } else {
-        let error = std::io::Error::last_os_error();
-        let is_eof = matches!(
-            error.raw_os_error(),
-            Some(errno) if errno == ERROR_HANDLE_EOF as i32 || errno == ERROR_BROKEN_PIPE as i32
-        );
-        if is_eof {
-            Ok(0)
-        } else {
-            Err(native_io_error(error))
-        }
-    };
-    if let Some(saved_position) = saved_position
-        && let Err(restore_error) = restore_file_pointer(handle, saved_position)
-    {
-        return match result {
-            Ok(_) => Err(restore_error),
-            Err(error) => Err(error),
-        };
-    }
-    result
-}
-
-#[cfg(windows)]
-fn write_to_native_file(handle: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::WriteFile;
-    use windows_sys::Win32::System::IO::OVERLAPPED;
-
-    let overlapped = std::mem::MaybeUninit::<OVERLAPPED>::zeroed();
-    let overlapped = unsafe {
-        let mut overlapped = overlapped.assume_init();
-        if position > 0 {
-            overlapped.Anonymous.Anonymous.Offset = position as u32;
-            overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
-        }
-        overlapped
-    };
-    let mut overlapped = overlapped;
-    let mut bytes_transferred = 0;
-    let overlapped_ptr = if position < 0 {
-        std::ptr::null_mut()
-    } else {
-        &mut overlapped
-    };
-    let handle = handle as HANDLE;
-    // See read_from_native_file: positioned writes must not alter the stream
-    // offset seen by following non-positioned writes.
-    let saved_position = if position < 0 {
-        None
-    } else {
-        Some(current_file_pointer(handle)?)
-    };
-    let result = with_cancellable_region(|| {
-        Ok(unsafe {
-            WriteFile(
-                handle,
-                data.as_ptr().cast(),
-                u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?,
-                &mut bytes_transferred,
-                overlapped_ptr,
-            )
-        })
-    })?;
-    let result = if result != 0 {
-        usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-    } else {
-        Err(last_native_error())
-    };
-    if let Some(saved_position) = saved_position
-        && let Err(restore_error) = restore_file_pointer(handle, saved_position)
-    {
-        return match result {
-            Ok(_) => Err(restore_error),
-            Err(error) => Err(error),
-        };
-    }
-    result
-}
-
-#[cfg(windows)]
-fn current_file_pointer(handle: windows_sys::Win32::Foundation::HANDLE) -> AsyncHostResult<i64> {
-    use windows_sys::Win32::Storage::FileSystem::{FILE_CURRENT, SetFilePointerEx};
-
-    let mut current = 0;
-    if unsafe { SetFilePointerEx(handle, 0, &mut current, FILE_CURRENT) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(current)
-    }
-}
-
-#[cfg(windows)]
-fn restore_file_pointer(
-    handle: windows_sys::Win32::Foundation::HANDLE,
-    position: i64,
-) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Storage::FileSystem::{FILE_BEGIN, SetFilePointerEx};
-
-    if unsafe { SetFilePointerEx(handle, position, std::ptr::null_mut(), FILE_BEGIN) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(windows)]
@@ -1645,15 +1516,6 @@ fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
     }
     buffer.extend_from_slice(&0u16.to_ne_bytes());
     buffer.into_boxed_slice()
-}
-
-#[cfg(windows)]
-fn native_io_error(error: std::io::Error) -> AsyncHostError {
-    AsyncHostError::Native(
-        error
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
 }
 
 #[cfg(all(test, windows))]

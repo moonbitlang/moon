@@ -26,10 +26,10 @@ use std::{
     sync::LazyLock,
 };
 
+use crate::RunMode;
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
-    build_options::RunMode,
-    compiler_flags::{self, NativeLinkArg, OptLevel as CCOptLevel, Toolchain, ToolchainSource},
+    compiler_flags::{self, Toolchain, ToolchainSource},
     cond_expr::OptLevel,
     constants::{
         MBTI_USER_WRITTEN, MOD_DIR, PKG_DIR, PackageSourceFileKind, is_moon_mod, is_moon_pkg,
@@ -50,8 +50,9 @@ use crate::{
     cond_comp,
     discover::{DiscoveredPackage, resolve_prebuild_path},
     model::{
-        BackendConfig, BuildPlanNode, BuildTarget, DebugSymbols, DirectNativeMode,
-        NativeBackendMode, NativeTarget, OperatingSystem, PackageId, TargetKind, WasmObject,
+        BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, DirectNativeMode,
+        NativeBackendMode, NativeLinkArg, NativeTarget, OperatingSystem, PackageId, TargetKind,
+        WasmObject,
     },
     pkg_name::PackageFQNWithSource,
     special_cases::WASM_ERROR_TABLE_PACKAGES,
@@ -733,7 +734,7 @@ impl<'a> BuildPlanConstructor<'a> {
             // commands project them into compiler inputs.
             let uses_mbtp = matches!(
                 self.config.action,
-                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
+                crate::RunMode::Check | crate::RunMode::Prove
             );
             let file_set = self.package_file_set(target.package);
             let mbtp_files = if uses_mbtp {
@@ -771,7 +772,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let proof_warn_list = (pkg.raw.proof_enabled
             && !matches!(
                 self.config.action,
-                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
+                crate::RunMode::Check | crate::RunMode::Prove
             ))
         .then_some(PROOF_ENABLED_WARN_SUPPRESSIONS);
         let package_warn_list = cat_opt(pkg.raw.warn_list.clone(), proof_warn_list);
@@ -942,29 +943,11 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let mut link_args = native_config
-            .and_then(|native| native.stub_cc_link_flags.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .map(NativeLinkArg::Opaque)
-            .collect();
-
         let effective_native_toolchain = self
             .native_toolchains
             .get(&NativeToolchainRole::CStubs(target))
             .expect("C-stub toolchain should be selected before action planning")
             .clone();
-
-        if let Some(prebuild) = self.prebuild_config {
-            prebuild.append_link_args(std::iter::once(target), &mut link_args);
-        }
 
         // Backtrace-only requests concern MoonBit source locations. They must
         // not change the debug or optimization settings of user-written C stubs.
@@ -981,7 +964,6 @@ impl<'a> BuildPlanConstructor<'a> {
             debug_info,
             opt_level,
             cc_flags,
-            link_args,
         };
         self.res.backend.c_stubs_info.insert(target, c_info);
         Ok(())
@@ -2377,10 +2359,12 @@ mod tests {
     fn resolve_prebuild_rule_command_uses_module_rule() {
         let module = test_module(vec![
             moonutil::manifest::MoonModRule {
+                extra: Default::default(),
                 name: "rule1".to_string(),
                 command: "exe1".to_string(),
             },
             moonutil::manifest::MoonModRule {
+                extra: Default::default(),
                 name: "rule2".to_string(),
                 command: "exe2".to_string(),
             },
@@ -2396,10 +2380,12 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_uses_package_local_rule() {
         let module = test_module(vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "module_rule".to_string(),
             command: "module_exe".to_string(),
         }]);
         let local_rules = vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "local_rule".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -2419,10 +2405,12 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_prefers_package_local_rule() {
         let module = test_module(vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "module_exe".to_string(),
         }]);
         let local_rules = vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -2442,6 +2430,7 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_rejects_unknown_rule() {
         let module = test_module(vec![moonutil::manifest::MoonModRule {
+            extra: Default::default(),
             name: "rule1".to_string(),
             command: "exe1".to_string(),
         }]);

@@ -16,24 +16,33 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
-use moonutil::cli_support::UniversalFlags;
+use indexmap::IndexMap;
 use moonutil::{
     constants::{
         MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,
         MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE,
     },
     target::TargetBackend,
-    test_metadata::{DriverKind, MooncGenTestInfo},
 };
 use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::test_metadata::{FileName, MbtTestInfo, MooncGenTestInfo};
+
+#[derive(Debug, clap::ValueEnum, Clone, Copy)]
+enum DriverKind {
+    Internal,
+    Whitebox,
+    Blackbox,
+}
+
 /// Generate tests for a provided package. This is a thin wrapper around
 /// `moonc gen-test-info`, which does the actual parsing and generation.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct GenerateTestDriverSubcommand {
+pub(super) struct GenerateTestDriverSubcommand {
     /// The paths of the source files to be mapped
     files: Vec<PathBuf>,
 
@@ -170,7 +179,7 @@ fn moonc_gen_test_info(
     }
 }
 
-pub(crate) fn generate_test_driver(
+pub(super) fn generate_test_driver(
     cli: UniversalFlags,
     cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {
@@ -213,47 +222,47 @@ pub(crate) fn generate_test_driver(
 
 const TYPES_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/types.mbt"
+    "/template/test_driver_project/types.mbt"
 ));
 
 const COMMON_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/common.mbt"
+    "/template/test_driver_project/common.mbt"
 ));
 
 const ENTRY_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/entry.mbt"
+    "/template/test_driver_project/entry.mbt"
 ));
 
 const TEMPLATE_NO_ARGS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/template_no_args.mbt"
+    "/template/test_driver_project/template_no_args.mbt"
 ));
 
 const TEMPLATE_WITH_ARGS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/template_with_args.mbt"
+    "/template/test_driver_project/template_with_args.mbt"
 ));
 
 const TEMPLATE_ASYNC_RUNTIME: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/template_async.mbt"
+    "/template/test_driver_project/template_async.mbt"
 ));
 
 const TEMPLATE_NO_ARGS_ASYNC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/template_no_args_async.mbt"
+    "/template/test_driver_project/template_no_args_async.mbt"
 ));
 
 const TEMPLATE_WITH_ARGS_ASYNC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/template_with_args_async.mbt"
+    "/template/test_driver_project/template_with_args_async.mbt"
 ));
 
 const TEMPLATE_WITH_BENCH_ARGS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../moonbuild/template/test_driver_project/template_with_bench_args.mbt"
+    "/template/test_driver_project/template_with_bench_args.mbt"
 ));
 
 fn replace_template_initializer(template: &str, name: &str, replacement: &str) -> String {
@@ -278,6 +287,45 @@ fn replace_template_initializer(template: &str, name: &str, replacement: &str) -
     result.push(' ');
     result.push_str(replacement);
     result.push_str(&template[marker_start + marker.len()..]);
+    result
+}
+
+/// Convert part of the driver metadata into MoonBit declaration code for
+/// the test driver to use. Files without tests are omitted to avoid
+/// generating ambiguous empty map literals.
+fn section_to_mbt(section: &IndexMap<FileName, Vec<MbtTestInfo>>) -> String {
+    use std::fmt::Write;
+
+    if section.values().all(Vec::is_empty) {
+        return "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())"
+            .into();
+    }
+
+    let mut result = String::new();
+    let default_name = "";
+
+    // Writing to string cannot fail, so unwrap() is safe here.
+    writeln!(result, "{{").unwrap();
+    for (file, tests) in section.iter().filter(|(_, tests)| !tests.is_empty()) {
+        // Rust's quoted debug strings also use valid MoonBit escapes.
+        // Metadata names are raw strings and may contain quotes or newlines.
+        writeln!(result, "  {file:?}: {{").unwrap();
+        for test in tests {
+            // tests with #skip attribute are also included in the driver, they will
+            // eventually be skipped by using cli arguments to the driver executable
+            writeln!(
+                result,
+                "    {}: ({}, [\"{}\"]),",
+                test.index,
+                test.func,
+                test.name.as_deref().unwrap_or(default_name)
+            )
+            .unwrap();
+        }
+        writeln!(result, "  }},").unwrap();
+    }
+    writeln!(result, "}}").unwrap();
+
     result
 }
 
@@ -308,7 +356,7 @@ fn generate_driver(
             template.push_str(&replace_template_initializer(
                 TEMPLATE_WITH_BENCH_ARGS,
                 "moonbit_test_driver_internal_with_bench_args_tests",
-                &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
+                &section_to_mbt(&data.with_bench_args_tests),
             ));
         }
     } else {
@@ -316,14 +364,14 @@ fn generate_driver(
             template.push_str(&replace_template_initializer(
                 TEMPLATE_NO_ARGS,
                 "moonbit_test_driver_internal_no_args_tests",
-                &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
+                &section_to_mbt(&data.no_args_tests),
             ));
         }
         if has_with_args {
             template.push_str(&replace_template_initializer(
                 TEMPLATE_WITH_ARGS,
                 "moonbit_test_driver_internal_with_args_tests",
-                &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
+                &section_to_mbt(&data.with_args_tests),
             ));
         }
         if has_any_async {
@@ -341,14 +389,14 @@ fn generate_driver(
             template.push_str(&replace_template_initializer(
                 TEMPLATE_NO_ARGS_ASYNC,
                 "moonbit_test_driver_internal_async_tests",
-                &MooncGenTestInfo::section_to_mbt(&data.async_tests),
+                &section_to_mbt(&data.async_tests),
             ));
         }
         if has_with_args_async {
             template.push_str(&replace_template_initializer(
                 TEMPLATE_WITH_ARGS_ASYNC,
                 "moonbit_test_driver_internal_async_tests_with_args",
-                &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
+                &section_to_mbt(&data.async_tests_with_args),
             ));
         }
     }
@@ -537,4 +585,68 @@ fn async_runtime_references_use_selected_package() {
         adapt_async_runtime_references(template, "moonbitlang/core/async"),
         "@moonbitlang/core/async.run_async_main(() => ())"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use expect_test::expect;
+
+    use super::*;
+
+    #[test]
+    fn section_to_mbt_omits_files_without_tests() {
+        let section = IndexMap::from([
+            ("empty.mbt".into(), vec![]),
+            (
+                "tests.mbt".into(),
+                vec![MbtTestInfo {
+                    index: 2,
+                    func: "__test_tests_2".into(),
+                    name: Some("works".into()),
+                    line_number: Some(3),
+                    attrs: vec![],
+                }],
+            ),
+        ]);
+
+        expect![[r#"
+            {
+              "tests.mbt": {
+                2: (__test_tests_2, ["works"]),
+              },
+            }
+        "#]]
+        .assert_eq(&section_to_mbt(&section));
+    }
+
+    #[test]
+    fn section_to_mbt_escapes_file_names() {
+        let section = IndexMap::from([(
+            "quote\"'\\line\nbreak\ttab:测试.mbt".into(),
+            vec![MbtTestInfo {
+                index: 0,
+                func: "__test_0".into(),
+                name: None,
+                line_number: None,
+                attrs: vec![],
+            }],
+        )]);
+        expect![[r#"
+            {
+              "quote\"'\\line\nbreak\ttab:测试.mbt": {
+                0: (__test_0, [""]),
+              },
+            }
+        "#]]
+        .assert_eq(&section_to_mbt(&section));
+    }
+
+    #[test]
+    fn section_to_mbt_uses_default_when_all_files_are_omitted() {
+        expect!["MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())"]
+            .assert_eq(&section_to_mbt(&IndexMap::from([(
+                "empty.mbt".into(),
+                vec![],
+            )])));
+    }
 }

@@ -1,1 +1,1 @@
-options("supported-targets": "js")
+options("project-future": true, "supported-targets": "js")

@@ -57,7 +57,19 @@ invocation dispatch. Engine completes help/version and parse errors using the
 embedded frontend and bound streams, before any artifact preparation. Only valid
 execution requests launch the preparation helper. Ordinary Moon command
 definitions remain in Moon; guest virtual spawn does not interpret or admit
-those commands.
+those commands. Moon's `UniversalFlags` is private to its CLI. Package-management
+flags and subcommand payloads live in `mooncake::cli`; `MooncakeFlags` contains
+directory selection, workspace context, verbosity and dry-run options, without
+Moon's tracing or build feature flags. Dependency synchronization owns
+`AutoSyncFlags` in `mooncake::pkg::sync`, reexported by the package-management CLI.
+
+Moon still sends the existing stdin tuple, including its `trace` and
+`unstable_feature` fields and the legacy `build_graph` field, for compatibility
+with supported binaries. `MooncakeFlags` accepts that payload while ignoring the
+extra fields. Narrowing the sender's representation is deferred until supported
+receivers accept it. Ctrl-C cleanup belongs to each command frontend: Moon's
+watch and upgrade handlers restore the terminal cursor before exiting, and
+upgrade also performs its Windows executable recovery.
 
 The selector owns the interaction between Clap and compatibility grammar. It
 first selects executable-name and hidden-tool parsers, then parses ordinary
@@ -166,9 +178,19 @@ delegation may then replace the Moon process. On Windows, Moon waits for the
 child while preserving the existing Ctrl-C behavior. Transparent delegates
 use the same final executor without creating a Moon command runtime first.
 
-`main.rs` owns only panic-hook setup, raw argument collection, one runtime
-call, and the final `process::exit`. The retained exception is Clap's native
-parse-error exit before managed command execution begins.
+`main.rs` owns only panic-hook setup, raw argument collection, one
+`cli::execute` call, and the final `process::exit`. The retained exception is
+Clap's native parse-error exit before managed command execution begins.
+
+`cli::execute` reexports the runtime operation directly. It is the CLI module's
+only entry point from the rest of the binary. Command definitions, invocation
+selection, dispatch, shared build flags, and package/backend selection are private
+to `cli`; its planner tests live inside the same module. Dispatch calls command
+modules directly rather than relying on wildcard exports from `cli.rs`.
+
+Shared runtime execution, watching, and dry-run rendering remain outside `cli`.
+Both command handlers and the test runner use command rendering; these shared
+modules do not depend on CLI parsing types or command policy.
 
 ## Tracing ownership
 
@@ -192,8 +214,7 @@ and Moon-managed setup-child output remain separate mechanisms.
 
 ## Moon-managed setup children
 
-Moon-managed setup children currently include legacy `postadd` hooks. Their
-output mode is selected explicitly at the command seam:
+Moon-managed child output mode is selected explicitly at the command seam:
 
 ```rust
 enum ChildOutputMode {
@@ -202,19 +223,20 @@ enum ChildOutputMode {
 }
 ```
 
-Human commands inherit the child's stdout and stderr. Machine-readable command
-modes that synchronize dependencies, currently `check --json` and
-`tree --package --json`, capture both channels, close the child's stdin, and
-wait for completion before producing the Command Result. Non-empty output from
-a successful child becomes an informational User Log entry; output from a
-failed child becomes an error. User Log filtering and child-output mode remain
+Inherited mode forwards the child's stdout and stderr. The runner also supports
+capturing both channels and closing the child's stdin: non-empty output from a
+successful child becomes an informational User Log entry; output from a failed
+child becomes an error. User Log filtering and child-output mode remain
 independent decisions: capture is never inferred from the User Log destination.
 
-Registry adapters only acquire and verify source. Project-local dependency
-installation invokes the isolated legacy-postadd module after materialization,
-while immutable cached sources reject postadd and never receive process-output
-policy. Package prebuild tasks remain build-graph work owned by the build
-executor. User programs remain Process Passthrough.
+Source installation skips legacy `postadd` scripts and reports a User Log
+warning. This applies to project-local sources, immutable cached sources,
+`fetch`, and registry binary installation. The temporary `moon run-postadd
+[MODULE]` command explicitly runs one installed dependency's script, or the
+current module's script when no name is given, with inherited child output.
+Every invocation runs the script again; failure preserves the source directory.
+Package prebuild tasks remain build-graph work owned by the build executor.
+User programs remain Process Passthrough.
 
 ## Regression coverage
 
@@ -237,7 +259,7 @@ Public CLI tests cover:
 - complete JSON stdout and trace files for successful and failed JSON checks;
 - complete JSON stdout with empty stderr for successful and failed registry
   searches;
-- JSON tree capture for successful and failed module and package trees, plus
-  JSON check capture for successful and failed legacy postadd hooks and nested
-  binary-dependency builds; and
+- JSON tree capture for successful and failed module and package trees, skipped
+  postadd warnings in JSON check and tree results, and nested binary-dependency
+  builds; and
 - existing `moon run` trace and temporary-project cleanup invariants.

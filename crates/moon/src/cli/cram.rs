@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::SurfaceTarget;
 use std::{
     ffi::{OsStr, OsString},
     io::Write,
@@ -26,24 +27,19 @@ use std::{
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::build_plan::ArtifactKey;
+use mooncake::cli::AutoSyncFlags;
 use moonutil::{
-    cli_support::AutoSyncFlags,
-    command_output::CommandOutput,
-    locks::lock_directory,
-    path_normalizer::PathNormalizer,
-    project::PackageDirs,
-    target::{SurfaceTarget, TargetBackend},
+    command_output::CommandOutput, path_normalizer::PathNormalizer, project::PackageDirs,
+    target::TargetBackend,
 };
 use tracing::instrument;
 
-use crate::{
-    cli::{
-        BuildSubcommand,
-        process::{self, ProcessAction},
-    },
-    rr_build::{self},
+use crate::cli::{
+    BuildSubcommand,
+    process::{self, ProcessAction},
 };
 
 use super::{BuildFlags, UniversalFlags};
@@ -51,13 +47,13 @@ use super::{BuildFlags, UniversalFlags};
 /// Run cram tests with project binaries on PATH (experimental)
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(disable_help_subcommand(true))]
-pub(crate) struct CramSubcommand {
+pub(super) struct CramSubcommand {
     #[clap(subcommand)]
     pub command: Option<CramCommand>,
 }
 
 #[derive(Clone, Debug, Subcommand)]
-pub(crate) enum CramCommand {
+pub(super) enum CramCommand {
     Test(CramTestSubcommand),
 
     #[clap(external_subcommand)]
@@ -66,7 +62,7 @@ pub(crate) enum CramCommand {
 
 /// Build native executables, then run cram tests with their directories on PATH
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct CramTestSubcommand {
+pub(super) struct CramTestSubcommand {
     /// Build native release executables
     #[clap(long)]
     pub release: bool,
@@ -81,7 +77,7 @@ pub(crate) struct CramTestSubcommand {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub(crate) enum CramTarget {
+pub(super) enum CramTarget {
     Native,
 }
 
@@ -93,7 +89,7 @@ struct ParsedCramArgs {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_cram(
+pub(super) fn run_cram(
     cli: &UniversalFlags,
     cmd: CramSubcommand,
     output: &CommandOutput,
@@ -150,17 +146,14 @@ fn run_cram_test(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         build_cmd.auto_sync_flags.clone(),
         build_cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(build_cmd.build_flags.jobs);
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
-    let lock = if cli.dry_run {
-        None
-    } else {
-        Some(lock_directory(target_dir, user_log)?)
-    };
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
-    let planned_runs = crate::cli::plan_build_rr_from_discovered(
+    let planned_runs = super::build::plan_build_rr_from_discovered(
+        &session,
         cli,
         &build_cmd,
         target_dir,
@@ -173,7 +166,7 @@ fn run_cram_test(
     if cli.dry_run {
         output.write_result(|writer| {
             for (_, build_graph) in &planned_runs {
-                rr_build::write_dry_run(writer, build_graph, source_dir)?;
+                crate::dry_run::write_dry_run(writer, build_graph, source_dir)?;
             }
             write_dry_run_cram_command(
                 writer,
@@ -190,14 +183,14 @@ fn run_cram_test(
         .build_flags
         .execution_config(&cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
-        rr_build::generate_all_pkgs_json(&build_meta)?;
-        let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
+        let result =
+            session.execute(&cfg, build_graph, &[&build_meta], MetadataOutput::Compiler)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
             return Ok(ProcessAction::Exit(result.return_code_for_success()));
         }
     }
-    drop(lock);
+    drop(session);
 
     let mut command = Command::new(moon_cram);
     command.args(parsed.cram_args);
@@ -205,7 +198,7 @@ fn run_cram_test(
     Ok(ProcessAction::Delegate(command))
 }
 
-pub(crate) fn prepare_moon_cram(
+pub(super) fn prepare_moon_cram(
     current_dir: Option<&Path>,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> anyhow::Result<Command> {

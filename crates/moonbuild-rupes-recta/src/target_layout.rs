@@ -29,9 +29,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use moonutil::{
-    build_options::RunMode, cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend,
-};
+use crate::RunMode;
+use moonutil::{cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend};
 
 use crate::{
     ResolvedProject,
@@ -686,7 +685,7 @@ impl ArtifactPathResolver {
         &self.target_layout
     }
 
-    fn stdlib_dir(&self) -> Option<&Path> {
+    pub(crate) fn stdlib_dir(&self) -> Option<&Path> {
         self.stdlib_dir.as_deref()
     }
 
@@ -1225,7 +1224,6 @@ mod tests {
 
     fn moon_pkg(supported_targets: IndexSet<TargetBackend>) -> MoonPkg {
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -1239,11 +1237,10 @@ mod tests {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets,
             native_stub: None,
             virtual_pkg: None,
@@ -1268,13 +1265,10 @@ mod tests {
             description: None,
             compile_flags: None,
             link_flags: None,
-            checksum: None,
             source: None,
             rule: None,
             ext: Default::default(),
             warn_list: None,
-            include: None,
-            exclude: None,
             preferred_target: None,
             supported_targets: None,
             scripts: None,
@@ -1300,9 +1294,8 @@ mod tests {
         BuildCStubsInfo {
             effective_native_toolchain: system_cc_toolchain(),
             debug_info: false,
-            opt_level: moonutil::compiler_flags::OptLevel::None,
+            opt_level: crate::model::CCOptLevel::None,
             cc_flags: Vec::new(),
-            link_args: Vec::new(),
         }
     }
 

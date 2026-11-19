@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::PathBuf;
+
 use moonutil::{
     compiler_flags::{CompilerPaths, NativeAllocator},
     resolution::{ModuleDependencyGraph, ModuleId},
@@ -23,6 +25,25 @@ use moonutil::{
 };
 
 use crate::discover::DiscoverResult;
+
+/// C optimization policy selected by planning and rendered by lowering.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CCOptLevel {
+    Speed,
+    Debug,
+    None,
+}
+
+/// One native link input, kept in order until command construction.
+///
+/// Library names and search paths are driver-independent. Opaque arguments are
+/// already tokenized user flags and must match the selected driver.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NativeLinkArg {
+    Library(String),
+    SearchPath(PathBuf),
+    Opaque(String),
+}
 
 slotmap::new_key_type! {
     /// An unique identifier pointing to a package currently discovered from imported modules.

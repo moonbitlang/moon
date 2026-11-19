@@ -18,19 +18,22 @@
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
-use crate::resource::Resource;
+use crate::filesystem::{FsOperation, HostFs};
+use crate::resource::ResourceRef;
 
 ported_fns! {
-
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "read_console_job_worker"
-    )]
+    #[ported(runtime = "thread_pool.c", original = "read_console_job_worker")]
     pub(super) fn read(
-        file: &Resource,
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
         len: u32,
         result: &mut Option<Vec<u16>>,
     ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::ReadResource(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
         #[cfg(windows)]
         {
             use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
@@ -73,11 +76,17 @@ ported_fns! {
         }
     }
 
-    #[ported(
-        runtime = "thread_pool.c",
-        original = "write_console_job_worker"
-    )]
-    pub(super) fn write(file: &Resource, data: &[u16]) -> AsyncHostResult<i64> {
+    #[ported(runtime = "thread_pool.c", original = "write_console_job_worker")]
+    pub(super) fn write(
+        filesystem: &HostFs,
+        file: &mut Option<ResourceRef>,
+        data: &[u16],
+    ) -> AsyncHostResult<i64> {
+        filesystem.authorize(FsOperation::WriteResource(
+            file.as_deref().ok_or(AsyncHostError::Badf)?.file_grant(),
+        ))?;
+        let file = file.take().ok_or(AsyncHostError::Badf)?;
+
         #[cfg(windows)]
         {
             use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
@@ -116,6 +125,7 @@ ported_fns! {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    use crate::resource::Resource;
 
     #[test]
     fn windows_console_roundtrips_utf16_through_owned_jobs() {
@@ -190,10 +200,23 @@ pkgtype(kind: "executable")
         };
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut by_handle = None;
-        super::super::stat::run_fstatx_job(&input_resource, request, &mut by_handle).unwrap();
+        super::super::stat::run_fstatx_job(
+            &HostFs::default(),
+            &mut Some(Arc::clone(&input_resource)),
+            request,
+            &mut by_handle,
+        )
+        .unwrap();
         let mut by_path = None;
-        super::super::stat::run_statx_job(None, "CONIN$".into(), request, true, &mut by_path)
-            .unwrap();
+        super::super::stat::run_statx_job(
+            &HostFs::default(),
+            &mut None,
+            &mut "CONIN$".into(),
+            request,
+            true,
+            &mut by_path,
+        )
+        .unwrap();
         assert_eq!(
             by_handle.unwrap().scalar(STAT_FILE_KIND),
             Some(FILE_KIND_CONSOLE as u64)
@@ -205,8 +228,15 @@ pkgtype(kind: "executable")
             Some(FILE_KIND_CHAR_DEVICE as u64)
         );
         let mut null_device = None;
-        super::super::stat::run_statx_job(None, "NUL".into(), request, true, &mut null_device)
-            .unwrap();
+        super::super::stat::run_statx_job(
+            &HostFs::default(),
+            &mut None,
+            &mut "NUL".into(),
+            request,
+            true,
+            &mut null_device,
+        )
+        .unwrap();
         assert_eq!(
             null_device.unwrap().scalar(STAT_FILE_KIND),
             Some(FILE_KIND_CHAR_DEVICE as u64)
@@ -231,7 +261,7 @@ pkgtype(kind: "executable")
         let text = vec![0x03bb_u16, 0x00e9];
         let mut write_job =
             crate::filesystem::Job::write_console(output_resource.clone(), text.clone());
-        assert_eq!(write_job.run().unwrap(), 2);
+        assert_eq!(write_job.run(&HostFs::default()).unwrap(), 2);
         let mut observed = [0_u16; 2];
         let mut count = 0;
         assert_ne!(
@@ -275,7 +305,7 @@ pkgtype(kind: "executable")
         while received < 2 {
             let mut read_job =
                 crate::filesystem::Job::read_console(input_resource.clone(), 2 - received);
-            let n = read_job.run().unwrap();
+            let n = read_job.run(&HostFs::default()).unwrap();
             assert!(n > 0);
             read_job
                 .copy_read_console_result(0, &mut guest, 0, 1 + received, 2 - received)
@@ -285,7 +315,7 @@ pkgtype(kind: "executable")
         assert_eq!(guest, [0xaa, 0xaa, 0xbb, 0x03, 0xe9, 0x00, 0xaa, 0xaa]);
 
         let mut stat_job = crate::filesystem::Job::fstatx(input_resource.clone(), 1, 16).unwrap();
-        assert_eq!(stat_job.run().unwrap(), 0);
+        assert_eq!(stat_job.run(&HostFs::default()).unwrap(), 0);
         let mut stat = [0_u8; 16];
         stat_job.copy_stat_result(0, &mut stat, 0, 16).unwrap();
         assert_eq!(u64::from_le_bytes(stat[8..16].try_into().unwrap()), 8);

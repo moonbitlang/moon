@@ -16,60 +16,32 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, path::Path};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use serde_json_lenient::{Map, Value};
 
 pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
-    cond_expr::{CompileCondition, CondExprs},
+    cond_expr::CondExprs,
+    manifest::{ManifestOptions, unknown_field_paths},
     module::MoonModRule,
     moon_pkg,
     target::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     user_log::UserLog,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct PackageJSON {
-    pub is_main: bool,
-    pub is_third_party: bool,
-    pub root_path: String,
-    pub root: String,
-    pub rel: String,
-    pub files: IndexMap<PathBuf, CompileCondition>,
-    // white box test
-    pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
-    // black box test
-    pub test_files: IndexMap<PathBuf, CompileCondition>,
-    // *.mbt.md
-    pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
-    pub deps: Vec<AliasJSON>,
-    pub wbtest_deps: Vec<AliasJSON>,
-    pub test_deps: Vec<AliasJSON>,
-    pub artifact: String,
-    pub check_command: Option<Vec<String>>,
-    pub wbtest_check_command: Option<Vec<String>>,
-    pub test_check_command: Option<Vec<String>>,
-    pub supported_targets: Vec<TargetBackend>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AliasJSON {
-    pub path: String,
-    pub alias: String,
-    pub fspath: String,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 pub struct MoonPkgFormatterJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashSet<String>>")]
     pub ignore: Option<IndexSet<String>>,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -109,6 +81,9 @@ pub enum PkgJSONImportItem {
         import_all: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         value: Option<Vec<String>>,
+        #[serde(flatten, skip_serializing)]
+        #[schemars(skip)]
+        extra: Map<String, Value>,
     },
 }
 
@@ -169,6 +144,9 @@ impl PackageKind {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PkgType {
     pub kind: PackageKind,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -191,9 +169,6 @@ pub enum SupportedTargetsDeclKind {
     description = "A package of MoonBit language"
 )]
 pub struct MoonPkgJSON {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-
     /// Mark this package as experimental, warning packages that depend on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<bool>,
@@ -258,6 +233,15 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "warn-list")]
     pub warn_list: Option<String>,
 
+    /// Alert options read from the manifest by moonc.
+    #[serde(rename = "alert-list", skip_serializing_if = "Option::is_none")]
+    pub alert_list: Option<String>,
+
+    // TODO: Remove recognition when moonc stops reading this deprecated option.
+    #[serde(rename = "test-import-all", skip_serializing)]
+    #[schemars(skip)]
+    pub legacy_test_import_all: Option<bool>,
+
     /// Whether this package participates in proof-oriented workflows.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "proof-enabled")]
@@ -281,16 +265,6 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub rule: Option<Vec<MoonModRule>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "bin-name")]
-    #[schemars(rename = "bin-name")]
-    pub bin_name: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(alias = "bin-target")]
-    #[schemars(rename = "bin-target")]
-    pub bin_target: Option<String>,
 
     /// Supported backend set for this package.
     ///
@@ -326,6 +300,46 @@ pub struct MoonPkgJSON {
     #[serde(alias = "regex-backend")]
     #[schemars(rename = "regex-backend")]
     pub regex_backend: Option<RegexBackend>,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
+}
+
+impl MoonPkgJSON {
+    /// Diagnostics for fields that the JSON-to-package conversion consumes.
+    pub(crate) fn consumed_unknown_fields(&self) -> Vec<String> {
+        let mut unknown: Vec<_> = unknown_field_paths(&self.extra, "").collect();
+        if let Some(formatter) = &self.formatter {
+            unknown.extend(unknown_field_paths(&formatter.extra, "formatter"));
+        }
+        if let Some(pkgtype) = &self.pkgtype {
+            unknown.extend(unknown_field_paths(&pkgtype.extra, "pkgtype"));
+        }
+        for (name, imports) in [
+            ("import", &self.import),
+            ("wbtest-import", &self.wbtest_import),
+            ("test-import", &self.test_import),
+        ] {
+            if let Some(imports) = imports {
+                unknown.extend(imports.unknown_fields(name));
+            }
+        }
+        unknown
+    }
+}
+
+impl PkgJSONImport {
+    fn unknown_fields(&self, prefix: &str) -> Vec<String> {
+        let mut unknown = Vec::new();
+        if let Self::List(imports) = self {
+            for (index, import) in imports.iter().enumerate() {
+                if let PkgJSONImportItem::Object { extra, .. } = import {
+                    unknown.extend(unknown_field_paths(extra, &format!("{prefix}[{index}]")));
+                }
+            }
+        }
+        unknown
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -340,6 +354,9 @@ pub struct VirtualPkg {
     #[serde(alias = "has-default")]
     #[schemars(rename = "has-default")]
     pub has_default: bool,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -347,6 +364,9 @@ pub struct VirtualPkg {
 pub struct ImportMemory {
     pub module: String,
     pub name: String,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -354,113 +374,9 @@ pub struct ImportMemory {
 pub struct MemoryLimits {
     pub min: u32,
     pub max: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct LinkDepItem {
-    pub out: String,
-    pub core_deps: Vec<String>, // need add parent's core files recursively
-    pub package_full_name: String,
-    pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
-    pub package_path: PathBuf,
-    pub link: Option<Link>,
-    pub install_path: Option<PathBuf>,
-    pub bin_name: Option<String>,
-
-    pub stub_lib: Option<Vec<String>>,
-}
-
-#[rustfmt::skip]
-impl LinkDepItem {
-    pub fn wasm_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.exports.as_deref() }
-    pub fn wasm_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_deref() }
-    pub fn wasm_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_memory_limits(&self) -> Option<&MemoryLimits> { self.link.as_ref()?.wasm.as_ref()?.memory_limits.as_ref() }
-    pub fn wasm_shared_memory(&self) -> Option<bool> { self.link.as_ref()?.wasm.as_ref()?.shared_memory }
-    pub fn wasm_heap_start_address(&self) -> Option<u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address }
-    pub fn wasm_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.flags.as_deref() }
-
-    pub fn wasm_gc_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref() }
-    pub fn wasm_gc_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_deref() }
-    pub fn wasm_gc_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_gc_memory_limits(&self) -> Option<&MemoryLimits> { self.link.as_ref()?.wasm_gc.as_ref()?.memory_limits.as_ref() }
-    pub fn wasm_gc_shared_memory(&self) -> Option<bool> { self.link.as_ref()?.wasm_gc.as_ref()?.shared_memory }
-    pub fn wasm_gc_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_deref() }
-
-    pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
-
-    pub fn native_exports(&self) -> Option<&[String]> { self.link.as_ref()?.native.as_ref()?.exports.as_deref() }
-
-    pub fn exports(&self, b: TargetBackend) -> Option<&[String]> {
-        match b {
-            Wasm => self.wasm_exports(),
-            WasmGC => self.wasm_gc_exports(),
-            Js => self.js_exports(),
-            Native => self.native_exports(),
-            LLVM => None,
-        }
-    }
-
-    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Wasm => self.wasm_export_memory_name(),
-            WasmGC => self.wasm_gc_export_memory_name(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn heap_start_address(&self, b: TargetBackend) -> Option<u32> {
-        match b {
-            Wasm => self.wasm_heap_start_address(),
-            WasmGC => None,
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn import_memory(&self, b: TargetBackend) -> Option<&ImportMemory> {
-        match b {
-            Wasm => self.wasm_import_memory(),
-            WasmGC => self.wasm_gc_import_memory(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn memory_limits(&self, b:TargetBackend) -> Option<&MemoryLimits> {
-        match b {
-            Wasm => self.wasm_memory_limits(),
-            WasmGC => self.wasm_gc_memory_limits(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn shared_memory(&self, b: TargetBackend) -> Option<bool> {
-        match b {
-            Wasm => self.wasm_shared_memory(),
-            WasmGC => self.wasm_gc_shared_memory(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn link_flags(&self, b: TargetBackend) -> Option<&[String]> {
-        match b {
-            Wasm => self.wasm_link_flags(),
-            WasmGC => self.wasm_gc_link_flags(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -491,6 +407,9 @@ pub struct WasmLinkConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<Vec<String>>,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 /// Native C/C++ compilation and linking configuration for MoonBit packages.
@@ -527,16 +446,9 @@ pub struct NativeLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stub_cc_flags: Option<String>,
 
-    /// Legacy linker flags for C stubs, retained for manifest compatibility
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stub_cc_link_flags: Option<String>,
-
-    /// Compiled stub object files as dependencies for the executable
-    ///
-    /// (should not be present in the `pkg.json`, generated and populated later)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten, skip_serializing)]
     #[schemars(skip)]
-    pub stub_lib_deps: Option<Vec<String>>,
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -564,8 +476,15 @@ pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_js_builtin_string: Option<bool>,
 
+    /// Use the compiler's FFI byte representation for WasmGC.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_ffi_bytes: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_string_constants: Option<String>,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -576,6 +495,9 @@ pub struct JsLinkConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<JsFormat>,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -634,9 +556,38 @@ pub struct Link {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native: Option<NativeLinkConfig>,
+    #[serde(flatten, skip_serializing)]
+    #[schemars(skip)]
+    pub extra: Map<String, Value>,
 }
 
 impl Link {
+    // TODO(1.0): Remove backend exports fields and their lowering after the
+    // deprecation window; exports then belong to source-level #export_name.
+    fn warn_deprecated_exports(&self, user_log: &UserLog) {
+        for (backend, exports) in [
+            (
+                "wasm",
+                self.wasm.as_ref().and_then(|cfg| cfg.exports.as_ref()),
+            ),
+            (
+                "wasm-gc",
+                self.wasm_gc.as_ref().and_then(|cfg| cfg.exports.as_ref()),
+            ),
+            ("js", self.js.as_ref().and_then(|cfg| cfg.exports.as_ref())),
+            (
+                "native",
+                self.native.as_ref().and_then(|cfg| cfg.exports.as_ref()),
+            ),
+        ] {
+            if exports.is_some() {
+                user_log.warn(format!(
+                    "`link.{backend}.exports` is deprecated; use `#export_name` attributes in MoonBit source instead."
+                ));
+            }
+        }
+    }
+
     pub fn need_link(&self, target: TargetBackend) -> bool {
         match target {
             Wasm | WasmGC | Js => true,
@@ -650,19 +601,73 @@ impl Link {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Clone, JsonSchema)]
 #[serde(untagged)]
 pub enum MoonPkgGenerate {
     Direct {
         input: StringOrArray,
         output: StringOrArray,
         command: String,
+        #[serde(flatten, skip_serializing)]
+        #[schemars(skip)]
+        extra: Map<String, Value>,
     },
     Rule {
         rule: String,
         input: StringOrArray,
         output: StringOrArray,
+        #[serde(flatten, skip_serializing)]
+        #[schemars(skip)]
+        extra: Map<String, Value>,
     },
+}
+
+impl<'de> Deserialize<'de> for MoonPkgGenerate {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Both forms share one object shape. Decode every known field before
+        // checking that exactly one command source was provided.
+        #[derive(Deserialize)]
+        struct Generate {
+            input: StringOrArray,
+            output: StringOrArray,
+            #[serde(default, deserialize_with = "present_string")]
+            command: Option<String>,
+            #[serde(default, deserialize_with = "present_string")]
+            rule: Option<String>,
+            #[serde(flatten)]
+            extra: Map<String, Value>,
+        }
+        fn present_string<'de, D: serde::Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<String>, D::Error> {
+            String::deserialize(deserializer).map(Some)
+        }
+        let Generate {
+            input,
+            output,
+            command,
+            rule,
+            extra,
+        } = Generate::deserialize(deserializer)?;
+        match (command, rule) {
+            (Some(command), None) => Ok(Self::Direct {
+                input,
+                output,
+                command,
+                extra,
+            }),
+            (None, Some(rule)) => Ok(Self::Rule {
+                input,
+                output,
+                rule,
+                extra,
+            }),
+            (Some(_), Some(_)) => Err(serde::de::Error::custom(
+                "`command` and `rule` cannot be used together",
+            )),
+            (None, None) => Err(serde::de::Error::custom("expected `command` or `rule`")),
+        }
+    }
 }
 
 impl MoonPkgGenerate {
@@ -720,7 +725,6 @@ pub struct SubPackageInMoonPkg {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkg {
-    pub name: Option<String>,
     #[serde(default)]
     pub experimental: bool,
     pub allow_experimental_packages: Option<AllowExperimentalPackages>,
@@ -734,14 +738,12 @@ pub struct MoonPkg {
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
+    pub alert_list: Option<String>,
     pub proof_enabled: bool,
 
     pub targets: Option<CondExprs>,
 
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
-
-    pub bin_name: Option<String>,
-    pub bin_target: Option<TargetBackend>,
 
     pub supported_targets: IndexSet<TargetBackend>,
 
@@ -757,6 +759,64 @@ pub struct MoonPkg {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_rules: Option<Vec<MoonModRule>>,
+}
+
+impl MoonPkg {
+    /// Nested configuration is shared by the JSON and DSL package decoders.
+    pub(crate) fn unknown_fields(&self) -> Vec<String> {
+        let mut unknown = Vec::new();
+        if let Some(link) = &self.link {
+            unknown.extend(unknown_field_paths(&link.extra, "link"));
+            if let Some(native) = &link.native {
+                unknown.extend(unknown_field_paths(&native.extra, "link.native"));
+            }
+            if let Some(js) = &link.js {
+                unknown.extend(unknown_field_paths(&js.extra, "link.js"));
+            }
+            if let Some(wasm) = &link.wasm {
+                unknown.extend(unknown_field_paths(&wasm.extra, "link.wasm"));
+                if let Some(memory) = &wasm.import_memory {
+                    unknown.extend(unknown_field_paths(
+                        &memory.extra,
+                        "link.wasm.import-memory",
+                    ));
+                }
+                if let Some(limits) = &wasm.memory_limits {
+                    unknown.extend(unknown_field_paths(
+                        &limits.extra,
+                        "link.wasm.memory-limits",
+                    ));
+                }
+            }
+            if let Some(wasm_gc) = &link.wasm_gc {
+                unknown.extend(unknown_field_paths(&wasm_gc.extra, "link.wasm-gc"));
+                if let Some(memory) = &wasm_gc.import_memory {
+                    unknown.extend(unknown_field_paths(
+                        &memory.extra,
+                        "link.wasm-gc.import-memory",
+                    ));
+                }
+                if let Some(limits) = &wasm_gc.memory_limits {
+                    unknown.extend(unknown_field_paths(
+                        &limits.extra,
+                        "link.wasm-gc.memory-limits",
+                    ));
+                }
+            }
+        }
+        if let Some(virtual_pkg) = &self.virtual_pkg {
+            unknown.extend(unknown_field_paths(&virtual_pkg.extra, "virtual"));
+        }
+        for (index, rule) in self.local_rules.iter().flatten().enumerate() {
+            unknown.extend(unknown_field_paths(&rule.extra, &format!("rule[{index}]")));
+        }
+        for (index, generate) in self.pre_build.iter().flatten().enumerate() {
+            let (MoonPkgGenerate::Direct { extra, .. } | MoonPkgGenerate::Rule { extra, .. }) =
+                generate;
+            unknown.extend(unknown_field_paths(extra, &format!("pre-build[{index}]")));
+        }
+        unknown
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -811,8 +871,7 @@ impl Import {
     }
 }
 
-/// Imports collected in source order, with legacy options replacing DSL blocks
-/// before duplicate warnings are emitted.
+/// Imports collected in source order before duplicate-item warnings are emitted.
 #[derive(Default)]
 struct PackageImports {
     regular: Vec<Import>,
@@ -861,12 +920,19 @@ pub fn convert_pkg_dsl_to_package(
     dsl: moon_pkg::Dsl,
     user_log: &UserLog,
 ) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true, user_log)?.0)
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(
+        dsl,
+        Path::new("moon.pkg"),
+        true,
+        user_log,
+    )?
+    .0)
 }
 
-/// Collect declarations and apply legacy option precedence before decoding fields.
+/// Collect declarations and reject duplicate configuration before decoding fields.
 fn normalize_pkg_dsl(
     dsl: moon_pkg::Dsl,
+    path: &Path,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(Map<String, Value>, PackageImports)> {
@@ -891,11 +957,15 @@ fn normalize_pkg_dsl(
     ]);
     let mut map = serde_json_lenient::Map::new();
     let mut imports = PackageImports::default();
+    // Empty import blocks still declare a setting. Repeated blocks append, but
+    // a legacy option cannot supply the same import kind as a block.
+    let mut declared_imports = HashSet::new();
     for (key, value) in dsl.iter() {
         let Some(&allow_duplicate) = toplevel_keys.get(key) else {
             bail!("Unexpected key '{}' found in moon.pkg.", key);
         };
-        if let Some((_, imports)) = imports.get_mut(key) {
+        if let Some((key, imports)) = imports.get_mut(key) {
+            declared_imports.insert(key);
             imports.extend(serde_json_lenient::from_value::<Vec<Import>>(
                 value.clone(),
             )?);
@@ -926,168 +996,144 @@ fn normalize_pkg_dsl(
         map.remove("virtual");
         map.insert(String::from("implement"), target);
     }
-    if let Value::Object(options) = map.remove("options").unwrap_or_default() {
-        let mut seen_import_keys = HashSet::new();
+    if let Some(options) = map.remove("options") {
+        let options = Map::<String, Value>::deserialize(options)
+            .context("`options` in moon.pkg must be an object")?;
         for (k, v) in options {
             if let Some((key, imports)) = imports.get_mut(&k) {
-                if !seen_import_keys.insert(key) {
-                    bail!("Duplicate key '{key}' found in moon.pkg options.");
+                if !declared_imports.insert(key) {
+                    bail!("duplicate field `{key}`");
                 }
-                *imports = pkg_json_imports_to_imports(serde_json_lenient::from_value(v)?);
-            } else {
-                map.insert(k, v);
+                let value = Option::<PkgJSONImport>::deserialize(v)?;
+                if emit_warnings && let Some(value) = &value {
+                    crate::manifest::warn_unknown_fields(&value.unknown_fields(&k), path, user_log);
+                }
+                *imports = pkg_json_imports_to_imports(value);
+            } else if map.insert(k.clone(), v).is_some() {
+                bail!("duplicate field `{k}`");
             }
         }
     }
     if let Some(warnings) = map.remove("warnings") {
-        let warnings = match warnings {
-            Value::String(s) => s,
-            _ => String::new(),
-        };
-        let legacy_warn_list = match map.remove("warn-list") {
-            Some(Value::String(s)) => s,
-            _ => String::new(),
-        };
-        let merged = format!("{warnings}{legacy_warn_list}");
-        if !merged.is_empty() {
-            map.insert(String::from("warn-list"), Value::String(merged));
+        if map.contains_key("warn_list") || map.contains_key("warn-list") {
+            bail!("duplicate field `warn_list`");
+        }
+        let warnings =
+            String::deserialize(warnings).context("`warnings` in moon.pkg must be a string")?;
+        if !warnings.is_empty() {
+            map.insert(String::from("warn-list"), Value::String(warnings));
         }
     }
-    let supported_targets = map.remove("supported_targets");
-    let legacy_supported_targets = map.remove("supported-targets");
-    match (supported_targets, legacy_supported_targets) {
-        (Some(supported_targets), Some(_)) => {
-            if emit_warnings {
-                let warning = "Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value.";
-                user_log.warn(warning);
-            }
-            map.insert(String::from("supported-targets"), supported_targets);
-        }
-        (Some(supported_targets), None) => {
-            map.insert(String::from("supported-targets"), supported_targets);
-        }
-        (None, Some(legacy_supported_targets)) => {
-            if emit_warnings {
-                let warning = "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead.";
-                user_log.warn(warning);
-            }
-            map.insert(String::from("supported-targets"), legacy_supported_targets);
-        }
-        (None, None) => {}
+    if emit_warnings
+        && map.contains_key("supported-targets")
+        && !map.contains_key("supported_targets")
+    {
+        user_log.warn("`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead.");
     }
-    let dev_build = map.remove("dev_build");
-    if let Some(v) = dev_build {
-        if map.contains_key("pre-build") {
-            bail!("`dev_build` cannot be used together with `pre-build` in moon.pkg.");
-        }
-        map.insert(String::from("pre-build"), v);
+    if let Some(v) = map.remove("dev_build")
+        && map.insert(String::from("pre_build"), v).is_some()
+    {
+        bail!("duplicate field `pre_build`");
     }
     Ok((map, imports))
 }
 
 pub(crate) fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     dsl: moon_pkg::Dsl,
+    path: &Path,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    let (map, imports) = normalize_pkg_dsl(dsl, emit_warnings, user_log)?;
+    let (map, imports) = normalize_pkg_dsl(dsl, path, emit_warnings, user_log)?;
+    let mut options = ManifestOptions {
+        fields: map,
+        manifest: "moon.pkg",
+    };
     // Keep explicit declarations until their conflicts have been checked.
-    let name: Option<String> = read_dsl_option(&map, "name", None)?;
-    let experimental: Option<bool> = read_dsl_option(&map, "experimental", None)?;
-    let allow_experimental_packages = read_dsl_option(
-        &map,
+    let experimental: Option<bool> = options.read("experimental", None)?;
+    let allow_experimental_packages = options.read(
         "allow_experimental_packages",
         Some("allow-experimental-packages"),
     )?;
-    let is_main = read_dsl_option(&map, "is_main", Some("is-main"))?;
-    let pkgtype = read_dsl_option(&map, "pkgtype", None)?;
-    let link = read_dsl_option(&map, "link", None)?;
-    let formatter: Option<MoonPkgFormatterJSON> = read_dsl_option(&map, "formatter", None)?;
-    let warn_list = read_dsl_option(&map, "warn_list", Some("warn-list"))?;
-    let proof_enabled: Option<bool> =
-        read_dsl_option(&map, "proof_enabled", Some("proof-enabled"))?;
-    let targets = read_dsl_option(&map, "targets", None)?;
-    let pre_build = read_dsl_option(&map, "pre_build", Some("pre-build"))?;
-    let local_rules: Option<Vec<MoonModRule>> = read_dsl_option(&map, "rule", None)?;
-    let bin_name = read_dsl_option(&map, "bin_name", Some("bin-name"))?;
-    let bin_target: Option<String> = read_dsl_option(&map, "bin_target", Some("bin-target"))?;
-    let supported_targets = read_dsl_option(&map, "supported_targets", Some("supported-targets"))?;
-    let native_stub = read_dsl_option(&map, "native_stub", Some("native-stub"))?;
-    let virtual_pkg = read_dsl_option(&map, "virtual_pkg", Some("virtual"))?;
-    let implement = read_dsl_option(&map, "implement", None)?;
-    let overrides = read_dsl_option(&map, "overrides", None)?;
+    let is_main = options.read("is_main", Some("is-main"))?;
+    let pkgtype: Option<PkgType> = options.read("pkgtype", None)?;
+    let link = options.read("link", None)?;
+    let formatter: Option<MoonPkgFormatterJSON> = options.read("formatter", None)?;
+    let warn_list = options.read("warn_list", Some("warn-list"))?;
+    let alert_list = options.read("alert-list", None)?;
+    // TODO: Remove recognition when moonc stops reading this deprecated option.
+    // This does not restore Moon's removed test-import-all behavior.
+    let legacy_test_import_all: Option<bool> = options.read("test-import-all", None)?;
+    let proof_enabled: Option<bool> = options.read("proof_enabled", Some("proof-enabled"))?;
+    let targets = options.read("targets", None)?;
+    let pre_build = options.read("pre_build", Some("pre-build"))?;
+    let local_rules: Option<Vec<MoonModRule>> = options.read("rule", None)?;
+    let supported_targets = options.read("supported_targets", Some("supported-targets"))?;
+    let native_stub = options.read("native_stub", Some("native-stub"))?;
+    let virtual_pkg = options.read("virtual_pkg", Some("virtual"))?;
+    let implement = options.read("implement", None)?;
+    let overrides = options.read("overrides", None)?;
     let max_concurrent_tests =
-        read_dsl_option(&map, "max_concurrent_tests", Some("max-concurrent-tests"))?;
-    let regex_backend = read_dsl_option(&map, "regex_backend", Some("regex-backend"))?;
-    // Unknown options are ignored, as they are in moon.pkg.json.
-
+        options.read("max_concurrent_tests", Some("max-concurrent-tests"))?;
+    let regex_backend = options.read("regex_backend", Some("regex-backend"))?;
     if emit_warnings {
+        let mut unknown: Vec<_> = unknown_field_paths(&options.fields, "").collect();
+        if let Some(formatter) = &formatter {
+            unknown.extend(unknown_field_paths(&formatter.extra, "formatter"));
+        }
+        if let Some(pkgtype) = &pkgtype {
+            unknown.extend(unknown_field_paths(&pkgtype.extra, "pkgtype"));
+        }
+        crate::manifest::warn_unknown_fields(&unknown, path, user_log);
+        if legacy_test_import_all.is_some() {
+            user_log
+                .warn("`test-import-all` in moon.pkg is deprecated; use explicit imports instead.");
+        }
         imports.warn_duplicates(user_log);
     }
     let (is_main, force_link) = resolve_package_kind(
         pkgtype.as_ref(),
-        name.as_deref(),
         is_main,
         link.as_ref(),
         emit_warnings,
         user_log,
     )?;
-    let bin_target = bin_target
-        .as_deref()
-        .map(TargetBackend::str_to_backend)
-        .transpose()?;
     let (supported_targets, supported_targets_decl_kind) =
         resolve_supported_targets(supported_targets.as_ref())?;
     validate_local_rules(local_rules.as_deref().unwrap_or_default())?;
 
-    Ok((
-        MoonPkg {
-            name: None,
-            experimental: experimental.unwrap_or(false),
-            allow_experimental_packages,
-            is_main,
-            force_link,
-            sub_package: None,
-            imports: imports.regular,
-            wbtest_imports: imports.whitebox,
-            test_imports: imports.blackbox,
-            formatter: formatter.unwrap_or_default().into(),
-            link: link.and_then(BoolOrLink::into_link),
-            warn_list,
-            proof_enabled: proof_enabled.unwrap_or(false),
-            targets,
-            pre_build,
-            bin_name,
-            bin_target,
-            supported_targets,
-            native_stub,
-            virtual_pkg,
-            implement,
-            overrides,
-            max_concurrent_tests,
-            regex_backend,
-            local_rules,
-        },
-        supported_targets_decl_kind,
-    ))
-}
-
-/// Decode one optional DSL field, accepting its legacy spelling while rejecting
-/// duplicate spellings just as the JSON deserializer does.
-fn read_dsl_option<T: DeserializeOwned>(
-    options: &Map<String, Value>,
-    name: &str,
-    alias: Option<&str>,
-) -> anyhow::Result<Option<T>> {
-    let value = options.get(name);
-    let alias_value = alias.and_then(|alias| options.get(alias));
-    if value.is_some() && alias_value.is_some() {
-        bail!("duplicate field `{name}`");
+    let package = MoonPkg {
+        experimental: experimental.unwrap_or(false),
+        allow_experimental_packages,
+        is_main,
+        force_link,
+        sub_package: None,
+        imports: imports.regular,
+        wbtest_imports: imports.whitebox,
+        test_imports: imports.blackbox,
+        formatter: formatter.unwrap_or_default().into(),
+        link: link.and_then(BoolOrLink::into_link),
+        warn_list,
+        alert_list,
+        proof_enabled: proof_enabled.unwrap_or(false),
+        targets,
+        pre_build,
+        supported_targets,
+        native_stub,
+        virtual_pkg,
+        implement,
+        overrides,
+        max_concurrent_tests,
+        regex_backend,
+        local_rules,
+    };
+    if emit_warnings {
+        crate::manifest::warn_unknown_fields(&package.unknown_fields(), path, user_log);
+        if let Some(link) = &package.link {
+            link.warn_deprecated_exports(user_log);
+        }
     }
-    match value.or(alias_value) {
-        Some(value) => Ok(Option::<T>::deserialize(value)?),
-        None => Ok(None),
-    }
+    Ok((package, supported_targets_decl_kind))
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
@@ -1123,28 +1169,26 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         blackbox: pkg_json_imports_to_imports(j.test_import),
     };
     if emit_warnings {
+        if j.legacy_test_import_all.is_some() {
+            user_log.warn(
+                "`test-import-all` in moon.pkg.json is deprecated; use explicit imports instead.",
+            );
+        }
         imports.warn_duplicates(user_log);
     }
 
     let (is_main, force_link) = resolve_package_kind(
         j.pkgtype.as_ref(),
-        j.name.as_deref(),
         j.is_main,
         j.link.as_ref(),
         emit_warnings,
         user_log,
     )?;
-    let bin_target = j
-        .bin_target
-        .as_deref()
-        .map(TargetBackend::str_to_backend)
-        .transpose()?;
     let (supported_backends, supported_targets_decl_kind) =
         resolve_supported_targets(j.supported_targets.as_ref())?;
     validate_local_rules(j.rule.as_deref().unwrap_or_default())?;
 
     let result = MoonPkg {
-        name: None,
         experimental: j.experimental.unwrap_or(false),
         allow_experimental_packages: j.allow_experimental_packages,
         is_main,
@@ -1156,11 +1200,10 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         formatter: j.formatter.unwrap_or_default().into(),
         link: j.link.and_then(BoolOrLink::into_link),
         warn_list: j.warn_list,
+        alert_list: j.alert_list,
         proof_enabled: j.proof_enabled.unwrap_or(false),
         targets: j.targets,
         pre_build: j.pre_build,
-        bin_name: j.bin_name,
-        bin_target,
         supported_targets: supported_backends,
         native_stub: j.native_stub,
         virtual_pkg: j.virtual_pkg,
@@ -1170,26 +1213,21 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         regex_backend: j.regex_backend,
         local_rules: j.rule,
     };
+    if emit_warnings && let Some(link) = &result.link {
+        link.warn_deprecated_exports(user_log);
+    }
     Ok((result, supported_targets_decl_kind))
 }
 
+// TODO(1.0): Remove the is-main and boolean link compatibility paths after the
+// deprecation window. Keep structured link configuration and pkgtype resolution.
 fn resolve_package_kind(
     pkgtype: Option<&PkgType>,
-    name: Option<&str>,
     is_main: Option<bool>,
     link: Option<&BoolOrLink>,
     emit_warnings: bool,
     user_log: &UserLog,
 ) -> anyhow::Result<(bool, bool)> {
-    // Legacy `is-main`, including the deprecated `name == "main"` alias.
-    let mut legacy_is_main = is_main.unwrap_or(false);
-    if name == Some("main") {
-        legacy_is_main = true;
-        if emit_warnings {
-            let warning = "The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.";
-            user_log.warn(warning);
-        }
-    }
     // Legacy `force_link` from the boolean `link: true` (a structured
     // `link: { ... }` config is not a force-link signal).
     let legacy_force_link = match link {
@@ -1238,7 +1276,29 @@ fn resolve_package_kind(
             }
             (want_main, want_force_link)
         }
-        None => (legacy_is_main, legacy_force_link),
+        None => {
+            if emit_warnings {
+                if let Some(is_main) = is_main {
+                    let migration = if is_main {
+                        "use `pkgtype(kind: \"executable\")` instead"
+                    } else {
+                        "remove it"
+                    };
+                    user_log.warn(format!("`is-main: {is_main}` is deprecated; {migration}."));
+                }
+                if let Some(BoolOrLink::Bool(link)) = link {
+                    let migration = if !link {
+                        "remove it"
+                    } else if is_main == Some(true) {
+                        "remove it from executable packages"
+                    } else {
+                        "use `pkgtype(kind: \"foreign_library\")` instead"
+                    };
+                    user_log.warn(format!("`link: {link}` is deprecated; {migration}."));
+                }
+            }
+            (is_main.unwrap_or(false), legacy_force_link)
+        }
     };
     Ok(flags)
 }
@@ -1260,6 +1320,7 @@ fn convert_test_pkg_dsl(
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     convert_pkg_dsl_to_package_with_supported_targets_decl(
         dsl,
+        Path::new("moon.pkg"),
         emit_warnings,
         &UserLog::new(log::LevelFilter::Error),
     )
@@ -1284,6 +1345,7 @@ fn assert_pkg_dsl_matches_json(source: &str, json: Value) {
         let (json_log, json_capture) = UserLog::captured(log::LevelFilter::Warn);
         let (actual, actual_decl) = convert_pkg_dsl_to_package_with_supported_targets_decl(
             moon_pkg::parse(source).unwrap(),
+            Path::new("moon.pkg"),
             emit_warnings,
             &dsl_log,
         )
@@ -1327,7 +1389,7 @@ import { "example/test" } for "test"
 import { "example/whitebox" } for "wbtest"
 pkgtype(kind: "foreign_library")
 formatter(ignore: ["generated.mbt"])
-warnings = "+1"
+warnings = "+1-2"
 supported_targets = "all-js"
 rule(name: "first", command: "first $input $output")
 rule(name: "second", command: "second $input $output")
@@ -1336,18 +1398,14 @@ dev_build(input: "b", output: "c", command: "generate")
 options(
   "is-main": false,
   link: { "wasm": { "heap-start-address": 2214592512 } },
-  "warn-list": "-2",
   "proof-enabled": true,
   targets: { "native.mbt": "native" },
-  "bin-name": "app",
-  "bin-target": "wasm-gc",
   "native-stub": ["stub.c"],
   virtual: { "has-default": true },
   implement: "example/virtual",
   overrides: ["example/impl"],
   "max-concurrent-tests": 8,
   "regex-backend": "table",
-  "unknown-option": true,
 )
 "#,
         serde_json_lenient::json!({
@@ -1370,8 +1428,6 @@ options(
             "link": {"wasm": {"heap-start-address": 2214592512_u32}},
             "proof-enabled": true,
             "targets": {"native.mbt": "native"},
-            "bin-name": "app",
-            "bin-target": "wasm-gc",
             "native-stub": ["stub.c"],
             "virtual": {"has-default": true},
             "implement": "example/virtual",
@@ -1437,8 +1493,6 @@ fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
             "pre_build",
             r#"[{"input": "a", "output": "b", "command": "generate"}]"#,
         ),
-        ("bin_name", r#""app""#),
-        ("bin_target", r#""wasm""#),
         ("native_stub", r#"["stub.c"]"#),
         ("virtual_pkg", r#"{"has-default": true}"#),
         ("max_concurrent_tests", "4294967295"),
@@ -1470,29 +1524,71 @@ fn convert_pkg_dsl_preserves_option_aliases_and_validation() {
 }
 
 #[test]
-fn convert_pkg_dsl_preserves_options_precedence() {
-    assert_pkg_dsl_matches_json(
-        r#"
-pkgtype(kind: "library")
-formatter(ignore: ["original.mbt"])
-rule(name: "original", command: "original")
-options(
-  pkgtype: { "kind": "executable" },
-  formatter: { "ignore": ["replacement.mbt"] },
-  rule: [],
-)
-"#,
-        serde_json_lenient::json!({
-            "pkgtype": {"kind": "executable"},
-            "formatter": {"ignore": ["replacement.mbt"]},
-            "rule": [],
-        }),
-    );
-    for (source, json) in [
+fn convert_pkg_dsl_rejects_duplicate_options() {
+    for (declaration, option, field) in [
         (
-            r#"options(name: "main")"#,
-            serde_json_lenient::json!({"name": "main"}),
+            r#"pkgtype(kind: "library")"#,
+            r#"pkgtype: { "kind": "library" }"#,
+            "pkgtype",
         ),
+        (
+            r#"formatter(ignore: ["a.mbt"])"#,
+            r#"formatter: { "ignore": [] }"#,
+            "formatter",
+        ),
+        (r#"rule(name: "a", command: "echo a")"#, "rule: []", "rule"),
+        ("experimental = false", "experimental: true", "experimental"),
+        (r#"warnings = "+1""#, r#"warnings: "+1""#, "warnings"),
+        (r#"warnings = """#, r#"warn_list: "+1""#, "warn_list"),
+        (r#"warnings = "+1""#, r#""warn-list": "-2""#, "warn_list"),
+        (
+            r#"supported_targets = "js""#,
+            r#"supported_targets: "js""#,
+            "supported_targets",
+        ),
+        (
+            r#"supported_targets = "js""#,
+            r#""supported-targets": "+native""#,
+            "supported_targets",
+        ),
+        (
+            "proof_enabled = true",
+            r#""proof-enabled": false"#,
+            "proof_enabled",
+        ),
+        (
+            "virtual(has_default: true)",
+            r#"virtual: { "has-default": false }"#,
+            "virtual",
+        ),
+        (
+            "virtual(has_default: true)",
+            r#"virtual_pkg: { "has-default": true }"#,
+            "virtual_pkg",
+        ),
+        (
+            r#"virtual(implement: "example/lib")"#,
+            r#"implement: "example/other""#,
+            "implement",
+        ),
+    ] {
+        for source in [
+            format!("{declaration}\noptions({option})"),
+            format!("options({option})\n{declaration}"),
+        ] {
+            let error = convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), false).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("duplicate field `{field}`"),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn convert_pkg_dsl_accepts_legacy_options() {
+    for (source, json) in [
         (
             r#"options(link: true)"#,
             serde_json_lenient::json!({"link": true}),
@@ -1659,42 +1755,6 @@ import {{ "example/lib/second" }} {suffix}
 }
 
 #[test]
-fn convert_pkg_dsl_import_options_override_blocks() {
-    for (suffix, key) in [
-        ("", "import"),
-        ("for \"test\"", "test-import"),
-        ("for \"test\"", "test_import"),
-        ("for \"wbtest\"", "wbtest-import"),
-        ("for \"wbtest\"", "wbtest_import"),
-    ] {
-        for replacement in [r#"["example/lib/replacement"]"#, "[]"] {
-            let dsl = crate::moon_pkg::parse(&format!(
-                r#"
-import {{ "example/lib/original" }} {suffix}
-options("{key}": {replacement})
-"#,
-            ))
-            .unwrap();
-            let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
-            let imports = match suffix {
-                "" => pkg.imports,
-                "for \"test\"" => pkg.test_imports,
-                _ => pkg.wbtest_imports,
-            };
-            let expected = if replacement == "[]" {
-                vec![]
-            } else {
-                vec!["example/lib/replacement"]
-            };
-            assert_eq!(
-                imports.iter().map(Import::get_path).collect::<Vec<_>>(),
-                expected
-            );
-        }
-    }
-}
-
-#[test]
 fn convert_pkg_dsl_rejects_duplicate_import_option_spellings() {
     for kind in ["test", "wbtest"] {
         let dsl = crate::moon_pkg::parse(&format!(
@@ -1704,7 +1764,7 @@ fn convert_pkg_dsl_rejects_duplicate_import_option_spellings() {
         let error = convert_test_pkg_dsl(dsl, false).unwrap_err();
         assert_eq!(
             error.to_string(),
-            format!("Duplicate key '{kind}-import' found in moon.pkg options."),
+            format!("duplicate field `{kind}-import`"),
         );
     }
 }
@@ -1760,28 +1820,40 @@ fn convert_pkg_json_imports_are_unconditional() {
 }
 
 #[test]
-fn convert_pkg_dsl_options_imports_preserve_precedence() {
-    let dsl = crate::moon_pkg::parse(
-        r#"
-#cfg(target = "native")
-import { "example/lib/native" }
-#cfg(target = "native")
-import { "example/lib/test" } for "test"
-#cfg(target = "native")
-import { "example/lib/wbtest" } for "wbtest"
-options(
-  "import": ["example/lib/common"],
-  "test-import": [],
-  "wbtest-import": [],
-)
-"#,
-    )
-    .unwrap();
-    let (pkg, _) = convert_test_pkg_dsl(dsl, false).unwrap();
-    assert_eq!(pkg.imports.len(), 1);
-    assert_eq!(pkg.imports[0].get_path(), "example/lib/common");
-    assert!(pkg.test_imports.is_empty());
-    assert!(pkg.wbtest_imports.is_empty());
+fn convert_pkg_dsl_rejects_import_blocks_with_legacy_options() {
+    for (source, field) in [
+        (r#"import {} options("import": [])"#, "import"),
+        (
+            r#"import { "example/lib", "example/lib" } options("import": ["example/other"])"#,
+            "import",
+        ),
+        (
+            r#"import {} for "test" options(test_import: [])"#,
+            "test-import",
+        ),
+        (
+            r#"import { "example/lib" } for "test" options("test-import": [])"#,
+            "test-import",
+        ),
+        (
+            r#"import {} for "wbtest" options(wbtest_import: [])"#,
+            "wbtest-import",
+        ),
+        (
+            r#"import { "example/lib" } for "wbtest" options("wbtest-import": [])"#,
+            "wbtest-import",
+        ),
+    ] {
+        let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+        let error = convert_pkg_dsl_to_package(moon_pkg::parse(source).unwrap(), &log).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("duplicate field `{field}`"),
+            "{source}"
+        );
+        // Reject ambiguous declarations before producing duplicate-item warnings.
+        assert!(capture.take().is_empty());
+    }
 }
 
 #[test]
@@ -1865,6 +1937,7 @@ fn convert_pkg_imports_warns_and_preserves_duplicate_items() {
                 let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
                 let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(
                     dsl,
+                    Path::new("moon.pkg"),
                     emit_warnings,
                     &user_log,
                 )
@@ -1906,18 +1979,16 @@ fn convert_pkg_imports_warns_and_preserves_duplicate_items() {
 }
 
 #[test]
-fn convert_pkg_dsl_overrides_imports_before_normalization() {
-    let dsl = moon_pkg::parse(
-        r#"
-import { "example/unused", "example/unused" }
-options("import": ["example/replacement"])
-"#,
-    )
-    .unwrap();
-    let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-    let pkg = convert_pkg_dsl_to_package(dsl, &user_log).unwrap();
-    assert!(matches!(&pkg.imports[..], [Import::Simple(path)] if path == "example/replacement"));
-    assert!(capture.take().is_empty());
+fn convert_pkg_dsl_import_options_allow_other_import_kinds() {
+    assert_pkg_dsl_matches_json(
+        r#"import { "example/lib" }
+options(test_import: ["example/test"], wbtest_import: ["example/wbtest"])"#,
+        serde_json_lenient::json!({
+            "import": ["example/lib"],
+            "test-import": ["example/test"],
+            "wbtest-import": ["example/wbtest"],
+        }),
+    );
 }
 
 #[test]
@@ -1977,6 +2048,7 @@ import {{ "example/lib" {alias} }} {suffix}
                     let (user_log, capture) = UserLog::captured(log::LevelFilter::Warn);
                     let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(
                         dsl,
+                        Path::new("moon.pkg"),
                         emit_warnings,
                         &user_log,
                     )
@@ -2084,26 +2156,6 @@ options(
 #[test]
 fn convert_pkg_dsl_supports_supported_targets_shorthand() {
     let json = crate::moon_pkg::parse(r#"supported_targets = "js""#).unwrap();
-    let (pkg, decl_kind) = convert_test_pkg_dsl(json, true).unwrap();
-
-    assert_eq!(
-        pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
-        vec![Js]
-    );
-    assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
-}
-
-#[test]
-fn convert_pkg_dsl_prefers_supported_targets_over_options_supported_targets() {
-    let json = crate::moon_pkg::parse(
-        r#"
-supported_targets = "js"
-options(
-  "supported-targets": "+native",
-)
-"#,
-    )
-    .unwrap();
     let (pkg, decl_kind) = convert_test_pkg_dsl(json, true).unwrap();
 
     assert_eq!(
@@ -2246,6 +2298,7 @@ dev_build(rule: "rule1", input: "abc", output: "def")
         rule,
         input,
         output,
+        ..
     } = &pre_build[0]
     else {
         panic!("expected rule pre-build");
@@ -2297,21 +2350,20 @@ rule(name: "rule1", command: "exe2")
 
 #[test]
 fn convert_pkg_dsl_rejects_mixed_dev_build_and_pre_build() {
-    let json = crate::moon_pkg::parse(
-        r#"
+    for (option, field) in [
+        ("dev_build", "dev_build"),
+        ("pre-build", "pre_build"),
+        ("pre_build", "pre_build"),
+    ] {
+        let source = format!(
+            r#"
 dev_build(rule: "rule1", input: "abc", output: "def")
-options(
-  "pre-build": [],
-)
-"#,
-    )
-    .unwrap();
-
-    let err = convert_test_pkg_dsl(json, true).unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("`dev_build` cannot be used together with `pre-build`")
-    );
+options("{option}": [])
+"#
+        );
+        let err = convert_test_pkg_dsl(moon_pkg::parse(&source).unwrap(), true).unwrap_err();
+        assert_eq!(err.to_string(), format!("duplicate field `{field}`"));
+    }
 }
 
 #[test]

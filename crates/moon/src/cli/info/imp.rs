@@ -24,18 +24,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::diff::write_diff;
 use anstyle::{AnsiColor, Style};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
-use moonbuild::expect::write_diff;
 use moonbuild_rupes_recta::{DiscoveredProject, model::PackageId, pkg_name::PackageFQN};
 use moonutil::target::TargetBackend;
 use sha2::Digest;
 use tracing::error;
 
-use crate::filter::preferred_target_backend_for_package;
-use crate::rr_build::{generated_mbti_artifacts, generated_mbti_dest};
+use crate::cli::generated_mbti::{generated_mbti_artifacts, generated_mbti_dest};
+use crate::cli::selection::preferred_target_backend_for_package;
 
 const REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
 const ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();

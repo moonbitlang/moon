@@ -30,10 +30,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::pkg::{
-    install::install_impl,
     manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
     roots_for_selected_module,
-    sync::SyncOutputOptions,
+    sync::{SyncOutputOptions, sync_roots},
 };
 
 /// Add a dependency
@@ -102,8 +101,8 @@ pub fn add(
     // a version change, so failed resolution leaves the declaration untouched.
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest)?;
-    install_impl(
-        dirs,
+    sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         SyncOutputOptions::default(),
         user_log,

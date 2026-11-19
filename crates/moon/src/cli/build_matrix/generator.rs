@@ -102,7 +102,7 @@ pub fn f() -> Unit {{
                 );
             }
             let pkg = MoonPkgJSON {
-                name: None,
+                extra: Default::default(),
                 experimental: None,
                 allow_experimental_packages: None,
                 is_main: None,
@@ -117,12 +117,12 @@ pub fn f() -> Unit {{
                 formatter: None,
                 link: None,
                 warn_list: None,
+                alert_list: None,
+                legacy_test_import_all: None,
                 proof_enabled: None,
                 targets: None,
                 pre_build: None,
                 rule: None,
-                bin_name: None,
-                bin_target: None,
                 supported_targets: None,
                 native_stub: None,
                 virtual_pkg: None,
@@ -147,7 +147,7 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
         name: "build_matrix".to_string(),
         version: None,
         private: None,
-        deps: None,
+        import: None,
         readme: None,
         repository: None,
         license: None,
@@ -156,15 +156,11 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
 
         compile_flags: None,
         link_flags: None,
-        checksum: None,
         source: None,
         rule: None,
         ext: Default::default(),
 
-        warn_list: None,
-
-        include: None,
-        exclude: None,
+        warnings: None,
 
         scripts: None,
         preferred_target: None,
@@ -205,7 +201,7 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
     }
 
     let pkg = MoonPkgJSON {
-        name: None,
+        extra: Default::default(),
         experimental: None,
         allow_experimental_packages: None,
         is_main: Some(true),
@@ -220,12 +216,12 @@ pub(super) fn write(config: &Config, base_dir: &Path) {
         formatter: None,
         link: None,
         warn_list: None,
+        alert_list: None,
+        legacy_test_import_all: None,
         proof_enabled: None,
         targets: None,
         pre_build: None,
         rule: None,
-        bin_name: None,
-        bin_target: None,
         supported_targets: None,
         native_stub: None,
         virtual_pkg: None,

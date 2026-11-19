@@ -24,11 +24,11 @@
 use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
+use crate::RunMode;
 use moonutil::project::ProjectManifest;
 use moonutil::resolution::ModuleSourceKind;
 use moonutil::toolchain::BINARIES;
 use moonutil::{
-    build_options::RunMode,
     cond_expr::OptLevel,
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
     manifest::{ManifestFormat, validate_module_dsl_deps},

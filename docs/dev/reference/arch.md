@@ -93,9 +93,6 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Select provider actions and expand their transitive artifact requirements.
    - Generate a concrete build graph containing the final commandlines to execute.
 3. Execute the build graph
-   - Generate metadata files required by compiler actions. Full project checks
-     also publish `packages.json` and `index.json` for tooling compatibility
-     during migration.
    - For a multi-backend invocation, compose the independently lowered
      Execution Plans into one executor graph, sharing compatible physical
      providers such as package prebuild actions. JSON-formatted checks retain
@@ -104,6 +101,9 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
      with any applicable target kind, such as `(wasm, blackbox test)`;
      package-prebuild actions independently render `(prebuild)` before the
      executor receives either description.
+   - Generate metadata files required by compiler actions. Full project checks
+     also publish `packages.json` and `index.json` for tooling compatibility
+     during migration.
    - Execute the concrete build graph in its executor ([n2][]).
      The executor ensures the graph is executed incrementally, rebuilding only the changed parts.
 4. Perform other operations required after build
@@ -113,10 +113,30 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
 
 Implementation-wise:
 
-- Steps 1 and 2 is handled in the RR pipeline's crate.
-  You can also see a low-level implementation doc comment at its [entry point][rr_home].
-- Step 3, as well as wrappers around step 1 and 2 to adapt to the various subcommands,
-  are all located in [the `rr_build` module of the main binary crate][moon_rr_build].
+- `moonbuild::prepare` synchronizes dependencies and prepares script declarations.
+  [RR][rr_home] handles package discovery, package resolution, planning, and
+  lowering; `moonbuild::compile` prepares external inputs and drives planning
+  and lowering.
+- `moonbuild::compile::BuildSession` holds the target-directory lock across
+  module prebuild configuration, planning, metadata publication, and execution.
+  Its execution entry points publish metadata through a private module before
+  handing the graph to `moonbuild::execution`. Dry-run planning only locks when
+  it runs module prebuild configuration; a dry-run session cannot execute.
+- RR's `metadata` module owns the generated package document model. Moonbuild
+  serializes and publishes it, and owns the active backend/profile selector.
+  These output formats are separate from moonutil's input manifest declarations.
+- Moon's private `cli` modules own command policy. `BuildFlags::compile_config`
+  adapts command flags, while `cli::selection` owns shared package and backend
+  selection. Commands select intents and metadata
+  requirements, and keep the session alive while consuming build outputs. Run and test commands release
+  it before launching user programs; test promotion and its partial rebuild
+  share a new session. Standalone Wasm callers use
+  `moonbuild::compile::build_standalone_wasm` without constructing CLI arguments.
+- Build results retain the `TargetBackend` identity needed by metadata, runtime
+  selection, and profiling. Backend-specific compiler settings stay in
+  `CompileConfig` and are consumed during planning and lowering; running an
+  artifact does not require that configuration. The run result takes its target
+  directory from the build's artifact path resolver.
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:
@@ -130,7 +150,6 @@ Implementation-wise:
     The "subset of command" is frequently just all commands within the build graph.
     These limit the ability for it to precisely (or sometimes, correctly) determine the commands to run.
 
-[moon_rr_build]: /crates/moon/src/rr_build/mod.rs
 [rr_home]: /crates/moonbuild-rupes-recta/src/lib.rs
 [n2]: https://github.com/moonbitlang/n2
 
@@ -221,12 +240,12 @@ Toolchain and host facts follow the same rule. `moonutil::toolchain` owns facts
 about the selected MoonBit toolchain tree, including known tool binaries and
 the shipped standard-library artifact layout. Command orchestration decides
 whether those facts apply to the current build, then passes the selected facts
-forward. In particular, `rr_build` chooses `stdlib_path` from `!is_core`;
+forward. In particular, `moonbuild::compile` chooses `stdlib_path` from `!is_core`;
 RR lowering, metadata generation, and `all_pkgs.json` generation
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
 not need to be eager: non-native builds do not resolve native-only OS/toolchain
-details. `rr_build` captures OS and compiler paths only for Native and LLVM,
+details. `moonbuild::compile` captures OS and compiler paths only for Native and LLVM,
 and stores them in the selected backend variant of `CompileConfig`. Planning
 and lowering borrow that same configuration, so planning can select optional
 runtime members such as SIMDUTF objects and lowering can consume the same paths
@@ -241,18 +260,20 @@ observe the include tree. This preparation uses the existing compiler paths;
 it does not select another toolchain or rebuild the plan.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
-configuration scripts run, `rr_build` captures the process environment
+configuration scripts run, `moonbuild::compile` captures the process environment
 explicitly and passes it to prebuild execution. Commands that skip prebuild
 configuration, such as `check`, should not capture that environment just to
 construct a build plan. This does not disable package pre-build rules.
 
 Dependency synchronization is explicit in the normal project path. Command
-adapters call `moonbuild::prepare::sync_module_dependencies`, then pass the
-synced module graph and source directories to RR for package discovery and
-package relationship resolution. `ProjectPreparationConfig` owns sync policy
-and directly contains RR's `DiscoveryConfig`, which only carries coverage and
-discovery parallelism settings. Discovery-only callers do not need registry,
-workspace, or download settings.
+adapters call `moonbuild::prepare::sync_and_discover_project`, which synchronizes
+modules through Mooncake and passes their graph and source directories to RR
+for package discovery. `ProjectPreparationConfig` owns sync policy and keeps
+RR's `DiscoveryConfig` private. Commands select packages and backends from the
+returned `DiscoveredProject` before resolving package relationships. RR callers
+that already have synchronized modules can use `discover_synced_project`
+directly with `DiscoveryConfig`, which only carries coverage and discovery
+parallelism settings; they do not need registry, workspace, or download settings.
 
 Single-file preparation also belongs to `moonbuild::prepare`: it reads script
 declarations, normalizes versioned imports, consults cached registry metadata
@@ -337,8 +358,9 @@ but they may be one of these:
 - A path to a file within a package.
 
 Resolving the package selectors to their in-memory definition
-happens after discovering all relevant modules and packages.
-There is currently no explicit module resolving, because there is only one (input) module to work on.
+happens after discovering all relevant modules and packages and before resolving
+their package imports. The selected project's root modules bound the default
+package scope; explicit selector rules remain command-specific.
 
 If no input module can be found, some subcommands of `moon` enters a "single-file mode",
 which treats the input file (if specified) as the content of a synthesized input module and package.
@@ -415,7 +437,8 @@ have also been removed.
 Remove `bin-deps` from the root manifest and run portable Wasm tools with
 `moonx` instead. Pin the tool version in the command. Tools without published
 executable assets need to publish them before consumers can migrate. The
-`bin-name` and `bin-target` package metadata fields remain supported.
+`bin-name` and `bin-target` package metadata fields have also been removed;
+existing entries follow the unknown-key warning policy.
 
 There are two kinds of sources that dependencies come from:
 
@@ -605,6 +628,19 @@ may first split selected packages into multiple backend groups using
 `module preferred_target -> default backend`,
 then emit intents separately for each backend group.
 
+For `moon build`, private `cli/build/selection.rs` completes one `BuildRequest`
+per backend using only package declarations. Explicit selectors request their
+selected packages; a default build requests linkable packages, or all supported
+non-stdlib packages in its scope when none are linkable. If all implicit
+preferred-backend groups become empty, selection chooses the shared module
+preference or default backend and reselects its supported local packages. It
+retains that fallback plan even when empty. An empty explicit selection does
+not trigger this fallback.
+
+The build workflow resolves all requested backend imports before planning any
+request, then passes these completed requests to the build session. It does not
+reinterpret paths, package names, or default scope after package resolution.
+
 This mapping is also on a migration path for main packages: release N keeps the
 current artifacts so warnings can be surfaced, while release N+1 will omit
 blackbox check/test artifacts for `is-main` packages.
@@ -731,7 +767,14 @@ and with maximal parallelism subject to dependencies and its job limits.
 The private `moonbuild::execution::n2` module owns n2 adaptation, the `.moon_db`
 location and database access, root lookup, scheduling, and progress capture.
 Its parent `execution` module owns `BuildConfig`, `BuildInput`, execution entry
-points, and diagnostic processing. `BuildInput` keeps the Execution Plan and
+points, and action failure classification. Its private `diagnostics` module
+owns compiler diagnostic decoding, generated-driver path rewriting, filtering,
+deduplication, limits, and counts; the nested `render` module owns source lookup,
+source-map interpretation, and terminal rendering. Only `DiagnosticLevel` is
+exposed alongside the execution configuration; the compiler wire model and
+source caches remain private. Shared error-code documentation stays in
+`moonutil::error_code_docs` for both rendering and `moon explain`.
+`BuildInput` keeps the Execution Plan and
 action-backend metadata together through composition. The CLI translates its
 flags into `BuildConfig`; execution does not depend on CLI parsing types.
 Shared artifact paths remain in Rupes Recta's `target_layout` module.
@@ -838,3 +881,9 @@ Scoped documents are atomically replaced before the selector, and the backend
 index is replaced last. Readers therefore never follow a newly published index
 to a partially written document or stale selector. Byte-identical metadata is
 left untouched.
+
+The private `moonbuild::metadata` module owns this publication sequence,
+including the compiler's `all_pkgs.json` for each plan. The command layer selects
+`MetadataOutput::Check` for a full check; `BuildSession` publishes it under the
+same lock as execution. `moon doc` selects `MetadataOutput::Packages` to publish
+its scoped document without changing the selector or index.

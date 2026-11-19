@@ -18,33 +18,28 @@
 
 mod imp;
 
+use crate::cli::target::{SurfaceTarget, lower_surface_targets};
+use mooncake::cli::AutoSyncFlags;
 use std::path::PathBuf;
 
 use anyhow::bail;
 use moonbuild::BuildMeta;
+use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
-use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
+use moonbuild::prepare::{ProjectPreparationConfig, sync_and_discover_project};
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ResolvedProject, discover_synced_project, intent::UserIntent,
-    model::PackageId,
+    DiscoveredProject, ResolvedProject, RunMode, intent::UserIntent, model::PackageId,
 };
 use moonutil::{
-    build_options::RunMode,
-    cli_support::AutoSyncFlags,
-    command_output::CommandOutput,
-    locks::lock_directory,
-    project::PackageDirs,
-    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
-    user_log::UserLog,
+    command_output::CommandOutput, project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
-use crate::{
-    cli::BuildFlags,
-    filter::{
+use super::{
+    BuildFlags,
+    selection::{
         canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
-    rr_build::{self, CalcUserIntentOutput},
 };
 
 use super::UniversalFlags;
@@ -58,7 +53,7 @@ use super::UniversalFlags;
 /// `--target` inspects backend-specific interfaces and reports differences, but
 /// does not change which backend is written to `pkg.generated.mbti`.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct InfoSubcommand {
+pub(super) struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -97,7 +92,7 @@ impl PackageSelection {
         discovered: &DiscoveredProject,
         user_log: &UserLog,
     ) -> anyhow::Result<Self> {
-        let package_ids: Vec<_> = rr_build::local_packages(discovered).collect();
+        let package_ids: Vec<_> = super::selection::local_packages(discovered).collect();
 
         if let [path] = cmd.path.as_slice() {
             let (dir, _) = canonicalize_with_filename(path)?;
@@ -110,9 +105,7 @@ impl PackageSelection {
         }
 
         if !cmd.path.is_empty() {
-            let path_packages = select_packages(&cmd.path, user_log, |dir| {
-                filter_pkg_by_dir(discovered, dir)
-            })?;
+            let path_packages = select_packages(discovered, &cmd.path, user_log)?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
                 mode: SelectionMode::Paths,
@@ -165,7 +158,7 @@ fn calc_user_intent_for_info(
     ctx: &InfoIntentContext,
     discovered: &DiscoveredProject,
     target_backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     let is_canonical_run = matches!(ctx.target_kind, imp::TargetKind::Canonical);
 
     let intents = match &ctx.selection.mode {
@@ -250,7 +243,7 @@ fn calc_user_intent_for_info(
     Ok(intents.into())
 }
 
-pub(crate) fn run_info(
+pub(super) fn run_info(
     cli: UniversalFlags,
     cmd: InfoSubcommand,
     output: &CommandOutput,
@@ -270,14 +263,8 @@ pub(crate) fn run_info(
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     );
-    let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
-    let discovered = discover_synced_project(
-        &preparation_config.discovery,
-        synced_modules,
-        output.user_log(),
-    )?;
+    let discovered = sync_and_discover_project(&preparation_config, &dirs, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &discovered, output.user_log())?;
 
     let requested_targets = cmd
@@ -293,12 +280,13 @@ pub(crate) fn run_info(
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
     std::fs::create_dir_all(target_dir)?;
-    let _lock = lock_directory(target_dir, output.user_log())?;
+    let session = BuildSession::new(target_dir, false, output.user_log())?;
 
     let planned_runs = execution_targets
         .into_iter()
         .map(|(target, target_kind)| {
             let (meta, input) = plan_info_rr(
+                &session,
                 &cli,
                 &cmd,
                 target,
@@ -316,9 +304,6 @@ pub(crate) fn run_info(
         return Ok(0);
     }
 
-    for (_, meta, _) in &planned_runs {
-        rr_build::generate_all_pkgs_json(meta)?;
-    }
     let (all_meta, build_inputs): (Vec<_>, Vec<_>) = planned_runs
         .into_iter()
         .map(|(target, meta, input)| ((target, meta), input))
@@ -326,8 +311,12 @@ pub(crate) fn run_info(
     let build_input = BuildInput::compose(build_inputs)?;
     // TODO: UX: Consider mirroring flags from `moon check`?
     let cfg = BuildFlags::default().execution_config(&cli.unstable_feature, cli.verbose);
-    let result =
-        moonbuild::execution::execute_build(&cfg, build_input, target_dir, output.user_log())?;
+    let result = session.execute(
+        &cfg,
+        build_input,
+        &all_meta.iter().map(|(_, meta)| meta).collect::<Vec<_>>(),
+        MetadataOutput::Compiler,
+    )?;
     let print_result = result.print_info(cli.quiet, "generating mbti files");
     if !result.successful() {
         return Ok(1);
@@ -344,6 +333,7 @@ pub(crate) fn run_info(
 /// Plan `moon info` for one target backend.
 #[allow(clippy::too_many_arguments)]
 fn plan_info_rr(
+    session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: TargetBackend,
@@ -360,9 +350,8 @@ fn plan_info_rr(
         target_kind,
         user_log,
     };
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = BuildFlags::default().compile_config(
         cli,
-        &BuildFlags::default(),
         target,
         target_dir,
         RunMode::Check,
@@ -374,13 +363,11 @@ fn plan_info_rr(
         &resolved_project,
         compile_config.backend.target_backend(),
     )?;
-    rr_build::plan_resolved_build_from_intent(
+    session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         None,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )
 }

@@ -27,22 +27,22 @@ use moonutil::user_log::UserLog;
 use super::registry_runner;
 
 #[derive(Debug)]
-pub(crate) struct MoonxInvocation {
-    pub(crate) handoff: Option<moonutil::run_handoff::RunHandoff>,
-    pub(crate) experimental_policy: Option<PathBuf>,
+pub(super) struct MoonxInvocation {
+    pub(super) handoff: Option<moonutil::run_handoff::RunHandoff>,
+    pub(super) experimental_policy: Option<PathBuf>,
     daemon: bool,
-    pub(crate) verbose: bool,
+    pub(super) verbose: bool,
     input: String,
     args: Vec<String>,
 }
 
-pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
+pub(super) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
         .is_some_and(|arg| moonutil::constants::is_moonx_executable(arg))
 }
 
-pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
+pub(super) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap::Error> {
     let cli = MoonxCli::try_parse_from(raw_args)?;
     let (input, args) = cli.input_and_args();
     let input = input.to_owned();
@@ -57,7 +57,7 @@ pub(crate) fn parse_from(raw_args: &[OsString]) -> Result<MoonxInvocation, clap:
     })
 }
 
-pub(crate) fn prepare(
+pub(super) fn prepare(
     invocation: MoonxInvocation,
     user_log: &UserLog,
 ) -> anyhow::Result<super::process::ProcessAction> {
@@ -78,7 +78,9 @@ pub(crate) fn prepare(
             target_dir: None,
         }
         .single_file_package_dirs(&input)?;
-        Some(super::run::build_standalone_wasm(dirs, false, verbose)?)
+        Some(moonbuild::compile::build_standalone_wasm(
+            dirs, false, verbose,
+        )?)
     } else {
         None
     };
@@ -94,12 +96,12 @@ pub(crate) fn prepare(
             runtime.block_on(registry.acquire_executable_wasm(&input, user_log))?
         }
     };
-    let (policy, policy_source_dir) = super::run::effective_moonrun_policy(
-        experimental_policy.as_deref(),
+    let policy = experimental_policy.as_deref().or_else(|| {
         standalone
             .as_ref()
-            .and_then(|built| built.embedded_mbtx_policy.as_ref()),
-    );
+            .and_then(|built| built.policy_source.as_deref())
+    });
+    let policy_source_dir = None;
 
     if let Some(handoff) = handoff {
         // The supervisor parses the same frontend and owns execution settings,

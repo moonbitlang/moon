@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
+use mooncake::cli::AutoSyncFlags;
 use std::{
     collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
@@ -23,24 +25,27 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use moonbuild::BuildMeta;
-use moonbuild_rupes_recta::{build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget};
+use moonbuild::{
+    BuildMeta,
+    compile::{BuildRequest, BuildSession, MetadataOutput},
+    execution::DiagnosticLevel,
+};
+use moonbuild_rupes_recta::{
+    RunMode, build_plan::ArtifactKey, intent::UserIntent, model::BuildTarget,
+};
 use moonutil::{
-    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, locks::lock_directory,
-    project::PackageDirs, resolution::ModuleId, target::TargetBackend,
-    test_metadata::DiagnosticLevel, user_log::UserLog,
+    command_output::CommandOutput, constants::PRELUDE_PROOF_FILE, project::PackageDirs,
+    resolution::ModuleId, target::TargetBackend, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
 
-use crate::{
-    cli::BuildFlags,
-    filter::{
+use super::{
+    BuildFlags,
+    selection::{
         canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
         package_supports_backend,
     },
-    rr_build::{self, CalcUserIntentOutput},
 };
 
 const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
@@ -50,7 +55,7 @@ const MOON_PROVE_PRELUDE_OVERRIDE: &str = "MOON_PROVE_PRELUDE_OVERRIDE";
 /// Set `MOON_PROVE_PRELUDE_OVERRIDE` to a directory containing
 /// `moonbit_builtin_prelude.mlw` to replace the toolchain's proof prelude.
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct ProveSubcommand {
+pub(super) struct ProveSubcommand {
     /// The file-system path to the package or file in package to prove
     #[clap(name = "PATH")]
     pub path: Option<PathBuf>,
@@ -107,7 +112,7 @@ impl ProveSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_prove(
+pub(super) fn run_prove(
     cli: &UniversalFlags,
     cmd: &ProveSubcommand,
     output: &CommandOutput,
@@ -157,12 +162,12 @@ pub(crate) fn run_prove(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(build_flags.jobs);
-    let discovered = rr_build::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let target_backend =
-        rr_build::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
+        super::selection::local_modules_preferred_target(&discovered, user_log).unwrap_or_default();
     let intent = calc_user_intent(
         path_filter,
         module_dir.as_deref(),
@@ -172,32 +177,26 @@ pub(crate) fn run_prove(
     )?;
     let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
     // Hold the target lock through both preparation and proof execution.
-    let _lock;
-    if !cli.dry_run {
-        _lock = lock_directory(target_dir, user_log)?;
-    }
+    let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
     if !cli.dry_run && why3_config_path.is_none() {
         ensure_why3_config(&generated_why3_config_path)?;
     }
 
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = build_flags.compile_config(
         cli,
-        &build_flags,
         target_backend,
         target_dir,
         RunMode::Prove,
         user_log,
         &resolved_project,
     )?;
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         resolved_project,
         build_flags.jobs,
         cmd.auto_sync_flags.frozen,
-        cli.dry_run,
     )?;
     let proofs = collect_proof_invocations(
         &build_meta,
@@ -209,12 +208,12 @@ pub(crate) fn run_prove(
 
     if cli.dry_run {
         output.write_result(|writer| -> std::io::Result<()> {
-            rr_build::write_dry_run(writer, &build_graph, project_root)?;
+            crate::dry_run::write_dry_run(writer, &build_graph, project_root)?;
             for proof in &proofs {
                 writeln!(
                     writer,
                     "{}",
-                    rr_build::format_dry_run_command(&proof.command, project_root)
+                    crate::dry_run::format_dry_run_command(&proof.command, project_root)
                 )?;
             }
             Ok(())
@@ -222,9 +221,8 @@ pub(crate) fn run_prove(
         return Ok(0);
     }
 
-    rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = build_flags.execution_config(&cli.unstable_feature, cli.verbose);
-    let result = moonbuild::execution::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    let result = session.execute(&cfg, build_graph, &[&build_meta], MetadataOutput::Compiler)?;
     if result.return_code_for_success() != 0 {
         return Ok(result.return_code_for_success());
     }
@@ -273,7 +271,7 @@ fn calc_user_intent(
     discovered: &moonbuild_rupes_recta::DiscoveredProject,
     target_backend: TargetBackend,
     user_log: &UserLog,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+) -> Result<BuildRequest, anyhow::Error> {
     let directive = moonbuild_rupes_recta::build_plan::InputDirective::default();
 
     if let Some(path) = path_filter {
@@ -294,7 +292,7 @@ fn calc_user_intent(
                 path.display(),
             ));
         }
-        Ok(CalcUserIntentOutput::new(intents, directive))
+        Ok(BuildRequest::new(intents, directive))
     } else {
         let main_module_id = selected_main_module_id(discovered, selected_module_dir)?;
         let packages = discovered

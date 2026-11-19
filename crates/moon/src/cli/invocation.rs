@@ -18,32 +18,33 @@
 
 //! Side-effect-free selection of one top-level invocation.
 
+use crate::cli::UniversalFlags;
 use std::{
     ffi::{OsStr, OsString},
     path::PathBuf,
 };
 
 use clap::{CommandFactory, Parser, error::ErrorKind};
-use moonutil::{
-    cli_support::UniversalFlags, command_output::CommandOutput, user_log::UserLogCapture,
+use moonutil::{command_output::CommandOutput, user_log::UserLogCapture};
+
+use super::{
+    MoonBuildCli, MoonBuildSubcommands, VersionSubcommand, cram::CramCommand, moonx, tool,
 };
 
-use super::{CramCommand, MoonBuildCli, MoonBuildSubcommands, VersionSubcommand, moonx, tool};
-
 #[derive(Debug)]
-pub(crate) struct MoonInvocation {
-    pub(crate) flags: UniversalFlags,
-    pub(crate) command: MoonCommand,
+pub(super) struct MoonInvocation {
+    pub(super) flags: UniversalFlags,
+    pub(super) command: MoonCommand,
 }
 
 #[derive(Debug)]
-pub(crate) enum MoonCommand {
+pub(super) enum MoonCommand {
     Human(Box<MoonBuildSubcommands>),
     Json(Box<dyn JsonCommand>),
 }
 
 /// Command-owned hooks for one machine-readable lifecycle.
-pub(crate) trait JsonCommand: std::fmt::Debug {
+pub(super) trait JsonCommand: std::fmt::Debug {
     fn run(&self, flags: &UniversalFlags, output: &CommandOutput) -> JsonCommandOutcome;
 
     fn bootstrap_error(&self, message: String) -> JsonCommandOutcome;
@@ -52,13 +53,13 @@ pub(crate) trait JsonCommand: std::fmt::Debug {
 type JsonFinish =
     Box<dyn FnOnce(&CommandOutput, &UserLogCapture) -> anyhow::Result<()> + Send + 'static>;
 
-pub(crate) struct JsonCommandOutcome {
+pub(super) struct JsonCommandOutcome {
     exit_code: i32,
     finish: JsonFinish,
 }
 
 impl JsonCommandOutcome {
-    pub(crate) fn new(
+    pub(super) fn new(
         exit_code: i32,
         finish: impl FnOnce(&CommandOutput, &UserLogCapture) -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
@@ -68,11 +69,11 @@ impl JsonCommandOutcome {
         }
     }
 
-    pub(crate) fn exit_code(&self) -> i32 {
+    pub(super) fn exit_code(&self) -> i32 {
         self.exit_code
     }
 
-    pub(crate) fn finish(
+    pub(super) fn finish(
         self,
         output: &CommandOutput,
         capture: &UserLogCapture,
@@ -82,7 +83,7 @@ impl JsonCommandOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) enum DelegatedInvocation {
+pub(super) enum DelegatedInvocation {
     ToolExec(tool::exec::Exec),
     External {
         current_dir: Option<PathBuf>,
@@ -109,7 +110,7 @@ pub(crate) enum DelegatedInvocation {
 }
 
 #[derive(Debug)]
-pub(crate) enum SelectedInvocation {
+pub(super) enum SelectedInvocation {
     Help,
     Moon(Box<MoonInvocation>),
     Moonx(moonx::MoonxInvocation),
@@ -119,20 +120,20 @@ pub(crate) enum SelectedInvocation {
 
 /// Only executable-producing commands can participate in artifact delivery.
 #[derive(Debug)]
-pub(crate) struct ArtifactHandoffInvocation {
-    pub(crate) directory: PathBuf,
-    pub(crate) command: ArtifactHandoffCommand,
+pub(super) struct ArtifactHandoffInvocation {
+    pub(super) directory: PathBuf,
+    pub(super) command: ArtifactHandoffCommand,
 }
 
 #[derive(Debug)]
-pub(crate) enum ArtifactHandoffCommand {
+pub(super) enum ArtifactHandoffCommand {
     Run(UniversalFlags, Box<super::run::RunSubcommand>),
     Moonx(moonx::MoonxInvocation),
 }
 
 /// Parse and classify an invocation before output, tracing, workspace state,
 /// current-directory changes, or child processes are initialized.
-pub(crate) fn select(mut raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::Error> {
+pub(super) fn select(mut raw_args: Vec<OsString>) -> Result<SelectedInvocation, clap::Error> {
     // This private prefix belongs to Moon, before command or program arguments.
     // Parse only its path here; runtime opens it before applying any `-C`.
     if raw_args

@@ -46,23 +46,101 @@ A package may import other packages within its containing module,
 or within the modules its containing module depends on.
 Cyclic dependencies are currently prohibited both in module and package level.
 
+`moon.mod` decodes its ordered DSL declarations directly into `MoonMod`.
+`moon.mod.json` has a separate `MoonModJSON` decoder and converter. Both paths
+share module validation: names and versions must agree, source paths must satisfy
+the module constraints, supported targets must be valid, and rule names must be
+unique. DSL-specific dependency restrictions and declaration precedence are
+handled by the DSL decoder.
+
+Each module dependency may be declared only once in `moon.mod`. Repeated names
+inside an `import` block, or between that block and `options(deps: ...)`, are
+errors even when the versions agree. Distinct dependencies from the two forms
+are combined.
+
+Supported user inputs are the DSL and legacy JSON. Legacy module JSON uses
+`deps`, `warn-list`, `preferred-target`, and `supported-targets`; `rule` accepts
+an object or an array, with unique rule names. Commands that update a JSON
+manifest retain this format.
+
+`MoonModJSON` serializes an internal normalized representation using `import`,
+`warnings`, `preferred_target`, `supported_targets`, and a `rule` array. Its
+schema documents that representation for maintenance; neither is a stable user
+input or interoperability contract. The decoder's aliases incidentally accept
+normalized names, but that does not promise support for normalized JSON inputs
+or mixtures of legacy and normalized fields.
+
+In `moon.mod`, `warnings` / `warn-list`, `preferred_target` / `preferred-target`,
+and `supported_targets` / `supported-targets` are alternate spellings of their
+respective settings. Declaring both spellings is an error, whether directly or
+inside `options(...)`, even if their values agree or are empty.
+
+Output boundaries translate normalized fields back to legacy names. The
+formatter adapter additionally supplies repeated rule keys required by moonfmt;
+`moon fmt`, including `--check` and `--warn`, uses it for module JSON migration.
+
 `moon.pkg` is parsed into ordered DSL entries and converted directly to the
 `MoonPkg` package model. The DSL keeps JSON-shaped values for decoding individual
 fields; it does not construct an intermediate `MoonPkgJSON`. Legacy
 `moon.pkg.json` files use their own `MoonPkgJSON` converter. Both converters share
 package-kind resolution, import warnings, formatter defaults, and rule validation.
-DSL normalization combines declarations and applies `options(...)` overrides.
-The converter then reads the normalized fields without mutating the map,
-preserving legacy option aliases and type checks. Unknown options are ignored.
+DSL normalization combines repeatable declarations and rejects duplicate fields
+across direct declarations and `options(...)`, including equivalent spellings.
+`warnings` and legacy warning options cannot be combined; neither can
+`supported_targets` and its legacy option, or `dev_build` and legacy prebuild
+options. Duplicate configuration is an error even when values agree or are empty.
+The converter consumes recognized fields, preserving legacy option aliases and
+type checks, and reports remaining keys as warnings. Nested configuration keys
+are checked too. The same diagnostics apply to JSON manifests. Module diagnostics
+are retained with the parsed manifest until its role in resolution is known.
+
+Configuration objects retain unknown fields through Serde's `flatten`; ordinary
+traversal then collects their paths for diagnostics. Compatibility forms such as
+boolean/object `link` and map/list imports use derived deserialization. Accepted
+fields and aliases are defined by the types, without a second parse or a separate
+field list.
+Prebuild entries require exactly one of `command` or `rule`. Both fields are
+type-checked, and supplying both is an error in either manifest format.
+
+Unknown-key warnings are emitted for input modules and their packages, and are
+suppressed for dependencies and the standard library. `--quiet` suppresses these
+warnings. Known fields with invalid types remain errors in every module, even
+when warnings are suppressed. This does not change the DSL's accepted declaration
+syntax or explicit errors for unsupported dependency sources.
+
+The same author-facing warning policy covers deprecated package `is-main`,
+boolean `link`, and `link.{wasm,wasm-gc,js,native}.exports`, including declarations
+without `pkgtype` and empty export lists. Package-kind flags still select their
+existing kinds; use `pkgtype(kind: "executable")` or
+`pkgtype(kind: "foreign_library")` instead, and remove false flags. An executable
+already links, so its boolean `link` can be removed. Structured `link` remains
+backend configuration. Source-level `#export_name` attributes replace manifest
+exports. These compatibility fields are scheduled for removal.
+
+Declaring a module prebuild script also warns that its legacy stdin JSON input
+will be removed in favor of the `MOON_*` environment variables. This is a protocol
+migration notice, emitted when reading an input module's manifest even if the
+current command or backend skips the script. It does not detect stdin reads.
+Dependency declarations do not emit these notices. See [prebuild](prebuild.md).
+
+Package `name` is an unknown field, including `name: "main"`; it neither names a
+package nor selects an executable. Declare `pkgtype(kind: "executable")` for an
+executable package. Module `scripts` only recognizes `postadd`, which is invoked
+explicitly through `moon run-postadd`. Other script names, including `prebuild`
+and `postbuild`, produce unknown-key warnings and do not register lifecycle hooks.
+
+Compiler-consumed settings are also represented and type-checked by Moon,
+including package `alert-list` and `link.wasm-gc.use-ffi-bytes`. The deprecated
+`test-import-all` spelling still read by the compiler receives a deprecation
+warning; it does not restore Moon's removed implicit test imports.
 
 Package settings also have these direct declarations: `proof_enabled`,
 `max_concurrent_tests`, and `regex_backend` use assignments;
 `virtual(has_default: ...)` declares a virtual package, and
 `virtual(implement: ...)` normalizes to the legacy `implement` field. The two
 `virtual` forms cannot be combined. They use the same value types, defaults, and
-validation as their legacy options. Each may appear only once. Like `formatter` and `pkgtype`, they are
-subject to `options(...)` overrides: an option with the same spelling replaces
-the direct declaration, while an alias spelling is rejected as a duplicate field.
+validation as their legacy options. Like `formatter` and `pkgtype`, each field
+may be configured either directly or through `options(...)`, but not both.
 
 The compiler also reads package configuration, so accepting a declaration in
 Moon alone does not make it usable with older compilers. Direct declarations
@@ -70,12 +148,12 @@ require companion compiler support and formatter support to preserve their
 spelling through `moon fmt`; see the [package configuration manual](../../manual/src/package.md).
 
 In `moon.pkg`, multiple import blocks are combined in source order,
-separately for regular, test, and whitebox-test imports. Legacy import fields in
-`options(...)` replace all corresponding blocks, including when the replacement
-is empty. Both
+separately for regular, test, and whitebox-test imports. A legacy import field in
+`options(...)` cannot be combined with blocks of the same import kind, even when
+the block or option is empty. Different import kinds can use different forms. Both
 `test-import`/`test_import` and `wbtest-import`/`wbtest_import`
 spellings are accepted; specifying both spellings of the same option is an error.
-After these overrides, importing the same package more than once is allowed. It
+Importing the same package more than once is allowed. It
 emits one warning per package and import kind when the repeated declarations are
 active for a common backend; unconditional declarations always overlap, and
 declarations with disjoint [import conditions](cond-comp.md) do not warn.
@@ -137,6 +215,22 @@ boundary uses `a/b@1.0.0/v1/c`; `a/b/v1@1.0.0/c` is rejected.
 Name/version agreement is checked when constructing a module source, before
 manifest mutation or registry acquisition. Local modules may omit their version;
 the internal default used for them is not a declared release.
+
+`moonutil::module_name` owns the shared name representation and name/version
+validation rules. Both manifest validation and `resolution::ModuleSource`
+construction use those rules; declarations do not depend on the resolution
+result model. Mooncake reexports `ModuleName` and `ModuleVersionError` for clients
+of its registry and package-management interfaces.
+
+Project manifest loading rejects the removed `include` and `exclude` keys in
+either format, including empty lists and JSON `null`. This applies to workspace
+members and formatting as well as local builds; `--quiet` does not suppress
+errors. Packaging filters belong in `.gitignore` or `.moonignore`. Dependency
+manifest loading ignores these obsolete filters so existing published modules
+remain usable; ordinary parsing and semantic validation still applies.
+The removed module `checksum` and package `bin-name` / `bin-target` fields use
+ordinary unknown-key warnings. Registry-provided archive checksums remain part
+of dependency integrity verification.
 
 Other name forms, such as `containers` or `rabbit/containers/new`, are legacy.
 Local manifests accept names without a username; registry CLI coordinates
@@ -313,20 +407,21 @@ is the temporary working state used to construct those relationships.
 relationships.
 
 The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
-because it covers module sync, package discovery, and package resolution.
-`sync_module_dependencies` resolves and synchronizes modules;
-`prepare_synced_project` discovers packages and resolves their relationships for
-an explicit backend set. `discover_single_file_project` synchronizes and discovers
-a script's synthesized project. The CLI's `sync_and_discover_project` and its
-command-specific preparation helpers also stop after discovery and return
-`DiscoveredProject`. Commands using these discovery helpers run discover, select,
-resolve, and plan in that order: they select packages and Target Backends from the
+for dependency and script preparation. `moonbuild::prepare::sync_and_discover_project`
+synchronizes module dependencies and delegates package discovery to RR;
+`discover_single_file_project` synchronizes and discovers a script's synthesized
+project. Both return `DiscoveredProject` without resolving package imports.
+RR also exposes `discover_synced_project` and `prepare_synced_project` for callers
+that already have synchronized modules; the latter additionally resolves package
+relationships for an explicit backend set.
+Commands using the discovery helpers run discover, select, resolve, and plan in
+that order: they select packages and Target Backends from the
 `DiscoveredProject`, call `resolve_packages` once with those backends, and plan
 each selected backend from the shared `ResolvedProject`. Selection uses only
 declared package data, so a selector error is reported before a package resolution
 error. Every backend selected for the current invocation or watch pass must
 resolve successfully before its build planning begins.
-`rr_build::prepare_resolved_build` receives the already selected backend and
+`BuildFlags::compile_config` receives the already selected backend and
 does not choose one itself.
 
 `moon fmt` scans the current project's modules without resolving dependencies

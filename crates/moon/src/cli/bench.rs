@@ -16,14 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::lower_surface_targets;
+use crate::run::TestIndexRange;
 use anyhow::Context;
-use moonutil::{
-    build_options::TestIndexRange,
-    cli_support::AutoSyncFlags,
-    command_output::CommandOutput,
-    project::PackageDirs,
-    target::{TargetBackend, lower_surface_targets},
-};
+use mooncake::cli::AutoSyncFlags;
+use moonutil::{command_output::CommandOutput, project::PackageDirs, target::TargetBackend};
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
@@ -31,7 +28,7 @@ use super::{BuildFlags, UniversalFlags};
 
 /// Run benchmarks in the current package
 #[derive(Debug, clap::Parser)]
-pub(crate) struct BenchSubcommand {
+pub(super) struct BenchSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -66,7 +63,7 @@ pub(crate) struct BenchSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_bench(
+pub(super) fn run_bench(
     cli: UniversalFlags,
     cmd: BenchSubcommand,
     output: &CommandOutput,
@@ -83,11 +80,11 @@ pub(crate) fn run_bench(
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
     let display_backend_hint = targets.len() > 1;
-    let bench_cmd: super::TestLikeSubcommand<'_> = (&cmd).into();
-    super::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
+    let bench_cmd: super::test::TestLikeSubcommand<'_> = (&cmd).into();
+    super::test::validate_test_or_bench_invocation(&cli, &bench_cmd)?;
     let discovered =
-        super::sync_and_discover_test_or_bench_project(&cli, &bench_cmd, &dirs, output.user_log())?;
-    super::run_test_or_bench_from_discovered(
+        super::test::sync_and_discover_test_or_bench_project(&bench_cmd, &dirs, output.user_log())?;
+    super::test::run_test_or_bench_from_discovered(
         &cli,
         &bench_cmd,
         &dirs,
@@ -112,7 +109,7 @@ fn run_bench_internal(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    super::run_test_or_bench_internal(
+    super::test::run_test_or_bench_internal(
         cli,
         cmd.into(),
         dirs,

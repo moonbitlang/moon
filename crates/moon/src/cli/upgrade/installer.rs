@@ -232,7 +232,8 @@ fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
 
-    moonutil::cli_support::dialoguer_ctrlc_handler();
+    let _ = dialoguer::console::Term::stdout().show_cursor();
+    std::process::exit(1);
 }
 
 #[cfg(windows)]
@@ -288,6 +289,9 @@ mod windows {
         let exe = "powershell";
         let status = std::process::Command::new(exe)
             .arg(&script_path)
+            // Let Windows PowerShell rebuild its module paths; a parent PowerShell 7
+            // session can otherwise make it load incompatible modules through Moon.
+            .env_remove("PSModulePath")
             .status()
             .with_context(|| format!("failed to execute command:\n{}", script))?;
         match status.code() {

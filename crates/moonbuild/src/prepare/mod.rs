@@ -21,12 +21,12 @@
 mod single_file;
 pub use single_file::discover_single_file_project;
 
-use moonbuild_rupes_recta::{DiscoveryConfig, resolve::ProjectResolutionError};
-use mooncake::pkg::sync::{SyncOutputOptions, auto_sync};
+use anyhow::Context;
+use moonbuild_rupes_recta::{DiscoveredProject, DiscoveryConfig, resolve::ProjectResolutionError};
+use mooncake::pkg::sync::{AutoSyncFlags, SyncOutputOptions, auto_sync};
 use moonutil::{
     cache::CacheRoot,
-    cli_support::AutoSyncFlags,
-    project::{PackageDirs, WorkspaceEnv},
+    project::PackageDirs,
     resolution::{DirSyncResult, ModuleDependencyGraph},
     user_log::UserLog,
 };
@@ -38,36 +38,18 @@ pub struct ProjectPreparationConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     dependency_source_cache: CacheRoot,
-    workspace_env: WorkspaceEnv,
-    pub discovery: DiscoveryConfig,
+    discovery: DiscoveryConfig,
 }
 
 impl ProjectPreparationConfig {
     /// Create project preparation settings with the requested module sync policy
     /// and defaults for the remaining options.
-    pub fn new_with_load_defaults(
-        frozen: bool,
-        enable_coverage: bool,
-        workspace_env: WorkspaceEnv,
-    ) -> Self {
-        Self {
-            sync_flags: AutoSyncFlags { frozen },
-            sync_output: SyncOutputOptions::default(),
-            dependency_source_cache: CacheRoot::Disabled,
-            discovery: DiscoveryConfig {
-                enable_coverage,
-                jobs: None,
-            },
-            workspace_env,
-        }
+    pub fn new_with_load_defaults(frozen: bool, enable_coverage: bool) -> Self {
+        Self::new(AutoSyncFlags { frozen }, enable_coverage)
     }
 
     /// Create project preparation settings with the given sync and build flags.
-    pub fn new(
-        sync_flags: AutoSyncFlags,
-        enable_coverage: bool,
-        workspace_env: WorkspaceEnv,
-    ) -> Self {
+    pub fn new(sync_flags: AutoSyncFlags, enable_coverage: bool) -> Self {
         Self {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
@@ -76,7 +58,6 @@ impl ProjectPreparationConfig {
                 enable_coverage,
                 jobs: None,
             },
-            workspace_env,
         }
     }
 
@@ -113,7 +94,7 @@ pub enum ProjectPreparationError {
 /// Resolve module sources and versions and synchronize their directories for
 /// package discovery. This does not resolve package imports.
 #[instrument(skip_all)]
-pub fn sync_module_dependencies(
+fn sync_module_dependencies(
     cfg: &ProjectPreparationConfig,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -124,12 +105,11 @@ pub fn sync_module_dependencies(
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (module_graph, dir_sync_result, _) = auto_sync(
+    let (module_graph, dir_sync_result) = auto_sync(
         dirs,
         &cfg.sync_flags,
         cfg.sync_output,
         user_log,
-        cfg.workspace_env.clone(),
         cfg.discovery.jobs,
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
@@ -137,4 +117,26 @@ pub fn sync_module_dependencies(
     debug!("Resolved {} modules", module_graph.module_count());
 
     Ok((module_graph, dir_sync_result))
+}
+
+/// Synchronize module dependencies and discover packages.
+/// Callers can select packages and backends before resolving package imports.
+/// This step does not acquire the target-directory lock.
+pub fn sync_and_discover_project(
+    preparation_config: &ProjectPreparationConfig,
+    dirs: &PackageDirs,
+    user_log: &UserLog,
+) -> anyhow::Result<DiscoveredProject> {
+    std::fs::create_dir_all(&dirs.target_dir).with_context(|| {
+        format!(
+            "Failed to create target directory: '{}'",
+            dirs.target_dir.display()
+        )
+    })?;
+    let synced_modules = sync_module_dependencies(preparation_config, dirs, user_log)?;
+    Ok(moonbuild_rupes_recta::discover_synced_project(
+        &preparation_config.discovery,
+        synced_modules,
+        user_log,
+    )?)
 }

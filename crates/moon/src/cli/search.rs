@@ -40,7 +40,7 @@ const SEARCH_JSON_ERROR_EXIT_CODE: i32 = -1;
 /// With --json, the result also preserves the registry's summary fragments and
 /// match markers. Registries without package summaries remain supported.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct SearchSubcommand {
+pub(super) struct SearchSubcommand {
     /// The keyword to search for
     pub keyword: String,
 
@@ -53,7 +53,7 @@ pub(crate) struct SearchSubcommand {
     pub json: bool,
 }
 
-pub(crate) fn run_search(cmd: SearchSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
+pub(super) fn run_search(cmd: SearchSubcommand, output: &CommandOutput) -> anyhow::Result<i32> {
     let results = RegistryClient::configured(output.user_log()).search(&cmd.keyword, cmd.limit)?;
     output.write_result(|writer| render_search_results(writer, &results))?;
     Ok(0)
@@ -105,14 +105,14 @@ struct SearchJsonCommand {
     command: SearchSubcommand,
 }
 
-pub(crate) fn json_command(command: SearchSubcommand) -> Box<dyn JsonCommand> {
+pub(super) fn json_command(command: SearchSubcommand) -> Box<dyn JsonCommand> {
     Box::new(SearchJsonCommand { command })
 }
 
 impl JsonCommand for SearchJsonCommand {
     fn run(
         &self,
-        _flags: &moonutil::cli_support::UniversalFlags,
+        _flags: &crate::cli::UniversalFlags,
         output: &CommandOutput,
     ) -> JsonCommandOutcome {
         search_json_outcome(run_search_json(&self.command, output.user_log()))

@@ -19,9 +19,9 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::{target::TargetBackend, test_metadata::DriverKind};
+use moonutil::target::TargetBackend;
 
-use crate::build_lower::compiler::CmdlineAbstraction;
+use crate::{build_lower::compiler::CmdlineAbstraction, model::TargetKind};
 
 /// Commandline arguments to `moon generate-test-driver`.
 ///
@@ -67,8 +67,8 @@ pub(crate) struct MoonGenTestDriver<'a> {
     /// the package itself.
     pub coverage_package_override: Option<&'a str>,
 
-    /// The kind of test (corresponds to the build target kind)
-    pub driver_kind: DriverKind,
+    /// The test Build Target kind, encoded as `--driver-kind`.
+    pub target_kind: TargetKind,
 
     /// Path to the patch file, if any.
     pub patch_file: Option<Cow<'a, Path>>,
@@ -142,7 +142,14 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
         }
 
         // Driver kind
-        args.extend(["--driver-kind".to_string(), self.driver_kind.to_string()]);
+        let driver_kind = match self.target_kind {
+            TargetKind::Source => panic!("Source package cannot be a test driver"),
+            TargetKind::WhiteboxTest => "whitebox",
+            TargetKind::BlackboxTest => "blackbox",
+            TargetKind::InlineTest => "internal",
+            TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
+        };
+        args.extend(["--driver-kind".to_string(), driver_kind.to_string()]);
 
         // Max concurrent test limit for `async test`
         if let Some(max_concurrent_tests) = self.max_concurrent_tests {

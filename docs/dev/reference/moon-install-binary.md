@@ -9,6 +9,12 @@
 `moon install <package-selector> ...` installs binary packages. A source is
 required, either as a positional argument or through `--path`.
 
+The command declaration and source dispatch live in `moon::cli::deps`, with
+binary acquisition, building, and installation in `moon::cli::install_binary`.
+Module dependency resolution and source synchronization are separate operations
+owned by `mooncake::pkg::sync`, also used when adding dependencies and preparing
+project or standalone builds.
+
 ## Selector model
 
 Binary installer mode resolves a target source first, then selects package(s) in that source.

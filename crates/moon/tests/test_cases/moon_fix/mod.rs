@@ -24,6 +24,61 @@
 use super::*;
 
 #[test]
+fn fix_migrates_pending_deprecated_aliases() {
+    // Given an alias whose pending deprecation is silent during ordinary checks.
+    // This E2E scenario requires a compiler with warning 99 support.
+    let dir = TestDir::new_empty();
+    let source = r#"struct Box(Int)
+
+#alias(of, pending_deprecated)
+pub fn Box::from_int(x : Int) -> Box {
+  Box(x)
+}
+
+pub fn uses() -> Int {
+  let b = Box::of(1)
+  b.0
+}
+"#;
+    std::fs::write(dir.join("moon.mod"), "name = \"u/p\"\n").unwrap();
+    std::fs::write(dir.join("moon.pkg"), "").unwrap();
+    std::fs::write(dir.join("a.mbt"), source).unwrap();
+    moon_cmd(&dir)
+        .args(["check", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    // An explicit opt-out leaves the pending-deprecated call intact.
+    moon_cmd(&dir)
+        .args(["fix", "--warn-list", "-99"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("No fixes to apply\n");
+    assert_eq!(std::fs::read_to_string(dir.join("a.mbt")).unwrap(), source);
+
+    // By default, fix enables the warning and applies the compiler's rename.
+    moon_cmd(&dir)
+        .arg("fix")
+        .assert()
+        .success()
+        .stdout_eq("a.mbt:9:16: Use `from_int` instead of the deprecated `of`\n")
+        .stderr_eq("Applied 1 fix to 1 file\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.mbt")).unwrap(),
+        source.replace("Box::of(1)", "Box::from_int(1)")
+    );
+    moon_cmd(&dir)
+        .args(["check", "--warn-list", "+99", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
 fn fix_applies_real_compiler_suggestions() {
     // Given a real project rejected for unused mutability, the installed
     // compiler must supply the fix instead of a canned diagnostic.

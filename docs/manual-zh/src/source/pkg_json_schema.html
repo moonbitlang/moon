@@ -42,6 +42,13 @@
   "description": "A package of MoonBit language",
   "type": "object",
   "properties": {
+    "alert-list": {
+      "description": "Alert options read from the manifest by moonc.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "allow-experimental-packages": {
       "description": "Acknowledge all experimental dependencies, or only the listed full package names.",
       "anyOf": [
@@ -51,18 +58,6 @@
         {
           "type": "null"
         }
-      ]
-    },
-    "bin-name": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "bin-target": {
-      "type": [
-        "string",
-        "null"
       ]
     },
     "experimental": {
@@ -124,12 +119,6 @@
       ],
       "format": "uint32",
       "minimum": 0.0
-    },
-    "name": {
-      "type": [
-        "string",
-        "null"
-      ]
     },
     "native-stub": {
       "type": [
@@ -455,13 +444,6 @@
             "string",
             "null"
           ]
-        },
-        "stub-cc-link-flags": {
-          "description": "Legacy linker flags for C stubs, retained for manifest compatibility",
-          "type": [
-            "string",
-            "null"
-          ]
         }
       }
     },
@@ -646,6 +628,13 @@
           ]
         },
         "shared-memory": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "use-ffi-bytes": {
+          "description": "Use the compiler's FFI byte representation for WasmGC.",
           "type": [
             "boolean",
             "null"

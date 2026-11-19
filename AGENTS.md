@@ -31,7 +31,11 @@ If you are working from mainland China, using the `.cn` domain may result in a s
 
 - `crates/`
   - `moon/`: The entry point to the `moon` utility.
-    - `src/rr_build/`: Integration with Rupes Recta build engine.
+    - `src/cli.rs`, `src/cli/`: Command parsing, selection, and orchestration behind `cli::execute`.
+    - `src/cli/build_flags.rs`: CLI build configuration and patch interpretation.
+    - `src/cli/selection.rs`: Shared command-side package and backend selection.
+    - `src/cli/tests/planner/`: Command-to-planner tests of CLI-internal policy.
+    - `src/dry_run.rs`: Command and build-graph rendering.
     - `tests/test_cases/`: Integration snapshot tests, the majority of tests.
   - `moonbuild-rupes-recta/`: The build graph generation engine (Rupes Recta).
   - `moonbuild/`: Build execution and shared build support.

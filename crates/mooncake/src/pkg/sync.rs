@@ -16,39 +16,53 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Sync dependencies with mod/pkg definition
+//! Resolve module dependencies and synchronize their source directories.
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use indexmap::IndexMap;
 use moonutil::{
     cache::CacheRoot,
-    child_process::ChildOutputMode,
-    cli_support::AutoSyncFlags,
     manifest::{MoonMod, read_module_desc_file_in_dir},
-    project::{MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, WorkspaceLayout},
+    project::{PackageDirs, ProjectManifest, WorkspaceLayout},
     resolution::{
         DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule, ResolvedRootModules,
     },
     user_log::UserLog,
 };
 use semver::Version;
+use serde::{Deserialize, Serialize};
+
+use super::prepare::prepare_build_modules;
+use crate::{
+    dependency_source, registry,
+    resolver::{ModuleResolutionConfig, resolve_modules},
+};
 
 /// User-visible output policy while synchronizing dependencies.
-///
-/// Dependency progress and Moon-managed setup children are independent: a
-/// quiet human command may still let a child inherit the terminal, while a
-/// structured command captures child output without hiding sync warnings.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOutputOptions {
     /// Suppress dependency acquisition progress below error level.
     pub quiet: bool,
-    /// Output policy for setup children such as postadd scripts.
-    pub child_output: ChildOutputMode,
+}
+
+#[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
+#[clap(next_help_heading = "Manifest Options")]
+pub struct AutoSyncFlags {
+    /// Do not sync dependencies, assuming local dependencies are up-to-date
+    #[clap(long)]
+    pub frozen: bool,
+}
+
+impl AutoSyncFlags {
+    pub fn dont_sync(&self) -> bool {
+        self.frozen
+    }
 }
 
 /// Given the specified source directory, resolve the module dependency relation
-/// and their directories
+/// and their directories. The selected `ProjectManifest` is authoritative;
+/// workspace selection has already been resolved by project discovery.
 ///
 /// TODO: support registry config
 pub fn auto_sync(
@@ -56,12 +70,9 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     user_log: &UserLog,
-    workspace_env: WorkspaceEnv,
     jobs: Option<usize>,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
-    if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest
-        && !matches!(workspace_env, WorkspaceEnv::Off)
-    {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
+    if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest {
         return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace, jobs);
     }
 
@@ -70,8 +81,8 @@ pub fn auto_sync(
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
-    let (module_graph, sync_result) = super::install::install_impl(
-        dirs,
+    let (module_graph, sync_result) = sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         output_options,
         user_log,
@@ -80,7 +91,7 @@ pub fn auto_sync(
         jobs,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((module_graph, sync_result, None))
+    Ok((module_graph, sync_result))
 }
 
 fn resolve_workspace_sync(
@@ -90,7 +101,7 @@ fn resolve_workspace_sync(
     user_log: &UserLog,
     workspace: &WorkspaceLayout,
     jobs: Option<usize>,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult, Option<MoonWork>)> {
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in workspace.members() {
         let module = read_module_desc_file_in_dir(member_dir)?;
@@ -99,8 +110,8 @@ fn resolve_workspace_sync(
         roots.insert(ResolvedModule::new(source, module));
     }
 
-    let (module_graph, sync_result) = super::install::install_impl(
-        dirs,
+    let (module_graph, sync_result) = sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         output_options,
         user_log,
@@ -109,11 +120,7 @@ fn resolve_workspace_sync(
         jobs,
     )?;
     log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((
-        module_graph,
-        sync_result,
-        Some(workspace.manifest().clone()),
-    ))
+    Ok((module_graph, sync_result))
 }
 
 pub fn auto_sync_for_single_file_rr(
@@ -141,8 +148,8 @@ pub fn auto_sync_for_single_file_rr(
     let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
-    let (module_graph, dir_sync_result) = super::install::install_impl(
-        dirs,
+    let (module_graph, dir_sync_result) = sync_roots(
+        &dirs.mooncakes_dir,
         roots,
         output_options,
         user_log,
@@ -153,4 +160,39 @@ pub fn auto_sync_for_single_file_rr(
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((module_graph, dir_sync_result))
+}
+
+/// Resolve and acquire dependencies for the supplied root modules.
+pub(super) fn sync_roots(
+    mooncakes_dir: &Path,
+    roots: ResolvedRootModules,
+    output_options: SyncOutputOptions,
+    user_log: &UserLog,
+    dont_sync: bool,
+    source_cache: &CacheRoot,
+    jobs: Option<usize>,
+) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
+    let module_graph = prepare_build_modules(roots)?;
+
+    let registry = if dont_sync {
+        registry::default_registry(user_log).for_frozen_dependencies()
+    } else {
+        registry::default_registry(user_log)
+    };
+    let module_resolution_config = ModuleResolutionConfig {
+        registry: &registry,
+        warn_deprecated: true,
+    };
+
+    let res = resolve_modules(&module_resolution_config, module_graph, user_log)?;
+    let dependency_user_log = if output_options.quiet {
+        user_log.with_level(log::LevelFilter::Error)
+    } else {
+        user_log.clone()
+    };
+    let dependency_source = dependency_source::select(mooncakes_dir, source_cache, &res, jobs)?;
+    let dependency_paths =
+        dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
+
+    Ok((res, dependency_paths))
 }

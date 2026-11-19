@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::target::SurfaceTarget;
 use std::{
     collections::HashMap,
     ffi::OsStr,
@@ -28,12 +29,9 @@ use std::{
 use anyhow::{Context, bail};
 use chrono::Local;
 use moonbuild::BuildMeta;
+use moonbuild_rupes_recta::RunMode;
 use moonutil::{
-    build_options::RunMode,
-    command_output::CommandOutput,
-    cond_expr::OptLevel,
-    target::{SurfaceTarget, TargetBackend},
-    toolchain::BINARIES,
+    command_output::CommandOutput, cond_expr::OptLevel, target::TargetBackend, toolchain::BINARIES,
 };
 use serde::Serialize;
 
@@ -51,12 +49,12 @@ const PERF_PERMISSION_HINT: &str = concat!(
 const PERF_SCRIPT_LIBRARY_SEPARATOR: &str = " (";
 const PERF_SYMBOL_OFFSET_SEPARATOR: &str = "+0x";
 const MOON_RUN_PROFILE_COMMAND: &str = "`moon run --profile`";
-pub(crate) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
+pub(super) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
 const MOON_PROFILE_COMMAND: &str = "`moon --profile`";
 const PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE: &str = "Profile mode reports performance only; run `moon test` without `--profile` for pass/fail validation.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProfileBackend {
+pub(super) enum ProfileBackend {
     Xctrace,
     Perf,
 }
@@ -246,26 +244,26 @@ struct CapturedProfile {
     parsed: ParsedProfile,
 }
 
-pub(crate) struct ProfileRequest {
+pub(super) struct ProfileRequest {
     /// Native executable that xctrace should launch.
-    pub(crate) executable: PathBuf,
+    pub(super) executable: PathBuf,
     /// Executable path to report to users, when it differs from the launched path.
-    pub(crate) display_executable: Option<PathBuf>,
+    pub(super) display_executable: Option<PathBuf>,
     /// Arguments passed after the executable in the profiled invocation.
-    pub(crate) args: Vec<String>,
+    pub(super) args: Vec<String>,
     /// Working directory used for the profiled process.
-    pub(crate) current_dir: Option<PathBuf>,
+    pub(super) current_dir: Option<PathBuf>,
     /// Directory where the trace, exported data, stdout/stderr, and JSON report are written.
-    pub(crate) output_dir: PathBuf,
+    pub(super) output_dir: PathBuf,
     /// Moon command mode that requested the profile.
-    pub(crate) run_mode: RunMode,
+    pub(super) run_mode: RunMode,
     /// Backend used to build the profiled executable.
-    pub(crate) target_backend: TargetBackend,
+    pub(super) target_backend: TargetBackend,
     /// Optimization profile used to build the profiled executable.
-    pub(crate) opt_level: OptLevel,
+    pub(super) opt_level: OptLevel,
 }
 
-pub(crate) fn run_profiled_run(
+pub(super) fn run_profiled_run(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
     output: &CommandOutput,
@@ -296,7 +294,7 @@ fn run_profile_materialized(
     )?;
     built.ensure_build_success()?;
 
-    let target_backend = built.backend.target_backend();
+    let target_backend = built.target_backend;
     if target_backend != TargetBackend::Native {
         bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
     }
@@ -327,7 +325,7 @@ fn run_profile_materialized(
 }
 
 /// Record, export, parse, and report one already-built executable.
-pub(crate) fn profile_executable(
+pub(super) fn profile_executable(
     cli: &UniversalFlags,
     request: ProfileRequest,
     output: &CommandOutput,
@@ -522,7 +520,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     })
 }
 
-pub(crate) fn profile_tests(
+pub(super) fn profile_tests(
     cli: &UniversalFlags,
     source_dir: &Path,
     target_dir: &Path,
@@ -681,7 +679,7 @@ fn sanitize_path_component(input: &str) -> String {
 }
 
 /// Place profile output beside the canonical artifact layout for the run mode.
-pub(crate) fn default_output_dir(
+pub(super) fn default_output_dir(
     target_dir: &Path,
     target_backend: TargetBackend,
     opt_level: OptLevel,
@@ -769,7 +767,7 @@ fn current_profile_backend(command_name: &str) -> anyhow::Result<ProfileBackend>
     }
 }
 
-pub(crate) fn ensure_profile_available(command_name: &str) -> anyhow::Result<ProfileBackend> {
+pub(super) fn ensure_profile_available(command_name: &str) -> anyhow::Result<ProfileBackend> {
     let profiler_backend = current_profile_backend(command_name)?;
     match profiler_backend {
         ProfileBackend::Xctrace => xcrun_executable(command_name)?,
@@ -1899,7 +1897,8 @@ fn render_attribution_entries(out: &mut String, entries: &[ProfileAttributionEnt
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use moonutil::{build_options::RunMode, cond_expr::OptLevel, target::TargetBackend};
+    use moonbuild_rupes_recta::RunMode;
+    use moonutil::{cond_expr::OptLevel, target::TargetBackend};
 
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,

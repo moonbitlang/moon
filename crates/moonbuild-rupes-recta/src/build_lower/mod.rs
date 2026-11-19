@@ -101,18 +101,17 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use crate::RunMode;
     use indexmap::IndexSet;
     use moonutil::{
-        build_options::RunMode,
         compiler_flags::{
             ARKind, CC, CCKind, CompilerPaths, MsvcEnvironment, NativeAllocator, Toolchain,
         },
         cond_expr::OptLevel,
         manifest::MoonMod,
+        module_name::ModuleName,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
-        resolution::{
-            DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleName, ModuleSource,
-        },
+        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleDependencyGraph, ModuleSource},
         target::TargetBackend,
         toolchain::BINARIES,
     };
@@ -160,7 +159,6 @@ mod tests {
                 None,
             );
             let options = CompileConfig {
-                target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -172,7 +170,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                stdlib_path: None,
             };
 
             let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
@@ -203,13 +200,10 @@ mod tests {
             description: None,
             compile_flags: None,
             link_flags: None,
-            checksum: None,
             source: None,
             rule: None,
             ext: Default::default(),
             warn_list: None,
-            include: None,
-            exclude: None,
             preferred_target: None,
             supported_targets: None,
             scripts: None,
@@ -223,7 +217,6 @@ mod tests {
 
     fn moon_pkg(supported_targets: IndexSet<TargetBackend>) -> MoonPkg {
         MoonPkg {
-            name: None,
             experimental: false,
             allow_experimental_packages: None,
             is_main: false,
@@ -237,11 +230,10 @@ mod tests {
             },
             link: None,
             warn_list: None,
+            alert_list: None,
             proof_enabled: false,
             targets: None,
             pre_build: None,
-            bin_name: None,
-            bin_target: None,
             supported_targets,
             native_stub: None,
             virtual_pkg: None,
@@ -422,7 +414,6 @@ mod tests {
             }
             let stdlib = PathBuf::from("toolchain/core");
             let options = CompileConfig {
-                target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -442,7 +433,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                stdlib_path: Some(stdlib.clone()),
             };
             let mut context = LoweringContext::new(&project, &plan, &options, &[]);
             let mut execution = ExecutionPlanBuilder::default();
@@ -531,7 +521,6 @@ mod tests {
             None,
         );
         let options = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
             debug_info: Default::default(),
             warn_list: None,
@@ -543,7 +532,6 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            stdlib_path: None,
         };
 
         let mut context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
@@ -659,9 +647,8 @@ mod tests {
             BuildCStubsInfo {
                 effective_native_toolchain: toolchain.clone(),
                 debug_info: false,
-                opt_level: moonutil::compiler_flags::OptLevel::None,
+                opt_level: crate::model::CCOptLevel::None,
                 cc_flags: vec!["/FIgenerated-config.h".to_string()],
-                link_args: Vec::new(),
             },
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
@@ -676,11 +663,11 @@ mod tests {
             MakeExecutableInfo {
                 effective_native_toolchain: toolchain.clone(),
                 c_debug_info: false,
-                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
+                c_opt_level: crate::model::CCOptLevel::Debug,
                 c_flags: Vec::new(),
                 link_args: vec![
-                    moonutil::compiler_flags::NativeLinkArg::Library("dep".into()),
-                    moonutil::compiler_flags::NativeLinkArg::SearchPath("pkg/lib".into()),
+                    crate::model::NativeLinkArg::Library("dep".into()),
+                    crate::model::NativeLinkArg::SearchPath("pkg/lib".into()),
                 ],
                 link_c_stubs: vec![target.package],
                 native_allocator: NativeAllocator::Default,
@@ -702,7 +689,6 @@ mod tests {
         plan.test_backend_plan_mut()
             .test_set_native_mode(Some(native_mode));
         let options = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
             debug_info: Default::default(),
             warn_list: None,
@@ -723,7 +709,6 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            stdlib_path: None,
         };
 
         assert!(plan.requires_toolchain_headers());
@@ -941,7 +926,7 @@ mod tests {
             target,
             MakeExecutableInfo {
                 c_debug_info: true,
-                c_opt_level: moonutil::compiler_flags::OptLevel::Debug,
+                c_opt_level: crate::model::CCOptLevel::Debug,
                 effective_native_toolchain: Toolchain::from_path_probe(CC {
                     cc_kind: CCKind::Clang,
                     cc_path: "/toolchain/bin/clang".to_string(),
@@ -991,7 +976,6 @@ mod tests {
                 None,
             );
             let options = CompileConfig {
-                target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -1003,7 +987,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                stdlib_path: None,
             };
 
             let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])

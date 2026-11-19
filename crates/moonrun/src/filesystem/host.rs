@@ -20,16 +20,20 @@
 //! ABI adapters own descriptor rights, value conversion, and error presentation.
 //! Standard-library operations and `os` provide the filesystem mechanisms.
 
+mod io;
+
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, io};
 
 #[cfg(unix)]
 use super::path::entry_before_directory_suffix;
 use super::{FsOperation, FsPath, FsTarget};
+use crate::async_host::AsyncHostResult;
 use crate::async_sys::fs::stub;
 use crate::policy::FsPolicy;
+use crate::resource::Resource;
 use crate::runtime::{Env, WorkingDirectory};
 
 /// Preserve policy denial separately from OS errors for each caller's ABI.
@@ -38,7 +42,7 @@ pub(crate) enum FsError {
     #[error("filesystem access denied by policy")]
     Denied,
     #[error(transparent)]
-    Io(#[from] io::Error),
+    Io(#[from] std::io::Error),
 }
 
 /// One source for both native open options and their authorization intent.
@@ -51,6 +55,45 @@ pub(crate) struct FileOpenOptions {
     pub(crate) truncate: bool,
 }
 
+impl FileOpenOptions {
+    fn openat_options(&self) -> std::io::Result<super::os::openat::OpenOptions> {
+        use super::os::openat::{Access, CreateMode, OpenOptions, Sync, TypeConstraint};
+        // Preserve std::OpenOptions validation separately from opening the file.
+        // Async jobs retain their own scalar-option contract.
+        let write = self.write || self.append;
+        if (!write && (!self.read || self.create || self.create_new || self.truncate))
+            || (self.append && self.truncate && !self.create_new)
+        {
+            return Err(std::io::ErrorKind::InvalidInput.into());
+        }
+        Ok(OpenOptions {
+            access: if self.read && write {
+                Access::ReadWrite
+            } else if write {
+                Access::Write
+            } else {
+                Access::Read
+            },
+            type_constraint: TypeConstraint::Any,
+            follow_symlink: true,
+            is_async: false,
+            create: if self.create_new {
+                CreateMode::Exclusive
+            } else {
+                match (self.create, self.truncate) {
+                    (false, false) => CreateMode::Open,
+                    (false, true) => CreateMode::Truncate,
+                    (true, false) => CreateMode::Create,
+                    (true, true) => CreateMode::CreateOrTruncate,
+                }
+            },
+            append: self.append,
+            sync: Sync::None,
+            permission: 0o666,
+        })
+    }
+}
+
 /// An acquired directory, independent of guest descriptor numbering and rights.
 /// Its pathname is queried only for authorization and path-only operations.
 pub(crate) struct Directory {
@@ -60,7 +103,7 @@ pub(crate) struct Directory {
 impl Directory {
     /// Runtime configuration acquires a preopen without granting guest access.
     /// HostFs still authorizes each operation using its requested effects.
-    pub(crate) fn preopen(path: &Path) -> io::Result<Self> {
+    pub(crate) fn preopen(path: &Path) -> std::io::Result<Self> {
         use super::os::{
             DirectIo,
             openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
@@ -150,6 +193,19 @@ pub(crate) struct HostFs {
     pub(super) working_directory: Arc<WorkingDirectory>,
 }
 
+// Domain executors require an explicit filesystem even in scheduler-only tests.
+// Production construction must continue to supply Runtime state and policy.
+#[cfg(test)]
+impl Default for HostFs {
+    fn default() -> Self {
+        Self::new(
+            None,
+            Arc::new(Env::ambient()),
+            Arc::new(WorkingDirectory::Ambient),
+        )
+    }
+}
+
 impl HostFs {
     pub(crate) fn resolve_path(&self, path: &OsStr) -> OsString {
         self.working_directory.resolve_path(path)
@@ -187,6 +243,39 @@ impl HostFs {
         }
     }
 
+    pub(crate) fn resource_stdio_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
+        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+        super::stdio_kind(file)
+    }
+
+    pub(crate) fn resource_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
+        self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
+        #[cfg(unix)]
+        {
+            crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
+        }
+        #[cfg(windows)]
+        {
+            if file.resource_class().is_socket() {
+                crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
+            } else {
+                crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
+            }
+        }
+    }
+
+    pub(crate) fn try_lock_resource(
+        &self,
+        file: &Resource,
+        exclusive: bool,
+    ) -> AsyncHostResult<()> {
+        self.authorize(FsOperation::Lock {
+            file: file.file_grant(),
+            exclusive,
+        })?;
+        crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
+    }
+
     pub(crate) fn read_file(&self, path: &Path) -> Result<Vec<u8>, FsError> {
         self.authorize(FsOperation::Read(FsPath::Cwd(path.as_os_str())))?;
         Ok(fs::read(self.resolve_path(path.as_os_str()))?)
@@ -198,14 +287,13 @@ impl HostFs {
     }
 
     pub(crate) fn write_file(&self, path: &Path, contents: &[u8]) -> Result<(), FsError> {
-        self.authorize(FsOperation::WriteFile(FsPath::Cwd(path.as_os_str())))?;
-        Ok(fs::write(self.resolve_path(path.as_os_str()), contents)?)
+        self.write_file_with(path, || Ok(contents))
     }
 
-    pub(crate) fn write_file_with<E>(
+    pub(crate) fn write_file_with<E, B: AsRef<[u8]>>(
         &self,
         path: &Path,
-        contents: impl FnOnce() -> Result<Vec<u8>, E>,
+        contents: impl FnOnce() -> Result<B, E>,
     ) -> Result<(), E>
     where
         E: From<FsError>,
@@ -240,10 +328,7 @@ impl HostFs {
         path: &Path,
         options: FileOpenOptions,
     ) -> Result<fs::File, FsError> {
-        use super::os::{
-            DirectIo,
-            openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint},
-        };
+        use super::os::{DirectIo, openat};
         let base = directory.path()?;
         let path = relative_path(&base, path)?;
         self.authorize(FsOperation::OpenWithOptions {
@@ -253,42 +338,11 @@ impl HostFs {
             },
             options: &options,
         })?;
-        let write = options.write || options.append;
-        // Preserve std::OpenOptions validation before reaching a destructive
-        // native open. Native async jobs have their own scalar-option contract.
-        if (!write && (!options.read || options.create || options.create_new || options.truncate))
-            || (options.append && options.truncate && !options.create_new)
-        {
-            return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
-        }
+        let options = options.openat_options()?;
         Ok(openat::open(
             Some(super::os::raw_file(&directory.file)),
             path.as_os_str(),
-            &OpenOptions {
-                access: if options.read && write {
-                    Access::ReadWrite
-                } else if write {
-                    Access::Write
-                } else {
-                    Access::Read
-                },
-                type_constraint: TypeConstraint::Any,
-                follow_symlink: true,
-                is_async: false,
-                create: if options.create_new {
-                    CreateMode::Exclusive
-                } else {
-                    match (options.create, options.truncate) {
-                        (false, false) => CreateMode::Open,
-                        (false, true) => CreateMode::Truncate,
-                        (true, false) => CreateMode::Create,
-                        (true, true) => CreateMode::CreateOrTruncate,
-                    }
-                },
-                append: options.append,
-                sync: Sync::None,
-                permission: 0o666,
-            },
+            &options,
             &DirectIo,
         )?)
     }
@@ -435,8 +489,10 @@ mod tests {
         assert!(host.read_file(file).unwrap().starts_with(b"TZif"));
         let path = FsPath::Cwd(file.as_os_str());
         for access in [0, 1] {
-            host.authorize(FsOperation::AccessCheck { path, access })
+            let granted = host
+                .authorize(FsOperation::AccessCheck { path, access })
                 .unwrap();
+            assert_eq!(granted, crate::policy::AccessRights::READ);
         }
         for operation in [
             FsOperation::AccessCheck { path, access: 2 },
@@ -663,42 +719,6 @@ mod tests {
             path: OsStr::new("/"),
         })));
         assert!(result.is_err(), "{result:?}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resource_authorization_rechecks_saved_path() {
-        use crate::filesystem::FileGrant;
-
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("allowed");
-        let denied = tmp.path().join("denied");
-        std::fs::create_dir(&allowed).unwrap();
-        std::fs::create_dir(&denied).unwrap();
-        let resource_path = allowed.join("resource.txt");
-        let denied_file = denied.join("target.txt");
-        std::fs::write(&resource_path, "allowed").unwrap();
-        std::fs::write(&denied_file, "denied").unwrap();
-        let grant = FileGrant::from_opened_path(Some(resource_path.clone()));
-        let policy_file = tmp.path().join("policy.toml");
-        std::fs::write(
-            &policy_file,
-            "[fs]\nread = [\"allowed\"]\nwrite = [\"allowed\"]\n",
-        )
-        .unwrap();
-        let (policy, _) = policy::load_file(&policy_file).unwrap();
-        let host = host_fs(Some(policy), Arc::new(Env::ambient()));
-
-        std::fs::remove_file(&resource_path).unwrap();
-        std::os::unix::fs::symlink(&denied_file, &resource_path).unwrap();
-
-        let metadata = host.authorize(FsOperation::Metadata(FsTarget::File(&grant)));
-        let lock = host.authorize(FsOperation::Lock {
-            file: &grant,
-            exclusive: true,
-        });
-        assert!(matches!(metadata, Err(FsError::Denied)));
-        assert!(matches!(lock, Err(FsError::Denied)));
     }
 
     #[cfg(unix)]

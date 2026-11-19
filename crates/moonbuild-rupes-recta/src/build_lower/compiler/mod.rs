@@ -28,7 +28,7 @@ mod link_core;
 mod moon_archive;
 mod moondoc;
 mod mooninfo;
-pub(super) mod msvc;
+pub(super) mod native;
 mod prove;
 mod wasm_ld;
 

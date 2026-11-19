@@ -16,10 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
 use colored::Colorize;
+use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::prepare::ProjectPreparationConfig;
 use moonbuild_rupes_recta::{
+    RunMode,
     build_plan::ArtifactKey,
     intent::UserIntent,
     model::{BuildTarget, PackageId, TargetKind},
@@ -29,23 +32,17 @@ use mooncake::{
     registry::{RegistryClient, path::RegistryPath},
 };
 use moonutil::{
-    build_options::RunMode,
-    child_process::{ChildOutputMode, ManagedChildRunner},
-    cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
-    locks::lock_directory,
+    module_name::ModuleName,
     project::PackageDirs,
-    resolution::{ModuleName, ModuleSourceKind},
+    resolution::ModuleSourceKind,
     target::TargetBackend,
     user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
 use tracing::debug;
 
-use crate::{
-    cli::{BuildFlags, registry_queries},
-    rr_build::{self},
-};
+use crate::cli::{BuildFlags, registry_queries};
 
 /// How to filter packages for installation.
 #[derive(Debug, Clone, Copy)]
@@ -260,8 +257,8 @@ pub(super) fn install_binary(
     let module_dir = tmp_dir.path();
 
     registry.materialize_source_to(&module, module_dir, user_log)?;
-    let child = ManagedChildRunner::new(ChildOutputMode::Inherit, user_log);
-    legacy_postadd::run(module_dir, &child)?;
+    let manifest = moonutil::manifest::read_module_desc_file_in_dir(module_dir)?;
+    legacy_postadd::warn_skipped(&manifest, user_log);
 
     let filter = PackageFilter::package_path(path.package.clone(), install_all);
 
@@ -539,7 +536,6 @@ struct PreparedNativeBuild {
 }
 
 fn prepare_native_build(
-    cli: &UniversalFlags,
     module_name: &ModuleName,
     module_dir: &Path,
     package_dirs: PackageDirs,
@@ -553,17 +549,15 @@ fn prepare_native_build(
             module_dir.display()
         )
     })?;
-    let preparation_config =
-        ProjectPreparationConfig::new_with_load_defaults(false, false, cli.workspace_env.clone())
-            .with_sync_output(sync_output);
-    let synced_modules =
-        moonbuild::prepare::sync_module_dependencies(&preparation_config, &package_dirs, user_log)?;
-    let resolved_project = moonbuild_rupes_recta::prepare_synced_project(
-        &preparation_config.discovery,
-        synced_modules,
-        &[moonutil::target::TargetBackend::Native],
+    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false)
+        .with_sync_output(sync_output);
+    let discovered = moonbuild::prepare::sync_and_discover_project(
+        &preparation_config,
+        &package_dirs,
         user_log,
     )?;
+    let resolved_project =
+        discovered.resolve_packages(&[moonutil::target::TargetBackend::Native], user_log)?;
     let target_dir = package_dirs.target_dir;
 
     let main_module_id = resolved_project
@@ -636,16 +630,15 @@ fn build_selected_package(
 
     user_log.info(format!("Building `{}`...", pkg.full_pkg_name));
 
-    let _lock = lock_directory(&prepared.target_dir, user_log)?;
+    let session = BuildSession::new(&prepared.target_dir, false, user_log)?;
     let build_flags = BuildFlags {
         release: true,
         warn_list: Some("-a".to_string()),
         ..BuildFlags::default()
     };
 
-    let compile_config = rr_build::prepare_resolved_build(
+    let compile_config = build_flags.compile_config(
         cli,
-        &build_flags,
         TargetBackend::Native,
         &prepared.target_dir,
         RunMode::Build,
@@ -653,23 +646,19 @@ fn build_selected_package(
         &prepared.resolved_project,
     )?;
     let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = session.plan(
         compile_config,
-        user_log,
         intent,
         prepared.resolved_project.clone(),
         build_flags.jobs,
         false,
-        false,
     )?;
 
-    rr_build::generate_all_pkgs_json(&build_meta)?;
-
-    let result = moonbuild::execution::execute_build(
+    let result = session.execute(
         &build_flags.execution_config(&cli.unstable_feature, cli.verbose),
         build_graph,
-        &prepared.target_dir,
-        user_log,
+        &[&build_meta],
+        MetadataOutput::Compiler,
     )?;
     if !result.successful() {
         result.print_info(quiet, "building").ok();
@@ -703,7 +692,6 @@ fn build_and_install_packages(
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let prepared = prepare_native_build(
-        cli,
         module_name,
         module_dir,
         package_dirs,
@@ -812,7 +800,7 @@ fn build_and_install_packages(
 /// same-filesystem replacement. `src` is copied rather than moved because the
 /// caller owns the build artifact; for `moon install`, it must remain in
 /// `_build` for subsequent no-op commands.
-pub(crate) fn install_file_atomically(
+pub(super) fn install_file_atomically(
     src: &Path,
     install_dir: &Path,
     dst_name: impl AsRef<Path>,

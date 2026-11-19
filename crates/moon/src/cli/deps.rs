@@ -18,14 +18,18 @@
 
 use anyhow::{Context, bail};
 use mooncake::{
-    pkg::{add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand},
+    pkg::{add::AddSubcommand, remove::RemoveSubcommand},
     registry::{
         RegistryClient,
         path::{ModuleNotFound, parse_install_package_path, parse_module_path},
     },
 };
 use moonutil::{
+    child_process::{ChildOutputMode, ManagedChildRunner},
+    command_output::CommandOutput,
     constants::MOD_NAME_STDLIB,
+    locks::lock_directory,
+    manifest::read_module_desc_file_in_dir,
     project::{PackageDirs, ProjectContext},
     user_log::UserLog,
 };
@@ -33,7 +37,85 @@ use std::path::{Path, PathBuf};
 
 use super::{UniversalFlags, registry_queries};
 
-pub(crate) fn require_selected_module(
+/// Explicitly run a legacy postadd script (temporary compatibility command)
+///
+/// Dependencies no longer run postadd automatically. This command runs only
+/// the selected module's script, every time it is invoked. It does not download
+/// or reinstall sources. Without MODULE, use the current module, including
+/// sources selected with `moon -C <directory> run-postadd`.
+///
+/// Postadd is being retired. If you still need it, please open an issue at
+/// https://github.com/moonbitlang/moon/issues describing your use case.
+#[derive(Debug, clap::Parser)]
+pub(super) struct RunPostaddSubcommand {
+    /// Installed dependency module name, without a version (defaults to the current module)
+    #[clap(value_name = "MODULE")]
+    pub module: Option<String>,
+}
+
+pub(super) fn run_postadd_cli(
+    cli: UniversalFlags,
+    cmd: RunPostaddSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let selected = cmd.module.as_deref().map(parse_module_path).transpose()?;
+    if selected.as_ref().is_some_and(|path| path.version.is_some()) {
+        bail!("`moon run-postadd` expects an installed module name without a version");
+    }
+    let project = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .select(output.user_log())?;
+    let (module_dir, _lock) = if let Some(path) = &selected {
+        let dirs = project.package_dirs()?;
+        let module_dir = dirs
+            .mooncakes_dir
+            .join(path.module.username.as_str())
+            .join(path.module.unqual.replace('/', "+"));
+        anyhow::ensure!(
+            module_dir.is_dir(),
+            "Module `{}` is not installed in this project's .mooncakes directory",
+            path.module
+        );
+        // Keep source synchronization from replacing the installation mid-script.
+        let lock = lock_directory(&dirs.mooncakes_dir, output.user_log())?;
+        (module_dir, Some(lock))
+    } else {
+        (
+            require_selected_module(project.context(), "run-postadd")?,
+            None,
+        )
+    };
+    let module = read_module_desc_file_in_dir(&module_dir)?;
+    if let Some(path) = selected {
+        anyhow::ensure!(
+            module.name == path.module.to_string(),
+            "Installed module does not match `{}`",
+            path.module
+        );
+    }
+    let postadd = module
+        .scripts
+        .as_ref()
+        .and_then(|scripts| scripts.get("postadd"))
+        .with_context(|| format!("Module `{}` does not declare a postadd script", module.name))?;
+    if cli.dry_run {
+        output.write_result(|writer| {
+            writeln!(
+                writer,
+                "cd {} && {postadd}",
+                shlex::try_quote(&module_dir.to_string_lossy())
+                    .expect("filesystem paths contain no NUL")
+            )
+        })?;
+    } else {
+        let runner = ManagedChildRunner::new(ChildOutputMode::Inherit, output.user_log());
+        mooncake::pkg::legacy_postadd::run(&module_dir, postadd, &runner)?;
+    }
+    Ok(0)
+}
+
+pub(super) fn require_selected_module(
     project: &ProjectContext,
     command: &str,
 ) -> anyhow::Result<PathBuf> {
@@ -69,7 +151,67 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn install_cli(
+/// Install a binary package globally
+#[derive(Debug, clap::Parser)]
+#[clap(
+    group = clap::ArgGroup::new("git_ref").multiple(false),
+    verbatim_doc_comment,
+    after_help = "Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+Paste a public GitHub directory permalink containing a full 40-character
+commit SHA to install from its source archive. For branches or tags, use the
+repository URL, PATH_IN_REPO, and --branch or --tag instead."
+)]
+pub(super) struct InstallSubcommand {
+    #[clap(
+        value_name = "SOURCE",
+        required_unless_present = "path",
+        help = "Package path, local path, or git URL",
+        long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nUse `/...` suffix to install all matching main packages."
+    )]
+    source: Option<String>,
+
+    #[clap(
+        value_name = "PATH_IN_REPO",
+        help = "Filesystem path inside git repo (git SOURCE only)",
+        long_help = "Filesystem path inside the repository source.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
+    )]
+    path_in_repo: Option<String>,
+
+    /// Specify installation directory (default: ~/.moon/bin/)
+    #[clap(long, value_name = "DIR")]
+    bin: Option<PathBuf>,
+
+    /// Install from local path instead of registry
+    #[clap(
+        long,
+        conflicts_with = "source",
+        conflicts_with = "git_ref",
+        conflicts_with = "path_in_repo"
+    )]
+    path: Option<PathBuf>,
+
+    /// Git revision to checkout (commit hash, requires git URL)
+    #[clap(long, group = "git_ref", requires = "source")]
+    rev: Option<String>,
+
+    /// Git branch to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "source")]
+    branch: Option<String>,
+
+    /// Git tag to checkout (requires git URL)
+    #[clap(long, group = "git_ref", requires = "source")]
+    tag: Option<String>,
+}
+
+pub(super) fn install_cli(
     cli: UniversalFlags,
     cmd: InstallSubcommand,
     user_log: &UserLog,
@@ -183,7 +325,7 @@ pub(crate) fn install_cli(
     install_binary(&cli, &path, &install_dir, install_all, user_log)
 }
 
-pub(crate) fn remove_cli(
+pub(super) fn remove_cli(
     cli: UniversalFlags,
     cmd: RemoveSubcommand,
     user_log: &UserLog,
@@ -203,7 +345,7 @@ pub(crate) fn remove_cli(
     mooncake::pkg::remove::remove(&module_dir, &project_manifest, &path.module, user_log)
 }
 
-pub(crate) fn add_cli(
+pub(super) fn add_cli(
     cli: UniversalFlags,
     cmd: AddSubcommand,
     user_log: &UserLog,

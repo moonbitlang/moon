@@ -16,12 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
-use moonutil::{cli_support::UniversalFlags, locks::lock_directory, user_log::UserLog};
+use moonutil::{locks::lock_directory, user_log::UserLog};
 
 /// Remove local build outputs or configured global caches.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct CleanSubcommand {
+pub(super) struct CleanSubcommand {
     /// Remove the global dependency-source cache instead of `_build`.
     #[arg(long)]
     dep_cache: bool,
@@ -37,7 +38,7 @@ pub(crate) struct CleanSubcommand {
     registry_cache: bool,
 }
 
-pub(crate) fn run_clean(
+pub(super) fn run_clean(
     cli: &UniversalFlags,
     cmd: &CleanSubcommand,
     user_log: &UserLog,

@@ -16,15 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::cli_support::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
 use moonutil::version::{get_moon_version, get_moonc_version, get_moonrun_version};
 
 /// Print version information and exit
 #[derive(Debug, clap::Parser)]
-pub(crate) struct VersionSubcommand {
+pub(super) struct VersionSubcommand {
     /// Print all version information
     #[clap(long)]
     pub all: bool,
@@ -74,7 +74,7 @@ fn print_unstable_footer(flags: &UniversalFlags) {
     println!("Feature flags enabled: {features}");
 }
 
-pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {
+pub(super) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {
     let VersionSubcommand {
         all: all_flag,
         json: json_flag,

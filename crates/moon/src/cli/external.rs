@@ -25,7 +25,7 @@ use std::{
 
 use super::process;
 
-pub(crate) fn prepare_external(
+pub(super) fn prepare_external(
     args: impl IntoIterator<Item = OsString>,
     current_dir: Option<&Path>,
 ) -> anyhow::Result<Command> {

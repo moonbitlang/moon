@@ -16,16 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Shared command-line types for MoonBit command frontends.
-//!
-//! Domain modules should not import through this module. It exists for command
-//! adapters that need to share parsed flags and subcommand payloads.
-
-pub use crate::cli::{UniversalFlags, dialoguer_ctrlc_handler};
-pub use crate::mooncakes::{
-    DeprecateSubcommand, LoginSubcommand, MooncakeSubcommands, PackageSubcommand,
-    PublishSubcommand, RegisterSubcommand, sync::AutoSyncFlags,
-};
+//! Shared Moonx command-line types for the CLI and runtime frontends.
 
 mod moonx;
 

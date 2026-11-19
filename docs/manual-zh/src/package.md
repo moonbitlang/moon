@@ -20,15 +20,68 @@
 因此 `has_default` 和 `implement` 不能同时使用。
 
 每项配置只需声明一次，直接声明或写在 `options(...)` 中均可。例如，不要同时使用
-`proof_enabled = true` 和 `options("proof-enabled": true)`。
+`proof_enabled = true` 和 `options("proof-enabled": true)`，即使值相同也会报错。
+`warnings` 与 `warn-list` / `warn_list`、`supported_targets` 与 `supported-targets`、
+`dev_build` 与 `pre-build` / `pre_build` 同样遵循此规则，不会在两种形式之间合并或覆盖。
 
-其他配置，包括 `bin-name`、`bin-target`、`overrides`、结构化的 `link`、
+同一种类的多个 `import` 块仍按源码顺序合并，但不能同时使用 `options(...)` 中对应种类的
+import 配置。空块和空的选项列表也算显式声明。普通、黑盒测试和白盒测试 import 相互独立。
+仍可声明多个 `rule` 和 `dev_build`，其中规则名必须唯一。
+
+每条 `dev_build` 或旧 `pre-build` 必须在 `command` 和 `rule` 中选择一项，
+同时指定两项会报错，JSON 清单中的条目也遵循此规则。
+
+在 `moon.mod` 中，每个模块依赖只能声明一次。`import` 内部，或 `import` 与
+`options(deps: ...)` 之间的重复模块名都会报错，即使版本相同。
+两种形式声明的不同依赖仍会合并。
+
+其他配置，包括 `overrides`、结构化的 `link`、
 `native-stub` 和按文件配置的 `targets`，仍需写在 `options(...)` 中。
 
 这些声明需要配套的编译器支持。不识别这些声明的编译器会报告
 `Invalid configuration`（`E4192`）；使用这些工具链时，请继续使用旧的
 `options(...)` 形式。格式化和 JSON 到 DSL 的迁移由工具链中的 `moonfmt`
 提供。较旧的格式化工具可能会把直接声明改写成等价的 `options(...)` 形式。
+
+## 配置诊断
+
+`options(...)`、JSON 清单及嵌套配置中的未知键会产生警告。例如，
+`link.native.cc_link_flags` 会触发警告，因为正确拼写是 `cc-link-flags`。
+警告不会中止命令，可通过 `--quiet` 隐藏；依赖中的未知键警告默认不显示。
+此规则同时适用于模块和包配置。
+
+已移除的模块字段 `checksum` 和包字段 `bin-name` / `bin-target` 遵循上述未知键策略。
+当前项目和 workspace 成员中的模块字段 `include` 和 `exclude` 则会报错，即使值为空，
+因为忽略旧过滤条件可能把非预期文件打包。请将过滤条件迁移到 `.gitignore` 或 `.moonignore`；
+同目录下 `.moonignore` 优先于 `.gitignore`。依赖中的这两个旧字段会被忽略。
+
+已移除的包字段 `name` 遵循上述未知键策略，包括 `name: "main"`。
+请使用 `pkgtype(kind: "executable")` 声明可执行包。模块 `scripts` 仅识别
+由 `moon run-postadd` 显式执行的旧 `postadd` 配置。其他名称，例如 `prebuild`
+和 `postbuild`，会作为未知键警告，不会注册构建钩子。
+
+在 `moon.mod` 中，`warnings` 和 `warn-list`、`preferred_target` 和 `preferred-target`，
+或 `supported_targets` 和 `supported-targets`，不能同时声明。
+即使值相同或为空，或两种拼写都出现在 `options(...)` 中，也会报错。
+
+已知字段的类型错误会报错，包括依赖中的配置以及使用 `--quiet` 时。
+例如，`warnings = 123` 无效，因为 `warnings` 必须是字符串。
+由编译器消费的配置，例如 `options("alert-list": "+all")` 和布尔类型的
+`link.wasm-gc.use-ffi-bytes`，也由 Moon 识别并检查类型。
+
+已弃用的包配置也会在当前项目和 workspace 成员中产生警告，依赖中的警告默认抑制。
+请将 `is-main: true` 替换为 `pkgtype(kind: "executable")`，将库包的布尔
+`link: true` 替换为 `pkgtype(kind: "foreign_library")`。值为 false 的旧标志，
+以及可执行包的布尔 `link`，直接删除即可。结构化 `link` 仍是后端配置。
+`link.*.exports` 已弃用，请改用源码中的 `#export_name` 属性；空导出列表也会警告。
+需要产出供外部宿主使用的库文件时，请声明 `pkgtype(kind: "foreign_library")`。
+这些旧字段将在后续移除。
+
+模块 prebuild 脚本还会收到协议迁移提示：旧 stdin JSON 输入即将移除，
+请改为读取 `MOON_MOD`、`MOON_BUILD_DIR` 等 `MOON_*` 环境变量。
+stdout JSON 继续作为结果协议。该提示仅针对当前项目和 workspace 成员，
+即使当前后端不运行脚本也会显示；它不会检测脚本是否读取 stdin。
+`--quiet` 会抑制上述弃用警告。
 
 ## 实验性包
 

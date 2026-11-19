@@ -26,8 +26,8 @@ pub(super) fn exit(context: &mut ImportContext<'_>, code: i32) {
 
 ported_imports! {
 #[ported(
-    source = "src/internal/event_loop/signal.c",
-    original = "moonbitlang_async_terminate_process_by_signal"
+    runtime = "signal.c",
+    original = "moonbit_rt_terminate_process_by_signal"
 )]
 pub(super) fn terminate_process_by_signal(
     context: &mut ImportContext<'_>,

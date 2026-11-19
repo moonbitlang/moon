@@ -35,14 +35,15 @@ mod driver;
 #[cfg(test)]
 mod tests;
 
+use crate::cli::target::SurfaceTarget;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::cli::UniversalFlags;
 use anyhow::Context;
-use moonutil::cli_support::{AutoSyncFlags, UniversalFlags};
+use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::target::SurfaceTarget;
 use tracing::instrument;
 
 use super::BuildFlags;
@@ -65,7 +66,7 @@ const MAX_ROUNDS: usize = 4;
 /// if compiler diagnostics remain. At most four rounds write files, followed
 /// by a check of the final contents.
 #[derive(Debug, clap::Parser, Clone)]
-pub(crate) struct FixSubcommand {
+pub(super) struct FixSubcommand {
     /// Package directory or source file to fix (file paths restrict edits to that file)
     #[clap(name = "PATH")]
     pub path: Vec<PathBuf>,
@@ -74,7 +75,7 @@ pub(crate) struct FixSubcommand {
     #[clap(long, value_delimiter = ',')]
     pub target: Vec<SurfaceTarget>,
 
-    /// Warn list config
+    /// Warn list config (pending deprecation warnings are enabled by default)
     #[clap(long, allow_hyphen_values = true)]
     pub warn_list: Option<String>,
 
@@ -95,7 +96,11 @@ impl FixSubcommand {
         CheckSubcommand {
             build_flags: BuildFlags {
                 target: self.target.clone(),
-                warn_list: self.warn_list.clone(),
+                // Pending deprecations carry migration fixes but are normally silent.
+                warn_list: Some(format!(
+                    "+99{}",
+                    self.warn_list.as_deref().unwrap_or_default()
+                )),
                 jobs: self.jobs,
                 ..BuildFlags::default()
             },
@@ -115,7 +120,7 @@ impl FixSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_fix(
+pub(super) fn run_fix(
     cli: &UniversalFlags,
     cmd: &FixSubcommand,
     output: &CommandOutput,

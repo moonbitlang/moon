@@ -1,0 +1,9 @@
+*
+!*/
+!moon.mod
+!*.mbt
+!*.txt
+test/a/a.txt
+!test/a/a.txt
+/_build/
+/.mooncakes/

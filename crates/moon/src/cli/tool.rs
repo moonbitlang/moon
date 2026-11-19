@@ -16,15 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub(crate) mod archive;
-pub(crate) mod demangle;
-pub(crate) mod embed;
-pub(crate) mod exec;
-pub(crate) mod format_and_diff;
-pub(crate) mod format_workspace;
-pub(crate) mod generate_node_test_package_config;
-pub(crate) mod migrate_manifest;
+pub(super) mod archive;
+pub(super) mod demangle;
+pub(super) mod embed;
+pub(super) mod exec;
+pub(super) mod format_and_diff;
+pub(super) mod format_workspace;
+pub(super) mod generate_node_test_package_config;
+pub(super) mod migrate_manifest;
 
+use crate::cli::UniversalFlags;
 use archive::*;
 use demangle::*;
 use embed::*;
@@ -32,16 +33,15 @@ use format_and_diff::*;
 use format_workspace::*;
 use generate_node_test_package_config::*;
 use migrate_manifest::*;
-use moonutil::cli_support::UniversalFlags;
 
 #[derive(Debug, clap::Parser)]
-pub(crate) struct ToolSubcommand {
+pub(super) struct ToolSubcommand {
     #[clap(subcommand)]
     pub subcommand: ToolSubcommands,
 }
 
 #[derive(Debug, clap::Parser)]
-pub(crate) enum ToolSubcommands {
+pub(super) enum ToolSubcommands {
     #[clap(hide = true)]
     Archive(ArchiveSubcommand),
     FormatAndDiff(FormatAndDiffSubcommand),
@@ -54,7 +54,7 @@ pub(crate) enum ToolSubcommands {
     Demangle(DemangleSubcommand),
 }
 
-pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
+pub(super) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::Archive(subcmd) => run_archive(cli, subcmd),
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),

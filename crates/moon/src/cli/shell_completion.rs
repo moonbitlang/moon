@@ -17,9 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::MoonBuildCli;
+use crate::cli::UniversalFlags;
 use clap::{Arg, Command, CommandFactory};
 use clap_complete::{Shell, generate};
-use moonutil::cli_support::UniversalFlags;
 use std::io::{self, Write};
 
 /// Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
@@ -156,13 +156,13 @@ Discussion:
 
     This discussion is taken from `rustup completions` command with some changes.
 "#)]
-pub(crate) struct ShellCompSubCommand {
+pub(super) struct ShellCompSubCommand {
     /// The shell to generate completion for
     #[clap(value_enum, long, ignore_case = true, value_parser = clap::builder::EnumValueParser::<Shell>::new(), default_value_t = Shell::from_env().unwrap_or(Shell::Bash), value_name = "SHELL")]
     pub shell: Shell,
 }
 
-pub(crate) fn gen_shellcomp(cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow::Result<i32> {
+pub(super) fn gen_shellcomp(cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow::Result<i32> {
     if cli.dry_run {
         anyhow::bail!("this command has no side effects, dry run is not needed.")
     }

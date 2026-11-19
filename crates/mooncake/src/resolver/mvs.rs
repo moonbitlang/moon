@@ -28,9 +28,8 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
     manifest::MoonMod,
-    resolution::{
-        DependencyEdge, ModuleDependencyGraph, ModuleName, ModuleSource, ModuleSourceKind,
-    },
+    module_name::ModuleName,
+    resolution::{DependencyEdge, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     user_log::UserLog,
 };
 use semver::Version;
@@ -767,13 +766,10 @@ mod test {
                 description: None,
                 compile_flags: None,
                 link_flags: None,
-                checksum: None,
                 source: None,
                 rule: None,
                 ext: Null,
                 warn_list: None,
-                include: None,
-                exclude: None,
                 preferred_target: None,
                 supported_targets: None,
                 scripts: None,

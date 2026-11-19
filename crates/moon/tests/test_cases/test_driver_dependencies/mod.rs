@@ -1,12 +1,16 @@
 use std::path::Path;
 
-use indexmap::IndexMap;
-use moonutil::test_metadata::{FileName, MbtTestInfo, MooncGenTestInfo};
+use serde_json::Value;
 
 use crate::{TestDir, get_stdout};
 
-fn total_test_count(gen_test_section: &IndexMap<FileName, Vec<MbtTestInfo>>) -> usize {
-    gen_test_section.iter().map(|x| x.1.len()).sum()
+fn total_test_count(gen_test_section: &Value) -> usize {
+    gen_test_section
+        .as_object()
+        .unwrap()
+        .values()
+        .map(|tests| tests.as_array().unwrap().len())
+        .sum()
 }
 
 #[test]
@@ -24,17 +28,17 @@ fn test_driver_no_args() {
         "No args test driver should not contain bench dependencies. Full output:\n{output}"
     );
     assert_eq!(
-        total_test_count(&meta.no_args_tests),
+        total_test_count(&meta["no_args_tests"]),
         1,
         "Expected 1 no args test"
     );
     assert_eq!(
-        total_test_count(&meta.with_args_tests),
+        total_test_count(&meta["with_args_tests"]),
         0,
         "Expected 0 with args tests"
     );
     assert_eq!(
-        total_test_count(&meta.with_bench_args_tests),
+        total_test_count(&meta["with_bench_args_tests"]),
         0,
         "Expected 0 with bench args tests"
     );
@@ -55,17 +59,17 @@ fn test_driver_with_args() {
         "With args test driver should not contain bench dependencies. Full output:\n{output}"
     );
     assert_eq!(
-        total_test_count(&meta.no_args_tests),
+        total_test_count(&meta["no_args_tests"]),
         0,
         "Expected 0 no args tests"
     );
     assert_eq!(
-        total_test_count(&meta.with_args_tests),
+        total_test_count(&meta["with_args_tests"]),
         1,
         "Expected 1 with args test"
     );
     assert_eq!(
-        total_test_count(&meta.with_bench_args_tests),
+        total_test_count(&meta["with_bench_args_tests"]),
         0,
         "Expected 0 with bench args tests"
     );
@@ -86,17 +90,17 @@ fn test_driver_with_bench_args() {
         "With args bench driver should contain bench dependencies. Full output:\n{output}"
     );
     assert_eq!(
-        total_test_count(&meta.no_args_tests),
+        total_test_count(&meta["no_args_tests"]),
         0,
         "Expected 0 no args tests"
     );
     assert_eq!(
-        total_test_count(&meta.with_args_tests),
+        total_test_count(&meta["with_args_tests"]),
         0,
         "Expected 0 with args tests"
     );
     assert_eq!(
-        total_test_count(&meta.with_bench_args_tests),
+        total_test_count(&meta["with_bench_args_tests"]),
         1,
         "Expected 1 with bench args test"
     );
@@ -117,23 +121,23 @@ fn test_driver_with_no_args_and_bench() {
         "With args bench driver should contain bench dependencies. Full output:\n{output}"
     );
     assert_eq!(
-        total_test_count(&meta.no_args_tests),
+        total_test_count(&meta["no_args_tests"]),
         1,
         "Expected 0 no args tests"
     );
     assert_eq!(
-        total_test_count(&meta.with_args_tests),
+        total_test_count(&meta["with_args_tests"]),
         0,
         "Expected 0 with args tests"
     );
     assert_eq!(
-        total_test_count(&meta.with_bench_args_tests),
+        total_test_count(&meta["with_bench_args_tests"]),
         1,
         "Expected 1 with bench args test"
     );
 }
 
-fn try_gen_output(dir: &Path, file: &Path, bench: bool) -> (String, MooncGenTestInfo) {
+fn try_gen_output(dir: &Path, file: &Path, bench: bool) -> (String, Value) {
     let file_meta_output = file.with_extension("json");
     let file_driver_output = file.with_extension("driver.mbt");
 

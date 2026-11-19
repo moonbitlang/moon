@@ -25,10 +25,8 @@ use std::{
 
 use anyhow::{Context, bail};
 use moonutil::{
-    MOON_HOME, MoonHomeLayout,
-    locks::lock_directory,
-    resolution::{ModuleName, ModuleSource},
-    user_log::UserLog,
+    MOON_HOME, MoonHomeLayout, locks::lock_directory, module_name::ModuleName,
+    resolution::ModuleSource, user_log::UserLog,
 };
 use reqwest::StatusCode;
 use semver::Version;

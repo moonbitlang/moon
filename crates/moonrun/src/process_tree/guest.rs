@@ -976,7 +976,7 @@ mod tests {
                     if before_wait {
                         proceed.recv().unwrap();
                     }
-                    thread_pool::run_host_job(&mut job.job);
+                    thread_pool::run_host_job(&mut job.job, &crate::filesystem::HostFs::default());
                 },
                 completed,
                 WorkerCompletionDestination::Test(Box::new(move |_| {

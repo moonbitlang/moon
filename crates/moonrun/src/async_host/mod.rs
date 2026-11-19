@@ -53,8 +53,10 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
+#[cfg(any(target_os = "macos", windows))]
+use crate::filesystem::FsTarget;
 use crate::filesystem::HostFs;
-use crate::filesystem::{FsOperation, FsPath, FsTarget};
+use crate::filesystem::{FsOperation, FsPath};
 use crate::guest_memory::{GuestMemory, GuestMemoryError};
 use crate::network::HostNetwork;
 use crate::process::HostProcess;
@@ -2731,30 +2733,11 @@ impl AsyncHost {
     }
 
     pub(crate) fn stdio_kind(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_resource(handle, |file| {
-            self.filesystem
-                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-            crate::filesystem::stdio_kind(file)
-        })
+        self.with_resource(handle, |file| self.filesystem.resource_stdio_kind(file))
     }
 
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        self.with_resource(handle, |file| {
-            self.filesystem
-                .authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-            #[cfg(unix)]
-            {
-                crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-            }
-            #[cfg(windows)]
-            {
-                if file.resource_class().is_socket() {
-                    crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
-                } else {
-                    crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-                }
-            }
-        })
+        self.with_resource(handle, |file| self.filesystem.resource_kind(file))
     }
 
     pub(crate) fn set_cloexec(&self, handle: HostHandle) -> AsyncHostResult<()> {
@@ -2783,7 +2766,8 @@ impl AsyncHost {
         let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let dst = memory.read_exact_mut(dst, len)?;
         self.with_resource(handle, |file| {
-            crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), dst)
+            self.filesystem
+                .read_immediate(file, dst)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
     }
@@ -2800,7 +2784,8 @@ impl AsyncHost {
         let src = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let src = memory.read_exact(src, len)?;
         self.with_resource(handle, |file| {
-            crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), src)
+            self.filesystem
+                .write_immediate(file, src)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
     }
@@ -3104,7 +3089,6 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::{ERROR_HANDLE_EOF, ERROR_IO_PENDING};
         use windows_sys::Win32::Networking::WinSock as ws;
-        use windows_sys::Win32::Storage::FileSystem::ReadFile;
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
@@ -3120,33 +3104,33 @@ impl AsyncHost {
         }
         let file = result.kind.resource_ref(&handles, fd_handle)?;
         let mut bytes_transferred = 0;
-        let success = match result.kind {
+        let outcome = match result.kind {
             HostIoKind::File => {
-                let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
+                let overlapped = result.overlapped_ptr();
+                // The result owns the buffer/OVERLAPPED and retains the resource
+                // until completion before exposing the result to guest code.
                 unsafe {
-                    ReadFile(
-                        file.as_file()?.as_raw_handle(),
-                        result.buffer.as_mut_ptr().cast(),
-                        len,
-                        &mut bytes_transferred,
-                        result.overlapped_ptr(),
-                    )
+                    self.filesystem
+                        .read_overlapped(file, &mut result.buffer, overlapped)
                 }
             }
             HostIoKind::Socket => {
                 let buffer = socket_buffer(&mut result.buffer)?;
-                unsafe {
-                    i32::from(
-                        ws::WSARecv(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            &mut result.socket_flags,
-                            result.overlapped_ptr(),
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSARecv(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        &mut result.socket_flags,
+                        result.overlapped_ptr(),
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::SocketWithAddr => {
@@ -3157,40 +3141,39 @@ impl AsyncHost {
                 let flags = std::ptr::addr_of_mut!(result.socket_flags);
                 let addr = result.addr_buffer.as_mut_ptr().cast::<ws::SOCKADDR>();
                 let overlapped = result.overlapped_ptr();
-                unsafe {
-                    i32::from(
-                        ws::WSARecvFrom(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            flags,
-                            addr,
-                            addr_len,
-                            overlapped,
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSARecvFrom(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        flags,
+                        addr,
+                        addr_len,
+                        overlapped,
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
                 return Err(AsyncHostError::Inval);
             }
         };
-        if success != 0 {
-            return i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault);
-        }
-        let errno = match result.kind {
-            HostIoKind::Socket | HostIoKind::SocketWithAddr => last_wsa_errno(),
-            _ => last_errno(),
-        };
-        if errno == ERROR_HANDLE_EOF as i32 {
-            Ok(0)
-        } else if errno == ERROR_IO_PENDING as i32 {
-            result.mark_pending(Arc::clone(file))?;
-            Err(AsyncHostError::Native(errno))
-        } else {
-            Err(AsyncHostError::Native(errno))
+        match outcome {
+            Ok(bytes) => i32::try_from(bytes).map_err(|_| AsyncHostError::Fault),
+            Err(AsyncHostError::Native(errno)) if errno == ERROR_HANDLE_EOF as i32 => Ok(0),
+            Err(error) => {
+                if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32)
+                {
+                    result.mark_pending(Arc::clone(file))?;
+                }
+                Err(error)
+            }
         }
     }
 
@@ -3312,7 +3295,6 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
         use windows_sys::Win32::Networking::WinSock as ws;
-        use windows_sys::Win32::Storage::FileSystem::WriteFile;
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
@@ -3331,69 +3313,69 @@ impl AsyncHost {
             self.network.check_connect(&result.addr_buffer)?;
         }
         let mut bytes_transferred = 0;
-        let success = match result.kind {
+        let outcome = match result.kind {
             HostIoKind::File => {
-                let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
+                let overlapped = result.overlapped_ptr();
+                // The result owns the buffer/OVERLAPPED and retains the resource
+                // until completion before exposing the result to guest code.
                 unsafe {
-                    WriteFile(
-                        file.as_file()?.as_raw_handle(),
-                        result.buffer.as_ptr().cast(),
-                        len,
-                        &mut bytes_transferred,
-                        result.overlapped_ptr(),
-                    )
+                    self.filesystem
+                        .write_overlapped(file, &result.buffer, overlapped)
                 }
             }
             HostIoKind::Socket => {
                 let buffer = socket_buffer(&mut result.buffer)?;
-                unsafe {
-                    i32::from(
-                        ws::WSASend(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            result.socket_flags,
-                            result.overlapped_ptr(),
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSASend(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        result.socket_flags,
+                        result.overlapped_ptr(),
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::SocketWithAddr => {
                 let buffer = socket_buffer(&mut result.buffer)?;
-                unsafe {
-                    i32::from(
-                        ws::WSASendTo(
-                            file.as_socket()?.as_raw_socket() as usize,
-                            &buffer,
-                            1,
-                            &mut bytes_transferred,
-                            result.socket_flags,
-                            result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
-                            result.addr_len,
-                            result.overlapped_ptr(),
-                            None,
-                        ) == 0,
-                    )
+                let success = unsafe {
+                    ws::WSASendTo(
+                        file.as_socket()?.as_raw_socket() as usize,
+                        &buffer,
+                        1,
+                        &mut bytes_transferred,
+                        result.socket_flags,
+                        result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
+                        result.addr_len,
+                        result.overlapped_ptr(),
+                        None,
+                    ) == 0
+                };
+                if success {
+                    Ok(bytes_transferred as usize)
+                } else {
+                    Err(AsyncHostError::Native(last_wsa_errno()))
                 }
             }
             HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
                 return Err(AsyncHostError::Inval);
             }
         };
-        if success != 0 {
-            i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-        } else {
-            let errno = match result.kind {
-                HostIoKind::Socket | HostIoKind::SocketWithAddr => last_wsa_errno(),
-                _ => last_errno(),
-            };
-            let error = AsyncHostError::Native(errno);
-            if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32) {
-                result.mark_pending(Arc::clone(file))?;
+        match outcome {
+            Ok(bytes) => i32::try_from(bytes).map_err(|_| AsyncHostError::Fault),
+            Err(error) => {
+                if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32)
+                {
+                    result.mark_pending(Arc::clone(file))?;
+                }
+                Err(error)
             }
-            Err(error)
         }
     }
 
@@ -3579,11 +3561,7 @@ impl AsyncHost {
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            self.filesystem.authorize(FsOperation::Lock {
-                file: file.file_grant(),
-                exclusive,
-            })?;
-            crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
+            self.filesystem.try_lock_resource(file, exclusive)
         })
     }
 
@@ -3602,9 +3580,6 @@ impl AsyncHost {
 
     fn run_policy_checked_job(filesystem: &HostFs, process: &HostProcess, job: &mut Job) {
         let preparation = match job.payload_mut() {
-            JobPayload::Filesystem(fs_job) => fs_job.check_policy(filesystem).map(|()| {
-                fs_job.configure_paths(filesystem);
-            }),
             JobPayload::Process(process_job) => process.prepare_job(process_job),
             _ => Ok(()),
         };
@@ -3612,7 +3587,7 @@ impl AsyncHost {
             job.set_err(error.errno());
             return;
         }
-        thread_pool::run_host_job(job);
+        thread_pool::run_host_job(job, filesystem);
         if let Err(error) = Self::finish_process_job(process, job) {
             job.set_err(error.errno());
         }
@@ -6806,6 +6781,107 @@ mod tests {
         host.free_job(parent_open_job).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn resource_io_and_metadata_keep_the_opening_grant() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        let moved = tmp.path().join("moved");
+        std::fs::write(&file, b"keep").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = ['file']\nwrite = ['file']").unwrap();
+        let host = host_with_policy(&policy_file);
+        let open = host
+            .insert_job(FilesystemJob::open_legacy(
+                file.clone().into_os_string(),
+                2,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+        host.run_job(open).unwrap();
+        let fd = host.open_job_get_fd(open).unwrap();
+        let resource = host.acquire_resource(fd).unwrap();
+
+        std::fs::rename(&file, &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, &file).unwrap();
+        // The old path now resolves outside the configured rule. Both I/O and
+        // metadata retain the authority captured when this file was opened.
+        let metadata = host
+            .insert_job(FilesystemJob::file_size(Arc::clone(&resource)))
+            .unwrap();
+        host.run_job(metadata).unwrap();
+        assert_eq!(host.with_job(metadata, |job| job.err()).unwrap(), 0);
+        assert_eq!(host.get_file_size_result(metadata).unwrap(), 4);
+
+        let read = host
+            .insert_job(FilesystemJob::read(Arc::clone(&resource), 4, 0))
+            .unwrap();
+        let write = host
+            .insert_job(FilesystemJob::write(
+                Arc::clone(&resource),
+                b"edit".to_vec(),
+                0,
+            ))
+            .unwrap();
+        let flush = host
+            .insert_job(FilesystemJob::fsync(resource, false))
+            .unwrap();
+        for (handle, expected) in [(read, 4), (write, 4), (flush, 0)] {
+            host.run_job(handle).unwrap();
+            assert_eq!(host.with_job(handle, |job| job.err()).unwrap(), 0);
+            assert_eq!(host.with_job(handle, |job| job.ret()).unwrap(), expected);
+        }
+        let mut bytes = [0; 4];
+        host.get_read_result(&mut bytes[..], read, 0, 0, 4).unwrap();
+        assert_eq!(&bytes, b"keep");
+        assert_eq!(std::fs::read(&moved).unwrap(), b"edit");
+        // Unix event-loop I/O uses an immediate path rather than a Job.
+        assert_eq!(host.read_fd(&mut bytes[..], fd, 0, 0, 4).unwrap(), 4);
+        assert_eq!(&bytes, b"edit");
+        let mut update = *b"next";
+        assert_eq!(host.write_fd(&mut update[..], fd, 0, 0, 4).unwrap(), 4);
+        assert_eq!(std::fs::read(&moved).unwrap(), b"editnext");
+        for job in [open, metadata, read, write, flush] {
+            host.free_job(job).unwrap();
+        }
+        host.close_fd(fd).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn chmod_job_requires_target_write_permission() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        std::fs::write(&file, b"keep").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        for (permission, allowed) in [("read", false), ("write", true)] {
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            std::fs::write(&policy_file, format!("[fs]\n{permission} = ['file']")).unwrap();
+            let host = host_with_policy(&policy_file);
+            let job = host
+                .insert_job(FilesystemJob::chmod(file.clone().into_os_string(), 0o600))
+                .unwrap();
+            host.run_job(job).unwrap();
+            assert_eq!(
+                host.with_job(job, |job| job.err()).unwrap(),
+                if allowed {
+                    0
+                } else {
+                    AsyncHostError::PermissionDenied.errno()
+                }
+            );
+            assert_eq!(
+                std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+                if allowed { 0o600 } else { 0o644 }
+            );
+            host.free_job(job).unwrap();
+        }
+    }
+
     #[test]
     fn fd_metadata_beyond_kind_requires_read_policy() {
         const STAT_FILE_KIND: u32 = 0x0001;
@@ -7209,7 +7285,7 @@ mod tests {
         let key = key_from_handle(job_handle);
         let mut job = host.jobs.borrow_mut().take_ready_job(key).unwrap();
 
-        thread_pool::run_host_job(&mut job);
+        thread_pool::run_host_job(&mut job, &host.filesystem);
 
         assert_eq!(job.err(), 0);
         assert!(matches!(
@@ -7611,13 +7687,14 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        let filesystem = Arc::clone(&host.filesystem);
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
             move |worker_job| {
                 started_sender.send(worker_job.completion_id).unwrap();
                 release_receiver.recv().unwrap();
-                thread_pool::run_host_job(&mut worker_job.job);
+                thread_pool::run_host_job(&mut worker_job.job, &filesystem);
             },
             WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completion_sender.send(completion_id).unwrap()
@@ -7658,6 +7735,7 @@ mod tests {
         let (started_sender, started_receiver) = std::sync::mpsc::channel();
         let (release_sender, release_receiver) = std::sync::mpsc::channel();
         let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        let filesystem = Arc::clone(&host.filesystem);
         let worker_key = host.workers.spawn(
             host.take_worker_job(WorkerCompletionId::from_abi(1), first_key)
                 .unwrap(),
@@ -7666,7 +7744,7 @@ mod tests {
                 if worker_job.job_key == first_key {
                     release_receiver.recv().unwrap();
                 }
-                thread_pool::run_host_job(&mut worker_job.job);
+                thread_pool::run_host_job(&mut worker_job.job, &filesystem);
             },
             WorkerCompletionDestination::Test(Box::new(move |completion_id| {
                 completion_sender.send(completion_id).unwrap()

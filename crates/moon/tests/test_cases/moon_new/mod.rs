@@ -351,7 +351,6 @@ Caused by:
 #[test]
 fn test_moon_new_exist() {
     let dir = TestDir::new("moon_new/exist");
-    dir.join("hello").rm_rf();
     let res = &get_stdout(
         &dir,
         ["new", "hello", "--user", "moonbitlang", "--name", "hello"],
@@ -365,8 +364,6 @@ fn test_moon_new_exist() {
         .args(["new", ".", "--user", "moonbitlang", "--name", "hello"])
         .assert()
         .failure();
-
-    dir.join("hello").rm_rf();
 }
 
 #[test]
@@ -374,9 +371,6 @@ fn test_moon_new_new() {
     let dir = TestDir::new("moon_new/new");
 
     let hello1 = dir.join("hello");
-    if hello1.exists() {
-        hello1.rm_rf()
-    }
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["new", "hello", "--user", "moonbitlang", "--name", "hello"])
@@ -388,7 +382,6 @@ fn test_moon_new_new() {
             Hello
         "#]],
     );
-    hello1.rm_rf();
 
     let hello2 = dir.join("hello2");
     std::fs::create_dir_all(&hello2).unwrap();
@@ -403,12 +396,8 @@ fn test_moon_new_new() {
             Hello
         "#]],
     );
-    hello2.rm_rf();
 
     let hello3 = dir.join("hello3");
-    if hello3.exists() {
-        hello3.rm_rf();
-    }
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["new", "hello3", "--user", "moonbitlang", "--name", "hello"])
@@ -426,7 +415,6 @@ fn test_moon_new_new() {
             Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
-    hello3.rm_rf();
 
     let hello4 = dir.join("hello4");
     std::fs::create_dir_all(&hello4).unwrap();
@@ -445,7 +433,6 @@ fn test_moon_new_new() {
             Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
-    hello4.rm_rf();
 }
 
 #[test]
@@ -453,9 +440,6 @@ fn test_moon_new_snapshot() {
     let dir = TestDir::new("moon_new/snapshot");
 
     let asdf = dir.join("asdf");
-    if asdf.exists() {
-        asdf.rm_rf();
-    }
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -469,9 +453,7 @@ fn test_moon_new_snapshot() {
     let snap = snapshot_layout_and_files(&asdf);
     expect_file!["new_snapshot.expect"].assert_eq(&snap);
 
-    if asdf.exists() {
-        asdf.rm_rf();
-    }
+    std::fs::remove_dir_all(&asdf).unwrap();
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -481,7 +463,7 @@ fn test_moon_new_snapshot() {
 
     let snap2 = snapshot_layout_and_files(&asdf);
     expect_file!["new_snapshot_with_user_name.expect"].assert_eq(&snap2);
-    asdf.rm_rf();
+    std::fs::remove_dir_all(&asdf).unwrap();
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -491,5 +473,4 @@ fn test_moon_new_snapshot() {
 
     let snap3 = snapshot_layout_and_files(&asdf);
     expect_file!["new_snapshot_with_user_name_different.expect"].assert_eq(&snap3);
-    asdf.rm_rf();
 }

@@ -20,8 +20,8 @@
 
 use std::{ffi::OsString, path::Path, path::PathBuf, process::Command};
 
+use crate::cli::UniversalFlags;
 use anyhow::{Context, bail};
-use moonutil::cli_support::UniversalFlags;
 
 /// Create a static archive from scratch with an archiver that updates
 /// existing archives in place, such as `ar -r`.
@@ -44,7 +44,7 @@ pub(crate) struct ArchiveSubcommand {
     archiver: Vec<OsString>,
 }
 
-pub(crate) fn run_archive(cli: &UniversalFlags, cmd: ArchiveSubcommand) -> anyhow::Result<i32> {
+pub(super) fn run_archive(cli: &UniversalFlags, cmd: ArchiveSubcommand) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for tool archive");
     }

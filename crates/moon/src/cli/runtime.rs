@@ -41,7 +41,7 @@ use super::{
 
 const INTERNAL_ERROR_EXIT_CODE: i32 = -1;
 
-pub(crate) fn run(raw_args: Vec<OsString>) -> i32 {
+pub(crate) fn execute(raw_args: Vec<OsString>) -> i32 {
     let invocation = invocation::select(raw_args).unwrap_or_else(|error| error.exit());
     match invocation {
         SelectedInvocation::ArtifactHandoff(invocation) => run_artifact_handoff(*invocation),
@@ -231,36 +231,45 @@ fn finish_json(
 }
 
 fn dispatch(
-    flags: moonutil::cli_support::UniversalFlags,
+    flags: crate::cli::UniversalFlags,
     command: MoonBuildSubcommands,
     output: &CommandOutput,
 ) -> anyhow::Result<ProcessAction> {
     use MoonBuildSubcommands::*;
 
     match command {
-        Add(command) => super::add_cli(flags, command, output.user_log()).map(Into::into),
-        Bench(command) => super::run_bench(flags, command, output).map(Into::into),
-        Build(command) => super::run_build(&flags, command, output).map(Into::into),
-        Bundle(command) => super::run_bundle(flags, command, output).map(Into::into),
-        Check(command) => super::run_check(&flags, &command, output).map(Into::into),
-        Fix(command) => super::run_fix(&flags, &command, output).map(Into::into),
-        Prove(command) => super::run_prove(&flags, &command, output).map(Into::into),
-        Clean(command) => super::run_clean(&flags, &command, output.user_log()).map(Into::into),
-        Cram(command) => super::run_cram(&flags, command, output),
-        Coverage(command) => super::run_coverage(flags, command, output),
-        Doc(command) => super::run_doc(flags, command, output).map(Into::into),
-        Fetch(command) => super::fetch_cli(flags, command, output.user_log()).map(Into::into),
-        Work(command) => super::work_cli(flags, command, output.user_log()).map(Into::into),
-        Fmt(command) => super::run_fmt(&flags, command, output).map(Into::into),
-        GenerateBuildMatrix(command) => {
-            super::generate_build_matrix(&flags, command).map(Into::into)
+        Add(command) => super::deps::add_cli(flags, command, output.user_log()).map(Into::into),
+        Bench(command) => super::bench::run_bench(flags, command, output).map(Into::into),
+        Build(command) => super::build::run_build(&flags, command, output).map(Into::into),
+        Bundle(command) => super::bundle::run_bundle(flags, command, output).map(Into::into),
+        Check(command) => super::check::run_check(&flags, &command, output).map(Into::into),
+        Fix(command) => super::fix::run_fix(&flags, &command, output).map(Into::into),
+        Prove(command) => super::prove::run_prove(&flags, &command, output).map(Into::into),
+        Clean(command) => {
+            super::clean::run_clean(&flags, &command, output.user_log()).map(Into::into)
         }
-        GenerateTestDriver(command) => super::generate_test_driver(flags, command).map(Into::into),
-        Info(command) => super::run_info(flags, command, output).map(Into::into),
-        Explain(command) => super::run_explain(&flags, command).map(Into::into),
-        Install(command) => super::install_cli(flags, command, output.user_log()).map(Into::into),
-        Whoami(command) => super::run_whoami(&flags, command).map(Into::into),
-        New(command) => super::run_new(&flags, command, output.user_log()),
+        Cram(command) => super::cram::run_cram(&flags, command, output),
+        Coverage(command) => super::coverage::run_coverage(flags, command, output),
+        Doc(command) => super::doc::run_doc(flags, command, output).map(Into::into),
+        Fetch(command) => {
+            super::fetch::fetch_cli(flags, command, output.user_log()).map(Into::into)
+        }
+        RunPostadd(command) => super::deps::run_postadd_cli(flags, command, output).map(Into::into),
+        Work(command) => super::work::work_cli(flags, command, output.user_log()).map(Into::into),
+        Fmt(command) => super::fmt::run_fmt(&flags, command, output).map(Into::into),
+        GenerateBuildMatrix(command) => {
+            super::build_matrix::generate_build_matrix(&flags, command).map(Into::into)
+        }
+        GenerateTestDriver(command) => {
+            super::generate_test_driver::generate_test_driver(flags, command).map(Into::into)
+        }
+        Info(command) => super::info::run_info(flags, command, output).map(Into::into),
+        Explain(command) => super::explain::run_explain(&flags, command).map(Into::into),
+        Install(command) => {
+            super::deps::install_cli(flags, command, output.user_log()).map(Into::into)
+        }
+        Whoami(command) => super::whoami::run_whoami(&flags, command).map(Into::into),
+        New(command) => super::new::run_new(&flags, command, output.user_log()),
         Publish(command) => {
             super::mooncake_adapter::publish_cli(flags, command, output.user_log()).map(Into::into)
         }
@@ -270,17 +279,21 @@ fn dispatch(
         Deprecate(command) => {
             super::mooncake_adapter::deprecate_cli(flags, command, output).map(Into::into)
         }
-        Remove(command) => super::remove_cli(flags, command, output.user_log()).map(Into::into),
-        Run(command) => super::run_run(&flags, command, output).map(Into::into),
-        Search(command) => super::run_search(command, output).map(Into::into),
-        View(command) => super::run_view(command, output).map(Into::into),
-        Test(command) => super::run_test(flags, command, output).map(Into::into),
-        Tree(command) => super::tree_cli(flags, command, output).map(Into::into),
-        Update(command) => super::update_cli(flags, command, output).map(Into::into),
-        Upgrade(command) => super::run_upgrade(flags, command).map(Into::into),
-        ShellCompletion(command) => super::gen_shellcomp(&flags, command).map(Into::into),
-        Version(command) => super::run_version(&flags, command).map(Into::into),
-        Tool(command) => super::run_tool(&flags, command).map(Into::into),
+        Remove(command) => {
+            super::deps::remove_cli(flags, command, output.user_log()).map(Into::into)
+        }
+        Run(command) => super::run::run_run(&flags, command, output).map(Into::into),
+        Search(command) => super::search::run_search(command, output).map(Into::into),
+        View(command) => super::view::run_view(command, output).map(Into::into),
+        Test(command) => super::test::run_test(flags, command, output).map(Into::into),
+        Tree(command) => super::tree::tree_cli(flags, command, output).map(Into::into),
+        Update(command) => super::update::update_cli(flags, command, output).map(Into::into),
+        Upgrade(command) => super::upgrade::run_upgrade(flags, command).map(Into::into),
+        ShellCompletion(command) => {
+            super::shell_completion::gen_shellcomp(&flags, command).map(Into::into)
+        }
+        Version(command) => super::version::run_version(&flags, command).map(Into::into),
+        Tool(command) => super::tool::run_tool(&flags, command).map(Into::into),
         Login(_) | Register(_) | External(_) | TestCli => {
             unreachable!("transparent delegates are selected before Moon runtime setup")
         }

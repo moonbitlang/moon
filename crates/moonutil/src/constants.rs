@@ -18,7 +18,7 @@
 
 use std::{ffi::OsStr, path::Path};
 
-use crate::mooncakes::ModuleName;
+use crate::module_name::ModuleName;
 
 pub const MOON_MOD: &str = "moon.mod";
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
@@ -88,8 +88,6 @@ pub const PKG_DIR: &str = "$pkg_dir";
 
 pub const SINGLE_FILE_TEST_PACKAGE: &str = "moon/test/single";
 pub const SINGLE_FILE_TEST_MODULE: &str = "moon/test";
-
-pub const SUB_PKG_POSTFIX: &str = "_sub";
 
 pub const PRELUDE_PROOF_DIR: &str = "prelude_proof";
 pub const PRELUDE_PROOF_FILE: &str = "moonbit_builtin_prelude.mlw";

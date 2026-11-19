@@ -23,7 +23,7 @@
 
     ## A normal test workflow
 
-    1. Build test executable (using [`crate::rr_build`])
+    1. Build test executable (using [`moonbuild::compile::BuildSession`])
     2. Run tests using [`run_tests`]
     3. Interpret and print the test results using [`ReplaceableTestResults::print_result`]
 
@@ -57,6 +57,7 @@
     Check the discussion at [core#2684](https://github.com/moonbitlang/core/issues/2684).
 */
 
+mod expect;
 mod filter;
 mod promotion;
 mod report;
@@ -67,30 +68,58 @@ use std::{
     sync::Arc,
 };
 
+use crate::test_metadata::{MbtTestInfo, MooncGenTestInfo};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::BuildMeta;
-use moonbuild::{
-    expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING},
-    runtest::{TestDriverEvent, TestStatistics},
-};
 use moonbuild_rupes_recta::{
     build_plan::ArtifactKey, discover::DiscoverResult, model::BuildTarget,
 };
-use moonutil::{
-    constants::{
-        MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
-        MOON_TEST_DELIMITER_END,
-    },
-    test_metadata::{MbtTestInfo, MooncGenTestInfo},
+use moonutil::constants::{
+    MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
+    MOON_TEST_DELIMITER_END,
 };
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, trace, warn};
 
 use super::{run_with_parallelism, runtime::TestArgs, section_capture::SectionCapture};
+use expect::{ERROR, EXPECT_FAILED, RUNTIME_ERROR, SNAPSHOT_TESTING};
 use filter::apply_filter;
-pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
+pub(crate) use filter::{PackageFilter, TestFilter, TestIndex, TestIndexRange};
 pub(crate) use promotion::perform_promotion;
 use report::{BATCHBENCH, print_test_result};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+enum TestDriverEvent {
+    #[serde(rename = "start")]
+    Start { file: String, index: u32 },
+    #[serde(rename = "result")]
+    Result {
+        file: String,
+        index: u32,
+        message: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct TestStatistics {
+    package: String,
+    filename: String,
+    index: String,
+    test_name: String,
+    message: String,
+}
+
+impl std::fmt::Display for TestStatistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}::{}::test#{}, message: {}",
+            self.package, self.filename, self.test_name, self.message
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct TestOutlineEntry {
@@ -820,7 +849,7 @@ async fn run_one_test_executable(
     };
 
     let mut cmd = crate::run::command_for_with_moonrun_policy(
-        crate::run::ExecutionMode::from(&ctx.build_meta.backend),
+        crate::run::ExecutionMode::from(ctx.build_meta.target_backend()),
         &executable,
         Some(&test.args),
         ctx.moonrun_policy.as_deref(),
@@ -829,7 +858,7 @@ async fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.user_log.is_enabled(log::Level::Info) {
-        ctx.user_log.info(crate::rr_build::format_dry_run_command(
+        ctx.user_log.info(crate::dry_run::format_dry_run_command(
             &cmd,
             &ctx.source_dir,
         ));
@@ -1022,7 +1051,7 @@ fn parse_one_test_result(
         ExpectTestFailed
     } else if result.message.starts_with(SNAPSHOT_TESTING) {
         // FIXME: file access HERE?!
-        if moonbuild::expect::snapshot_eq(pkg_src, result)
+        if expect::snapshot_eq(pkg_src, result)
             .with_context(|| format!("Failed to read snapshot for {}", result.test_name))?
         {
             Passed

@@ -49,6 +49,14 @@ these overrides, and `paths` contains `module_root` and `out_dir`. `module_root`
 remains the module directory; `out_dir` now contains the real directory provided
 as `MOON_BUILD_DIR`.
 
+The stdin JSON input is deprecated and will be removed. Input modules (including
+workspace members) receive a migration warning when their manifest declares a
+prebuild script; dependency modules do not. `--quiet` suppresses this warning.
+The notice applies to the protocol and does not detect whether a script reads
+stdin. Read inputs from the environment instead: `MOON_MOD` identifies the
+manifest, `MOON_BUILD_DIR` replaces `paths.out_dir`, and the working directory
+is the module root. Stdout JSON remains the script's result protocol.
+
 Host OS and architecture describe the Moon process's platform. Backend and
 profile describe the project build, even when the prebuild script itself is
 compiled to Wasm. They reflect effective
@@ -79,9 +87,9 @@ Rewriting such a file at the same path may therefore fail to trigger relinking.
 Explicit generated-file dependency declarations and rerun controls remain
 future work for the experimental protocol.
 
-For actual builds, the command layer acquires the target-directory lock before
-planning runs these scripts and keeps it through build execution. This protects
-script writes and any build actions that read their outputs from concurrent
+For actual builds, `moonbuild::compile::BuildSession` acquires the target-directory
+lock before planning runs these scripts and keeps it through build execution.
+This protects script writes and any build actions that read their outputs from concurrent
 invocations. For dry runs, each backend planning pass acquires the lock only
 if it will execute a module-level prebuild script, and keeps it through planning.
 Passes that skip the scripts do not acquire the lock, including native and LLVM
@@ -90,13 +98,16 @@ passes when no resolved module declares a script.
 Stdout must contain one build configuration JSON value with the optional fields
 `vars`, `link_configs`, and `rerun_if`; `rerun_if` currently has no effect. Stderr
 carries script diagnostics. A failed script or invalid JSON output fails the
-build.
+build. Moonbuild owns these script transport types privately. After validating
+package names against the resolved project, it supplies RR with the link
+configuration and module output types defined in `moonbuild_rupes_recta::prebuild`.
 
 MoonBit scripts use standalone `.mbtx` imports and incremental compilation.
 Their target is always linear-memory Wasm, independently of the project backend;
 compiling the script therefore skips module-level prebuild configuration. The
-command layer calls the standalone builder directly and preserves the outer
-command's `--frozen` setting. Moonrun executes the compiled artifact, using normal
+prebuild implementation calls moonbuild's standalone Wasm builder directly,
+without constructing CLI flags, and preserves the outer command's `--frozen`
+setting. Moonrun executes the compiled artifact, using normal
 runtime discovery (including `MOONRUN_OVERRIDE`). Build progress stays off stdout
 to preserve the JSON protocol.
 
@@ -145,7 +156,12 @@ package in that module. A package-local rule takes precedence over a module
 rule with the same name. Multiple `rule` and `dev_build` declarations are
 allowed.
 
-Each `dev_build` entry selects a rule and supplies its inputs and outputs:
+Each `dev_build` entry supplies its inputs and outputs and exactly one of
+`rule` (a reusable rule's name) or `command` (a direct command). Supplying both
+is an error. The same requirement applies to legacy `pre-build` entries,
+including in JSON manifests.
+
+For example, to select a rule:
 
 ```moonbit
 rule(
@@ -288,7 +304,7 @@ Behavior:
 ## Environment Capture
 
 - Module-level prebuild configuration scripts receive a snapshot of the process
-  environment captured by `rr_build` before prebuild execution.
+  environment captured by `moonbuild::compile` before prebuild execution.
 - Commands that skip prebuild configuration do not capture this environment.
 - The snapshot is passed to each module prebuild script through its environment
   and the compatibility stdin input; it is not rediscovered inside individual

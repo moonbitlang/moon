@@ -39,7 +39,7 @@ pub(crate) use source::{LoadedPolicy, read_file};
 
 #[cfg(test)]
 use self::config::PolicyConfig;
-pub(crate) use self::fs::FsPolicy;
+pub(crate) use self::fs::{AccessRights, FsPolicy};
 pub(crate) use self::net::{NetOperation, NetPolicy, ResolvedConnectRule};
 pub(crate) use self::process::ProcessPolicy;
 use self::{fs::FsRules, net::NetRules, process::ProcessRules};
@@ -185,6 +185,7 @@ mod tests {
             create_mode,
             read_metadata: false,
         })
+        .map(|_| ())
         .map_err(Into::into)
     }
 
@@ -289,12 +290,12 @@ fn main {}
         assert!(!String::from_utf8_lossy(&contents).contains(secret));
         let inherited = Policy::from_transfer(&contents).unwrap();
         let fs = inherited.filesystem();
-        fs.authorize(Some(&canonical_read), true, false, "read")
+        fs.authorize(Some(&canonical_read), AccessRights::READ, "read")
             .unwrap();
-        fs.authorize(Some(&canonical_write), false, true, "write")
+        fs.authorize(Some(&canonical_write), AccessRights::WRITE, "write")
             .unwrap();
         assert!(
-            fs.authorize(Some(&canonical_write), true, false, "read")
+            fs.authorize(Some(&canonical_write), AccessRights::READ, "read")
                 .is_err()
         );
         inherited
@@ -542,7 +543,7 @@ fn main {}
         assert_eq!(
             child
                 .filesystem()
-                .authorize(Some(&target), true, false, "secret"),
+                .authorize(Some(&target), AccessRights::READ, "secret"),
             Err(AsyncHostError::PermissionDenied)
         );
         std::fs::remove_file(&allowed).unwrap();

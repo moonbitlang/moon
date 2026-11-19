@@ -24,6 +24,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon install`↴](#moon-install)
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
+* [`moon run-postadd`↴](#moon-run-postadd)
 * [`moon search`↴](#moon-search)
 * [`moon view`↴](#moon-view)
 * [`moon work`↴](#moon-work)
@@ -71,6 +72,7 @@ This document contains the help content for the `moon` command-line program.
 * `install` — Install a binary package globally
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
+* `run-postadd` — Explicitly run a legacy postadd script (temporary compatibility command)
 * `search` — Search modules and package summaries in the registry
 * `view` — View a registry module or a user's published modules
 * `work` — Workspace maintenance commands
@@ -215,7 +217,7 @@ Files select only themselves; directories select their package. Declared prebuil
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--warn-list <WARN_LIST>` — Warn list config
+* `--warn-list <WARN_LIST>` — Warn list config (pending deprecation warnings are enabled by default)
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--diff` — Preview only the first round as a unified diff; later rounds may propose further changes
@@ -633,6 +635,22 @@ Note: This is an unstable command and may change or be removed in future version
 ###### **Options:**
 
 * `--no-update` — Do not refresh registry metadata before fetching
+
+
+
+## `moon run-postadd`
+
+Explicitly run a legacy postadd script (temporary compatibility command)
+
+Dependencies no longer run postadd automatically. This command runs only the selected module's script, every time it is invoked. It does not download or reinstall sources. Without MODULE, use the current module, including sources selected with `moon -C <directory> run-postadd`.
+
+Postadd is being retired. If you still need it, please open an issue at https://github.com/moonbitlang/moon/issues describing your use case.
+
+**Usage:** `moon run-postadd [MODULE]`
+
+###### **Arguments:**
+
+* `<MODULE>` — Installed dependency module name, without a version (defaults to the current module)
 
 
 

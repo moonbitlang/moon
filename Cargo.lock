@@ -223,12 +223,6 @@ dependencies = [
 
 [[package]]
 name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
-
-[[package]]
-name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
@@ -546,7 +540,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a50aab2529019abfabfa93f1e6c41ef392f91fbf179b347a7e96abb524884a08"
 dependencies = [
- "encode_unicode",
+ "encode_unicode 0.3.6",
  "lazy_static",
  "libc",
  "regex",
@@ -558,15 +552,14 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.15.8"
+version = "0.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e1f83fc076bd6dd27517eacdf25fef6c4dfe5f1d7448bafaaf3a26f13b5e4eb"
+checksum = "e96a4956774c13c126a8b5af4daa79384f4d826534c95a02d76afb39e2ab64e3"
 dependencies = [
- "encode_unicode",
- "lazy_static",
+ "encode_unicode 1.0.0",
  "libc",
- "unicode-width 0.1.13",
- "windows-sys 0.52.0",
+ "unicode-width 0.2.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -854,13 +847,12 @@ dependencies = [
 
 [[package]]
 name = "dialoguer"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "658bce805d770f407bc62102fca7c2c64ceef2fbcb2b8bd19d2765ce093980de"
+checksum = "25f104b501bf2364e78d0d3974cbc774f738f5865306ed128e1e0d7499c0ad96"
 dependencies = [
- "console 0.15.8",
+ "console 0.16.6",
  "shell-words",
- "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -933,6 +925,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
 
 [[package]]
+name = "encode_unicode"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -945,7 +943,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1391,16 +1389,17 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.20"
+version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
+checksum = "ddc03d96684f9226b8a787cdb71488417b53ab5ea8fdb1dac946cb9431cc8bff"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "futures-channel",
  "futures-util",
  "http",
  "http-body",
+ "httparse",
  "hyper",
  "ipnet",
  "libc",
@@ -1968,6 +1967,7 @@ dependencies = [
  "anstream",
  "anstyle",
  "anyhow",
+ "base64",
  "blake3",
  "chrono",
  "clap",
@@ -1988,7 +1988,9 @@ dependencies = [
  "hyper-util",
  "ignore",
  "indexmap",
+ "json-structural-diff",
  "libc",
+ "line-index",
  "log",
  "moon-test-util",
  "moonbuild",
@@ -2013,6 +2015,8 @@ dependencies = [
  "snapbox",
  "tar",
  "tempfile",
+ "text-size",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-util",
  "tracing",
@@ -2045,18 +2049,14 @@ dependencies = [
 name = "moonbuild"
 version = "0.1.0"
 dependencies = [
- "anstream",
- "anstyle",
  "anyhow",
  "ariadne",
- "base64 0.22.1",
  "blake3",
  "clap",
  "colored",
  "dunce",
  "indexmap",
- "json-structural-diff",
- "line-index",
+ "log",
  "moonbuild-rupes-recta",
  "mooncake",
  "moonutil",
@@ -2064,10 +2064,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_lenient",
- "similar",
  "tempfile",
- "text-size",
- "thiserror 1.0.63",
+ "thiserror 2.0.20",
  "tracing",
  "walkdir",
 ]
@@ -2078,6 +2076,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcstr",
+ "colored",
  "dunce",
  "expect-test",
  "ignore",
@@ -2088,10 +2087,11 @@ dependencies = [
  "regex",
  "relative-path",
  "serde",
+ "serde_json",
  "shlex",
  "slotmap",
  "tempfile",
- "thiserror 1.0.63",
+ "thiserror 2.0.20",
  "tracing",
  "walkdir",
 ]
@@ -2120,7 +2120,7 @@ dependencies = [
  "serde_json_lenient",
  "sha2",
  "tempfile",
- "thiserror 1.0.63",
+ "thiserror 2.0.20",
  "tokio",
  "tracing",
  "zip",
@@ -2152,7 +2152,7 @@ dependencies = [
  "slotmap",
  "snapbox",
  "tempfile",
- "thiserror 1.0.63",
+ "thiserror 2.0.20",
  "time",
  "tokio",
  "toml",
@@ -2174,10 +2174,8 @@ dependencies = [
  "anstyle",
  "anyhow",
  "arcstr",
- "ariadne",
  "clap",
  "colored",
- "dialoguer",
  "dunce",
  "expect-test",
  "find-msvc-tools",
@@ -2197,7 +2195,7 @@ dependencies = [
  "shlex",
  "slotmap",
  "tempfile",
- "thiserror 1.0.63",
+ "thiserror 2.0.20",
  "time",
  "vergen",
  "which",
@@ -2710,7 +2708,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "bytes",
  "futures-channel",
  "futures-core",

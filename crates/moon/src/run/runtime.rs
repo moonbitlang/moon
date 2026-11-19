@@ -21,7 +21,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use moonbuild_rupes_recta::model::BackendConfig;
+use moonutil::target::TargetBackend;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TestArgs {
@@ -61,12 +61,12 @@ pub(crate) enum ExecutionMode {
     Native,
 }
 
-impl From<&BackendConfig> for ExecutionMode {
-    fn from(backend: &BackendConfig) -> Self {
+impl From<TargetBackend> for ExecutionMode {
+    fn from(backend: TargetBackend) -> Self {
         match backend {
-            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
-            BackendConfig::Js => Self::Node,
-            BackendConfig::Native { .. } | BackendConfig::Llvm { .. } => Self::Native,
+            TargetBackend::Wasm | TargetBackend::WasmGC => Self::MoonRun,
+            TargetBackend::Js => Self::Node,
+            TargetBackend::Native | TargetBackend::LLVM => Self::Native,
         }
     }
 }

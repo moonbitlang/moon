@@ -18,8 +18,8 @@
 
 use std::path::PathBuf;
 
+use crate::cli::UniversalFlags;
 use anyhow::bail;
-use moonutil::cli_support::UniversalFlags;
 
 #[derive(Debug, clap::Parser)]
 pub(crate) struct GenerateNodeTestPackageConfigSubcommand {
@@ -28,7 +28,7 @@ pub(crate) struct GenerateNodeTestPackageConfigSubcommand {
     output: PathBuf,
 }
 
-pub(crate) fn generate_node_test_package_config(
+pub(super) fn generate_node_test_package_config(
     cli: &UniversalFlags,
     cmd: GenerateNodeTestPackageConfigSubcommand,
 ) -> anyhow::Result<i32> {

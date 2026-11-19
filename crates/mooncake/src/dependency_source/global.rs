@@ -23,13 +23,14 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use moonutil::{
     locks::lock_directory,
-    manifest::read_module_desc_file_in_dir,
+    manifest::{MoonMod, read_dependency_module_manifest},
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind},
     toolchain,
     user_log::UserLog,
 };
 
 use crate::{
+    pkg::legacy_postadd,
     registry::{RegistrySource, SourceRequest},
     zip_util::extract_archives,
 };
@@ -175,7 +176,8 @@ impl DependencySource for ImmutableDependencySource<'_> {
             self.jobs,
         )?;
         for (module, checksum, directory, staging) in staged {
-            validate_source(staging.path(), module)?;
+            let manifest = validate_source(staging.path(), module)?;
+            legacy_postadd::warn_skipped(&manifest, user_log);
             std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;
             std::fs::rename(staging.path(), &directory).with_context(|| {
                 format!(
@@ -228,11 +230,11 @@ fn validate_cached_source(
             module.version()
         );
     }
-    validate_source(directory, module)
+    validate_source(directory, module).map(|_| ())
 }
 
-fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<()> {
-    let manifest = read_module_desc_file_in_dir(directory)?;
+fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<MoonMod> {
+    let manifest = read_dependency_module_manifest(directory)?;
     if manifest.name != module.name().to_string()
         || manifest.version.as_ref() != Some(module.version())
     {
@@ -242,16 +244,5 @@ fn validate_source(directory: &Path, module: &ModuleSource) -> anyhow::Result<()
             module.version()
         );
     }
-    if manifest
-        .scripts
-        .as_ref()
-        .is_some_and(|scripts| scripts.contains_key("postadd"))
-    {
-        anyhow::bail!(
-            "cannot prepare {}@{} in the shared dependency source cache because it declares scripts.postadd",
-            module.name(),
-            module.version()
-        );
-    }
-    Ok(())
+    Ok(manifest)
 }
