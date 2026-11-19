@@ -28,6 +28,8 @@ pub enum MoonxTarget {
 }
 
 #[derive(Debug, Parser)]
+// Native and embedded moonx can be built with different unified clap features.
+// Keep their help identical even when a workspace test enables `wrap_help`.
 #[command(
     name = "moonx",
     about = "Run a .mbtx file or a package from the Mooncakes registry",
@@ -44,7 +46,8 @@ package coordinates use the requested version directly. `@latest` refreshes the
 registry index before resolving the latest version. Unpinned coordinates use
 the latest version already known to the local registry index."#,
     override_usage = "moonx [OPTIONS] <MBTX|PACKAGE> [PROGRAM_ARGS]...",
-    version
+    version,
+    term_width = 0
 )]
 pub struct MoonxCli {
     #[arg(long, value_enum, default_value_t)]

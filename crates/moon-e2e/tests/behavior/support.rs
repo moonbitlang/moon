@@ -92,12 +92,16 @@ pub(super) fn moon_cmd(project: &Path) -> snapbox::cmd::Command {
 
     let mut redactions = snapbox::Redactions::new();
     redactions.insert("[WORK_DIR]", project.to_owned()).unwrap();
+    let canonical_project = std::fs::canonicalize(project).expect("project exists");
+    // Compiler diagnostics can omit the Windows verbatim prefix. Keep that
+    // spelling alongside the original and fully canonical paths.
     redactions
         .insert(
             "[WORK_DIR]",
-            std::fs::canonicalize(project).expect("project exists"),
+            dunce::simplified(&canonical_project).to_owned(),
         )
         .unwrap();
+    redactions.insert("[WORK_DIR]", canonical_project).unwrap();
     redactions
         .insert("[TOOLCHAIN]", tools.toolchain_root.clone())
         .unwrap();
