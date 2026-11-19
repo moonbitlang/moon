@@ -75,7 +75,7 @@ pub(super) struct FixSubcommand {
     #[clap(long, value_delimiter = ',')]
     pub target: Vec<SurfaceTarget>,
 
-    /// Warn list config
+    /// Warn list config (pending deprecation warnings are enabled by default)
     #[clap(long, allow_hyphen_values = true)]
     pub warn_list: Option<String>,
 
@@ -96,7 +96,11 @@ impl FixSubcommand {
         CheckSubcommand {
             build_flags: BuildFlags {
                 target: self.target.clone(),
-                warn_list: self.warn_list.clone(),
+                // Pending deprecations carry migration fixes but are normally silent.
+                warn_list: Some(format!(
+                    "+99{}",
+                    self.warn_list.as_deref().unwrap_or_default()
+                )),
                 jobs: self.jobs,
                 ..BuildFlags::default()
             },

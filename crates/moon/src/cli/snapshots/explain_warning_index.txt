@@ -89,3 +89,4 @@
 0096	unfenced_import	Deprecated import declarations outside frontmatter.
 0097	regex_runtime_fallback	Regex match over the compile limits, which runs on the runtime engine.
 0098	cancellable_defer	Fragile cancellable async code inside `defer`/`errdefer`
+0099	pending_deprecated	Usage of an API marked `#pending_deprecated`, to migrate with `moon fix`.

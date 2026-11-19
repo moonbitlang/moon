@@ -217,7 +217,7 @@ Files select only themselves; directories select their package. Declared prebuil
 
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
-* `--warn-list <WARN_LIST>` — Warn list config
+* `--warn-list <WARN_LIST>` — Warn list config (pending deprecation warnings are enabled by default)
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--diff` — Preview only the first round as a unified diff; later rounds may propose further changes
