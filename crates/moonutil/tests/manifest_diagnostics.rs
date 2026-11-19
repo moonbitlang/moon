@@ -23,6 +23,75 @@ use moonutil::manifest::{
 use moonutil::user_log::UserLog;
 
 #[test]
+fn module_target_aliases_reject_duplicate_declarations() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("moon.mod");
+    for (canonical, legacy) in [
+        ("preferred_target", "preferred-target"),
+        ("supported_targets", "supported-targets"),
+    ] {
+        // Both spellings remain usable on their own.
+        for declaration in [
+            format!("{canonical} = \"wasm\""),
+            format!("options(\"{legacy}\": \"wasm\")"),
+        ] {
+            std::fs::write(&path, format!("name = \"test/aliases\"\n{declaration}")).unwrap();
+            read_module_manifest(dir.path(), false).unwrap();
+        }
+        // Equal values and malformed values must not disappear behind an alias.
+        for value in [r#""wasm""#, r#""js""#, "123", "false"] {
+            for declaration in [
+                format!("{canonical} = \"wasm\"\noptions(\"{legacy}\": {value})"),
+                format!("options({canonical}: \"wasm\", \"{legacy}\": {value})"),
+            ] {
+                std::fs::write(&path, format!("name = \"test/aliases\"\n{declaration}")).unwrap();
+                let error = read_module_manifest(dir.path(), false).unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    format!("Duplicate key '{canonical}' found in moon.mod.")
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn removed_package_name_is_unknown_and_does_not_select_an_executable() {
+    let dir = tempfile::tempdir().unwrap();
+    for filename in ["moon.pkg", "moon.pkg.json"] {
+        let path = dir.path().join(filename);
+        for value in [r#""main""#, r#""other""#, "123"] {
+            let source = if filename == "moon.pkg" {
+                format!("options(name: {value})")
+            } else {
+                format!(r#"{{"name": {value}}}"#)
+            };
+            std::fs::write(&path, source).unwrap();
+            for emit_warnings in [true, false] {
+                let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
+                let (package, _) = read_package_desc_file_from_path_with_supported_targets_decl(
+                    &path,
+                    &log,
+                    true,
+                    emit_warnings,
+                )
+                .unwrap();
+                assert!(!package.is_main);
+                assert!(!package.force_link);
+                let warnings = capture.take();
+                assert_eq!(warnings.len(), usize::from(emit_warnings));
+                if emit_warnings {
+                    assert_eq!(
+                        warnings[0].message,
+                        format!("Unknown configuration key `name` in `{}`.", path.display())
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn unknown_package_keys_warn_without_rejecting_the_package() {
     let dir = tempfile::tempdir().unwrap();
     for (name, source) in [
@@ -192,7 +261,11 @@ fn module_unknown_key_warnings_reuse_the_parsed_manifest() {
         (
             "moon.mod",
             r#"name = "test/diagnostics"
-options(future: true, checksum: 123)
+options(future: true, checksum: 123, scripts: {
+  "postadd": "echo installed",
+  "prebuild": "echo unused",
+  "postbuild": "echo unused"
+})
 rule(name: "generate", command: "echo", typo: true)
 "#,
         ),
@@ -202,6 +275,7 @@ rule(name: "generate", command: "echo", typo: true)
   "name": "test/diagnostics",
   "future": true,
   "checksum": 123,
+  "scripts": {"postadd": "echo installed", "prebuild": "echo unused", "postbuild": "echo unused"},
   "rule": [{"name": "generate", "command": "echo", "typo": true}]
 }"#,
         ),
@@ -211,6 +285,7 @@ rule(name: "generate", command: "echo", typo: true)
   "name": "test/diagnostics",
   "future": true,
   "checksum": 123,
+  "scripts": {"postadd": "echo installed", "prebuild": "echo unused", "postbuild": "echo unused"},
   "rule": {"name": "generate", "command": "echo", "typo": true}
 }"#,
         ),
@@ -222,8 +297,14 @@ rule(name: "generate", command: "echo", typo: true)
         let (log, capture) = UserLog::captured(log::LevelFilter::Warn);
         warn_module_manifest(dir.path(), format, &module, &log);
         let warnings = capture.take();
-        assert_eq!(warnings.len(), 3, "{warnings:?}");
-        for key in ["future", "checksum", "rule[0].typo"] {
+        assert_eq!(warnings.len(), 5, "{warnings:?}");
+        for key in [
+            "future",
+            "checksum",
+            "scripts.prebuild",
+            "scripts.postbuild",
+            "rule[0].typo",
+        ] {
             assert!(
                 warnings
                     .iter()
@@ -305,7 +386,7 @@ fn json_duplicate_known_fields_remain_errors() {
     let log = UserLog::new(log::LevelFilter::Off);
     let path = dir.path().join("moon.pkg.json");
     for source in [
-        r#"{"name": "test/first", "name": "test/second"}"#,
+        r#"{"is-main": true, "is-main": false}"#,
         r#"{"link": {"native": {"cc": "clang", "cc": "gcc"}}}"#,
         r#"{"import": [{"path": "a/b", "path": "c/d"}]}"#,
         r#"{"pre-build": [{"input": "a", "output": "b", "command": "echo", "command": "other"}]}"#,
