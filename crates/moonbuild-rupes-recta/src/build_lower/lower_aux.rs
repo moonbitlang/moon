@@ -299,7 +299,7 @@ impl<'a> super::LoweringContext<'a> {
         let cmd = MoondocCommand::new(
             path,
             self.artifact_paths.target_layout().doc_dir(),
-            self.opt.stdlib_path.as_ref(),
+            self.artifact_paths.stdlib_dir(),
             &packages_json,
             self.opt.docs_serve,
         );

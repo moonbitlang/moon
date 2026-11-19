@@ -74,12 +74,10 @@ fn composed_build_input() -> BuildInput {
         .map(|backend| {
             let target = backend.target_backend();
             let cfg = CompileConfig {
-                target_dir: target_dir.clone(),
                 backend,
                 opt_level: OptLevel::Debug,
                 action: RunMode::Check,
                 debug_info: Default::default(),
-                stdlib_path: None,
                 artifact_paths: ArtifactPathResolver::new(
                     TargetLayout::new(
                         target_dir.clone(),

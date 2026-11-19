@@ -782,12 +782,12 @@ impl<'a> LoweringContext<'a> {
                     source_dir: pkg.root_path.as_path().into(),
                 }
             })
-            .chain(self.opt.stdlib_path.as_ref().map(|p| PackageSource {
+            .chain(self.artifact_paths.stdlib_dir().map(|p| PackageSource {
                 package_name: compiler::CompiledPackageName::new(
                     &STDLIB_PACKAGE,
                     TargetKind::Source,
                 ),
-                source_dir: p.as_path().into(),
+                source_dir: p.into(),
             }))
             .collect();
 

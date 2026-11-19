@@ -160,7 +160,6 @@ mod tests {
                 None,
             );
             let options = CompileConfig {
-                target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -172,7 +171,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                stdlib_path: None,
             };
 
             let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
@@ -423,7 +421,6 @@ mod tests {
             }
             let stdlib = PathBuf::from("toolchain/core");
             let options = CompileConfig {
-                target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -443,7 +440,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                stdlib_path: Some(stdlib.clone()),
             };
             let mut context = LoweringContext::new(&project, &plan, &options, &[]);
             let mut execution = ExecutionPlanBuilder::default();
@@ -532,7 +528,6 @@ mod tests {
             None,
         );
         let options = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
             debug_info: Default::default(),
             warn_list: None,
@@ -544,7 +539,6 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            stdlib_path: None,
         };
 
         let mut context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
@@ -703,7 +697,6 @@ mod tests {
         plan.test_backend_plan_mut()
             .test_set_native_mode(Some(native_mode));
         let options = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             debug_export_build_plan: false,
             debug_info: Default::default(),
             warn_list: None,
@@ -724,7 +717,6 @@ mod tests {
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
-            stdlib_path: None,
         };
 
         assert!(plan.requires_toolchain_headers());
@@ -992,7 +984,6 @@ mod tests {
                 None,
             );
             let options = CompileConfig {
-                target_dir: PathBuf::from("_build"),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -1004,7 +995,6 @@ mod tests {
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
-                stdlib_path: None,
             };
 
             let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])

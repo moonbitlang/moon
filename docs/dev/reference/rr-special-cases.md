@@ -47,9 +47,10 @@ important ones and why they exist.
 
 ## Stdlib injection boundaries
 
-- **Stdlib injection is selected before RR lowering.** The `moon` command layer
-  computes `stdlib_path` from `!is_core` while building
-  `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
+- **Stdlib injection is selected before RR lowering.** `moonbuild::compile`
+  selects the stdlib root from `!is_core` and stores it in the
+  `ArtifactPathResolver` carried by `CompileConfig` / `BuildMeta`.
+  For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   `None`, so stdlib packages resolve to local `_build/...` artifacts.
 - **Non-stdlib packages implicitly import `prelude` and `builtin`.** The

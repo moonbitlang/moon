@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
-
 use moonutil::cond_expr::OptLevel;
 
 use crate::{
@@ -55,8 +53,6 @@ impl RunMode {
 
 /// Build configuration shared by planning and lowering.
 pub struct CompileConfig {
-    /// Target directory, i.e. `_build/`
-    pub target_dir: PathBuf,
     /// The backend and backend-specific configuration selected for this build.
     pub backend: BackendConfig,
     /// The optimization level to use for the compilation.
@@ -66,10 +62,8 @@ pub struct CompileConfig {
     /// Debug information requested before the Native payload form is selected.
     pub debug_info: DebugInfoRequest,
 
-    /// The path to the standard library's project root, or `None` if to not
-    /// import the standard library during compilation.
-    pub stdlib_path: Option<PathBuf>,
-    /// Physical artifact path resolver selected for this compile run.
+    /// Physical artifact paths, including the selected target directory and
+    /// optional installed standard-library root.
     pub artifact_paths: ArtifactPathResolver,
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
@@ -284,7 +278,6 @@ mod tests {
                 DebugSymbols::Full,
             ] {
                 let config = CompileConfig {
-                    target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle: false,
@@ -300,7 +293,6 @@ mod tests {
                         symbols,
                         runtime_backtrace: true,
                     },
-                    stdlib_path: None,
                     artifact_paths: ArtifactPathResolver::new(
                         TargetLayout::new(
                             PathBuf::from("_build"),
@@ -572,7 +564,6 @@ mod tests {
                 (OptLevel::Release, true),
             ] {
                 let config = CompileConfig {
-                    target_dir: PathBuf::from("_build"),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle,
@@ -586,7 +577,6 @@ mod tests {
                     opt_level,
                     action: RunMode::Build,
                     debug_info: DebugInfoRequest::default(),
-                    stdlib_path: None,
                     artifact_paths: ArtifactPathResolver::new(
                         TargetLayout::new(
                             PathBuf::from("_build"),
@@ -794,12 +784,10 @@ mod tests {
             None,
         );
         let config = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Run,
             debug_info: DebugInfoRequest::default(),
-            stdlib_path: None,
             artifact_paths,
             debug_export_build_plan: true,
             enable_coverage: false,
@@ -908,12 +896,10 @@ mod tests {
             None,
         );
         let config = CompileConfig {
-            target_dir: PathBuf::from("_build"),
             backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Prove,
             debug_info: DebugInfoRequest::default(),
-            stdlib_path: None,
             artifact_paths,
             debug_export_build_plan: false,
             enable_coverage: false,
