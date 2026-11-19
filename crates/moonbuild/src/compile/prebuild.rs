@@ -236,7 +236,8 @@ fn run_build_script_for_module(
     );
     let (manifest_path, _) = preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
         .with_context(|| format!("failed to locate module manifest for `{module}`"))?;
-    let mut cmd = run_script_cmd(prebuild, module.name(), dir, &cx.target_dir, frozen)?
+    let target_dir = cx.artifact_paths.target_layout().target_base_dir();
+    let mut cmd = run_script_cmd(prebuild, module.name(), dir, target_dir, frozen)?
         .current_dir(dir)
         .envs(&input.env)
         .env("MOON_MOD", manifest_path)

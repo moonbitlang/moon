@@ -162,7 +162,6 @@ mod tests {
         let target_dir = dir.path().join("_build");
         let include_dir = dir.path().join("include");
         let mut config = CompileConfig {
-            target_dir: target_dir.clone(),
             backend: BackendConfig::Native {
                 direct_object_candidate: None,
                 collect_ref_cycle: false,
@@ -176,7 +175,6 @@ mod tests {
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
             debug_info: Default::default(),
-            stdlib_path: None,
             artifact_paths: ArtifactPathResolver::new(
                 TargetLayout::new(
                     target_dir,

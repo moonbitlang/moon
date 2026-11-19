@@ -685,7 +685,7 @@ impl ArtifactPathResolver {
         &self.target_layout
     }
 
-    fn stdlib_dir(&self) -> Option<&Path> {
+    pub(crate) fn stdlib_dir(&self) -> Option<&Path> {
         self.stdlib_dir.as_deref()
     }
 

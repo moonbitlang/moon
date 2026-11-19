@@ -119,14 +119,12 @@ pub fn prepare_config(
         opt_level,
         action,
     );
-    let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
+    let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path);
     Ok(CompileConfig {
-        target_dir: target_dir.to_owned(),
         backend,
         opt_level,
         action,
         debug_info,
-        stdlib_path,
         artifact_paths,
         enable_coverage: false,
         debug_export_build_plan: false,

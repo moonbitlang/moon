@@ -132,7 +132,7 @@ impl BuildSession {
         frozen: bool,
     ) -> anyhow::Result<(BuildMeta, BuildInput)> {
         anyhow::ensure!(
-            cx.target_dir == self.target_dir,
+            cx.artifact_paths.target_layout().target_base_dir() == self.target_dir,
             "build plan belongs to a different target directory"
         );
         let target_dir = &self.target_dir;

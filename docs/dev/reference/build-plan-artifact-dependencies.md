@@ -70,7 +70,11 @@ actions. Lowering consumes these resolved decisions from the plan.
 `BackendConfig` is the compile-wide source of truth held in `CompileConfig`.
 Planning and lowering borrow that same configuration. Lowering also borrows
 its artifact path resolver through `LoweringContext`; artifact-path selection
-rules stay in lowering. The command adapter supplies OS and compiler paths
+rules stay in lowering. `CompileConfig` carries target and installed stdlib
+paths only through that resolver. Module prebuild uses its target root, while
+linking, documentation, and metadata use its selected stdlib root and artifacts.
+`BuildSession` checks the resolver's target root against the directory it locks.
+The command adapter supplies OS and compiler paths
 only for Native and LLVM, where the backend variants require them. These
 configuration values perform no lazy host or environment lookups inside RR.
 
