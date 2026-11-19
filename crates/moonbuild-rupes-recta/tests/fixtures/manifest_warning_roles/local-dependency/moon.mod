@@ -4,4 +4,5 @@ options(
   include: ["src/**"],
   exclude: ["test/**"],
   scripts: { "prebuild": "unused-command" },
+  "--moonbit-unstable-prebuild": "build.js",
 )
