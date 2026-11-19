@@ -101,9 +101,9 @@ mod tests {
         path::{Path, PathBuf},
     };
 
+    use crate::RunMode;
     use indexmap::IndexSet;
     use moonutil::{
-        build_options::RunMode,
         compiler_flags::{
             ARKind, CC, CCKind, CompilerPaths, MsvcEnvironment, NativeAllocator, Toolchain,
         },

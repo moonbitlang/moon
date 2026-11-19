@@ -42,8 +42,7 @@ fn discover_core(enable_coverage: bool) -> anyhow::Result<DiscoveredProject> {
     .query_from(&source_dir, WorkspaceEnv::Off)?
     .select(&user_log)?
     .package_dirs()?;
-    let preparation =
-        ProjectPreparationConfig::new_with_load_defaults(true, enable_coverage, WorkspaceEnv::Off);
+    let preparation = ProjectPreparationConfig::new_with_load_defaults(true, enable_coverage);
     let (module_graph, module_dirs) =
         moonbuild::prepare::sync_module_dependencies(&preparation, &dirs, &user_log)?;
     Ok(moonbuild_rupes_recta::discover_synced_project(

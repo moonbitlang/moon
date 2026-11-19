@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::{build_options::RunMode, cond_expr::OptLevel};
+use moonbuild_rupes_recta::RunMode;
+use moonutil::cond_expr::OptLevel;
 
 use crate::cli::build_flags::BuildFlags;
 

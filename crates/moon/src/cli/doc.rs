@@ -22,13 +22,14 @@ use std::path::Path;
 
 use anyhow::{Context as _, bail};
 use moonbuild::compile::{BuildSession, MetadataOutput};
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::intent::UserIntent;
 use mooncake::cli::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
-use moonutil::{build_options::RunMode, user_log::UserLog};
+use moonutil::user_log::UserLog;
 use tracing::instrument;
 
 use super::UniversalFlags;
@@ -131,7 +132,6 @@ pub(super) fn run_doc_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     );
     let synced_modules =
         moonbuild::prepare::sync_module_dependencies(&preparation_config, &dirs, user_log)?;

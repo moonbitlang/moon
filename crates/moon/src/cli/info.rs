@@ -27,11 +27,10 @@ use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
 use moonbuild_rupes_recta::{
-    DiscoveredProject, ResolvedProject, discover_synced_project, intent::UserIntent,
+    DiscoveredProject, ResolvedProject, RunMode, discover_synced_project, intent::UserIntent,
     model::PackageId,
 };
 use moonutil::{
-    build_options::RunMode,
     command_output::CommandOutput,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
@@ -267,7 +266,6 @@ pub(super) fn run_info(
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     );
     let synced_modules = sync_module_dependencies(&preparation_config, &dirs, output.user_log())?;
     let discovered = discover_synced_project(

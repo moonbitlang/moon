@@ -25,7 +25,7 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
 use moonbuild_rupes_recta::{
-    DiscoveredProject,
+    DiscoveredProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
     model::{BackendConfig, PackageId},
@@ -35,7 +35,6 @@ use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
-    build_options::{RunMode, TestArtifacts},
     cache::{CacheKind, resolve_cache_root},
     constants::is_moon_pkg_exist,
     target::{SurfaceTarget, TargetBackend},
@@ -45,7 +44,7 @@ use tracing::{Level, instrument};
 
 use super::selection::ensure_package_supports_backend;
 
-use super::{BuildFlags, UniversalFlags};
+use super::{BuildFlags, TestArtifacts, UniversalFlags};
 
 pub(super) struct ResolvedRunSelection {
     package: PackageId,
@@ -502,7 +501,6 @@ fn build_package_executable(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output());
@@ -700,7 +698,6 @@ fn build_single_file_executable(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs)
     .with_sync_output(options.output.sync_output())

@@ -19,7 +19,6 @@
 #![warn(clippy::clone_on_ref_ptr)]
 
 mod binaries;
-pub mod build_options;
 pub mod cache;
 pub mod child_process;
 pub mod cli_support;

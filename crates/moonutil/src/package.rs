@@ -16,10 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, path::Path};
 
 use anyhow::{Context, bail};
 use indexmap::{IndexMap, IndexSet};
@@ -393,113 +390,6 @@ pub struct MemoryLimits {
     #[serde(flatten, skip_serializing)]
     #[schemars(skip)]
     pub extra: Map<String, Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LinkDepItem {
-    pub out: String,
-    pub core_deps: Vec<String>, // need add parent's core files recursively
-    pub package_full_name: String,
-    pub package_sources: Vec<(String, String)>, // (pkgname, source_dir)
-    pub package_path: PathBuf,
-    pub link: Option<Link>,
-    pub install_path: Option<PathBuf>,
-    pub bin_name: Option<String>,
-
-    pub stub_lib: Option<Vec<String>>,
-}
-
-#[rustfmt::skip]
-impl LinkDepItem {
-    pub fn wasm_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.exports.as_deref() }
-    pub fn wasm_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm.as_ref()?.export_memory_name.as_deref() }
-    pub fn wasm_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_memory_limits(&self) -> Option<&MemoryLimits> { self.link.as_ref()?.wasm.as_ref()?.memory_limits.as_ref() }
-    pub fn wasm_shared_memory(&self) -> Option<bool> { self.link.as_ref()?.wasm.as_ref()?.shared_memory }
-    pub fn wasm_heap_start_address(&self) -> Option<u32> { self.link.as_ref()?.wasm.as_ref()?.heap_start_address }
-    pub fn wasm_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm.as_ref()?.flags.as_deref() }
-
-    pub fn wasm_gc_exports(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.exports.as_deref() }
-    pub fn wasm_gc_export_memory_name(&self) -> Option<&str> { self.link.as_ref()?.wasm_gc.as_ref()?.export_memory_name.as_deref() }
-    pub fn wasm_gc_import_memory(&self) -> Option<&ImportMemory> { self.link.as_ref()?.wasm_gc.as_ref()?.import_memory.as_ref() }
-    pub fn wasm_gc_memory_limits(&self) -> Option<&MemoryLimits> { self.link.as_ref()?.wasm_gc.as_ref()?.memory_limits.as_ref() }
-    pub fn wasm_gc_shared_memory(&self) -> Option<bool> { self.link.as_ref()?.wasm_gc.as_ref()?.shared_memory }
-    pub fn wasm_gc_link_flags(&self) -> Option<&[String]> { self.link.as_ref()?.wasm_gc.as_ref()?.flags.as_deref() }
-
-    pub fn js_exports(&self) -> Option<&[String]> { self.link.as_ref()?.js.as_ref()?.exports.as_deref() }
-
-    pub fn native_exports(&self) -> Option<&[String]> { self.link.as_ref()?.native.as_ref()?.exports.as_deref() }
-
-    pub fn exports(&self, b: TargetBackend) -> Option<&[String]> {
-        match b {
-            Wasm => self.wasm_exports(),
-            WasmGC => self.wasm_gc_exports(),
-            Js => self.js_exports(),
-            Native => self.native_exports(),
-            LLVM => None,
-        }
-    }
-
-    pub fn export_memory_name(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Wasm => self.wasm_export_memory_name(),
-            WasmGC => self.wasm_gc_export_memory_name(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn heap_start_address(&self, b: TargetBackend) -> Option<u32> {
-        match b {
-            Wasm => self.wasm_heap_start_address(),
-            WasmGC => None,
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn import_memory(&self, b: TargetBackend) -> Option<&ImportMemory> {
-        match b {
-            Wasm => self.wasm_import_memory(),
-            WasmGC => self.wasm_gc_import_memory(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn memory_limits(&self, b:TargetBackend) -> Option<&MemoryLimits> {
-        match b {
-            Wasm => self.wasm_memory_limits(),
-            WasmGC => self.wasm_gc_memory_limits(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn shared_memory(&self, b: TargetBackend) -> Option<bool> {
-        match b {
-            Wasm => self.wasm_shared_memory(),
-            WasmGC => self.wasm_gc_shared_memory(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
-    pub fn link_flags(&self, b: TargetBackend) -> Option<&[String]> {
-        match b {
-            Wasm => self.wasm_link_flags(),
-            WasmGC => self.wasm_gc_link_flags(),
-            Js => None,
-            Native => None,
-            LLVM => None,
-        }
-    }
-
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]

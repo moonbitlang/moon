@@ -25,11 +25,11 @@ use crate::{
     metadata,
 };
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolvedProject,
+    CompileConfig, ResolvedProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
 };
-use moonutil::{build_options::RunMode, target::TargetBackend, user_log::UserLog};
+use moonutil::{target::TargetBackend, user_log::UserLog};
 use std::{
     fs::File,
     path::{Path, PathBuf},

@@ -26,7 +26,7 @@ use moonbuild_rupes_recta::{DiscoveredProject, DiscoveryConfig, resolve::Project
 use mooncake::pkg::sync::{AutoSyncFlags, SyncOutputOptions, auto_sync};
 use moonutil::{
     cache::CacheRoot,
-    project::{PackageDirs, WorkspaceEnv},
+    project::PackageDirs,
     resolution::{DirSyncResult, ModuleDependencyGraph},
     user_log::UserLog,
 };
@@ -38,36 +38,18 @@ pub struct ProjectPreparationConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     dependency_source_cache: CacheRoot,
-    workspace_env: WorkspaceEnv,
     pub discovery: DiscoveryConfig,
 }
 
 impl ProjectPreparationConfig {
     /// Create project preparation settings with the requested module sync policy
     /// and defaults for the remaining options.
-    pub fn new_with_load_defaults(
-        frozen: bool,
-        enable_coverage: bool,
-        workspace_env: WorkspaceEnv,
-    ) -> Self {
-        Self {
-            sync_flags: AutoSyncFlags { frozen },
-            sync_output: SyncOutputOptions::default(),
-            dependency_source_cache: CacheRoot::Disabled,
-            discovery: DiscoveryConfig {
-                enable_coverage,
-                jobs: None,
-            },
-            workspace_env,
-        }
+    pub fn new_with_load_defaults(frozen: bool, enable_coverage: bool) -> Self {
+        Self::new(AutoSyncFlags { frozen }, enable_coverage)
     }
 
     /// Create project preparation settings with the given sync and build flags.
-    pub fn new(
-        sync_flags: AutoSyncFlags,
-        enable_coverage: bool,
-        workspace_env: WorkspaceEnv,
-    ) -> Self {
+    pub fn new(sync_flags: AutoSyncFlags, enable_coverage: bool) -> Self {
         Self {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
@@ -76,7 +58,6 @@ impl ProjectPreparationConfig {
                 enable_coverage,
                 jobs: None,
             },
-            workspace_env,
         }
     }
 
@@ -124,12 +105,11 @@ pub fn sync_module_dependencies(
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (module_graph, dir_sync_result, _) = auto_sync(
+    let (module_graph, dir_sync_result) = auto_sync(
         dirs,
         &cfg.sync_flags,
         cfg.sync_output,
         user_log,
-        cfg.workspace_env.clone(),
         cfg.discovery.jobs,
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;

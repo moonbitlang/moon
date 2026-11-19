@@ -19,7 +19,7 @@
 //! Resolve build environment inputs into the existing compile configuration.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolvedProject,
+    CompileConfig, ResolvedProject, RunMode,
     build_lower::WarningCondition,
     model::{
         BackendConfig, DebugInfoRequest, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem,
@@ -27,8 +27,8 @@ use moonbuild_rupes_recta::{
     target_layout::{ArtifactPathResolver, TargetLayout},
 };
 use moonutil::{
-    build_options::RunMode, compiler_flags, cond_expr::OptLevel as BuildProfile,
-    constants::MOONBITLANG_CORE, target::TargetBackend,
+    compiler_flags, cond_expr::OptLevel as BuildProfile, constants::MOONBITLANG_CORE,
+    target::TargetBackend,
 };
 use std::path::Path;
 use tracing::info;

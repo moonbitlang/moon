@@ -33,12 +33,12 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession};
 use moonbuild::execution::BuildConfig;
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::{PackageId, TargetKind};
 use mooncake::cli::AutoSyncFlags;
-use moonutil::build_options::{RunMode, TestArtifacts};
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
@@ -48,7 +48,7 @@ use std::sync::Arc;
 use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
-use super::{BuildFlags, UniversalFlags};
+use super::{BuildFlags, TestArtifacts, UniversalFlags};
 
 // TODO(test-request-selection): Remove this intermediate state when test/bench
 // selection returns complete BuildRequest/TestFilter pairs for each backend.
@@ -449,8 +449,7 @@ fn run_test_impl(
     let display_backend_hint = targets.len() > 1;
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
     validate_test_or_bench_invocation(cli, &test_cmd)?;
-    let discovered =
-        sync_and_discover_test_or_bench_project(cli, &test_cmd, &dirs, output.user_log())?;
+    let discovered = sync_and_discover_test_or_bench_project(&test_cmd, &dirs, output.user_log())?;
     let ret_value = run_test_or_bench_from_discovered(
         cli,
         &test_cmd,
@@ -574,7 +573,6 @@ fn run_test_in_single_file_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
@@ -927,7 +925,6 @@ pub(super) fn validate_test_or_bench_invocation(
 }
 
 pub(super) fn sync_and_discover_test_or_bench_project(
-    cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -935,7 +932,6 @@ pub(super) fn sync_and_discover_test_or_bench_project(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)
@@ -951,7 +947,7 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
-    let discovered = sync_and_discover_test_or_bench_project(cli, cmd, dirs, output.user_log())?;
+    let discovered = sync_and_discover_test_or_bench_project(cmd, dirs, output.user_log())?;
     run_test_or_bench_from_discovered(
         cli,
         cmd,

@@ -43,11 +43,11 @@ use log::LevelFilter;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::{ActionFailureKind, BuildInput};
+use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use mooncake::cli::AutoSyncFlags;
-use moonutil::build_options::RunMode;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::project::{PackageDirs, ProjectProbe};
@@ -642,7 +642,7 @@ fn run_check_impl(
         return Ok(ret_value);
     }
 
-    let discovered = sync_and_discover_check_project(cli, cmd, &dirs, output.user_log())
+    let discovered = sync_and_discover_check_project(cmd, &dirs, output.user_log())
         .context("Failed to calculate build plan")?;
     let session = BuildSession::new(&dirs.target_dir, cli.dry_run, output.user_log())
         .with_context(|| {
@@ -685,7 +685,6 @@ fn run_check_for_single_file_rr(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     let (discovered, backend) = moonbuild::prepare::discover_single_file_project(
@@ -809,7 +808,7 @@ fn run_check_normal_internal_rr(
     json: Option<&mut CheckJsonAccumulator>,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
-    let discovered = sync_and_discover_check_project(cli, cmd, dirs, user_log)
+    let discovered = sync_and_discover_check_project(cmd, dirs, user_log)
         .context("Failed to calculate build plan")?;
     let session =
         BuildSession::new(&dirs.target_dir, cli.dry_run, user_log).with_context(|| {
@@ -1006,7 +1005,6 @@ fn write_if_changed(src: &Path, dest: &Path) -> std::io::Result<()> {
 }
 
 fn sync_and_discover_check_project(
-    cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     dirs: &PackageDirs,
     user_log: &UserLog,
@@ -1014,7 +1012,6 @@ fn sync_and_discover_check_project(
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.clone(),
         cmd.build_flags.enable_coverage,
-        cli.workspace_env.clone(),
     )
     .with_jobs(cmd.build_flags.jobs);
     moonbuild::prepare::sync_and_discover_project(&preparation_config, dirs, user_log)

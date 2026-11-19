@@ -105,6 +105,14 @@ use view::ViewSubcommand;
 use whoami::WhoamiSubcommand;
 use work::WorkSubcommand;
 
+/// Shared JSON output for `moon run/test/bench --build-only`.
+#[derive(serde::Serialize, Clone)]
+struct TestArtifacts {
+    artifacts_path: Vec<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    test_filter_args: Vec<String>,
+}
+
 fn standalone_mbtx_path<'a>(
     paths: &'a [std::path::PathBuf],
     command: &str,
