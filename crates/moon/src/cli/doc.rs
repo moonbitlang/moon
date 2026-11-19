@@ -133,13 +133,8 @@ pub(super) fn run_doc_rr(
         cmd.auto_sync_flags.clone(),
         build_flags.enable_coverage,
     );
-    let synced_modules =
-        moonbuild::prepare::sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let discovered = moonbuild_rupes_recta::discover_synced_project(
-        &preparation_config.discovery,
-        synced_modules,
-        user_log,
-    )?;
+    let discovered =
+        moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let module_id = selected_doc_module_id(&discovered, &selected_module.root)?;
     let target_backend = discovered
         .module_info(module_id)

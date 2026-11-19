@@ -43,13 +43,7 @@ fn discover_core(enable_coverage: bool) -> anyhow::Result<DiscoveredProject> {
     .select(&user_log)?
     .package_dirs()?;
     let preparation = ProjectPreparationConfig::new_with_load_defaults(true, enable_coverage);
-    let (module_graph, module_dirs) =
-        moonbuild::prepare::sync_module_dependencies(&preparation, &dirs, &user_log)?;
-    Ok(moonbuild_rupes_recta::discover_synced_project(
-        &preparation.discovery,
-        (module_graph, module_dirs),
-        &user_log,
-    )?)
+    moonbuild::prepare::sync_and_discover_project(&preparation, &dirs, &user_log)
 }
 
 fn package_source_paths(project: &DiscoveredProject, name: &str, root: &Path) -> Vec<String> {

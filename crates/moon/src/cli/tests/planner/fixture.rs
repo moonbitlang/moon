@@ -144,13 +144,8 @@ impl PlanningFixture {
         .package_dirs()?;
         let preparation_config =
             moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(true, false);
-        let synced_modules =
-            moonbuild::prepare::sync_module_dependencies(&preparation_config, &dirs, &user_log)?;
-        let discovered = moonbuild_rupes_recta::discover_synced_project(
-            &preparation_config.discovery,
-            synced_modules,
-            &user_log,
-        )?;
+        let discovered =
+            moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, &user_log)?;
         let source_dir = dirs.source_dir;
         let target_dir = dirs.target_dir;
         Ok(Self {

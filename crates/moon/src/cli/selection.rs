@@ -710,10 +710,7 @@ mod tests {
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_modules =
-            moonbuild::prepare::sync_module_dependencies(&cfg, &dirs, &user_log).unwrap();
-        moonbuild_rupes_recta::discover_synced_project(&cfg.discovery, synced_modules, &user_log)
-            .unwrap()
+        moonbuild::prepare::sync_and_discover_project(&cfg, &dirs, &user_log).unwrap()
     }
 
     #[test]

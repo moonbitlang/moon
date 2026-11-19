@@ -360,14 +360,15 @@ is the temporary working state used to construct those relationships.
 relationships.
 
 The outer workflow uses `ProjectPreparationConfig` and `ProjectPreparationError`
-because it covers module sync, package discovery, and package resolution.
-`sync_module_dependencies` resolves and synchronizes modules;
-`prepare_synced_project` discovers packages and resolves their relationships for
-an explicit backend set. `discover_single_file_project` synchronizes and discovers
-a script's synthesized project. The CLI's `sync_and_discover_project` and its
-command-specific preparation helpers also stop after discovery and return
-`DiscoveredProject`. Commands using these discovery helpers run discover, select,
-resolve, and plan in that order: they select packages and Target Backends from the
+for dependency and script preparation. `moonbuild::prepare::sync_and_discover_project`
+synchronizes module dependencies and delegates package discovery to RR;
+`discover_single_file_project` synchronizes and discovers a script's synthesized
+project. Both return `DiscoveredProject` without resolving package imports.
+RR also exposes `discover_synced_project` and `prepare_synced_project` for callers
+that already have synchronized modules; the latter additionally resolves package
+relationships for an explicit backend set.
+Commands using the discovery helpers run discover, select, resolve, and plan in
+that order: they select packages and Target Backends from the
 `DiscoveredProject`, call `resolve_packages` once with those backends, and plan
 each selected backend from the shared `ResolvedProject`. Selection uses only
 declared package data, so a selector error is reported before a package resolution

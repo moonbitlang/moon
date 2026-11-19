@@ -22,12 +22,12 @@ use std::path::PathBuf;
 
 use crate::cli::UniversalFlags;
 use anyhow::Context;
-use moonbuild::prepare::{ProjectPreparationConfig, sync_module_dependencies};
+use moonbuild::prepare::{ProjectPreparationConfig, sync_and_discover_project};
 use moonbuild_rupes_recta::{
     discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
-    resolve::{DiscoveredProject, ResolvedProject, discover_synced_project},
+    resolve::{DiscoveredProject, ResolvedProject},
 };
 use mooncake::pkg::tree::ResolvedTree;
 use moonutil::{
@@ -145,8 +145,7 @@ fn resolve_selected_package_graph(
 ) -> anyhow::Result<ResolvedPackageTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
     let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false);
-    let synced = sync_module_dependencies(&preparation_config, &dirs, user_log)?;
-    let discovered = discover_synced_project(&preparation_config.discovery, synced, user_log)?;
+    let discovered = sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let selected_module = discovered
         .local_modules()
         .iter()
