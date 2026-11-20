@@ -57,6 +57,13 @@ $MOON_HOME/
   `MOON_HOME`, so this directory additionally contains toolchain executables.
   Package-managed toolchains separate those roles by selecting another
   toolchain root.
+- `lib.bak-upgrade` and `include.bak-upgrade` are the rename targets that
+  `moon upgrade` uses to keep the previous `lib` and `include` until a
+  replacement verifies. They normally disappear when the upgrade commits or
+  rolls back. If the current `lib`/`include` pair is incomplete, the next
+  `moon upgrade` restores them; if it already passes the completeness bar
+  (`lib/core` with a manifest, non-empty `include`), they are leftovers and
+  are removed.
 - `cache/build` and `cache/deps` are the default Moon-owned global cache roots.
   `MOON_BUILD_CACHE` and `MOON_DEP_CACHE` may replace or disable those roots.
   Each initialized root contains a `.moon-cache` ownership marker. The build
