@@ -164,10 +164,23 @@ its original runtime location, which includes the offset for Wasm frames and
 may instead name a host location. Feature guards select V8's full location or
 Wasmtime/wee8's numeric offset for display.
 
+V8's Wasm stack display may qualify a function with its module name. When the
+qualified MoonBit function demangles successfully, the adapter displays only
+the demangled function name; the runtime location retains the module identity.
+Unrecognized names retain their original display names.
+
 Each frame shows the mapped source file and line first, followed by the runtime
-location in parentheses. Missing or malformed source maps do not erase the
+location in parentheses. Function names come from the runtime's Wasm frames;
+source maps supply only source files and line numbers, not function names.
+Missing or malformed source maps do not erase the
 runtime information needed to investigate a failure. `--no-stack-trace` still
 suppresses all frames.
+
+The [Moon E2E stack scenarios](../../../moon-e2e/features/testing/wasm_stack_trace.feature)
+exercise V8's displayed names through real compilation and execution, including
+missing and malformed source maps. Runtime integration tests in
+`tests/test/stack_traces.rs` also cover Wasmtime and wee8; demangler grammar and
+backend-neutral rendering rules retain focused unit tests.
 
 ## wee8 runtime integration
 

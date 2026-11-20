@@ -27,9 +27,9 @@ struct Tools {
     toolchain_root: PathBuf,
 }
 
-pub(super) fn moon_cmd(project: &Path) -> snapbox::cmd::Command {
+fn tools() -> &'static Tools {
     static TOOLS: OnceLock<Tools> = OnceLock::new();
-    let tools = TOOLS.get_or_init(|| {
+    TOOLS.get_or_init(|| {
         // A separate test crate has no CARGO_BIN_EXE_moon. Ask Cargo for both
         // host tools once, using the workspace manifest and default target
         // layout so features and artifacts match the normal workspace build.
@@ -88,8 +88,19 @@ pub(super) fn moon_cmd(project: &Path) -> snapbox::cmd::Command {
             moonrun: moonrun.expect("Cargo reported the moonrun executable"),
             toolchain_root,
         }
-    });
+    })
+}
 
+pub(super) fn moon_cmd(project: &Path) -> snapbox::cmd::Command {
+    command(&tools().moon, project).env("MOONRUN_OVERRIDE", &tools().moonrun)
+}
+
+pub(super) fn moonrun_cmd(project: &Path) -> snapbox::cmd::Command {
+    command(&tools().moonrun, project)
+}
+
+fn command(executable: &Path, project: &Path) -> snapbox::cmd::Command {
+    let tools = tools();
     let mut redactions = snapbox::Redactions::new();
     redactions.insert("[WORK_DIR]", project.to_owned()).unwrap();
     let canonical_project = std::fs::canonicalize(project).expect("project exists");
@@ -111,10 +122,9 @@ pub(super) fn moon_cmd(project: &Path) -> snapbox::cmd::Command {
         .insert("[TOOLCHAIN]", "$MOON_TOOLCHAIN_ROOT")
         .unwrap();
 
-    snapbox::cmd::Command::new(&tools.moon)
+    snapbox::cmd::Command::new(executable)
         .current_dir(project)
         .with_assert(snapbox::Assert::new().redact_with(redactions))
         .env("MOON_TOOLCHAIN_ROOT", &tools.toolchain_root)
-        .env("MOONRUN_OVERRIDE", &tools.moonrun)
         .env("MOON_DEP_CACHE", "off")
 }

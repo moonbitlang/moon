@@ -20,6 +20,7 @@ tests remain in the crate that owns the code.
 | **Selecting tests:** Which packages run for exact/fuzzy selectors? What happens when none match or a file filter is ambiguous? | [Package selection](features/testing/package_selection.feature) | [package_selection.rs](tests/behavior/package_selection.rs) | `@package_selection` |
 | **Updating inline expectations:** Does each backend update only its own source, preserve earlier updates, and pass when rerun without updating? | [Snapshot updates](features/testing/snapshot_updates.feature) | [snapshot_updates.rs](tests/behavior/snapshot_updates.rs), [files.rs](tests/behavior/files.rs) | `@snapshot_updates` |
 | **Conditional tests:** Do checks, test drivers and test compilation agree on source, blackbox and doctest inputs? | [Conditional tests](features/testing/conditional_tests.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs), [preview.rs](tests/behavior/preview.rs) | `@conditional_tests` |
+| **Wasm stack traces:** Do executable/test stacks demangle module-qualified functions, honor --no-strip, and retain locations when source maps are unavailable? | [Wasm stack trace](features/testing/wasm_stack_trace.feature) | [wasm_stack_trace.rs](tests/behavior/wasm_stack_trace.rs) | `@wasm_stack_trace` |
 
 Keep features under their topic directory. Add an index entry when introducing
 a feature; add a new topic only when the existing topics do not fit. This index
@@ -33,6 +34,9 @@ links to the specifications rather than repeating their expected values.
   arguments where they help explain the scenario, in the step or introduction.
   This is a reading convention; step definitions remain the source for how
   commands are executed. Source fixtures stay in `moon/tests/test_cases`.
+  Follow the
+  [scenario principles](../../docs/dev/testing.md#write-e2e-tests-as-explained-scenarios)
+  for fixture context, compilation/execution steps, and explanatory prose.
 - Each command has explicit exit-status and relevant output expectations. Check
   empty streams when silence is part of the behavior. Messages, counts, ordering,
   selected inputs and file results belong in the feature, not in Rust constants

@@ -482,7 +482,8 @@ fn ensure_test_profile_target_is_native(build_flags: &BuildFlags) -> anyhow::Res
 
 fn effective_test_build_flags(build_flags: &BuildFlags, profile: bool) -> BuildFlags {
     let mut build_flags = BuildFlags {
-        no_strip: !build_flags.strip && !build_flags.release,
+        // Tests retain diagnostic symbols in every profile unless explicitly stripped.
+        no_strip: !build_flags.strip,
         ..build_flags.clone()
     };
 
@@ -492,9 +493,6 @@ fn effective_test_build_flags(build_flags: &BuildFlags, profile: bool) -> BuildF
         build_flags.target = vec![SurfaceTarget::Native];
         if !build_flags.debug && !build_flags.release {
             build_flags.release = true;
-        }
-        if !build_flags.strip && !build_flags.no_strip {
-            build_flags.no_strip = true;
         }
     }
 

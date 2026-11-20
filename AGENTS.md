@@ -81,6 +81,9 @@ If you are working from mainland China, using the `.cn` domain may result in a s
 
 ### Tooling
 
+- For test additions and migrations, including runtime diagnostics, follow the
+  [test-level guidance](docs/dev/testing.md#choose-the-test-level) and
+  [E2E scenario principles](docs/dev/testing.md#write-e2e-tests-as-explained-scenarios).
 - To check: `cargo clippy`. CI requires clippy to emit no warnings or errors to pass.
 - To test: `cargo test --workspace`. CI requires all tests to pass. Some tests require the Git submodule to be set up to pass.
 - To format: `cargo fmt`. CI requires no format errors. MoonBit code here are explicitly not required to be formatted (some tests even mandate that).

@@ -123,7 +123,11 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/test_release_graph.jsonl.snap"],
+            if cfg!(target_os = "macos") {
+                expect_file!["cc_for_native_release/test_release_macos_graph.jsonl.snap"]
+            } else {
+                expect_file!["cc_for_native_release/test_release_graph.jsonl.snap"]
+            },
         );
     }
 }
