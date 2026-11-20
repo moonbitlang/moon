@@ -56,12 +56,14 @@ builtin's coverage runtime without borrowing another package's sources.
 
 ## Stdlib injection boundaries
 
-- **Stdlib injection is selected before RR lowering.** `moonbuild::compile`
-  selects the stdlib root from `!is_core` and stores it in the
-  `ArtifactPathResolver` carried by `CompileConfig` / `BuildMeta`.
+- **Stdlib injection is selected during module preparation.** The module
+  dependency graph records the selected stdlib as `Stdlib(path)`.
+  `moonbuild::compile` reads that path from the graph and stores it in the
+  `ArtifactPathResolver` carried by `CompileConfig` / `BuildMeta`, so discovery
+  and artifact lookup use the same core tree.
   For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
-  `None`, so stdlib packages resolve to local `_build/...` artifacts.
+  not injected, so core packages resolve to local `_build/...` artifacts.
 - **Non-stdlib packages implicitly import `prelude` and `builtin`.** The
   solver adds both edges to every non-stdlib target unless the package already
   imports them, in which case its alias wins. Moon never passes `-std-path`, so

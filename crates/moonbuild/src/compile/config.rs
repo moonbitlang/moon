@@ -27,11 +27,10 @@ use moonbuild_rupes_recta::{
     target_layout::{ArtifactPathResolver, TargetLayout},
 };
 use moonutil::{
-    compiler_flags, cond_expr::OptLevel as BuildProfile, constants::MOONBITLANG_CORE,
+    compiler_flags, cond_expr::OptLevel as BuildProfile, resolution::ModuleSourceKind,
     target::TargetBackend,
 };
 use std::path::Path;
-use tracing::info;
 
 /// Capture only the environment inputs used by the selected backend.
 pub fn prepare_backend(
@@ -90,12 +89,15 @@ pub fn prepare_config(
     dry_run: bool,
 ) -> anyhow::Result<CompileConfig> {
     let target_backend = backend.target_backend();
-    let is_core = match resolved_project.local_modules() {
-        &[module_id] => resolved_project.module_info(module_id).name == MOONBITLANG_CORE,
-        _ => false,
-    };
-    info!("is_core: {}", is_core);
-    let stdlib_path = (!is_core).then(moonutil::toolchain::core);
+    // Module preparation has already selected the stdlib used for discovery.
+    // Reuse its root for artifacts; a local core project has no injected stdlib.
+    let modules = &resolved_project.module_graph;
+    let stdlib_path = modules.stdlib().map(|id| {
+        let ModuleSourceKind::Stdlib(path) = modules.module_source(id).source() else {
+            unreachable!("injected stdlib must have a stdlib module source");
+        };
+        path.clone()
+    });
     if target_backend == TargetBackend::LLVM
         && !dry_run
         && let Some(core_root) = &stdlib_path

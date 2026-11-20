@@ -7,6 +7,8 @@ compilable implementation or prebuilt artifacts. Do not use it for E2E tests.
 Only `builtin` and `prelude` are needed; prelude imports builtin.
 `core_dependency.rs` checks the core-specific implicit aliases, installed
 artifact paths, and absence of local core compilation for an ordinary project.
+The fixture root supplies both declarations and assumed prebuilt artifact paths;
+graph assertions render that root as `$CORE`. No installed core path is substituted.
 These rules do not vary by backend, so the scenarios select Wasm GC explicitly.
 Generic dependency closures and deduplication belong to the lower-layer tests,
 not to this core fixture.
