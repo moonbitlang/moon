@@ -339,14 +339,18 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Callers choose policy (hard error vs warning+skip) before mutating the graph.
     ///
     /// Note: This mirrors the stdlib short-circuit used by the artifact helpers.
-    /// When stdlib is injected, stdlib package deps are not planned and should
+    /// When prebuilt stdlib is selected, its deps are not planned and should
     /// not be backend-checked here either.
     fn check_backend_compatibility_for_mi_dep(
         &mut self,
         node: BuildPlanNode,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self
+            .config
+            .artifact_paths
+            .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(dep.package))
+        {
             return Ok(());
         }
 
@@ -362,8 +366,53 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    /// Provide the interface surface the compiler expects from a bundled core.
+    /// Outside core, `moonc` preloads builtin-type extension packages through
+    /// `all_pkgs.json`, independently of declared imports. Build the supported
+    /// interface set instead of duplicating that compiler-owned package list.
+    /// These are artifact requirements, not imports or additional link roots.
+    fn require_unbundled_stdlib_interfaces(&mut self, node: BuildPlanNode, package: PackageId) {
+        if self.input.pkg_dirs.is_stdlib_package(package)
+            || self.config.artifact_paths.stdlib_dir().is_some()
+        {
+            return;
+        }
+        let Some(stdlib) = self.input.module_graph.stdlib() else {
+            return;
+        };
+        let backend = self.config.backend.target_backend();
+        for &id in self
+            .input
+            .pkg_dirs
+            .packages_for_module(stdlib)
+            .expect("injected stdlib must have discovered packages")
+            .values()
+        {
+            let pkg = self.input.pkg_dirs.get_package(id);
+            if pkg.is_virtual_impl() || !pkg.effective_supported_targets.contains(&backend) {
+                continue;
+            }
+            let dep = id.build_target(TargetKind::Source);
+            match node {
+                BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) => {
+                    self.require_check_mi_of_dep(node, dep);
+                }
+                BuildPlanNode::BuildCore(_) => self.require_build_mi_of_dep(node, dep),
+                BuildPlanNode::BuildVirtual(_) => match self.config.action {
+                    RunMode::Check | RunMode::Prove => self.require_check_mi_of_dep(node, dep),
+                    _ => self.require_build_mi_of_dep(node, dep),
+                },
+                _ => unreachable!("only compiler actions consume the stdlib interface set"),
+            }
+        }
+    }
+
     fn require_check_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self
+            .config
+            .artifact_paths
+            .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(dep.package))
+        {
             return;
         }
 
@@ -382,7 +431,11 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_build_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self
+            .config
+            .artifact_paths
+            .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(dep.package))
+        {
             return;
         }
 
@@ -401,7 +454,11 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn require_build_outputs_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+        if self
+            .config
+            .artifact_paths
+            .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(dep.package))
+        {
             return;
         }
 
@@ -437,9 +494,10 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Dependency proofs stay modular: dependents only require the dependency's
     /// proof surface (`.mi` + `.mlw`), prepared by `EmitProof`.
     fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
-        // As with normal `.mi` dependencies, stdlib packages use installed
-        // toolchain artifacts rather than planned local nodes.
+        // Keep injected core outside the per-package proof graph. An unbundled
+        // core needs ordinary interfaces, not separate WhyML modules.
         if self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            self.require_check_mi_of_dep(node, dep);
             return;
         }
 
@@ -466,9 +524,9 @@ impl<'a> BuildPlanConstructor<'a> {
         target: BuildTarget,
     ) {
         // If the given target is a virtual package with default implementation,
-        // we need to build its interface first. Injected stdlib contracts are
-        // installed toolchain files and remain external to this plan.
-        if pkg.is_virtual() && !pkg.is_stdlib {
+        // we need to build its interface first. Prebuilt stdlib contracts
+        // remain external to this plan.
+        if pkg.is_virtual() && !self.config.artifact_paths.uses_prebuilt_stdlib(pkg) {
             self.require_artifact(
                 node,
                 ArtifactKey::VirtualContractMi {
@@ -479,9 +537,12 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // If the given target implements a virtual package, we need to build
         // the virtual package's interface first, unless that contract comes
-        // from the injected stdlib.
+        // from the prebuilt stdlib.
         if let Some(vpkg_id) = self.rel.virt_impl.get(target.package)
-            && !self.input.pkg_dirs.is_stdlib_package(*vpkg_id)
+            && !self
+                .config
+                .artifact_paths
+                .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(*vpkg_id))
         {
             self.require_artifact(node, ArtifactKey::VirtualContractMi { package: *vpkg_id });
         }
@@ -501,6 +562,7 @@ impl<'a> BuildPlanConstructor<'a> {
         );
 
         self.need_node(node);
+        self.require_unbundled_stdlib_interfaces(node, target.package);
         for dep in self
             .rel
             .dep_graph
@@ -533,6 +595,7 @@ impl<'a> BuildPlanConstructor<'a> {
         );
 
         self.need_node(node);
+        self.require_unbundled_stdlib_interfaces(node, target.package);
         // Check depends on `.mi` of all dependencies, which practically
         // means the Check of all dependencies.
         for dep in self
@@ -572,6 +635,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // tracks normal dependency `.core` artifacts in n2 so implementation
         // changes in dependencies dirty downstream build-package actions.
         self.need_node(node);
+        self.require_unbundled_stdlib_interfaces(node, target.package);
         for dep in self
             .rel
             .dep_graph
@@ -1012,10 +1076,14 @@ impl<'a> BuildPlanConstructor<'a> {
         linked_order: IndexSet<BuildTarget>,
     ) -> LinkCoreInfo {
         // The traversal has already replaced unnecessary dependencies.
-        // Injected stdlib packages are linked from their installed `.core`
+        // Prebuilt stdlib packages are linked from their installed `.core`
         // files, which this plan does not produce.
         for target in &linked_order {
-            if self.input.pkg_dirs.is_stdlib_package(target.package) {
+            if self
+                .config
+                .artifact_paths
+                .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(target.package))
+            {
                 continue;
             }
             self.require_artifact(
@@ -1532,10 +1600,13 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     /// Whether linking a package also links the C stubs it declares. Injected
-    /// stdlib packages are never built locally, so their stubs are not either.
+    /// prebuilt stdlib packages do not build local stubs either.
     fn links_c_stubs_of(&self, package: PackageId) -> bool {
         self.config.backend.target_backend().is_native()
-            && !self.input.pkg_dirs.is_stdlib_package(package)
+            && !self
+                .config
+                .artifact_paths
+                .uses_prebuilt_stdlib(self.input.pkg_dirs.get_package(package))
             && !self
                 .input
                 .pkg_dirs
@@ -1792,6 +1863,7 @@ impl<'a> BuildPlanConstructor<'a> {
             pkg.is_virtual(),
             "Only virtual packages can have their .mi parsed from .mbti files"
         );
+        self.require_unbundled_stdlib_interfaces(node, target);
 
         // The virtual contract may itself be a declared package prebuild
         // output. Lowering records the selected `.mbti` path as an ordinary

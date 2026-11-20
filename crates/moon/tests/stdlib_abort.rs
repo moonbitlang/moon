@@ -42,8 +42,14 @@ fn stdlib_abort_uses_normal_build_pipeline() {
     std::fs::create_dir(core.path().join("prelude")).unwrap();
     std::fs::write(core.path().join("prelude/moon.pkg"), "").unwrap();
     let bundle = core.path().join("_build/wasm-gc/release/bundle");
-    std::fs::create_dir_all(bundle.join("prelude")).unwrap();
-    std::fs::write(bundle.join("prelude/prelude.mi"), "").unwrap();
+    std::fs::create_dir(core.path().join("builtin")).unwrap();
+    std::fs::write(core.path().join("builtin/moon.pkg"), "").unwrap();
+    for package in ["builtin", "prelude"] {
+        std::fs::create_dir_all(bundle.join(package)).unwrap();
+        for extension in ["mi", "core"] {
+            std::fs::write(bundle.join(format!("{package}/{package}.{extension}")), "").unwrap();
+        }
+    }
 
     for state in ["absent", "stale", "bundled", "missing_artifact"] {
         if state == "stale" {
@@ -54,6 +60,7 @@ fn stdlib_abort_uses_normal_build_pipeline() {
             std::fs::create_dir(core.path().join("abort")).unwrap();
             std::fs::write(core.path().join("abort/moon.pkg"), "").unwrap();
             std::fs::write(core.path().join("abort/abort.mbt"), "").unwrap();
+            std::fs::write(bundle.join("abort/abort.mi"), "").unwrap();
         }
         if state == "missing_artifact" {
             std::fs::remove_file(bundle.join("abort/abort.core")).unwrap();
@@ -128,12 +135,15 @@ fn stdlib_abort_uses_normal_build_pipeline() {
                 .any(|input| input.as_str().unwrap().ends_with("abort/abort.core")),
             "{state}: {inputs:?}"
         );
-        // Reachable stdlib packages are linked from their own installed cores.
+        // Link only reachable packages. An incomplete bundle selects project
+        // artifacts for all core dependencies, including prelude.
         assert!(!command.contains("core.core"), "{state}: {command}");
-        assert!(
-            command.contains("bundle/prelude/prelude.core"),
-            "{state}: {command}"
-        );
+        let prelude_path = if state == "missing_artifact" {
+            ".mooncakes/moonbitlang/core/prelude/prelude.core"
+        } else {
+            "bundle/prelude/prelude.core"
+        };
+        assert!(command.contains(prelude_path), "{state}: {command}");
         assert!(
             inputs
                 .iter()

@@ -173,7 +173,10 @@ impl<'a> LoweringContext<'a> {
         let no_mi = info.no_mi();
 
         if let Some(v_target) = info.check_mi_against {
-            let mi_path = if self.packages.is_stdlib_package(v_target.package) {
+            let mi_path = if self
+                .artifact_paths
+                .uses_prebuilt_stdlib(self.packages.get_package(v_target.package))
+            {
                 // Installed stdlib virtual contracts are known toolchain
                 // inputs, not artifacts produced by this Build Plan.
                 self.artifact_paths.mi_of_build_target(
@@ -248,7 +251,9 @@ impl<'a> LoweringContext<'a> {
         // dependency. Installed stdlib contracts have no provider in this
         // plan, so observe the exact `-check-mi`/`-impl-virtual` file.
         if let Some(target) = info.check_mi_against
-            && self.packages.is_stdlib_package(target.package)
+            && self
+                .artifact_paths
+                .uses_prebuilt_stdlib(self.packages.get_package(target.package))
         {
             let path = match (&commons.check_mi, &commons.virtual_implementation) {
                 (Some(path), None) => path.as_ref(),
@@ -750,7 +755,10 @@ impl<'a> LoweringContext<'a> {
         let mut core_deps = Vec::new();
         // Linked core targets, including the stdlib packages they reach
         for target in &info.linked_order {
-            let core_path = if self.packages.is_stdlib_package(target.package) {
+            let core_path = if self
+                .artifact_paths
+                .uses_prebuilt_stdlib(self.packages.get_package(target.package))
+            {
                 let path = self
                     .artifact_paths
                     .core_of_build_target(self.packages, target, backend);
@@ -774,7 +782,11 @@ impl<'a> LoweringContext<'a> {
         let package_sources = info
             .linked_order
             .iter()
-            .filter(|target| !self.packages.is_stdlib_package(target.package))
+            .filter(|target| {
+                !self
+                    .artifact_paths
+                    .uses_prebuilt_stdlib(self.packages.get_package(target.package))
+            })
             .map(|target| {
                 let pkg = self.packages.get_package(target.package);
                 PackageSource {
@@ -1426,7 +1438,10 @@ impl<'a> LoweringContext<'a> {
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
             .map(|(_, dep, w)| {
-                let in_file = if self.packages.is_stdlib_package(dep.package) {
+                let in_file = if self
+                    .artifact_paths
+                    .uses_prebuilt_stdlib(self.packages.get_package(dep.package))
+                {
                     // Installed stdlib interfaces are selected by the known
                     // toolchain layout, outside this Build Plan's providers.
                     stdlib_deps.push(dep);
@@ -1486,6 +1501,10 @@ impl<'a> LoweringContext<'a> {
     /// dependencies through the paths listed in `all_pkgs.json`. Local
     /// interfaces are covered by their producers, but installed stdlib
     /// interfaces have none, so the whole reachable stdlib closure is observed.
+    ///
+    /// TODO: Extend prebuilt input tracking to the builtin-type interfaces
+    /// `moonc` preloads outside this declared-import closure, as source fallback
+    /// already does through its artifact requirements.
     fn installed_stdlib_closure(&mut self, root: BuildTarget) -> &BTreeMap<PackageId, PathBuf> {
         if !self.installed_stdlib_closures.contains_key(&root) {
             let mut visited = HashSet::new();
@@ -1513,7 +1532,10 @@ impl<'a> LoweringContext<'a> {
                     self.rel
                         .dep_graph
                         .neighbors_directed(current, Direction::Outgoing)
-                        .filter(|dep| self.packages.is_stdlib_package(dep.package)),
+                        .filter(|dep| {
+                            self.artifact_paths
+                                .uses_prebuilt_stdlib(self.packages.get_package(dep.package))
+                        }),
                 );
             }
             // Cache only roots requested by compiler actions. Materializing

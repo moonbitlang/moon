@@ -24,7 +24,7 @@ use moonbuild_rupes_recta::{
     model::{
         BackendConfig, DebugInfoRequest, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem,
     },
-    target_layout::{ArtifactPathResolver, TargetLayout},
+    target_layout::{ArtifactPathResolver, TargetLayout, stdlib_core_path, stdlib_mi_path},
 };
 use moonutil::{
     compiler_flags, cond_expr::OptLevel as BuildProfile, resolution::ModuleSourceKind,
@@ -86,8 +86,7 @@ pub fn prepare_config(
     opt_level: BuildProfile,
     action: RunMode,
     debug_info: DebugInfoRequest,
-    dry_run: bool,
-) -> anyhow::Result<CompileConfig> {
+) -> CompileConfig {
     let target_backend = backend.target_backend();
     // Module preparation has already selected the stdlib used for discovery.
     // Reuse its root for artifacts; a local core project has no injected stdlib.
@@ -98,23 +97,28 @@ pub fn prepare_config(
         };
         path.clone()
     });
-    if target_backend == TargetBackend::LLVM
-        && !dry_run
-        && let Some(core_root) = &stdlib_path
-    {
-        // Not every toolchain ships the LLVM bundle. Catch its missing prelude
-        // before moonc tries to load the interface and reports an internal error.
-        let prelude = moonutil::toolchain::core_package_mi_in(
-            core_root,
-            target_backend,
-            "prelude",
-            "prelude",
-        );
-        anyhow::ensure!(
-            prelude.is_file(),
-            "toolchain is incomplete: missing `prelude.mi` for target `llvm`"
-        );
-    }
+    // Select one coherent artifact set for this backend. A partial bundle
+    // must not mix installed interfaces with freshly compiled dependencies.
+    // RR then provides the required interfaces using the normal dependency
+    // layout, without writing into the toolchain or observing the filesystem.
+    let stdlib_path = stdlib_path.filter(|root| {
+        resolved_project
+            .pkg_dirs
+            .all_packages(false)
+            .filter(|(_, pkg)| {
+                pkg.is_stdlib && pkg.effective_supported_targets.contains(&target_backend)
+            })
+            .flat_map(|(_, pkg)| {
+                // A virtual implementation uses its contract's interface.
+                let interface = (!pkg.is_virtual_impl())
+                    .then(|| stdlib_mi_path(root, target_backend, &pkg.fqn));
+                let core_ir = pkg
+                    .has_implementation()
+                    .then(|| stdlib_core_path(root, target_backend, &pkg.fqn));
+                interface.into_iter().chain(core_ir)
+            })
+            .all(|artifact| artifact.is_file())
+    });
     let target_layout = TargetLayout::from_resolved_project(
         target_dir.to_owned(),
         resolved_project,
@@ -122,7 +126,7 @@ pub fn prepare_config(
         action,
     );
     let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path);
-    Ok(CompileConfig {
+    CompileConfig {
         backend,
         opt_level,
         action,
@@ -134,5 +138,5 @@ pub fn prepare_config(
         docs_serve: false,
         warning_condition: WarningCondition::Default,
         warn_list: None,
-    })
+    }
 }

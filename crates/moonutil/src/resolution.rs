@@ -47,9 +47,9 @@ pub enum ModuleSourceKind {
 
     /// This module is the standard library.
     ///
-    /// Since the standard library is prebuilt during installation, it is
-    /// handled specially. Setting this skips some default behaviors designed
-    /// for regular modules.
+    /// This records the selected toolchain's core source root. Compilation
+    /// selects its installed artifacts when complete for the backend, or
+    /// builds the required packages in the project's target directory.
     ///
     /// TODO: Evaluate if this design is sound
     Stdlib(PathBuf),
@@ -81,7 +81,7 @@ impl std::fmt::Display for ModuleSourceKind {
 ///
 /// Constructors check the module name against its declared or selected version.
 /// Local modules may omit a version; their internal default is not a release.
-/// This type is cheaply clonable.
+/// This type is cheaply cloneable.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleSource {
     /// The inner representation of the module source.

@@ -128,7 +128,8 @@ pub fn gen_metadata_json(
 
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
-        .all_packages(true)
+        .all_packages(false)
+        .filter(|(_, package)| !artifact_paths.uses_prebuilt_stdlib(package))
         .map(|(id, _)| gen_package_json(ctx, artifact_paths, id, backend, check_commands))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));

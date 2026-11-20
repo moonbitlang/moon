@@ -75,16 +75,7 @@ fn build_graph() -> Vec<GraphAction> {
         parse_build_command(&["build", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
     // When the real planner and lowering produce the executable build graph.
     let graph = fixture.plan_build_with_cli(&cli, &cmd).unwrap();
-    // Artifacts must come from the same fixed core as its declarations, not
-    // from the ambient toolchain. Normalize only that fixture's selected root.
-    let core_dir = dunce::canonicalize(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/cli/tests/planner/fixtures/core_dependency"),
-    )
-    .unwrap();
-    let core_dir = moonutil::path_normalizer::PathNormalizer::new(fixture.case_dir())
-        .normalize_path(&core_dir.to_string_lossy());
-    graph_actions(&graph.replace(&core_dir, "$CORE"))
+    graph_actions(&graph)
 }
 
 fn application_compile_actions(graph: &[GraphAction]) -> Vec<&GraphAction> {
@@ -226,4 +217,75 @@ fn installed_core_does_not_get_local_compile_actions() {
             .flat_map(|action| &action.outputs)
             .all(|path| !path.starts_with("$CORE/"))
     );
+}
+
+#[test]
+fn unbundled_core_supplies_interfaces_without_local_proofs() {
+    use moonbuild_rupes_recta::{
+        RunMode,
+        build_lower::lower_build_plan,
+        build_plan::{self, ArtifactKey, InputDirective},
+        model::BackendConfig,
+    };
+    use moonutil::{cond_expr::OptLevel, resolution::ModuleSourceKind};
+
+    let fixture = PlanningFixture::with_core_dependency("test_release").unwrap();
+    let user_log = UserLog::new(log::LevelFilter::Error);
+    let (_, project) = fixture
+        .select_and_resolve(Some(TargetBackend::WasmGC), &user_log)
+        .unwrap();
+    let stdlib = project.module_graph.stdlib().unwrap();
+    let ModuleSourceKind::Stdlib(root) = project.module_graph.module_source(stdlib).source() else {
+        panic!("fixture must inject core");
+    };
+    std::fs::remove_dir_all(root.join("_build")).unwrap();
+    let config = moonbuild::compile::prepare_config(
+        &project,
+        &fixture.case_dir().join("_build"),
+        BackendConfig::WasmGc { use_wat: false },
+        OptLevel::Debug,
+        RunMode::Prove,
+        Default::default(),
+    );
+    let package = project
+        .pkg_dirs
+        .get_package_id_by_name("username/hello/lib")
+        .unwrap();
+    let plan = build_plan::build_plan(
+        &project,
+        &config,
+        [ArtifactKey::ProofMi {
+            package,
+            target_kind: TargetKind::Source,
+        }]
+        .into_iter(),
+        &InputDirective::default(),
+        None,
+        &user_log,
+    )
+    .unwrap();
+    let execution = lower_build_plan(&project, &plan, &config, &[]).unwrap();
+    let mut checked_core = Vec::new();
+    let mut proved = Vec::new();
+    for id in execution.action_ids() {
+        let action = execution.action(id);
+        let args = action.command().args();
+        let package = args.windows(2).find(|pair| pair[0] == "-pkg").unwrap()[1].clone();
+        if args.iter().any(|arg| arg == "check") {
+            checked_core.push(package);
+            assert!(action.outputs().iter().all(|path| {
+                path.to_string_lossy()
+                    .replace('\\', "/")
+                    .contains("/wasm-gc/debug/prove/.mooncakes/moonbitlang/core/")
+            }));
+        } else {
+            proved.push(package);
+        }
+    }
+    checked_core.sort();
+    assert_eq!(
+        checked_core,
+        ["moonbitlang/core/builtin", "moonbitlang/core/prelude"]
+    );
+    assert_eq!(proved, ["username/hello/lib"]);
 }

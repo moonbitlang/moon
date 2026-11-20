@@ -206,8 +206,7 @@ impl BuildFlags {
             opt_level,
             action,
             debug_info,
-            cli.dry_run,
-        )?;
+        );
         config.enable_coverage = self.enable_coverage;
         config.debug_export_build_plan = cli.unstable_feature.rr_export_build_plan;
         // In legacy impl, dry run always forces no JSON.

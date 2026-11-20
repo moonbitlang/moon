@@ -58,16 +58,41 @@ builtin's coverage runtime without borrowing another package's sources.
 
 - **Stdlib injection is selected during module preparation.** The module
   dependency graph records the selected stdlib as `Stdlib(path)`.
-  `moonbuild::compile` reads that path from the graph and stores it in the
-  `ArtifactPathResolver` carried by `CompileConfig` / `BuildMeta`, so discovery
-  and artifact lookup use the same core tree.
+  `moonbuild::compile` reads that path from the graph and selects prebuilt
+  artifacts for the requested backend only when the bundle is complete.
+  `ArtifactPathResolver`, carried by `CompileConfig` / `BuildMeta`, retains the
+  root when consuming prebuilt artifacts, so discovery and artifact lookup
+  use the same core tree.
   For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   not injected, so core packages resolve to local `_build/...` artifacts.
+- **An incomplete bundle is built from source in the project.** Completeness
+  requires `.mi` files for backend-supported packages except virtual
+  implementations, and `.core` files for packages with implementations. Missing
+  any of these selects local artifact production for that backend's whole core
+  dependency, avoiding a mix of installed and newly compiled interfaces. The
+  compiler preloads builtin-type extension interfaces outside core through
+  `all_pkgs.json`, even without declared imports. Non-core compiler actions
+  therefore require the supported core interface set; these extra artifact
+  requirements do not introduce imports, aliases, or link roots. Core packages
+  themselves still compile against their declared dependencies. Outputs follow
+  the dependency layout, such as
+  `_build/<backend>/<profile>/<action>/.mooncakes/moonbitlang/core/...` for a
+  single-module project. Workspace builds retain their module-qualified layout.
+  Toolchain sources remain inputs, core is not promoted to a project root, and
+  `is_stdlib` continues to identify the injected dependency. No source copying,
+  nested `moon bundle`, or toolchain-directory writes are needed.
+- **Toolchain declarations must exist before artifact selection.** An injected
+  stdlib must declare builtin and prelude, plus coverage when coverage is enabled.
+  Missing declarations report an incomplete-toolchain error during package
+  resolution. Unreadable or invalid core manifests keep their underlying error
+  and identify the selected directory. Building a partial local core project
+  remains supported and does not require these injected-stdlib declarations.
 - **Non-stdlib packages implicitly import `prelude` and `builtin`.** The
   solver adds both edges to every non-stdlib target unless the package already
-  imports them, in which case its alias wins. Moon never passes `-std-path`, so
-  installed stdlib packages reach `moonc` only as explicit `-i` imports.
+  imports them, in which case its alias wins. Moon never passes `-std-path`;
+  direct imports reach `moonc` through `-i`, and indirect interfaces through
+  `all_pkgs.json`.
   `builtin` is needed because `moonc` resolves some names re-exported by
   `prelude`, such as the `Failure` constructor, only when `builtin` is loaded.
   The implicit prelude edge uses `prelude` as its compiler-facing alias,
@@ -89,7 +114,10 @@ builtin's coverage runtime without borrowing another package's sources.
   `all_pkgs.json` is generated for the stdlib (core module), it is generated
   without a stdlib directory so package metadata and indirect dependency
   resolution use the locally built `.mi` files. For non-core projects, the
-  stdlib directory is set so prebuilt artifacts can be used.
+  stdlib directory is set only when the backend's prebuilt bundle is complete.
+  When core is built from source as a dependency, both metadata documents use
+  its project-local artifact paths; `packages.json` includes its third-party
+  package entries as it does for other compiled dependencies.
 - **The proof prelude is independent of stdlib injection.** Every proof
   execution adds one proof prelude provider directory to the Why3 loadpath. It
   defaults to the toolchain's `lib/prelude_proof`; when
@@ -99,6 +127,9 @@ builtin's coverage runtime without borrowing another package's sources.
   applies when proving `moonbitlang/core`, where the installed stdlib is
   intentionally not injected; the proof prelude is a toolchain resource rather
   than a prebuilt stdlib package artifact.
+  If injected core has no complete bundle, proof planning checks its ordinary
+  interfaces locally while continuing to use the toolchain proof prelude. It
+  does not emit separate WhyML modules or `--dep-proof` entries for core.
 
 ## Wasm separate compilation
 

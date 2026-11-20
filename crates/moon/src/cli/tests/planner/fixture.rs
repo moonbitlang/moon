@@ -43,6 +43,7 @@ pub(super) struct PlanningFixture {
     source_dir: PathBuf,
     target_dir: PathBuf,
     discovered: DiscoveredProject,
+    core: Option<tempfile::TempDir>,
 }
 
 pub(super) struct PlannedGraph {
@@ -107,8 +108,25 @@ impl PlanningFixture {
             ModuleSource::from_local_module(&module, &source_dir)?,
             module,
         );
-        let core_dir =
-            dunce::canonicalize(crate_root.join("src/cli/tests/planner/fixtures/core_dependency"))?;
+        // These tests consume prebuilt core. Supply a complete, declaration-only
+        // fixture so planning never depends on the installed toolchain's bundle.
+        let core_fixture = crate_root.join("src/cli/tests/planner/fixtures/core_dependency");
+        let core_temp = tempfile::tempdir()?;
+        let core_dir = dunce::canonicalize(core_temp.path())?;
+        for name in ["moon.mod", "builtin/moon.pkg", "prelude/moon.pkg"] {
+            let output = core_dir.join(name);
+            std::fs::create_dir_all(output.parent().unwrap())?;
+            std::fs::copy(core_fixture.join(name), output)?;
+        }
+        for backend in TargetBackend::all() {
+            for package in ["builtin", "prelude"] {
+                let dir = core_dir.join(format!("_build/{backend}/release/bundle/{package}"));
+                std::fs::create_dir_all(&dir)?;
+                for extension in ["mi", "core"] {
+                    std::fs::write(dir.join(format!("{package}.{extension}")), "")?;
+                }
+            }
+        }
         let core = read_module_desc_file_in_dir(&core_dir)?;
         let core_id =
             module_graph.add_module(ModuleSource::from_stdlib(&core, &core_dir)?, Arc::new(core));
@@ -126,6 +144,7 @@ impl PlanningFixture {
             target_dir: source_dir.join("_build"),
             source_dir,
             discovered,
+            core: Some(core_temp),
         })
     }
 
@@ -152,6 +171,7 @@ impl PlanningFixture {
             source_dir,
             target_dir,
             discovered,
+            core: None,
         })
     }
 
@@ -435,7 +455,14 @@ impl PlanningFixture {
                 .map(PathBuf::as_path),
             &self.source_dir,
         )?;
-        Ok(String::from_utf8(out).expect("graph dump should be valid UTF-8"))
+        let out = String::from_utf8(out).expect("graph dump should be valid UTF-8");
+        if let Some(core) = &self.core {
+            let core_dir = dunce::canonicalize(core.path())?;
+            let core_dir = moonutil::path_normalizer::PathNormalizer::new(&self.source_dir)
+                .normalize_path(&core_dir.to_string_lossy());
+            return Ok(out.replace(&core_dir, "$CORE"));
+        }
+        Ok(out)
     }
 }
 

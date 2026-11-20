@@ -102,8 +102,7 @@ pub fn build_standalone_wasm(
             symbols: DebugSymbols::Full,
             runtime_backtrace: false,
         },
-        false,
-    )?;
+    );
     config.moonc_output_json = true;
     let package = resolved
         .local_modules()
