@@ -16,10 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::fs;
-
-use cucumber::{gherkin::Step, given, then, when};
-use snapbox::IntoData;
+use cucumber::{given, when};
 
 use super::World;
 
@@ -53,16 +50,4 @@ fn generated_interface_absent(world: &mut World, path: String) {
 #[when("I generate package interfaces")]
 fn run_moon_info(world: &mut World) {
     world.output = Some(world.command().arg("info").assert());
-}
-
-#[then(expr = "the generated interface at {string} is exactly:")]
-fn generated_interface(world: &mut World, path: String, step: &Step) {
-    let actual = fs::read_to_string(world.project_path().join(path))
-        .expect("read generated package interface");
-    let expected = step.docstring.as_deref().expect("interface docstring");
-    // Gherkin keeps a framing newline around docstrings. Remove only those two
-    // framing bytes so an intentional final newline in the generated file stays.
-    let expected = expected.strip_prefix('\n').unwrap_or(expected);
-    let expected = expected.strip_suffix('\n').unwrap_or(expected);
-    snapbox::assert_data_eq!(actual, expected.raw());
 }

@@ -103,6 +103,17 @@ fn stderr_matches(world: &mut World, step: &Step) {
     );
 }
 
+#[then("stdout matches:")]
+fn stdout_matches(world: &mut World, step: &Step) {
+    world.output = Some(
+        world
+            .output
+            .take()
+            .expect("When a command is run")
+            .stdout_eq(output_text(step)),
+    );
+}
+
 // Gherkin wraps docstrings in newlines. Remove only the opening one: the
 // closing newline represents the command's final newline, and blank lines
 // inside the docstring remain significant. Every expected byte comes from it.
