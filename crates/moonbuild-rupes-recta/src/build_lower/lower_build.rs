@@ -51,7 +51,7 @@ use crate::{
     discover::DiscoveredPackage,
     model::{BackendConfig, BuildTarget, NativeBackendMode, PackageId, TargetKind, WasmObject},
     pkg_name::{PackageFQN, PackagePath},
-    special_cases::is_self_coverage_lib,
+    special_cases::self_coverage,
     target_layout::proof_artifact_stem,
 };
 
@@ -123,7 +123,7 @@ impl<'a> LoweringContext<'a> {
         let enable_coverage = self.opt.enable_coverage
             && (!is_build || target.kind != TargetKind::BlackboxTest)
             && !self.is_module_third_party(package.module);
-        let self_coverage = enable_coverage && is_self_coverage_lib(fqn);
+        let self_coverage = enable_coverage && self_coverage::uses_self_runtime(fqn);
         (enable_coverage, self_coverage)
     }
 

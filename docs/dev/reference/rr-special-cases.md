@@ -5,36 +5,45 @@ pipeline remains byte-for-byte compatible with the legacy engine. The handlers
 live throughout `crates/moonbuild-rupes-recta`, but this page summarizes the
 important ones and why they exist.
 
-## Discovery-time injections
+## Self coverage
 
-- **Merge coverage sources into builtin.** `inject_core_coverage_into_builtin`
-  copies `moonbitlang/core/coverage` sources into `moonbitlang/core/builtin` so
-  downstream compilation steps see a builtin package that already contains the
-  coverage helpers. This is essential for `builtin` to correctly get code
-  coverage support. This is **only available when `--enable-coverage` is set**.
+[`special_cases::self_coverage`](../../../crates/moonbuild-rupes-recta/src/special_cases/self_coverage.rs)
+owns the exception for instrumenting builtin and the coverage runtime itself.
+The coverage runtime depends on builtin, so builtin cannot obtain that runtime
+through an ordinary import without creating a cycle. Three rules work together:
+
+- **Builtin borrows coverage sources.** With coverage enabled and core as the
+  sole project root, `augment_builtin_sources` appends coverage's source paths
+  to builtin's in-memory file set and sorts it. No files are copied or rewritten,
+  and the coverage package retains its own sources. Resolution applies this
+  after scanning and before solving imports, so target selection and metadata
+  continue to see the augmented file set. Ordinary projects consuming installed
+  core do not apply this rule. Missing builtin or coverage packages retain the
+  existing warning-and-skip behavior.
+- **Self-coverage packages do not import coverage implicitly.** Package
+  resolution uses `uses_self_runtime` to exclude builtin and coverage from
+  implicit coverage dependencies. Other packages receive those edges for
+  Source, InlineTest, WhiteboxTest, and BlackboxTest targets when coverage is
+  enabled. This is not limited to core packages.
+- **Instrumentation and collection use `@self`.** Lowering uses the same
+  predicate to select the current package's runtime for compiler instrumentation
+  and test-driver collection. Third-party packages are not instrumented.
+  Blackbox compilation is not instrumented either, but its driver still collects
+  coverage from the code under test.
+
+The special-case module owns the source augmentation and package identities;
+package resolution and lowering retain graph mutation and command generation.
+Source augmentation can be removed once the compiler/core contract supplies
+builtin's coverage runtime without borrowing another package's sources.
+
+## Discovery-time preparation
+
 - **Pin prelude imports for core blackbox tests.** Whenever discovery encounters a
   package under the core module, `add_prelude_as_import_for_core` injects
   `moonbitlang/core/prelude` into `test_imports`. This supports blackbox tests;
   whitebox and inline tests retain their package's imports. Generated drivers
   adapt prelude references to builtin operations as described in the
   [test driver core dependencies](tests.md#core-dependencies).
-
-## Solver-time dependency hacks
-
-- **Core packages auto-link coverage.** `pkg_solve::inject_core_coverage_usage`
-  wires every non-exempt core package to `moonbitlang/core/coverage` (skipping
-  the coverage and builtin packages themselves, plus libraries marked to skip
-  coverage entirely). The dependency is added for Source/Inline/Whitebox test
-  targets so later phases don’t need to special-case coverage instrumentation.
-
-## Build/test filtering logic
-
-- **Coverage rules differ per package.** `is_self_coverage_lib` says
-  builtin/coverage should use themselves when linking coverage support. The
-  solver and later lowering stages share this predicate.
-- **Builtin detection helpers.** `is_builtin_lib` centralizes the logic for
-  spotting `moonbitlang/core/builtin`, allowing downstream code to keep a single
-  source of truth whenever builtin needs override behavior.
 
 ## Artifact path overrides
 
@@ -100,13 +109,6 @@ important ones and why they exist.
   standard library objects such as `builtin`, which do not depend on them,
   could not be compiled otherwise. This can go once the linker assembles each
   entry from the objects defining its methods.
-
-## Runtime + tooling side effects
-
-- **Core coverage is folded into builtin artifacts.** Once coverage sources are
-  merged into builtin and coverage edges are injected, the rest of the pipeline
-  can assume builtin already carries every helper needed for coverage-enabled
-  builds.
 
 If you need to add another compatibility shim, keep the behavior in the module
 nearest to the code it affects, but document the motivation here so future work

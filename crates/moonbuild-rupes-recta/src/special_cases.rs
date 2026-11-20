@@ -27,18 +27,9 @@
 
 use moonutil::{constants::MOONBITLANG_CORE_PRELUDE, package::MoonPkg};
 
-use crate::pkg_name::PackageFQN;
+pub(crate) mod self_coverage;
 
-// string segments
-const MOONBIT: &str = "moonbitlang";
-const CORE: &str = "core";
-const BUILTIN: &str = "builtin";
-const COVERAGE: &str = "coverage";
-pub(crate) const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
-
-/// Libraries that should use themselves for coverage
-const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
-    &[(MOONBIT, CORE, BUILTIN), (MOONBIT, CORE, COVERAGE)];
+pub(crate) const CORE_MODULE_TUPLE: (&str, &str) = ("moonbitlang", "core");
 
 /// Core packages require importing `prelude` in test imports, or the test will
 /// not be able to run.
@@ -53,16 +44,6 @@ pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
             targets: None,
         });
     pkg_json
-}
-
-fn name_matches(package_fqn: &PackageFQN, target: (&str, &str, &str)) -> bool {
-    *package_fqn == target
-}
-
-pub(crate) fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
-    SELF_COVERAGE_LIBS
-        .iter()
-        .any(|&target| name_matches(package_fqn, target))
 }
 
 /// Packages that every wasm1 object and every executable linked from objects

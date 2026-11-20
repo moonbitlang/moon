@@ -23,12 +23,9 @@
 //! and script declaration preparation belong to `moonbuild::prepare`.
 
 use crate::{
-    discover::{
-        DiscoverError, DiscoverResult, SingleFileSourceKind, discover_for_build,
-        special_case::inject_core_coverage_into_builtin,
-    },
+    discover::{DiscoverError, DiscoverResult, SingleFileSourceKind, discover_for_build},
     pkg_solve::{self, PackageRelations},
-    special_cases::CORE_MODULE_TUPLE,
+    special_cases::self_coverage,
 };
 use log::{debug, info};
 use moonutil::{
@@ -174,13 +171,8 @@ pub fn discover_synced_project(
 
     let mut discover_result =
         discover_for_build(&module_graph, &dir_sync_result, cfg.jobs, user_log)?;
-    let main_is_core = {
-        let ids = module_graph.input_module_ids();
-        ids.len() == 1 && *module_graph.module_source(ids[0]).name() == CORE_MODULE_TUPLE
-    };
-    if cfg.enable_coverage && main_is_core {
-        // Gate coverage bundling (coverage -> builtin) behind both flag and main-module check
-        inject_core_coverage_into_builtin(&module_graph, &mut discover_result);
+    if cfg.enable_coverage {
+        self_coverage::augment_builtin_sources(&module_graph, &mut discover_result);
     }
 
     info!(
