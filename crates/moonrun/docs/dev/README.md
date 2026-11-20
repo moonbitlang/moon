@@ -164,6 +164,11 @@ its original runtime location, which includes the offset for Wasm frames and
 may instead name a host location. Feature guards select V8's full location or
 Wasmtime/wee8's numeric offset for display.
 
+V8's Wasm stack display may qualify a function with its module name. When the
+qualified MoonBit function demangles successfully, the adapter displays only
+the demangled function name; the runtime location retains the module identity.
+Unrecognized names retain their original display names.
+
 Each frame shows the mapped source file and line first, followed by the runtime
 location in parentheses. Missing or malformed source maps do not erase the
 runtime information needed to investigate a failure. `--no-stack-trace` still

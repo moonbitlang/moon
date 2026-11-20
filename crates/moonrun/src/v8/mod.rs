@@ -119,9 +119,22 @@ fn parse_stack_line(line: &str) -> DiagnosticLine {
                 !offset.is_empty() && offset.bytes().all(|byte| byte.is_ascii_hexdigit())
             })
             .and_then(|offset| usize::from_str_radix(offset, 16).ok());
+        // V8 displays Wasm frames as `<module>.<function>`. Only drop the
+        // module qualifier when demangling succeeds; the location retains it.
+        let function = if let Some(separator) = function.find("._M0") {
+            let symbol = &function[separator + 1..];
+            let demangled = moonutil::demangle::demangle_mangled_function_name(symbol);
+            if demangled != symbol {
+                demangled
+            } else {
+                function.to_owned()
+            }
+        } else {
+            function.to_owned()
+        };
         return DiagnosticLine::Frame {
             indentation: indentation.to_owned(),
-            function: function.to_owned(),
+            function,
             runtime_location: Some(location.to_owned()),
             module_offset,
         };

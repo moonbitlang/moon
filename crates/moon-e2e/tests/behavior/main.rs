@@ -37,6 +37,7 @@ mod packaging;
 mod preview;
 mod snapshot_updates;
 mod support;
+mod wasm_stack_trace;
 
 const TEST_CASES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../moon/tests/test_cases");
 
