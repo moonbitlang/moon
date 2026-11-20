@@ -631,14 +631,15 @@ fn main {
 ```
 
 The policy reader accepts an optional first-line shebang before front matter.
-Legacy `// policy:` YAML comments and old import preludes remain supported without a compatibility
-flag. A script cannot declare permissions in both formats. `moon run` and
-`moonx` detect either form and use the script itself as the policy source. Explicit command-line policy paths
-override the embedded policy; inherited policies cannot be replaced by either.
+`moon run` and `moonx` detect `permission(...)` in front matter and use the
+script itself as the policy source. The former `// policy:` YAML format is no
+longer interpreted; those lines are ordinary comments and do not select a policy.
+Explicit command-line policy paths override the embedded policy; inherited
+policies still apply in addition to the selected child policy.
 Front matter must have valid syntax, but the permission schema is validated
 only when it is the effective policy for Wasm execution. Overridden, non-Wasm,
-and build-only paths do not validate permission fields. Legacy YAML is parsed
-only when selected, preserving overrides of malformed legacy policies.
+and build-only paths do not validate permission fields, so an explicit policy
+can override permission fields with an invalid schema.
 Shebang acceptance is limited to header parsing and policy loading. Moon passes
 scripts unchanged to compiler tools, so this does not guarantee compiler support.
 For `moon run -` and `moon run -e`, relative filesystem roots resolve from the

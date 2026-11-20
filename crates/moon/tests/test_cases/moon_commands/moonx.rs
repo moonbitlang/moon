@@ -152,7 +152,7 @@ fn test_moonx_uses_embedded_mbtx_policy() {
         .current_dir(&dir)
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .env("MOONRUN_OVERRIDE", moonrun_bin())
-        .arg("embedded_policy.mbtx")
+        .arg("front_matter_permission.mbtx")
         .assert()
         .success()
         .stdout_eq("embedded\n");
@@ -217,7 +217,7 @@ Error: failed to load sandbox policy (experimental); run `moonrun --help` for po
 
 Caused by:
     0: invalid .mbtx permission in `[..]/malformed_embedded_policy.mbtx`
-    1: policy.env: invalid type: sequence, expected struct EnvConfig at line 2 column 8
+    1: invalid type: boolean `true`, expected struct EnvConfig
 
 "#]]);
     relay.finish().unwrap();

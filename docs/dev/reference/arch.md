@@ -395,8 +395,8 @@ versions, and Moonrun validates the effective permission schema. An optional
 first-line shebang is skipped when interpreting either declaration format.
 This is header-parser behavior only; compiler tools receive the original script
 unchanged.
-The legacy import prelude and `// policy:` YAML comments remain supported;
-legacy YAML is decoded only when selected as the effective permission. See
+Embedded policies use `permission(...)` in front matter; `// policy:` comments
+are ordinary comments and do not declare permissions. See
 [`moonx`](moonx.md#standalone-mbtx) for syntax and policy precedence.
 
 `moon fmt` also accepts explicit `.mbtx` paths, including several scripts mixed

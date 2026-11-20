@@ -156,15 +156,14 @@ combined in source order. The old `import { ... }` prelude outside front matter
 remains supported, including after a permission header; these imports follow
 any front matter imports. Conditional and test-only imports remain unsupported.
 Unknown declarations and duplicate `permission` declarations are errors.
-The legacy `// policy:` YAML comment format remains supported for compatibility.
-The format is detected from the source; no compatibility flag is required.
-A script must not declare both `permission(...)` and a legacy `// policy:` block.
+Embedded policies use `permission(...)` in front matter. The former
+`// policy:` YAML format is no longer interpreted; those lines are ordinary
+comments and do not select a policy.
 
 Shebang handling here applies only to Moon's header parsing and Moonrun's
 policy loading. Moon passes the original script unchanged to compiler tools;
 accepting a header does not guarantee that the compiler accepts the script.
-The compiler warns about legacy imports outside front matter with
-`unfenced_import` (warning 96).
+The compiler rejects imports outside front matter.
 
 The `.mbtx` path itself is passed to Moonrun as the policy source, so relative
 filesystem roots are resolved from the script's directory. For `moon run -`
@@ -174,9 +173,9 @@ invocation directory as the logical policy source directory. An explicit
 Inherited restrictions apply in addition to the selected child policy. Front matter syntax is
 validated during dependency resolution. Permission fields are decoded only when
 the declaration is the effective policy for Wasm execution; overridden,
-non-Wasm, and build-only paths do not validate the permission schema. Legacy
-YAML is parsed only when selected, so an explicit policy can override malformed
-legacy YAML. Inheritance does not skip validation of the selected child policy.
+non-Wasm, and build-only paths do not validate the permission schema. An explicit
+policy can therefore override permission fields with an invalid schema.
+Inheritance does not skip validation of the selected child policy.
 
 Moonx consumes an inherited policy handle before resolving `.mbtx`
 dependencies and relays it only to the final `moonrun` process. Registry and
