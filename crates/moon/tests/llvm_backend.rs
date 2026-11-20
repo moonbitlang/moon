@@ -58,7 +58,7 @@ pub fn require_native_answer() -> Int { answer() }
 }
 
 #[test]
-fn missing_llvm_prelude_reports_an_actionable_error() {
+fn missing_llvm_bundle_is_built_from_source() {
     let project = tempfile::tempdir().unwrap();
     std::fs::write(project.path().join("moon.mod"), "name = \"test/llvm\"\n").unwrap();
     std::fs::write(project.path().join("moon.pkg"), "").unwrap();
@@ -76,26 +76,43 @@ fn missing_llvm_prelude_reports_an_actionable_error() {
     )
     .unwrap();
     std::fs::create_dir(core.path().join("prelude")).unwrap();
-    std::fs::write(core.path().join("prelude/moon.pkg"), "").unwrap();
+    std::fs::write(
+        core.path().join("prelude/moon.pkg"),
+        "import { \"moonbitlang/core/builtin\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        core.path().join("prelude/prelude.mbt"),
+        "pub using @builtin {type Int, type Unit}\n",
+    )
+    .unwrap();
+    std::fs::create_dir(core.path().join("builtin")).unwrap();
+    std::fs::write(core.path().join("builtin/moon.pkg"), "").unwrap();
+    std::fs::write(
+        core.path().join("builtin/builtin.mbt"),
+        "#builtin\npub type Int\n#builtin\npub type Unit\n",
+    )
+    .unwrap();
 
     snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
         .current_dir(project.path())
         .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .env("MOON_CORE_OVERRIDE", core.path())
-        .env("MOONC_OVERRIDE", project.path().join("missing-moonc"))
         .env("MOON_DEP_CACHE", "off")
         .env("MOON_WORK", "off")
         .args(["check", "--target", "llvm"])
         .assert()
-        .failure()
-        .stdout_eq("")
-        .stderr_eq(snapbox::str![[r#"
-Warning: LLVM backend is experimental and only supported on nightly moonbit toolchain for now
-Error: failed to run check for target LLVM
-
-Caused by:
-    0: Failed to calculate build plan
-    1: toolchain is incomplete: missing `prelude.mi` for target `llvm`
-
-"#]]);
+        .success()
+        .stdout_eq("");
+    for package in ["builtin", "prelude"] {
+        assert!(
+            project
+                .path()
+                .join(format!(
+                    "_build/llvm/debug/check/.mooncakes/moonbitlang/core/{package}/{package}.mi"
+                ))
+                .is_file()
+        );
+    }
+    assert!(!core.path().join("_build").exists());
 }

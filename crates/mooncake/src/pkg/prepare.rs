@@ -49,9 +49,8 @@ pub(super) fn prepare_build_modules(
     // Reject invalid root declarations before trying to read the toolchain.
     let mut module_graph = prepare_roots(roots)?;
     if !includes_core {
-        inject_std(&mut module_graph).map_err(|error| {
-            anyhow::anyhow!("Cannot inject the standard library `moonbitlang/core`: {error}")
-        })?;
+        inject_std(&mut module_graph)
+            .context("Cannot inject the standard library `moonbitlang/core`")?;
     }
     Ok(module_graph)
 }
@@ -60,8 +59,13 @@ pub(super) fn prepare_build_modules(
 /// to the resolve graph, and mark it as the standard library.
 fn inject_std(module_graph: &mut ModuleDependencyGraph) -> anyhow::Result<()> {
     let core_dir = toolchain::core();
-    let loaded_core =
-        read_dependency_module_manifest(&core_dir).context("Cannot load the core file")?;
+    let loaded_core = read_dependency_module_manifest(&core_dir).with_context(|| {
+        format!(
+            "Cannot load the standard-library module manifest in `{}`; \
+             reinstall the toolchain or set MOON_CORE_OVERRIDE to a valid core checkout",
+            core_dir.display()
+        )
+    })?;
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)?;
     let id = module_graph.add_module(source, Arc::new(loaded_core));
     module_graph.register_stdlib(id);

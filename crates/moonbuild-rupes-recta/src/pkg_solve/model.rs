@@ -79,6 +79,12 @@ pub struct PackageRelations {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PackageResolutionError {
+    #[error(
+        "toolchain is incomplete: missing standard-library package `{package}`; \
+         reinstall the toolchain or check MOON_CORE_OVERRIDE"
+    )]
+    MissingStdlibPackage { package: &'static str },
+
     #[error("Cannot find import '{import}' in {package_fqn}")]
     ImportNotFound {
         import: String,

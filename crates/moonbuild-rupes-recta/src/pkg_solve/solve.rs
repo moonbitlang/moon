@@ -50,6 +50,22 @@ pub(super) fn solve_only(
     backend: TargetBackend,
     user_log: &UserLog,
 ) -> Result<PackageRelations, PackageResolutionError> {
+    // Injected toolchains must supply the implicit imports. Local core
+    // development can intentionally contain only a subset of core packages.
+    if let Some(stdlib) = modules.stdlib() {
+        for package in [MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE]
+            .into_iter()
+            .chain(enable_coverage.then_some(MOONBITLANG_COVERAGE))
+        {
+            if packages
+                .get_package_id_by_name(package)
+                .is_none_or(|id| packages.get_package(id).module != stdlib)
+            {
+                return Err(PackageResolutionError::MissingStdlibPackage { package });
+            }
+        }
+    }
+
     debug!(
         "Building dependency resolution structures for {} packages",
         packages.package_count()

@@ -35,7 +35,7 @@ use moonutil::{cond_expr::OptLevel, resolution::ModuleSource, target::TargetBack
 use crate::{
     ResolvedProject,
     build_plan::{ArtifactKey, BuildAction},
-    discover::DiscoverResult,
+    discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
 };
@@ -670,6 +670,8 @@ impl TargetLayout {
 #[derive(Clone, Debug)]
 pub struct ArtifactPathResolver {
     target_layout: TargetLayout,
+    /// Selected prebuilt artifacts. `None` also covers injected core compiled
+    /// from source into the normal dependency artifact layout.
     stdlib_dir: Option<PathBuf>,
 }
 
@@ -689,13 +691,19 @@ impl ArtifactPathResolver {
         self.stdlib_dir.as_deref()
     }
 
+    /// Injected core retains its dependency identity when missing toolchain
+    /// artifacts are built under the project target directory.
+    pub(crate) fn uses_prebuilt_stdlib(&self, package: &DiscoveredPackage) -> bool {
+        package.is_stdlib && self.stdlib_dir.is_some()
+    }
+
     pub fn core_of_build_target(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
     ) -> PathBuf {
-        // Injected stdlib packages are linked from their installed `.core`.
+        // Use installed `.core` files only when prebuilt stdlib is selected.
         if let Some(stdlib_dir) = self.stdlib_dir() {
             let pkg = pkg_list.get_package(target.package);
             if pkg.is_stdlib {
@@ -762,7 +770,9 @@ impl ArtifactPathResolver {
             return prebuilt;
         }
 
-        let path = if self.target_layout.run_mode == RunMode::Prove {
+        let path = if self.target_layout.run_mode == RunMode::Prove
+            && !pkg_list.is_stdlib_package(target.package)
+        {
             self.target_layout.emit_proof_mi_path(pkg_list, target)
         } else {
             self.target_layout.mi_of_build_target_aux(

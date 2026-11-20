@@ -56,7 +56,12 @@ RR should not decide whether a build uses the installed stdlib by calling
 records the selected `Stdlib(path)` in the module dependency graph.
 `moonbuild::compile` consumes that root through `CompileConfig`, `BuildMeta`,
 and the artifact path resolver, without reselecting it from the environment or
-root module's name. A local core project has no injected stdlib.
+root module's name. It checks bundle completeness for the selected backend;
+incomplete bundles use ordinary project-local dependency artifacts built from
+that core source tree. RR consumes this decision without checking file existence.
+A local core project has no injected stdlib. See the
+[stdlib boundaries](rr-special-cases.md#stdlib-injection-boundaries) for fallback
+and missing-declaration behavior.
 
 ## Packaging layouts by system
 
