@@ -144,7 +144,7 @@ fn test_single_file_mbtx_run_uses_embedded_permission() {
     let dir = TestDir::new("moon_test_single_file.in");
 
     moon_cmd(&dir)
-        .args(["run", "embedded_policy.mbtx", "--target", "wasm"])
+        .args(["run", "front_matter_permission.mbtx", "--target", "wasm"])
         .assert()
         .success()
         .stdout_eq("embedded\n");
@@ -239,7 +239,7 @@ fn test_single_file_mbtx_dry_run_reads_front_matter() {
 fn test_stdin_mbtx_uses_embedded_permission() {
     let fixture_dir = TestDir::new("moon_test_single_file.in");
     let dir = TestDir::new_empty();
-    let source = fs::read_to_string(fixture_dir.join("embedded_policy.mbtx")).unwrap();
+    let source = fs::read_to_string(fixture_dir.join("front_matter_permission.mbtx")).unwrap();
 
     moon_cmd(&dir)
         .args(["run", "-", "--target", "wasm"])
@@ -253,7 +253,7 @@ fn test_stdin_mbtx_uses_embedded_permission() {
 fn test_stdin_mbtx_policy_keeps_the_invocation_directory() {
     let fixture_dir = TestDir::new("moon_test_single_file.in");
     let dir = TestDir::new_empty();
-    let source = fs::read_to_string(fixture_dir.join("embedded_policy.mbtx")).unwrap();
+    let source = fs::read_to_string(fixture_dir.join("front_matter_permission.mbtx")).unwrap();
     let output = moon_cmd(&dir)
         .args(["run", "-", "--target", "wasm", "--dry-run"])
         .stdin(source)
@@ -286,7 +286,7 @@ fn test_single_file_mbtx_explicit_policy_overrides_embedded_policy() {
     moon_cmd(&dir)
         .args([
             "run",
-            "embedded_policy.mbtx",
+            "front_matter_permission.mbtx",
             "--target",
             "wasm",
             "--wasm-policy",

@@ -93,8 +93,7 @@ impl PolicyConfig {
                         path.display()
                     )
                 })?;
-            return permission
-                .deserialize()
+            return serde_json_lenient::from_value(permission)
                 .with_context(|| format!("invalid .mbtx permission in `{}`", path.display()));
         }
 
@@ -232,7 +231,7 @@ fn main {}
     }
 
     #[test]
-    fn parses_legacy_policy_with_a_shebang() {
+    fn rejects_comment_only_policy_with_a_shebang() {
         let tmp = tempfile::tempdir().unwrap();
         let policy_file = tmp.path().join("script.mbtx");
         std::fs::write(
@@ -248,10 +247,11 @@ fn main {}
 "#,
         )
         .unwrap();
-        let config = PolicyConfig::from_file(&policy_file).unwrap();
-        assert_eq!(
-            config.env.unwrap().set.get("APP_ENV").map(String::as_str),
-            Some("legacy")
+        let error = PolicyConfig::from_file(&policy_file).err().unwrap();
+        assert!(
+            error
+                .to_string()
+                .contains("has no `permission` front matter")
         );
     }
 

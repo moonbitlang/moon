@@ -20,7 +20,6 @@ use std::path::Path;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use serde::de::DeserializeOwned;
 
 use crate::{constants::DOT_MBT_DOT_MD, package::Import};
 
@@ -63,31 +62,7 @@ pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Opti
 #[derive(Debug, Default)]
 pub struct MbtxFrontMatter {
     pub imports: Vec<Import>,
-    pub permission: Option<MbtxPermission>,
-}
-
-/// Keep compatibility YAML undecoded until the runtime selects this permission.
-/// Explicit and inherited policies must still override malformed legacy YAML.
-#[derive(Debug)]
-pub enum MbtxPermission {
-    MoonPkg(serde_json_lenient::Value),
-    // TODO: Remove this variant when comment-based YAML policies are retired.
-    LegacyYaml(String),
-}
-
-impl MbtxPermission {
-    pub fn deserialize<T: DeserializeOwned>(self) -> anyhow::Result<T> {
-        match self {
-            Self::MoonPkg(value) => Ok(serde_json_lenient::from_value(value)?),
-            Self::LegacyYaml(yaml) => {
-                #[derive(serde::Deserialize)]
-                struct LegacyFrontMatter<T> {
-                    policy: T,
-                }
-                Ok(serde_yaml::from_str::<LegacyFrontMatter<T>>(&yaml)?.policy)
-            }
-        }
-    }
+    pub permission: Option<serde_json_lenient::Value>,
 }
 
 impl MbtxFrontMatter {
@@ -124,7 +99,7 @@ impl MbtxFrontMatter {
                             header.permission.is_none(),
                             "Duplicate `permission` declaration in .mbtx front matter."
                         );
-                        header.permission = Some(MbtxPermission::MoonPkg(value.clone()));
+                        header.permission = Some(value.clone());
                     }
                     "test-import" | "wbtest-import" => anyhow::bail!(
                         "`test-import` and `wbtest-import` are not supported in .mbtx front matter"
@@ -132,13 +107,6 @@ impl MbtxFrontMatter {
                     _ => anyhow::bail!("Unexpected key `{key}` in .mbtx front matter."),
                 }
             }
-        }
-        if let Some(yaml) = extract_legacy_mbtx_policy(body) {
-            anyhow::ensure!(
-                header.permission.is_none(),
-                "Cannot combine `permission` front matter with a legacy `// policy:` block."
-            );
-            header.permission = Some(MbtxPermission::LegacyYaml(yaml));
         }
         Ok(header)
     }
@@ -173,37 +141,6 @@ fn extract_mbtx_front_matter(content: &str) -> anyhow::Result<(&str, &str)> {
         end += line.len();
     }
     anyhow::bail!("Unterminated .mbtx front matter: expected a closing `---` line.")
-}
-
-// TODO: Remove this parser when comment-based YAML policies are retired.
-fn extract_legacy_mbtx_policy(content: &str) -> Option<String> {
-    let mut lines = content.lines().skip_while(|line| line.trim().is_empty());
-    let first = mbtx_comment_content(lines.next()?)?;
-    if !first.trim().starts_with("policy:") {
-        return None;
-    }
-
-    let mut yaml = String::from(first);
-    yaml.push('\n');
-    for line in lines {
-        let Some(comment) = mbtx_comment_content(line) else {
-            break;
-        };
-        if !comment.is_empty() && !comment.starts_with([' ', '\t']) {
-            break;
-        }
-        yaml.push_str(comment);
-        yaml.push('\n');
-    }
-    Some(yaml)
-}
-
-fn mbtx_comment_content(line: &str) -> Option<&str> {
-    let comment = line.trim_start().strip_prefix("//")?;
-    if !comment.is_empty() && !comment.starts_with([' ', '\t']) {
-        return None;
-    }
-    Some(comment.strip_prefix(' ').unwrap_or(comment))
 }
 
 fn extract_mbtx_import_source(content: &str) -> Option<&str> {
@@ -243,11 +180,7 @@ fn main {}
         assert_eq!(header.imports.len(), 1);
         assert_eq!(header.imports[0].get_path(), "moonbitlang/core/env");
         assert_eq!(
-            header
-                .permission
-                .unwrap()
-                .deserialize::<serde_json_lenient::Value>()
-                .unwrap(),
+            header.permission.unwrap(),
             serde_json_lenient::json!({
                 "env": { "set": { "MODE": "embedded" } },
                 "fs": { "read": ["."], "write": [] },
@@ -298,14 +231,7 @@ fn main {}
             MbtxFrontMatter::parse("\u{feff}\r\n---\r\npermission()\r\n---\r\nfn main {}\r\n")
                 .unwrap();
         assert!(header.imports.is_empty());
-        assert_eq!(
-            header
-                .permission
-                .unwrap()
-                .deserialize::<serde_json_lenient::Value>()
-                .unwrap(),
-            serde_json_lenient::json!({})
-        );
+        assert_eq!(header.permission.unwrap(), serde_json_lenient::json!({}));
         for source in ["---\n---", "fn main {}", "// ordinary comment\nfn main {}"] {
             let header = MbtxFrontMatter::parse(source).unwrap();
             assert!(header.imports.is_empty());
@@ -319,7 +245,6 @@ fn main {}
             for declarations in [
                 "---\nimport { \"moonbitlang/core/env\" }\npermission()\n---\n",
                 "import { \"moonbitlang/core/env\" }\n",
-                "// policy: {}\nimport { \"moonbitlang/core/env\" }\n",
             ] {
                 let source = format!("{bom}#!/usr/bin/env moonx\n\n{declarations}fn main {{}}\n")
                     .replace('\n', newline);
@@ -351,11 +276,7 @@ fn main {}
     fn leaves_permission_schema_validation_to_the_runtime() {
         let header = MbtxFrontMatter::parse("---\npermission(env: true)\n---\n").unwrap();
         assert_eq!(
-            header
-                .permission
-                .unwrap()
-                .deserialize::<serde_json_lenient::Value>()
-                .unwrap(),
+            header.permission.unwrap(),
             serde_json_lenient::json!({"env": true})
         );
     }
@@ -402,41 +323,19 @@ fn main {}
     }
 
     #[test]
-    fn parses_legacy_yaml_permissions_without_consuming_following_comments() {
-        for ending in ["\n", "// explanation\n", "///|\n"] {
+    fn policy_comments_do_not_declare_permissions() {
+        for policy in ["// policy: {}", "// policy:\n//   env: ["] {
             let source = format!(
-                "// policy:\n//   env:\n//     set:\n//       MODE: embedded\n{ending}import {{ \"moonbitlang/core/env\" }}\nfn main {{}}\n"
+                "---\nimport {{ \"moonbitlang/core/env\" }}\n---\n{policy}\nfn main {{}}\n"
             );
             let header = MbtxFrontMatter::parse(&source).unwrap();
             assert_eq!(header.imports.len(), 1);
-            assert_eq!(
-                header
-                    .permission
-                    .unwrap()
-                    .deserialize::<serde_json_lenient::Value>()
-                    .unwrap(),
-                serde_json_lenient::json!({ "env": { "set": { "MODE": "embedded" } } })
-            );
+            assert!(header.permission.is_none());
+
+            let source = format!("---\npermission()\n---\n{policy}\nfn main {{}}\n");
+            let header = MbtxFrontMatter::parse(&source).unwrap();
+            assert_eq!(header.permission, Some(serde_json_lenient::json!({})));
         }
-    }
-
-    #[test]
-    fn defers_invalid_legacy_yaml_until_permission_is_used() {
-        let header = MbtxFrontMatter::parse("// policy:\n//   env: [\n\nfn main {}\n").unwrap();
-        assert!(
-            header
-                .permission
-                .unwrap()
-                .deserialize::<serde_json_lenient::Value>()
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn rejects_permissions_declared_in_both_formats() {
-        let error = MbtxFrontMatter::parse("---\npermission()\n---\n// policy: {}\nfn main {}\n")
-            .unwrap_err();
-        assert!(error.to_string().contains("Cannot combine"));
     }
 
     #[test]
