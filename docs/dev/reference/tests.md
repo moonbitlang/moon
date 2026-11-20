@@ -336,3 +336,52 @@ Filtering is handled by `TestFilter` (`runtest/filter.rs`). It stores allowed
 
 By understanding the stages above you can reason about how a specific CLI invocation
 translates to concrete commands and why certain combinations of flags are rejected.
+
+## Candidate-file snapshot protocol
+
+Parameterized sync and async drivers construct `Test::start(name, file, index)`
+and call `finish(body_error)` on normal completion and caught errors. This driver
+requires the paired core implementation; older core releases do not provide
+these entry points. Legacy buffer snapshots retain their existing protocol.
+
+Each test executable receives `MOON_TEST_ARTIFACT_DIR`, a unique directory under
+its build target's `snapshots` directory, and `MOON_TEST_SNAPSHOT_DIR`, the package's
+`__snapshot__` directory. Core owns per-test candidate identity, validates baseline
+names, compares bytes with bounded buffers, and accumulates results. Differences
+never stop the test body. Unused temporary files require no explicit disposal and
+are not errors. Once a comparison starts, an incomplete comparison is a body error at completion, even
+if the test caught its I/O exception.
+Core exposes `Test::create_file`, `File::path`, and synchronous `File::snapshot`.
+The file already owns its context. No async snapshot comparison API is shipped. Async test bodies may still generate output before calling synchronous `File::snapshot`.
+The current core I/O implementation targets Wasm using existing runtime jobs,
+without a snapshot-specific native C stub.
+
+`finish` returns the original error when there are no completed or incomplete
+comparisons (including when files were created but never submitted). Otherwise
+its result message starts with `@FILE_SNAPSHOTS ` followed by JSON:
+
+```json
+{"body_error":"","snapshots":[{"expected":"output.txt","actual":"<candidate path>","location":"<source location>","offset":"-2"}]}
+```
+
+Offsets are decimal strings to preserve 64-bit byte positions: `-1` is equal,
+`-2` is a missing baseline, and nonnegative offsets identify the first difference.
+Moon validates names and candidate ownership in the invocation directory before
+accepting the report. A body error prevents file promotion even if snapshot
+differences were recorded.
+An inline expectation failure is still updated by the existing expect machinery;
+only a subsequent completed rerun can promote its file candidates. Other body
+errors are hard failures. Otherwise any mismatch is promotable.
+
+Before promotion, baseline claims from all results, including passing and errored
+tests, must be unique. Moon streams candidates into temporary files beside the
+baselines, atomically replaces each destination, then uses the existing rerun
+loop. Updates across multiple files are not an all-or-nothing transaction.
+Textual diff inputs are limited to 256 KiB per file; binary or larger outputs
+receive a summary and candidate path. JSON mode keeps the report in the existing
+result-message field.
+
+Successful executable invocations remove their candidate directory. Failed or
+interrupted runs retain artifacts until `moon clean`, including runs subsequently
+promoted. Writers must close before submission and leave the candidate unchanged;
+raw filesystem handles cannot be revoked by this protocol.

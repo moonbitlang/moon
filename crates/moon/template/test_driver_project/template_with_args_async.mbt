@@ -31,11 +31,15 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with f
     }
     async_tests.push(() => {
       handle_start()
-      try f(@moonbitlang/core/test.Test(name)) catch {
-        err if MoonBit_Async_Test_Driver_Impl::is_being_cancelled() => raise err
-        err => handle_result(name, error_to_string(err), false)
+      let context = @moonbitlang/core/test.Test::start(name, filename, index)
+      try f(context) catch {
+        err if MoonBit_Async_Test_Driver_Impl::is_being_cancelled() => {
+          ignore(context.finish(error_to_string(err)))
+          raise err
+        }
+        err => handle_result(name, context.finish(error_to_string(err)), false)
       } noraise {
-        _ => handle_result(name, "", false)
+        _ => handle_result(name, context.finish(""), false)
       }
     })
     true

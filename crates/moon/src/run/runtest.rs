@@ -58,6 +58,7 @@
 */
 
 mod expect;
+mod file_snapshot;
 mod filter;
 mod promotion;
 mod report;
@@ -135,6 +136,7 @@ enum TestResultKind {
     Passed,
     ExpectTestFailed,
     SnapshotTestFailed,
+    FileSnapshotFailed,
     RuntimeError,
     ExpectPanic,
     Failed,
@@ -855,6 +857,18 @@ async fn run_one_test_executable(
         ctx.moonrun_policy.as_deref(),
     );
     cmd.current_dir(module_root);
+    let snapshot_root = ctx.target_dir.join("snapshots");
+    std::fs::create_dir_all(&snapshot_root)?;
+    // Retain failed-run artifacts for diagnostics and promotion. `moon clean`
+    // owns their eventual removal, including after an interrupted run.
+    let artifacts = tempfile::Builder::new()
+        .prefix("run-")
+        .tempdir_in(&snapshot_root)?
+        .into_path();
+    let artifacts = dunce::canonicalize(artifacts)?;
+    let baselines = package.root_path.join("__snapshot__");
+    cmd.env("MOON_TEST_ARTIFACT_DIR", &artifacts);
+    cmd.env("MOON_TEST_SNAPSHOT_DIR", &baselines);
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.user_log.is_enabled(log::Level::Info) {
@@ -894,7 +908,7 @@ async fn run_one_test_executable(
 
     handle_finished_coverage(&ctx.target_dir, cov_cap)?;
 
-    parse_test_results(
+    let result = parse_test_results(
         test.meta.clone(),
         test_output,
         &test.args.package,
@@ -905,7 +919,22 @@ async fn run_one_test_executable(
             "Failed to parse test results for {fqn} {:?}",
             test.target.kind
         )
-    })
+    })?;
+    for cases in result.map.values() {
+        for case in cases.values() {
+            if let Some(report) = file_snapshot::parse(&case.raw.message)? {
+                report.validate(&artifacts)?;
+            }
+        }
+    }
+    if result
+        .map
+        .values()
+        .all(|cases| cases.values().all(TestCaseResult::passed))
+    {
+        std::fs::remove_dir_all(&artifacts)?;
+    }
+    Ok(result)
 }
 
 fn mk_coverage_capture() -> SectionCapture<'static> {
@@ -1038,7 +1067,21 @@ fn parse_one_test_result(
 ) -> anyhow::Result<TestResultKind> {
     use TestResultKind::*;
 
-    let res = if test_name.starts_with("panic") {
+    let res = if let Some(report) = file_snapshot::parse(&result.message)? {
+        if report.body_error.starts_with(EXPECT_FAILED) {
+            // Update the inline expectation first. File candidates from this
+            // interrupted body are not promotable until the rerun completes.
+            ExpectTestFailed
+        } else if !report.body_error.is_empty() {
+            Failed
+        } else if report.snapshots.iter().any(|s| s.offset != "-1") {
+            FileSnapshotFailed
+        } else if test_name.starts_with("panic") {
+            ExpectPanic
+        } else {
+            Passed
+        }
+    } else if test_name.starts_with("panic") {
         // For whatever reason, any message in the result is viewed as the code
         // successfully panicked.
         // FIXME: random prefix matching is bad, should use a proper attribute or something in code
