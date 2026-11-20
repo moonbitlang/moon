@@ -1,4 +1,5 @@
 # Step definitions: ../../tests/behavior/package_interfaces.rs
+# File assertions: ../../tests/behavior/files.rs
 # Command assertions: ../../tests/behavior/command.rs
 @package_interfaces
 Feature: Generating package interfaces
@@ -14,7 +15,7 @@ Feature: Generating package interfaces
       """
       Finished. moon: ran <task count> tasks, now up to date
       """
-    And the generated interface at "<interface path>" is exactly:
+    And the file "<interface path>" is exactly:
       """
       // Generated using `moon info`, DON'T EDIT IT
       package "username/hello/lib"
@@ -47,7 +48,7 @@ Feature: Generating package interfaces
       """
       Finished. moon: ran 2 tasks, now up to date
       """
-    And the generated interface at "lib/pkg.generated.mbti" is exactly:
+    And the file "lib/pkg.generated.mbti" is exactly:
       """
       // Generated using `moon info`, DON'T EDIT IT
       package "moonbitlang/hhh/lib"

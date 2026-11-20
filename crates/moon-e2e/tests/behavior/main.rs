@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
+    collections::BTreeMap,
     fmt,
     path::{Path, PathBuf},
 };
@@ -25,13 +26,16 @@ use cucumber::World as _;
 use moon_test_util::test_dir::TestDir;
 use snapbox::cmd::OutputAssert;
 
+mod clean;
 mod command;
 mod conditional_compilation;
+mod files;
 mod library_build;
 mod package_interfaces;
 mod package_selection;
 mod packaging;
 mod preview;
+mod snapshot_updates;
 mod support;
 
 const TEST_CASES_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../moon/tests/test_cases");
@@ -44,6 +48,7 @@ struct World {
     _workspace: Option<TestDir>,
     output: Option<OutputAssert>,
     package_index: Option<serde_json::Value>,
+    source_files_before_update: BTreeMap<String, Vec<u8>>,
 }
 
 impl fmt::Debug for World {

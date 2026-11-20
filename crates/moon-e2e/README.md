@@ -11,12 +11,14 @@ tests remain in the crate that owns the code.
 | Topic / question | Feature | Rust steps | Filter |
 | --- | --- | --- | --- |
 | **Building libraries:** Does the preview compile dependencies first and pass their interfaces? Can the compiler build both libraries? | [Library build](features/build/library_build.feature) | [library_build.rs](tests/behavior/library_build.rs) | `@library_build` |
+| **Cleaning builds:** Can a module or workspace remove its build outputs and build again? | [Clean and rebuild](features/build/clean.feature) | [clean.rs](tests/behavior/clean.rs) | `@clean` |
 | **Selecting sources:** Do backend switches and default/explicit profiles select the right source inputs? | [Conditional compilation](features/build/conditional_compilation.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs), [preview.rs](tests/behavior/preview.rs) | `@conditional_compilation` |
 | **Source roots:** Does `source = "."` resolve compiler inputs from the module root? | [Source root](features/build/source_root.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs), [preview.rs](tests/behavior/preview.rs) | `@source_root` |
-| **Generating interfaces:** Where does `moon info` write interfaces for different source layouts, and what do they contain? | [Package interfaces](features/interfaces/package_interfaces.feature) | [package_interfaces.rs](tests/behavior/package_interfaces.rs) | `@package_interfaces` |
+| **Generating interfaces:** Where does `moon info` write interfaces for different source layouts, and what do they contain? | [Package interfaces](features/interfaces/package_interfaces.feature) | [package_interfaces.rs](tests/behavior/package_interfaces.rs), [files.rs](tests/behavior/files.rs) | `@package_interfaces` |
 | **IDE source information:** Does the index retain inactive files and conditions while its check commands use only active inputs? | [Conditional index](features/interfaces/conditional_index.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs) | `@conditional_index` |
 | **Publishing:** Which files do ignore rules include in the archive, and in what order? | [Packaging](features/publishing/packaging.feature) | [packaging.rs](tests/behavior/packaging.rs) | `@packaging` |
 | **Selecting tests:** Which packages run for exact/fuzzy selectors? What happens when none match or a file filter is ambiguous? | [Package selection](features/testing/package_selection.feature) | [package_selection.rs](tests/behavior/package_selection.rs) | `@package_selection` |
+| **Updating inline expectations:** Does each backend update only its own source, preserve earlier updates, and pass when rerun without updating? | [Snapshot updates](features/testing/snapshot_updates.feature) | [snapshot_updates.rs](tests/behavior/snapshot_updates.rs), [files.rs](tests/behavior/files.rs) | `@snapshot_updates` |
 | **Conditional tests:** Do checks, test drivers and test compilation agree on source, blackbox and doctest inputs? | [Conditional tests](features/testing/conditional_tests.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs), [preview.rs](tests/behavior/preview.rs) | `@conditional_tests` |
 
 Keep features under their topic directory. Add an index entry when introducing
@@ -26,18 +28,22 @@ links to the specifications rather than repeating their expected values.
 ## Read the expectations
 
 - `Given` selects or prepares the named project; `When` performs the described
-  action. The feature introduction spells out the CLI, including flags used to
-  stabilize execution. Source fixtures stay in `moon/tests/test_cases`.
-- Each command has explicit exit-status and output expectations. Empty streams
-  are checked explicitly. Messages, counts, ordering, selected inputs and file
-  results belong in the feature, not in Rust constants or templates.
+  action. Conventional actions such as `I build the project` usually mean the
+  default command and need no repeated CLI introduction. Describe special
+  arguments where they help explain the scenario, in the step or introduction.
+  This is a reading convention; step definitions remain the source for how
+  commands are executed. Source fixtures stay in `moon/tests/test_cases`.
+- Each command has explicit exit-status and relevant output expectations. Check
+  empty streams when silence is part of the behavior. Messages, counts, ordering,
+  selected inputs and file results belong in the feature, not in Rust constants
+  or templates.
 - For an error code whose native representation differs, the exit-status step
   states both Unix and Windows expectations. In particular, Moon's `-1` error
   exit is observed as `255` on Unix and `-1` on Windows.
 - `stdout/stderr is exactly` compares the entire stream with only line endings
   normalized. Output docstrings include a final newline; additional blank lines
   inside them are significant.
-- `stderr matches` also normalizes path separators and the named roots
+- `stdout/stderr matches` also normalizes path separators and the named roots
   `[WORK_DIR]` (private project) and `[TOOLCHAIN]` (selected SDK).
 - Preview steps append `--dry-run --sort-input` to the stated Moon arguments.
   Arguments in the feature are plain whitespace-separated words, not shell
@@ -53,13 +59,18 @@ links to the specifications rather than repeating their expected values.
 - Index tables check file conditions and selected command inputs, without fixing
   JSON formatting, unrelated defaults, SDK link lists or build-directory layouts.
   Source paths for `source = "."` are checked because they are compiler inputs.
-- Interface docstrings retain intentional trailing newlines. Interface creation
-  checks the named file and its contents, without enumerating its whole directory.
+- File-content docstrings retain intentional trailing newlines: a blank line
+  before the closing delimiter represents a final newline in the file.
+  Source files named as unchanged are compared byte-for-byte with their contents
+  immediately before that update, including any earlier updates in the scenario.
+  Interface creation checks the named file and its contents, without enumerating
+  its whole directory.
   Archive file lists are retained because selecting archive contents is the
   behavior under test. No feature snapshots compiled `.core` contents.
 
 Every feature starts with paths to its step definitions. Shared exit-status and
-stream assertions live in [command.rs](tests/behavior/command.rs). The
+stream assertions live in [command.rs](tests/behavior/command.rs), and exact
+file-content assertions in [files.rs](tests/behavior/files.rs). The
 [runner](tests/behavior/main.rs) owns per-scenario state and source/build-directory
 isolation; [support.rs](tests/behavior/support.rs) locates the real executables and
 configures path redactions. No extra behavior expectations belong in these files.
