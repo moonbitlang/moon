@@ -2,8 +2,6 @@
 # Command assertions: ../../tests/behavior/command.rs
 @clean
 Feature: Cleaning a project before rebuilding it
-  CLI used here: moon build, moon clean, then moon build, with the default
-  backend and profile (Wasm and debug for these projects).
   Each scenario uses a private copy of the source fixture.
   A real build creates the project's default _build directory. Cleaning removes
   that directory, and another real build succeeds without the previous outputs.

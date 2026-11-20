@@ -28,8 +28,11 @@ links to the specifications rather than repeating their expected values.
 ## Read the expectations
 
 - `Given` selects or prepares the named project; `When` performs the described
-  action. The feature introduction spells out the CLI, including flags used to
-  stabilize execution. Source fixtures stay in `moon/tests/test_cases`.
+  action. Conventional actions such as `I build the project` usually mean the
+  default command and need no repeated CLI introduction. Describe special
+  arguments where they help explain the scenario, in the step or introduction.
+  This is a reading convention; step definitions remain the source for how
+  commands are executed. Source fixtures stay in `moon/tests/test_cases`.
 - Each command has explicit exit-status and output expectations. Empty streams
   are checked explicitly. Messages, counts, ordering, selected inputs and file
   results belong in the feature, not in Rust constants or templates.
