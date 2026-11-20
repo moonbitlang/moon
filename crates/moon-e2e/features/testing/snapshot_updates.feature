@@ -14,6 +14,9 @@ Feature: Updating inline test expectations for selected backends
   One private project is updated through Wasm, WasmGC, JavaScript, and Native.
   This exercises the real Wasm runtimes, Node.js, and native compiler; each
   rerun verifies that the saved expectation persists.
+  Native builds can print compiler/linker progress on stderr, such as MSVC's
+  source filenames and import-library messages. Native command expectations
+  cover exit status and the test result on stdout.
 
   Scenario: Update each backend while preserving the other source files
     Given a project with one inline snapshot for each backend
@@ -132,7 +135,6 @@ Feature: Updating inline test expectations for selected backends
 
     When I update inline snapshots for native
     Then the command succeeds
-    And stderr is empty
     And stdout is exactly:
       """
       Total tests: 1, passed: 1, failed: 0.
@@ -152,7 +154,6 @@ Feature: Updating inline test expectations for selected backends
       | lib/x.js.mbt      |
     When I test the saved inline snapshots for native
     Then the command succeeds
-    And stderr is empty
     And stdout is exactly:
       """
       Total tests: 1, passed: 1, failed: 0.

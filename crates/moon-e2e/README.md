@@ -33,9 +33,10 @@ links to the specifications rather than repeating their expected values.
   arguments where they help explain the scenario, in the step or introduction.
   This is a reading convention; step definitions remain the source for how
   commands are executed. Source fixtures stay in `moon/tests/test_cases`.
-- Each command has explicit exit-status and output expectations. Empty streams
-  are checked explicitly. Messages, counts, ordering, selected inputs and file
-  results belong in the feature, not in Rust constants or templates.
+- Each command has explicit exit-status and relevant output expectations. Check
+  empty streams when silence is part of the behavior. Messages, counts, ordering,
+  selected inputs and file results belong in the feature, not in Rust constants
+  or templates.
 - For an error code whose native representation differs, the exit-status step
   states both Unix and Windows expectations. In particular, Moon's `-1` error
   exit is observed as `255` on Unix and `-1` on Windows.
