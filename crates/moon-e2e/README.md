@@ -34,6 +34,9 @@ links to the specifications rather than repeating their expected values.
   arguments where they help explain the scenario, in the step or introduction.
   This is a reading convention; step definitions remain the source for how
   commands are executed. Source fixtures stay in `moon/tests/test_cases`.
+  Follow the
+  [scenario principles](../../docs/dev/testing.md#write-e2e-tests-as-explained-scenarios)
+  for fixture context, compilation/execution steps, and explanatory prose.
 - Each command has explicit exit-status and relevant output expectations. Check
   empty streams when silence is part of the behavior. Messages, counts, ordering,
   selected inputs and file results belong in the feature, not in Rust constants

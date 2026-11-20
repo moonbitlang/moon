@@ -110,6 +110,37 @@ goal per case. Keep dependent steps together when their state transitions are
 the contract; split unrelated goals. State the real tools/backend required and
 isolate the mutable state so another test cannot supply the expected result.
 
+For compiler/runtime output, keep pure decoding and formatting rules in unit
+tests. Exercise locating, extracting, and replacing text in real generated
+output through E2E tests. For example, stack-trace demangling needs a compiled
+program that fails in the real runtime: a hand-written stack string only proves
+the transformation for that assumed format. Prefer coverage of the user-visible
+stack trace over a standalone demangle command when stack rendering is the
+behavior being changed.
+
+Make the feature understandable without reading its Rust steps:
+
+- Put the broad behavior and shared starting context in `Background`. Explain
+  an output format there when readers need it to interpret several scenarios.
+  Put case-specific details and edge cases in the relevant `Scenario`.
+- Identify the source fixture and its location, plus the source contents or
+  metadata needed to understand the result. A `Given` that prepares source
+  files should describe those sources. Establish a compiled executable through
+  an actual build before describing it as available to run.
+- Match step wording to the actions performed. Release optimization, target
+  selection, and symbol retention describe compilation. Execution consumes the
+  resulting artifact. If a command both compiles and runs, say so; if the
+  scenario uses separate commands, show and check each stage.
+- Review each piece of prose for the context it adds beyond the scenario name,
+  steps, and assertions. Keep explanations of expected behavior and non-obvious
+  test data. Remove redundant command inventories and restatements of visible
+  expectations. Moving text between feature and scenario is useful only when
+  the information belongs at that scope.
+- When the origin of displayed information matters, make competing inputs
+  distinguishable. For example, give a source map a different name and source
+  position from the Wasm artifact, then assert the resulting frame. This proves
+  which input was consumed and which supplied each displayed value.
+
 Apply the same discipline to phase tests. When a rule crosses phases, give each
 boundary its own focused assertion: an implicit import must appear in the
 resolved dependency graph, its interface must be tracked as a compile input,
