@@ -28,7 +28,6 @@
 mod model;
 mod prepare;
 mod scan;
-pub(crate) mod special_case;
 pub(crate) mod synth;
 
 pub use model::{

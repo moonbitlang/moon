@@ -29,6 +29,7 @@ use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
     pkg_solve::model::VirtualUser,
+    special_cases::{CORE_MODULE_TUPLE, self_coverage},
 };
 use moonutil::user_log::UserLog;
 
@@ -185,7 +186,7 @@ fn solve_one_package(
 
     inject_implicit_stdlib_usage(builder, pid);
     if builder.inject_coverage {
-        inject_core_coverage_usage(builder, pid);
+        inject_coverage_usage(builder, pid);
     }
 
     let virtual_info = resolve_virtual_usages(builder, pid, pkg_data)?;
@@ -485,15 +486,13 @@ fn resolve_virtual_usages(
     Ok(v_user)
 }
 
-use crate::special_cases::{CORE_MODULE_TUPLE, is_self_coverage_lib};
-
-/// Inject the dependency to `moonbitlang/core/coverage` for core module packages.
+/// Inject the dependency to `moonbitlang/core/coverage` for packages using an
+/// external coverage runtime.
 ///
-/// This injects coverage at the solver layer so later stages don't need to
-/// special-case coverage wiring. We deliberately skip:
-/// - the coverage package itself and builtin (self-coverage libs)
-/// - blackbox tests (legacy behavior doesn't link coverage there)
-fn inject_core_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
+/// Blackbox test drivers also collect coverage, although blackbox compilation
+/// itself is not instrumented. Third-party instrumentation is filtered during
+/// lowering rather than when establishing these dependencies.
+fn inject_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: PackageId) {
     let pkg = builder.packages.get_package(pid);
 
     // Resolve coverage package id
@@ -504,13 +503,12 @@ fn inject_core_coverage_usage(builder: &mut PackageGraphBuilder<'_>, pid: Packag
         return;
     };
 
-    if is_self_coverage_lib(&pkg.fqn) {
+    if self_coverage::uses_self_runtime(&pkg.fqn) {
         return;
     }
 
-    info!("Injecting coverage usage for core package {:?}", pkg.fqn);
+    info!("Injecting coverage usage for package {:?}", pkg.fqn);
 
-    // Intentionally skip BlackboxTest
     for &kind in &[
         TargetKind::Source,
         TargetKind::InlineTest,
