@@ -9,6 +9,9 @@ behavior can change.
 ## Build + run pipeline
 
 `moon test` includes ordinary tests, doc tests, and Markdown tests by default.
+Explicit `--strip` and `--no-strip` options take precedence over symbol defaults.
+Release tests strip symbols by default; `--release --no-strip` retains function
+names and source locations for stack traces.
 
 An explicit `.mbtx` file path selects a standalone script before project discovery.
 It uses the script's imports and does not load the surrounding project. Exactly
