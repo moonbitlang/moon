@@ -482,11 +482,6 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 95,
     },
     WarningEntry {
-        mnemonic: "unfenced_import",
-        description: "Deprecated import declarations outside frontmatter.",
-        id: 96,
-    },
-    WarningEntry {
         mnemonic: "regex_runtime_fallback",
         description: "Regex match over the compile limits, which runs on the runtime engine.",
         id: 97,

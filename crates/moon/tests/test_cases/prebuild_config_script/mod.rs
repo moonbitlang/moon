@@ -379,7 +379,10 @@ version = "0.1.0""#
     );
     std::fs::write(
         dir.join("build config.mbtx"),
-        r#"import { "testuser/prebuild-input@0.1.0" @input }
+        r#"----
+import { "testuser/prebuild-input@0.1.0" @input }
+----
+
 fn main {
   let output : Json = { "vars": { "HELLO": @input.value() } }
   println(output.stringify())

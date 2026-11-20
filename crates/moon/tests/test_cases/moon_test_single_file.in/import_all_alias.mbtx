@@ -1,8 +1,9 @@
-///|
+----
 import {
   "moonbitlang/core/math" *,
   "moonbitlang/core/encoding/utf8" *,
 }
+----
 
 ///|
 fn main {

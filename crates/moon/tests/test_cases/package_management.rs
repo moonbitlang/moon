@@ -341,7 +341,7 @@ moonc link-core [..] -main test/app [..]
         ),
         ("latest.mbtx", "import { \"a/b\" @legacy, \"a/b/v2\" }\n"),
     ] {
-        std::fs::write(dir.join(filename), format!("{imports}{main}")).unwrap();
+        std::fs::write(dir.join(filename), format!("----\n{imports}----\n\n{main}")).unwrap();
         moon_cmd(&dir)
             .env("MOON_HOME", moon_home.path())
             .args(["run", filename, "--target", "wasm-gc"])
