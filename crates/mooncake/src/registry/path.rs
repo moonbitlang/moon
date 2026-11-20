@@ -303,7 +303,6 @@ mod tests {
         for (input, name, version, pinned) in [
             ("a/b", "a/b", "1.5.0", false),
             ("a/b@1.0.0", "a/b", "1.0.0", true),
-            ("a/b@2.0.0-rc.1", "a/b", "2.0.0-rc.1", true),
             ("a/b/v2", "a/b/v2", "2.1.0", false),
             ("a/b/v2@2.0.0-rc.1", "a/b/v2", "2.0.0-rc.1", true),
             ("a/b/tools", "a/b/tools", "1.0.0", false),
@@ -316,7 +315,7 @@ mod tests {
         }
 
         // An explicit version needs no registry entry or latest-version lookup.
-        let module = parse_module_path("a/b@2.0.0")
+        let module = parse_module_path("a/b/v2@2.0.0")
             .unwrap()
             .resolve_cached(&MockRegistry::new())
             .unwrap();

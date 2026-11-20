@@ -1469,9 +1469,9 @@ mod test {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("dep/one", "1.9.0", [])
-            .add_module_full("dep/one", "2.0.0", [])
+            .add_module_full("dep/one/v2", "2.0.0", [])
             .add_module_full("dep/alpha", "0.1.0", [("dep/one", "1.9.0")])
-            .add_module_full("dep/beta", "0.1.0", [("dep/one", "2.0.0")]);
+            .add_module_full("dep/beta", "0.1.0", [("dep/one/v2", "2.0.0")]);
 
         let mut context = ModuleResolutionContext::new(&registry);
         let mut resolver = MvsSolver;
@@ -1486,8 +1486,8 @@ mod test {
         assert!(status, "Resolve failed");
 
         assert_depends_on(&module_graph, "dep/alpha@0.1.0", "dep/one@1.9.0");
-        assert_depends_on(&module_graph, "dep/beta@0.1.0", "dep/one@2.0.0");
-        assert_no_depends_on(&module_graph, "dep/alpha@0.1.0", "dep/one@2.0.0");
+        assert_depends_on(&module_graph, "dep/beta@0.1.0", "dep/one/v2@2.0.0");
+        assert_no_depends_on(&module_graph, "dep/alpha@0.1.0", "dep/one/v2@2.0.0");
         assert_no_depends_on(&module_graph, "dep/beta@0.1.0", "dep/one@1.9.0");
     }
 

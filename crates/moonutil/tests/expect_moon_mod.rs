@@ -73,6 +73,72 @@ fn module_manifests_reject_v0_and_v1_suffixes() {
 }
 
 #[test]
+fn module_manifests_require_suffixes_for_major_versions_at_least_two() {
+    for version in ["2.0.0", "3.1.0", "2.0.0-rc.1"] {
+        for (file, contents) in [
+            (
+                "moon.mod",
+                format!("name = \"a/b\"\nversion = \"{version}\"\n"),
+            ),
+            (
+                "moon.mod",
+                format!("name = \"test/app\"\nimport {{ \"a/b@{version}\" }}\n"),
+            ),
+            (
+                "moon.mod.json",
+                format!(r#"{{"name":"a/b","version":"{version}"}}"#),
+            ),
+            (
+                "moon.mod.json",
+                format!(r#"{{"name":"test/app","deps":{{"a/b":"{version}"}}}}"#),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(file), contents).unwrap();
+            let error = read_module_desc_file_in_dir_with_legacy(dir.path(), true).unwrap_err();
+            let major = Version::parse(version).unwrap().major;
+            assert!(format!("{error:#}").contains(&format!(
+                "module `a/b` with version {version} requires a /v{major} suffix"
+            )));
+        }
+    }
+}
+
+#[test]
+fn module_manifests_accept_matching_major_versions() {
+    for (name, version) in [
+        ("a/b", "0.9.0"),
+        ("a/b", "1.9.0"),
+        ("a/b/v2", "2.0.0"),
+        ("a/b/v2", "2.0.0-rc.1"),
+        ("a/b/v3", "3.1.0"),
+    ] {
+        for (file, contents) in [
+            (
+                "moon.mod",
+                format!("name = \"{name}\"\nversion = \"{version}\"\n"),
+            ),
+            (
+                "moon.mod",
+                format!("name = \"test/app\"\nimport {{ \"{name}@{version}\" }}\n"),
+            ),
+            (
+                "moon.mod.json",
+                format!(r#"{{"name":"{name}","version":"{version}"}}"#),
+            ),
+            (
+                "moon.mod.json",
+                format!(r#"{{"name":"test/app","deps":{{"{name}":"{version}"}}}}"#),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(file), contents).unwrap();
+            read_module_desc_file_in_dir_with_legacy(dir.path(), true).unwrap();
+        }
+    }
+}
+
+#[test]
 fn module_manifests_validate_major_version_suffixes() {
     for (file, contents) in [
         ("moon.mod", "name = \"a/b/v2\"\nversion = \"1.5.0\"\n"),
@@ -265,7 +331,7 @@ fn read_module_from_dsl_merges_import_into_existing_deps() {
         r#"name = "example/mod"
 
 import {
-  "example/new@2.0.0",
+  "example/new/v2@2.0.0",
 }
 
 options(
@@ -286,7 +352,7 @@ options(
         Some(&existing_version)
     );
     assert_eq!(
-        module.deps.get("example/new").unwrap().version(),
+        module.deps.get("example/new/v2").unwrap().version(),
         Some(&new_version)
     );
 }

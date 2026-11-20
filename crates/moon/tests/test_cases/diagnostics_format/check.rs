@@ -508,7 +508,7 @@ fn test_moon_check_complete_json_captures_workspace_override_warning() {
     let app_manifest = dir.join("app/moon.mod");
     let content = std::fs::read_to_string(&app_manifest)
         .unwrap()
-        .replace("alice/liba@0.1.0", "alice/liba@2.0.0");
+        .replace("alice/liba@0.1.0", "alice/liba@0.2.0");
     std::fs::write(app_manifest, content).unwrap();
 
     let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());

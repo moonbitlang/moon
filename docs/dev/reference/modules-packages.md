@@ -197,7 +197,8 @@ For example, if a module is named `rabbit/containers`,
 its username part is `rabbit` (and thus submitted by this user),
 and its unqualified name is `containers`.
 
-The unqualified name may include a major-version suffix `/vN`, where `N` is
+For versions with a major component at least 2, the unqualified name must
+include a major-version suffix `/vN`, where `N` is
 an integer at least 2 without leading zeroes and matches the version's major
 component. For example, `rabbit/containers/v2` uses versions `2.x.y`, including
 prereleases such as `2.0.0-rc.1`. A mismatched explicit or registry-selected
@@ -221,6 +222,8 @@ validation rules. Both manifest validation and `resolution::ModuleSource`
 construction use those rules; declarations do not depend on the resolution
 result model. Mooncake reexports `ModuleName` and `ModuleVersionError` for clients
 of its registry and package-management interfaces.
+`moon check` enforces these shared manifest rules. Packaging and publishing
+use Mooncake's existing invocation of `moon check` for validation.
 
 Project manifest loading rejects the removed `include` and `exclude` keys in
 either format, including empty lists and JSON `null`. This applies to workspace
