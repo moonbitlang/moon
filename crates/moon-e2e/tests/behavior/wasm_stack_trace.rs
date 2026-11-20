@@ -18,38 +18,20 @@
 
 use std::path::Path;
 
-use cucumber::{given, when};
+use cucumber::{gherkin::Step, given, when};
 use moon_test_util::test_dir::TestDir;
 
 use super::{TEST_CASES_ROOT, World, support};
 
-#[given("a versioned Wasm executable that aborts")]
-fn failing_program(world: &mut World) {
+#[given(expr = "the MoonBit sources in fixture {string}")]
+fn source_project(world: &mut World, fixture: String) {
     let workspace = TestDir::new_empty();
-    world.cwd = Some(Path::new(TEST_CASES_ROOT).join("wasm_stack_trace"));
+    world.cwd = Some(Path::new(TEST_CASES_ROOT).join(fixture));
     world.target_dir = Some(workspace.join("_build"));
     world._workspace = Some(workspace);
 }
 
-#[when("I run the executable in release mode for WasmGC")]
-fn run_program(world: &mut World) {
-    world.output = Some(
-        world
-            .command()
-            .args([
-                "run",
-                ".",
-                "--release",
-                "--no-strip",
-                "--target",
-                "wasm-gc",
-                "--sort-input",
-            ])
-            .assert(),
-    );
-}
-
-#[when(expr = "I run the failing WasmGC test with flags {string}")]
+#[when(expr = "I compile and run the tests for WasmGC with flags {string}")]
 fn run_test(world: &mut World, flags: String) {
     world.output = Some(
         world
@@ -66,7 +48,7 @@ fn run_test(world: &mut World, flags: String) {
     );
 }
 
-#[when("I build the WasmGC executable in release mode with symbols")]
+#[when("I build the main package for WasmGC in release mode with symbols")]
 fn build_program(world: &mut World) {
     world.output = Some(
         world
@@ -96,6 +78,20 @@ fn change_source_map(world: &mut World, state: String) {
         "malformed" => std::fs::write(source_map, "invalid source map").unwrap(),
         _ => panic!("unknown source-map state: {state}"),
     }
+}
+
+#[when("I replace the compiled source map with:")]
+fn replace_source_map(world: &mut World, step: &Step) {
+    let source_map = world
+        .target_dir
+        .as_ref()
+        .expect("Given a private build directory")
+        .join("wasm-gc/release/build/stack_trace.wasm.map");
+    std::fs::write(
+        source_map,
+        step.docstring.as_deref().expect("source map JSON"),
+    )
+    .unwrap();
 }
 
 #[when("I execute the compiled Wasm with moonrun")]

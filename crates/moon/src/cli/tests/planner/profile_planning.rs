@@ -198,12 +198,12 @@ fn assert_test_profile(graph: &str, profile: &str) {
                 drivers.push((package[1].clone(), kind[1].clone()));
             }
             "build-package" | "link-core" => {
-                // Default test builds are unoptimized with debug information;
-                // release changes code generation as well as the output directory.
+                // Both profiles retain diagnostic information; release enables
+                // optimization as well as changing the output directory.
                 for flag in ["-g", "-O0", "-source-map"] {
                     assert_eq!(
                         args.iter().any(|arg| arg == flag),
-                        profile == "debug",
+                        flag != "-O0" || profile == "debug",
                         "{}: {flag}",
                         action.command
                     );

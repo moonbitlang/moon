@@ -170,7 +170,9 @@ the demangled function name; the runtime location retains the module identity.
 Unrecognized names retain their original display names.
 
 Each frame shows the mapped source file and line first, followed by the runtime
-location in parentheses. Missing or malformed source maps do not erase the
+location in parentheses. Function names come from the runtime's Wasm frames;
+source maps supply only source files and line numbers, not function names.
+Missing or malformed source maps do not erase the
 runtime information needed to investigate a failure. `--no-stack-trace` still
 suppresses all frames.
 
