@@ -52,9 +52,11 @@ Mutable per-user state is likewise outside this module. Paths rooted at
 registry state, caches, configuration, or credentials.
 
 RR should not decide whether a build uses the installed stdlib by calling
-`moonutil::toolchain::core()` in lowering or metadata code. The command
-orchestration layer selects `stdlib_path` first, then passes that value through
-`CompileConfig`, `BuildMeta`, and the artifact path resolver.
+`moonutil::toolchain::core()` in lowering or metadata code. Module preparation
+records the selected `Stdlib(path)` in the module dependency graph.
+`moonbuild::compile` consumes that root through `CompileConfig`, `BuildMeta`,
+and the artifact path resolver, without reselecting it from the environment or
+root module's name. A local core project has no injected stdlib.
 
 ## Packaging layouts by system
 

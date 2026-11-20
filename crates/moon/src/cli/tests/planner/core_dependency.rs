@@ -74,7 +74,17 @@ fn build_graph() -> Vec<GraphAction> {
     let (cli, cmd) =
         parse_build_command(&["build", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
     // When the real planner and lowering produce the executable build graph.
-    graph_actions(&fixture.plan_build_with_cli(&cli, &cmd).unwrap())
+    let graph = fixture.plan_build_with_cli(&cli, &cmd).unwrap();
+    // Artifacts must come from the same fixed core as its declarations, not
+    // from the ambient toolchain. Normalize only that fixture's selected root.
+    let core_dir = dunce::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/cli/tests/planner/fixtures/core_dependency"),
+    )
+    .unwrap();
+    let core_dir = moonutil::path_normalizer::PathNormalizer::new(fixture.case_dir())
+        .normalize_path(&core_dir.to_string_lossy());
+    graph_actions(&graph.replace(&core_dir, "$CORE"))
 }
 
 fn application_compile_actions(graph: &[GraphAction]) -> Vec<&GraphAction> {
@@ -96,8 +106,10 @@ fn compile_action_tracks_the_implicit_builtin_interface_input() {
     // Then changing builtin's installed interface invalidates both app packages.
     for action in application_compile_actions(&graph) {
         assert!(
-            action.inputs.iter().any(|path| path
-                == "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi"),
+            action
+                .inputs
+                .iter()
+                .any(|path| path == "$CORE/_build/wasm-gc/release/bundle/builtin/builtin.mi"),
             "{}",
             action.command
         );
@@ -110,8 +122,10 @@ fn compile_action_tracks_the_implicit_prelude_interface_input() {
     // Then changing prelude's installed interface invalidates both app packages.
     for action in application_compile_actions(&graph) {
         assert!(
-            action.inputs.iter().any(|path| path
-                == "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi"),
+            action
+                .inputs
+                .iter()
+                .any(|path| path == "$CORE/_build/wasm-gc/release/bundle/prelude/prelude.mi"),
             "{}",
             action.command
         );
@@ -121,7 +135,7 @@ fn compile_action_tracks_the_implicit_prelude_interface_input() {
 #[test]
 fn compile_command_passes_builtin_with_its_full_alias() {
     let graph = build_graph();
-    let interface = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/builtin/builtin.mi:";
+    let interface = "$CORE/_build/wasm-gc/release/bundle/builtin/builtin.mi:";
     for action in application_compile_actions(&graph) {
         let args = shlex::split(&action.command).unwrap();
         let aliases: Vec<_> = args
@@ -137,7 +151,7 @@ fn compile_command_passes_builtin_with_its_full_alias() {
 #[test]
 fn compile_command_passes_prelude_with_its_short_alias() {
     let graph = build_graph();
-    let interface = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:";
+    let interface = "$CORE/_build/wasm-gc/release/bundle/prelude/prelude.mi:";
     for action in application_compile_actions(&graph) {
         let args = shlex::split(&action.command).unwrap();
         let aliases: Vec<_> = args
@@ -159,7 +173,7 @@ fn link_action_reads_prebuilt_core_artifacts() {
         .collect();
     assert_eq!(links.len(), 1, "only the app main package should link");
     let action = links[0];
-    let bundle = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/";
+    let bundle = "$CORE/_build/wasm-gc/release/bundle/";
     let mut core_inputs: Vec<_> = action
         .inputs
         .iter()
@@ -180,7 +194,7 @@ fn link_command_passes_prebuilt_core_artifacts() {
         .filter(|action| action.command.starts_with("moonc link-core "))
         .collect();
     assert_eq!(links.len(), 1, "only the app main package should link");
-    let bundle = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/";
+    let bundle = "$CORE/_build/wasm-gc/release/bundle/";
     // Then the linker reads builtin/prelude from the installed bundle,
     // rather than expecting the consumer to compile core locally.
     let args = shlex::split(&links[0].command).unwrap();
@@ -210,6 +224,6 @@ fn installed_core_does_not_get_local_compile_actions() {
         graph
             .iter()
             .flat_map(|action| &action.outputs)
-            .all(|path| !path.starts_with("$MOON_HOME/lib/core/"))
+            .all(|path| !path.starts_with("$CORE/"))
     );
 }
