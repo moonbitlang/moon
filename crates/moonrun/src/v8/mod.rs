@@ -505,17 +505,3 @@ pub(crate) fn run(
     }
     Ok(outcome)
 }
-
-#[cfg(test)]
-mod stack_trace_tests {
-    use super::*;
-
-    #[test]
-    fn preserves_parenthesized_locations_without_source_maps() {
-        let stack = "RangeError: Maximum call stack size exceeded\n    at openseek (wasm://wasm/openseek:wasm-function[42]:0x1234)\n    at callback (host.js:12:3)";
-        assert_eq!(
-            wasm_diagnostic::render(stack.lines().map(parse_stack_line), None, false),
-            stack
-        );
-    }
-}

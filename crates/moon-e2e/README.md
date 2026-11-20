@@ -20,7 +20,7 @@ tests remain in the crate that owns the code.
 | **Selecting tests:** Which packages run for exact/fuzzy selectors? What happens when none match or a file filter is ambiguous? | [Package selection](features/testing/package_selection.feature) | [package_selection.rs](tests/behavior/package_selection.rs) | `@package_selection` |
 | **Updating inline expectations:** Does each backend update only its own source, preserve earlier updates, and pass when rerun without updating? | [Snapshot updates](features/testing/snapshot_updates.feature) | [snapshot_updates.rs](tests/behavior/snapshot_updates.rs), [files.rs](tests/behavior/files.rs) | `@snapshot_updates` |
 | **Conditional tests:** Do checks, test drivers and test compilation agree on source, blackbox and doctest inputs? | [Conditional tests](features/testing/conditional_tests.feature) | [conditional_compilation.rs](tests/behavior/conditional_compilation.rs), [preview.rs](tests/behavior/preview.rs) | `@conditional_tests` |
-| **Wasm stack traces:** Do aborting release executables demangle module-qualified functions while retaining the module location? | [Wasm stack trace](features/testing/wasm_stack_trace.feature) | [wasm_stack_trace.rs](tests/behavior/wasm_stack_trace.rs) | `@wasm_stack_trace` |
+| **Wasm stack traces:** Do run/test stacks demangle module-qualified functions, honor --no-strip, and retain locations when source maps are unavailable? | [Wasm stack trace](features/testing/wasm_stack_trace.feature) | [wasm_stack_trace.rs](tests/behavior/wasm_stack_trace.rs) | `@wasm_stack_trace` |
 
 Keep features under their topic directory. Add an index entry when introducing
 a feature; add a new topic only when the existing topics do not fit. This index

@@ -174,6 +174,12 @@ location in parentheses. Missing or malformed source maps do not erase the
 runtime information needed to investigate a failure. `--no-stack-trace` still
 suppresses all frames.
 
+The [Moon E2E stack scenarios](../../../moon-e2e/features/testing/wasm_stack_trace.feature)
+exercise V8's displayed names through real compilation and execution, including
+missing and malformed source maps. Runtime integration tests in
+`tests/test/stack_traces.rs` also cover Wasmtime and wee8; demangler grammar and
+backend-neutral rendering rules retain focused unit tests.
+
 ## wee8 runtime integration
 
 wee8 enables native JS-string builtins and imported string constants during

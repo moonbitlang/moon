@@ -21,7 +21,7 @@ use std::path::Path;
 use cucumber::{given, when};
 use moon_test_util::test_dir::TestDir;
 
-use super::{TEST_CASES_ROOT, World};
+use super::{TEST_CASES_ROOT, World, support};
 
 #[given("a versioned Wasm executable that aborts")]
 fn failing_program(world: &mut World) {
@@ -45,6 +45,69 @@ fn run_program(world: &mut World) {
                 "wasm-gc",
                 "--sort-input",
             ])
+            .assert(),
+    );
+}
+
+#[when(expr = "I run the failing WasmGC test with flags {string}")]
+fn run_test(world: &mut World, flags: String) {
+    world.output = Some(
+        world
+            .command()
+            .args([
+                "test",
+                "--target",
+                "wasm-gc",
+                "--sort-input",
+                "--no-parallelize",
+            ])
+            .args(flags.split_whitespace())
+            .assert(),
+    );
+}
+
+#[when("I build the WasmGC executable in release mode with symbols")]
+fn build_program(world: &mut World) {
+    world.output = Some(
+        world
+            .command()
+            .args([
+                "build",
+                "--quiet",
+                "--release",
+                "--no-strip",
+                "--target",
+                "wasm-gc",
+            ])
+            .assert(),
+    );
+}
+
+#[when(expr = "I make the compiled source map {word}")]
+fn change_source_map(world: &mut World, state: String) {
+    let source_map = world
+        .target_dir
+        .as_ref()
+        .expect("Given a private build directory")
+        .join("wasm-gc/release/build/stack_trace.wasm.map");
+    assert!(source_map.is_file(), "the compiler produced a source map");
+    match state.as_str() {
+        "missing" => std::fs::remove_file(source_map).unwrap(),
+        "malformed" => std::fs::write(source_map, "invalid source map").unwrap(),
+        _ => panic!("unknown source-map state: {state}"),
+    }
+}
+
+#[when("I execute the compiled Wasm with moonrun")]
+fn run_wasm(world: &mut World) {
+    let wasm = world
+        .target_dir
+        .as_ref()
+        .expect("Given a private build directory")
+        .join("wasm-gc/release/build/stack_trace.wasm");
+    world.output = Some(
+        support::moonrun_cmd(world.project_path())
+            .arg(wasm)
             .assert(),
     );
 }
