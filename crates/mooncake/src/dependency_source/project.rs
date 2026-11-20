@@ -457,14 +457,14 @@ mod test {
     fn test_diff_state() {
         let original = to_state(
             r#"
-            user1:pkg1@1.0.0,pkg2@2.0.0
-            user2:pkg3@3.0.0
+            user1:pkg1@1.0.0,pkg2@0.2.0
+            user2:pkg3@0.3.0
             "#,
         );
         let target = to_new_state(
             r#"
-            user1:pkg1@1.0.0,pkg2@2.0.0,pkg4@4.0.0
-            user3:pkg5@5.0.0
+            user1:pkg1@1.0.0,pkg2@0.2.0,pkg4@0.4.0
+            user3:pkg5@0.5.0
             "#,
         );
         let diff = super::diff_dep_dir_state(&original, &target);
@@ -481,8 +481,8 @@ mod test {
         assert_eq!(
             diff.add_pkg,
             to_add_pkg(vec![
-                ("user1", vec![("pkg4", "4.0.0"),]),
-                ("user3", vec![("pkg5", "5.0.0"),])
+                ("user1", vec![("pkg4", "0.4.0"),]),
+                ("user3", vec![("pkg5", "0.5.0"),])
             ]),
             "add pkg"
         );
@@ -494,13 +494,13 @@ mod test {
         let original = to_state(
             r"
         user1:foo@1.0.0,bar@1.2.0
-        user2:foo@2.0.1,bar@2.2.0
+        user2:foo@0.2.1,bar@0.2.2
         ",
         );
         let target = to_new_state(
             r"
         user1:foo@1.2.0,bar@1.4.0
-        user2:foo@2.2.0
+        user2:foo@0.2.2
         ",
         );
         let diff = super::diff_dep_dir_state(&original, &target);
@@ -510,7 +510,7 @@ mod test {
             diff.add_pkg,
             to_add_pkg(vec![
                 ("user1", vec![("foo", "1.2.0"), ("bar", "1.4.0"),]),
-                ("user2", vec![("foo", "2.2.0"),])
+                ("user2", vec![("foo", "0.2.2"),])
             ]),
             "add pkg"
         );

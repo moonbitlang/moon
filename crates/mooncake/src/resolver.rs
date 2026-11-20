@@ -410,7 +410,7 @@ mod tests {
         // resolution must neither reread it nor replace it with the installed core.
         let dir = tempfile::tempdir().unwrap();
         let core_path = dir.path().join("unread-core");
-        let core = Arc::new(create_mock_module("moonbitlang/core", "9.0.0", []));
+        let core = Arc::new(create_mock_module("moonbitlang/core", "1.9.0", []));
         let core_source = ModuleSource::from_stdlib(&core, &core_path).unwrap();
         let core_id = graph.add_module(core_source.clone(), Arc::clone(&core));
         graph.register_stdlib(core_id);

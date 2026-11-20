@@ -472,6 +472,9 @@ mod tests {
             ("a/b/v0", "0.1.0"),
             ("a/b/v1", "1.0.0"),
             ("a/b/v2", "1.5.0"),
+            ("a/b/v2", "3.0.0"),
+            ("a/b", "2.0.0"),
+            ("a/b", "2.0.0-rc.1"),
         ] {
             let coordinate = format!("{name}@{version}");
             assert!(

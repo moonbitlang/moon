@@ -1261,7 +1261,7 @@ mod tests {
                 (
                     200,
                     String::new(),
-                    resolver_response("alice/secret", "PUBLIC", "2.0.0-alpha"),
+                    resolver_response("alice/secret", "PUBLIC", "1.0.0-alpha"),
                 ),
             ],
         );
@@ -2523,30 +2523,33 @@ mod tests {
         let wasm = b"\0asmtest";
         let checksum = sha256_hex(wasm);
 
-        for (name, package, url, cache_suffix) in [
+        for (name, version, package, url, cache_suffix) in [
             (
                 "a/b/v2",
+                "2.0.0",
                 "",
                 "https://download.mooncakes.io/prebuild/a/b/v2@2.0.0/v2.wasm",
                 "a/b/v2/2.0.0/v2.wasm",
             ),
             (
                 "a/b/v2",
+                "2.0.0",
                 "tool",
                 "https://download.mooncakes.io/prebuild/a/b/v2@2.0.0/tool/tool.wasm",
                 "a/b/v2/2.0.0/tool/tool.wasm",
             ),
             (
                 "a/b",
+                "1.0.0",
                 "v2/tool",
-                "https://download.mooncakes.io/prebuild/a/b@2.0.0/v2/tool/tool.wasm",
-                "a/b/2.0.0/v2/tool/tool.wasm",
+                "https://download.mooncakes.io/prebuild/a/b@1.0.0/v2/tool/tool.wasm",
+                "a/b/1.0.0/v2/tool/tool.wasm",
             ),
         ] {
             let mut urls = Vec::new();
             let path = registry
                 .acquire_wasm_asset_with(
-                    &ModuleSource::from_version(name.into(), Version::new(2, 0, 0)).unwrap(),
+                    &ModuleSource::from_version(name.into(), version.parse().unwrap()).unwrap(),
                     package,
                     &quiet_user_log(),
                     async |url| {

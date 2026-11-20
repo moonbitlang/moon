@@ -607,7 +607,7 @@ mod test {
         assert_eq!(fqn.short_alias(), "utils");
 
         // Deep package path
-        let module = create_module("company/project@2.0.0");
+        let module = create_module("company/project/v2@2.0.0");
         let package = assert_valid_pkg_path("internal/data/structures");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.short_alias(), "structures");
@@ -638,13 +638,13 @@ mod test {
         assert_eq!(fqn.short_alias(), "helpers");
 
         // Four segment module name with empty package
-        let module = create_module("company/division/project/module@3.1.4");
+        let module = create_module("company/division/project/module@1.1.4");
         let package = assert_valid_pkg_path("");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.short_alias(), "module");
 
         // Four segment module name with single segment package
-        let module = create_module("company/division/project/module@3.1.4");
+        let module = create_module("company/division/project/module@1.1.4");
         let package = assert_valid_pkg_path("core");
         let fqn = PackageFQN::new(module, package);
         assert_eq!(fqn.short_alias(), "core");

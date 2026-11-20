@@ -54,20 +54,23 @@ impl ModuleName {
         }
     }
 
-    /// Check the path suffix, and its agreement with a version when supplied.
+    /// Check that major versions at least 2 have a matching path suffix.
     /// Local development modules may omit their version.
     pub fn validate_version(&self, version: Option<&Version>) -> Result<(), ModuleVersionError> {
-        if let Some(major) = self.major_version_suffix()?
-            && let Some(version) = version
-            && major != version.major
-        {
-            return Err(ModuleVersionError::Mismatch {
+        match (self.major_version_suffix()?, version) {
+            (Some(major), Some(version)) if major != version.major => {
+                Err(ModuleVersionError::Mismatch {
+                    module: self.clone(),
+                    major,
+                    version: version.clone(),
+                })
+            }
+            (None, Some(version)) if version.major >= 2 => Err(ModuleVersionError::MissingSuffix {
                 module: self.clone(),
-                major,
                 version: version.clone(),
-            });
+            }),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Return the last segment of the name, that may be used as a short name
@@ -94,6 +97,11 @@ impl ModuleName {
 pub enum ModuleVersionError {
     #[error("module `{module}` major-version suffix must be /v2 or higher")]
     InvalidSuffix { module: ModuleName },
+    #[error("module `{module}` with version {version} requires a /v{} suffix", version.major)]
+    MissingSuffix {
+        module: ModuleName,
+        version: Version,
+    },
     #[error("module `{module}` requires major version {major}, but got {version}")]
     Mismatch {
         module: ModuleName,
