@@ -108,11 +108,16 @@ pub fn prepare_config(
             .filter(|(_, pkg)| {
                 pkg.is_stdlib && pkg.effective_supported_targets.contains(&target_backend)
             })
-            .all(|(_, pkg)| {
-                (pkg.is_virtual_impl() || stdlib_mi_path(root, target_backend, &pkg.fqn).is_file())
-                    && (!pkg.has_implementation()
-                        || stdlib_core_path(root, target_backend, &pkg.fqn).is_file())
+            .flat_map(|(_, pkg)| {
+                // A virtual implementation uses its contract's interface.
+                let interface = (!pkg.is_virtual_impl())
+                    .then(|| stdlib_mi_path(root, target_backend, &pkg.fqn));
+                let core_ir = pkg
+                    .has_implementation()
+                    .then(|| stdlib_core_path(root, target_backend, &pkg.fqn));
+                interface.into_iter().chain(core_ir)
             })
+            .all(|artifact| artifact.is_file())
     });
     let target_layout = TargetLayout::from_resolved_project(
         target_dir.to_owned(),
