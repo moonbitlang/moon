@@ -8,6 +8,7 @@ source and test pointers; the documents below are not a required reading list.
 | Set up, build, or submit a change | [Contributing](contributing.md) |
 | Find the crate that owns a behavior | [Source map](contributing.md#source-map) |
 | Write or clean up a test | [Testing](testing.md) |
+| Find an E2E scenario by topic | [E2E scenario index](../../crates/moon-e2e/README.md) |
 | Measure fixture overhead or retain a test workspace | [Test-directory diagnostics](test-directory-diagnostics.md) |
 | Look up a Moon command as a user | [English manual](../manual/src/SUMMARY.md) or [Chinese manual](../manual-zh/src/SUMMARY.md) |
 | Change MoonBuild behavior | The [glossary](../../CONTEXT.md), then the relevant route below |

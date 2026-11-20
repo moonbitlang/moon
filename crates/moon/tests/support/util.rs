@@ -370,26 +370,6 @@ fn split_command_line(kind: &str, idx: usize, line: &str) -> Result<Vec<String>,
     })
 }
 
-#[track_caller]
-pub(crate) fn run_moon_cmdtest(case_dir: &str) {
-    let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/test_cases")
-        .join(case_dir)
-        .join("moon.test");
-
-    let update = std::env::var_os("UPDATE_EXPECT").is_some();
-    let toolchain_root = toolchain_root_for_tests();
-    let exit_code = moon_test_util::cmdtest::run::t(
-        &test_path,
-        &moon_bin(),
-        &moonrun_bin(),
-        update,
-        Some(&toolchain_root),
-    );
-
-    assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
-}
-
 #[cfg(test)]
 mod tests {
     use super::{assert_command_matches, replace_dir};

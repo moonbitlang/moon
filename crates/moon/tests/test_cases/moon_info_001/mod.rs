@@ -1,11 +1,6 @@
 use super::*;
 
 #[test]
-fn test_moon_info_001() {
-    run_moon_cmdtest("moon_info_001.in");
-}
-
-#[test]
 fn test_moon_info_user_log_output() {
     let dir = TestDir::new("moon_info_001.in");
     moon_cmd(&dir)

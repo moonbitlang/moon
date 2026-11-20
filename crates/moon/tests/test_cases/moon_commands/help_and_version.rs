@@ -55,20 +55,13 @@ fn test_moon_help() {
               -h, --help     Print help
 
             Common Options:
-              -C <DIR>
-                      Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
-                  --target-dir <TARGET_DIR>
-                      The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/<file-name>` for a standalone file
-              -q, --quiet
-                      Suppress output
-              -v, --verbose
-                      Increase verbosity
-                  --trace
-                      Trace the execution of the program
-                  --dry-run
-                      Do not actually run the command
-              -Z, --unstable-feature <UNSTABLE_FEATURE>
-                      Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
+              -C <DIR>                                   Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
+                  --target-dir <TARGET_DIR>              The target directory. Defaults to `<project-root>/_build`, or `<source-dir>/_build/<file-name>` for a standalone file
+              -q, --quiet                                Suppress output
+              -v, --verbose                              Increase verbosity
+                  --trace                                Trace the execution of the program
+                  --dry-run                              Do not actually run the command
+              -Z, --unstable-feature <UNSTABLE_FEATURE>  Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
         "#]],
     );
 }

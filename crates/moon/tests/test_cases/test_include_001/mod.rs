@@ -1,11 +1,6 @@
 use super::*;
 
 #[test]
-fn test_include_001() {
-    run_moon_cmdtest("test_include_001.in");
-}
-
-#[test]
 fn test_removed_packaging_config_errors_even_when_quiet() {
     let dir = TestDir::new("test_include_001.in");
     for field in ["include", "exclude"] {
