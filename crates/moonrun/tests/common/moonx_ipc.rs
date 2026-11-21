@@ -67,15 +67,10 @@ pub fn assert_execution_options(project: &Path, wasm: &Path, policy: &Path) {
         .success()
         .stdout_eq(expected_output);
 
-    // Current pure virtualization rejects ordinary native commands, including
-    // moonrun. Exercise that behavior instead of inferring identity from a PID
-    // range, which can overlap real OS PIDs.
+    // Both modes can launch an ordinary native moonrun, which executes under
+    // its own OS identity rather than the calling Runtime's identity.
     let mode_policy = project.join("mode-policy.toml");
-    for (configured, flag, expected) in [
-        (false, false, "native"),
-        (true, false, "virtual"),
-        (false, true, "virtual"),
-    ] {
+    for (configured, flag) in [(false, false), (true, false), (false, true)] {
         fs::write(
             &mode_policy,
             format!(
@@ -96,11 +91,10 @@ pub fn assert_execution_options(project: &Path, wasm: &Path, policy: &Path) {
             .arg("check-native-spawn")
             .arg(runner)
             .arg(wasm)
-            .arg(expected)
             .timeout(Duration::from_secs(30))
             .assert()
             .success()
-            .stdout_eq("execution mode preserved\n");
+            .stdout_eq("native spawn preserved\n");
     }
 
     let args = [

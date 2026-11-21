@@ -32,12 +32,12 @@ Evidence: [execution acceptance cases](design/runtime-architecture.md#applying-t
 
 Contract and limits: [execution ownership](design/runtime-architecture.md#library-contract-and-execution-ownership).
 
-## Moonx-only guest execution
+## Guest execution
 
 - [x] Share moonx's authoritative grammar between Moon and Moonrun, including
   its opaque program-argument tail. Keep ordinary Moon CLI definitions in Moon.
-- [x] Restrict guest Virtual spawn to moonx for local `.mbtx` files and registry
-  packages; reject other commands without native fallback.
+- [x] Execute guest moonx calls internally for local `.mbtx` files and registry
+  packages; run other authorized commands as supervised native children.
 - [x] Complete help/version and argument errors through the embedded frontend
   and bound streams before creating a helper or handoff directory.
 
@@ -57,8 +57,11 @@ Deliver the remaining items as separate changes:
   once while preserving inherited restriction composition.
 - [x] Share moonrun's CLI grammar between the binary and library frontend
   adapters, keeping parsing separate from execution and process-global setup.
-- [ ] Add native process members to Engine for ordinary authorized guest
-  commands, preserving env, cwd, stdio, termination, wait, shutdown, and reaping.
+- [x] Add native process members to Engine for ordinary authorized guest
+  commands, preserving OS PIDs, env, cwd, stdio, termination, wait, shutdown,
+  and reaping.
+- [ ] Extract command interception from process preparation without changing
+  lookup, authorization, or execution behavior.
 - [x] Limit artifact handoff to Wasm; native/Node commands use ordinary OS spawn
   rather than a separate delivered-artifact executor.
 - [ ] Extend internal classification from moonx to moonrun using shared CLI

@@ -6,5 +6,6 @@ import {
   "moonbitlang/async/os_error",
   "moonbitlang/async/fs",
   "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
 }
 options("is-main": true)
