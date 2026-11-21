@@ -137,8 +137,266 @@ fn upgrade_home() -> Result<PathBuf> {
     Ok(home.to_path_buf())
 }
 
+/// Directories that the installers delete before they have a verified
+/// replacement (see `install/powershell.ps1` and `install/unix.sh`). `bin` is
+/// left out: it holds the executable that is currently running, which cannot be
+/// moved aside while it is in use, and it already has its own single-file
+/// recovery path in `copy_moon_back`. A failed upgrade can therefore still
+/// leave `bin` partially replaced; re-running the upgrade repairs it.
+const REPLACED_DIRS: [&str; 2] = ["lib", "include"];
+const BACKUP_SUFFIX: &str = ".bak-upgrade";
+
+/// The toolchain directories that an upgrade is about to overwrite, kept until
+/// the replacement has been verified. Renaming inside `MOON_HOME` is a metadata
+/// operation, so this is cheap even though `lib` is a few hundred megabytes.
+static BACKUP: std::sync::OnceLock<ToolchainBackup> = std::sync::OnceLock::new();
+
+struct ToolchainBackup {
+    home: PathBuf,
+    moved: Vec<(PathBuf, PathBuf)>,
+}
+
+impl ToolchainBackup {
+    /// Take the directories aside, so the installer has somewhere to write and
+    /// the previous tree can come back.
+    ///
+    /// A backup still present here means an earlier run could not restore it,
+    /// which makes it the only copy of that tree. Refuse to start instead of
+    /// clearing it: the earlier failure is then reported, not turned into data
+    /// loss.
+    ///
+    /// The same bar applies to a directory that cannot be moved aside: the
+    /// installer deletes what it finds, so a tree that cannot be kept has to
+    /// stop the upgrade before the installer runs.
+    fn capture(home: &Path) -> Result<Self> {
+        for name in REPLACED_DIRS {
+            let backup = home.join(format!("{name}{BACKUP_SUFFIX}"));
+            if backup.exists() {
+                bail!(
+                    "cannot start the upgrade: `{}` is still present from an earlier run that \
+                     could not restore it. It holds the previous `{name}`; inspect or remove it, \
+                     then run `moon upgrade` again.",
+                    backup.display()
+                );
+            }
+        }
+        let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+        for name in REPLACED_DIRS {
+            let original = home.join(name);
+            if !original.is_dir() {
+                continue;
+            }
+            let backup = home.join(format!("{name}{BACKUP_SUFFIX}"));
+            if let Err(err) = std::fs::rename(&original, &backup) {
+                // Put back what was already moved, so the upgrade can be
+                // retried without a half-taken-apart tree.
+                for (original, backup) in moved.iter().rev() {
+                    let _ = std::fs::rename(backup, original);
+                }
+                bail!(
+                    "cannot move `{}` aside before the upgrade: {err}. The installer deletes it, \
+                     so the upgrade stops before anything is lost.",
+                    original.display()
+                );
+            }
+            moved.push((original, backup));
+        }
+        Ok(Self {
+            home: home.to_path_buf(),
+            moved,
+        })
+    }
+
+    fn restore(&self) {
+        let mut restored = Vec::new();
+        for (original, backup) in &self.moved {
+            if !backup.exists() {
+                continue;
+            }
+            match swap_in(backup, original) {
+                Ok(()) => restored.push(original.display().to_string()),
+                Err(err) => eprintln!(
+                    "warning: the previous tree is kept at `{}`: {err}",
+                    backup.display()
+                ),
+            }
+        }
+        if restored.is_empty() {
+            return;
+        }
+        // What was put back is whatever the installer was given, so say what is
+        // actually there: claiming a restore over a half tree is how a broken
+        // installation gets mistaken for a working one.
+        let missing = incomplete_parts(&self.home);
+        if missing.is_empty() {
+            eprintln!(
+                "Restored the previous toolchain ({}) after the failed upgrade.",
+                restored.join(", ")
+            );
+        } else {
+            eprintln!(
+                "warning: restored the previous toolchain ({}), but it is still incomplete \
+                 (missing {}); reinstall from https://www.moonbitlang.com/download",
+                restored.join(", "),
+                missing.join(", ")
+            );
+        }
+    }
+
+    fn commit(&self) {
+        for (_, backup) in &self.moved {
+            if let Err(err) = std::fs::remove_dir_all(backup) {
+                eprintln!("warning: cannot remove `{}`: {err}", backup.display());
+            }
+        }
+    }
+}
+
+/// Move `backup` back to `original`. Windows refuses to rename onto an existing
+/// directory, so anything the installer left behind is moved aside first and
+/// only dropped once the restore has succeeded.
+fn swap_in(backup: &Path, original: &Path) -> std::io::Result<()> {
+    let aside = original.with_extension("failed-upgrade");
+    let mut moved_aside = false;
+    if original.exists() {
+        let _ = std::fs::remove_dir_all(&aside);
+        std::fs::rename(original, &aside)?;
+        moved_aside = true;
+    }
+    match std::fs::rename(backup, original) {
+        Ok(()) => {
+            if moved_aside {
+                let _ = std::fs::remove_dir_all(&aside);
+            }
+            Ok(())
+        }
+        Err(err) => {
+            if moved_aside {
+                let _ = std::fs::rename(&aside, original);
+            }
+            Err(err)
+        }
+    }
+}
+
+fn has_entries(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
+}
+
+fn has_core_manifest(core: &Path) -> bool {
+    core.join("moon.mod").is_file() || core.join("moon.mod.json").is_file()
+}
+
+/// Whether `lib` holds a core `moon` can build against. A half-extracted core
+/// leaves the directory behind but no module manifest, which is what `moon`
+/// loads when it injects the standard library.
+fn lib_replaced(home: &Path) -> bool {
+    let core = home.join("lib").join("core");
+    has_entries(&core) && has_core_manifest(&core)
+}
+
+/// Whether the installer got as far as replacing `name`. This is the same bar
+/// `incomplete_parts` applies, so recovery and verification cannot disagree on
+/// what counts as a replacement.
+fn part_replaced(home: &Path, name: &str) -> bool {
+    match name {
+        "lib" => lib_replaced(home),
+        _ => has_entries(&home.join(name)),
+    }
+}
+
+fn incomplete_parts(home: &Path) -> Vec<String> {
+    let mut missing = Vec::new();
+    let core = home.join("lib").join("core");
+    if !has_entries(&core) {
+        missing.push("lib/core".to_string());
+    } else if !has_core_manifest(&core) {
+        missing.push("lib/core/moon.mod".to_string());
+    }
+    if !has_entries(&home.join("include")) {
+        missing.push("include".to_string());
+    }
+    if !home
+        .join("bin")
+        .join(format!("moonc{}", std::env::consts::EXE_SUFFIX))
+        .is_file()
+    {
+        missing.push("bin/moonc".to_string());
+    }
+    missing
+}
+
+fn verify_installed(home: &Path) -> Result<()> {
+    let incomplete = incomplete_parts(home);
+    if incomplete.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "the upgrade finished with an incomplete toolchain at `{}`: missing {}",
+        home.display(),
+        incomplete.join(", ")
+    )
+}
+
+fn restore_toolchain_backup() {
+    if let Some(backup) = BACKUP.get() {
+        backup.restore();
+    }
+}
+
+fn commit_toolchain_backup() {
+    if let Some(backup) = BACKUP.get() {
+        backup.commit();
+    }
+}
+
+/// An upgrade can die between moving the previous tree aside and putting a
+/// replacement in place (power loss, a closed console, a killed process). The
+/// backup is then the only remaining copy, so put it back before anything else.
+///
+/// The installers replace `lib` and `include` together, so recovery judges them
+/// together: a complete `lib` beside a missing `include` is two versions in one
+/// tree, and the whole backup set goes back rather than per directory. What
+/// counts as complete is `incomplete_parts`' bar, not "the directory has any
+/// file" — a half-extracted core has files but no manifest, and taking that for
+/// a replacement would delete the only good copy.
+fn recover_interrupted_upgrade(home: &Path) -> Result<()> {
+    let backups: Vec<(&str, PathBuf)> = REPLACED_DIRS
+        .iter()
+        .map(|name| (*name, home.join(format!("{name}{BACKUP_SUFFIX}"))))
+        .filter(|(_, backup)| backup.exists())
+        .collect();
+    if backups.is_empty() {
+        return Ok(());
+    }
+    if REPLACED_DIRS.iter().all(|name| part_replaced(home, name)) {
+        // The replacement made it in; the backups are just leftovers.
+        for (name, backup) in backups {
+            if let Err(err) = std::fs::remove_dir_all(&backup) {
+                eprintln!(
+                    "warning: cannot remove the leftover backup of `{name}` at `{}`: {err}",
+                    backup.display()
+                );
+            }
+        }
+        return Ok(());
+    }
+    for (name, backup) in backups {
+        swap_in(&backup, &home.join(name)).map_err(|err| {
+            anyhow::anyhow!(
+                "cannot restore `{name}` from `{}`: {err}. It is still there; a later step could \
+                 overwrite it, so the upgrade stops here.",
+                backup.display()
+            )
+        })?;
+        eprintln!("Restored `{name}` from an interrupted upgrade.");
+    }
+    Ok(())
+}
+
 pub(super) fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     let h = upgrade_home()?;
+    recover_interrupted_upgrade(&h)?;
     ctrlc::set_handler(upgrade_dialoguer_ctrlc_handler)?;
 
     println!("Checking network ...");
@@ -192,6 +450,22 @@ pub(super) fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
 }
 
 fn do_upgrade(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
+    let home = MOON_HOME.root().to_path_buf();
+    let _ = BACKUP.set(ToolchainBackup::capture(&home)?);
+
+    match run_installer(cmd, root).and_then(|rc| verify_installed(&home).map(|()| rc)) {
+        Ok(rc) => {
+            commit_toolchain_backup();
+            Ok(rc)
+        }
+        Err(err) => {
+            restore_toolchain_backup();
+            Err(err)
+        }
+    }
+}
+
+fn run_installer(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     #[cfg(unix)]
     do_upgrade_unix(cmd, root)?;
 
@@ -231,6 +505,8 @@ fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
 fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
+
+    restore_toolchain_backup();
 
     let _ = dialoguer::console::Term::stdout().show_cursor();
     std::process::exit(1);
