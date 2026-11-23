@@ -32,18 +32,18 @@ use crate::filesystem::{FsOperation, os};
 use crate::resource::Resource;
 
 impl HostFs {
+    /// Perform one read with the descriptor's existing blocking mode.
+    /// Readiness waits and retries belong to the event loop or a blocking Job.
     #[cfg(unix)]
-    pub(crate) fn read_immediate(
-        &self,
-        file: &Resource,
-        destination: &mut [u8],
-    ) -> AsyncHostResult<usize> {
+    pub(crate) fn read(&self, file: &Resource, destination: &mut [u8]) -> AsyncHostResult<usize> {
         self.authorize(FsOperation::ReadResource(file.file_grant()))?;
         Ok(os::io::read(file.as_file()?.as_raw_fd(), destination)?)
     }
 
+    /// Perform one write with the descriptor's existing blocking mode.
+    /// Preserve partial writes and native errors for the caller.
     #[cfg(unix)]
-    pub(crate) fn write_immediate(&self, file: &Resource, source: &[u8]) -> AsyncHostResult<usize> {
+    pub(crate) fn write(&self, file: &Resource, source: &[u8]) -> AsyncHostResult<usize> {
         self.authorize(FsOperation::WriteResource(file.file_grant()))?;
         Ok(os::io::write(file.as_file()?.as_raw_fd(), source)?)
     }

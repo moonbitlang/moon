@@ -25,23 +25,18 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::filesystem::{FsOperation, FsTarget, HostFs};
 use crate::resource::{Resource, ResourceRef};
 
-// Discriminants of moonbitlang/async's FileKind ABI.
-pub(super) const FILE_KIND_UNKNOWN: i32 = 0;
-pub(super) const FILE_KIND_REGULAR: i32 = 1;
-pub(super) const FILE_KIND_DIRECTORY: i32 = 2;
-pub(super) const FILE_KIND_SYMLINK: i32 = 3;
-pub(super) const FILE_KIND_SOCKET: i32 = 4;
-pub(super) const FILE_KIND_PIPE: i32 = 5;
-// Only Unix adapters produce this kind; ABI value 6 is reserved on all targets.
 #[cfg(unix)]
-const FILE_KIND_BLOCK_DEVICE: i32 = 6;
-pub(super) const FILE_KIND_CHAR_DEVICE: i32 = 7;
-pub(super) const FILE_KIND_CONSOLE: i32 = 8;
+use crate::filesystem::FILE_KIND_BLOCK_DEVICE;
+use crate::filesystem::{
+    FILE_KIND_CHAR_DEVICE, FILE_KIND_CONSOLE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE,
+    FILE_KIND_REGULAR, FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
+};
 
 pub(super) const STAT_FILE_KIND: u32 = 0x0001;
 pub(super) const STAT_FILE_SIZE: u32 = 0x0002;
@@ -812,12 +807,11 @@ mod platform {
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
         FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_TYPE_CHAR,
         FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileAttributeTagInfo, FileBasicInfo,
-        GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileSize, GetFileType,
-        INVALID_FILE_SIZE,
+        GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileSize, INVALID_FILE_SIZE,
     };
 
-    use super::super::runner::handle_is_socket;
     use super::*;
+    use crate::filesystem::os::metadata;
 
     #[derive(Default)]
     struct WindowsStat {
@@ -839,7 +833,7 @@ mod platform {
     ) -> AsyncHostResult<StatValues> {
         let values = query(handle, request)?;
         if values.returned_mask() == 0 {
-            get_file_type(handle)?;
+            metadata::file_type(handle)?;
         }
         Ok(values)
     }
@@ -849,7 +843,7 @@ mod platform {
         let mut remaining = request.mask();
 
         if request.mask() & STAT_FILE_KIND != 0 {
-            let (file_type, is_socket) = get_file_type(handle)?;
+            let (file_type, is_socket) = metadata::file_type(handle)?;
             stat.file_type = Some(file_type);
             stat.is_socket = is_socket;
             if file_type != FILE_TYPE_DISK {
@@ -981,22 +975,6 @@ mod platform {
                 }
             }
             _ => Some(FILE_KIND_UNKNOWN),
-        }
-    }
-
-    fn get_file_type(handle: HANDLE) -> AsyncHostResult<(u32, bool)> {
-        unsafe { SetLastError(0) };
-        let file_type = unsafe { GetFileType(handle) };
-        let get_file_type_error = unsafe { GetLastError() };
-        let is_socket =
-            matches!(file_type, FILE_TYPE_PIPE | FILE_TYPE_UNKNOWN) && handle_is_socket(handle);
-        if file_type == FILE_TYPE_UNKNOWN && get_file_type_error != 0 && !is_socket {
-            // A Winsock SOCKET is not a kernel HANDLE. Give getsockopt a chance
-            // before propagating GetFileType's ERROR_INVALID_HANDLE.
-            unsafe { SetLastError(get_file_type_error) };
-            Err(last_native_error())
-        } else {
-            Ok((file_type, is_socket))
         }
     }
 
