@@ -42,7 +42,7 @@ fn discover_core(enable_coverage: bool) -> anyhow::Result<DiscoveredProject> {
     .query_from(&source_dir, WorkspaceEnv::Off)?
     .select(&user_log)?
     .package_dirs()?;
-    let preparation = ProjectPreparationConfig::new_with_load_defaults(true, enable_coverage);
+    let preparation = ProjectPreparationConfig::new(true, enable_coverage);
     moonbuild::prepare::sync_and_discover_project(&preparation, &dirs, &user_log)
 }
 

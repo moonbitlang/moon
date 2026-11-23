@@ -260,10 +260,8 @@ pub(super) fn run_info(
     let PackageDirs { target_dir, .. } = &dirs;
 
     let build_flags = BuildFlags::default();
-    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        build_flags.enable_coverage,
-    );
+    let preparation_config =
+        ProjectPreparationConfig::new(cmd.auto_sync_flags.frozen, build_flags.enable_coverage);
     let discovered = sync_and_discover_project(&preparation_config, &dirs, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &discovered, output.user_log())?;
 

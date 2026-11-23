@@ -24,18 +24,21 @@ use super::{ProjectPreparationConfig, ProjectPreparationError};
 use anyhow::Context;
 use indexmap::IndexMap;
 use mbtx::parse_mbtx_imports;
-use moonbuild_rupes_recta::{DiscoveredProject, discover::SingleFileSourceKind};
-use mooncake::{pkg::sync::auto_sync_for_single_file_rr, registry::path as registry_path};
+use moonbuild_rupes_recta::{DiscoveredProject, DiscoveryConfig, discover::SingleFileSourceKind};
+use mooncake::{pkg::sync::sync_roots, registry::path as registry_path};
 use moonutil::{
-    constants::MOONBITLANG_CORE,
+    constants::{MOONBITLANG_CORE, SINGLE_FILE_TEST_MODULE},
     dependency::SourceDependencyInfo,
     front_matter::{MbtMdHeader, parse_front_matter_config},
+    manifest::MoonMod,
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
     project::PackageDirs,
+    resolution::{ModuleSource, ResolvedModule},
     target::TargetBackend,
     user_log::UserLog,
 };
-use std::{path::Path, str::FromStr};
+use semver::Version;
+use std::{path::Path, str::FromStr, sync::Arc};
 use tracing::instrument;
 
 /// Discover a single-file project and read its preferred backend.
@@ -88,19 +91,32 @@ pub fn discover_single_file_project(
         .context("Unable to parse target backend from front matter")
         .map_err(ProjectPreparationError::SingleFileParseError)?;
 
-    let (module_graph, dir_sync_result) = auto_sync_for_single_file_rr(
-        dirs,
-        &cfg.sync_flags,
-        front_matter_config.deps_to_sync.as_ref(),
-        cfg.sync_output,
+    // A script supplies its root declaration through front matter rather than a
+    // module manifest. Mooncake synchronizes it like any other supplied root.
+    let module = Arc::new(MoonMod {
+        name: SINGLE_FILE_TEST_MODULE.to_string(),
+        version: Some(Version::new(0, 0, 1)),
+        deps: front_matter_config.deps_to_sync.unwrap_or_default(),
+        ..Default::default()
+    });
+    let source = ModuleSource::single_file(&module, &dirs.source_dir)
+        .map_err(|err| ProjectPreparationError::SyncModulesError(err.into()))?;
+    let (roots, _) = ResolvedModule::only_one_module(source, module);
+    let synced_modules = sync_roots(
+        roots,
+        &dirs.mooncakes_dir,
         &cfg.dependency_source_cache,
-        cfg.discovery.jobs,
+        &cfg.sync,
         user_log,
     )
     .map_err(ProjectPreparationError::SyncModulesError)?;
+    log::debug!("Dir sync result: {:?}", synced_modules.1);
     let discovered = moonbuild_rupes_recta::resolve::discover_single_file_project(
-        &cfg.discovery,
-        (module_graph, dir_sync_result),
+        &DiscoveryConfig {
+            enable_coverage: cfg.enable_coverage,
+            jobs: cfg.sync.jobs,
+        },
+        synced_modules,
         source_file,
         source_kind,
         run_mode,

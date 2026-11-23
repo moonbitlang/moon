@@ -130,7 +130,7 @@ pub(super) fn run_doc_rr(
     // Choose the member-scoped documentation backend before resolving packages.
     let build_flags = BuildFlags::default();
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         build_flags.enable_coverage,
     );
     let discovered =

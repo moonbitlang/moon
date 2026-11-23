@@ -20,18 +20,18 @@
 
 use std::{path::Path, sync::Arc};
 
-use indexmap::IndexMap;
-use moonutil::{
-    cache::CacheRoot,
-    manifest::{MoonMod, read_module_desc_file_in_dir},
-    project::{PackageDirs, ProjectManifest, WorkspaceLayout},
+pub use moonutil::{
+    cache::{CacheKind, CacheRoot},
     resolution::{
-        DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule, ResolvedRootModules,
+        DirSyncResult, ModuleDependencyGraph, ModuleId, ModuleSource, ModuleSourceKind,
+        ResolvedModule, ResolvedRootModules,
     },
+};
+use moonutil::{
+    manifest::read_module_desc_file_in_dir,
+    project::{PackageDirs, ProjectManifest},
     user_log::UserLog,
 };
-use semver::Version;
-use serde::{Deserialize, Serialize};
 
 use super::prepare::prepare_build_modules;
 use crate::{
@@ -39,142 +39,73 @@ use crate::{
     resolver::{ModuleResolutionConfig, resolve_modules},
 };
 
-/// User-visible output policy while synchronizing dependencies.
+/// Policy for module resolution and dependency source acquisition.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SyncOutputOptions {
-    /// Suppress dependency acquisition progress below error level.
-    pub quiet: bool,
-}
-
-#[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
-#[clap(next_help_heading = "Manifest Options")]
-pub struct AutoSyncFlags {
-    /// Do not sync dependencies, assuming local dependencies are up-to-date
-    #[clap(long)]
+pub struct SyncOptions {
+    /// Require locally available dependency metadata and sources.
     pub frozen: bool,
+    /// Suppress dependency acquisition progress below error level.
+    /// Module resolution warnings still use the caller's user-log level.
+    pub quiet: bool,
+    /// Limit concurrent dependency acquisition jobs.
+    pub jobs: Option<usize>,
 }
 
-impl AutoSyncFlags {
-    pub fn dont_sync(&self) -> bool {
-        self.frozen
-    }
-}
-
-/// Given the specified source directory, resolve the module dependency relation
-/// and their directories. The selected `ProjectManifest` is authoritative;
-/// workspace selection has already been resolved by project discovery.
-///
-/// TODO: support registry config
+/// Load root modules from the selected project and synchronize their dependencies
+/// into the project's `.mooncakes` directory. The selected `ProjectManifest` is
+/// authoritative; workspace selection has already been resolved by discovery.
 pub fn auto_sync(
     dirs: &PackageDirs,
-    cli: &AutoSyncFlags,
-    output_options: SyncOutputOptions,
-    user_log: &UserLog,
-    jobs: Option<usize>,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
-    if let ProjectManifest::Workspace(workspace) = &dirs.project_manifest {
-        return resolve_workspace_sync(dirs, cli, output_options, user_log, workspace, jobs);
-    }
-
-    let module = read_module_desc_file_in_dir(&dirs.source_dir)?;
-    let module = Arc::new(module);
-    let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
-    let (roots, _) = ResolvedModule::only_one_module(source, module);
-
-    let (module_graph, sync_result) = sync_roots(
-        &dirs.mooncakes_dir,
-        roots,
-        output_options,
-        user_log,
-        cli.dont_sync(),
-        &CacheRoot::Disabled,
-        jobs,
-    )?;
-    log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((module_graph, sync_result))
-}
-
-fn resolve_workspace_sync(
-    dirs: &PackageDirs,
-    cli: &AutoSyncFlags,
-    output_options: SyncOutputOptions,
-    user_log: &UserLog,
-    workspace: &WorkspaceLayout,
-    jobs: Option<usize>,
-) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
-    let mut roots = ResolvedRootModules::with_key();
-    for member_dir in workspace.members() {
-        let module = read_module_desc_file_in_dir(member_dir)?;
-        let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, member_dir)?;
-        roots.insert(ResolvedModule::new(source, module));
-    }
-
-    let (module_graph, sync_result) = sync_roots(
-        &dirs.mooncakes_dir,
-        roots,
-        output_options,
-        user_log,
-        cli.dont_sync(),
-        &CacheRoot::Disabled,
-        jobs,
-    )?;
-    log::debug!("Dir sync result: {:?}", sync_result);
-    Ok((module_graph, sync_result))
-}
-
-pub fn auto_sync_for_single_file_rr(
-    dirs: &PackageDirs,
-    sync_flags: &AutoSyncFlags,
-    front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
-    output_options: SyncOutputOptions,
-    source_cache: &CacheRoot,
-    jobs: Option<usize>,
+    options: &SyncOptions,
     user_log: &UserLog,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
-    let mut synth_deps = IndexMap::new();
-    if let Some(deps_map) = front_matter_deps {
-        for (k, v) in deps_map.iter() {
-            synth_deps.insert(k.clone(), v.clone());
+    let roots = match &dirs.project_manifest {
+        ProjectManifest::Workspace(workspace) => {
+            let mut roots = ResolvedRootModules::with_key();
+            for member_dir in workspace.members() {
+                let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
+                let source = ModuleSource::from_local_module(&module, member_dir)?;
+                roots.insert(ResolvedModule::new(source, module));
+            }
+            roots
         }
-    }
+        ProjectManifest::Module(_) | ProjectManifest::None => {
+            let module = Arc::new(read_module_desc_file_in_dir(&dirs.source_dir)?);
+            let source = ModuleSource::from_local_module(&module, &dirs.source_dir)?;
+            ResolvedModule::only_one_module(source, module).0
+        }
+    };
 
-    let m = Arc::new(MoonMod {
-        name: moonutil::constants::SINGLE_FILE_TEST_MODULE.to_string(),
-        version: Some(Version::new(0, 0, 1)),
-        deps: synth_deps,
-        ..Default::default()
-    });
-    let ms = ModuleSource::single_file(&m, &dirs.source_dir)?;
-    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
-
-    let (module_graph, dir_sync_result) = sync_roots(
-        &dirs.mooncakes_dir,
+    let (module_graph, sync_result) = sync_roots(
         roots,
-        output_options,
+        &dirs.mooncakes_dir,
+        &CacheRoot::Disabled,
+        options,
         user_log,
-        sync_flags.dont_sync(),
-        source_cache,
-        jobs,
     )?;
-
-    log::debug!("Dir sync result: {:?}", dir_sync_result);
-    Ok((module_graph, dir_sync_result))
+    log::debug!("Dir sync result: {:?}", sync_result);
+    Ok((module_graph, sync_result))
 }
 
-/// Resolve and acquire dependencies for the supplied root modules.
-pub(super) fn sync_roots(
-    mooncakes_dir: &Path,
+/// Resolve and acquire dependencies for root declarations supplied by the caller.
+/// Root declarations are used directly, without reloading their manifests.
+/// The returned graph and source directories can be passed to package discovery.
+///
+/// This applies the same installed-core policy and configured registry as project
+/// synchronization. Disable `source_cache` to acquire sources in `mooncakes_dir`,
+/// or provide a shared source cache for immutable dependencies.
+///
+/// TODO: support registry config
+pub fn sync_roots(
     roots: ResolvedRootModules,
-    output_options: SyncOutputOptions,
-    user_log: &UserLog,
-    dont_sync: bool,
+    mooncakes_dir: &Path,
     source_cache: &CacheRoot,
-    jobs: Option<usize>,
+    options: &SyncOptions,
+    user_log: &UserLog,
 ) -> anyhow::Result<(ModuleDependencyGraph, DirSyncResult)> {
     let module_graph = prepare_build_modules(roots)?;
 
-    let registry = if dont_sync {
+    let registry = if options.frozen {
         registry::default_registry(user_log).for_frozen_dependencies()
     } else {
         registry::default_registry(user_log)
@@ -185,14 +116,15 @@ pub(super) fn sync_roots(
     };
 
     let res = resolve_modules(&module_resolution_config, module_graph, user_log)?;
-    let dependency_user_log = if output_options.quiet {
+    let dependency_user_log = if options.quiet {
         user_log.with_level(log::LevelFilter::Error)
     } else {
         user_log.clone()
     };
-    let dependency_source = dependency_source::select(mooncakes_dir, source_cache, &res, jobs)?;
+    let dependency_source =
+        dependency_source::select(mooncakes_dir, source_cache, &res, options.jobs)?;
     let dependency_paths =
-        dependency_source.ensure(&registry, &res, dont_sync, &dependency_user_log)?;
+        dependency_source.ensure(&registry, &res, options.frozen, &dependency_user_log)?;
 
     Ok((res, dependency_paths))
 }

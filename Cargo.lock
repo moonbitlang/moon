@@ -2283,6 +2283,7 @@ dependencies = [
  "mooncake",
  "moonutil",
  "n2",
+ "semver",
  "serde",
  "serde_json",
  "serde_json_lenient",

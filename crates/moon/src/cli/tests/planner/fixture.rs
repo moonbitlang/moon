@@ -161,8 +161,7 @@ impl PlanningFixture {
         .query_from(&fixture_dir, WorkspaceEnv::Auto)?
         .select(&user_log)?
         .package_dirs()?;
-        let preparation_config =
-            moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(true, false);
+        let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(true, false);
         let discovered =
             moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, &user_log)?;
         let source_dir = dirs.source_dir;

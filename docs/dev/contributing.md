@@ -45,7 +45,7 @@ Check which `moon` your shell resolves before testing an installed build.
 | Registry module and package coordinate parsing | [`mooncake/src/registry/path.rs`](../../crates/mooncake/src/registry/path.rs) |
 | Module dependency synchronization | [`mooncake/src/pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
 | Binary installation commands | [`moon/src/cli/deps.rs`](../../crates/moon/src/cli/deps.rs), [`install_binary.rs`](../../crates/moon/src/cli/install_binary.rs) |
-| Shared package-management CLI and stdin payloads | [`mooncake/src/cli.rs`](../../crates/mooncake/src/cli.rs), [`pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
+| Shared package-management CLI and stdin payloads | [`mooncake/src/cli.rs`](../../crates/mooncake/src/cli.rs) |
 | Module names and name/version validation | [`moonutil/src/module_name.rs`](../../crates/moonutil/src/module_name.rs) |
 | Module sources and resolved dependency graphs | [`moonutil/src/resolution.rs`](../../crates/moonutil/src/resolution.rs) |
 | Package data and JSON schema | [`moonutil/src/package.rs`](../../crates/moonutil/src/package.rs) |

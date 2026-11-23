@@ -144,7 +144,7 @@ fn resolve_selected_package_graph(
     user_log: &UserLog,
 ) -> anyhow::Result<ResolvedPackageTree> {
     let (module_dir, dirs) = selected_tree_project(cli, user_log)?;
-    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false);
+    let preparation_config = ProjectPreparationConfig::new(false, false);
     let discovered = sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let selected_module = discovered
         .local_modules()

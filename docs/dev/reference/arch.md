@@ -268,20 +268,30 @@ construct a build plan. This does not disable package pre-build rules.
 Dependency synchronization is explicit in the normal project path. Command
 adapters call `moonbuild::prepare::sync_and_discover_project`, which synchronizes
 modules through Mooncake and passes their graph and source directories to RR
-for package discovery. `ProjectPreparationConfig` owns sync policy and keeps
-RR's `DiscoveryConfig` private. Commands select packages and backends from the
-returned `DiscoveredProject` before resolving package relationships. RR callers
-that already have synchronized modules can use `discover_synced_project`
-directly with `DiscoveryConfig`, which only carries coverage and discovery
-parallelism settings; they do not need registry, workspace, or download settings.
+for package discovery. `ProjectPreparationConfig` owns sync policy and
+constructs RR's `DiscoveryConfig` with the same parallelism limit. Commands select
+packages and backends from the returned `DiscoveredProject` before resolving
+package relationships. RR callers that already have synchronized modules can use
+`discover_synced_project` directly with `DiscoveryConfig`, which only carries
+coverage and discovery parallelism settings; they do not need registry, workspace,
+or download settings.
 
 Single-file preparation also belongs to `moonbuild::prepare`: it reads script
 declarations, normalizes versioned imports, consults cached registry metadata
-when required, and synchronizes dependencies through `mooncake`. RR receives
-the synchronized modules, invoked source path, source kind, and normalized
-imports, then discovers dependency packages and synthesizes the single-file
-package. Module version selection remains in `mooncake`; RR has no dependency
-on registry access or downloading.
+when required, and constructs the synthetic root module. It synchronizes that
+root through `mooncake::pkg::sync::sync_roots`, the same module-resolution and
+source-acquisition implementation used for ordinary projects and workspaces.
+RR receives the synchronized modules, invoked source path, source kind, and
+normalized imports, then discovers dependency packages and synthesizes the
+single-file package. Module version selection remains in `mooncake`; RR has no
+dependency on registry access or downloading.
+
+Mooncake's synchronization interface accepts root declarations and `SyncOptions`
+without command-line types. Its `auto_sync` convenience entry loads the selected
+project's root declarations and uses project-local dependency storage; single-file
+preparation can instead supply a shared source cache. Both paths retain the
+installed-core policy. `moon work sync` resolves versions to update manifests
+without acquiring dependency sources, so it does not use this acquisition path.
 
 ## Project discovery and layout
 

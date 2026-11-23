@@ -32,7 +32,7 @@ use std::sync::Arc;
 use crate::pkg::{
     manifest_edit::{MoonModPatch, patch_module_dsl_to_file},
     roots_for_selected_module,
-    sync::{SyncOutputOptions, sync_roots},
+    sync::{SyncOptions, sync_roots},
 };
 
 /// Add a dependency
@@ -102,13 +102,11 @@ pub fn add(
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest)?;
     sync_roots(
-        &dirs.mooncakes_dir,
         roots,
-        SyncOutputOptions::default(),
-        user_log,
-        false,
+        &dirs.mooncakes_dir,
         &moonutil::cache::CacheRoot::Disabled,
-        None,
+        &SyncOptions::default(),
+        user_log,
     )?;
 
     if module_dir.join(MOON_MOD).exists() {

@@ -93,7 +93,7 @@ name = "user/empty"
         )
         .unwrap();
 
-        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false);
+        let preparation_config = ProjectPreparationConfig::new(false, false);
         let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
@@ -143,7 +143,7 @@ dev_build(
         )
         .unwrap();
 
-        let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false);
+        let preparation_config = ProjectPreparationConfig::new(false, false);
         let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,

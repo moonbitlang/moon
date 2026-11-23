@@ -144,7 +144,7 @@ fn run_build_for_single_file_rr(
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
     )
     .with_jobs(cmd.build_flags.jobs)
@@ -219,7 +219,7 @@ fn sync_and_discover_build_project(
     user_log: &UserLog,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
     )
     .with_jobs(cmd.build_flags.jobs);
