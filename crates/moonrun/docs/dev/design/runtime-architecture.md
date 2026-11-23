@@ -285,15 +285,6 @@ responsibilities are separated, without adding forwarding wrappers around std.
 Likewise, remove `AsyncHost` only if extracting its responsibilities leaves it
 unnecessary; deletion is a possible outcome, not a separate migration goal.
 
-`filesystem::os::lock` owns blocking and nonblocking lock acquisition, release,
-and native contention-error classification. HostFs and Filesystem Jobs retain
-Resource validation and lock authorization; releasing a lock does not require
-new authority. Blocking acquisition uses the same caller-supplied execution
-bracket as file I/O, so cancellation stays with the Worker. Unix uses `flock`;
-Windows preserves the native async implementation's sentinel byte range beyond
-ordinary file data. Async adapters keep guest handles and error encoding, and
-the moved primitives retain their upstream provenance.
-
 Host Filesystem, Host Network, Host Process, SQLite Host, and WASI own their
 respective semantics. Env, Working Directory, and Stdio supply shared
 Runtime-owned state. Workers schedule Jobs and deliver Completions; they do not
