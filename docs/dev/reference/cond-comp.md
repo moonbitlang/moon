@@ -60,10 +60,15 @@ DSL blocks before these warnings; both `test_import`/`test-import` and
 
 Package declarations retain each import's selected backend set. Module resolution
 and package discovery run once. Command adapters then select the requested
-backends, including module preferences when `--target` is omitted, before solving
-package relationships. `ResolvedProject.package_relations` maps each requested backend to a
+backends, including module preferences when `--target` is omitted, and the effective
+debug/release profile before solving package relationships.
+`ResolvedProject.package_relations` maps each requested Build Configuration to a
 complete `PackageRelations`, including its import graph, virtual users,
 implementation mappings, and transitive support.
+Import conditions currently read only the backend, so two profiles of the same
+backend have the same import relationships. Source-file conditions already read
+the profile. Both phases retain the selected configuration; separate profile
+requests do not overwrite each other's relationship entries.
 
 For non-watch commands, any requested backend's resolution error fails the
 command immediately. Each watch pass resolves only its selected backends. For

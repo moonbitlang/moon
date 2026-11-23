@@ -22,6 +22,7 @@ use anyhow::Context;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{RunMode, build_lower::WarningCondition, intent::UserIntent};
 use mooncake::cli::AutoSyncFlags;
 use moonutil::{
@@ -194,16 +195,20 @@ pub(super) fn plan_bundle_rr_from_discovered(
     } else {
         selected_target_backends.to_vec()
     };
-    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
-    target_backends
+    let configurations = target_backends
+        .iter()
+        .map(|&backend| cmd.build_flags.configuration(backend, RunMode::Bundle))
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&configurations, user_log)?;
+    configurations
         .into_iter()
-        .map(|target_backend| {
+        .map(|configuration| {
             plan_bundle_rr_from_resolved(
                 session,
                 cli,
                 cmd,
                 target_dir,
-                target_backend,
+                configuration,
                 resolved_project.clone(),
                 user_log,
             )
@@ -216,13 +221,13 @@ fn plan_bundle_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     target_dir: &Path,
-    target_backend: TargetBackend,
+    configuration: BuildConfiguration,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let mut compile_config = cmd.build_flags.compile_config(
         cli,
-        target_backend,
+        configuration,
         target_dir,
         RunMode::Bundle,
         user_log,

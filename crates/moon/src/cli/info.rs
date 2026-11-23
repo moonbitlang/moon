@@ -19,6 +19,7 @@
 mod imp;
 
 use crate::cli::target::{SurfaceTarget, lower_surface_targets};
+use moonbuild_rupes_recta::BuildConfiguration;
 use mooncake::cli::AutoSyncFlags;
 use std::path::PathBuf;
 
@@ -272,22 +273,23 @@ pub(super) fn run_info(
         .unwrap_or_default();
     let output_plan = imp::plan_info_outputs(&discovered, selection.package_ids.iter().copied());
     let execution_targets = output_plan.execution_targets(&requested_targets);
-    let target_backends = execution_targets
+    let configurations = execution_targets
         .iter()
-        .map(|&(backend, _)| backend)
+        .map(|&(backend, _)| build_flags.configuration(backend, RunMode::Check))
         .collect::<Vec<_>>();
-    let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
+    let resolved_project = discovered.resolve_packages(&configurations, output.user_log())?;
     std::fs::create_dir_all(target_dir)?;
     let session = BuildSession::new(target_dir, false, output.user_log())?;
 
     let planned_runs = execution_targets
         .into_iter()
-        .map(|(target, target_kind)| {
+        .zip(configurations)
+        .map(|((target, target_kind), configuration)| {
             let (meta, input) = plan_info_rr(
                 &session,
                 &cli,
                 &cmd,
-                target,
+                configuration,
                 target_kind,
                 target_dir,
                 resolved_project.clone(),
@@ -334,7 +336,7 @@ fn plan_info_rr(
     session: &BuildSession,
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
-    target: TargetBackend,
+    configuration: BuildConfiguration,
     target_kind: imp::TargetKind,
     target_dir: &std::path::Path,
     resolved_project: ResolvedProject,
@@ -350,7 +352,7 @@ fn plan_info_rr(
     };
     let compile_config = BuildFlags::default().compile_config(
         cli,
-        target,
+        configuration,
         target_dir,
         RunMode::Check,
         user_log,
@@ -359,7 +361,7 @@ fn plan_info_rr(
     let intent = calc_user_intent_for_info(
         &ctx,
         &resolved_project,
-        compile_config.backend.target_backend(),
+        compile_config.configuration.backend,
     )?;
     session.plan(
         compile_config,

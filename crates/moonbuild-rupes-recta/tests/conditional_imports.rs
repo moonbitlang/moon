@@ -19,7 +19,8 @@
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject, RunMode,
+    BuildConfiguration, CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
+    RunMode,
     build_lower::{WarningCondition, lower_build_plan},
     build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
@@ -39,7 +40,13 @@ use moonutil::{
 fn resolve(packages: &[(&str, &str)]) -> (tempfile::TempDir, ResolvedProject) {
     let (dir, discovered) = discover(packages);
     let resolved = discovered
-        .resolve_packages(TargetBackend::all(), &UserLog::new(log::LevelFilter::Error))
+        .resolve_packages(
+            &TargetBackend::all()
+                .iter()
+                .map(|&backend| BuildConfiguration::new(backend, OptLevel::Debug))
+                .collect::<Vec<_>>(),
+            &UserLog::new(log::LevelFilter::Error),
+        )
         .unwrap();
     (dir, resolved)
 }
@@ -80,7 +87,7 @@ fn resolved_project_already_contains_each_backends_graph() {
     let native = target(&resolved, "native", TargetKind::Source);
     for &backend in TargetBackend::all() {
         assert_eq!(
-            resolved.package_relations[&backend]
+            resolved.package_relations[&BuildConfiguration::new(backend, OptLevel::Debug)]
                 .dep_graph
                 .contains_edge(app, native),
             matches!(backend, Native | LLVM),
@@ -101,11 +108,19 @@ fn test_drivers_select_async_runtime_from_active_imports() {
     let preparation = DiscoveryConfig::default();
     let resolved = discover_synced_project(&preparation, (module_graph, module_dirs), &log)
         .unwrap()
-        .resolve_packages(&[Js, TargetBackend::WasmGC], &log)
+        .resolve_packages(
+            &[Js, TargetBackend::WasmGC]
+                .map(|backend| BuildConfiguration::new(backend, OptLevel::Debug)),
+            &log,
+        )
         .unwrap();
     let target_dir = tempfile::tempdir().unwrap();
     for backend in [BackendConfig::Js, BackendConfig::WasmGc { use_wat: false }] {
         let config = CompileConfig {
+            configuration: crate::BuildConfiguration::new(
+                backend.target_backend(),
+                OptLevel::Debug,
+            ),
             artifact_paths: ArtifactPathResolver::new(
                 TargetLayout::new(
                     target_dir.path().to_owned(),
@@ -118,7 +133,6 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                 None,
             ),
             backend,
-            opt_level: OptLevel::Debug,
             action: RunMode::Test,
             debug_info: DebugInfoRequest::default(),
             debug_export_build_plan: false,
@@ -167,7 +181,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                     .map(|args| args[1].as_str())
                     .collect::<Vec<_>>();
                 let expected = if name == "moonbitlang/async"
-                    || (config.backend.target_backend() == Js && uses_legacy)
+                    || (config.configuration.backend == Js && uses_legacy)
                 {
                     "moonbitlang/async"
                 } else {
@@ -177,7 +191,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                     runtimes,
                     [expected],
                     "{name} {kind:?} {:?}",
-                    config.backend.target_backend()
+                    config.configuration.backend
                 );
             }
         }
@@ -222,6 +236,10 @@ import { "example/conditional/helper" } for "test"
     ] {
         let target_dir = dir.path().join("_build");
         let config = CompileConfig {
+            configuration: crate::BuildConfiguration::new(
+                backend.target_backend(),
+                OptLevel::Debug,
+            ),
             artifact_paths: ArtifactPathResolver::new(
                 TargetLayout::new(
                     target_dir.clone(),
@@ -237,7 +255,6 @@ import { "example/conditional/helper" } for "test"
                 None,
             ),
             backend,
-            opt_level: OptLevel::Debug,
             action: RunMode::Check,
             debug_info: DebugInfoRequest::default(),
             debug_export_build_plan: false,
@@ -247,7 +264,7 @@ import { "example/conditional/helper" } for "test"
             warning_condition: WarningCondition::Default,
             warn_list: None,
         };
-        let backend = config.backend.target_backend();
+        let backend = config.configuration.backend;
         let expected_mi = format!(
             "{}:platform",
             config
@@ -255,7 +272,7 @@ import { "example/conditional/helper" } for "test"
                 .mi_of_build_target(
                     &resolved.pkg_dirs,
                     &target(&resolved, implementation, TargetKind::Source),
-                    backend,
+                    backend
                 )
                 .display()
         );
@@ -313,8 +330,7 @@ import { "example/conditional/helper" } for "test"
             &resolved,
             dir.path(),
             &config.artifact_paths,
-            OptLevel::Debug,
-            backend,
+            BuildConfiguration::new(backend, OptLevel::Debug),
             &CheckCommandMap::new(),
         );
         let metadata = serde_json::to_value(metadata).unwrap();
@@ -355,7 +371,8 @@ fn imports(
     kind: TargetKind,
     backend: TargetBackend,
 ) -> Vec<(String, String)> {
-    let mut imports = resolved.package_relations[&backend]
+    let mut imports = resolved.package_relations
+        [&BuildConfiguration::new(backend, OptLevel::Debug)]
         .dep_graph
         .edges(target(resolved, name, kind))
         .map(|(_, to, edge)| {
@@ -404,7 +421,8 @@ import { "example/conditional/common" @native_common }
         ]
     );
     for &backend in TargetBackend::all() {
-        let unsupported = resolved.package_relations[&backend]
+        let unsupported = resolved.package_relations
+            [&BuildConfiguration::new(backend, OptLevel::Debug)]
             .unsupported_targets
             .contains(&target(&resolved, "consumer", TargetKind::Source));
         // The native import includes LLVM, but its dependency only supports Native C.
@@ -455,7 +473,7 @@ import { "example/conditional/js" @blackbox } for "test"
     package.source_files.push(source);
 
     assert!(
-        resolved.package_relations[&Js]
+        resolved.package_relations[&BuildConfiguration::new(Js, OptLevel::Debug)]
             .dep_graph
             .edges(whitebox)
             .next()
@@ -467,7 +485,7 @@ import { "example/conditional/js" @blackbox } for "test"
         &mut artifacts,
         &UserLog::new(log::LevelFilter::Error),
         &InputDirective::default(),
-        Js,
+        BuildConfiguration::new(Js, OptLevel::Debug),
     );
     assert!(artifacts.contains(&ArtifactKey::CheckMi {
         package: whitebox.package,
@@ -476,7 +494,7 @@ import { "example/conditional/js" @blackbox } for "test"
 }
 
 #[test]
-fn resolution_only_solves_requested_backends() {
+fn resolution_only_solves_requested_configurations() {
     let (_dir, discovered) = discover(&[(
         "app",
         r#"
@@ -487,9 +505,11 @@ import { "example/conditional/never" }
 "#,
     )]);
     let log = UserLog::new(log::LevelFilter::Error);
+    let debug = BuildConfiguration::new(Native, OptLevel::Debug);
+    let release = BuildConfiguration::new(Native, OptLevel::Release);
     let resolved = discovered
         .clone()
-        .resolve_packages(&[Native, Native], &log)
+        .resolve_packages(&[debug, release, debug], &log)
         .unwrap();
     assert_eq!(
         resolved
@@ -497,7 +517,7 @@ import { "example/conditional/never" }
             .keys()
             .copied()
             .collect::<Vec<_>>(),
-        [Native]
+        [release, debug]
     );
     assert!(imports(&resolved, "app", TargetKind::Source, Native).is_empty());
 
@@ -505,7 +525,13 @@ import { "example/conditional/never" }
     for backends in [&[Js][..], &[Native, Js], &[Js, Native]] {
         let error = discovered
             .clone()
-            .resolve_packages(backends, &log)
+            .resolve_packages(
+                &backends
+                    .iter()
+                    .map(|&backend| BuildConfiguration::new(backend, OptLevel::Debug))
+                    .collect::<Vec<_>>(),
+                &log,
+            )
             .unwrap_err();
         assert!(
             matches!(error, ProjectResolutionError::PackageResolutionError(source)
@@ -556,10 +582,14 @@ fn overlapping_conditional_imports_still_report_errors() {
         assert!(
             discovered
                 .clone()
-                .resolve_packages(&[Native], &log)
+                .resolve_packages(&[BuildConfiguration::new(Native, OptLevel::Debug)], &log)
                 .is_err()
         );
-        assert!(discovered.resolve_packages(&[Js], &log).is_ok());
+        assert!(
+            discovered
+                .resolve_packages(&[BuildConfiguration::new(Js, OptLevel::Debug)], &log)
+                .is_ok()
+        );
     }
 }
 
@@ -580,13 +610,17 @@ options("overrides": ["example/conditional/implementation"])
         ),
     ]);
     let resolved = discovered
-        .resolve_packages(&[Native, Js], &UserLog::new(log::LevelFilter::Error))
+        .resolve_packages(
+            &[Native, Js].map(|backend| BuildConfiguration::new(backend, OptLevel::Debug)),
+            &UserLog::new(log::LevelFilter::Error),
+        )
         .unwrap();
     let app = target(&resolved, "app", TargetKind::Source);
     let contract = target(&resolved, "contract", TargetKind::Source);
     let implementation = target(&resolved, "implementation", TargetKind::Source).package;
     for backend in [Native, Js] {
-        let relation = &resolved.package_relations[&backend];
+        let relation =
+            &resolved.package_relations[&BuildConfiguration::new(backend, OptLevel::Debug)];
         assert_eq!(relation.virt_impl[implementation], contract.package);
         assert_eq!(
             relation.virtual_users[app.package].overrides[contract.package],

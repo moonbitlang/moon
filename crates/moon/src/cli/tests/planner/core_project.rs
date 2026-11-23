@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use moonbuild_rupes_recta::BuildConfiguration;
 use std::path::Path;
 
 use moonbuild::prepare::ProjectPreparationConfig;
@@ -159,8 +160,10 @@ fn coverage_edges_exclude_builtin_and_coverage() -> anyhow::Result<()> {
         .get_package_id_by_name("moonbitlang/core/probe")
         .unwrap();
     let user_log = UserLog::new(log::LevelFilter::Error);
-    let resolved = discovered.resolve_packages(&[TargetBackend::WasmGC], &user_log)?;
-    let relations = &resolved.package_relations[&TargetBackend::WasmGC];
+    let configuration =
+        BuildConfiguration::new(TargetBackend::WasmGC, moonutil::cond_expr::OptLevel::Debug);
+    let resolved = discovered.resolve_packages(&[configuration], &user_log)?;
+    let relations = &resolved.package_relations[&configuration];
 
     // Then regular core packages use coverage, while builtin and coverage do not self-import it.
     assert!(relations.dep_graph.contains_edge(
@@ -186,8 +189,10 @@ fn core_packages_import_prelude_only_for_blackbox_tests() -> anyhow::Result<()> 
         .unwrap();
     let user_log = UserLog::new(log::LevelFilter::Error);
     // When package imports are resolved.
-    let resolved = discovered.resolve_packages(&[TargetBackend::WasmGC], &user_log)?;
-    let relations = &resolved.package_relations[&TargetBackend::WasmGC];
+    let configuration =
+        BuildConfiguration::new(TargetBackend::WasmGC, moonutil::cond_expr::OptLevel::Debug);
+    let resolved = discovered.resolve_packages(&[configuration], &user_log)?;
+    let relations = &resolved.package_relations[&configuration];
 
     // Then both builtin and an ordinary core package get prelude only for blackbox tests.
     for name in ["moonbitlang/core/builtin", "moonbitlang/core/probe"] {

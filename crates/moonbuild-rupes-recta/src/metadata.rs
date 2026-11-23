@@ -97,10 +97,11 @@ pub fn gen_metadata_json(
     ctx: &ResolvedProject,
     source_dir: &Path,
     artifact_paths: &ArtifactPathResolver,
-    opt_level: OptLevel,
-    backend: TargetBackend,
+    configuration: crate::BuildConfiguration,
     check_commands: &CheckCommandMap<'_>,
 ) -> impl Serialize + use<> {
+    let backend = configuration.backend;
+    let opt_level = configuration.profile;
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
             let main_module = ctx.module_graph.module_source(main_module_id);
@@ -130,7 +131,7 @@ pub fn gen_metadata_json(
         .pkg_dirs
         .all_packages(false)
         .filter(|(_, package)| !artifact_paths.uses_prebuilt_stdlib(package))
-        .map(|(id, _)| gen_package_json(ctx, artifact_paths, id, backend, check_commands))
+        .map(|(id, _)| gen_package_json(ctx, artifact_paths, id, configuration, check_commands))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
@@ -149,7 +150,7 @@ fn gen_package_json(
     ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
-    backend: TargetBackend,
+    configuration: crate::BuildConfiguration,
     check_commands: &CheckCommandMap<'_>,
 ) -> PackageJSON {
     let pkg = ctx.pkg_dirs.get_package(pkg_id);
@@ -210,7 +211,7 @@ fn gen_package_json(
         .collect();
 
     // Dependencies collection
-    let mut deps: Vec<AliasJSON> = ctx.package_relations[&backend]
+    let mut deps: Vec<AliasJSON> = ctx.package_relations[&configuration]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::Source))
         .filter(|(_, _, edge)| edge.kind == TargetKind::Source)
@@ -218,7 +219,7 @@ fn gen_package_json(
         .collect();
     deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
-    let mut wbtest_deps: Vec<AliasJSON> = ctx.package_relations[&backend]
+    let mut wbtest_deps: Vec<AliasJSON> = ctx.package_relations[&configuration]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::WhiteboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::WhiteboxTest)
@@ -226,7 +227,7 @@ fn gen_package_json(
         .collect();
     wbtest_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
-    let mut test_deps: Vec<AliasJSON> = ctx.package_relations[&backend]
+    let mut test_deps: Vec<AliasJSON> = ctx.package_relations[&configuration]
         .dep_graph
         .edges(pkg_id.build_target(TargetKind::BlackboxTest))
         .filter(|(_, _, edge)| edge.kind == TargetKind::BlackboxTest)
@@ -239,20 +240,20 @@ fn gen_package_json(
         ctx,
         artifact_paths,
         pkg_id.build_target(TargetKind::Source),
-        backend,
+        configuration,
     );
     let wbtest_check_command = metadata_check_command(
         ctx,
         artifact_paths,
         pkg_id.build_target(TargetKind::WhiteboxTest),
-        backend,
+        configuration,
         check_commands,
     );
     let test_check_command = metadata_check_command(
         ctx,
         artifact_paths,
         pkg_id.build_target(TargetKind::BlackboxTest),
-        backend,
+        configuration,
         check_commands,
     );
 
@@ -294,13 +295,13 @@ pub(crate) fn metadata_source_mi_path(
     ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
-    backend: TargetBackend,
+    configuration: crate::BuildConfiguration,
 ) -> std::path::PathBuf {
     metadata_mi_path(
         ctx,
         artifact_paths,
         pkg_id.build_target(TargetKind::Source),
-        backend,
+        configuration,
     )
 }
 
@@ -308,14 +309,19 @@ fn metadata_mi_path(
     ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
-    backend: TargetBackend,
+    configuration: crate::BuildConfiguration,
 ) -> PathBuf {
     let is_implementing_virtual = target.kind == TargetKind::Source
-        && ctx.package_relations[&backend]
+        && ctx.package_relations[&configuration]
             .virt_impl
             .contains_key(target.package);
     artifact_paths
-        .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
+        .metadata_mi_of_build_target(
+            &ctx.pkg_dirs,
+            &target,
+            configuration.backend,
+            is_implementing_virtual,
+        )
         .into_path()
 }
 
@@ -323,10 +329,10 @@ fn metadata_check_command(
     ctx: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
-    backend: TargetBackend,
+    configuration: crate::BuildConfiguration,
     check_commands: &CheckCommandMap<'_>,
 ) -> Option<Vec<String>> {
-    let artifact = metadata_mi_path(ctx, artifact_paths, target, backend);
+    let artifact = metadata_mi_path(ctx, artifact_paths, target, configuration);
     check_commands.get(&artifact).map(|args| args.to_vec())
 }
 

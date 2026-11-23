@@ -660,14 +660,13 @@ pub fn build_plan(
     info!("Constructing build plan");
     debug!(
         "Compile configuration: backend={:?}, opt_level={:?}",
-        config.backend.target_backend(),
-        config.opt_level
+        config.configuration.backend, config.configuration.profile
     );
 
     let mut constructor =
         BuildPlanConstructor::new(resolved, config, input_directive, prebuild_config, user_log);
     let input = input.collect::<Vec<_>>();
-    if config.backend.target_backend().is_native() {
+    if config.configuration.backend.is_native() {
         let native_toolchains = constructor.resolve_native_toolchains(&input)?;
         if let BackendConfig::Native {
             direct_object_candidate,
@@ -677,7 +676,7 @@ pub fn build_plan(
             constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
                 resolved,
                 &input,
-                config.opt_level,
+                config.configuration.profile,
                 *direct_object_candidate,
                 native_toolchains.values(),
             ));

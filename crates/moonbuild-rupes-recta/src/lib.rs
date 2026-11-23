@@ -26,8 +26,8 @@
     modules and exposes the individual compilation stages:
 
     - [`resolve`] discovers packages in supplied modules as [`DiscoveredProject`], then
-      resolves the requested target backends. [`ResolvedProject`] contains complete
-      [`pkg_solve::PackageRelations`] for each requested backend. Any resolution
+      resolves the requested [`BuildConfiguration`] values. [`ResolvedProject`] contains complete
+      [`pkg_solve::PackageRelations`] for each requested configuration. Any resolution
       failure is returned immediately.
 
     - [`build_plan`] converts requested artifacts into a semantic Build Plan.
@@ -123,7 +123,7 @@ mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{CompileConfig, RunMode};
+pub use compile::{BuildConfiguration, CompileConfig, RunMode};
 pub use resolve::{
     DiscoveredProject, DiscoveryConfig, ResolvedProject, discover_synced_project,
     prepare_synced_project,

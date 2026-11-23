@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use moonbuild_rupes_recta::BuildConfiguration;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
@@ -86,13 +87,13 @@ pub(super) struct TreeSubcommand {
 struct ResolvedPackageTree {
     project: ResolvedProject,
     selected_module: ModuleId,
-    target: TargetBackend,
+    configuration: BuildConfiguration,
 }
 
 impl ResolvedPackageTree {
     /// The selected backend's package graph; other backends are not resolved.
     fn dep_graph(&self) -> &petgraph::graphmap::DiGraphMap<BuildTarget, DepEdge> {
-        &self.project.package_relations[&self.target].dep_graph
+        &self.project.package_relations[&self.configuration].dep_graph
     }
 }
 
@@ -160,11 +161,12 @@ fn resolve_selected_package_graph(
     let target = target
         .or(discovered.module_info(selected_module).preferred_target)
         .unwrap_or_default();
-    let project = discovered.resolve_packages(&[target], user_log)?;
+    let configuration = BuildConfiguration::new(target, moonutil::cond_expr::OptLevel::Debug);
+    let project = discovered.resolve_packages(&[configuration], user_log)?;
     Ok(ResolvedPackageTree {
         project,
         selected_module,
-        target,
+        configuration,
     })
 }
 
@@ -473,7 +475,7 @@ fn render_package_json_report(
         version: PACKAGE_TREE_JSON_VERSION,
         status,
         error: None,
-        target: Some(tree.target.to_flag()),
+        target: Some(tree.configuration.backend.to_flag()),
         root: graph.root,
         nodes: graph.nodes,
         edges: graph.edges,

@@ -28,6 +28,7 @@ they own the behavior being changed or compatibility is part of the task.
 | Project discovery, modules, packages, imports | [Modules and packages](reference/modules-packages.md) | Architecture: [discovery](reference/arch.md#project-discovery-and-layout), [module resolution](reference/arch.md#module-dependency-management), [package resolution](reference/arch.md#package-and-package-dependency-management) |
 | Workspaces or package selection | [Workspace behavior](reference/workspace.md) | [Directory and environment facts](reference/arch.md#directory-and-environment-facts) |
 | Planning, lowering, artifacts, or execution | [Pipeline overview](reference/arch.md#the-pipeline) | [Package build process](reference/build.md), [artifact dependencies](reference/build-plan-artifact-dependencies.md), [RR special cases](reference/rr-special-cases.md) |
+| Build configuration scope and phase ownership | [Configuration selection decision](../adr/0008-select-build-configuration-before-package-resolution.md) | [Pipeline overview](reference/arch.md#the-pipeline), [conditional compilation](reference/cond-comp.md) |
 | Compiler arguments or backend support | [Compiler commands](reference/compiler-cmd-ref.md) | [Supported targets](reference/supported-targets.md), [conditional compilation](reference/cond-comp.md), [virtual packages](reference/virtual-pkg.md) |
 | Compiler-proposed source fixes | [`moon fix`](reference/fix.md) | [Prebuild outputs](reference/prebuild.md), [Testing](testing.md) |
 | Native builds, C stubs, ABI, or CRT | [Native ABI decision](../adr/0002-native-abi-policy-belongs-to-toolchains.md) | [C toolchain resolution](reference/native-c-toolchain-resolution.md), [toolchain layout](reference/toolchain-layout.md) |
@@ -80,3 +81,4 @@ teaches coding agents how to use this index without copying its routing table.
 - [0005: Use Unified Planning and Execution for Standalone Builds](../adr/0005-plan-standalone-dependencies-separately.md)
 - [0006: Model Providers as Build Graph Topology](../adr/0006-model-providers-as-build-graph-topology.md)
 - [0007: Separate Command, Build, and Runtime Responsibilities (proposed)](../adr/0007-separate-command-build-and-runtime-responsibilities.md)
+- [0008: Select Build Configuration Before Package Resolution](../adr/0008-select-build-configuration-before-package-resolution.md)

@@ -24,12 +24,13 @@ use crate::{
     execution::{self, BuildConfig, BuildInput, BuildStats, JsonBuildOutput, resolve_parallelism},
     metadata,
 };
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
 };
-use moonutil::{target::TargetBackend, user_log::UserLog};
+use moonutil::user_log::UserLog;
 use std::{
     fs::File,
     path::{Path, PathBuf},
@@ -53,7 +54,7 @@ impl BuildRequest {
         &self,
         resolved_project: &ResolvedProject,
         user_log: &UserLog,
-        target_backend: TargetBackend,
+        configuration: BuildConfiguration,
     ) -> Vec<ArtifactKey> {
         let mut artifacts = Vec::new();
         for intent in &self.intents {
@@ -62,7 +63,7 @@ impl BuildRequest {
                 &mut artifacts,
                 user_log,
                 &self.directive,
-                target_backend,
+                configuration,
             );
         }
         artifacts
@@ -137,7 +138,7 @@ impl BuildSession {
         );
         let target_dir = &self.target_dir;
         let user_log = &self.user_log;
-        let target_backend = cx.backend.target_backend();
+        let target_backend = cx.configuration.backend;
         info!("User intent calculated: {:?}", intent.intents);
 
         // Decide once, after backend selection, whether planning will execute a
@@ -173,7 +174,7 @@ impl BuildSession {
 
         info!("Expanding user intents to requested artifacts");
         let requested_artifacts =
-            intent.requested_artifacts(&resolved_project, user_log, target_backend);
+            intent.requested_artifacts(&resolved_project, user_log, cx.configuration);
         info!("Begin lowering to build graph");
         let compile_output = super::compile(
             &cx,
@@ -204,8 +205,7 @@ impl BuildSession {
         let build_meta = BuildMeta {
             resolved_project,
             artifacts,
-            target_backend,
-            opt_level: cx.opt_level,
+            configuration: cx.configuration,
             artifact_paths: cx.artifact_paths,
         };
 

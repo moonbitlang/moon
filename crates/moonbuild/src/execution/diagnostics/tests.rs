@@ -60,7 +60,9 @@ fn composed_build_input() -> BuildInput {
     let resolved = moonbuild_rupes_recta::prepare_synced_project(
         &DiscoveryConfig::default(),
         (modules, dirs),
-        &[TargetBackend::WasmGC, TargetBackend::Js],
+        &[TargetBackend::WasmGC, TargetBackend::Js].map(|backend| {
+            moonbuild_rupes_recta::BuildConfiguration::new(backend, OptLevel::Debug)
+        }),
         &user_log,
     )
     .unwrap();
@@ -74,8 +76,11 @@ fn composed_build_input() -> BuildInput {
         .map(|backend| {
             let target = backend.target_backend();
             let cfg = CompileConfig {
+                configuration: moonbuild_rupes_recta::BuildConfiguration::new(
+                    backend.target_backend(),
+                    OptLevel::Debug,
+                ),
                 backend,
-                opt_level: OptLevel::Debug,
                 action: RunMode::Check,
                 debug_info: Default::default(),
                 artifact_paths: ArtifactPathResolver::new(

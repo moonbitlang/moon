@@ -24,6 +24,56 @@ use super::fixture::{
 // Phase 3: these tests start from an already chosen command configuration and
 // assert how the planner lowers that intent into the dry-run graph.
 
+#[test]
+fn profile_controls_sources_flags_and_output_paths_together() {
+    // The same JS package has debug-only and release-only sources. Keeping
+    // symbols in release must not switch its source selection back to debug.
+    let fixture = PlanningFixture::with_core_dependency("cond_comp.in").unwrap();
+    for (options, profile, debug_sources, symbols) in [
+        (vec!["--debug"], "debug", true, true),
+        (vec!["--release"], "release", false, false),
+        (vec!["--release", "--no-strip"], "release", false, true),
+    ] {
+        let args = [vec!["build", "--target", "js"], options].concat();
+        let (cli, cmd) = parse_build_command(&args);
+        let graph = fixture.plan_build_with_cli(&cli, &cmd).unwrap();
+        let actions = graph_actions(&graph);
+        let library = actions
+            .iter()
+            .find(|action| {
+                action
+                    .outputs
+                    .iter()
+                    .any(|path| path.ends_with("/lib/lib.core"))
+            })
+            .expect("the requested build compiles the library");
+
+        for (file, selected) in [
+            ("only_debug.mbt", debug_sources),
+            ("wasm_release_or_js_debug.mbt", debug_sources),
+            ("js_and_release.mbt", !debug_sources),
+        ] {
+            assert_eq!(
+                library
+                    .inputs
+                    .iter()
+                    .any(|path| path.ends_with(&format!("/{file}"))),
+                selected,
+                "{file} in {profile}"
+            );
+        }
+        let command = shlex::split(&library.command).unwrap();
+        assert_eq!(command.iter().any(|arg| arg == "-O0"), debug_sources);
+        assert_eq!(command.iter().any(|arg| arg == "-g"), symbols);
+        assert!(
+            library
+                .outputs
+                .iter()
+                .any(|path| { path.ends_with(&format!("/js/{profile}/build/lib/lib.core")) })
+        );
+    }
+}
+
 fn line_with<'a>(graph: &'a str, command: &str, filter: &[&str]) -> &'a str {
     graph
         .lines()

@@ -190,7 +190,7 @@ impl<'a> LoweringContext<'a> {
     ) -> Self {
         Self {
             artifact_paths: &opt.artifact_paths,
-            rel: &resolved_project.package_relations[&opt.backend.target_backend()],
+            rel: &resolved_project.package_relations[&opt.configuration],
             modules: &resolved_project.module_graph,
             packages: &resolved_project.pkg_dirs,
             module_dirs: &resolved_project.module_dirs,
@@ -260,7 +260,7 @@ impl<'a> LoweringContext<'a> {
                 return node.human_desc(
                     self.modules,
                     self.packages,
-                    self.opt.backend.target_backend().to_flag(),
+                    self.opt.configuration.backend.to_flag(),
                 );
             }
             (BuildPlanActionKey::PackagePrebuild(key), BuildAction::RunPrebuild { info }) => {
@@ -414,7 +414,7 @@ impl<'a> LoweringContext<'a> {
             BuildAction::LinkCore { target, .. } => {
                 let package = self.get_package(target);
                 let package_link_flags = package.raw.link.as_ref().and_then(|link| {
-                    match self.opt.backend.target_backend() {
+                    match self.opt.configuration.backend {
                         TargetBackend::Wasm => link
                             .wasm
                             .as_ref()

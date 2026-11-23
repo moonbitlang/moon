@@ -76,6 +76,7 @@ fn push_prebuild_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moonbuild_rupes_recta::BuildConfiguration;
 
     use moonbuild::prepare::{ProjectPreparationConfig, sync_and_discover_project};
     use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
@@ -107,7 +108,15 @@ name = "user/empty"
         .unwrap();
         let discovered = sync_and_discover_project(&preparation_config, &dirs, &user_log).unwrap();
         let resolved = discovered
-            .resolve_packages(moonutil::target::TargetBackend::all(), &user_log)
+            .resolve_packages(
+                &moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&backend| {
+                        BuildConfiguration::new(backend, moonutil::cond_expr::OptLevel::Debug)
+                    })
+                    .collect::<Vec<_>>(),
+                &user_log,
+            )
             .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
@@ -157,7 +166,15 @@ dev_build(
         .unwrap();
         let discovered = sync_and_discover_project(&preparation_config, &dirs, &user_log).unwrap();
         let resolved = discovered
-            .resolve_packages(moonutil::target::TargetBackend::all(), &user_log)
+            .resolve_packages(
+                &moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&backend| {
+                        BuildConfiguration::new(backend, moonutil::cond_expr::OptLevel::Debug)
+                    })
+                    .collect::<Vec<_>>(),
+                &user_log,
+            )
             .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);

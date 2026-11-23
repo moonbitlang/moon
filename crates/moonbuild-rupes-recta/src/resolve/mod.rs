@@ -32,7 +32,6 @@ use moonutil::{
     manifest::MoonMod,
     package::Import,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleId},
-    target::TargetBackend,
     user_log::UserLog,
 };
 use std::{
@@ -61,8 +60,8 @@ pub struct DiscoveredProject {
 #[derive(Debug, Clone)]
 pub struct ResolvedProject {
     pub discovered: DiscoveredProject,
-    /// Each backend owns its imports, virtual-package associations, and support.
-    pub package_relations: BTreeMap<TargetBackend, PackageRelations>,
+    /// Each requested configuration owns its package relationships and support.
+    pub package_relations: BTreeMap<crate::BuildConfiguration, PackageRelations>,
 }
 
 /// A resolved project provides read-only access to its modules and packages.
@@ -75,26 +74,29 @@ impl Deref for ResolvedProject {
 }
 
 impl DiscoveredProject {
-    /// Resolve exactly the requested backends, returning any error immediately.
+    /// Resolve exactly the requested configurations, returning any error immediately.
     /// No `ResolvedProject` is constructed until every requested graph is valid.
     #[instrument(skip_all)]
     pub fn resolve_packages(
         self,
-        backends: &[TargetBackend],
+        configurations: &[crate::BuildConfiguration],
         user_log: &UserLog,
     ) -> Result<ResolvedProject, ProjectResolutionError> {
         let mut package_relations = BTreeMap::new();
         let mut warnings = HashSet::new();
         let (graph_log, capture) = UserLog::captured(log::LevelFilter::Warn);
-        for &backend in backends {
-            if package_relations.contains_key(&backend) {
+        for &configuration in configurations {
+            if package_relations.contains_key(&configuration) {
                 continue;
             }
+            // Import conditions currently inspect only the backend. Retain the
+            // complete selection so planning uses the same configuration for
+            // relationships, profile-sensitive sources, and compiler options.
             let result = pkg_solve::resolve_packages(
                 &self.module_graph,
                 &self.pkg_dirs,
                 self.enable_coverage,
-                backend,
+                configuration.backend,
                 &graph_log,
             );
             for entry in capture.take() {
@@ -109,7 +111,7 @@ impl DiscoveredProject {
                 "Package dependency graph has {} nodes",
                 relations.dep_graph.node_count()
             );
-            package_relations.insert(backend, relations);
+            package_relations.insert(configuration, relations);
         }
         Ok(ResolvedProject {
             discovered: self,
@@ -148,16 +150,16 @@ pub enum ProjectResolutionError {
     PackageResolutionError(#[source] Box<pkg_solve::PackageResolutionError>),
 }
 
-/// Resolve package relationships for the requested backends from synced dependencies.
+/// Resolve package relationships for the requested configurations from synced dependencies.
 #[instrument(skip_all)]
 pub fn prepare_synced_project(
     cfg: &DiscoveryConfig,
     synced_dependencies: (ModuleDependencyGraph, DirSyncResult),
-    backends: &[TargetBackend],
+    configurations: &[crate::BuildConfiguration],
     user_log: &UserLog,
 ) -> Result<ResolvedProject, ProjectResolutionError> {
     discover_synced_project(cfg, synced_dependencies, user_log)?
-        .resolve_packages(backends, user_log)
+        .resolve_packages(configurations, user_log)
 }
 
 /// Discover packages from already synced dependencies without solving imports.

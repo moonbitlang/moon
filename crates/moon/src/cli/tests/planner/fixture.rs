@@ -20,6 +20,7 @@ use crate::cli::UniversalFlags;
 use clap::Parser;
 use moonbuild::execution::BuildInput;
 use moonbuild::{BuildMeta, compile::BuildSession};
+use moonbuild_rupes_recta::BuildConfiguration;
 use std::{path::PathBuf, sync::Arc};
 
 use moonbuild_rupes_recta::{
@@ -184,10 +185,13 @@ impl PlanningFixture {
             crate::cli::selection::local_modules_preferred_target(&self.discovered, user_log)
                 .unwrap_or_default()
         });
-        let resolved_project = self
-            .discovered
-            .clone()
-            .resolve_packages(&[target_backend], user_log)?;
+        let resolved_project = self.discovered.clone().resolve_packages(
+            &[BuildConfiguration::new(
+                target_backend,
+                moonutil::cond_expr::OptLevel::Debug,
+            )],
+            user_log,
+        )?;
         Ok((target_backend, resolved_project))
     }
 
@@ -492,7 +496,7 @@ pub(super) fn planned_target_backends(runs: Vec<PlannedGraph>) -> Vec<TargetBack
 pub(super) fn planned_root_package_intent(plan: PlannedGraph) -> PlannedPackageIntent {
     PlannedPackageIntent {
         target_backend: plan.build_meta.target_backend(),
-        profile: plan.build_meta.opt_level,
+        profile: plan.build_meta.configuration().profile,
         packages: root_package_names(&plan.build_meta),
     }
 }
