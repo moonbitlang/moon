@@ -78,6 +78,12 @@ Moon publishes the result manifest last and exits; the supervisor requires succe
 Arguments and the effective cwd travel in that manifest. Dry-run, build-only,
 and profiling are rejected in this mode.
 
+Standalone builds used by moonx retain their `BuildSession` in the returned
+`StandaloneWasm`. The caller keeps that result alive through handoff publication,
+so copying the Wasm and source map remains protected by the original build lock.
+For ordinary execution, command preparation finishes and drops the result before
+delegating to moonrun; prebuild scripts likewise release it before launch.
+
 For Wasm execution, `moon run --wasm-policy <path>` forwards the selected policy
 to moonrun. Its `process.virtualize` field selects virtual supervision; the
 existing `process.spawn` / `process.allow` rules authorize all guest spawns in
