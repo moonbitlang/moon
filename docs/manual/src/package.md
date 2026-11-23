@@ -79,8 +79,7 @@ empty, or both spellings occur in `options(...)`.
 Known fields with incorrect types are errors, including in dependencies and
 with `--quiet`. For example, `warnings = 123` is invalid: `warnings` requires a
 string. Compiler-consumed settings such as `options("alert-list": "+all")`
-and the boolean `link.wasm-gc.use-ffi-bytes` are also recognized and type-checked
-by Moon.
+are also recognized and type-checked by Moon.
 
 Deprecated package settings also warn in the current project and workspace
 members, with dependency warnings suppressed. Replace `is-main: true` with
