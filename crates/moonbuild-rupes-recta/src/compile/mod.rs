@@ -55,7 +55,7 @@ impl RunMode {
 /// Semantic choices fixed before package resolution and reused by each build phase.
 ///
 /// A profile is a source-selection policy, not a C compiler optimization level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildConfiguration {
     pub backend: TargetBackend,
     pub profile: OptLevel,
@@ -276,11 +276,10 @@ mod tests {
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                package_relations: [(
-                    crate::BuildConfiguration::new(TargetBackend::Native, opt_level),
-                    relationship,
-                )]
-                .into(),
+                package_relations: moonutil::target::TargetBackend::all()
+                    .iter()
+                    .map(|&b| (b, relationship.clone()))
+                    .collect(),
             };
             for symbols in [
                 DebugSymbols::None,
@@ -552,14 +551,9 @@ mod tests {
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            package_relations: OptLevel::all()
+            package_relations: moonutil::target::TargetBackend::all()
                 .iter()
-                .map(|&profile| {
-                    (
-                        crate::BuildConfiguration::new(TargetBackend::Native, profile),
-                        PackageRelations::default(),
-                    )
-                })
+                .map(|&b| (b, PackageRelations::default()))
                 .collect(),
         };
         // Empty plans exercise capability forwarding without resolving host tools.
@@ -780,11 +774,10 @@ mod tests {
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            package_relations: [(
-                crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
-                relationship,
-            )]
-            .into(),
+            package_relations: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, relationship.clone()))
+                .collect(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(
@@ -893,11 +886,10 @@ mod tests {
                 pkg_dirs: packages,
                 enable_coverage: false,
             },
-            package_relations: [(
-                crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
-                PackageRelations::default(),
-            )]
-            .into(),
+            package_relations: moonutil::target::TargetBackend::all()
+                .iter()
+                .map(|&b| (b, PackageRelations::default()))
+                .collect(),
         };
         let artifact_paths = ArtifactPathResolver::new(
             TargetLayout::new(

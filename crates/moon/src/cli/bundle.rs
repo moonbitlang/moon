@@ -199,7 +199,7 @@ pub(super) fn plan_bundle_rr_from_discovered(
         .iter()
         .map(|&backend| cmd.build_flags.configuration(backend, RunMode::Bundle))
         .collect::<Vec<_>>();
-    let resolved_project = discovered.resolve_packages(&configurations, user_log)?;
+    let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     configurations
         .into_iter()
         .map(|configuration| {

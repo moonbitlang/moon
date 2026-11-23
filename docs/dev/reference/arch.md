@@ -89,11 +89,11 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Discover packages within modules.
    - Select the requested Build Configurations: backend (using module preferences when implicit)
      and the command's effective debug/release profile.
-   - Resolve complete package relationships for each requested configuration; fail if any fails.
+   - Resolve complete package relationships for each requested backend; fail if any fails.
 2. Generate build graph based on the intent of the user [^graph]
    - Determine the user intent ("build package X to executable", "check package Y", etc.)
-   - Prepare compiler options for the selected configuration and consume its already-resolved
-     dependency relationship. Do not select the profile again at this stage.
+   - Prepare compiler options for the selected configuration and consume its backend's
+     already-resolved dependency relationship. Do not select the profile again at this stage.
    - Determine the logical artifacts requested by that intent.
    - Select provider actions and expand their transitive artifact requirements.
    - Generate a concrete build graph containing the final commandlines to execute.

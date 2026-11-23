@@ -641,7 +641,6 @@ mod tests {
     use super::{fuzzy_match, select_supported_packages};
     use log::LevelFilter;
     use moonbuild::prepare::ProjectPreparationConfig;
-    use moonbuild_rupes_recta::BuildConfiguration;
     use moonbuild_rupes_recta::{
         DiscoveredProject, pkg_solve::PackageResolutionError, resolve::ProjectResolutionError,
     };
@@ -749,13 +748,7 @@ pkgtype(kind: "executable")"#,
         );
 
         let ProjectResolutionError::PackageResolutionError(error) = discovered
-            .resolve_packages(
-                &[BuildConfiguration::new(
-                    TargetBackend::default(),
-                    moonutil::cond_expr::OptLevel::Debug,
-                )],
-                &user_log,
-            )
+            .resolve_packages(&[TargetBackend::default()], &user_log)
             .unwrap_err()
         else {
             panic!("missing imports must be reported during package solving");

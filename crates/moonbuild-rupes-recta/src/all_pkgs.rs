@@ -27,6 +27,7 @@
 //! build process and is consumed by the MoonBit compiler for dependency
 //! analysis.
 
+use moonutil::target::TargetBackend;
 use serde::Serialize;
 
 use crate::{
@@ -55,7 +56,7 @@ pub struct AllPkgsJSON {
 pub fn gen_all_pkgs_json(
     resolved_project: &ResolvedProject,
     artifact_paths: &ArtifactPathResolver,
-    configuration: crate::BuildConfiguration,
+    backend: TargetBackend,
 ) -> AllPkgsJSON {
     let mut packages: Vec<PackageArtifactJSON> = resolved_project
         .pkg_dirs
@@ -64,8 +65,7 @@ pub fn gen_all_pkgs_json(
             let pkg = resolved_project.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();
             let rel = pkg.fqn.package().to_string();
-            let artifact =
-                metadata_source_mi_path(resolved_project, artifact_paths, id, configuration);
+            let artifact = metadata_source_mi_path(resolved_project, artifact_paths, id, backend);
             let artifact = dunce::simplified(&artifact).to_string_lossy().into_owned();
             PackageArtifactJSON {
                 root,

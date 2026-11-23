@@ -18,9 +18,8 @@
 
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
-use moonbuild_rupes_recta::{BuildConfiguration, DiscoveryConfig, discover_synced_project};
+use moonbuild_rupes_recta::{DiscoveryConfig, discover_synced_project};
 use moonutil::{
-    cond_expr::OptLevel,
     manifest::read_module_desc_file_in_dir,
     resolution::{DirSyncResult, ModuleDependencyGraph, ModuleSource, ResolvedModule},
     target::TargetBackend::{self, Js, Native},
@@ -48,13 +47,7 @@ fn warnings(packages: &[(&str, &str)], backends: &[TargetBackend]) -> Vec<String
     let config = DiscoveryConfig::default();
     discover_synced_project(&config, (module_graph, module_dirs), &log)
         .unwrap()
-        .resolve_packages(
-            &backends
-                .iter()
-                .map(|&backend| BuildConfiguration::new(backend, OptLevel::Debug))
-                .collect::<Vec<_>>(),
-            &log,
-        )
+        .resolve_packages(backends, &log)
         .unwrap();
     capture
         .take()
@@ -228,13 +221,7 @@ fn experimental_warnings_only_report_imports_from_root_modules() {
             let config = DiscoveryConfig::default();
             discover_synced_project(&config, (module_graph, module_dirs), &log)
                 .unwrap()
-                .resolve_packages(
-                    &TargetBackend::all()
-                        .iter()
-                        .map(|&backend| BuildConfiguration::new(backend, OptLevel::Debug))
-                        .collect::<Vec<_>>(),
-                    &log,
-                )
+                .resolve_packages(TargetBackend::all(), &log)
                 .unwrap();
             let mut messages: Vec<_> = capture
                 .take()

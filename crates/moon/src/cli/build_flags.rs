@@ -161,7 +161,7 @@ impl BuildFlags {
             // Import conditions make each backend's package graph distinct.
             let file_name = format!("package_graph.{}.dot", target_backend.to_dir_name());
             moonbuild_rupes_recta::util::print_package_relations_dot(
-                &resolved_project.package_relations[&configuration],
+                &resolved_project.package_relations[&target_backend],
                 &resolved_project.pkg_dirs,
                 &mut std::fs::File::create(target_dir.join(file_name))?,
             )?;

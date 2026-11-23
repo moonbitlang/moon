@@ -26,8 +26,8 @@
     modules and exposes the individual compilation stages:
 
     - [`resolve`] discovers packages in supplied modules as [`DiscoveredProject`], then
-      resolves the requested [`BuildConfiguration`] values. [`ResolvedProject`] contains complete
-      [`pkg_solve::PackageRelations`] for each requested configuration. Any resolution
+      resolves the requested target backends. [`ResolvedProject`] contains complete
+      [`pkg_solve::PackageRelations`] for each requested backend. Any resolution
       failure is returned immediately.
 
     - [`build_plan`] converts requested artifacts into a semantic Build Plan.

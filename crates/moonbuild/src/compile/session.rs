@@ -24,13 +24,12 @@ use crate::{
     execution::{self, BuildConfig, BuildInput, BuildStats, JsonBuildOutput, resolve_parallelism},
     metadata,
 };
-use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject, RunMode,
     build_plan::{ArtifactKey, InputDirective},
     intent::UserIntent,
 };
-use moonutil::user_log::UserLog;
+use moonutil::{target::TargetBackend, user_log::UserLog};
 use std::{
     fs::File,
     path::{Path, PathBuf},
@@ -54,7 +53,7 @@ impl BuildRequest {
         &self,
         resolved_project: &ResolvedProject,
         user_log: &UserLog,
-        configuration: BuildConfiguration,
+        target_backend: TargetBackend,
     ) -> Vec<ArtifactKey> {
         let mut artifacts = Vec::new();
         for intent in &self.intents {
@@ -63,7 +62,7 @@ impl BuildRequest {
                 &mut artifacts,
                 user_log,
                 &self.directive,
-                configuration,
+                target_backend,
             );
         }
         artifacts
@@ -174,7 +173,7 @@ impl BuildSession {
 
         info!("Expanding user intents to requested artifacts");
         let requested_artifacts =
-            intent.requested_artifacts(&resolved_project, user_log, cx.configuration);
+            intent.requested_artifacts(&resolved_project, user_log, target_backend);
         info!("Begin lowering to build graph");
         let compile_output = super::compile(
             &cx,

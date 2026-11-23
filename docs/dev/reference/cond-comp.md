@@ -62,13 +62,13 @@ Package declarations retain each import's selected backend set. Module resolutio
 and package discovery run once. Command adapters then select the requested
 backends, including module preferences when `--target` is omitted, and the effective
 debug/release profile before solving package relationships.
-`ResolvedProject.package_relations` maps each requested Build Configuration to a
+`ResolvedProject.package_relations` maps each requested backend to a
 complete `PackageRelations`, including its import graph, virtual users,
 implementation mappings, and transitive support.
-Import conditions currently read only the backend, so two profiles of the same
-backend have the same import relationships. Source-file conditions already read
-the profile. Both phases retain the selected configuration; separate profile
-requests do not overwrite each other's relationship entries.
+Import conditions read only the backend; profile does not participate in package
+resolution or its map key. Source-file conditions also read the selected profile.
+The CLI selects one effective profile per invocation and does not build debug and
+release together.
 
 For non-watch commands, any requested backend's resolution error fails the
 command immediately. Each watch pass resolves only its selected backends. For

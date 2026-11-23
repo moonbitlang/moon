@@ -277,7 +277,11 @@ pub(super) fn run_info(
         .iter()
         .map(|&(backend, _)| build_flags.configuration(backend, RunMode::Check))
         .collect::<Vec<_>>();
-    let resolved_project = discovered.resolve_packages(&configurations, output.user_log())?;
+    let target_backends = configurations
+        .iter()
+        .map(|configuration| configuration.backend)
+        .collect::<Vec<_>>();
+    let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
     std::fs::create_dir_all(target_dir)?;
     let session = BuildSession::new(target_dir, false, output.user_log())?;
 

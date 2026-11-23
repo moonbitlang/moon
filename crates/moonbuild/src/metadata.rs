@@ -185,7 +185,7 @@ pub(super) fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<(
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
         &build_meta.resolved_project,
         &build_meta.artifact_paths,
-        build_meta.configuration(),
+        build_meta.target_backend(),
     );
     let orig_all_pkgs = std::fs::read_to_string(&all_pkgs_path);
     let all_pkgs_str =

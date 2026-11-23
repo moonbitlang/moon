@@ -111,7 +111,6 @@ pub(super) fn compile(
 
 #[cfg(test)]
 mod tests {
-    use moonbuild_rupes_recta::BuildConfiguration;
     use moonbuild_rupes_recta::{
         DiscoveryConfig, RunMode,
         build_lower::WarningCondition,
@@ -152,10 +151,7 @@ mod tests {
         let resolved = prepare_synced_project(
             &DiscoveryConfig::default(),
             (modules, dirs),
-            &[BuildConfiguration::new(
-                TargetBackend::Native,
-                OptLevel::Debug,
-            )],
+            &[TargetBackend::Native],
             &user_log,
         )
         .unwrap();

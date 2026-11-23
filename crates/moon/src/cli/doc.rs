@@ -141,7 +141,7 @@ pub(super) fn run_doc_rr(
         .preferred_target
         .unwrap_or_default();
     let configuration = build_flags.configuration(target_backend, RunMode::Check);
-    let resolved_project = discovered.resolve_packages(&[configuration], user_log)?;
+    let resolved_project = discovered.resolve_packages(&[configuration.backend], user_log)?;
 
     let mut compile_config = build_flags.compile_config(
         &cli,

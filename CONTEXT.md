@@ -113,9 +113,10 @@ _Avoid_: Using entity names for operations, adding containers only to mirror voc
 ## Build Planning
 
 **Build Configuration**:
-The selected Target Backend and build profile for one package-resolution and
-planning scope. It identifies the semantic selection, not the effective options
-of every compiler action.
+The selected Target Backend and build profile for one planning scope. It
+identifies the semantic selection, not the effective options of every compiler
+action. Package relationships depend on its backend, while source selection and
+planning also consume its profile.
 _Avoid_: Target Backend alone, compiler optimization level
 
 **Build Plan**:

@@ -67,9 +67,8 @@ impl UserIntent {
         out: &mut Vec<ArtifactKey>,
         user_log: &UserLog,
         directive: &InputDirective,
-        configuration: crate::BuildConfiguration,
+        target_backend: TargetBackend,
     ) {
-        let target_backend = configuration.backend;
         match self {
             UserIntent::Build(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
@@ -118,7 +117,7 @@ impl UserIntent {
                     // make whitebox/blackbox unrealizable even when the source
                     // target is still valid for the selected backend.
                     let source_supports_backend =
-                        target_supports_backend(resolved, source_target, configuration);
+                        target_supports_backend(resolved, source_target, target_backend);
 
                     // - Always check Source.
                     // - If this package is not a virtual implementation, we can
@@ -142,7 +141,7 @@ impl UserIntent {
                                 resolved,
                                 source_supports_backend,
                                 whitebox_target,
-                                configuration,
+                                target_backend,
                                 user_log,
                             ) {
                                 out.push(ArtifactKey::CheckMi {
@@ -156,7 +155,7 @@ impl UserIntent {
                             resolved,
                             source_supports_backend,
                             blackbox_target,
-                            configuration,
+                            target_backend,
                             user_log,
                         ) {
                             out.push(ArtifactKey::CheckMi {
@@ -189,7 +188,7 @@ impl UserIntent {
                     let source_supports_backend = target_supports_backend(
                         resolved,
                         pkg.build_target(TargetKind::Source),
-                        configuration,
+                        target_backend,
                     );
 
                     // Use the same target selection for execution and outline; skip
@@ -206,7 +205,7 @@ impl UserIntent {
                                 resolved,
                                 source_supports_backend,
                                 t,
-                                configuration,
+                                target_backend,
                                 user_log,
                             )
                         {
@@ -310,11 +309,10 @@ fn should_skip_test_target(
     resolved: &ResolvedProject,
     source_supports_backend: bool,
     target: BuildTarget,
-    configuration: crate::BuildConfiguration,
+    target_backend: TargetBackend,
     user_log: &UserLog,
 ) -> bool {
-    let target_backend = configuration.backend;
-    if !source_supports_backend || target_supports_backend(resolved, target, configuration) {
+    if !source_supports_backend || target_supports_backend(resolved, target, target_backend) {
         return false;
     }
 
@@ -337,9 +335,8 @@ fn should_skip_test_target(
 fn target_supports_backend(
     resolved: &ResolvedProject,
     target: BuildTarget,
-    configuration: crate::BuildConfiguration,
+    target_backend: TargetBackend,
 ) -> bool {
-    let target_backend = configuration.backend;
     // Targets without edges may be absent from the graph, so check the package
     // declaration as well as the propagated incompatibilities.
     resolved
@@ -347,7 +344,7 @@ fn target_supports_backend(
         .get_package(target.package)
         .effective_supported_targets
         .contains(&target_backend)
-        && !resolved.package_relations[&configuration]
+        && !resolved.package_relations[&target_backend]
             .unsupported_targets
             .contains(&target)
 }

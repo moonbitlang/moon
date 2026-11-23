@@ -333,14 +333,9 @@ mod tests {
                     pkg_dirs: packages,
                     enable_coverage: false,
                 },
-                package_relations: TargetBackend::all()
+                package_relations: moonutil::target::TargetBackend::all()
                     .iter()
-                    .map(|&backend| {
-                        (
-                            crate::BuildConfiguration::new(backend, OptLevel::Debug),
-                            PackageRelations::default(),
-                        )
-                    })
+                    .map(|&b| (b, PackageRelations::default()))
                     .collect(),
             },
             package_id.build_target(TargetKind::Source),
@@ -400,10 +395,7 @@ mod tests {
         for backend in [BackendConfig::WasmGc { use_wat: false }, BackendConfig::Js] {
             let relations = project
                 .package_relations
-                .get_mut(&crate::BuildConfiguration::new(
-                    backend.target_backend(),
-                    OptLevel::Debug,
-                ))
+                .get_mut(&backend.target_backend())
                 .expect("fixture supplies relations for each backend");
             relations.dep_graph.add_node(unrelated);
             for (from, to, alias) in [

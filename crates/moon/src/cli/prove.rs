@@ -176,7 +176,7 @@ pub(super) fn run_prove(
         user_log,
     )?;
     let configuration = build_flags.configuration(target_backend, RunMode::Prove);
-    let resolved_project = discovered.resolve_packages(&[configuration], user_log)?;
+    let resolved_project = discovered.resolve_packages(&[configuration.backend], user_log)?;
     // Hold the target lock through both preparation and proof execution.
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
@@ -644,7 +644,7 @@ fn collect_proof_invocations(
     proof_prelude: &Path,
 ) -> Vec<ProofInvocation> {
     let packages = &build_meta.resolved_project.pkg_dirs;
-    let relations = &build_meta.resolved_project.package_relations[&build_meta.configuration()];
+    let relations = &build_meta.resolved_project.package_relations[&build_meta.target_backend()];
     let layout = build_meta.artifact_paths.target_layout();
     let mut proofs = Vec::new();
     for (artifact, paths) in &build_meta.artifacts {

@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::model::TargetKind;
 use moonutil::{target::TargetBackend, user_log::UserLog};
 
@@ -37,9 +36,7 @@ fn assert_implicit_import(package: &str, alias: &str) {
         .get_package_id_by_name("username/hello/lib")
         .unwrap();
     let core = resolved.pkg_dirs.get_package_id_by_name(package).unwrap();
-    let dependencies = &resolved.package_relations
-        [&BuildConfiguration::new(backend, moonutil::cond_expr::OptLevel::Debug)]
-        .dep_graph;
+    let dependencies = &resolved.package_relations[&backend].dep_graph;
 
     // Then source and every candidate test kind depend on the core source
     // interface with the intended alias. Resolution creates these edges
@@ -225,9 +222,10 @@ fn installed_core_does_not_get_local_compile_actions() {
 #[test]
 fn unbundled_core_supplies_interfaces_without_local_proofs() {
     use moonbuild_rupes_recta::{
-        RunMode,
+        BuildConfiguration, RunMode,
         build_lower::lower_build_plan,
         build_plan::{self, ArtifactKey, InputDirective},
+        model::BackendConfig,
     };
     use moonutil::{cond_expr::OptLevel, resolution::ModuleSourceKind};
 
@@ -245,7 +243,7 @@ fn unbundled_core_supplies_interfaces_without_local_proofs() {
         &project,
         &fixture.case_dir().join("_build"),
         BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
-        moonbuild_rupes_recta::model::BackendConfig::WasmGc { use_wat: false },
+        BackendConfig::WasmGc { use_wat: false },
         RunMode::Prove,
         Default::default(),
     );
