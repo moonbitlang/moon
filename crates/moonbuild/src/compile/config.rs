@@ -20,62 +20,62 @@
 
 use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolvedProject, RunMode,
+    CompileConfig, NativeCodegenRequest, ResolvedProject, RunMode, TargetConfiguration,
     model::{
         BackendConfig, DebugInfoRequest, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem,
     },
     target_layout::{ArtifactPathResolver, TargetLayout, stdlib_core_path, stdlib_mi_path},
 };
-use moonutil::{compiler_flags, resolution::ModuleSourceKind, target::TargetBackend};
+use moonutil::{compiler_flags, resolution::ModuleSourceKind};
 use std::path::Path;
 
 /// Capture only the environment inputs used by the selected backend.
 pub fn prepare_backend(
-    target_backend: TargetBackend,
+    target: TargetConfiguration,
     output_wat: bool,
     wasi_link: bool,
 ) -> anyhow::Result<BackendConfig> {
     let collect_ref_cycle = std::env::var("MOON_COLLECT_REF_CYCLE").as_deref() == Ok("1");
-    Ok(match target_backend {
-        TargetBackend::Wasm => BackendConfig::Wasm {
+    Ok(match target {
+        TargetConfiguration::Wasm => BackendConfig::Wasm {
             use_wat: output_wat,
             wasi_link: wasi_link && std::env::var("MOON_WASI_LINK").as_deref() != Ok("0"),
             new_allocator: std::env::var("MOON_WASM_NEW_ALLOCATOR").as_deref() == Ok("1"),
             collect_ref_cycle,
             separate_compilation: std::env::var("MOON_SEPARATE_COMPILATION").as_deref() == Ok("1"),
         },
-        TargetBackend::WasmGC => BackendConfig::WasmGc {
+        TargetConfiguration::WasmGc => BackendConfig::WasmGc {
             use_wat: output_wat,
         },
-        TargetBackend::Js => BackendConfig::Js,
-        TargetBackend::Native => {
-            let new_native_env = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
-            BackendConfig::Native {
-                direct_object_candidate: NativeTarget::from_host_with_new_native_env(
+        TargetConfiguration::Js => BackendConfig::Js,
+        TargetConfiguration::Native { codegen } => {
+            let direct_object_candidate = if codegen == NativeCodegenRequest::Auto {
+                NativeTarget::from_host_with_new_native_env(
                     std::env::consts::ARCH,
                     std::env::consts::OS,
-                    new_native_env.as_deref(),
-                ),
+                    std::env::var(ENV_MOONBIT_NEW_NATIVE).ok().as_deref(),
+                )
+            } else {
+                None
+            };
+            BackendConfig::Native {
+                direct_object_candidate,
                 allocator: compiler_flags::NativeAllocator::from_env()?,
-                collect_ref_cycle,
+                collect_ref_cycle: codegen == NativeCodegenRequest::Auto && collect_ref_cycle,
                 os: std::env::consts::OS
                     .parse::<OperatingSystem>()
                     .expect("Unknown"),
                 compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
             }
         }
-        TargetBackend::LLVM => BackendConfig::Llvm {
-            allocator: compiler_flags::NativeAllocator::from_env()?,
-            os: std::env::consts::OS
-                .parse::<OperatingSystem>()
-                .expect("Unknown"),
-            compiler_paths: compiler_flags::CompilerPaths::from_moon_dirs(),
-        },
     })
 }
 
 /// Prepare artifact paths and compiler settings for the selected configuration.
 /// The prepared backend must match that selection; `CompileConfig` validates it.
+// TODO: Once backend generation options such as WAT belong to the semantic
+// configuration, prepare these resources here instead of accepting a separately
+// constructed BackendConfig from the caller.
 pub fn prepare_config(
     resolved_project: &ResolvedProject,
     target_dir: &Path,
@@ -84,7 +84,7 @@ pub fn prepare_config(
     action: RunMode,
     debug_info: DebugInfoRequest,
 ) -> CompileConfig {
-    let target_backend = configuration.backend;
+    let target_backend = configuration.target_backend();
     // Module preparation has already selected the stdlib used for discovery.
     // Reuse its root for artifacts; a local core project has no injected stdlib.
     let modules = &resolved_project.module_graph;

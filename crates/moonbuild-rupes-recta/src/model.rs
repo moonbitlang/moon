@@ -50,11 +50,12 @@ slotmap::new_key_type! {
     pub struct PackageId;
 }
 
-/// The selected backend and its backend-specific compile configuration.
+/// Prepared settings and resources for the selected backend family.
 ///
 /// Keeping backend-specific options inside the matching variant prevents
 /// invalid combinations such as WASI linking on a Native build. Preparation checks
-/// the variant against the selected semantic configuration.
+/// the variant against the selected semantic configuration's family. Native
+/// code-generation requests remain in BuildConfiguration, not in these resources.
 /// Native payload form is derived by planning and is not a caller option.
 #[derive(Clone, Debug)]
 pub enum BackendConfig {
@@ -82,11 +83,6 @@ pub enum BackendConfig {
         /// Enable cycle collection in the native runtime for either payload form.
         collect_ref_cycle: bool,
         /// Supplied by command orchestration; RR does not infer the host OS.
-        os: OperatingSystem,
-        compiler_paths: CompilerPaths,
-    },
-    Llvm {
-        allocator: NativeAllocator,
         os: OperatingSystem,
         compiler_paths: CompilerPaths,
     },
@@ -131,6 +127,8 @@ pub(crate) enum NativeBackendMode {
     GeneratedC,
     /// Experimental direct object-code native path.
     DirectObject(DirectNativeMode),
+    /// Generate an object through LLVM, as explicitly requested.
+    Llvm,
 }
 
 /// Concrete direct object-code native implementation.
@@ -176,7 +174,7 @@ impl NativeBackendMode {
     pub fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
         match self {
             Self::DirectObject(mode) => Some(mode),
-            Self::GeneratedC => None,
+            Self::GeneratedC | Self::Llvm => None,
         }
     }
 }
@@ -188,13 +186,12 @@ impl BackendConfig {
             Self::WasmGc { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
             Self::Native { .. } => TargetBackend::Native,
-            Self::Llvm { .. } => TargetBackend::LLVM,
         }
     }
 
     pub fn native_allocator(&self) -> Option<NativeAllocator> {
         match self {
-            Self::Native { allocator, .. } | Self::Llvm { allocator, .. } => Some(*allocator),
+            Self::Native { allocator, .. } => Some(*allocator),
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
         }
     }
@@ -207,22 +204,20 @@ impl BackendConfig {
             | Self::Native {
                 collect_ref_cycle, ..
             } => *collect_ref_cycle,
-            Self::WasmGc { .. } | Self::Js | Self::Llvm { .. } => false,
+            Self::WasmGc { .. } | Self::Js => false,
         }
     }
 
     pub(crate) fn os(&self) -> OperatingSystem {
         match self {
-            Self::Native { os, .. } | Self::Llvm { os, .. } => *os,
+            Self::Native { os, .. } => *os,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => OperatingSystem::None,
         }
     }
 
     pub(crate) fn compiler_paths(&self) -> Option<&CompilerPaths> {
         match self {
-            Self::Native { compiler_paths, .. } | Self::Llvm { compiler_paths, .. } => {
-                Some(compiler_paths)
-            }
+            Self::Native { compiler_paths, .. } => Some(compiler_paths),
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => None,
         }
     }

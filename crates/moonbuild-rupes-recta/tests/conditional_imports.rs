@@ -164,7 +164,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                     .map(|args| args[1].as_str())
                     .collect::<Vec<_>>();
                 let expected = if name == "moonbitlang/async"
-                    || (config.configuration().backend == Js && uses_legacy)
+                    || (config.configuration().target_backend() == Js && uses_legacy)
                 {
                     "moonbitlang/async"
                 } else {
@@ -174,7 +174,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                     runtimes,
                     [expected],
                     "{name} {kind:?} {:?}",
-                    config.configuration().backend
+                    config.configuration().target_backend()
                 );
             }
         }
@@ -240,7 +240,7 @@ import { "example/conditional/helper" } for "test"
                 ),
             )
         };
-        let backend = config.configuration().backend;
+        let backend = config.configuration().target_backend();
         let expected_mi = format!(
             "{}:platform",
             config

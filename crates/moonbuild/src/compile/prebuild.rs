@@ -244,7 +244,10 @@ fn run_build_script_for_module(
         .env("MOON_BUILD_DIR", &input.paths.out_dir)
         .env("MOON_HOST_OS", std::env::consts::OS)
         .env("MOON_HOST_ARCH", std::env::consts::ARCH)
-        .env("MOON_BACKEND", cx.configuration().backend.to_flag())
+        .env(
+            "MOON_BACKEND",
+            cx.configuration().target_backend().to_flag(),
+        )
         .env("MOON_PROFILE", cx.configuration().profile.as_str())
         .env("MOON_JOBS", jobs.to_string())
         .stdin(Stdio::piped())

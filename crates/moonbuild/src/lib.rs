@@ -57,6 +57,6 @@ impl BuildMeta {
     }
 
     pub fn target_backend(&self) -> TargetBackend {
-        self.configuration.backend
+        self.configuration.target_backend()
     }
 }

@@ -123,7 +123,9 @@ mod special_cases;
 pub mod util;
 
 // Reexports
-pub use compile::{BuildConfiguration, CompileConfig, RunMode};
+pub use compile::{
+    BuildConfiguration, CompileConfig, NativeCodegenRequest, RunMode, TargetConfiguration,
+};
 pub use resolve::{
     DiscoveredProject, DiscoveryConfig, ResolvedProject, discover_synced_project,
     prepare_synced_project,

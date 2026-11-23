@@ -724,8 +724,10 @@ fn run_check_for_single_file_rr(
             user_log,
             &resolved,
         )?;
-        let intent =
-            get_user_intents_single_file(&resolved, compile_config.configuration().backend)?;
+        let intent = get_user_intents_single_file(
+            &resolved,
+            compile_config.configuration().target_backend(),
+        )?;
         planned_runs.push(
             session
                 .plan(
@@ -1050,7 +1052,7 @@ pub(super) fn plan_check_rr_from_discovered(
         .collect::<Vec<_>>();
     let target_backends = configurations
         .iter()
-        .map(|configuration| configuration.backend)
+        .map(|configuration| configuration.target_backend())
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections
@@ -1139,7 +1141,7 @@ fn plan_check_rr_for_selection(
     add_generated_mbti_intents(
         &mut intent,
         &resolved_project,
-        compile_config.configuration().backend,
+        compile_config.configuration().target_backend(),
         cmd,
     );
     session.plan(

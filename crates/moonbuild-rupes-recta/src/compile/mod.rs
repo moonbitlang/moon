@@ -57,13 +57,65 @@ impl RunMode {
 /// A profile is a source-selection policy, not a C compiler optimization level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildConfiguration {
-    pub backend: TargetBackend,
+    pub target: TargetConfiguration,
     pub profile: OptLevel,
+}
+
+/// The requested backend family and its code-generation policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetConfiguration {
+    Wasm,
+    WasmGc,
+    Js,
+    Native { codegen: NativeCodegenRequest },
+}
+
+/// An explicit LLVM request is never a candidate for automatic C fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeCodegenRequest {
+    Auto,
+    Llvm,
+}
+
+impl TargetConfiguration {
+    /// The backend family sharing prepared resources and artifact forms.
+    pub fn backend_family(self) -> TargetBackend {
+        match self {
+            Self::Wasm => TargetBackend::Wasm,
+            Self::WasmGc => TargetBackend::WasmGC,
+            Self::Js => TargetBackend::Js,
+            Self::Native { .. } => TargetBackend::Native,
+        }
+    }
 }
 
 impl BuildConfiguration {
     pub fn new(backend: TargetBackend, profile: OptLevel) -> Self {
-        Self { backend, profile }
+        let target = match backend {
+            TargetBackend::Wasm => TargetConfiguration::Wasm,
+            TargetBackend::WasmGC => TargetConfiguration::WasmGc,
+            TargetBackend::Js => TargetConfiguration::Js,
+            TargetBackend::Native => TargetConfiguration::Native {
+                codegen: NativeCodegenRequest::Auto,
+            },
+            TargetBackend::LLVM => TargetConfiguration::Native {
+                codegen: NativeCodegenRequest::Llvm,
+            },
+        };
+        Self { target, profile }
+    }
+
+    /// Project the normalized request onto existing compiler, manifest and path
+    /// conventions. No independent legacy selection is stored.
+    // TODO: Remove this projection as those protocols adopt native codegen
+    // configuration; LLVM-only conditions and artifact paths must stay distinct.
+    pub fn target_backend(self) -> TargetBackend {
+        match self.target {
+            TargetConfiguration::Native {
+                codegen: NativeCodegenRequest::Llvm,
+            } => TargetBackend::LLVM,
+            target => target.backend_family(),
+        }
     }
 }
 
@@ -106,7 +158,10 @@ impl CompileConfig {
         action: RunMode,
         artifact_paths: ArtifactPathResolver,
     ) -> Self {
-        assert_eq!(configuration.backend, backend.target_backend());
+        assert_eq!(
+            configuration.target.backend_family(),
+            backend.target_backend()
+        );
         assert_eq!(
             configuration,
             artifact_paths.target_layout().configuration()

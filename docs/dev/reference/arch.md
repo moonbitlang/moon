@@ -88,7 +88,9 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Resolve module-level dependencies from the synced dependency result.
    - Discover packages within modules.
    - Select the requested Build Configurations: backend (using module preferences when implicit)
-     and the command's effective debug/release profile.
+     and the command's effective debug/release profile. Normalize `llvm` as an
+     explicit Native code-generation request; derive the existing backend selector
+     for import conditions and compatibility interfaces.
    - Resolve complete package relationships for each requested backend; fail if any fails.
 2. Generate build graph based on the intent of the user [^graph]
    - Determine the user intent ("build package X to executable", "check package Y", etc.)

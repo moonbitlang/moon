@@ -438,7 +438,14 @@ The generated-C native backend does not require MSVC. If a user explicitly sets 
 whether an independently configured stub compiler is link-compatible with the executable compiler;
 incompatible objects or archives fail naturally when the final linker consumes them.
 
-Native payload selection is internal to RR build planning. `BackendConfig::Native`
+Build Configuration represents `--target native` as Native with automatic code
+generation and `--target llvm` as Native with explicit LLVM code generation.
+Both prepare `BackendConfig::Native` resources and share runtime, C-stub and
+linker planning. The Backend Plan retains the selected generation mode, including
+LLVM. LLVM preserves its compiler commands, dSYM behavior, bundle and output
+paths; it is not added to automatic selection and never falls back to generated C.
+
+Automatic Native payload selection is internal to RR build planning. `BackendConfig::Native`
 contains the allocator choice, cycle-collection setting, and a direct-object
 candidate captured by the CLI from the host and `MOONBIT_NEW_NATIVE`.
 Direct object output is enabled by default on macOS AArch64, Linux x86_64,

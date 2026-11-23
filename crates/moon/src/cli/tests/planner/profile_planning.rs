@@ -25,6 +25,45 @@ use super::fixture::{
 // assert how the planner lowers that intent into the dry-run graph.
 
 #[test]
+fn native_and_llvm_requests_keep_distinct_commands_and_artifacts() {
+    let fixture = PlanningFixture::with_core_dependency("test_release").unwrap();
+    let actions: Vec<_> = ["native", "llvm"]
+        .into_iter()
+        .flat_map(|backend| {
+            let (cli, cmd) = parse_build_command(&["build", "--target", backend, "--release"]);
+            graph_actions(&fixture.plan_build_with_cli(&cli, &cmd).unwrap())
+        })
+        .collect();
+    let mut linked_backends = Vec::new();
+    for action in &actions {
+        let args = shlex::split(&action.command).unwrap();
+        if args.get(1).map(String::as_str) != Some("link-core") {
+            continue;
+        }
+        let backend = &args.windows(2).find(|pair| pair[0] == "-target").unwrap()[1];
+        let root = format!("./_build/{backend}/release/build/");
+        assert!(action.outputs.iter().all(|path| path.starts_with(&root)));
+        // LLVM is explicit even in release: it must not fall back to generated C.
+        assert_eq!(
+            action.outputs.iter().any(|path| path.ends_with(".c")),
+            backend == "native"
+        );
+        linked_backends.push(backend.clone());
+    }
+    linked_backends.sort();
+    assert_eq!(linked_backends, ["llvm", "native"]);
+    let mut outputs: Vec<_> = actions.iter().flat_map(|action| &action.outputs).collect();
+    let count = outputs.len();
+    outputs.sort();
+    outputs.dedup();
+    assert_eq!(
+        outputs.len(),
+        count,
+        "native and LLVM outputs must not overlap"
+    );
+}
+
+#[test]
 fn profile_controls_sources_flags_and_output_paths_together() {
     // The same JS package has debug-only and release-only sources. Keeping
     // symbols in release must not switch its source selection back to debug.

@@ -82,9 +82,7 @@ pub(super) fn compile(
     // has determined which actions actually need it.
     let mut toolchain_include_files = Vec::new();
     if plan.requires_toolchain_headers() {
-        let (BackendConfig::Native { compiler_paths, .. }
-        | BackendConfig::Llvm { compiler_paths, .. }) = cx.backend()
-        else {
+        let BackendConfig::Native { compiler_paths, .. } = cx.backend() else {
             unreachable!("native compilation requires compiler paths");
         };
         let root = &compiler_paths.include_path;

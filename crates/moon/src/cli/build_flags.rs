@@ -146,7 +146,7 @@ impl BuildFlags {
         user_log: &UserLog,
         resolved_project: &ResolvedProject,
     ) -> anyhow::Result<CompileConfig> {
-        let target_backend = configuration.backend;
+        let target_backend = configuration.target_backend();
         let opt_level = configuration.profile;
         // A couple of debug things:
         if cli.unstable_feature.rr_export_module_graph {
@@ -196,7 +196,7 @@ impl BuildFlags {
                 && (!strip || (action == RunMode::Run && opt_level == BuildProfile::Debug)),
         };
         let backend = moonbuild::compile::prepare_backend(
-            target_backend,
+            configuration.target,
             self.output_wat,
             cli.unstable_feature.wasi_link,
         )?;

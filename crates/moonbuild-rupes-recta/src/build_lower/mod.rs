@@ -76,7 +76,7 @@ pub fn lower_build_plan(
     info!("Starting action plan lowering to execution plan");
     debug!(
         "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
-        opt.configuration().backend,
+        opt.configuration().target_backend(),
         opt.configuration().profile,
         plan.backend_plan().moonc_debug_info()
     );
@@ -928,46 +928,40 @@ mod tests {
         );
         plan.test_insert_dsymutil(dsymutil.clone());
 
-        for backend in [
-            BackendConfig::Llvm {
-                allocator: NativeAllocator::Default,
-                os: OperatingSystem::MacOS,
-                compiler_paths: compiler_paths.clone(),
-            },
-            BackendConfig::Native {
-                direct_object_candidate: Some(NativeTarget::Aarch64AppleDarwin),
+        for (target_backend, mode) in [
+            (TargetBackend::LLVM, NativeBackendMode::Llvm),
+            (
+                TargetBackend::Native,
+                NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                    NativeTarget::Aarch64AppleDarwin,
+                )),
+            ),
+        ] {
+            let configuration = crate::BuildConfiguration::new(target_backend, OptLevel::Debug);
+            let backend = BackendConfig::Native {
+                direct_object_candidate: mode.direct_target(),
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
                 os: OperatingSystem::MacOS,
                 compiler_paths: compiler_paths.clone(),
-            },
-        ] {
-            plan.test_backend_plan_mut().test_set_native_mode(
-                matches!(backend, BackendConfig::Native { .. }).then_some(
-                    NativeBackendMode::DirectObject(DirectNativeMode::Target(
-                        NativeTarget::Aarch64AppleDarwin,
-                    )),
-                ),
-            );
+            };
+            plan.test_backend_plan_mut()
+                .test_set_native_mode(Some(mode));
             let artifact_paths = ArtifactPathResolver::new(
                 TargetLayout::new(
                     PathBuf::from("_build"),
                     TargetLayoutMode::Workspace,
-                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
+                    configuration,
                     RunMode::Build,
                 ),
                 None,
             );
-            let options = {
-                let configuration =
-                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
-                CompileConfig::new(
-                    configuration,
-                    backend,
-                    RunMode::Build,
-                    artifact_paths.clone(),
-                )
-            };
+            let options = CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Build,
+                artifact_paths.clone(),
+            );
 
             let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])
                 .expect("lowering should succeed");

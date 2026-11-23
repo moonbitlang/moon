@@ -778,7 +778,7 @@ pub(super) fn plan_test_or_bench_rr_from_discovered(
         .collect::<Vec<_>>();
     let target_backends = configurations
         .iter()
-        .map(|configuration| configuration.backend)
+        .map(|configuration| configuration.target_backend())
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections

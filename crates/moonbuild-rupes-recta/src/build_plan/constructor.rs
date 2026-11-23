@@ -100,7 +100,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Self {
         Self {
             input: resolved,
-            rel: &resolved.package_relations[&config.configuration().backend],
+            rel: &resolved.package_relations[&config.configuration().target_backend()],
             config,
             input_directive,
             prebuild_config,
@@ -302,7 +302,13 @@ impl<'a> BuildPlanConstructor<'a> {
                     .provide(node, ArtifactKey::CStubLibrary { package });
             }
             BuildPlanNode::LinkCore(target) => {
-                let artifact = if self.config.configuration().backend.is_native() {
+                let artifact = if self
+                    .config
+                    .configuration()
+                    .target
+                    .backend_family()
+                    .is_native()
+                {
                     ArtifactKey::LinkedCore {
                         package: target.package,
                         target_kind: target.kind,
@@ -466,7 +472,11 @@ impl<'a> BuildPlanConstructor<'a> {
             } => BuildPlanNode::CompileGeneratedC(package.build_target(*target_kind)),
             ArtifactKey::ForeignLibrary { package } => {
                 assert!(
-                    self.config.configuration().backend.is_native(),
+                    self.config
+                        .configuration()
+                        .target
+                        .backend_family()
+                        .is_native(),
                     "foreign-library archives are only planned for Native and LLVM"
                 );
                 BuildPlanNode::ArchiveForeignLibrary(*package)
@@ -476,7 +486,13 @@ impl<'a> BuildPlanConstructor<'a> {
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                if self.config.configuration().backend.is_native() {
+                if self
+                    .config
+                    .configuration()
+                    .target
+                    .backend_family()
+                    .is_native()
+                {
                     BuildPlanNode::MakeExecutable(target)
                 } else if self.links_wasm_objects(target) {
                     BuildPlanNode::LinkWasmObjects(target)

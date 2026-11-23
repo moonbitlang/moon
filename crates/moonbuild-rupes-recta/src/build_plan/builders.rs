@@ -94,7 +94,13 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<HashMap<NativeToolchainRole, Toolchain>, BuildPlanConstructError> {
         use NativeToolchainRole::{CStubs, Program, Runtime};
 
-        debug_assert!(self.config.configuration().backend.is_native());
+        debug_assert!(
+            self.config
+                .configuration()
+                .target
+                .backend_family()
+                .is_native()
+        );
         let mut roles = IndexSet::new();
         for artifact in requested {
             let target = match *artifact {
@@ -182,7 +188,13 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
-        if !self.config.configuration().backend.is_native() {
+        if !self
+            .config
+            .configuration()
+            .target
+            .backend_family()
+            .is_native()
+        {
             return;
         }
 
@@ -304,7 +316,7 @@ impl<'a> BuildPlanConstructor<'a> {
         importer_target: BuildTarget,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        let selected_backend = self.config.configuration().backend;
+        let selected_backend = self.config.configuration().target_backend();
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
@@ -380,7 +392,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let Some(stdlib) = self.input.module_graph.stdlib() else {
             return;
         };
-        let backend = self.config.configuration().backend;
+        let backend = self.config.configuration().target_backend();
         for &id in self
             .input
             .pkg_dirs
@@ -754,7 +766,7 @@ impl<'a> BuildPlanConstructor<'a> {
             &pkg.raw,
             source_iter,
             self.config.configuration().profile,
-            self.config.configuration().backend,
+            self.config.configuration().target_backend(),
         ) {
             match file_kind {
                 NoTest => no_test_files.insert(file.into_owned()),
@@ -1337,7 +1349,13 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        debug_assert!(self.config.configuration().backend.is_native());
+        debug_assert!(
+            self.config
+                .configuration()
+                .target
+                .backend_family()
+                .is_native()
+        );
 
         let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
@@ -1345,11 +1363,10 @@ impl<'a> BuildPlanConstructor<'a> {
         // TODO: Validate the program's ABI against its runtime and C-stub
         // toolchain bindings before planning their link.
 
-        let payload = if matches!(self.config.backend(), BackendConfig::Native { .. })
-            && matches!(
-                self.res.backend.native_mode(),
-                NativeBackendMode::GeneratedC
-            ) {
+        let payload = if matches!(
+            self.res.backend.native_mode(),
+            NativeBackendMode::GeneratedC
+        ) {
             ArtifactKey::GeneratedCObject {
                 package: target.package,
                 target_kind: target.kind,
@@ -1403,8 +1420,8 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let moonc_debug_info = self.res.backend.moonc_debug_info();
         let generate_dsym = match self.config.backend() {
-            BackendConfig::Llvm { os, .. } => should_generate_llvm_dsym(moonc_debug_info, *os),
             BackendConfig::Native { os, .. } => match self.res.backend.native_mode() {
+                NativeBackendMode::Llvm => should_generate_llvm_dsym(moonc_debug_info, *os),
                 NativeBackendMode::DirectObject(mode) => should_generate_direct_native_dsym(
                     mode,
                     moonc_debug_info || self.config.debug_info.runtime_backtrace,
@@ -1556,7 +1573,13 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         package: PackageId,
     ) -> Result<(), BuildPlanConstructError> {
-        debug_assert!(self.config.configuration().backend.is_native());
+        debug_assert!(
+            self.config
+                .configuration()
+                .target
+                .backend_family()
+                .is_native()
+        );
 
         // A foreign library exports its source target; tests link executables.
         let target = package.build_target(TargetKind::Source);
@@ -1564,11 +1587,10 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Archive members are objects. Generated C needs its own compile step,
         // while direct-object and LLVM linking already produce an object.
-        let generated_c = matches!(self.config.backend(), BackendConfig::Native { .. })
-            && matches!(
-                self.res.backend.native_mode(),
-                NativeBackendMode::GeneratedC
-            );
+        let generated_c = matches!(
+            self.res.backend.native_mode(),
+            NativeBackendMode::GeneratedC
+        );
         let payload = if generated_c {
             ArtifactKey::GeneratedCObject {
                 package,
@@ -1613,7 +1635,11 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Whether linking a package also links the C stubs it declares. Injected
     /// prebuilt stdlib packages do not build local stubs either.
     fn links_c_stubs_of(&self, package: PackageId) -> bool {
-        self.config.configuration().backend.is_native()
+        self.config
+            .configuration()
+            .target
+            .backend_family()
+            .is_native()
             && !self
                 .config
                 .artifact_paths()
@@ -1930,7 +1956,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Documentation starts from backend-compatible packages in the
         // selected module. Their Check MI requirements expand the same
         // dependency closure used by ordinary package checks.
-        let target_backend = self.config.configuration().backend;
+        let target_backend = self.config.configuration().target_backend();
         let packages = self
             .input
             .pkg_dirs

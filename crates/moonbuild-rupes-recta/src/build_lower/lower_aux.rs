@@ -117,7 +117,7 @@ impl<'a> super::LoweringContext<'a> {
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             target_kind: target.kind,
-            target_backend: self.opt.configuration().backend,
+            target_backend: self.opt.configuration().target_backend(),
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,

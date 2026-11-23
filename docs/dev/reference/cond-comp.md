@@ -65,7 +65,10 @@ debug/release profile before solving package relationships.
 `ResolvedProject.package_relations` maps each requested backend to a
 complete `PackageRelations`, including its import graph, virtual users,
 implementation mappings, and transitive support.
-Import conditions read only the backend; profile does not participate in package
+The configuration normalizes LLVM as explicit Native code generation and derives
+the existing backend selector for these conditions. It preserves LLVM-only
+branches independently of later toolchain and automatic payload decisions.
+Import conditions read only that selector; profile does not participate in package
 resolution or its map key. Source-file conditions also read the selected profile.
 The CLI selects one effective profile per invocation and does not build debug and
 release together.

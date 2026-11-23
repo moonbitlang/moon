@@ -56,7 +56,6 @@ pub enum ExecutableArtifact {
     WasmGC { use_wat: bool },
     Js,
     NativeExecutable,
-    LlvmExecutable,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -66,7 +65,6 @@ pub enum LinkedCoreArtifact {
     Js,
     NativeC,
     NativeObject { os: OperatingSystem },
-    LlvmObject { os: OperatingSystem },
 }
 
 impl LinkedCoreArtifact {
@@ -76,7 +74,6 @@ impl LinkedCoreArtifact {
             Self::WasmGC { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
             Self::NativeC | Self::NativeObject { .. } => TargetBackend::Native,
-            Self::LlvmObject { .. } => TargetBackend::LLVM,
         }
     }
 
@@ -86,7 +83,7 @@ impl LinkedCoreArtifact {
             Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
             Self::Js => ".js",
             Self::NativeC => ".c",
-            Self::NativeObject { os } | Self::LlvmObject { os } => object_file_ext(os),
+            Self::NativeObject { os } => object_file_ext(os),
         }
     }
 }
@@ -98,7 +95,6 @@ impl ExecutableArtifact {
             Self::WasmGC { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
             Self::NativeExecutable => TargetBackend::Native,
-            Self::LlvmExecutable => TargetBackend::LLVM,
         }
     }
 
@@ -107,7 +103,7 @@ impl ExecutableArtifact {
             Self::Wasm { use_wat } | Self::WasmGC { use_wat } if use_wat => ".wat",
             Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
             Self::Js => ".js",
-            Self::NativeExecutable | Self::LlvmExecutable => ".exe",
+            Self::NativeExecutable => ".exe",
         }
     }
 }
@@ -252,7 +248,7 @@ impl TargetLayout {
 
     pub fn run_mode_dir(&self) -> PathBuf {
         self.target_base_dir
-            .join(self.configuration.backend.to_dir_name())
+            .join(self.configuration.target_backend().to_dir_name())
             .join(self.configuration.profile.as_str())
             .join(self.run_mode.to_dir_name())
     }
@@ -314,10 +310,17 @@ impl TargetLayout {
         linked_core: LinkedCoreArtifact,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        assert_eq!(linked_core.target_backend(), self.configuration.backend);
+        assert_eq!(
+            linked_core.target_backend(),
+            self.configuration.target.backend_family()
+        );
         let mut base_dir = self.package_dir(pkg_fqn);
         // Keep main-package objects apart from the package's other objects.
-        if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
+        // TODO: Unify the legacy LLVM object location when output-path
+        // compatibility is revised; normalizing codegen keeps existing paths.
+        if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. })
+            && self.configuration.target_backend() != TargetBackend::LLVM
+        {
             base_dir.push(LINKED_CORE_OBJECT_DIR);
         }
         base_dir.push(format!(
@@ -334,7 +337,10 @@ impl TargetLayout {
         target: &BuildTarget,
         executable: ExecutableArtifact,
     ) -> PathBuf {
-        assert_eq!(executable.target_backend(), self.configuration.backend);
+        assert_eq!(
+            executable.target_backend(),
+            self.configuration.target.backend_family()
+        );
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
@@ -494,7 +500,7 @@ impl TargetLayout {
     }
 
     pub fn runtime_output_dir(&self) -> PathBuf {
-        match self.configuration.backend {
+        match self.configuration.target_backend() {
             TargetBackend::WasmGC | TargetBackend::Wasm | TargetBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
@@ -689,7 +695,7 @@ impl ArtifactPathResolver {
                 );
                 return stdlib_core_path(
                     stdlib_dir,
-                    self.target_layout.configuration.backend,
+                    self.target_layout.configuration.target_backend(),
                     &pkg.fqn,
                 );
             }
@@ -763,7 +769,7 @@ impl ArtifactPathResolver {
             if pkg.is_stdlib {
                 return Some(MiPathResult::Std(stdlib_mi_path(
                     stdlib_dir,
-                    self.target_layout.configuration.backend,
+                    self.target_layout.configuration.target_backend(),
                     &pkg.fqn,
                 )));
             }
@@ -1142,9 +1148,6 @@ mod tests {
             ExecutableArtifact::WasmGC { use_wat } => LinkedCoreArtifact::WasmGC { use_wat },
             ExecutableArtifact::Js => LinkedCoreArtifact::Js,
             ExecutableArtifact::NativeExecutable => LinkedCoreArtifact::NativeC,
-            ExecutableArtifact::LlvmExecutable => LinkedCoreArtifact::LlvmObject {
-                os: OperatingSystem::Linux,
-            },
         };
         ArtifactPathOptions {
             os: OperatingSystem::Linux,
@@ -1719,7 +1722,6 @@ mod tests {
     #[test]
     fn native_executable_artifacts_keep_stable_suffix() {
         assert_eq!(ExecutableArtifact::NativeExecutable.extension(), ".exe");
-        assert_eq!(ExecutableArtifact::LlvmExecutable.extension(), ".exe");
     }
 
     #[test]

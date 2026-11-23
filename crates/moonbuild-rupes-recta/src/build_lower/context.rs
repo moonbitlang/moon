@@ -35,7 +35,7 @@ use crate::{
     build_plan::{ArtifactKey, BuildAction, BuildPlan, BuildPlanActionKey, PackagePrebuildKey},
     discover::{DiscoverResult, DiscoveredPackage},
     execution_plan::{ActionId, ActionOutputKind, ExecutionAction, ExecutionPlanBuilder},
-    model::{BackendConfig, BuildPlanNode, BuildTarget, PackageId},
+    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeBackendMode, PackageId},
     pkg_solve::PackageRelations,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -190,7 +190,7 @@ impl<'a> LoweringContext<'a> {
     ) -> Self {
         Self {
             artifact_paths: opt.artifact_paths(),
-            rel: &resolved_project.package_relations[&opt.configuration().backend],
+            rel: &resolved_project.package_relations[&opt.configuration().target_backend()],
             modules: &resolved_project.module_graph,
             packages: &resolved_project.pkg_dirs,
             module_dirs: &resolved_project.module_dirs,
@@ -217,15 +217,12 @@ impl<'a> LoweringContext<'a> {
             BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
             BackendConfig::Native { .. } => (
                 ExecutableArtifact::NativeExecutable,
-                if self.plan.backend_plan().direct_native_target().is_some() {
-                    LinkedCoreArtifact::NativeObject { os }
-                } else {
-                    LinkedCoreArtifact::NativeC
+                match self.plan.backend_plan().native_mode() {
+                    NativeBackendMode::GeneratedC => LinkedCoreArtifact::NativeC,
+                    NativeBackendMode::DirectObject(_) | NativeBackendMode::Llvm => {
+                        LinkedCoreArtifact::NativeObject { os }
+                    }
                 },
-            ),
-            BackendConfig::Llvm { .. } => (
-                ExecutableArtifact::LlvmExecutable,
-                LinkedCoreArtifact::LlvmObject { os },
             ),
         };
 
@@ -260,7 +257,7 @@ impl<'a> LoweringContext<'a> {
                 return node.human_desc(
                     self.modules,
                     self.packages,
-                    self.opt.configuration().backend.to_flag(),
+                    self.opt.configuration().target_backend().to_flag(),
                 );
             }
             (BuildPlanActionKey::PackagePrebuild(key), BuildAction::RunPrebuild { info }) => {
@@ -414,7 +411,7 @@ impl<'a> LoweringContext<'a> {
             BuildAction::LinkCore { target, .. } => {
                 let package = self.get_package(target);
                 let package_link_flags = package.raw.link.as_ref().and_then(|link| {
-                    match self.opt.configuration().backend {
+                    match self.opt.configuration().target_backend() {
                         TargetBackend::Wasm => link
                             .wasm
                             .as_ref()

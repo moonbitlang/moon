@@ -137,7 +137,7 @@ impl BuildSession {
         );
         let target_dir = &self.target_dir;
         let user_log = &self.user_log;
-        let target_backend = cx.configuration().backend;
+        let target_backend = cx.configuration().target_backend();
         info!("User intent calculated: {:?}", intent.intents);
 
         // Decide once, after backend selection, whether planning will execute a

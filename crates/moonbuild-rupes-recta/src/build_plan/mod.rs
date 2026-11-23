@@ -61,7 +61,7 @@ use moonutil::{
 use tracing::instrument;
 
 use crate::{
-    CompileConfig, ResolvedProject,
+    CompileConfig, NativeCodegenRequest, ResolvedProject, TargetConfiguration,
     model::{
         BackendConfig, BuildPlanNode, BuildTarget, CCOptLevel, DebugSymbols, NativeBackendMode,
         NativeLinkArg, NativeTarget, PackageId, WasmObject,
@@ -660,30 +660,35 @@ pub fn build_plan(
     info!("Constructing build plan");
     debug!(
         "Compile configuration: backend={:?}, opt_level={:?}",
-        config.configuration().backend,
+        config.configuration().target_backend(),
         config.configuration().profile
     );
 
     let mut constructor =
         BuildPlanConstructor::new(resolved, config, input_directive, prebuild_config, user_log);
     let input = input.collect::<Vec<_>>();
-    if config.configuration().backend.is_native() {
-        let native_toolchains = constructor.resolve_native_toolchains(&input)?;
-        if let BackendConfig::Native {
+    if let TargetConfiguration::Native { codegen } = config.configuration().target {
+        let BackendConfig::Native {
             direct_object_candidate,
             ..
         } = config.backend()
-        {
-            constructor.res.backend.native_mode = Some(resolve_native_backend_mode(
+        else {
+            unreachable!("native configuration requires prepared native resources");
+        };
+        let native_toolchains = constructor.resolve_native_toolchains(&input)?;
+        constructor.res.backend.native_mode = Some(match codegen {
+            NativeCodegenRequest::Auto => resolve_native_backend_mode(
                 resolved,
                 &input,
                 config.configuration().profile,
                 *direct_object_candidate,
                 native_toolchains.values(),
-            ));
-        }
+            ),
+            NativeCodegenRequest::Llvm => NativeBackendMode::Llvm,
+        });
         constructor.native_toolchains = native_toolchains;
     }
+
     constructor.res.backend.moonc_debug_info = match config.debug_info.symbols {
         DebugSymbols::None => false,
         DebugSymbols::Full => true,

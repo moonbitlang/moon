@@ -6,8 +6,10 @@ status: accepted
 
 MoonBuild selects a Build Configuration before Package Resolution and retains
 that selection through planning, lowering, artifact layout, and build results.
-The configuration currently consists of the Target Backend and debug/release
-profile. Selecting the profile only while preparing compiler options leaves
+The configuration carries the selected target and debug/release profile.
+[ADR 0009](0009-normalize-llvm-as-native-codegen.md) normalizes the LLVM selection
+as a Native code-generation request. Selecting the profile only while preparing
+compiler options leaves
 the initial command request without an explicit profile to retain through
 source selection, planning, and build results.
 

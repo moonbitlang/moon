@@ -279,7 +279,7 @@ pub(super) fn run_info(
         .collect::<Vec<_>>();
     let target_backends = configurations
         .iter()
-        .map(|configuration| configuration.backend)
+        .map(|configuration| configuration.target_backend())
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, output.user_log())?;
     std::fs::create_dir_all(target_dir)?;
@@ -365,7 +365,7 @@ fn plan_info_rr(
     let intent = calc_user_intent_for_info(
         &ctx,
         &resolved_project,
-        compile_config.configuration().backend,
+        compile_config.configuration().target_backend(),
     )?;
     session.plan(
         compile_config,
