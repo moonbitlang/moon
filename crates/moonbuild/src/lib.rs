@@ -44,12 +44,16 @@ pub struct BuildMeta {
     configuration: BuildConfiguration,
 
     /// Physical artifact path resolver selected for this build.
-    pub artifact_paths: ArtifactPathResolver,
+    artifact_paths: ArtifactPathResolver,
 }
 
 impl BuildMeta {
     pub fn configuration(&self) -> BuildConfiguration {
         self.configuration
+    }
+
+    pub fn artifact_paths(&self) -> &ArtifactPathResolver {
+        &self.artifact_paths
     }
 
     pub fn target_backend(&self) -> TargetBackend {

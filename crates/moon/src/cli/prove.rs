@@ -645,7 +645,7 @@ fn collect_proof_invocations(
 ) -> Vec<ProofInvocation> {
     let packages = &build_meta.resolved_project.pkg_dirs;
     let relations = &build_meta.resolved_project.package_relations[&build_meta.target_backend()];
-    let layout = build_meta.artifact_paths.target_layout();
+    let layout = build_meta.artifact_paths().target_layout();
     let mut proofs = Vec::new();
     for (artifact, paths) in &build_meta.artifacts {
         let ArtifactKey::ProofWhyml {

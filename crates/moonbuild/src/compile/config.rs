@@ -21,7 +21,6 @@
 use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject, RunMode,
-    build_lower::WarningCondition,
     model::{
         BackendConfig, DebugInfoRequest, ENV_MOONBIT_NEW_NATIVE, NativeTarget, OperatingSystem,
     },
@@ -76,7 +75,7 @@ pub fn prepare_backend(
 }
 
 /// Prepare artifact paths and compiler settings for the selected configuration.
-/// Backend resources and layout inputs derive from that same selection.
+/// The prepared backend must match that selection; `CompileConfig` validates it.
 pub fn prepare_config(
     resolved_project: &ResolvedProject,
     target_dir: &Path,
@@ -86,7 +85,6 @@ pub fn prepare_config(
     debug_info: DebugInfoRequest,
 ) -> CompileConfig {
     let target_backend = configuration.backend;
-    assert_eq!(target_backend, backend.target_backend());
     // Module preparation has already selected the stdlib used for discovery.
     // Reuse its root for artifacts; a local core project has no injected stdlib.
     let modules = &resolved_project.module_graph;
@@ -121,20 +119,15 @@ pub fn prepare_config(
     let target_layout = TargetLayout::from_resolved_project(
         target_dir.to_owned(),
         resolved_project,
-        configuration.profile,
+        configuration,
         action,
     );
-    CompileConfig {
+    let mut config = CompileConfig::new(
         configuration,
         backend,
         action,
-        artifact_paths: ArtifactPathResolver::new(target_layout, stdlib_path),
-        debug_info,
-        debug_export_build_plan: false,
-        enable_coverage: false,
-        moonc_output_json: false,
-        docs_serve: false,
-        warning_condition: WarningCondition::Default,
-        warn_list: None,
-    }
+        ArtifactPathResolver::new(target_layout, stdlib_path),
+    );
+    config.debug_info = debug_info;
+    config
 }

@@ -83,7 +83,7 @@ pub(super) fn compile(
     let mut toolchain_include_files = Vec::new();
     if plan.requires_toolchain_headers() {
         let (BackendConfig::Native { compiler_paths, .. }
-        | BackendConfig::Llvm { compiler_paths, .. }) = &cx.backend
+        | BackendConfig::Llvm { compiler_paths, .. }) = cx.backend()
         else {
             unreachable!("native compilation requires compiler paths");
         };
@@ -113,7 +113,6 @@ pub(super) fn compile(
 mod tests {
     use moonbuild_rupes_recta::{
         DiscoveryConfig, RunMode,
-        build_lower::WarningCondition,
         model::TargetKind,
         prepare_synced_project,
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
@@ -161,12 +160,8 @@ mod tests {
             .unwrap();
         let target_dir = dir.path().join("_build");
         let include_dir = dir.path().join("include");
-        let mut config = CompileConfig {
-            configuration: moonbuild_rupes_recta::BuildConfiguration::new(
-                moonutil::target::TargetBackend::Native,
-                OptLevel::Debug,
-            ),
-            backend: BackendConfig::Native {
+        let mut config = {
+            let backend = BackendConfig::Native {
                 direct_object_candidate: None,
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
@@ -175,24 +170,27 @@ mod tests {
                     include_path: include_dir.display().to_string(),
                     lib_path: dir.path().join("lib").display().to_string(),
                 },
-            },
-            action: RunMode::Build,
-            debug_info: Default::default(),
-            artifact_paths: ArtifactPathResolver::new(
-                TargetLayout::new(
-                    target_dir,
-                    TargetLayoutMode::Workspace,
-                    OptLevel::Debug,
-                    RunMode::Build,
+            };
+            let configuration = moonbuild_rupes_recta::BuildConfiguration::new(
+                backend.target_backend(),
+                OptLevel::Debug,
+            );
+            let mut config = CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Build,
+                ArtifactPathResolver::new(
+                    TargetLayout::new(
+                        target_dir,
+                        TargetLayoutMode::Workspace,
+                        configuration,
+                        RunMode::Build,
+                    ),
+                    None,
                 ),
-                None,
-            ),
-            debug_export_build_plan: true,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            warn_list: None,
+            );
+            config.debug_export_build_plan = true;
+            config
         };
         for requested in [
             vec![],

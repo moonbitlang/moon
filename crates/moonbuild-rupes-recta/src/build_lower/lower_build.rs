@@ -95,10 +95,10 @@ impl<'a> LoweringContext<'a> {
     pub(super) fn set_flags(&self) -> compiler::CompilationFlags {
         let debug_info = self.plan.backend_plan().moonc_debug_info();
         compiler::CompilationFlags {
-            no_opt: self.opt.configuration.profile == OptLevel::Debug,
+            no_opt: self.opt.configuration().profile == OptLevel::Debug,
             symbols: debug_info,
             stacktrace: self.plan.backend_plan().moonc_stacktrace(),
-            source_map: self.opt.configuration.backend.supports_source_map() && debug_info,
+            source_map: self.opt.configuration().backend.supports_source_map() && debug_info,
             enable_coverage: false,
             self_coverage: false,
             enable_value_tracing: false,
@@ -179,11 +179,8 @@ impl<'a> LoweringContext<'a> {
             {
                 // Installed stdlib virtual contracts are known toolchain
                 // inputs, not artifacts produced by this Build Plan.
-                self.artifact_paths.mi_of_build_target(
-                    self.packages,
-                    &v_target,
-                    self.opt.configuration.backend,
-                )
+                self.artifact_paths
+                    .mi_of_build_target(self.packages, &v_target)
             } else {
                 artifacts.single_dependency_path_matching(|artifact| {
                     matches!(
@@ -314,11 +311,7 @@ impl<'a> LoweringContext<'a> {
             .unwrap_or_else(|| {
                 if info.check_mi_against.is_some() {
                     self.artifact_paths
-                        .mi_of_build_target_impl_virtual(
-                            self.packages,
-                            &target,
-                            self.opt.configuration.backend,
-                        )
+                        .mi_of_build_target_impl_virtual(self.packages, &target)
                         .into_path()
                 } else {
                     unreachable!("regular Check actions should have one package interface artifact")
@@ -342,7 +335,7 @@ impl<'a> LoweringContext<'a> {
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
         };
-        let backend = self.opt.configuration.backend;
+        let backend = self.opt.configuration().backend;
         let cmd = compiler::MooncCheck {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -352,7 +345,7 @@ impl<'a> LoweringContext<'a> {
                 &package.root_path,
                 self.artifact_paths
                     .target_layout()
-                    .all_pkgs_of_build_target(backend),
+                    .all_pkgs_of_build_target(),
                 backend,
                 target.kind,
             ),
@@ -394,7 +387,7 @@ impl<'a> LoweringContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.configuration.backend;
+        let backend = self.opt.configuration().backend;
         let whyml_output = artifacts.single_output_path_matching(|artifact| {
             matches!(
                 artifact,
@@ -412,7 +405,7 @@ impl<'a> LoweringContext<'a> {
                 &package.root_path,
                 self.artifact_paths
                     .target_layout()
-                    .all_pkgs_of_build_target(backend),
+                    .all_pkgs_of_build_target(),
                 backend,
                 target.kind,
             ),
@@ -470,11 +463,8 @@ impl<'a> LoweringContext<'a> {
                 )
             })
             .unwrap_or_else(|| {
-                self.artifact_paths.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.configuration.backend,
-                )
+                self.artifact_paths
+                    .mi_of_build_target(self.packages, &target)
             });
 
         let mut files = self.compiler_source_files(info);
@@ -500,7 +490,7 @@ impl<'a> LoweringContext<'a> {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
-        let backend = self.opt.configuration.backend;
+        let backend = self.opt.configuration().backend;
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -510,7 +500,7 @@ impl<'a> LoweringContext<'a> {
                 &package.root_path,
                 self.artifact_paths
                     .target_layout()
-                    .all_pkgs_of_build_target(backend),
+                    .all_pkgs_of_build_target(),
                 backend,
                 target.kind,
             ),
@@ -579,13 +569,13 @@ impl<'a> LoweringContext<'a> {
             pkg_config_path: Some(config_path.clone().into()),
             package_sources: &package_sources,
             stdlib_core_source: None,
-            target_backend: self.opt.configuration.backend,
+            target_backend: self.opt.configuration().backend,
             native_target: self.plan.backend_plan().direct_native_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
             js_config: self.get_js_config(target, package),
-            exports: package.exported_functions(self.opt.configuration.backend),
+            exports: package.exported_functions(self.opt.configuration().backend),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
             native_toolchain_is_msvc: native_toolchain
@@ -724,9 +714,9 @@ impl<'a> LoweringContext<'a> {
     /// generates a runtime matching the objects.
     fn wasm_object_config(&self) -> WasmConfig<'static> {
         WasmConfig {
-            wasi: self.opt.backend.wasi_link(),
+            wasi: self.opt.backend().wasi_link(),
             new_allocator: self.uses_moonbit_tlsf_allocator(),
-            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            collect_ref_cycle: self.opt.backend().collect_ref_cycle(),
             ..Default::default()
         }
     }
@@ -734,7 +724,7 @@ impl<'a> LoweringContext<'a> {
     /// Whether the backend selects the MoonBit TLSF allocator (`tlsf-mbt`).
     fn uses_moonbit_tlsf_allocator(&self) -> bool {
         matches!(
-            self.opt.backend,
+            self.opt.backend(),
             BackendConfig::Wasm {
                 new_allocator: true,
                 ..
@@ -758,11 +748,9 @@ impl<'a> LoweringContext<'a> {
                 .artifact_paths
                 .uses_prebuilt_stdlib(self.packages.get_package(target.package))
             {
-                let path = self.artifact_paths.core_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.configuration.backend,
-                );
+                let path = self
+                    .artifact_paths
+                    .core_of_build_target(self.packages, target);
                 stdlib_inputs.push(path.clone());
                 path
             } else {
@@ -816,7 +804,7 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         pkg: &'b DiscoveredPackage,
     ) -> compiler::WasmConfig<'b> {
-        let mut wasm_config = if self.opt.configuration.backend == TargetBackend::Wasm
+        let mut wasm_config = if self.opt.configuration().backend == TargetBackend::Wasm
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
         {
             WasmConfig {
@@ -831,7 +819,7 @@ impl<'a> LoweringContext<'a> {
                 new_allocator: false,
                 collect_ref_cycle: false,
             }
-        } else if self.opt.configuration.backend == TargetBackend::WasmGC
+        } else if self.opt.configuration().backend == TargetBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
         {
             WasmConfig {
@@ -854,7 +842,7 @@ impl<'a> LoweringContext<'a> {
             new_allocator,
             collect_ref_cycle,
             ..
-        } = &self.opt.backend
+        } = self.opt.backend()
         {
             wasm_config.new_allocator = *new_allocator;
             wasm_config.collect_ref_cycle = *collect_ref_cycle;
@@ -864,9 +852,9 @@ impl<'a> LoweringContext<'a> {
         }
 
         if matches!(
-            &self.opt.backend,
+            self.opt.backend(),
             BackendConfig::Wasm { use_wat: false, .. } | BackendConfig::WasmGc { use_wat: false }
-        ) && self.opt.configuration.profile == OptLevel::Release
+        ) && self.opt.configuration().profile == OptLevel::Release
         {
             let module = self.packages.module_info(pkg.module);
             // Use the manifest's optional version directly: version resolution
@@ -882,11 +870,11 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn should_link_wasi(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> bool {
-        if !self.opt.backend.wasi_link() {
+        if !self.opt.backend().wasi_link() {
             return false;
         }
 
-        match self.opt.action {
+        match self.opt.action() {
             RunMode::Run | RunMode::Test | RunMode::Bench => true,
             RunMode::Build => {
                 matches!(target.kind, TargetKind::Source | TargetKind::SubPackage)
@@ -897,7 +885,7 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
-        let backend = self.opt.configuration.backend;
+        let backend = self.opt.configuration().backend;
         if backend != TargetBackend::Js {
             return None;
         }
@@ -932,7 +920,7 @@ impl<'a> LoweringContext<'a> {
         index: u32,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
-        if !self.opt.configuration.backend.is_native() {
+        if !self.opt.configuration().backend.is_native() {
             unreachable!("C stubs are only lowered for C or LLVM backends")
         }
 
@@ -956,14 +944,14 @@ impl<'a> LoweringContext<'a> {
             allow_stacktrace: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
-            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            collect_ref_cycle: self.opt.backend().collect_ref_cycle(),
             native_allocator: None,
         };
 
         let intermediate_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(&package.fqn, self.opt.configuration.backend)
+            .package_dir(&package.fqn)
             .display()
             .to_string();
 
@@ -976,7 +964,7 @@ impl<'a> LoweringContext<'a> {
             &intermediate_dir,
             Some(&output_file.display().to_string()),
             self.opt
-                .backend
+                .backend()
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         );
@@ -996,7 +984,7 @@ impl<'a> LoweringContext<'a> {
         target: PackageId,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
-        if !self.opt.configuration.backend.is_native() {
+        if !self.opt.configuration().backend.is_native() {
             unreachable!("C stubs are only lowered for C or LLVM backends")
         }
 
@@ -1027,7 +1015,7 @@ impl<'a> LoweringContext<'a> {
             object_files,
             &archive,
             self.opt
-                .backend
+                .backend()
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         )
@@ -1063,7 +1051,7 @@ impl<'a> LoweringContext<'a> {
                 })
         });
 
-        match &self.opt.backend {
+        match self.opt.backend() {
             BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
                 unreachable!("non-native plans do not contain MakeExecutable actions")
             }
@@ -1116,17 +1104,14 @@ impl<'a> LoweringContext<'a> {
             allow_stacktrace: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
-            collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+            collect_ref_cycle: self.opt.backend().collect_ref_cycle(),
             native_allocator: Some(info.native_allocator),
         };
 
         let pkg_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(
-                &self.get_package(target).fqn,
-                self.opt.configuration.backend,
-            )
+            .package_dir(&self.get_package(target).fqn)
             .display()
             .to_string();
 
@@ -1139,7 +1124,7 @@ impl<'a> LoweringContext<'a> {
             &pkg_dir,
             Some(&output.display().to_string()),
             self.opt
-                .backend
+                .backend()
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         )
@@ -1200,7 +1185,7 @@ impl<'a> LoweringContext<'a> {
             &members,
             &archive,
             self.opt
-                .backend
+                .backend()
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         );
@@ -1292,10 +1277,7 @@ impl<'a> LoweringContext<'a> {
         let pkg_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(
-                &self.get_package(target).fqn,
-                self.opt.configuration.backend,
-            )
+            .package_dir(&self.get_package(target).fqn)
             .display()
             .to_string();
 
@@ -1310,7 +1292,7 @@ impl<'a> LoweringContext<'a> {
             &pkg_dir,
             &dest,
             self.opt
-                .backend
+                .backend()
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         );
@@ -1326,7 +1308,7 @@ impl<'a> LoweringContext<'a> {
     ) -> BuildCommand {
         let compiler_paths = self
             .opt
-            .backend
+            .backend()
             .compiler_paths()
             .expect("native lowering requires compiler paths");
         let sources = self.native_executable_dependency_paths(artifacts, info);
@@ -1337,10 +1319,7 @@ impl<'a> LoweringContext<'a> {
         let pkg_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(
-                &self.get_package(target).fqn,
-                self.opt.configuration.backend,
-            )
+            .package_dir(&self.get_package(target).fqn)
             .display()
             .to_string();
 
@@ -1395,11 +1374,9 @@ impl<'a> LoweringContext<'a> {
 
         // The virtual package interface is emitted as the `.mi` of the source target
         let target = pid.build_target(TargetKind::Source);
-        let mi_out = self.artifact_paths.mi_of_build_target(
-            self.packages,
-            &target,
-            self.opt.configuration.backend,
-        );
+        let mi_out = self
+            .artifact_paths
+            .mi_of_build_target(self.packages, &target);
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
         let mi_inputs = self.mi_inputs_of(artifacts, target);
@@ -1446,11 +1423,7 @@ impl<'a> LoweringContext<'a> {
                     // Installed stdlib interfaces are selected by the known
                     // toolchain layout, outside this Build Plan's providers.
                     stdlib_deps.push(dep);
-                    self.artifact_paths.mi_of_build_target(
-                        self.packages,
-                        &dep,
-                        self.opt.configuration.backend,
-                    )
+                    self.artifact_paths.mi_of_build_target(self.packages, &dep)
                 } else {
                     artifacts.single_dependency_path_matching(|artifact| {
                         matches!(
@@ -1523,11 +1496,8 @@ impl<'a> LoweringContext<'a> {
                 }
                 paths.insert(
                     current.package,
-                    self.artifact_paths.mi_of_build_target(
-                        self.packages,
-                        &current,
-                        self.opt.configuration.backend,
-                    ),
+                    self.artifact_paths
+                        .mi_of_build_target(self.packages, &current),
                 );
                 pending.extend(
                     self.rel

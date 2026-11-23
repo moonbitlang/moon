@@ -84,9 +84,9 @@ pub(super) fn run_prebuild_config(
 ) -> anyhow::Result<PrebuildOutput> {
     let environment: HashMap<String, String> = std::env::vars().collect();
     let build_dir = cx
-        .artifact_paths
+        .artifact_paths()
         .target_layout()
-        .run_mode_dir(cx.configuration.backend)
+        .run_mode_dir()
         .join("prebuild");
     let mut output = PrebuildOutput::default();
     for (m, ms) in resolved_project.module_graph.all_modules_and_id() {
@@ -236,7 +236,7 @@ fn run_build_script_for_module(
     );
     let (manifest_path, _) = preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON)
         .with_context(|| format!("failed to locate module manifest for `{module}`"))?;
-    let target_dir = cx.artifact_paths.target_layout().target_base_dir();
+    let target_dir = cx.artifact_paths().target_layout().target_base_dir();
     let mut cmd = run_script_cmd(prebuild, module.name(), dir, target_dir, frozen)?
         .current_dir(dir)
         .envs(&input.env)
@@ -244,8 +244,8 @@ fn run_build_script_for_module(
         .env("MOON_BUILD_DIR", &input.paths.out_dir)
         .env("MOON_HOST_OS", std::env::consts::OS)
         .env("MOON_HOST_ARCH", std::env::consts::ARCH)
-        .env("MOON_BACKEND", cx.configuration.backend.to_flag())
-        .env("MOON_PROFILE", cx.configuration.profile.as_str())
+        .env("MOON_BACKEND", cx.configuration().backend.to_flag())
+        .env("MOON_PROFILE", cx.configuration().profile.as_str())
         .env("MOON_JOBS", jobs.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

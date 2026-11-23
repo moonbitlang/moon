@@ -189,8 +189,8 @@ impl<'a> LoweringContext<'a> {
         toolchain_include_files: &'a [PathBuf],
     ) -> Self {
         Self {
-            artifact_paths: &opt.artifact_paths,
-            rel: &resolved_project.package_relations[&opt.configuration.backend],
+            artifact_paths: opt.artifact_paths(),
+            rel: &resolved_project.package_relations[&opt.configuration().backend],
             modules: &resolved_project.module_graph,
             packages: &resolved_project.pkg_dirs,
             module_dirs: &resolved_project.module_dirs,
@@ -204,8 +204,8 @@ impl<'a> LoweringContext<'a> {
     // Artifact forms combine compile-wide options with the Native mode already
     // selected in the Backend Plan.
     pub(super) fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let os = self.opt.backend.os();
-        let (executable, linked_core) = match &self.opt.backend {
+        let os = self.opt.backend().os();
+        let (executable, linked_core) = match self.opt.backend() {
             BackendConfig::Wasm { use_wat, .. } => (
                 ExecutableArtifact::Wasm { use_wat: *use_wat },
                 LinkedCoreArtifact::Wasm { use_wat: *use_wat },
@@ -260,7 +260,7 @@ impl<'a> LoweringContext<'a> {
                 return node.human_desc(
                     self.modules,
                     self.packages,
-                    self.opt.configuration.backend.to_flag(),
+                    self.opt.configuration().backend.to_flag(),
                 );
             }
             (BuildPlanActionKey::PackagePrebuild(key), BuildAction::RunPrebuild { info }) => {
@@ -414,7 +414,7 @@ impl<'a> LoweringContext<'a> {
             BuildAction::LinkCore { target, .. } => {
                 let package = self.get_package(target);
                 let package_link_flags = package.raw.link.as_ref().and_then(|link| {
-                    match self.opt.configuration.backend {
+                    match self.opt.configuration().backend {
                         TargetBackend::Wasm => link
                             .wasm
                             .as_ref()

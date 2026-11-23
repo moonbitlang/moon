@@ -28,10 +28,13 @@ retaining debug symbols in a release build does not select debug-only sources.
   options remain in their existing owners and are supplied when their phases
   need them. Native toolchain and payload selection retain the ownership
   established by [ADR 0002](0002-native-abi-policy-belongs-to-toolchains.md).
-- `CompileConfig` retains the selected configuration, and preparation derives
-  layout inputs from it while checking that prepared backend resources match.
-  Build results retain the same selection for metadata, runtime selection,
-  and profiling.
+- `CompileConfig` retains the selected configuration and validates that its
+  prepared backend and artifact layout agree. Those selections and paths are
+  read-only after construction. Build results retain the same selection for
+  metadata, runtime selection, and profiling.
+- Artifact path methods use the configuration bound to their layout, rather
+  than accepting another backend at each call. Formatting has its own layout
+  because it does not select a Build Configuration.
 - Resolution handles only requested backends. Within a discovered project,
   imports and Package Relations currently do not depend on profile, so their interface
   and map key remain `TargetBackend`. Each phase consumes the part of the
@@ -44,14 +47,7 @@ simultaneous debug/release requests or profile-dependent imports.
 Configuration scope does not replace action identity or cache inputs. Compiler
 arguments and tool inputs can differ within one profile. This decision also
 does not establish new target-platform fields, a configuration matrix CLI, or
-new output-directory conventions.
-
-Layout API enforcement is a separate follow-up: bind the selected configuration
-to the layout, remove per-call backend arguments, and validate the prepared
-configuration and paths together before exposing them read-only. Until then,
-callers derive the existing layout arguments from the selected configuration.
-Formatting does not select a Build Configuration and must retain its existing
-output paths when that layout interface changes.
+new output-directory conventions; those remain separate follow-ups.
 
 ## Considered Options
 
@@ -66,7 +62,6 @@ output paths when that layout interface changes.
 - Passing the entire `CompileConfig` into Package Resolution would couple early
   semantic choices to backend resources and physical paths needed by later
   phases. Keeping the early selection small preserves demand-driven preparation.
-- Independently selecting backend/profile in each phase makes consistency a
-  convention at every call site. Passing the original selection removes that
-  repeated decision; the layout follow-up will also enforce the relationship
-  through its interface.
+- Independently mutable backend/profile fields in compilation settings and
+  layout make consistency a convention at every call site. Validating them at
+  construction and retaining read-only selections localizes that invariant.

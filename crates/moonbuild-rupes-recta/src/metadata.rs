@@ -316,7 +316,7 @@ fn metadata_mi_path(
             .virt_impl
             .contains_key(target.package);
     artifact_paths
-        .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
+        .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, is_implementing_virtual)
         .into_path()
 }
 

@@ -30,7 +30,7 @@ use std::{
 };
 
 use crate::RunMode;
-use moonutil::{cond_expr::OptLevel, resolution::ModuleSource, target::TargetBackend};
+use moonutil::{resolution::ModuleSource, target::TargetBackend};
 
 use crate::{
     ResolvedProject,
@@ -134,70 +134,9 @@ impl TargetLayoutMode {
             _ => Self::Workspace,
         }
     }
-}
 
-/// Target folder layout for generated artifacts.
-#[derive(Clone, Debug)]
-pub struct TargetLayout {
-    // Production callers prepare this root through moonutil's project directory
-    // resolution. Preserve its Windows verbatim prefix throughout path assembly;
-    // output paths cannot be filesystem-canonicalized before they are produced.
-    /// The base target directory, usually `<project-root>/_build` or
-    /// `<source-dir>/_build/<file-name>` for a standalone file.
-    target_base_dir: PathBuf,
-    mode: TargetLayoutMode,
-    /// The optimization level, debug or release.
-    opt_level: OptLevel,
-    /// The operation done.
-    run_mode: RunMode,
-}
-
-impl TargetLayout {
-    pub fn new(
-        target_base_dir: PathBuf,
-        mode: TargetLayoutMode,
-        opt_level: OptLevel,
-        run_mode: RunMode,
-    ) -> Self {
-        Self {
-            target_base_dir,
-            mode,
-            opt_level,
-            run_mode,
-        }
-    }
-
-    pub fn from_resolved_project(
-        target_base_dir: PathBuf,
-        resolved_project: &ResolvedProject,
-        opt_level: OptLevel,
-        run_mode: RunMode,
-    ) -> Self {
-        Self::new(
-            target_base_dir,
-            TargetLayoutMode::from_resolved_project(resolved_project),
-            opt_level,
-            run_mode,
-        )
-    }
-
-    pub fn target_base_dir(&self) -> &Path {
-        &self.target_base_dir
-    }
-
-    /// Returns the directory the given package resides in.
-    ///
-    /// In the mono compatibility layout, packages from the selected main module
-    /// are flattened to `_build/<backend>[/<opt_level>/build]/<...package>/`
-    /// and all others go under
-    /// `_build/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
-    ///
-    /// In the workspace layout, all packages go under
-    /// `_build/<backend>[/<opt_level>/build]/<...module>/<...package>`.
-    pub fn package_dir(&self, pkg: &PackageFQN, backend: TargetBackend) -> PathBuf {
-        let mut dir = self.run_mode_dir(backend);
-
-        match &self.mode {
+    fn package_dir(&self, mut dir: PathBuf, pkg: &PackageFQN) -> PathBuf {
+        match self {
             TargetLayoutMode::Mono { main_module } if pkg.module() == main_module => {
                 // no nested directory for the working module
             }
@@ -213,28 +152,114 @@ impl TargetLayout {
 
         dir
     }
+}
 
-    pub fn run_mode_dir(&self, backend: TargetBackend) -> PathBuf {
-        let mut dir = self.target_base_dir.clone();
-        self.push_opt_and_run_mode(backend, &mut dir);
-        dir
+/// Formatting has no build configuration. Keep its historical output directory
+/// without making it participate in backend/profile selection.
+pub struct FormatLayout {
+    root: PathBuf,
+    mode: TargetLayoutMode,
+}
+
+impl FormatLayout {
+    pub fn new(target_dir: &Path, mode: TargetLayoutMode) -> Self {
+        Self {
+            root: target_dir.join("wasm-gc/release/format"),
+            mode,
+        }
     }
 
-    fn push_opt_and_run_mode(&self, backend: TargetBackend, dir: &mut PathBuf) {
-        push_backend(dir, backend);
-
-        dir.push(self.opt_level.as_str());
-        dir.push(self.run_mode.to_dir_name());
+    pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
+        self.mode.package_dir(self.root.clone(), pkg).join(filename)
     }
 
-    pub fn core_of_build_target(
-        &self,
-        pkg_list: &DiscoverResult,
-        target: &BuildTarget,
-        backend: TargetBackend,
-    ) -> PathBuf {
+    pub fn format_root_artifact_path(&self, filename: &OsStr) -> PathBuf {
+        self.root.join(filename)
+    }
+}
+
+/// Target folder layout for generated artifacts.
+#[derive(Clone, Debug)]
+pub struct TargetLayout {
+    // Production callers prepare this root through moonutil's project directory
+    // resolution. Preserve its Windows verbatim prefix throughout path assembly;
+    // output paths cannot be filesystem-canonicalized before they are produced.
+    /// The base target directory, usually `<project-root>/_build` or
+    /// `<source-dir>/_build/<file-name>` for a standalone file.
+    target_base_dir: PathBuf,
+    mode: TargetLayoutMode,
+    /// Semantic selection shared with resolution and planning.
+    configuration: crate::BuildConfiguration,
+    /// The operation done.
+    run_mode: RunMode,
+}
+
+impl TargetLayout {
+    pub fn new(
+        target_base_dir: PathBuf,
+        mode: TargetLayoutMode,
+        configuration: crate::BuildConfiguration,
+        run_mode: RunMode,
+    ) -> Self {
+        Self {
+            target_base_dir,
+            mode,
+            configuration,
+            run_mode,
+        }
+    }
+
+    pub fn from_resolved_project(
+        target_base_dir: PathBuf,
+        resolved_project: &ResolvedProject,
+        configuration: crate::BuildConfiguration,
+        run_mode: RunMode,
+    ) -> Self {
+        Self::new(
+            target_base_dir,
+            TargetLayoutMode::from_resolved_project(resolved_project),
+            configuration,
+            run_mode,
+        )
+    }
+
+    pub fn configuration(&self) -> crate::BuildConfiguration {
+        self.configuration
+    }
+
+    pub(crate) fn run_mode(&self) -> RunMode {
+        self.run_mode
+    }
+
+    pub fn target_base_dir(&self) -> &Path {
+        &self.target_base_dir
+    }
+
+    /// Returns the directory the given package resides in.
+    ///
+    /// In the mono compatibility layout, packages from the selected main module
+    /// are flattened to `_build/<backend>[/<opt_level>/build]/<...package>/`
+    /// and all others go under
+    /// `_build/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
+    ///
+    /// In the workspace layout, all packages go under
+    /// `_build/<backend>[/<opt_level>/build]/<...module>/<...package>`.
+    pub fn package_dir(&self, pkg: &PackageFQN) -> PathBuf {
+        let dir = self.run_mode_dir();
+
+        self.mode.package_dir(dir, pkg)
+    }
+
+    pub fn run_mode_dir(&self) -> PathBuf {
+        self.target_base_dir
+            .join(self.configuration.backend.to_dir_name())
+            .join(self.configuration.profile.as_str())
+            .join(self.run_mode.to_dir_name())
+    }
+
+    pub fn core_of_build_target(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
@@ -243,33 +268,26 @@ impl TargetLayout {
         base_dir
     }
 
-    pub fn mi_of_build_target(
-        &self,
-        pkg_list: &DiscoverResult,
-        target: &BuildTarget,
-        backend: TargetBackend,
-    ) -> PathBuf {
-        self.mi_of_build_target_aux(pkg_list, target, backend, false)
+    pub fn mi_of_build_target(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        self.mi_of_build_target_aux(pkg_list, target, false)
     }
 
     pub fn mi_of_build_target_impl_virtual(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
     ) -> PathBuf {
-        self.mi_of_build_target_aux(pkg_list, target, backend, true)
+        self.mi_of_build_target_aux(pkg_list, target, true)
     }
 
     fn mi_of_build_target_aux(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
@@ -283,8 +301,8 @@ impl TargetLayout {
     }
 
     /// For each backend/opt_level/run_mode, there's a copy of all_pkgs.json.
-    pub fn all_pkgs_of_build_target(&self, backend: TargetBackend) -> PathBuf {
-        let mut dir = self.run_mode_dir(backend);
+    pub fn all_pkgs_of_build_target(&self) -> PathBuf {
+        let mut dir = self.run_mode_dir();
         dir.push(crate::all_pkgs::ALL_PKGS_JSON);
         dir
     }
@@ -296,8 +314,8 @@ impl TargetLayout {
         linked_core: LinkedCoreArtifact,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let backend = linked_core.target_backend();
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        assert_eq!(linked_core.target_backend(), self.configuration.backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         // Keep main-package objects apart from the package's other objects.
         if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
             base_dir.push(LINKED_CORE_OBJECT_DIR);
@@ -316,8 +334,9 @@ impl TargetLayout {
         target: &BuildTarget,
         executable: ExecutableArtifact,
     ) -> PathBuf {
+        assert_eq!(executable.target_backend(), self.configuration.backend);
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, executable.target_backend());
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
@@ -334,11 +353,10 @@ impl TargetLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
         os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(LINKED_CORE_OBJECT_DIR);
         base_dir.push(format!(
             "{}{}",
@@ -358,7 +376,7 @@ impl TargetLayout {
         target: &BuildTarget,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(LINKED_CORE_OBJECT_DIR);
         base_dir.push(format!(
             "{}{}",
@@ -378,7 +396,7 @@ impl TargetLayout {
         package: PackageId,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Wasm);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, TargetKind::Source),
@@ -399,11 +417,10 @@ impl TargetLayout {
         &self,
         pkg_list: &DiscoverResult,
         package: PackageId,
-        backend: TargetBackend,
         os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, TargetKind::Source),
@@ -428,10 +445,9 @@ impl TargetLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(generated_test_driver_filename(target.kind));
         base_dir
     }
@@ -442,7 +458,6 @@ impl TargetLayout {
         &self,
         pkg_list: &DiscoverResult,
         reported: &Path,
-        backend: TargetBackend,
     ) -> Option<PathBuf> {
         let filename = reported.file_name()?;
         if !filename
@@ -461,17 +476,16 @@ impl TargetLayout {
                 && moonutil::path::starts_with_equivalent_prefix(&package.root_path, reported_root))
             .then_some(package)
         })?;
-        Some(self.package_dir(&package.fqn, backend).join(filename))
+        Some(self.package_dir(&package.fqn).join(filename))
     }
 
     pub fn generated_test_driver_metadata(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "_{}_info.json",
             build_kind_suffix_filename(target.kind)
@@ -479,22 +493,17 @@ impl TargetLayout {
         base_dir
     }
 
-    pub fn runtime_output_dir(&self, backend: TargetBackend) -> PathBuf {
-        match backend {
+    pub fn runtime_output_dir(&self) -> PathBuf {
+        match self.configuration.backend {
             TargetBackend::WasmGC | TargetBackend::Wasm | TargetBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
-            TargetBackend::Native | TargetBackend::LLVM => self.run_mode_dir(backend),
+            TargetBackend::Native | TargetBackend::LLVM => self.run_mode_dir(),
         }
     }
 
-    pub fn runtime_object_path(
-        &self,
-        source: &Path,
-        backend: TargetBackend,
-        os: OperatingSystem,
-    ) -> PathBuf {
-        let mut result = self.runtime_output_dir(backend);
+    pub fn runtime_object_path(&self, source: &Path, os: OperatingSystem) -> PathBuf {
+        let mut result = self.runtime_output_dir();
         let stem = source
             .file_stem()
             .expect("runtime source should have a file stem")
@@ -506,38 +515,15 @@ impl TargetLayout {
         result
     }
 
-    pub fn runtime_archive_path(&self, backend: TargetBackend, os: OperatingSystem) -> PathBuf {
-        let mut result = self.runtime_output_dir(backend);
+    pub fn runtime_archive_path(&self, os: OperatingSystem) -> PathBuf {
+        let mut result = self.runtime_output_dir();
         result.push(format!("libruntime{}", static_library_ext(os)));
         result
     }
 
-    /// The *artifact* of the format operation.
-    ///
-    /// At the time of writing, it should only be used as a stamp file to
-    /// indicate that formatting has been done. However, due to the way
-    /// `moonfmt` works, it actually produces a formatted copy of the input file
-    /// at this path.
-    pub fn format_artifact_path(&self, pkg: &PackageFQN, filename: &OsStr) -> PathBuf {
-        let mut result = self.package_dir(pkg, TargetBackend::WasmGC);
-        result.push(filename);
-        result
-    }
-
-    pub fn format_root_artifact_path(&self, filename: &OsStr) -> PathBuf {
-        let mut result = self.run_mode_dir(TargetBackend::WasmGC);
-        result.push(filename);
-        result
-    }
-
-    pub fn generated_mbti_path(
-        &self,
-        pkg_list: &DiscoverResult,
-        target: &BuildTarget,
-        backend: TargetBackend,
-    ) -> PathBuf {
+    pub fn generated_mbti_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
         let pkg = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg, backend);
+        let mut base_dir = self.package_dir(pkg);
         base_dir.push(format!("{}.mbti", artifact(pkg, target.kind)));
         base_dir
     }
@@ -601,25 +587,19 @@ impl TargetLayout {
         pkg_list: &DiscoverResult,
         package: PackageId,
         stub_name: &OsStr,
-        backend: TargetBackend,
         os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         let mut stub_name = stub_name.to_os_string();
         stub_name.push(object_file_ext(os));
         base_dir.push(stub_name);
         base_dir
     }
 
-    pub fn c_stub_library_dir(
-        &self,
-        pkg_list: &DiscoverResult,
-        package: PackageId,
-        backend: TargetBackend,
-    ) -> PathBuf {
+    pub fn c_stub_library_dir(&self, pkg_list: &DiscoverResult, package: PackageId) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
-        self.package_dir(pkg_fqn, backend)
+        self.package_dir(pkg_fqn)
     }
 
     /// Returns the path for a C stub static library archive.
@@ -629,11 +609,10 @@ impl TargetLayout {
         &self,
         pkg_list: &DiscoverResult,
         package: PackageId,
-        backend: TargetBackend,
         os: OperatingSystem,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend);
+        let mut base_dir = self.package_dir(pkg_fqn);
         base_dir.push(format!(
             "lib{}{}",
             pkg_fqn.short_alias(),
@@ -662,8 +641,8 @@ impl TargetLayout {
     }
 
     /// Returns the backend/profile/run-mode-scoped `packages.json` path.
-    pub fn packages_json_path(&self, backend: TargetBackend) -> PathBuf {
-        self.run_mode_dir(backend).join(PACKAGES_JSON)
+    pub fn packages_json_path(&self) -> PathBuf {
+        self.run_mode_dir().join(PACKAGES_JSON)
     }
 }
 
@@ -697,12 +676,7 @@ impl ArtifactPathResolver {
         package.is_stdlib && self.stdlib_dir.is_some()
     }
 
-    pub fn core_of_build_target(
-        &self,
-        pkg_list: &DiscoverResult,
-        target: &BuildTarget,
-        backend: TargetBackend,
-    ) -> PathBuf {
+    pub fn core_of_build_target(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
         // Use installed `.core` files only when prebuilt stdlib is selected.
         if let Some(stdlib_dir) = self.stdlib_dir() {
             let pkg = pkg_list.get_package(target.package);
@@ -713,21 +687,19 @@ impl ArtifactPathResolver {
                     "only the source target of injected stdlib package {} can be linked",
                     pkg.fqn
                 );
-                return stdlib_core_path(stdlib_dir, backend, &pkg.fqn);
+                return stdlib_core_path(
+                    stdlib_dir,
+                    self.target_layout.configuration.backend,
+                    &pkg.fqn,
+                );
             }
         }
 
-        self.target_layout
-            .core_of_build_target(pkg_list, target, backend)
+        self.target_layout.core_of_build_target(pkg_list, target)
     }
 
-    pub fn mi_of_build_target(
-        &self,
-        pkg_list: &DiscoverResult,
-        target: &BuildTarget,
-        backend: TargetBackend,
-    ) -> PathBuf {
-        self.mi_of_build_target_aux(pkg_list, target, backend, false)
+    pub fn mi_of_build_target(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        self.mi_of_build_target_aux(pkg_list, target, false)
             .into_path()
     }
 
@@ -735,26 +707,23 @@ impl ArtifactPathResolver {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
     ) -> MiPathResult {
-        self.mi_of_build_target_aux(pkg_list, target, backend, true)
+        self.mi_of_build_target_aux(pkg_list, target, true)
     }
 
     fn mi_of_build_target_aux(
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> MiPathResult {
-        if let Some(prebuilt) = self.prebuilt_mi_of_build_target(pkg_list, target, backend) {
+        if let Some(prebuilt) = self.prebuilt_mi_of_build_target(pkg_list, target) {
             return prebuilt;
         }
 
         MiPathResult::Regular(self.target_layout.mi_of_build_target_aux(
             pkg_list,
             target,
-            backend,
             is_implementing_virtual,
         ))
     }
@@ -763,10 +732,9 @@ impl ArtifactPathResolver {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> MiPathResult {
-        if let Some(prebuilt) = self.prebuilt_mi_of_build_target(pkg_list, target, backend) {
+        if let Some(prebuilt) = self.prebuilt_mi_of_build_target(pkg_list, target) {
             return prebuilt;
         }
 
@@ -775,12 +743,8 @@ impl ArtifactPathResolver {
         {
             self.target_layout.emit_proof_mi_path(pkg_list, target)
         } else {
-            self.target_layout.mi_of_build_target_aux(
-                pkg_list,
-                target,
-                backend,
-                is_implementing_virtual,
-            )
+            self.target_layout
+                .mi_of_build_target_aux(pkg_list, target, is_implementing_virtual)
         };
         MiPathResult::Regular(path)
     }
@@ -789,7 +753,6 @@ impl ArtifactPathResolver {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
     ) -> Option<MiPathResult> {
         // Stdlib packages use their installed contract `.mi` when stdlib is
         // injected. An implementation check still reads that contract via
@@ -799,7 +762,9 @@ impl ArtifactPathResolver {
             let pkg = pkg_list.get_package(target.package);
             if pkg.is_stdlib {
                 return Some(MiPathResult::Std(stdlib_mi_path(
-                    stdlib_dir, backend, &pkg.fqn,
+                    stdlib_dir,
+                    self.target_layout.configuration.backend,
+                    &pkg.fqn,
                 )));
             }
         }
@@ -826,19 +791,14 @@ impl ArtifactPathResolver {
                 action_context,
                 package.build_target(*target_kind),
                 packages,
-                options,
             ),
             ArtifactKey::CoreIr {
                 package,
                 target_kind,
-            } => vec![self.core_of_build_target(
-                packages,
-                &package.build_target(*target_kind),
-                options.target_backend(),
-            )],
+            } => vec![self.core_of_build_target(packages, &package.build_target(*target_kind))],
             ArtifactKey::VirtualContractMi { package } => {
                 let target = package.build_target(TargetKind::Source);
-                vec![self.mi_of_build_target(packages, &target, options.target_backend())]
+                vec![self.mi_of_build_target(packages, &target)]
             }
             ArtifactKey::ProofMi {
                 package,
@@ -861,17 +821,14 @@ impl ArtifactPathResolver {
                     source
                         .file_stem()
                         .expect("C stub declaration should have a file name"),
-                    options.target_backend(),
                     options.os,
                 ),
             ],
             ArtifactKey::CStubLibrary { package } => {
-                vec![self.target_layout.c_stub_archive_path(
-                    packages,
-                    *package,
-                    options.target_backend(),
-                    options.os,
-                )]
+                vec![
+                    self.target_layout
+                        .c_stub_archive_path(packages, *package, options.os),
+                ]
             }
             ArtifactKey::LinkedCore {
                 package,
@@ -903,7 +860,6 @@ impl ArtifactPathResolver {
             } => vec![self.target_layout.generated_c_object_of_build_target(
                 packages,
                 &package.build_target(*target_kind),
-                options.target_backend(),
                 options.os,
             )],
             ArtifactKey::Executable {
@@ -918,67 +874,50 @@ impl ArtifactPathResolver {
                 )]
             }
             ArtifactKey::ForeignLibrary { package } => {
-                vec![self.target_layout.foreign_library_path(
-                    packages,
-                    *package,
-                    options.target_backend(),
-                    options.os,
-                )]
+                vec![
+                    self.target_layout
+                        .foreign_library_path(packages, *package, options.os),
+                ]
             }
             ArtifactKey::GeneratedTestDriver {
                 package,
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                vec![self.target_layout.generated_test_driver(
-                    packages,
-                    &target,
-                    options.target_backend(),
-                )]
+                vec![self.target_layout.generated_test_driver(packages, &target)]
             }
             ArtifactKey::GeneratedTestMetadata {
                 package,
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                vec![self.target_layout.generated_test_driver_metadata(
-                    packages,
-                    &target,
-                    options.target_backend(),
-                )]
+                vec![
+                    self.target_layout
+                        .generated_test_driver_metadata(packages, &target),
+                ]
             }
             ArtifactKey::NodeTestPackageConfig { package } => {
                 let pkg = &packages.get_package(*package).fqn;
-                vec![
-                    self.target_layout
-                        .package_dir(pkg, options.target_backend())
-                        .join("package.json"),
-                ]
+                vec![self.target_layout.package_dir(pkg).join("package.json")]
             }
             ArtifactKey::RuntimeObject { .. } => {
                 let BuildAction::BuildRuntimeObject { index, info } = action_context else {
                     unreachable!("runtime object artifacts require runtime object actions")
                 };
-                vec![self.target_layout.runtime_object_path(
-                    &info.source_files[index as usize],
-                    options.target_backend(),
-                    options.os,
-                )]
+                vec![
+                    self.target_layout
+                        .runtime_object_path(&info.source_files[index as usize], options.os),
+                ]
             }
-            ArtifactKey::RuntimeLibrary => vec![
-                self.target_layout
-                    .runtime_archive_path(options.target_backend(), options.os),
-            ],
+            ArtifactKey::RuntimeLibrary => {
+                vec![self.target_layout.runtime_archive_path(options.os)]
+            }
             ArtifactKey::GeneratedMbti {
                 package,
                 target_kind,
             } => {
                 let target = package.build_target(*target_kind);
-                vec![self.target_layout.generated_mbti_path(
-                    packages,
-                    &target,
-                    options.target_backend(),
-                )]
+                vec![self.target_layout.generated_mbti_path(packages, &target)]
             }
             ArtifactKey::DocsDir { .. } => vec![self.target_layout.doc_dir()],
         }
@@ -989,17 +928,12 @@ impl ArtifactPathResolver {
         action_context: BuildAction<'_>,
         target: BuildTarget,
         packages: &DiscoverResult,
-        options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         match action_context {
             BuildAction::Check { info, .. } if info.check_mi_against.is_some() => {
                 // Generate a `.mi` artifact in edge cases such as --no-mi and
                 // virtual implementation checks.
-                match self.mi_of_build_target_impl_virtual(
-                    packages,
-                    &target,
-                    options.target_backend(),
-                ) {
+                match self.mi_of_build_target_impl_virtual(packages, &target) {
                     MiPathResult::Regular(p) => vec![p],
                     MiPathResult::Std(_) => unreachable!(
                         "checks of injected stdlib implementations must not be planned as providers"
@@ -1007,7 +941,7 @@ impl ArtifactPathResolver {
                 }
             }
             BuildAction::Check { .. } | BuildAction::BuildCore { .. } => {
-                vec![self.mi_of_build_target(packages, &target, options.target_backend())]
+                vec![self.mi_of_build_target(packages, &target)]
             }
             _ => panic!("package interface action context should be Check or BuildCore"),
         }
@@ -1019,12 +953,6 @@ pub struct ArtifactPathOptions {
     pub os: OperatingSystem,
     pub executable: ExecutableArtifact,
     pub linked_core: LinkedCoreArtifact,
-}
-
-impl ArtifactPathOptions {
-    fn target_backend(self) -> TargetBackend {
-        self.executable.target_backend()
-    }
 }
 
 pub enum MiPathResult {
@@ -1095,10 +1023,6 @@ impl Display for PackageArtifactName<'_> {
             build_kind_suffix(self.kind)
         )
     }
-}
-
-fn push_backend(path: &mut PathBuf, backend: TargetBackend) {
-    path.push(backend.to_dir_name())
 }
 
 fn build_kind_suffix(kind: TargetKind) -> &'static str {
@@ -1172,6 +1096,7 @@ fn stdlib_package_path_parts(fqn: &PackageFQN) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
+    use moonutil::cond_expr::OptLevel;
     use std::path::PathBuf;
 
     use indexmap::IndexSet;
@@ -1202,11 +1127,11 @@ mod tests {
         .expect("test module should have a valid version")
     }
 
-    fn layout(mode: TargetLayoutMode) -> TargetLayout {
+    fn layout(backend: TargetBackend, mode: TargetLayoutMode) -> TargetLayout {
         TargetLayout::new(
             PathBuf::from("_build"),
             mode,
-            OptLevel::Debug,
+            crate::BuildConfiguration::new(backend, OptLevel::Debug),
             RunMode::Build,
         )
     }
@@ -1367,9 +1292,12 @@ mod tests {
     fn mono_layout_flattens_main_module_packages() {
         let main_module = module("username/hello");
         let dep_module = module("username/world");
-        let layout = layout(TargetLayoutMode::Mono {
-            main_module: main_module.clone(),
-        });
+        let layout = layout(
+            TargetBackend::WasmGC,
+            TargetLayoutMode::Mono {
+                main_module: main_module.clone(),
+            },
+        );
 
         let main_pkg = PackageFQN::new(
             main_module,
@@ -1385,11 +1313,11 @@ mod tests {
         );
 
         assert_eq!(
-            layout.package_dir(&main_pkg, TargetBackend::WasmGC),
+            layout.package_dir(&main_pkg),
             PathBuf::from("_build/wasm-gc/debug/build/lib"),
         );
         assert_eq!(
-            layout.package_dir(&dep_pkg, TargetBackend::WasmGC),
+            layout.package_dir(&dep_pkg),
             PathBuf::from("_build/wasm-gc/debug/build/.mooncakes/username/world/lib"),
         );
     }
@@ -1398,7 +1326,7 @@ mod tests {
     fn workspace_layout_qualifies_all_packages_by_module() {
         let root_module = module("username/hello");
         let dep_module = module("username/world/v2");
-        let layout = layout(TargetLayoutMode::Workspace);
+        let layout = layout(TargetBackend::WasmGC, TargetLayoutMode::Workspace);
 
         let root_pkg = PackageFQN::new(
             root_module,
@@ -1414,18 +1342,18 @@ mod tests {
         );
 
         assert_eq!(
-            layout.package_dir(&root_pkg, TargetBackend::WasmGC),
+            layout.package_dir(&root_pkg),
             PathBuf::from("_build/wasm-gc/debug/build/username/hello/lib"),
         );
         assert_eq!(
-            layout.package_dir(&dep_pkg, TargetBackend::WasmGC),
+            layout.package_dir(&dep_pkg),
             PathBuf::from("_build/wasm-gc/debug/build/username/world/v2/lib"),
         );
     }
 
     #[test]
     fn workspace_proof_artifacts_are_qualified_by_module() {
-        let layout = layout(TargetLayoutMode::Workspace);
+        let layout = layout(TargetBackend::WasmGC, TargetLayoutMode::Workspace);
         for (module, package_path, expected_dir, expected_report) in [
             ("a/b", "", "_build/verif/a/b", "b.proof.json"),
             ("a/b/v2", "", "_build/verif/a/b/v2", "b.proof.json"),
@@ -1455,16 +1383,15 @@ mod tests {
     #[test]
     fn generated_test_driver_diagnostic_path_follows_the_target_layout() {
         let (packages, modules, _) = package_fixture("username/hello", "ffi");
-        let layout = layout(TargetLayoutMode::Mono {
-            main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
-        });
+        let layout = layout(
+            TargetBackend::WasmGC,
+            TargetLayoutMode::Mono {
+                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+            },
+        );
         let reported = PathBuf::from("ffi/__generated_driver_for_internal_test.mbt");
 
-        let physical = layout.generated_test_driver_diagnostic_path(
-            &packages,
-            &reported,
-            TargetBackend::WasmGC,
-        );
+        let physical = layout.generated_test_driver_diagnostic_path(&packages, &reported);
 
         assert_eq!(
             physical,
@@ -1478,9 +1405,12 @@ mod tests {
     #[cfg(windows)]
     fn generated_test_driver_diagnostics_match_windows_path_spellings() {
         let (mut packages, modules, package) = package_fixture("username/hello", "ffi");
-        let layout = layout(TargetLayoutMode::Mono {
-            main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
-        });
+        let layout = layout(
+            TargetBackend::WasmGC,
+            TargetLayoutMode::Mono {
+                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+            },
+        );
         let filename = "__generated_driver_for_internal_test.mbt";
         let long_root = PathBuf::from(r"\\?\C:\project").join("segment\\".repeat(40));
 
@@ -1504,7 +1434,6 @@ mod tests {
                 layout.generated_test_driver_diagnostic_path(
                     &packages,
                     &reported_root.join(filename),
-                    TargetBackend::WasmGC,
                 ),
                 Some(PathBuf::from("_build/wasm-gc/debug/build/ffi").join(filename)),
                 "reported root {reported_root:?}, package root {:?}",
@@ -1514,7 +1443,6 @@ mod tests {
                 layout.generated_test_driver_diagnostic_path(
                     &packages,
                     &reported_root.join("other-package").join(filename),
-                    TargetBackend::WasmGC,
                 ),
                 None,
             );
@@ -1525,9 +1453,12 @@ mod tests {
     fn artifact_resolver_resolves_check_package_interface() {
         let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
-            layout(TargetLayoutMode::Mono {
-                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
-            }),
+            layout(
+                TargetBackend::WasmGC,
+                TargetLayoutMode::Mono {
+                    main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+                },
+            ),
             None,
         );
         let target = package.build_target(TargetKind::Source);
@@ -1554,9 +1485,12 @@ mod tests {
     fn artifact_resolver_resolves_build_core_package_interface() {
         let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
-            layout(TargetLayoutMode::Mono {
-                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
-            }),
+            layout(
+                TargetBackend::WasmGC,
+                TargetLayoutMode::Mono {
+                    main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+                },
+            ),
             None,
         );
         let target = package.build_target(TargetKind::Source);
@@ -1583,9 +1517,12 @@ mod tests {
     fn artifact_resolver_resolves_impl_check_package_interface() {
         let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
-            layout(TargetLayoutMode::Mono {
-                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
-            }),
+            layout(
+                TargetBackend::WasmGC,
+                TargetLayoutMode::Mono {
+                    main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+                },
+            ),
             None,
         );
         let target = package.build_target(TargetKind::Source);
@@ -1614,14 +1551,14 @@ mod tests {
         let (mut packages, _, package) = package_fixture("username/hello", "ffi");
         packages.get_package_mut(package).is_stdlib = true;
         let resolver = ArtifactPathResolver::new(
-            layout(TargetLayoutMode::Workspace),
+            layout(TargetBackend::WasmGC, TargetLayoutMode::Workspace),
             Some(PathBuf::from("toolchain/core")),
         );
         let target = package.build_target(TargetKind::Source);
 
         assert_eq!(
             resolver
-                .mi_of_build_target_impl_virtual(&packages, &target, TargetBackend::WasmGC)
+                .mi_of_build_target_impl_virtual(&packages, &target)
                 .into_path(),
             PathBuf::from("toolchain/core/_build/wasm-gc/release/bundle/ffi/ffi.mi"),
         );
@@ -1630,7 +1567,10 @@ mod tests {
     #[test]
     fn artifact_resolver_resolves_proof_artifacts_with_matching_context() {
         let (packages, _, package) = package_fixture("username/hello", "ffi");
-        let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
+        let resolver = ArtifactPathResolver::new(
+            layout(TargetBackend::WasmGC, TargetLayoutMode::Workspace),
+            None,
+        );
         let target = package.build_target(TargetKind::Source);
         let info = build_target_info();
 
@@ -1662,7 +1602,7 @@ mod tests {
             TargetLayout::new(
                 PathBuf::from("_build"),
                 TargetLayoutMode::Workspace,
-                OptLevel::Debug,
+                crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
                 RunMode::Prove,
             ),
             None,
@@ -1707,7 +1647,7 @@ mod tests {
         );
         assert_eq!(
             resolver
-                .metadata_mi_of_build_target(&packages, &target, TargetBackend::WasmGC, false,)
+                .metadata_mi_of_build_target(&packages, &target, false,)
                 .into_path(),
             proof_interface[0],
         );
@@ -1717,9 +1657,12 @@ mod tests {
     fn artifact_resolver_resolves_c_stub_library_artifacts() {
         let (packages, modules, package) = package_fixture("username/hello", "ffi");
         let resolver = ArtifactPathResolver::new(
-            layout(TargetLayoutMode::Mono {
-                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
-            }),
+            layout(
+                TargetBackend::Native,
+                TargetLayoutMode::Mono {
+                    main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+                },
+            ),
             None,
         );
         let info = c_stubs_info();
@@ -1739,7 +1682,10 @@ mod tests {
 
     #[test]
     fn artifact_resolver_handles_non_package_artifacts() {
-        let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
+        let resolver = ArtifactPathResolver::new(
+            layout(TargetBackend::Native, TargetLayoutMode::Workspace),
+            None,
+        );
         let (packages, modules, _) = package_fixture("username/hello", "ffi");
         let module = modules.input_module_ids()[0];
         let options = ArtifactPathOptions {
@@ -1781,7 +1727,7 @@ mod tests {
         let layout = TargetLayout::new(
             PathBuf::from("_build"),
             TargetLayoutMode::Workspace,
-            OptLevel::Debug,
+            crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
             RunMode::Check,
         );
 
@@ -1794,7 +1740,7 @@ mod tests {
             PathBuf::from("_build/index.json")
         );
         assert_eq!(
-            layout.packages_json_path(TargetBackend::WasmGC),
+            layout.packages_json_path(),
             PathBuf::from("_build/wasm-gc/debug/check/packages.json")
         );
     }

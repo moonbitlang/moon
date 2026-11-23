@@ -24,12 +24,10 @@
 use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
-use crate::RunMode;
 use moonutil::project::ProjectManifest;
 use moonutil::resolution::ModuleSourceKind;
 use moonutil::toolchain::BINARIES;
 use moonutil::{
-    cond_expr::OptLevel,
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
     manifest::{ManifestFormat, validate_module_dsl_deps},
     user_log::UserLog,
@@ -40,7 +38,7 @@ use crate::{
     execution_plan::{ExecutionAction, ExecutionPlan, ExecutionPlanBuilder, LoweredCommand},
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
-    target_layout::{TargetLayout, TargetLayoutMode},
+    target_layout::{FormatLayout, TargetLayoutMode},
 };
 
 pub struct FmtConfig {
@@ -77,7 +75,7 @@ pub fn build_execution_plan_for_fmt(
         },
         _ => TargetLayoutMode::Workspace,
     };
-    let layout = TargetLayout::new(target_dir.into(), mode, OptLevel::Release, RunMode::Format);
+    let layout = FormatLayout::new(target_dir, mode);
 
     debug!("Layout built for formatting");
 
@@ -167,7 +165,7 @@ fn add_format_action<I, O>(
 fn format_moon_mod_node(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
-    layout: &TargetLayout,
+    layout: &FormatLayout,
     input: &FmtModule,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
@@ -341,7 +339,7 @@ fn format_moon_mod_json_migrate(
 fn format_workspace_node(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
-    layout: &TargetLayout,
+    layout: &FormatLayout,
     project_manifest: &ProjectManifest,
 ) -> anyhow::Result<bool> {
     let ProjectManifest::Workspace(workspace) = project_manifest else {
@@ -356,7 +354,7 @@ fn format_workspace_node(
 fn build_for_package(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
-    layout: &TargetLayout,
+    layout: &FormatLayout,
     pkg: &PackageInput,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {
@@ -529,7 +527,7 @@ fn format_moon_work_dsl(
 fn format_moon_pkg_node(
     execution: &mut ExecutionPlanBuilder,
     cfg: &FmtConfig,
-    layout: &TargetLayout,
+    layout: &FormatLayout,
     pkg: &PackageInput,
     user_log: &UserLog,
 ) -> anyhow::Result<()> {

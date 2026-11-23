@@ -132,17 +132,17 @@ impl BuildSession {
         frozen: bool,
     ) -> anyhow::Result<(BuildMeta, BuildInput)> {
         anyhow::ensure!(
-            cx.artifact_paths.target_layout().target_base_dir() == self.target_dir,
+            cx.artifact_paths().target_layout().target_base_dir() == self.target_dir,
             "build plan belongs to a different target directory"
         );
         let target_dir = &self.target_dir;
         let user_log = &self.user_log;
-        let target_backend = cx.configuration.backend;
+        let target_backend = cx.configuration().backend;
         info!("User intent calculated: {:?}", intent.intents);
 
         // Decide once, after backend selection, whether planning will execute a
         // script. Dry runs that only lower commands must not acquire a write lock.
-        let run_prebuild = cx.action != RunMode::Check
+        let run_prebuild = cx.action() != RunMode::Check
             && target_backend.is_native()
             && resolved_project
                 .module_graph
@@ -204,8 +204,8 @@ impl BuildSession {
         let build_meta = BuildMeta {
             resolved_project,
             artifacts,
-            configuration: cx.configuration,
-            artifact_paths: cx.artifact_paths,
+            configuration: cx.configuration(),
+            artifact_paths: cx.into_artifact_paths(),
         };
 
         let input = BuildInput::new(compile_output.execution_plan, Some(target_backend));

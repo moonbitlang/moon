@@ -68,21 +68,18 @@ impl BuildConfiguration {
 }
 
 /// Build configuration shared by planning and lowering.
-// TODO: Once TargetLayout accepts BuildConfiguration, validate the configuration,
-// backend resources and layout together and make their fields read-only.
 pub struct CompileConfig {
     /// The backend and backend-specific configuration selected for this build.
-    pub backend: BackendConfig,
-    /// Semantic selection made before package resolution.
-    pub configuration: BuildConfiguration,
+    backend: BackendConfig,
+    configuration: BuildConfiguration,
     /// The build operation selecting planning rules and the target-directory layout.
-    pub action: RunMode,
+    action: RunMode,
     /// Debug information requested before the Native payload form is selected.
     pub debug_info: DebugInfoRequest,
 
     /// Physical artifact paths, including the selected target directory and
     /// optional installed standard-library root.
-    pub artifact_paths: ArtifactPathResolver,
+    artifact_paths: ArtifactPathResolver,
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
@@ -97,6 +94,58 @@ pub struct CompileConfig {
     pub warning_condition: WarningCondition,
     /// List of warnings to enable
     pub warn_list: Option<String>,
+}
+
+impl CompileConfig {
+    /// Finish a configuration using already prepared backend settings and paths.
+    /// Mismatched inputs are programming errors; semantic choices cannot be
+    /// replaced after construction. Orchestration prepares these inputs together.
+    pub fn new(
+        configuration: BuildConfiguration,
+        backend: BackendConfig,
+        action: RunMode,
+        artifact_paths: ArtifactPathResolver,
+    ) -> Self {
+        assert_eq!(configuration.backend, backend.target_backend());
+        assert_eq!(
+            configuration,
+            artifact_paths.target_layout().configuration()
+        );
+        assert_eq!(action, artifact_paths.target_layout().run_mode());
+        Self {
+            configuration,
+            backend,
+            action,
+            artifact_paths,
+            debug_info: DebugInfoRequest::default(),
+            debug_export_build_plan: false,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            warn_list: None,
+        }
+    }
+
+    pub fn configuration(&self) -> BuildConfiguration {
+        self.configuration
+    }
+
+    pub fn backend(&self) -> &BackendConfig {
+        &self.backend
+    }
+
+    pub fn action(&self) -> RunMode {
+        self.action
+    }
+
+    pub fn artifact_paths(&self) -> &ArtifactPathResolver {
+        &self.artifact_paths
+    }
+
+    pub fn into_artifact_paths(self) -> ArtifactPathResolver {
+        self.artifact_paths
+    }
 }
 
 #[cfg(test)]
@@ -116,7 +165,7 @@ mod tests {
 
     use crate::{
         CompileConfig, ResolvedProject,
-        build_lower::{WarningCondition, lower_build_plan},
+        build_lower::lower_build_plan,
         build_plan::{ArtifactKey, InputDirective, build_plan},
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
         model::{
@@ -286,9 +335,8 @@ mod tests {
                 DebugSymbols::Backtrace,
                 DebugSymbols::Full,
             ] {
-                let config = CompileConfig {
-                    configuration: crate::BuildConfiguration::new(TargetBackend::Native, opt_level),
-                    backend: BackendConfig::Native {
+                let config = {
+                    let backend = BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle: false,
                         allocator: moonutil::compiler_flags::NativeAllocator::System,
@@ -296,29 +344,30 @@ mod tests {
                             .parse()
                             .expect("test host OS should be supported"),
                         compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
-                    },
-                    action: RunMode::Run,
-                    debug_info: DebugInfoRequest {
+                    };
+                    let configuration =
+                        crate::BuildConfiguration::new(backend.target_backend(), opt_level);
+                    let mut config = CompileConfig::new(
+                        configuration,
+                        backend,
+                        RunMode::Run,
+                        ArtifactPathResolver::new(
+                            TargetLayout::new(
+                                PathBuf::from("_build"),
+                                TargetLayoutMode::Mono {
+                                    main_module: module_source.clone(),
+                                },
+                                configuration,
+                                RunMode::Run,
+                            ),
+                            None,
+                        ),
+                    );
+                    config.debug_info = DebugInfoRequest {
                         symbols,
                         runtime_backtrace: true,
-                    },
-                    artifact_paths: ArtifactPathResolver::new(
-                        TargetLayout::new(
-                            PathBuf::from("_build"),
-                            TargetLayoutMode::Mono {
-                                main_module: module_source.clone(),
-                            },
-                            opt_level,
-                            RunMode::Run,
-                        ),
-                        None,
-                    ),
-                    debug_export_build_plan: false,
-                    enable_coverage: false,
-                    moonc_output_json: false,
-                    docs_serve: false,
-                    warning_condition: WarningCondition::Default,
-                    warn_list: None,
+                    };
+                    config
                 };
                 let plan = build_plan(
                     &resolved,
@@ -570,9 +619,8 @@ mod tests {
                 (OptLevel::Release, false),
                 (OptLevel::Release, true),
             ] {
-                let config = CompileConfig {
-                    configuration: crate::BuildConfiguration::new(TargetBackend::Native, opt_level),
-                    backend: BackendConfig::Native {
+                let config = {
+                    let backend = BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle,
                         allocator: moonutil::compiler_flags::NativeAllocator::Default,
@@ -581,24 +629,23 @@ mod tests {
                             include_path: "/unused/include".into(),
                             lib_path: "/unused/lib".into(),
                         },
-                    },
-                    action: RunMode::Build,
-                    debug_info: DebugInfoRequest::default(),
-                    artifact_paths: ArtifactPathResolver::new(
-                        TargetLayout::new(
-                            PathBuf::from("_build"),
-                            TargetLayoutMode::Workspace,
-                            opt_level,
-                            RunMode::Build,
+                    };
+                    let configuration =
+                        crate::BuildConfiguration::new(backend.target_backend(), opt_level);
+                    CompileConfig::new(
+                        configuration,
+                        backend,
+                        RunMode::Build,
+                        ArtifactPathResolver::new(
+                            TargetLayout::new(
+                                PathBuf::from("_build"),
+                                TargetLayoutMode::Workspace,
+                                configuration,
+                                RunMode::Build,
+                            ),
+                            None,
                         ),
-                        None,
-                    ),
-                    debug_export_build_plan: false,
-                    enable_coverage: false,
-                    moonc_output_json: false,
-                    docs_serve: false,
-                    warning_condition: WarningCondition::Default,
-                    warn_list: None,
+                    )
                 };
                 let plan = build_plan(
                     &resolved,
@@ -785,23 +832,19 @@ mod tests {
                 TargetLayoutMode::Mono {
                     main_module: module_source,
                 },
-                OptLevel::Debug,
+                crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
                 RunMode::Run,
             ),
             None,
         );
-        let config = CompileConfig {
-            configuration: crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
-            backend: BackendConfig::WasmGc { use_wat: false },
-            action: RunMode::Run,
-            debug_info: DebugInfoRequest::default(),
-            artifact_paths,
-            debug_export_build_plan: true,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            warn_list: None,
+        let config = {
+            let backend = BackendConfig::WasmGc { use_wat: false };
+            let configuration =
+                crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+            let mut config =
+                CompileConfig::new(configuration, backend, RunMode::Run, artifact_paths);
+            config.debug_export_build_plan = true;
+            config
         };
 
         let requested_artifacts = [ArtifactKey::Executable {
@@ -897,23 +940,16 @@ mod tests {
                 TargetLayoutMode::Mono {
                     main_module: module_source,
                 },
-                OptLevel::Debug,
+                crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
                 RunMode::Prove,
             ),
             None,
         );
-        let config = CompileConfig {
-            configuration: crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
-            backend: BackendConfig::WasmGc { use_wat: false },
-            action: RunMode::Prove,
-            debug_info: DebugInfoRequest::default(),
-            artifact_paths,
-            debug_export_build_plan: false,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            warn_list: None,
+        let config = {
+            let backend = BackendConfig::WasmGc { use_wat: false };
+            let configuration =
+                crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+            CompileConfig::new(configuration, backend, RunMode::Prove, artifact_paths)
         };
 
         let plan = build_plan(

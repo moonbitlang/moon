@@ -813,7 +813,7 @@ fn build_executable_from_plan(
         target_backend: build_meta.target_backend(),
         opt_level: build_meta.configuration().profile,
         target_dir: build_meta
-            .artifact_paths
+            .artifact_paths()
             .target_layout()
             .target_base_dir()
             .to_path_buf(),
