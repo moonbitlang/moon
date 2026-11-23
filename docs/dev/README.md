@@ -7,6 +7,7 @@ source and test pointers; the documents below are not a required reading list.
 | --- | --- |
 | Set up, build, or submit a change | [Contributing](contributing.md) |
 | Find the crate that owns a behavior | [Source map](contributing.md#source-map) |
+| Design module or crate interfaces | [Command, build, and runtime responsibilities (proposed)](../adr/0007-separate-command-build-and-runtime-responsibilities.md) |
 | Write or clean up a test | [Testing](testing.md) |
 | Find an E2E scenario by topic | [E2E scenario index](../../crates/moon-e2e/README.md) |
 | Measure fixture overhead or retain a test workspace | [Test-directory diagnostics](test-directory-diagnostics.md) |
@@ -78,3 +79,4 @@ teaches coding agents how to use this index without copying its routing table.
 - [0004: Separate Command Results from User Logs](../adr/0004-separate-command-results-from-user-logs.md)
 - [0005: Use Unified Planning and Execution for Standalone Builds](../adr/0005-plan-standalone-dependencies-separately.md)
 - [0006: Model Providers as Build Graph Topology](../adr/0006-model-providers-as-build-graph-topology.md)
+- [0007: Separate Command, Build, and Runtime Responsibilities (proposed)](../adr/0007-separate-command-build-and-runtime-responsibilities.md)
