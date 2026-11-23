@@ -70,7 +70,8 @@ and permission to record per-process `cpu-clock` events. The existing Linux CI
 test job installs the kernel tools and sets `kernel.perf_event_paranoid=1`.
 
 `cargo xtask` checks the test-driver template with Moon, Rust formatting, and
-Clippy, including the runtime backend configurations. The exact commands live
+Clippy, using Moonrun's default V8 backend. Optional runtime backends are checked
+by their dedicated CI jobs. The exact commands live
 in [`xtask/src/ci.rs`](../../xtask/src/ci.rs). CI also checks spelling with
 [typos](https://github.com/crate-ci/typos); see the
 [CI workflow](../../.github/workflows/ci.yml) for platform coverage.
