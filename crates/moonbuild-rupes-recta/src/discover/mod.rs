@@ -39,11 +39,11 @@ pub(crate) use scan::PackageInput;
 use crate::pkg_name::PackageFQN;
 use moonutil::{
     manifest::{read_dependency_module_manifest, read_module_manifest, warn_module_manifest},
-    package::resolve_supported_targets,
     project::ProjectManifest,
     resolution::{
         DirSyncResult, ModuleDependencyGraph, ModuleSource, ModuleSourceKind, ResolvedModule,
     },
+    supported_targets::resolve_supported_targets,
     user_log::UserLog,
 };
 use slotmap::SlotMap;

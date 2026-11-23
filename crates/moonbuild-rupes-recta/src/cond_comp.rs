@@ -197,17 +197,19 @@ pub enum FileTestKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moonutil::{moon_pkg, package::convert_pkg_dsl_to_package, user_log::UserLog};
+    use moonutil::{manifest::parse_package, user_log::UserLog};
 
     #[test]
     fn native_filenames_match_llvm_in_selection_and_metadata() {
         use TargetBackend::{Js, LLVM, Native};
 
-        let pkg = convert_pkg_dsl_to_package(
-            moon_pkg::parse("").expect("empty package should parse"),
+        let pkg = parse_package(
+            "",
+            Path::new("moon.pkg"),
+            true,
             &UserLog::new(log::LevelFilter::Error),
         )
-        .expect("empty package should convert");
+        .expect("empty package should parse");
 
         for (filename, expected_backends) in [
             ("lib.native.mbt", vec![Native, LLVM]),

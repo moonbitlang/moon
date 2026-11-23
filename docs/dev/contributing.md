@@ -48,6 +48,8 @@ Check which `moon` your shell resolves before testing an installed build.
 | Shared package-management CLI and stdin payloads | [`mooncake/src/cli.rs`](../../crates/mooncake/src/cli.rs), [`pkg/sync.rs`](../../crates/mooncake/src/pkg/sync.rs) |
 | Module names and name/version validation | [`moonutil/src/module_name.rs`](../../crates/moonutil/src/module_name.rs) |
 | Module sources and resolved dependency graphs | [`moonutil/src/resolution.rs`](../../crates/moonutil/src/resolution.rs) |
+| Package data and JSON schema | [`moonutil/src/package.rs`](../../crates/moonutil/src/package.rs) |
+| Manifest loading and in-memory package parsing | [`moonutil/src/manifest.rs`](../../crates/moonutil/src/manifest.rs), private package decoding and diagnostics in [`manifest/package.rs`](../../crates/moonutil/src/manifest/package.rs) |
 | Dependency edits preserving manifest comments | [`mooncake/src/pkg/manifest_edit.rs`](../../crates/mooncake/src/pkg/manifest_edit.rs) |
 | Paths, feature flags, and shared types | [`moonutil/src`](../../crates/moonutil/src) |
 | Wasm runtime | [Moonrun developer guide](../../crates/moonrun/docs/dev/README.md) |

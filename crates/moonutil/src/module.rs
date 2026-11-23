@@ -18,8 +18,8 @@
 
 use crate::dependency::SourceDependencyInfo;
 use crate::module_name::ModuleName;
-use crate::package::{SupportedTargetsConfig, resolve_supported_targets};
 use crate::target::TargetBackend;
+use crate::{package::SupportedTargetsConfig, supported_targets::resolve_supported_targets};
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
 use semver::Version;
