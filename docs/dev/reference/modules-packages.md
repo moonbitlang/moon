@@ -130,7 +130,7 @@ explicitly through `moon run-postadd`. Other script names, including `prebuild`
 and `postbuild`, produce unknown-key warnings and do not register lifecycle hooks.
 
 Compiler-consumed settings are also represented and type-checked by Moon,
-including package `alert-list` and `link.wasm-gc.use-ffi-bytes`. The deprecated
+including package `alert-list`. The deprecated
 `test-import-all` spelling still read by the compiler receives a deprecation
 warning; it does not restore Moon's removed implicit test imports.
 

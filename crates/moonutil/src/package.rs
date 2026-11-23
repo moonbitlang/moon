@@ -476,10 +476,6 @@ pub struct WasmGcLinkConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_js_builtin_string: Option<bool>,
 
-    /// Use the compiler's FFI byte representation for WasmGC.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub use_ffi_bytes: Option<bool>,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_string_constants: Option<String>,
     #[serde(flatten, skip_serializing)]

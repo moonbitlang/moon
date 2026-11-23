@@ -66,8 +66,7 @@ import 配置。空块和空的选项列表也算显式声明。普通、黑盒�
 
 已知字段的类型错误会报错，包括依赖中的配置以及使用 `--quiet` 时。
 例如，`warnings = 123` 无效，因为 `warnings` 必须是字符串。
-由编译器消费的配置，例如 `options("alert-list": "+all")` 和布尔类型的
-`link.wasm-gc.use-ffi-bytes`，也由 Moon 识别并检查类型。
+由编译器消费的配置，例如 `options("alert-list": "+all")`，也由 Moon 识别并检查类型。
 
 已弃用的包配置也会在当前项目和 workspace 成员中产生警告，依赖中的警告默认抑制。
 请将 `is-main: true` 替换为 `pkgtype(kind: "executable")`，将库包的布尔

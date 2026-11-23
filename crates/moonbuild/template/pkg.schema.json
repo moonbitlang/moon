@@ -595,13 +595,6 @@
             "null"
           ]
         },
-        "use-ffi-bytes": {
-          "description": "Use the compiler's FFI byte representation for WasmGC.",
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
         "use-js-builtin-string": {
           "type": [
             "boolean",

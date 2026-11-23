@@ -325,7 +325,6 @@ fn known_option_types_are_checked_even_when_warnings_are_suppressed() {
         "options = false",
         r#"options(link: {"native": {"cc-flags": 123}})"#,
         r#"options("alert-list": false)"#,
-        r#"options(link: {"wasm-gc": {"use-ffi-bytes": "true"}})"#,
         r#"options("pre-build": [{"input": "a", "output": "b", "rule": "generate", "command": 123}])"#,
         r#"options("pre-build": [{"input": "a", "output": "b", "command": "echo", "rule": null}])"#,
     ] {
@@ -361,8 +360,7 @@ options(
   "alert-list": "+all",
   link: {"wasm-gc": {
     "use-js-builtin-string": true,
-    "imported-string-constants": "strings",
-    "use-ffi-bytes": true
+    "imported-string-constants": "strings"
   }}
 )
 "#,
@@ -374,7 +372,7 @@ options(
             .unwrap();
     assert_eq!(package.alert_list.as_deref(), Some("+all"));
     assert_eq!(
-        package.link.unwrap().wasm_gc.unwrap().use_ffi_bytes,
+        package.link.unwrap().wasm_gc.unwrap().use_js_builtin_string,
         Some(true)
     );
     assert!(capture.take().is_empty());

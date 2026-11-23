@@ -36,7 +36,7 @@ options(
   "bin-name": "obsolete-name",
   link: {
     "native": { "cc_link_flags": "-lm" },
-    "wasm-gc": { "use-ffi-bytes": true, "exports": [] }
+    "wasm-gc": { "exports": [] }
   }
 )
 "#,

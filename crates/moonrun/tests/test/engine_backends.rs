@@ -147,7 +147,6 @@ fn engine_backends_run_compiler_generated_ffi_bytes() {
 
     moon_cmd()
         .current_dir(&dir)
-        .env("MOONC_INTERNAL_PARAMS", "use_ffi_bytes=1|")
         .args(["build", "ffi_bytes", "--target", "wasm-gc"])
         .assert()
         .success();
