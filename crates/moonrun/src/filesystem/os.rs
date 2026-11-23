@@ -20,6 +20,7 @@
 
 pub(super) mod directory;
 pub(super) mod io;
+pub(super) mod lock;
 pub(super) mod openat;
 pub(super) mod unlinkat;
 

@@ -90,7 +90,7 @@ fn data_metadata_locks_and_flush_share_the_captured_rights() {
             );
         }
         if read {
-            crate::async_sys::fs::stub::unlock_acquired_file(&file).unwrap();
+            fs.unlock_resource(&file).unwrap();
         }
         for result in [
             Job::write(Arc::clone(&file), b"new!".to_vec(), 0)

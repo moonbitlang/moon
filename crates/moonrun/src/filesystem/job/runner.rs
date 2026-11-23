@@ -22,7 +22,6 @@
 //! references or applying native effects. The helpers below implement mechanism;
 //! Job dispatch does not perform a separate permission or pathname pass.
 
-use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -302,7 +301,9 @@ ported_fns! {
         })?;
         let file = file.take().ok_or(AsyncHostError::Badf)?;
 
-        lock_native_file(raw_file_handle(&file)?, exclusive)?;
+        super::super::os::lock::lock_blocking(
+            raw_file_handle(&file)?, exclusive, &super::CancellableIo,
+        )?;
         Ok(0)
     }
 
@@ -734,21 +735,6 @@ fn sync_native_file(fd: RawFile, only_data: bool) -> AsyncHostResult<()> {
 }
 
 #[cfg(unix)]
-fn lock_native_file(fd: RawFile, exclusive: bool) -> AsyncHostResult<()> {
-    let operation = if exclusive {
-        libc::LOCK_EX
-    } else {
-        libc::LOCK_SH
-    };
-    let result = with_cancellable_region(|| Ok(unsafe { libc::flock(fd, operation) }))?;
-    if result < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
 fn remove_native_path(path: OsString) -> AsyncHostResult<()> {
     let path = path_to_cstring(path)?;
     if unsafe { libc::remove(path.as_ptr()) } < 0 {
@@ -1043,32 +1029,6 @@ fn sync_native_file(file: RawFile, _only_data: bool) -> AsyncHostResult<()> {
     use windows_sys::Win32::Storage::FileSystem::FlushFileBuffers;
 
     if unsafe { FlushFileBuffers(file as HANDLE) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-fn lock_native_file(file: RawFile, exclusive: bool) -> AsyncHostResult<()> {
-    use std::mem::zeroed;
-    use windows_sys::Win32::Storage::FileSystem::{LOCKFILE_EXCLUSIVE_LOCK, LockFileEx};
-    use windows_sys::Win32::System::IO::OVERLAPPED;
-
-    let mut overlapped: OVERLAPPED = unsafe { zeroed() };
-    // Keep parity with thread_pool.c: lock a one-byte sentinel range beyond
-    // ordinary file data so Windows mandatory locks approximate advisory locks.
-    overlapped.Anonymous.Anonymous.Offset = 0xfffffffe;
-    overlapped.Anonymous.Anonymous.OffsetHigh = 0xffffffff;
-    let flags = if exclusive {
-        LOCKFILE_EXCLUSIVE_LOCK
-    } else {
-        0
-    };
-    let result = with_cancellable_region(|| {
-        Ok(unsafe { LockFileEx(file, flags, 0, 1, 0, &mut overlapped) })
-    })?;
-    if result == 0 {
         Err(last_native_error())
     } else {
         Ok(())

@@ -27,6 +27,7 @@ mod path;
 pub(crate) use authorization::{FileGrant, FsOperation, FsPath, FsTarget};
 pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};
 pub(crate) use job::{Job, stdio_kind};
+pub(crate) use os::lock::errno_is_lock_violation;
 pub(crate) use path::entry_before_directory_suffix;
 
 #[cfg(test)]
@@ -34,3 +35,6 @@ pub(crate) use job::{STAT_OPEN_IDENTITY, compat_symbols};
 
 #[cfg(test)]
 pub(crate) use os::io::PORTED_SYMBOLS as IO_PORTED_SYMBOLS;
+
+#[cfg(test)]
+pub(crate) use os::lock::PORTED_SYMBOLS as LOCK_PORTED_SYMBOLS;

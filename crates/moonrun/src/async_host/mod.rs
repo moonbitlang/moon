@@ -3567,7 +3567,7 @@ impl AsyncHost {
 
     pub(crate) fn unlock_file(&self, handle: HostHandle) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
-            crate::async_sys::fs::stub::unlock_acquired_file(file)
+            self.filesystem.unlock_resource(file)
         })
     }
 
