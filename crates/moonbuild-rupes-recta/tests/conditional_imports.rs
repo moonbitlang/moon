@@ -19,7 +19,8 @@
 #![allow(clippy::disallowed_methods)] // These tests exercise manifest discovery.
 
 use moonbuild_rupes_recta::{
-    CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject, RunMode,
+    BuildConfiguration, CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
+    RunMode,
     build_lower::{WarningCondition, lower_build_plan},
     build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
@@ -106,6 +107,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
     let target_dir = tempfile::tempdir().unwrap();
     for backend in [BackendConfig::Js, BackendConfig::WasmGc { use_wat: false }] {
         let config = CompileConfig {
+            configuration: BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
             artifact_paths: ArtifactPathResolver::new(
                 TargetLayout::new(
                     target_dir.path().to_owned(),
@@ -118,7 +120,6 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                 None,
             ),
             backend,
-            opt_level: OptLevel::Debug,
             action: RunMode::Test,
             debug_info: DebugInfoRequest::default(),
             debug_export_build_plan: false,
@@ -222,6 +223,7 @@ import { "example/conditional/helper" } for "test"
     ] {
         let target_dir = dir.path().join("_build");
         let config = CompileConfig {
+            configuration: BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
             artifact_paths: ArtifactPathResolver::new(
                 TargetLayout::new(
                     target_dir.clone(),
@@ -237,7 +239,6 @@ import { "example/conditional/helper" } for "test"
                 None,
             ),
             backend,
-            opt_level: OptLevel::Debug,
             action: RunMode::Check,
             debug_info: DebugInfoRequest::default(),
             debug_export_build_plan: false,
@@ -313,8 +314,7 @@ import { "example/conditional/helper" } for "test"
             &resolved,
             dir.path(),
             &config.artifact_paths,
-            OptLevel::Debug,
-            backend,
+            config.configuration,
             &CheckCommandMap::new(),
         );
         let metadata = serde_json::to_value(metadata).unwrap();

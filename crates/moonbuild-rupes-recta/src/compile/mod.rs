@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::cond_expr::OptLevel;
+use moonutil::target::TargetBackend;
 
 use crate::{
     build_lower::WarningCondition,
@@ -51,12 +52,29 @@ impl RunMode {
     }
 }
 
+/// Semantic choices fixed before package resolution and reused by each build phase.
+///
+/// A profile is a source-selection policy, not a C compiler optimization level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuildConfiguration {
+    pub backend: TargetBackend,
+    pub profile: OptLevel,
+}
+
+impl BuildConfiguration {
+    pub fn new(backend: TargetBackend, profile: OptLevel) -> Self {
+        Self { backend, profile }
+    }
+}
+
 /// Build configuration shared by planning and lowering.
+// TODO: Once TargetLayout accepts BuildConfiguration, validate the configuration,
+// backend resources and layout together and make their fields read-only.
 pub struct CompileConfig {
     /// The backend and backend-specific configuration selected for this build.
     pub backend: BackendConfig,
-    /// The optimization level to use for the compilation.
-    pub opt_level: OptLevel,
+    /// Semantic selection made before package resolution.
+    pub configuration: BuildConfiguration,
     /// The build operation selecting planning rules and the target-directory layout.
     pub action: RunMode,
     /// Debug information requested before the Native payload form is selected.
@@ -269,6 +287,7 @@ mod tests {
                 DebugSymbols::Full,
             ] {
                 let config = CompileConfig {
+                    configuration: crate::BuildConfiguration::new(TargetBackend::Native, opt_level),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle: false,
@@ -278,7 +297,6 @@ mod tests {
                             .expect("test host OS should be supported"),
                         compiler_paths: moonutil::compiler_flags::CompilerPaths::from_moon_dirs(),
                     },
-                    opt_level,
                     action: RunMode::Run,
                     debug_info: DebugInfoRequest {
                         symbols,
@@ -553,6 +571,7 @@ mod tests {
                 (OptLevel::Release, true),
             ] {
                 let config = CompileConfig {
+                    configuration: crate::BuildConfiguration::new(TargetBackend::Native, opt_level),
                     backend: BackendConfig::Native {
                         direct_object_candidate: candidate,
                         collect_ref_cycle,
@@ -563,7 +582,6 @@ mod tests {
                             lib_path: "/unused/lib".into(),
                         },
                     },
-                    opt_level,
                     action: RunMode::Build,
                     debug_info: DebugInfoRequest::default(),
                     artifact_paths: ArtifactPathResolver::new(
@@ -773,8 +791,8 @@ mod tests {
             None,
         );
         let config = CompileConfig {
+            configuration: crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
             backend: BackendConfig::WasmGc { use_wat: false },
-            opt_level: OptLevel::Debug,
             action: RunMode::Run,
             debug_info: DebugInfoRequest::default(),
             artifact_paths,
@@ -885,8 +903,8 @@ mod tests {
             None,
         );
         let config = CompileConfig {
+            configuration: crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
             backend: BackendConfig::WasmGc { use_wat: false },
-            opt_level: OptLevel::Debug,
             action: RunMode::Prove,
             debug_info: DebugInfoRequest::default(),
             artifact_paths,

@@ -165,6 +165,10 @@ fn run_build_for_single_file_rr(
         backend,
         user_log,
     );
+    let configurations = target_backends
+        .iter()
+        .map(|&backend| cmd.build_flags.configuration(backend, RunMode::Build))
+        .collect::<Vec<_>>();
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
@@ -173,10 +177,10 @@ fn run_build_for_single_file_rr(
         .next()
         .context("single-file project must resolve exactly one local package")?;
     let mut planned_runs = Vec::with_capacity(target_backends.len());
-    for target_backend in target_backends {
+    for configuration in configurations {
         let compile_config = cmd.build_flags.compile_config(
             cli,
-            target_backend,
+            configuration,
             target_dir,
             RunMode::Build,
             user_log,
@@ -463,17 +467,22 @@ pub(super) fn plan_build_rr_from_discovered(
 ) -> anyhow::Result<Vec<(BuildMeta, BuildInput)>> {
     let requests =
         selection::select_requests(&discovered, cmd, selected_target_backends, user_log)?;
-    let target_backends = requests
+    let configurations = requests
         .iter()
-        .map(|(backend, _)| *backend)
+        .map(|(backend, _)| cmd.build_flags.configuration(*backend, RunMode::Build))
+        .collect::<Vec<_>>();
+    let target_backends = configurations
+        .iter()
+        .map(|configuration| configuration.backend)
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     requests
         .into_iter()
-        .map(|(target_backend, request)| {
+        .zip(configurations)
+        .map(|((_, request), configuration)| {
             let compile_config = cmd.build_flags.compile_config(
                 cli,
-                target_backend,
+                configuration,
                 target_dir,
                 RunMode::Build,
                 user_log,

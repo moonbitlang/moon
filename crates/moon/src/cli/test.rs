@@ -34,6 +34,7 @@ use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession};
 use moonbuild::execution::BuildConfig;
 use moonbuild::execution::BuildInput;
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::build_plan::{ArtifactKey, InputDirective};
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -583,6 +584,10 @@ fn run_test_in_single_file_rr(
     )?;
     let target_backends =
         super::selection::single_file_target_backends(&discovered, &targets, backend, user_log);
+    let configurations = target_backends
+        .iter()
+        .map(|&backend| build_flags.configuration(backend, RunMode::Test))
+        .collect::<Vec<_>>();
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
@@ -609,12 +614,12 @@ fn run_test_in_single_file_rr(
         None
     };
     let test_cmd: TestLikeSubcommand<'_> = cmd.into();
-    let planned_runs = target_backends
+    let planned_runs = configurations
         .into_iter()
-        .map(|target_backend| {
+        .map(|configuration| {
             let compile_config = build_flags.compile_config(
                 cli,
-                target_backend,
+                configuration,
                 target_dir,
                 RunMode::Test,
                 user_log,
@@ -766,20 +771,26 @@ pub(super) fn plan_test_or_bench_rr_from_discovered(
             Ok((target_backend, intent, filter))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let target_backends = selections
+    let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
+    let configurations = selections
         .iter()
-        .map(|&(backend, _, _)| backend)
+        .map(|&(backend, _, _)| build_flags.configuration(backend, cmd.run_mode))
+        .collect::<Vec<_>>();
+    let target_backends = configurations
+        .iter()
+        .map(|configuration| configuration.backend)
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections
         .into_iter()
-        .map(|(target_backend, intent, filter)| {
+        .zip(configurations)
+        .map(|((_, intent, filter), configuration)| {
             plan_test_or_bench_rr_from_intent(
                 session,
                 cli,
                 cmd,
                 target_dir,
-                target_backend,
+                configuration,
                 resolved_project.clone(),
                 intent,
                 filter,
@@ -820,7 +831,7 @@ fn plan_test_or_bench_rr_from_intent(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
-    target_backend: TargetBackend,
+    configuration: BuildConfiguration,
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     intent: BuildRequest,
     filter: TestFilter,
@@ -830,7 +841,7 @@ fn plan_test_or_bench_rr_from_intent(
 
     let compile_config = build_flags.compile_config(
         cli,
-        target_backend,
+        configuration,
         target_dir,
         if cmd.run_mode == RunMode::Bench {
             RunMode::Bench

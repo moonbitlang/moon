@@ -492,7 +492,7 @@ pub(super) fn planned_target_backends(runs: Vec<PlannedGraph>) -> Vec<TargetBack
 pub(super) fn planned_root_package_intent(plan: PlannedGraph) -> PlannedPackageIntent {
     PlannedPackageIntent {
         target_backend: plan.build_meta.target_backend(),
-        profile: plan.build_meta.opt_level,
+        profile: plan.build_meta.configuration().profile,
         packages: root_package_names(&plan.build_meta),
     }
 }

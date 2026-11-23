@@ -162,6 +162,10 @@ mod tests {
         let target_dir = dir.path().join("_build");
         let include_dir = dir.path().join("include");
         let mut config = CompileConfig {
+            configuration: moonbuild_rupes_recta::BuildConfiguration::new(
+                moonutil::target::TargetBackend::Native,
+                OptLevel::Debug,
+            ),
             backend: BackendConfig::Native {
                 direct_object_candidate: None,
                 collect_ref_cycle: false,
@@ -172,7 +176,6 @@ mod tests {
                     lib_path: dir.path().join("lib").display().to_string(),
                 },
             },
-            opt_level: OptLevel::Debug,
             action: RunMode::Build,
             debug_info: Default::default(),
             artifact_paths: ArtifactPathResolver::new(

@@ -222,7 +222,7 @@ fn installed_core_does_not_get_local_compile_actions() {
 #[test]
 fn unbundled_core_supplies_interfaces_without_local_proofs() {
     use moonbuild_rupes_recta::{
-        RunMode,
+        BuildConfiguration, RunMode,
         build_lower::lower_build_plan,
         build_plan::{self, ArtifactKey, InputDirective},
         model::BackendConfig,
@@ -242,8 +242,8 @@ fn unbundled_core_supplies_interfaces_without_local_proofs() {
     let config = moonbuild::compile::prepare_config(
         &project,
         &fixture.case_dir().join("_build"),
+        BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
         BackendConfig::WasmGc { use_wat: false },
-        OptLevel::Debug,
         RunMode::Prove,
         Default::default(),
     );

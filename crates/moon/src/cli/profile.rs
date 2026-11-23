@@ -569,7 +569,7 @@ fn profile_test_invocations(
     let session_dir = default_test_profile_session_dir(
         target_dir,
         build_meta.target_backend(),
-        build_meta.opt_level,
+        build_meta.configuration().profile,
     );
     // Each selected test executable is a separate process and therefore a
     // separate profiler recording. Keep raw artifacts separated, then merge
@@ -598,7 +598,7 @@ fn profile_test_invocations(
                 output_dir,
                 run_mode: RunMode::Test,
                 target_backend: build_meta.target_backend(),
-                opt_level: build_meta.opt_level,
+                opt_level: build_meta.configuration().profile,
             }
         })
         .collect::<Vec<_>>();
@@ -624,7 +624,7 @@ fn profile_test_invocations(
     let report = build_test_report(
         profiler_backend,
         build_meta.target_backend(),
-        build_meta.opt_level,
+        build_meta.configuration().profile,
         with_json_report(ProfileArtifacts::default(), json_path.clone()),
         captured_profiles,
     );

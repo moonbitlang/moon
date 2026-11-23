@@ -175,7 +175,8 @@ pub(super) fn run_prove(
         target_backend,
         user_log,
     )?;
-    let resolved_project = discovered.resolve_packages(&[target_backend], user_log)?;
+    let configuration = build_flags.configuration(target_backend, RunMode::Prove);
+    let resolved_project = discovered.resolve_packages(&[configuration.backend], user_log)?;
     // Hold the target lock through both preparation and proof execution.
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
 
@@ -185,7 +186,7 @@ pub(super) fn run_prove(
 
     let compile_config = build_flags.compile_config(
         cli,
-        target_backend,
+        configuration,
         target_dir,
         RunMode::Prove,
         user_log,

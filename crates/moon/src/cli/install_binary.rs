@@ -21,6 +21,7 @@ use anyhow::{Context, bail};
 use colored::Colorize;
 use moonbuild::compile::{BuildSession, MetadataOutput};
 use moonbuild::prepare::ProjectPreparationConfig;
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     RunMode,
     build_plan::ArtifactKey,
@@ -530,6 +531,7 @@ struct SelectedPackage {
 }
 
 struct PreparedNativeBuild {
+    configuration: BuildConfiguration,
     target_dir: PathBuf,
     resolved_project: moonbuild_rupes_recta::resolve::ResolvedProject,
     selected_packages: Vec<SelectedPackage>,
@@ -554,8 +556,11 @@ fn prepare_native_build(
         &package_dirs,
         user_log,
     )?;
-    let resolved_project =
-        discovered.resolve_packages(&[moonutil::target::TargetBackend::Native], user_log)?;
+    let configuration = BuildConfiguration::new(
+        TargetBackend::Native,
+        moonutil::cond_expr::OptLevel::Release,
+    );
+    let resolved_project = discovered.resolve_packages(&[configuration.backend], user_log)?;
     let target_dir = package_dirs.target_dir;
 
     let main_module_id = resolved_project
@@ -611,6 +616,7 @@ fn prepare_native_build(
     }
 
     Ok(PreparedNativeBuild {
+        configuration,
         target_dir,
         resolved_project,
         selected_packages,
@@ -637,7 +643,7 @@ fn build_selected_package(
 
     let compile_config = build_flags.compile_config(
         cli,
-        TargetBackend::Native,
+        prepared.configuration,
         &prepared.target_dir,
         RunMode::Build,
         user_log,

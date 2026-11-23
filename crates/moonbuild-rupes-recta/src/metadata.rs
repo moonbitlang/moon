@@ -97,10 +97,11 @@ pub fn gen_metadata_json(
     ctx: &ResolvedProject,
     source_dir: &Path,
     artifact_paths: &ArtifactPathResolver,
-    opt_level: OptLevel,
-    backend: TargetBackend,
+    configuration: crate::BuildConfiguration,
     check_commands: &CheckCommandMap<'_>,
 ) -> impl Serialize + use<> {
+    let backend = configuration.backend;
+    let opt_level = configuration.profile;
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
             let main_module = ctx.module_graph.module_source(main_module_id);

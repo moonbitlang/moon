@@ -58,8 +58,7 @@ pub(super) fn generate_metadata(
         &build_meta.resolved_project,
         source_dir,
         &build_meta.artifact_paths,
-        build_meta.opt_level,
-        build_meta.target_backend(),
+        build_meta.configuration(),
         check_commands,
     );
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
@@ -92,7 +91,7 @@ pub(super) fn publish_check_metadata(
     let selected = build_metas.last().expect("non-empty planned runs");
     let selector = PackagesSelectorJSON {
         backend: selected.target_backend().to_string(),
-        opt_level: selected.opt_level.as_str().to_string(),
+        opt_level: selected.configuration().profile.as_str().to_string(),
     };
     let selector = serde_json::to_string_pretty(&selector)
         .context("Failed to serialize universal packages metadata")?;

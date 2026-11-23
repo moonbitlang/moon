@@ -44,6 +44,7 @@ use log::LevelFilter;
 use moonbuild::BuildMeta;
 use moonbuild::compile::{BuildRequest, BuildSession, MetadataOutput};
 use moonbuild::execution::{ActionFailureKind, BuildInput};
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::RunMode;
 use moonbuild_rupes_recta::execution_plan::ActionOutputKind;
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -700,6 +701,10 @@ fn run_check_for_single_file_rr(
         backend,
         user_log,
     );
+    let configurations = target_backends
+        .iter()
+        .map(|&backend| cmd.build_flags.configuration(backend, RunMode::Check))
+        .collect::<Vec<_>>();
     let resolved = discovered.resolve_packages(&target_backends, user_log)?;
 
     let session = BuildSession::new(target_dir, cli.dry_run, user_log).with_context(|| {
@@ -710,17 +715,16 @@ fn run_check_for_single_file_rr(
     })?;
 
     let mut planned_runs = Vec::with_capacity(target_backends.len());
-    for target_backend in target_backends {
+    for configuration in configurations {
         let compile_config = cmd.build_flags.compile_config(
             cli,
-            target_backend,
+            configuration,
             target_dir,
             RunMode::Check,
             user_log,
             &resolved,
         )?;
-        let intent =
-            get_user_intents_single_file(&resolved, compile_config.backend.target_backend())?;
+        let intent = get_user_intents_single_file(&resolved, compile_config.configuration.backend)?;
         planned_runs.push(
             session
                 .plan(
@@ -1036,20 +1040,28 @@ pub(super) fn plan_check_rr_from_discovered(
         selected_target_backends,
         user_log,
     )?;
-    let target_backends = selections
+    let configurations = selections
         .iter()
-        .map(|selection| selection.target_backend)
+        .map(|selection| {
+            cmd.build_flags
+                .configuration(selection.target_backend, RunMode::Check)
+        })
+        .collect::<Vec<_>>();
+    let target_backends = configurations
+        .iter()
+        .map(|configuration| configuration.backend)
         .collect::<Vec<_>>();
     let resolved_project = discovered.resolve_packages(&target_backends, user_log)?;
     selections
         .into_iter()
-        .map(|selection| {
+        .zip(configurations)
+        .map(|(selection, configuration)| {
             plan_check_rr_for_selection(
                 session,
                 cli,
                 cmd,
                 target_dir,
-                selection,
+                (configuration, selection.packages),
                 resolved_project.clone(),
                 user_log,
             )
@@ -1109,17 +1121,14 @@ fn plan_check_rr_for_selection(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     target_dir: &Path,
-    selection: TargetPackageGroup,
+    selection: (BuildConfiguration, Vec<PackageId>),
     resolved_project: moonbuild_rupes_recta::ResolvedProject,
     user_log: &UserLog,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let TargetPackageGroup {
-        target_backend,
-        packages,
-    } = selection;
+    let (configuration, packages) = selection;
     let compile_config = cmd.build_flags.compile_config(
         cli,
-        target_backend,
+        configuration,
         target_dir,
         RunMode::Check,
         user_log,
@@ -1129,7 +1138,7 @@ fn plan_check_rr_for_selection(
     add_generated_mbti_intents(
         &mut intent,
         &resolved_project,
-        compile_config.backend.target_backend(),
+        compile_config.configuration.backend,
         cmd,
     );
     session.plan(

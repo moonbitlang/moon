@@ -52,9 +52,9 @@ slotmap::new_key_type! {
 
 /// The selected backend and its backend-specific compile configuration.
 ///
-/// This is the single source of truth after the user-visible target backend is
-/// resolved. Keeping backend-specific options inside the matching variant
-/// prevents invalid combinations such as WASI linking on a Native build.
+/// Keeping backend-specific options inside the matching variant prevents
+/// invalid combinations such as WASI linking on a Native build. Preparation checks
+/// the variant against the selected semantic configuration.
 /// Native payload form is derived by planning and is not a caller option.
 #[derive(Clone, Debug)]
 pub enum BackendConfig {

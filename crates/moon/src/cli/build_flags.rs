@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use moonbuild_rupes_recta::BuildConfiguration;
 use std::{collections::BTreeSet, path::Path};
 
 use crate::cli::UniversalFlags;
@@ -130,21 +131,23 @@ impl Default for BuildFlags {
 }
 
 impl BuildFlags {
-    /// Construct the final configuration for a resolved project and its selected backend.
+    /// Prepare compiler options for a project resolved under the selected configuration.
     ///
-    /// Commands select the Target Backend before package resolution. CLI policy is
-    /// resolved here while both the original flags and that backend are available;
+    /// Commands select backend and profile before package resolution. This stage
+    /// retains that selection while interpreting the remaining compiler options;
     /// RR receives one completed configuration with no CLI parsing types.
     #[instrument(level = Level::DEBUG, skip_all)]
     pub(super) fn compile_config(
         &self,
         cli: &UniversalFlags,
-        target_backend: TargetBackend,
+        configuration: BuildConfiguration,
         target_dir: &Path,
         action: RunMode,
         user_log: &UserLog,
         resolved_project: &ResolvedProject,
     ) -> anyhow::Result<CompileConfig> {
+        let target_backend = configuration.backend;
+        let opt_level = configuration.profile;
         // A couple of debug things:
         if cli.unstable_feature.rr_export_module_graph {
             info!("Exporting module graph DOT file");
@@ -172,8 +175,7 @@ impl BuildFlags {
         }
         warn_local_legacy_supported_targets(resolved_project, user_log);
 
-        let opt_level = self.effective_profile(action);
-        let strip = self.strip_for(action);
+        let strip = self.strip_for(opt_level);
         let debug_info = DebugInfoRequest {
             symbols: if strip {
                 DebugSymbols::None
@@ -202,8 +204,8 @@ impl BuildFlags {
         let mut config = moonbuild::compile::prepare_config(
             resolved_project,
             target_dir,
+            configuration,
             backend,
-            opt_level,
             action,
             debug_info,
         );
@@ -255,6 +257,15 @@ impl BuildFlags {
 }
 
 impl BuildFlags {
+    /// Select the configuration before resolving packages or preparing tools.
+    pub(super) fn configuration(
+        &self,
+        backend: TargetBackend,
+        run_mode: RunMode,
+    ) -> BuildConfiguration {
+        BuildConfiguration::new(backend, self.effective_profile(run_mode))
+    }
+
     /// Resolve the effective build profile for Rupes Recta compilation.
     pub fn effective_profile(&self, run_mode: RunMode) -> BuildProfile {
         if self.debug {
@@ -275,13 +286,13 @@ impl BuildFlags {
     }
 
     /// Resolve whether to strip debug info for Rupes Recta compilation.
-    pub fn strip_for(&self, run_mode: RunMode) -> bool {
+    pub fn strip_for(&self, profile: BuildProfile) -> bool {
         if self.strip {
             true
         } else if self.no_strip {
             false
         } else {
-            self.effective_profile(run_mode) == BuildProfile::Release
+            profile == BuildProfile::Release
         }
     }
 

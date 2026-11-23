@@ -76,8 +76,8 @@ pub fn lower_build_plan(
     info!("Starting action plan lowering to execution plan");
     debug!(
         "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
-        opt.backend.target_backend(),
-        opt.opt_level,
+        opt.configuration.backend,
+        opt.configuration.profile,
         plan.backend_plan().moonc_debug_info()
     );
 
@@ -159,12 +159,15 @@ mod tests {
                 None,
             );
             let options = CompileConfig {
+                configuration: crate::BuildConfiguration::new(
+                    backend.target_backend(),
+                    OptLevel::Debug,
+                ),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
                 artifact_paths,
                 backend,
-                opt_level: OptLevel::Debug,
                 action: RunMode::Build,
                 enable_coverage: false,
                 moonc_output_json: false,
@@ -414,6 +417,10 @@ mod tests {
             }
             let stdlib = PathBuf::from("toolchain/core");
             let options = CompileConfig {
+                configuration: crate::BuildConfiguration::new(
+                    backend.target_backend(),
+                    OptLevel::Debug,
+                ),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
@@ -427,7 +434,6 @@ mod tests {
                     Some(stdlib.clone()),
                 ),
                 backend,
-                opt_level: OptLevel::Debug,
                 action: RunMode::Check,
                 enable_coverage: false,
                 moonc_output_json: false,
@@ -454,7 +460,7 @@ mod tests {
                         options.artifact_paths.mi_of_build_target(
                             &project.pkg_dirs,
                             target,
-                            options.backend.target_backend(),
+                            options.configuration.backend,
                         )
                     })
                     .collect::<Vec<_>>();
@@ -521,12 +527,12 @@ mod tests {
             None,
         );
         let options = CompileConfig {
+            configuration: crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
             debug_export_build_plan: false,
             debug_info: Default::default(),
             warn_list: None,
             artifact_paths: artifact_paths.clone(),
             backend: BackendConfig::WasmGc { use_wat: false },
-            opt_level: OptLevel::Debug,
             action: RunMode::Build,
             enable_coverage: false,
             moonc_output_json: false,
@@ -689,6 +695,7 @@ mod tests {
         plan.test_backend_plan_mut()
             .test_set_native_mode(Some(native_mode));
         let options = CompileConfig {
+            configuration: crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Debug),
             debug_export_build_plan: false,
             debug_info: Default::default(),
             warn_list: None,
@@ -703,7 +710,6 @@ mod tests {
                     lib_path: toolchain_dir.path().join("lib").display().to_string(),
                 },
             },
-            opt_level: OptLevel::Debug,
             action: RunMode::Build,
             enable_coverage: false,
             moonc_output_json: false,
@@ -976,12 +982,15 @@ mod tests {
                 None,
             );
             let options = CompileConfig {
+                configuration: crate::BuildConfiguration::new(
+                    backend.target_backend(),
+                    OptLevel::Debug,
+                ),
                 debug_export_build_plan: false,
                 debug_info: Default::default(),
                 warn_list: None,
                 artifact_paths: artifact_paths.clone(),
                 backend,
-                opt_level: OptLevel::Debug,
                 action: RunMode::Build,
                 enable_coverage: false,
                 moonc_output_json: false,

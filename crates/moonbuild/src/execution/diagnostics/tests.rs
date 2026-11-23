@@ -74,8 +74,11 @@ fn composed_build_input() -> BuildInput {
         .map(|backend| {
             let target = backend.target_backend();
             let cfg = CompileConfig {
+                configuration: moonbuild_rupes_recta::BuildConfiguration::new(
+                    backend.target_backend(),
+                    OptLevel::Debug,
+                ),
                 backend,
-                opt_level: OptLevel::Debug,
                 action: RunMode::Check,
                 debug_info: Default::default(),
                 artifact_paths: ArtifactPathResolver::new(

@@ -18,6 +18,7 @@
 
 //! Resolve build environment inputs into the existing compile configuration.
 
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     CompileConfig, ResolvedProject, RunMode,
     build_lower::WarningCondition,
@@ -26,10 +27,7 @@ use moonbuild_rupes_recta::{
     },
     target_layout::{ArtifactPathResolver, TargetLayout, stdlib_core_path, stdlib_mi_path},
 };
-use moonutil::{
-    compiler_flags, cond_expr::OptLevel as BuildProfile, resolution::ModuleSourceKind,
-    target::TargetBackend,
-};
+use moonutil::{compiler_flags, resolution::ModuleSourceKind, target::TargetBackend};
 use std::path::Path;
 
 /// Capture only the environment inputs used by the selected backend.
@@ -77,17 +75,18 @@ pub fn prepare_backend(
     })
 }
 
-/// Prepare paths and backend prerequisites for a resolved project.
-/// Command-specific compiler options can be set on the returned configuration.
+/// Prepare artifact paths and compiler settings for the selected configuration.
+/// Backend resources and layout inputs derive from that same selection.
 pub fn prepare_config(
     resolved_project: &ResolvedProject,
     target_dir: &Path,
+    configuration: BuildConfiguration,
     backend: BackendConfig,
-    opt_level: BuildProfile,
     action: RunMode,
     debug_info: DebugInfoRequest,
 ) -> CompileConfig {
-    let target_backend = backend.target_backend();
+    let target_backend = configuration.backend;
+    assert_eq!(target_backend, backend.target_backend());
     // Module preparation has already selected the stdlib used for discovery.
     // Reuse its root for artifacts; a local core project has no injected stdlib.
     let modules = &resolved_project.module_graph;
@@ -122,18 +121,17 @@ pub fn prepare_config(
     let target_layout = TargetLayout::from_resolved_project(
         target_dir.to_owned(),
         resolved_project,
-        opt_level,
+        configuration.profile,
         action,
     );
-    let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path);
     CompileConfig {
+        configuration,
         backend,
-        opt_level,
         action,
+        artifact_paths: ArtifactPathResolver::new(target_layout, stdlib_path),
         debug_info,
-        artifact_paths,
-        enable_coverage: false,
         debug_export_build_plan: false,
+        enable_coverage: false,
         moonc_output_json: false,
         docs_serve: false,
         warning_condition: WarningCondition::Default,

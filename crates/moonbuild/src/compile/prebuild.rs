@@ -86,7 +86,7 @@ pub(super) fn run_prebuild_config(
     let build_dir = cx
         .artifact_paths
         .target_layout()
-        .run_mode_dir(cx.backend.target_backend())
+        .run_mode_dir(cx.configuration.backend)
         .join("prebuild");
     let mut output = PrebuildOutput::default();
     for (m, ms) in resolved_project.module_graph.all_modules_and_id() {
@@ -244,8 +244,8 @@ fn run_build_script_for_module(
         .env("MOON_BUILD_DIR", &input.paths.out_dir)
         .env("MOON_HOST_OS", std::env::consts::OS)
         .env("MOON_HOST_ARCH", std::env::consts::ARCH)
-        .env("MOON_BACKEND", cx.backend.target_backend().to_flag())
-        .env("MOON_PROFILE", cx.opt_level.as_str())
+        .env("MOON_BACKEND", cx.configuration.backend.to_flag())
+        .env("MOON_PROFILE", cx.configuration.profile.as_str())
         .env("MOON_JOBS", jobs.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

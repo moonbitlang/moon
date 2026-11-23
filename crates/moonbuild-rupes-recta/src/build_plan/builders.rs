@@ -94,7 +94,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<HashMap<NativeToolchainRole, Toolchain>, BuildPlanConstructError> {
         use NativeToolchainRole::{CStubs, Program, Runtime};
 
-        debug_assert!(self.config.backend.target_backend().is_native());
+        debug_assert!(self.config.configuration.backend.is_native());
         let mut roles = IndexSet::new();
         for artifact in requested {
             let target = match *artifact {
@@ -182,7 +182,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     pub(super) fn warn_moon_cc_overrides(&self) {
-        if !self.config.backend.target_backend().is_native() {
+        if !self.config.configuration.backend.is_native() {
             return;
         }
 
@@ -304,7 +304,7 @@ impl<'a> BuildPlanConstructor<'a> {
         importer_target: BuildTarget,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        let selected_backend = self.config.backend.target_backend();
+        let selected_backend = self.config.configuration.backend;
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
@@ -380,7 +380,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let Some(stdlib) = self.input.module_graph.stdlib() else {
             return;
         };
-        let backend = self.config.backend.target_backend();
+        let backend = self.config.configuration.backend;
         for &id in self
             .input
             .pkg_dirs
@@ -753,8 +753,8 @@ impl<'a> BuildPlanConstructor<'a> {
         for (file, file_kind) in cond_comp::classify_files(
             &pkg.raw,
             source_iter,
-            self.config.opt_level,
-            self.config.backend.target_backend(),
+            self.config.configuration.profile,
+            self.config.configuration.backend,
         ) {
             match file_kind {
                 NoTest => no_test_files.insert(file.into_owned()),
@@ -1018,7 +1018,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let debug_info = self.config.debug_info.symbols == DebugSymbols::Full;
         // Preserve the existing C-stub profile policy: explicit debug info uses
         // debugging-friendly optimization, including with --release --no-strip.
-        let opt_level = match (self.config.opt_level, debug_info) {
+        let opt_level = match (self.config.configuration.profile, debug_info) {
             (_, true) => CCOptLevel::Debug,
             (OptLevel::Release, false) => CCOptLevel::Speed,
             (OptLevel::Debug, false) => CCOptLevel::None,
@@ -1126,7 +1126,7 @@ impl<'a> BuildPlanConstructor<'a> {
             use_wat: false,
             separate_compilation: true,
             ..
-        } = self.config.backend
+        } = &self.config.backend
         else {
             return false;
         };
@@ -1337,7 +1337,7 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         target: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        debug_assert!(self.config.backend.target_backend().is_native());
+        debug_assert!(self.config.configuration.backend.is_native());
 
         let (link_core_deps, c_stub_deps) = self.dfs_link_core_sources(target)?;
         let targets = link_core_deps.into_iter().collect::<Vec<_>>();
@@ -1505,7 +1505,7 @@ impl<'a> BuildPlanConstructor<'a> {
             // generated C. A direct-object payload cannot create that information.
             c_debug_info: self.res.backend.direct_native_target().is_none()
                 && self.config.debug_info.symbols != DebugSymbols::None,
-            c_opt_level: match self.config.opt_level {
+            c_opt_level: match self.config.configuration.profile {
                 OptLevel::Debug => CCOptLevel::Debug,
                 OptLevel::Release => CCOptLevel::Speed,
             },
@@ -1556,7 +1556,7 @@ impl<'a> BuildPlanConstructor<'a> {
         node: BuildPlanNode,
         package: PackageId,
     ) -> Result<(), BuildPlanConstructError> {
-        debug_assert!(self.config.backend.target_backend().is_native());
+        debug_assert!(self.config.configuration.backend.is_native());
 
         // A foreign library exports its source target; tests link executables.
         let target = package.build_target(TargetKind::Source);
@@ -1613,7 +1613,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Whether linking a package also links the C stubs it declares. Injected
     /// prebuilt stdlib packages do not build local stubs either.
     fn links_c_stubs_of(&self, package: PackageId) -> bool {
-        self.config.backend.target_backend().is_native()
+        self.config.configuration.backend.is_native()
             && !self
                 .config
                 .artifact_paths
@@ -1811,7 +1811,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // once command orchestration captures the runtime file inventory.
         let source_files = toolchain::runtime_source_paths()
             .map_err(BuildPlanConstructError::FailedToFindRuntimeSources)?;
-        let simdutf_objects = if self.config.opt_level == OptLevel::Release
+        let simdutf_objects = if self.config.configuration.profile == OptLevel::Release
             && effective_native_toolchain.cc().can_use_simdutf()
         {
             self.config
@@ -1930,7 +1930,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Documentation starts from backend-compatible packages in the
         // selected module. Their Check MI requirements expand the same
         // dependency closure used by ordinary package checks.
-        let target_backend = self.config.backend.target_backend();
+        let target_backend = self.config.configuration.backend;
         let packages = self
             .input
             .pkg_dirs

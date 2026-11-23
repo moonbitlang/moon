@@ -77,6 +77,9 @@ We will use these terms in the document:
 
 ## The pipeline
 
+The timing and ownership of configuration selection are recorded in
+[ADR 0008](../../adr/0008-select-build-configuration-before-package-resolution.md).
+
 In a broad sense, `moon` subcommands follows this order when executing project-build commands.
 
 1. Resolve project layout
@@ -84,11 +87,13 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
    - Sync module-level dependencies into the `.mooncakes` directory when needed.
    - Resolve module-level dependencies from the synced dependency result.
    - Discover packages within modules.
-   - Select the requested backends, using selected packages' module preferences when implicit.
+   - Select the requested Build Configurations: backend (using module preferences when implicit)
+     and the command's effective debug/release profile.
    - Resolve complete package relationships for each requested backend; fail if any fails.
 2. Generate build graph based on the intent of the user [^graph]
    - Determine the user intent ("build package X to executable", "check package Y", etc.)
-   - Select the build configuration and its already-resolved dependency relationship.
+   - Prepare compiler options for the selected configuration and consume its backend's
+     already-resolved dependency relationship. Do not select the profile again at this stage.
    - Determine the logical artifacts requested by that intent.
    - Select provider actions and expand their transitive artifact requirements.
    - Generate a concrete build graph containing the final commandlines to execute.
@@ -132,11 +137,17 @@ Implementation-wise:
   it before launching user programs; test promotion and its partial rebuild
   share a new session. Standalone Wasm callers use
   `moonbuild::compile::build_standalone_wasm` without constructing CLI arguments.
-- Build results retain the `TargetBackend` identity needed by metadata, runtime
+- Build results retain the `BuildConfiguration` used by metadata, runtime
   selection, and profiling. Backend-specific compiler settings stay in
   `CompileConfig` and are consumed during planning and lowering; running an
-  artifact does not require that configuration. The run result takes its target
+  artifact does not require those compiler settings. The run result takes its target
   directory from the build's artifact path resolver.
+- `moonbuild::compile::prepare_backend` captures backend resources, and
+  `prepare_config` derives layout inputs from the selected `BuildConfiguration`
+  and checks that the prepared backend matches. RR consumes the selection for
+  planning and lowering. `TargetLayout` currently retains the profile and still
+  accepts backend arguments derived from that selection; binding the complete
+  configuration to its interface is a separate follow-up.
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:

@@ -5,10 +5,11 @@ status: accepted
 # Use Unified Planning and Execution for Standalone Builds
 
 Standalone scripts and ordinary projects use the same planning, lowering, and
-execution path. Each backend produces one complete `BuildPlan` and
-`ExecutionPlan`; multi-backend invocations compose those plans before one n2
-execution. Synthesizing a project for a script does not introduce an execution
-mode or a separate dependency graph.
+execution path. Each requested Build Configuration, as defined by
+[ADR 0008](0008-select-build-configuration-before-package-resolution.md), produces
+one complete `BuildPlan` and `ExecutionPlan`; multi-backend invocations compose
+those plans before one n2 execution. Synthesizing a project for a script does not
+introduce an execution mode or a separate dependency graph.
 
 This revises the earlier decision to execute all dependency work before script
 work. That adapter duplicated orchestration without enabling cross-invocation

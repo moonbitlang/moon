@@ -24,6 +24,7 @@ use crate::{
     prepare::{ProjectPreparationConfig, discover_single_file_project},
 };
 use anyhow::Context;
+use moonbuild_rupes_recta::BuildConfiguration;
 use moonbuild_rupes_recta::{
     RunMode,
     build_plan::ArtifactKey,
@@ -89,17 +90,18 @@ pub fn build_standalone_wasm(
         );
     let (discovered, _) =
         discover_single_file_project(&preparation, &dirs, &input_path, true, &user_log)?;
-    let resolved = discovered.resolve_packages(&[TargetBackend::Wasm], &user_log)?;
+    let configuration = BuildConfiguration::new(TargetBackend::Wasm, OptLevel::Debug);
+    let resolved = discovered.resolve_packages(&[configuration.backend], &user_log)?;
     let session = BuildSession::new(&dirs.target_dir, false, &user_log)?;
     let mut config = prepare_config(
         &resolved,
         &dirs.target_dir,
+        configuration,
         prepare_backend(
-            TargetBackend::Wasm,
+            configuration.backend,
             false,
             moonutil::features::FeatureGate::default().wasi_link,
         )?,
-        OptLevel::Debug,
         RunMode::Run,
         DebugInfoRequest {
             symbols: DebugSymbols::Full,

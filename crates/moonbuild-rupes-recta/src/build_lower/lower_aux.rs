@@ -117,7 +117,7 @@ impl<'a> super::LoweringContext<'a> {
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             target_kind: target.kind,
-            target_backend: self.opt.backend.target_backend(),
+            target_backend: self.opt.configuration.backend,
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,
@@ -192,7 +192,7 @@ impl<'a> super::LoweringContext<'a> {
                 &self
                     .artifact_paths
                     .target_layout()
-                    .runtime_output_dir(self.opt.backend.target_backend())
+                    .runtime_output_dir(self.opt.configuration.backend)
                     .display()
                     .to_string(),
                 Some(&artifact_path.display().to_string()),
@@ -295,7 +295,7 @@ impl<'a> super::LoweringContext<'a> {
         let packages_json = self
             .artifact_paths
             .target_layout()
-            .packages_json_path(self.opt.backend.target_backend());
+            .packages_json_path(self.opt.configuration.backend);
         let cmd = MoondocCommand::new(
             path,
             self.artifact_paths.target_layout().doc_dir(),
