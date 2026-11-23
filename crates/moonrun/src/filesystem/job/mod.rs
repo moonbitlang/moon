@@ -22,12 +22,12 @@ mod console;
 mod runner;
 mod stat;
 
+use super::legacy_metadata::FileTimeResult;
 pub(crate) use stat::stdio_kind;
 
 use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, CBufferLease};
-use crate::async_sys::internal::fd_util;
 use crate::filesystem::{FsPath, HostFs};
 use crate::guest_memory::GuestMemory;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
@@ -53,25 +53,6 @@ pub(crate) const STAT_OPEN_IDENTITY: u32 = stat::STAT_OPEN_IDENTITY;
 pub(crate) struct OpenJobResult {
     pub(crate) resource: ResourcePublication,
     stat: PackedStat,
-}
-
-#[derive(Clone, Copy)]
-struct FileTimeResult(fd_util::stub::FileTime);
-
-impl FileTimeResult {
-    fn new(file_time: fd_util::stub::FileTime) -> Self {
-        Self(file_time)
-    }
-
-    fn as_native(&self) -> &fd_util::stub::FileTime {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for FileTimeResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("FileTimeResult").finish_non_exhaustive()
-    }
 }
 
 #[derive(Debug)]
@@ -743,15 +724,7 @@ impl Job {
             _ => return Err(AsyncHostError::Badf),
         };
 
-        let file_time = result.as_native();
-        let mut record = [0; 48];
-        record[0..8].copy_from_slice(&fd_util::stub::get_atime_sec(file_time).to_le_bytes());
-        record[8..12].copy_from_slice(&fd_util::stub::get_atime_nsec(file_time).to_le_bytes());
-        record[16..24].copy_from_slice(&fd_util::stub::get_mtime_sec(file_time).to_le_bytes());
-        record[24..28].copy_from_slice(&fd_util::stub::get_mtime_nsec(file_time).to_le_bytes());
-        record[32..40].copy_from_slice(&fd_util::stub::get_ctime_sec(file_time).to_le_bytes());
-        record[40..44].copy_from_slice(&fd_util::stub::get_ctime_nsec(file_time).to_le_bytes());
-        memory.write_exact(dst, &record)?;
+        memory.write_exact(dst, &result.encode())?;
         Ok(())
     }
 
@@ -866,12 +839,21 @@ fn take_execution_path(
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
-    [runner::PORTED_SYMBOLS, console::PORTED_SYMBOLS].concat()
+    [
+        runner::PORTED_SYMBOLS,
+        console::PORTED_SYMBOLS,
+        super::legacy_metadata::PORTED_SYMBOLS,
+    ]
+    .concat()
 }
 
 #[cfg(test)]
 pub(crate) fn compat_symbols() -> Vec<crate::async_sys::CompatSymbol> {
-    runner::COMPAT_SYMBOLS.to_vec()
+    [
+        runner::COMPAT_SYMBOLS,
+        super::legacy_metadata::COMPAT_SYMBOLS,
+    ]
+    .concat()
 }
 
 #[cfg(test)]

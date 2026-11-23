@@ -21,8 +21,22 @@
 mod authorization;
 mod host;
 mod job;
+mod legacy_metadata;
 mod os;
 mod path;
+
+// Discriminants of moonbitlang/async's FileKind ABI.
+const FILE_KIND_UNKNOWN: i32 = 0;
+const FILE_KIND_REGULAR: i32 = 1;
+const FILE_KIND_DIRECTORY: i32 = 2;
+const FILE_KIND_SYMLINK: i32 = 3;
+const FILE_KIND_SOCKET: i32 = 4;
+const FILE_KIND_PIPE: i32 = 5;
+// Only Unix adapters produce this kind; ABI value 6 is reserved on all targets.
+#[cfg(unix)]
+const FILE_KIND_BLOCK_DEVICE: i32 = 6;
+const FILE_KIND_CHAR_DEVICE: i32 = 7;
+const FILE_KIND_CONSOLE: i32 = 8;
 
 pub(crate) use authorization::{FileGrant, FsOperation, FsPath, FsTarget};
 pub(crate) use host::{Directory, FileOpenOptions, FsError, HostFs};

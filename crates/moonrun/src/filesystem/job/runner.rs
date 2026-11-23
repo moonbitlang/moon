@@ -30,20 +30,14 @@ use std::os::windows::io::AsRawHandle;
 
 use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
-#[cfg(windows)]
-use super::stat::{
-    FILE_KIND_CHAR_DEVICE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE, FILE_KIND_REGULAR,
-    FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
-};
 use super::stat::{PackedStat, StatRequest, StatValues, query_handle};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult, job_path, take_execution_path};
 use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs};
 
-type RawFile = fd_util::stub::RawFd;
+use crate::filesystem::os::{RawFile, metadata};
 
 #[cfg(unix)]
 pub(super) fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
@@ -172,7 +166,9 @@ ported_fns! {
         let parent = parent.take();
         let parent = parent.as_deref();
 
-        file_kind_by_path(parent, path, follow_symlink).map(i64::from)
+        super::super::legacy_metadata::kind_by_path(
+            parent.map(raw_file_handle).transpose()?, &path, follow_symlink, &super::CancellableIo,
+        ).map(i64::from)
     }
 
     #[compat(
@@ -191,7 +187,7 @@ ported_fns! {
         )))?;
         let file = file.take().ok_or(AsyncHostError::Badf)?;
 
-        *result = file_size(raw_file_handle(&file)?)?;
+        *result = metadata::file_size(raw_file_handle(&file)?)?;
         Ok(0)
     }
 
@@ -211,7 +207,7 @@ ported_fns! {
         )))?;
         let file = file.take().ok_or(AsyncHostError::Badf)?;
 
-        *result = Some(FileTimeResult::new(file_time(raw_file_handle(&file)?)?));
+        *result = Some(FileTimeResult::new(metadata::file_info(raw_file_handle(&file)?)?));
         Ok(0)
     }
 
@@ -235,8 +231,8 @@ ported_fns! {
         })?;
         let path = filesystem.resolve_path(&std::mem::take(path));
 
-        *result = Some(FileTimeResult::new(file_time_by_path(
-            path,
+        *result = Some(FileTimeResult::new(metadata::file_info_by_path(
+            &path,
             follow_symlink,
         )?));
         Ok(0)
@@ -285,7 +281,7 @@ ported_fns! {
         ))?;
         let file = file.take().ok_or(AsyncHostError::Badf)?;
 
-        sync_native_file(raw_file_handle(&file)?, only_data)?;
+        super::super::os::io::sync(raw_file_handle(&file)?, only_data)?;
         Ok(0)
     }
 
@@ -521,169 +517,6 @@ fn open_options(
 }
 
 #[cfg(unix)]
-fn file_kind_from_stat(stat: &libc::stat) -> i32 {
-    match stat.st_mode & libc::S_IFMT {
-        libc::S_IFREG => 1,
-        libc::S_IFDIR => 2,
-        libc::S_IFLNK => 3,
-        libc::S_IFSOCK => 4,
-        libc::S_IFIFO => 5,
-        libc::S_IFBLK => 6,
-        libc::S_IFCHR => 7,
-        _ => 0,
-    }
-}
-
-#[cfg(windows)]
-fn file_kind_from_attr(attrs: u32) -> i32 {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-    };
-
-    if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-        FILE_KIND_SYMLINK
-    } else if (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0 {
-        FILE_KIND_DIRECTORY
-    } else {
-        FILE_KIND_REGULAR
-    }
-}
-
-#[cfg(windows)]
-fn kind_of_raw_file(handle: RawFile) -> AsyncHostResult<i32> {
-    use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_BASIC_INFO, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
-        FileBasicInfo, GetFileInformationByHandleEx, GetFileType,
-    };
-
-    unsafe {
-        SetLastError(0);
-    }
-    match unsafe { GetFileType(handle) } {
-        FILE_TYPE_DISK => {
-            let mut info = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
-            if unsafe {
-                GetFileInformationByHandleEx(
-                    handle,
-                    FileBasicInfo,
-                    info.as_mut_ptr().cast(),
-                    std::mem::size_of::<FILE_BASIC_INFO>() as u32,
-                )
-            } == 0
-            {
-                Err(last_native_error())
-            } else {
-                Ok(file_kind_from_attr(unsafe {
-                    info.assume_init().FileAttributes
-                }))
-            }
-        }
-        FILE_TYPE_CHAR => Ok(FILE_KIND_CHAR_DEVICE),
-        FILE_TYPE_PIPE => {
-            if handle_is_socket(handle) {
-                Ok(FILE_KIND_SOCKET)
-            } else {
-                Ok(FILE_KIND_PIPE)
-            }
-        }
-        FILE_TYPE_UNKNOWN => {
-            let get_file_type_error = unsafe { GetLastError() };
-            if handle_is_socket(handle) {
-                Ok(FILE_KIND_SOCKET)
-            } else if get_file_type_error == 0 {
-                Ok(FILE_KIND_UNKNOWN)
-            } else {
-                unsafe {
-                    SetLastError(get_file_type_error);
-                }
-                Err(last_native_error())
-            }
-        }
-        _ => Ok(FILE_KIND_UNKNOWN),
-    }
-}
-
-#[cfg(windows)]
-pub(super) fn handle_is_socket(handle: RawFile) -> bool {
-    use windows_sys::Win32::Networking::WinSock::{SO_TYPE, SOCKET, SOL_SOCKET, getsockopt};
-
-    let mut opt = 0i32;
-    let mut opt_len = std::mem::size_of::<i32>() as i32;
-    unsafe {
-        getsockopt(
-            handle as SOCKET,
-            SOL_SOCKET,
-            SO_TYPE,
-            (&mut opt as *mut i32).cast(),
-            &mut opt_len,
-        ) == 0
-    }
-}
-
-#[cfg(unix)]
-fn file_kind_by_path(
-    parent: Option<&Resource>,
-    path: OsString,
-    follow_symlink: bool,
-) -> AsyncHostResult<i32> {
-    let path = path_to_cstring(path)?;
-    let flags = if follow_symlink {
-        0
-    } else {
-        libc::AT_SYMLINK_NOFOLLOW
-    };
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    let parent = match parent {
-        Some(parent) => raw_file_handle(parent)?,
-        None => libc::AT_FDCWD,
-    };
-    let ret = unsafe { libc::fstatat(parent, path.as_ptr(), stat.as_mut_ptr(), flags) };
-    if ret < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(file_kind_from_stat(&unsafe { stat.assume_init() }))
-    }
-}
-
-#[cfg(unix)]
-#[allow(clippy::unnecessary_cast)]
-fn file_size(fd: RawFile) -> AsyncHostResult<i64> {
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
-        return Err(last_native_error());
-    }
-    Ok(unsafe { stat.assume_init() }.st_size as i64)
-}
-
-#[cfg(unix)]
-fn file_time(fd: RawFile) -> AsyncHostResult<fd_util::stub::FileTime> {
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
-        return Err(last_native_error());
-    }
-    Ok(unsafe { stat.assume_init() })
-}
-
-#[cfg(unix)]
-fn file_time_by_path(
-    path: OsString,
-    follow_symlink: bool,
-) -> AsyncHostResult<fd_util::stub::FileTime> {
-    let path = path_to_cstring(path)?;
-    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    let ret = if follow_symlink {
-        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
-    } else {
-        unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
-    };
-    if ret < 0 {
-        return Err(last_native_error());
-    }
-    Ok(unsafe { stat.assume_init() })
-}
-
-#[cfg(unix)]
 fn access_native_path(path: OsString, access: i32) -> AsyncHostResult<()> {
     let path = path_to_cstring(path)?;
     let mode = match access {
@@ -704,30 +537,6 @@ fn access_native_path(path: OsString, access: i32) -> AsyncHostResult<()> {
 fn chmod_native_path(path: OsString, mode: i32) -> AsyncHostResult<()> {
     let path = path_to_cstring(path)?;
     if unsafe { libc::chmod(path.as_ptr(), mode as libc::mode_t) } < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-fn sync_native_file(fd: RawFile, only_data: bool) -> AsyncHostResult<()> {
-    #[cfg(target_os = "macos")]
-    let ret = {
-        let _ = only_data;
-        unsafe { libc::fsync(fd) }
-    };
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let ret = unsafe {
-        if only_data {
-            libc::fdatasync(fd)
-        } else {
-            libc::fsync(fd)
-        }
-    };
-
-    if ret < 0 {
         Err(last_native_error())
     } else {
         Ok(())
@@ -867,117 +676,6 @@ fn path_to_cstring(path: OsString) -> AsyncHostResult<std::ffi::CString> {
 }
 
 #[cfg(windows)]
-fn file_kind_by_path(
-    parent: Option<&Resource>,
-    path: OsString,
-    follow_symlink: bool,
-) -> AsyncHostResult<i32> {
-    use super::super::os::openat::{self, Access, CreateMode, OpenOptions, Sync, TypeConstraint};
-    let file = openat::open(
-        parent.map(raw_file_handle).transpose()?,
-        &path,
-        &OpenOptions {
-            access: Access::Attributes,
-            type_constraint: TypeConstraint::Any,
-            follow_symlink,
-            is_async: false,
-            create: CreateMode::Open,
-            append: false,
-            sync: Sync::None,
-            permission: 0,
-        },
-        &super::CancellableIo,
-    )?;
-    kind_of_raw_file(file.as_raw_handle())
-}
-
-#[cfg(windows)]
-fn file_size(file: RawFile) -> AsyncHostResult<i64> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::GetFileSizeEx;
-
-    let mut size = std::mem::MaybeUninit::<i64>::uninit();
-    let result = unsafe { GetFileSizeEx(file as HANDLE, size.as_mut_ptr()) };
-    if result == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(unsafe { size.assume_init() })
-    }
-}
-
-#[cfg(windows)]
-fn file_time(file: RawFile) -> AsyncHostResult<fd_util::stub::FileTime> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
-    };
-
-    let mut info = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
-    let ok = unsafe {
-        GetFileInformationByHandleEx(
-            file as HANDLE,
-            FileBasicInfo,
-            info.as_mut_ptr().cast(),
-            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
-        )
-    };
-    if ok == 0 {
-        return Err(last_native_error());
-    }
-    Ok(unsafe { info.assume_init() })
-}
-
-#[cfg(windows)]
-fn file_time_by_path(
-    path: OsString,
-    follow_symlink: bool,
-) -> AsyncHostResult<fd_util::stub::FileTime> {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FileBasicInfo, GetFileInformationByHandleEx, OPEN_EXISTING,
-    };
-
-    let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS;
-    if !follow_symlink {
-        flags |= FILE_FLAG_OPEN_REPARSE_POINT;
-    }
-    let path = path_to_wide(path);
-    let handle: HANDLE = unsafe {
-        CreateFileW(
-            path.as_ptr(),
-            FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            flags,
-            std::ptr::null_mut(),
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(last_native_error());
-    }
-
-    let mut info = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
-    let ok = unsafe {
-        GetFileInformationByHandleEx(
-            handle,
-            FileBasicInfo,
-            info.as_mut_ptr().cast(),
-            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
-        )
-    };
-    unsafe {
-        CloseHandle(handle);
-    }
-    if ok == 0 {
-        return Err(last_native_error());
-    }
-    Ok(unsafe { info.assume_init() })
-}
-
-#[cfg(windows)]
 fn access_native_path(path: OsString, access: i32) -> AsyncHostResult<()> {
     use windows_sys::Win32::Foundation::{
         CloseHandle, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE,
@@ -1021,18 +719,6 @@ fn chmod_native_path(_path: OsString, _mode: i32) -> AsyncHostResult<()> {
     Err(AsyncHostError::Native(
         windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED as i32,
     ))
-}
-
-#[cfg(windows)]
-fn sync_native_file(file: RawFile, _only_data: bool) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Storage::FileSystem::FlushFileBuffers;
-
-    if unsafe { FlushFileBuffers(file as HANDLE) } == 0 {
-        Err(last_native_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(windows)]

@@ -2767,7 +2767,7 @@ impl AsyncHost {
         let dst = memory.read_exact_mut(dst, len)?;
         self.with_resource(handle, |file| {
             self.filesystem
-                .read_immediate(file, dst)
+                .read(file, dst)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
     }
@@ -2785,7 +2785,7 @@ impl AsyncHost {
         let src = memory.read_exact(src, len)?;
         self.with_resource(handle, |file| {
             self.filesystem
-                .write_immediate(file, src)
+                .write(file, src)
                 .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
         })
     }

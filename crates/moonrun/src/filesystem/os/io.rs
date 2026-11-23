@@ -285,6 +285,42 @@ fn restore_file_pointer(file: RawFile, position: i64) -> io::Result<()> {
     }
 }
 
+#[cfg(unix)]
+pub(in crate::filesystem) fn sync(fd: RawFile, only_data: bool) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let ret = {
+        let _ = only_data;
+        unsafe { libc::fsync(fd) }
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let ret = unsafe {
+        if only_data {
+            libc::fdatasync(fd)
+        } else {
+            libc::fsync(fd)
+        }
+    };
+
+    if ret < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+pub(in crate::filesystem) fn sync(file: RawFile, _only_data: bool) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Storage::FileSystem::FlushFileBuffers;
+
+    if unsafe { FlushFileBuffers(file as HANDLE) } == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

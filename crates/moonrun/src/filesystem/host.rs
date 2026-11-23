@@ -254,18 +254,7 @@ impl HostFs {
 
     pub(crate) fn resource_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
         self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-        #[cfg(unix)]
-        {
-            crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-        }
-        #[cfg(windows)]
-        {
-            if file.resource_class().is_socket() {
-                crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
-            } else {
-                crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-            }
-        }
+        super::legacy_metadata::resource_kind(file)
     }
 
     pub(crate) fn try_lock_resource(

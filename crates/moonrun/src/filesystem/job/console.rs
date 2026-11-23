@@ -195,9 +195,8 @@ pkgtype(kind: "executable")
         assert_ne!(input, INVALID_HANDLE_VALUE);
         let input_resource = Arc::new(Resource::new(input));
         assert_ne!(unsafe { SetConsoleMode(input, 0) }, 0);
-        use super::super::stat::{
-            FILE_KIND_CHAR_DEVICE, FILE_KIND_CONSOLE, STAT_FILE_KIND, StatRequest,
-        };
+        use super::super::stat::{STAT_FILE_KIND, StatRequest};
+        use crate::filesystem::{FILE_KIND_CHAR_DEVICE, FILE_KIND_CONSOLE};
         let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
         let mut by_handle = None;
         super::super::stat::run_fstatx_job(
