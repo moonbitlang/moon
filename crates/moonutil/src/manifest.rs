@@ -33,12 +33,16 @@ use crate::{
     dependency::SourceDependencyInfo,
     module::ModuleValidationError,
     moon_pkg,
-    package::{
-        convert_pkg_dsl_to_package_with_supported_targets_decl,
-        convert_pkg_json_to_package_with_supported_targets_decl,
-    },
     target::TargetBackend,
     user_log::UserLog,
+};
+
+mod package;
+
+pub use package::parse_package;
+use package::{
+    read_package_from_dsl_with_supported_targets_decl,
+    read_package_from_json_with_supported_targets_decl,
 };
 
 pub use crate::module::{MoonMod, MoonModJSON, MoonModRule, convert_module_to_mod_json};
@@ -46,7 +50,7 @@ pub use crate::package::{MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind};
 
 /// Unknown fields are captured by Serde's `flatten` on each configuration object.
 /// Format only their keys: the value of an unknown option is opaque to Moon.
-pub(crate) fn unknown_field_paths<'a>(
+fn unknown_field_paths<'a>(
     fields: &'a serde_json_lenient::Map<String, serde_json_lenient::Value>,
     prefix: &'a str,
 ) -> impl Iterator<Item = String> + 'a {
@@ -60,13 +64,13 @@ pub(crate) fn unknown_field_paths<'a>(
 }
 
 /// Consumes recognized options; the remaining entries are unknown fields.
-pub(crate) struct ManifestOptions {
-    pub(crate) fields: Map<String, Value>,
-    pub(crate) manifest: &'static str,
+struct ManifestOptions {
+    fields: Map<String, Value>,
+    manifest: &'static str,
 }
 
 impl ManifestOptions {
-    pub(crate) fn read<T: DeserializeOwned>(
+    fn read<T: DeserializeOwned>(
         &mut self,
         name: &str,
         alias: Option<&str>,
@@ -89,7 +93,7 @@ impl ManifestOptions {
     }
 }
 
-pub(crate) fn warn_unknown_fields(unknown: &[String], manifest: &Path, user_log: &UserLog) {
+fn warn_unknown_fields(unknown: &[String], manifest: &Path, user_log: &UserLog) {
     for field in unknown {
         user_log.warn(format!(
             "Unknown configuration key `{field}` in `{}`.",
@@ -384,40 +388,6 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
         path: path.into(),
         kind: MoonModJSONFormatErrorKind::Validation(e),
     })
-}
-
-fn read_package_from_json_with_supported_targets_decl(
-    path: &Path,
-    emit_warnings: bool,
-    user_log: &UserLog,
-) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    let contents = std::fs::read_to_string(path)?;
-    let j: MoonPkgJSON = serde_json_lenient::from_str(&contents)
-        .with_context(|| format!("Failed to parse {path:?}"))?;
-    let mut unknown = if emit_warnings {
-        j.consumed_unknown_fields()
-    } else {
-        Vec::new()
-    };
-    let package =
-        convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings, user_log)?;
-    if emit_warnings {
-        unknown.extend(package.0.unknown_fields());
-        warn_unknown_fields(&unknown, path, user_log);
-    }
-    Ok(package)
-}
-
-/// Reads a moon.pkg from the given path.
-fn read_package_from_dsl_with_supported_targets_decl(
-    path: &Path,
-    emit_warnings: bool,
-    user_log: &UserLog,
-) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    let file = File::open(path)?;
-    let str = std::io::read_to_string(file)?;
-    let dsl = moon_pkg::parse(&str)?;
-    convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, path, emit_warnings, user_log)
 }
 
 #[derive(Debug, Clone, Copy)]

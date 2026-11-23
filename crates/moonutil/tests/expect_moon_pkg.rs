@@ -17,15 +17,41 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 fn run(source: &str) -> String {
-    moonutil::moon_pkg::parse(source)
-        .and_then(|dsl| {
-            moonutil::package::convert_pkg_dsl_to_package(
-                dsl,
-                &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
-            )
-        })
-        .map(|pkg| format!("{:#?}", pkg))
-        .unwrap_or_else(|e| format!("Error: {:?}", e))
+    moonutil::manifest::parse_package(
+        source,
+        std::path::Path::new("moon.pkg"),
+        true,
+        &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
+    )
+    .map(|pkg| format!("{:#?}", pkg))
+    .unwrap_or_else(|e| format!("Error: {:?}", e))
+}
+
+#[test]
+fn in_memory_package_warnings_follow_the_callers_context() {
+    let path = std::path::Path::new("in-memory/moon.pkg");
+    for emit_warnings in [false, true] {
+        let (log, capture) = moonutil::user_log::UserLog::captured(log::LevelFilter::Warn);
+        let package =
+            moonutil::manifest::parse_package("options(unknown: true)", path, emit_warnings, &log)
+                .unwrap();
+        assert!(!package.is_main);
+        assert_eq!(
+            capture
+                .take()
+                .into_iter()
+                .map(|entry| entry.message)
+                .collect::<Vec<_>>(),
+            if emit_warnings {
+                vec![format!(
+                    "Unknown configuration key `unknown` in `{}`.",
+                    path.display()
+                )]
+            } else {
+                Vec::new()
+            },
+        );
+    }
 }
 
 #[test]
