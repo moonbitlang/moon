@@ -23,6 +23,8 @@ pub(super) mod io;
 pub(super) mod lock;
 pub(super) mod metadata;
 pub(super) mod openat;
+pub(super) mod path;
+pub(super) mod symlink;
 pub(super) mod unlinkat;
 
 #[cfg(unix)]
@@ -87,8 +89,8 @@ pub(super) fn rename(
     if replace {
         return std::fs::rename(old_path, new_path);
     }
-    let old_path = path_to_cstring(old_path)?;
-    let new_path = path_to_cstring(new_path)?;
+    let old_path = path_to_cstring(old_path.as_os_str())?;
+    let new_path = path_to_cstring(new_path.as_os_str())?;
     #[cfg(target_os = "linux")]
     let ret = unsafe {
         libc::syscall(
@@ -144,8 +146,8 @@ pub(super) fn rename(
         return std::fs::rename(old_path, new_path);
     }
 
-    let old_path = path_to_wide(old_path);
-    let new_path = path_to_wide(new_path);
+    let old_path = path_to_wide(old_path.as_os_str());
+    let new_path = path_to_wide(new_path.as_os_str());
     let handle: HANDLE = unsafe {
         CreateFileW(
             old_path.as_ptr(),
@@ -220,19 +222,16 @@ pub(super) fn rename(
 }
 
 #[cfg(unix)]
-fn path_to_cstring(path: &Path) -> std::io::Result<std::ffi::CString> {
+fn path_to_cstring(path: &std::ffi::OsStr) -> std::io::Result<std::ffi::CString> {
     use std::os::unix::ffi::OsStrExt;
-    std::ffi::CString::new(path.as_os_str().as_bytes())
+    std::ffi::CString::new(path.as_bytes())
         .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))
 }
 
 #[cfg(windows)]
-fn path_to_wide(path: &Path) -> Vec<u16> {
+fn path_to_wide(path: &std::ffi::OsStr) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
+    path.encode_wide().chain(std::iter::once(0)).collect()
 }
 
 #[cfg(test)]

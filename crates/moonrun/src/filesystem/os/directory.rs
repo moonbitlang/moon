@@ -16,8 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Recover a directory handle's current location for path-based authorization.
-//! This is not used to reopen the directory for relative file operations.
+//! Directory-handle path lookup and native enumeration.
+//! Enumeration follows async's fs.c at d53eadfc623d343edaf01f0b11dad28badcb1274.
+//! Callers serialize access to the shared directory cursor. The return value is
+//! the native enumeration result: entry count on macOS, buffer size on Windows,
+//! and bytes written on Linux; zero means the directory is exhausted.
 
 use super::RawFile;
 use std::{io, path::PathBuf};
@@ -99,5 +102,122 @@ pub(in crate::filesystem) fn path(handle: RawFile) -> io::Result<PathBuf> {
             return Ok(std::ffi::OsString::from_wide(&buffer[..len as usize]).into());
         }
         buffer.resize(len as usize + 1, 0);
+    }
+}
+
+#[cfg(all(unix, target_os = "linux"))]
+pub(in crate::filesystem) fn read(
+    handle: RawFile,
+    out: &mut [u8],
+    restart: bool,
+) -> io::Result<usize> {
+    if restart && unsafe { libc::lseek(handle, 0, libc::SEEK_SET) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let ret = unsafe { libc::syscall(libc::SYS_getdents64, handle, out.as_mut_ptr(), out.len()) };
+    if ret < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(ret as usize)
+}
+
+#[cfg(all(unix, target_os = "macos"))]
+pub(in crate::filesystem) fn read(
+    handle: RawFile,
+    out: &mut [u8],
+    restart: bool,
+) -> io::Result<usize> {
+    if restart && unsafe { libc::lseek(handle, 0, libc::SEEK_SET) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut attr_spec = libc::attrlist {
+        bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+        reserved: 0,
+        commonattr: libc::ATTR_CMN_RETURNED_ATTRS
+            | libc::ATTR_CMN_NAME
+            | libc::ATTR_CMN_OBJTYPE
+            | libc::ATTR_CMN_FILEID,
+        volattr: 0,
+        dirattr: 0,
+        fileattr: 0,
+        forkattr: 0,
+    };
+    let ret = unsafe {
+        libc::getattrlistbulk(
+            handle,
+            (&mut attr_spec as *mut libc::attrlist).cast(),
+            out.as_mut_ptr().cast(),
+            out.len(),
+            0,
+        )
+    };
+    if ret < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(ret as usize)
+}
+
+#[cfg(windows)]
+pub(in crate::filesystem) fn read(
+    handle: RawFile,
+    out: &mut [u8],
+    restart: bool,
+) -> io::Result<usize> {
+    use windows_sys::Win32::Foundation::{ERROR_INVALID_ADDRESS, ERROR_NO_MORE_FILES};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo, GetFileInformationByHandleEx,
+    };
+
+    let info_class = if restart {
+        FileIdBothDirectoryRestartInfo
+    } else {
+        FileIdBothDirectoryInfo
+    };
+    let ok = unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            info_class,
+            out.as_mut_ptr().cast(),
+            u32::try_from(out.len())
+                .map_err(|_| io::Error::from_raw_os_error(ERROR_INVALID_ADDRESS as i32))?,
+        )
+    };
+    if ok == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+            return Ok(0);
+        }
+        return Err(error);
+    }
+
+    Ok(out.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enumeration_can_restart_after_exhaustion() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("entry"), b"data").unwrap();
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options
+                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS);
+        }
+        let directory = options.open(dir.path()).unwrap();
+        let handle = crate::filesystem::os::raw_file(&directory);
+        let mut buffer = vec![0; 4096];
+
+        let first = read(handle, &mut buffer, false).unwrap();
+        assert!(first > 0);
+        assert_eq!(read(handle, &mut buffer, false).unwrap(), 0);
+        assert_eq!(read(handle, &mut buffer, true).unwrap(), first);
     }
 }

@@ -804,6 +804,7 @@ fn truncate_at_nul(path: OsString) -> OsString {
     }
 }
 
+#[cfg(unix)]
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(
         std::io::Error::last_os_error()
@@ -1171,16 +1172,14 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn realpath_job_resolves_to_nul_terminated_c_buffer() {
-        use std::os::unix::ffi::OsStrExt;
-
         let tmp = tempfile::tempdir().unwrap();
-        let target = tmp.path().join("target");
+        let target = tmp.path().join("target-目录-🦀");
         let link = tmp.path().join("link");
         std::fs::create_dir(&target).unwrap();
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        // Windows uses a junction here, which needs no symlink privilege.
+        super::super::os::symlink::create(target.as_os_str(), link.as_os_str(), false).unwrap();
 
         let mut job = Job::realpath(link.into_os_string());
 
@@ -1192,9 +1191,28 @@ mod tests {
         else {
             panic!("expected completed realpath Job");
         };
-        let realpath = std::ffi::CStr::from_bytes_with_nul(buffer.as_ref()).unwrap();
+        #[cfg(unix)]
+        let realpath = {
+            use std::os::unix::ffi::OsStrExt;
+            let bytes = std::ffi::CStr::from_bytes_with_nul(buffer.as_ref()).unwrap();
+            OsStr::from_bytes(bytes.to_bytes()).to_owned()
+        };
+        #[cfg(windows)]
+        let realpath = {
+            use std::os::windows::ffi::OsStringExt;
+            let chunks = buffer.chunks_exact(2);
+            assert!(chunks.remainder().is_empty());
+            let units = chunks
+                .map(|bytes| u16::from_ne_bytes([bytes[0], bytes[1]]))
+                .collect::<Vec<_>>();
+            assert_eq!(units.last(), Some(&0));
+            OsString::from_wide(&units[..units.len() - 1])
+        };
         let expected = std::fs::canonicalize(target).unwrap();
-        assert_eq!(realpath.to_bytes(), expected.as_os_str().as_bytes());
+        assert_eq!(
+            dunce::simplified(std::path::Path::new(&realpath)),
+            dunce::simplified(&expected),
+        );
     }
 
     #[test]

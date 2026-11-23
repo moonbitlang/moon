@@ -263,8 +263,9 @@ flowchart LR
     F --> R[std::fs or filesystem::os]
 ```
 
-HostFs owns filesystem interpretation and authorization; Filesystem Jobs carry
-async execution and results within that same domain.
+HostFs holds shared filesystem state and authorization. Filesystem Jobs interpret
+async operations and own their inputs and results within that same domain; they
+can execute on a Worker or directly on the calling thread.
 Core executable-path queries use Runtime Executable state, cwd queries use
 HostFs, and environment operations use the shared Env. New operations should
 select their semantic owner instead of passing through HostFs merely to match
@@ -276,7 +277,9 @@ removing shared host behavior.
 `std::fs` supplies ordinary OS operations directly. `filesystem::os` supplements
 it with mechanisms that need custom platform handling: rename with explicit
 replacement and cross-device options, handle-relative opening and removal,
-directory-handle path lookup, metadata queries, file I/O, and advisory locks.
+path operations, directory-handle lookup and enumeration, metadata queries,
+file I/O, and advisory locks. Jobs retain native-string result encoding and
+serialize access to shared directory cursors.
 Opening accepts typed host options and an execution bracket; Filesystem Jobs
 supply worker cancellation, while synchronous HostFs calls execute directly. The
 raw layer returns `io::Result` and does not import Async errors or worker state.
