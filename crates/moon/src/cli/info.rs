@@ -365,7 +365,7 @@ fn plan_info_rr(
     let intent = calc_user_intent_for_info(
         &ctx,
         &resolved_project,
-        compile_config.configuration.backend,
+        compile_config.configuration().backend,
     )?;
     session.plan(
         compile_config,

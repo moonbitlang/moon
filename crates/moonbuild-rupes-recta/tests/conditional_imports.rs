@@ -21,11 +21,11 @@
 use moonbuild_rupes_recta::{
     BuildConfiguration, CompileConfig, DiscoveredProject, DiscoveryConfig, ResolvedProject,
     RunMode,
-    build_lower::{WarningCondition, lower_build_plan},
+    build_lower::lower_build_plan,
     build_plan::{ArtifactKey, InputDirective, build_plan},
     discover_synced_project,
     metadata::{CheckCommandMap, gen_metadata_json},
-    model::{BackendConfig, BuildTarget, DebugInfoRequest, TargetKind},
+    model::{BackendConfig, BuildTarget, TargetKind},
     resolve::ProjectResolutionError,
     target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
 };
@@ -106,28 +106,24 @@ fn test_drivers_select_async_runtime_from_active_imports() {
         .unwrap();
     let target_dir = tempfile::tempdir().unwrap();
     for backend in [BackendConfig::Js, BackendConfig::WasmGc { use_wat: false }] {
-        let config = CompileConfig {
-            configuration: BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
-            artifact_paths: ArtifactPathResolver::new(
-                TargetLayout::new(
-                    target_dir.path().to_owned(),
-                    TargetLayoutMode::Mono {
-                        main_module: resolved.module_graph.module_source(mid).clone(),
-                    },
-                    OptLevel::Debug,
-                    RunMode::Test,
+        let config = {
+            let configuration = BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+            CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Test,
+                ArtifactPathResolver::new(
+                    TargetLayout::new(
+                        target_dir.path().to_owned(),
+                        TargetLayoutMode::Mono {
+                            main_module: resolved.module_graph.module_source(mid).clone(),
+                        },
+                        configuration,
+                        RunMode::Test,
+                    ),
+                    None,
                 ),
-                None,
-            ),
-            backend,
-            action: RunMode::Test,
-            debug_info: DebugInfoRequest::default(),
-            debug_export_build_plan: false,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            warn_list: None,
+            )
         };
         // Ordinary imports are inherited by all test kinds. Test-only imports
         // must affect only their own driver, and inactive imports affect none.
@@ -168,7 +164,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                     .map(|args| args[1].as_str())
                     .collect::<Vec<_>>();
                 let expected = if name == "moonbitlang/async"
-                    || (config.backend.target_backend() == Js && uses_legacy)
+                    || (config.configuration().backend == Js && uses_legacy)
                 {
                     "moonbitlang/async"
                 } else {
@@ -178,7 +174,7 @@ fn test_drivers_select_async_runtime_from_active_imports() {
                     runtimes,
                     [expected],
                     "{name} {kind:?} {:?}",
-                    config.backend.target_backend()
+                    config.configuration().backend
                 );
             }
         }
@@ -222,41 +218,36 @@ import { "example/conditional/helper" } for "test"
         (BackendConfig::Js, "portable"),
     ] {
         let target_dir = dir.path().join("_build");
-        let config = CompileConfig {
-            configuration: BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
-            artifact_paths: ArtifactPathResolver::new(
-                TargetLayout::new(
-                    target_dir.clone(),
-                    TargetLayoutMode::Mono {
-                        main_module: resolved
-                            .module_graph
-                            .module_source(resolved.local_modules()[0])
-                            .clone(),
-                    },
-                    OptLevel::Debug,
-                    RunMode::Check,
+        let config = {
+            let configuration = BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+            CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Check,
+                ArtifactPathResolver::new(
+                    TargetLayout::new(
+                        target_dir.clone(),
+                        TargetLayoutMode::Mono {
+                            main_module: resolved
+                                .module_graph
+                                .module_source(resolved.local_modules()[0])
+                                .clone(),
+                        },
+                        configuration,
+                        RunMode::Check,
+                    ),
+                    None,
                 ),
-                None,
-            ),
-            backend,
-            action: RunMode::Check,
-            debug_info: DebugInfoRequest::default(),
-            debug_export_build_plan: false,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            warn_list: None,
+            )
         };
-        let backend = config.backend.target_backend();
+        let backend = config.configuration().backend;
         let expected_mi = format!(
             "{}:platform",
             config
-                .artifact_paths
+                .artifact_paths()
                 .mi_of_build_target(
                     &resolved.pkg_dirs,
                     &target(&resolved, implementation, TargetKind::Source),
-                    backend,
                 )
                 .display()
         );
@@ -313,8 +304,8 @@ import { "example/conditional/helper" } for "test"
         let metadata = gen_metadata_json(
             &resolved,
             dir.path(),
-            &config.artifact_paths,
-            config.configuration,
+            config.artifact_paths(),
+            config.configuration(),
             &CheckCommandMap::new(),
         );
         let metadata = serde_json::to_value(metadata).unwrap();

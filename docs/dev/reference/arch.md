@@ -143,11 +143,11 @@ Implementation-wise:
   artifact does not require those compiler settings. The run result takes its target
   directory from the build's artifact path resolver.
 - `moonbuild::compile::prepare_backend` captures backend resources, and
-  `prepare_config` derives layout inputs from the selected `BuildConfiguration`
-  and checks that the prepared backend matches. RR consumes the selection for
-  planning and lowering. `TargetLayout` currently retains the profile and still
-  accepts backend arguments derived from that selection; binding the complete
-  configuration to its interface is a separate follow-up.
+  `prepare_config` binds artifact paths to the selected `BuildConfiguration`.
+  RR's `CompileConfig` validates matching backend, profile, and operation at
+  construction and exposes those selections and paths read-only. `TargetLayout` binds that configuration;
+  path methods do not accept a separate backend. Formatting uses `FormatLayout`
+  with its existing output directory, without selecting a build configuration.
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:

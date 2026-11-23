@@ -113,11 +113,11 @@ impl<'a> super::LoweringContext<'a> {
             doctest_only_files: &info.doctest_files,
             output_driver: output_driver.into(),
             output_metadata: output_metadata.into(),
-            bench: self.opt.action == crate::RunMode::Bench,
+            bench: self.opt.action() == crate::RunMode::Bench,
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             target_kind: target.kind,
-            target_backend: self.opt.configuration.backend,
+            target_backend: self.opt.configuration().backend,
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,
@@ -150,7 +150,7 @@ impl<'a> super::LoweringContext<'a> {
     ) -> BuildCommand {
         let compiler_paths = self
             .opt
-            .backend
+            .backend()
             .compiler_paths()
             .expect("native lowering requires compiler paths");
         let artifact_path = artifacts.single_output_path_matching(|artifact| {
@@ -167,7 +167,7 @@ impl<'a> super::LoweringContext<'a> {
                 &compiler_paths.include_path,
                 crt,
                 info.native_allocator,
-                self.opt.backend.collect_ref_cycle(),
+                self.opt.backend().collect_ref_cycle(),
             );
             BuildCommand::c_compile(runtime_toolchain, command, vec![])
         } else {
@@ -183,7 +183,7 @@ impl<'a> super::LoweringContext<'a> {
                     allow_stacktrace: info.enable_backtrace,
                     define_use_shared_runtime_macro: false,
                     use_simdutf: !info.simdutf_objects.is_empty(),
-                    collect_ref_cycle: self.opt.backend.collect_ref_cycle(),
+                    collect_ref_cycle: self.opt.backend().collect_ref_cycle(),
                     native_allocator: Some(info.native_allocator),
                 },
                 &[] as &[&str],
@@ -192,7 +192,7 @@ impl<'a> super::LoweringContext<'a> {
                 &self
                     .artifact_paths
                     .target_layout()
-                    .runtime_output_dir(self.opt.configuration.backend)
+                    .runtime_output_dir()
                     .display()
                     .to_string(),
                 Some(&artifact_path.display().to_string()),
@@ -225,7 +225,7 @@ impl<'a> super::LoweringContext<'a> {
             &object_files,
             &artifact_path,
             self.opt
-                .backend
+                .backend()
                 .compiler_paths()
                 .expect("native lowering requires compiler paths"),
         );
@@ -292,10 +292,7 @@ impl<'a> super::LoweringContext<'a> {
             }
         };
 
-        let packages_json = self
-            .artifact_paths
-            .target_layout()
-            .packages_json_path(self.opt.configuration.backend);
+        let packages_json = self.artifact_paths.target_layout().packages_json_path();
         let cmd = MoondocCommand::new(
             path,
             self.artifact_paths.target_layout().doc_dir(),

@@ -76,8 +76,8 @@ pub fn lower_build_plan(
     info!("Starting action plan lowering to execution plan");
     debug!(
         "Lowering build: backend={:?}, opt_level={:?}, moonc_debug_info={}",
-        opt.configuration.backend,
-        opt.configuration.profile,
+        opt.configuration().backend,
+        opt.configuration().profile,
         plan.backend_plan().moonc_debug_info()
     );
 
@@ -153,26 +153,15 @@ mod tests {
                 TargetLayout::new(
                     PathBuf::from("_build"),
                     TargetLayoutMode::Workspace,
-                    OptLevel::Debug,
+                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
                     RunMode::Build,
                 ),
                 None,
             );
-            let options = CompileConfig {
-                configuration: crate::BuildConfiguration::new(
-                    backend.target_backend(),
-                    OptLevel::Debug,
-                ),
-                debug_export_build_plan: false,
-                debug_info: Default::default(),
-                warn_list: None,
-                artifact_paths,
-                backend,
-                action: RunMode::Build,
-                enable_coverage: false,
-                moonc_output_json: false,
-                docs_serve: false,
-                warning_condition: WarningCondition::Default,
+            let options = {
+                let configuration =
+                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+                CompileConfig::new(configuration, backend, RunMode::Build, artifact_paths)
             };
 
             let context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
@@ -416,29 +405,23 @@ mod tests {
                 );
             }
             let stdlib = PathBuf::from("toolchain/core");
-            let options = CompileConfig {
-                configuration: crate::BuildConfiguration::new(
-                    backend.target_backend(),
-                    OptLevel::Debug,
-                ),
-                debug_export_build_plan: false,
-                debug_info: Default::default(),
-                warn_list: None,
-                artifact_paths: ArtifactPathResolver::new(
-                    TargetLayout::new(
-                        PathBuf::from("_build"),
-                        TargetLayoutMode::Workspace,
-                        OptLevel::Debug,
-                        RunMode::Check,
+            let options = {
+                let configuration =
+                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+                CompileConfig::new(
+                    configuration,
+                    backend,
+                    RunMode::Check,
+                    ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            PathBuf::from("_build"),
+                            TargetLayoutMode::Workspace,
+                            configuration,
+                            RunMode::Check,
+                        ),
+                        Some(stdlib.clone()),
                     ),
-                    Some(stdlib.clone()),
-                ),
-                backend,
-                action: RunMode::Check,
-                enable_coverage: false,
-                moonc_output_json: false,
-                docs_serve: false,
-                warning_condition: WarningCondition::Default,
+                )
             };
             let mut context = LoweringContext::new(&project, &plan, &options, &[]);
             let mut execution = ExecutionPlanBuilder::default();
@@ -457,11 +440,9 @@ mod tests {
                 let mut expected = expected
                     .iter()
                     .map(|target| {
-                        options.artifact_paths.mi_of_build_target(
-                            &project.pkg_dirs,
-                            target,
-                            options.configuration.backend,
-                        )
+                        options
+                            .artifact_paths()
+                            .mi_of_build_target(&project.pkg_dirs, target)
                     })
                     .collect::<Vec<_>>();
                 expected.sort();
@@ -521,23 +502,21 @@ mod tests {
             TargetLayout::new(
                 PathBuf::from("_build"),
                 TargetLayoutMode::Workspace,
-                OptLevel::Debug,
+                crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
                 RunMode::Build,
             ),
             None,
         );
-        let options = CompileConfig {
-            configuration: crate::BuildConfiguration::new(TargetBackend::WasmGC, OptLevel::Debug),
-            debug_export_build_plan: false,
-            debug_info: Default::default(),
-            warn_list: None,
-            artifact_paths: artifact_paths.clone(),
-            backend: BackendConfig::WasmGc { use_wat: false },
-            action: RunMode::Build,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
+        let options = {
+            let backend = BackendConfig::WasmGc { use_wat: false };
+            let configuration =
+                crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+            CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Build,
+                artifact_paths.clone(),
+            )
         };
 
         let mut context = LoweringContext::new(&resolved_project, &plan, &options, &[]);
@@ -684,7 +663,7 @@ mod tests {
             TargetLayout::new(
                 PathBuf::from("_build"),
                 TargetLayoutMode::Workspace,
-                OptLevel::Debug,
+                crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Debug),
                 RunMode::Build,
             ),
             None,
@@ -694,13 +673,8 @@ mod tests {
         ));
         plan.test_backend_plan_mut()
             .test_set_native_mode(Some(native_mode));
-        let options = CompileConfig {
-            configuration: crate::BuildConfiguration::new(TargetBackend::Native, OptLevel::Debug),
-            debug_export_build_plan: false,
-            debug_info: Default::default(),
-            warn_list: None,
-            artifact_paths: artifact_paths.clone(),
-            backend: BackendConfig::Native {
+        let options = {
+            let backend = BackendConfig::Native {
                 direct_object_candidate: Some(NativeTarget::X86_64PcWindowsMsvc),
                 collect_ref_cycle: false,
                 allocator: NativeAllocator::Default,
@@ -709,12 +683,15 @@ mod tests {
                     include_path: include_dir.display().to_string(),
                     lib_path: toolchain_dir.path().join("lib").display().to_string(),
                 },
-            },
-            action: RunMode::Build,
-            enable_coverage: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
+            };
+            let configuration =
+                crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+            CompileConfig::new(
+                configuration,
+                backend,
+                RunMode::Build,
+                artifact_paths.clone(),
+            )
         };
 
         assert!(plan.requires_toolchain_headers());
@@ -976,26 +953,20 @@ mod tests {
                 TargetLayout::new(
                     PathBuf::from("_build"),
                     TargetLayoutMode::Workspace,
-                    OptLevel::Debug,
+                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug),
                     RunMode::Build,
                 ),
                 None,
             );
-            let options = CompileConfig {
-                configuration: crate::BuildConfiguration::new(
-                    backend.target_backend(),
-                    OptLevel::Debug,
-                ),
-                debug_export_build_plan: false,
-                debug_info: Default::default(),
-                warn_list: None,
-                artifact_paths: artifact_paths.clone(),
-                backend,
-                action: RunMode::Build,
-                enable_coverage: false,
-                moonc_output_json: false,
-                docs_serve: false,
-                warning_condition: WarningCondition::Default,
+            let options = {
+                let configuration =
+                    crate::BuildConfiguration::new(backend.target_backend(), OptLevel::Debug);
+                CompileConfig::new(
+                    configuration,
+                    backend,
+                    RunMode::Build,
+                    artifact_paths.clone(),
+                )
             };
 
             let lowered = lower_build_plan(&resolved_project, &plan, &options, &[])

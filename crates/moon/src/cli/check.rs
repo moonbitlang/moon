@@ -724,7 +724,8 @@ fn run_check_for_single_file_rr(
             user_log,
             &resolved,
         )?;
-        let intent = get_user_intents_single_file(&resolved, compile_config.configuration.backend)?;
+        let intent =
+            get_user_intents_single_file(&resolved, compile_config.configuration().backend)?;
         planned_runs.push(
             session
                 .plan(
@@ -1138,7 +1139,7 @@ fn plan_check_rr_for_selection(
     add_generated_mbti_intents(
         &mut intent,
         &resolved_project,
-        compile_config.configuration.backend,
+        compile_config.configuration().backend,
         cmd,
     );
     session.plan(

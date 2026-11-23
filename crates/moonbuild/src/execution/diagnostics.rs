@@ -215,7 +215,6 @@ fn rewrite_captured_diagnostic(
     };
     let layout = meta.artifact_paths.target_layout();
     let packages = &meta.resolved_project.pkg_dirs;
-    let backend = meta.target_backend();
 
     if cfg.output_style.needs_moonc_json() {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
@@ -229,7 +228,7 @@ fn rewrite_captured_diagnostic(
             };
             if let Some(serde_json::Value::String(path)) = object.get_mut("path")
                 && let Some(physical) =
-                    layout.generated_test_driver_diagnostic_path(packages, Path::new(path), backend)
+                    layout.generated_test_driver_diagnostic_path(packages, Path::new(path))
             {
                 *path = physical.to_string_lossy().into_owned();
                 changed = true;
@@ -252,11 +251,9 @@ fn rewrite_captured_diagnostic(
         return content.to_owned();
     };
     let path_end = prefix_start + extension_end + ".mbt".len();
-    let Some(physical) = layout.generated_test_driver_diagnostic_path(
-        packages,
-        Path::new(&content[..path_end]),
-        backend,
-    ) else {
+    let Some(physical) =
+        layout.generated_test_driver_diagnostic_path(packages, Path::new(&content[..path_end]))
+    else {
         return content.to_owned();
     };
     format!("{}{}", physical.display(), &content[path_end..])

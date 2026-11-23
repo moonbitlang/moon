@@ -26,7 +26,6 @@ use moonutil::target::TargetBackend;
 fn composed_build_input() -> BuildInput {
     use moonbuild_rupes_recta::{
         CompileConfig, DiscoveryConfig, RunMode,
-        build_lower::WarningCondition,
         build_plan::{ArtifactKey, InputDirective},
         fmt::{FmtConfig, build_execution_plan_for_fmt_file},
         model::{BackendConfig, TargetKind},
@@ -73,29 +72,27 @@ fn composed_build_input() -> BuildInput {
         .into_iter()
         .map(|backend| {
             let target = backend.target_backend();
-            let cfg = CompileConfig {
-                configuration: moonbuild_rupes_recta::BuildConfiguration::new(
+            let cfg = {
+                let configuration = moonbuild_rupes_recta::BuildConfiguration::new(
                     backend.target_backend(),
                     OptLevel::Debug,
-                ),
-                backend,
-                action: RunMode::Check,
-                debug_info: Default::default(),
-                artifact_paths: ArtifactPathResolver::new(
-                    TargetLayout::new(
-                        target_dir.clone(),
-                        TargetLayoutMode::Workspace,
-                        OptLevel::Debug,
-                        RunMode::Check,
+                );
+                let mut config = CompileConfig::new(
+                    configuration,
+                    backend,
+                    RunMode::Check,
+                    ArtifactPathResolver::new(
+                        TargetLayout::new(
+                            target_dir.clone(),
+                            TargetLayoutMode::Workspace,
+                            configuration,
+                            RunMode::Check,
+                        ),
+                        None,
                     ),
-                    None,
-                ),
-                debug_export_build_plan: false,
-                enable_coverage: false,
-                moonc_output_json: true,
-                docs_serve: false,
-                warning_condition: WarningCondition::Default,
-                warn_list: None,
+                );
+                config.moonc_output_json = true;
+                config
             };
             let compiled = crate::compile::compile(
                 &cfg,

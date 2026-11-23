@@ -52,7 +52,7 @@ pub(super) fn generate_metadata(
     check_commands: &moonbuild_rupes_recta::metadata::CheckCommandMap<'_>,
 ) -> anyhow::Result<()> {
     let layout = build_meta.artifact_paths.target_layout();
-    let scoped_metadata_file = layout.packages_json_path(build_meta.target_backend());
+    let scoped_metadata_file = layout.packages_json_path();
 
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
         &build_meta.resolved_project,
@@ -181,7 +181,7 @@ pub(super) fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<(
     let all_pkgs_path = build_meta
         .artifact_paths
         .target_layout()
-        .all_pkgs_of_build_target(build_meta.target_backend());
+        .all_pkgs_of_build_target();
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
         &build_meta.resolved_project,
         &build_meta.artifact_paths,
