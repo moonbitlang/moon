@@ -193,6 +193,7 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(internal::fd_util::stub::PORTED_SYMBOLS);
     symbols.extend(internal::event_loop::io::ported_symbols());
     symbols.extend_from_slice(crate::filesystem::IO_PORTED_SYMBOLS);
+    symbols.extend_from_slice(crate::filesystem::LOCK_PORTED_SYMBOLS);
     symbols.extend(internal::event_loop::poll::ported_symbols());
     symbols.extend(internal::event_loop::thread_pool::ported_symbols());
     symbols.extend_from_slice(fs::dir::PORTED_SYMBOLS);

@@ -491,7 +491,7 @@ pub(super) fn watcher_event_dirty_file_id(
 
 #[ported(source = "src/fs/stub.c")]
 pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_>, errno: i32) -> i32 {
-    if stub::errno_is_lock_violation(errno) {
+    if crate::filesystem::errno_is_lock_violation(errno) {
         1
     } else {
         0

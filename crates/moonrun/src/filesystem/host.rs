@@ -24,6 +24,10 @@ mod io;
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -273,7 +277,21 @@ impl HostFs {
             file: file.file_grant(),
             exclusive,
         })?;
-        crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
+        #[cfg(unix)]
+        let file = file.as_file()?.as_raw_fd();
+        #[cfg(windows)]
+        let file = file.as_file()?.as_raw_handle();
+        Ok(super::os::lock::try_lock(file, exclusive)?)
+    }
+
+    pub(crate) fn unlock_resource(&self, file: &Resource) -> AsyncHostResult<()> {
+        // Releasing an acquired lock needs no new authority. Keep resource
+        // validation, but do not introduce a policy check on cleanup.
+        #[cfg(unix)]
+        let file = file.as_file()?.as_raw_fd();
+        #[cfg(windows)]
+        let file = file.as_file()?.as_raw_handle();
+        Ok(super::os::lock::unlock(file)?)
     }
 
     pub(crate) fn read_file(&self, path: &Path) -> Result<Vec<u8>, FsError> {
