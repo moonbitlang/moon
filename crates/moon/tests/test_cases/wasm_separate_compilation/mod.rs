@@ -215,3 +215,47 @@ fn test_wasm_separate_compilation_library_override() {
         "#]],
     );
 }
+
+#[test]
+fn test_wasm_separate_compilation_error_table_package() {
+    let dir = TestDir::new("wasm_separate_compilation_core.in");
+
+    // Every library object, `builtin.o` included, loads the error table
+    // packages `json` and `debug` and may refer to them. A test whose main
+    // object compiles one of them keeps its definitions local, so it keeps the
+    // whole-program link: `json` because `debug` depends on it, and `debug`
+    // because it is an error table package itself. `probe` is neither and
+    // links from objects.
+    let out = get_stdout_with_envs(
+        &dir,
+        ["test", "--target", "wasm", "--dry-run", "--sort-input"],
+        SEPARATE_COMPILATION,
+    );
+    let mut linked = out
+        .lines()
+        .map(|line| shlex::split(line).expect("valid command arguments"))
+        .filter_map(|argv| {
+            let output = argv.iter().skip_while(|arg| *arg != "-o").nth(1)?;
+            let executable = output.strip_prefix("./_build/wasm/debug/test/")?;
+            executable
+                .ends_with(".wasm")
+                .then(|| format!("{} {executable}", argv[1]))
+        })
+        .collect::<Vec<_>>();
+    linked.sort();
+    check(
+        linked.join("\n") + "\n",
+        expect![[r#"
+            link-core builtin/builtin.internal_test.wasm
+            link-core debug/debug.internal_test.wasm
+            link-core json/json.internal_test.wasm
+            wasm-ld builtin/builtin.blackbox_test.wasm
+            wasm-ld debug/debug.blackbox_test.wasm
+            wasm-ld json/json.blackbox_test.wasm
+            wasm-ld prelude/prelude.blackbox_test.wasm
+            wasm-ld prelude/prelude.internal_test.wasm
+            wasm-ld probe/probe.blackbox_test.wasm
+            wasm-ld probe/probe.internal_test.wasm
+        "#]],
+    );
+}

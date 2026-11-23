@@ -326,7 +326,8 @@ packages with its own overrides while a library object is shared by every
 executable using it; and source, inline-test and
 whitebox-test targets that would link a library object depending on their
 own package, such as a whitebox test importing a dependent of the package
-under test, or a test of a package the error table packages depend on. A
+under test, or a test of an error table package or of a package they depend
+on. A
 library object cannot refer to the package the main object compiles, and
 would be initialized before it. Release builds do not name the linked
 module.
