@@ -72,6 +72,8 @@ pub(super) fn prepare(
 
     let policy_relay = moonutil::policy_transport::PolicyTransfer::take_from_env()?
         .map(moonutil::policy_transport::PolicyTransfer::into_relay);
+    // Retain the standalone build lock through handoff publication. Ordinary
+    // execution starts after this function returns and drops the build result.
     let standalone = if is_mbtx_input(&input) {
         let dirs = moonutil::project::SourceTargetDirs {
             cwd: None,

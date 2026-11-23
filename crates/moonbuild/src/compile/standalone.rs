@@ -42,7 +42,10 @@ use moonutil::{
 use std::path::PathBuf;
 
 /// A compiled Wasm artifact and its optional embedded runtime-policy source.
-/// The build session has ended before this result is returned.
+///
+/// Retains the build session so another build cannot replace the artifacts
+/// while the caller inspects or delivers them. Drop this result before launching
+/// a program that may build in the same target directory.
 pub struct StandaloneWasm {
     pub executable: PathBuf,
     /// Original `.mbtx` source when it declares permissions. Runtime policy
@@ -53,6 +56,7 @@ pub struct StandaloneWasm {
     // Moonrun should select and resolve policy without rereading the source;
     // compilation results should then contain only build artifacts.
     pub policy_source: Option<PathBuf>,
+    _session: BuildSession,
 }
 
 /// Build a persistent standalone source as linear-memory Wasm.
@@ -147,5 +151,59 @@ pub fn build_standalone_wasm(
     Ok(StandaloneWasm {
         executable,
         policy_source,
+        _session: session,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moonutil::{constants::MOON_LOCK, project::SourceTargetDirs, run_handoff::RunHandoff};
+    use std::fs::{self, File, TryLockError};
+
+    #[test]
+    fn standalone_build_keeps_artifacts_locked_until_handoff() {
+        // Use the installed compiler through the library interface, then
+        // consume its result as moonx does after the build function returns.
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("script.mbtx");
+        fs::write(&source, "fn main {}\n").unwrap();
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: Some(root.path().join("target")),
+        }
+        .single_file_package_dirs(&source)
+        .unwrap();
+        let lock_path = dirs.package_dirs.target_dir.join(MOON_LOCK);
+        let built = build_standalone_wasm(dirs, false, false).unwrap();
+        let competing = File::options()
+            .read(true)
+            .write(true)
+            .open(lock_path)
+            .unwrap();
+        assert!(matches!(
+            competing.try_lock(),
+            Err(TryLockError::WouldBlock)
+        ));
+
+        let original = built.executable.clone();
+        let bytes = fs::read(&original).unwrap();
+        let delivery = root.path().join("handoff");
+        fs::create_dir(&delivery).unwrap();
+        let handoff = RunHandoff::new(&delivery, false).unwrap();
+        handoff.publish(&built.executable, &[], None, None).unwrap();
+        assert!(matches!(
+            competing.try_lock(),
+            Err(TryLockError::WouldBlock)
+        ));
+
+        // Once delivery is complete, the consumer can release the build and
+        // another build may replace its cached output without altering delivery.
+        drop(built);
+        competing.try_lock().unwrap();
+        fs::write(&original, b"replaced by another build").unwrap();
+        let prepared = handoff.load().unwrap();
+        assert_eq!(prepared.executable, original);
+        assert_eq!(fs::read(prepared.artifact).unwrap(), bytes);
+    }
 }
