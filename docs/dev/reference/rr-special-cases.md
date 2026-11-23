@@ -140,8 +140,10 @@ builtin's coverage runtime without borrowing another package's sources.
   executable links their objects. `moonc` compiles an error table entry, whose
   methods call into these packages, into each object using the error type, so
   standard library objects such as `builtin`, which do not depend on them,
-  could not be compiled otherwise. This can go once the linker assembles each
-  entry from the objects defining its methods.
+  could not be compiled otherwise. Since any library object may then refer to
+  them, the inline and whitebox tests of these packages and of their
+  dependencies keep the whole-program link. This can go once the linker
+  assembles each entry from the objects defining its methods.
 
 If you need to add another compatibility shim, keep the behavior in the module
 nearest to the code it affects, but document the motivation here so future work

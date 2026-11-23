@@ -1186,7 +1186,9 @@ impl<'a> BuildPlanConstructor<'a> {
     /// initialized before the main object initializes the package. This
     /// happens when a whitebox test imports a package depending on the package
     /// under test, or when an error table package depends on it, as every
-    /// standard library package below `json` does.
+    /// standard library package below `json` does. Every library object loads
+    /// the error table packages (see [`Self::wasm_object_inputs`]), so it also
+    /// happens when the package under test is one of them.
     fn links_dependent_of_main_package(
         &self,
         target: BuildTarget,
@@ -1196,6 +1198,15 @@ impl<'a> BuildPlanConstructor<'a> {
         // package depends on.
         if target.kind == TargetKind::BlackboxTest {
             return false;
+        }
+
+        // Every library object, `builtin.o` included, may refer to an error
+        // table package, whether or not it depends on it.
+        if self
+            .wasm_error_table_packages()
+            .any(|package| package == target.package)
+        {
+            return true;
         }
 
         // The packages whose source depends on the main package.
