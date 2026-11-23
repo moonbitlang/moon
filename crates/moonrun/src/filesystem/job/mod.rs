@@ -23,7 +23,6 @@ mod runner;
 mod stat;
 
 use super::legacy_metadata::FileTimeResult;
-pub(crate) use stat::stdio_kind;
 
 use std::ffi::{OsStr, OsString};
 
@@ -598,7 +597,7 @@ impl Job {
         }
     }
 
-    pub(crate) fn stat_result(&self) -> AsyncHostResult<&PackedStat> {
+    fn stat_result(&self) -> AsyncHostResult<&PackedStat> {
         match &self.kind {
             Kind::Open {
                 result: Some(OpenJobResult { stat: result, .. }),
@@ -804,7 +803,7 @@ fn truncate_at_nul(path: OsString) -> OsString {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(
         std::io::Error::last_os_error()

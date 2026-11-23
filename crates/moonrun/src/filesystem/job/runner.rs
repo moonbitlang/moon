@@ -34,9 +34,10 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 use crate::resource::{Resource, ResourcePublication, ResourceRef};
 
-use super::stat::{PackedStat, StatRequest, StatValues, query_handle};
+use super::stat::{PackedStat, StatRequest};
 use super::{FileTimeResult, OpenJobResult, RealpathJobResult, job_path, take_execution_path};
-use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs};
+use crate::filesystem::os::stat::StatValues;
+use crate::filesystem::{FileGrant, FsOperation, FsPath, FsTarget, HostFs, query_resource_stat};
 
 use crate::filesystem::os::{self, RawFile, metadata};
 
@@ -96,7 +97,7 @@ ported_fns! {
         } else {
             // Opening already admitted the complete metadata request. This
             // acquisition receipt must not run a second saved-path check.
-            PackedStat::new(request, query_handle(&resource, request)?)
+            PackedStat::new(request, query_resource_stat(&resource, request.fields())?)
         };
         *result = Some(OpenJobResult {
             resource: ResourcePublication::Unpublished(resource),

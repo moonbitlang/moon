@@ -249,7 +249,15 @@ impl HostFs {
 
     pub(crate) fn resource_stdio_kind(&self, file: &Resource) -> AsyncHostResult<i32> {
         self.authorize(FsOperation::Kind(FsTarget::File(file.file_grant())))?;
-        super::stdio_kind(file)
+        // Stdio initialization needs only the kind, before guest memory exists.
+        super::query_resource_stat(file, super::os::stat::KIND)?
+            .kind
+            .map(super::file_kind_code)
+            .ok_or_else(|| {
+                crate::async_host::AsyncHostError::Native(
+                    crate::async_sys::os_error::stub::get_enotsup(),
+                )
+            })
     }
 
     pub(crate) fn resource_kind(&self, file: &Resource) -> AsyncHostResult<i32> {

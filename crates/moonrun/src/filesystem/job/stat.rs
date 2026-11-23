@@ -16,27 +16,21 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Stable generic-stat result layout shared by the platform adapters.
+//! Generic-stat request validation, Job authorization, and guest result encoding.
 
 use std::ffi::OsString;
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, AsRawSocket};
+use std::os::windows::io::AsRawHandle;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::filesystem::{FsOperation, FsTarget, HostFs};
-use crate::resource::{Resource, ResourceRef};
-
-#[cfg(unix)]
-use crate::filesystem::FILE_KIND_BLOCK_DEVICE;
-use crate::filesystem::{
-    FILE_KIND_CHAR_DEVICE, FILE_KIND_CONSOLE, FILE_KIND_DIRECTORY, FILE_KIND_PIPE,
-    FILE_KIND_REGULAR, FILE_KIND_SOCKET, FILE_KIND_SYMLINK, FILE_KIND_UNKNOWN,
-};
+use crate::filesystem::os::stat::{self, StatValues};
+#[cfg(test)]
+use crate::filesystem::os::stat::{FileKind, StatTimestamp};
+use crate::filesystem::{FsOperation, FsTarget, HostFs, file_kind_code, query_resource_stat};
+use crate::resource::ResourceRef;
 
 pub(super) const STAT_FILE_KIND: u32 = 0x0001;
 pub(super) const STAT_FILE_SIZE: u32 = 0x0002;
@@ -53,7 +47,7 @@ const STAT_SUPPORTED_PROPERTY_MASK: u32 = 0x00ff;
 const STAT_HEADER_LEN: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct StatRequest {
+pub(super) struct StatRequest {
     mask: u32,
     encoded_len: usize,
 }
@@ -87,8 +81,24 @@ impl StatRequest {
         Ok(Self { mask, encoded_len })
     }
 
-    pub(crate) fn mask(self) -> u32 {
+    pub(super) fn mask(self) -> u32 {
         self.mask
+    }
+
+    pub(super) fn fields(self) -> u32 {
+        [
+            (STAT_FILE_KIND, stat::KIND),
+            (STAT_FILE_SIZE, stat::SIZE),
+            (STAT_DEVICE_ID, stat::DEVICE_ID),
+            (STAT_FILE_ID, stat::FILE_ID),
+            (STAT_ACCESS_TIME, stat::ACCESS_TIME),
+            (STAT_MODIFY_TIME, stat::MODIFY_TIME),
+            (STAT_CHANGE_TIME, stat::CHANGE_TIME),
+            (STAT_CREATE_TIME, stat::CREATE_TIME),
+        ]
+        .into_iter()
+        .filter(|(abi, _)| self.mask & abi != 0)
+        .fold(0, |fields, (_, field)| fields | field)
     }
 
     pub(super) fn encoded_len(self) -> usize {
@@ -96,46 +106,8 @@ impl StatRequest {
     }
 }
 
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-mod platform {
-    use std::ffi::OsString;
-
-    use super::*;
-
-    pub(super) fn query_handle(_fd: i32, _request: StatRequest) -> AsyncHostResult<StatValues> {
-        Err(AsyncHostError::Native(libc::ENOSYS))
-    }
-
-    pub(super) fn query_path(
-        _parent: Option<i32>,
-        _path: OsString,
-        _follow_symlink: bool,
-        _request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        Err(AsyncHostError::Native(libc::ENOSYS))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct StatTimestamp {
-    pub(super) seconds: i64,
-    pub(super) nanoseconds: i64,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct StatValues {
-    pub(super) kind: Option<i32>,
-    pub(super) size: Option<i64>,
-    pub(super) device_id: Option<u64>,
-    pub(super) file_id: Option<u64>,
-    pub(super) access_time: Option<StatTimestamp>,
-    pub(super) modify_time: Option<StatTimestamp>,
-    pub(super) change_time: Option<StatTimestamp>,
-    pub(super) create_time: Option<StatTimestamp>,
-}
-
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct PackedStat {
+pub(super) struct PackedStat {
     request: StatRequest,
     bytes: Box<[u8]>,
 }
@@ -159,7 +131,7 @@ impl PackedStat {
                 STAT_FILE_KIND => {
                     if let Some(value) = values.kind {
                         returned_mask |= property;
-                        write_word(u64::from(value as u32).to_le_bytes());
+                        write_word(u64::from(file_kind_code(value) as u32).to_le_bytes());
                     } else {
                         offset += 8;
                     }
@@ -238,17 +210,6 @@ impl PackedStat {
     }
 }
 
-#[cfg(any(windows, test))]
-const WINDOWS_EPOCH_OFFSET_SECONDS: i64 = 11_644_473_600;
-
-#[cfg(any(windows, test))]
-fn windows_timestamp(ticks: i64) -> StatTimestamp {
-    StatTimestamp {
-        seconds: ticks.div_euclid(10_000_000) - WINDOWS_EPOCH_OFFSET_SECONDS,
-        nanoseconds: ticks.rem_euclid(10_000_000) * 100,
-    }
-}
-
 pub(super) fn run_fstatx_job(
     filesystem: &HostFs,
     file: &mut Option<ResourceRef>,
@@ -262,37 +223,11 @@ pub(super) fn run_fstatx_job(
         FsOperation::Metadata(target)
     })?;
     let file = file.take().ok_or(AsyncHostError::Badf)?;
-    *result = Some(PackedStat::new(request, query_handle(&file, request)?));
+    *result = Some(PackedStat::new(
+        request,
+        query_resource_stat(&file, request.fields())?,
+    ));
     Ok(0)
-}
-
-// Stdio initialization runs before exported guest memory is available. Reuse
-// generic stat's Console-aware classification without a guest result buffer.
-pub(crate) fn stdio_kind(file: &Resource) -> AsyncHostResult<i32> {
-    query_handle(file, StatRequest::new(STAT_FILE_KIND, 16)?)?
-        .kind
-        .ok_or_else(|| AsyncHostError::Native(crate::async_sys::os_error::stub::get_enotsup()))
-}
-
-pub(super) fn query_handle(file: &Resource, request: StatRequest) -> AsyncHostResult<StatValues> {
-    #[cfg(unix)]
-    let raw = file.as_file()?.as_raw_fd();
-    #[cfg(windows)]
-    let raw = if file.resource_class().is_socket() {
-        file.as_socket()?.as_raw_socket() as usize as windows_sys::Win32::Foundation::HANDLE
-    } else {
-        file.as_file()?.as_raw_handle()
-    };
-
-    let values = platform::query_handle(raw, request)?;
-    #[cfg(unix)]
-    if values.kind == Some(FILE_KIND_CHAR_DEVICE) && unsafe { libc::isatty(raw) } == 1 {
-        return Ok(StatValues {
-            kind: Some(FILE_KIND_CONSOLE),
-            ..values
-        });
-    }
-    Ok(values)
 }
 
 pub(super) fn run_statx_job(
@@ -322,684 +257,20 @@ pub(super) fn run_statx_job(
         .map(|resource| resource.as_file().map(|file| file.as_raw_handle()))
         .transpose()?;
 
-    #[cfg(unix)]
-    let values = platform::query_path(parent, path, follow_symlink, request)?;
-    #[cfg(windows)]
-    let values = {
-        use super::super::os::openat::{
-            self, Access, CreateMode, OpenOptions, Sync, TypeConstraint,
-        };
-        let file = openat::open(
-            parent,
-            &path,
-            &OpenOptions {
-                access: Access::Attributes,
-                type_constraint: TypeConstraint::Any,
-                follow_symlink,
-                is_async: false,
-                create: CreateMode::Open,
-                append: false,
-                sync: Sync::None,
-                permission: 0,
-            },
-            &super::CancellableIo,
-        )?;
-        platform::query(file.as_raw_handle(), request)?
-    };
+    let values = stat::query_path(
+        parent,
+        &path,
+        follow_symlink,
+        request.fields(),
+        &super::CancellableIo,
+    )?;
     *result = Some(PackedStat::new(request, values));
     Ok(0)
-}
-
-#[cfg(target_os = "linux")]
-mod platform {
-    use std::ffi::{CString, OsString};
-    use std::mem::MaybeUninit;
-    use std::os::unix::ffi::OsStrExt;
-
-    use super::*;
-
-    const AT_EMPTY_PATH: i32 = 0x1000;
-    const STATX_TYPE: u32 = 0x0000_0001;
-    const STATX_ATIME: u32 = 0x0000_0020;
-    const STATX_MTIME: u32 = 0x0000_0040;
-    const STATX_CTIME: u32 = 0x0000_0080;
-    const STATX_INO: u32 = 0x0000_0100;
-    const STATX_SIZE: u32 = 0x0000_0200;
-    const STATX_BTIME: u32 = 0x0000_0800;
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct LinuxStatxTimestamp {
-        tv_sec: i64,
-        tv_nsec: u32,
-        _reserved: i32,
-    }
-
-    #[repr(C)]
-    struct LinuxStatx {
-        stx_mask: u32,
-        stx_blksize: u32,
-        stx_attributes: u64,
-        stx_nlink: u32,
-        stx_uid: u32,
-        stx_gid: u32,
-        stx_mode: u16,
-        _pad1: u16,
-        stx_ino: u64,
-        stx_size: u64,
-        stx_blocks: u64,
-        stx_attributes_mask: u64,
-        stx_atime: LinuxStatxTimestamp,
-        stx_btime: LinuxStatxTimestamp,
-        stx_ctime: LinuxStatxTimestamp,
-        stx_mtime: LinuxStatxTimestamp,
-        stx_rdev_major: u32,
-        stx_rdev_minor: u32,
-        stx_dev_major: u32,
-        stx_dev_minor: u32,
-        _spare: [u64; 14],
-    }
-
-    pub(super) fn query_handle(fd: i32, request: StatRequest) -> AsyncHostResult<StatValues> {
-        query(fd, c"", AT_EMPTY_PATH, request)
-    }
-
-    pub(super) fn query_path(
-        parent: Option<i32>,
-        path: OsString,
-        follow_symlink: bool,
-        request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        let path = CString::new(path.as_bytes()).map_err(|_| AsyncHostError::Inval)?;
-        let flags = if follow_symlink {
-            0
-        } else {
-            libc::AT_SYMLINK_NOFOLLOW
-        };
-        query(parent.unwrap_or(libc::AT_FDCWD), &path, flags, request)
-    }
-
-    fn query(
-        dirfd: i32,
-        path: &std::ffi::CStr,
-        flags: i32,
-        request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        let requested_statx_mask = (if request.mask() & STAT_FILE_KIND != 0 {
-            STATX_TYPE
-        } else {
-            0
-        }) | (if request.mask() & STAT_FILE_SIZE != 0 {
-            STATX_SIZE
-        } else {
-            0
-        }) | (if request.mask() & STAT_FILE_ID != 0 {
-            STATX_INO
-        } else {
-            0
-        }) | (if request.mask() & STAT_ACCESS_TIME != 0 {
-            STATX_ATIME
-        } else {
-            0
-        }) | (if request.mask() & STAT_MODIFY_TIME != 0 {
-            STATX_MTIME
-        } else {
-            0
-        }) | (if request.mask() & STAT_CHANGE_TIME != 0 {
-            STATX_CTIME
-        } else {
-            0
-        }) | (if request.mask() & STAT_CREATE_TIME != 0 {
-            STATX_BTIME
-        } else {
-            0
-        });
-
-        let mut info = MaybeUninit::<LinuxStatx>::zeroed();
-        if unsafe {
-            libc::syscall(
-                libc::SYS_statx,
-                dirfd,
-                path.as_ptr(),
-                flags,
-                requested_statx_mask,
-                info.as_mut_ptr(),
-            )
-        } < 0
-        {
-            return Err(last_native_error());
-        }
-        let info = unsafe { info.assume_init() };
-        let supported = |property, statx_mask| {
-            request.mask() & property != 0 && (statx_mask == 0 || info.stx_mask & statx_mask != 0)
-        };
-        let timestamp = |value: LinuxStatxTimestamp| StatTimestamp {
-            seconds: value.tv_sec,
-            nanoseconds: i64::from(value.tv_nsec),
-        };
-
-        Ok(StatValues {
-            kind: supported(STAT_FILE_KIND, STATX_TYPE).then(|| file_kind(info.stx_mode)),
-            size: supported(STAT_FILE_SIZE, STATX_SIZE).then_some(info.stx_size as i64),
-            device_id: supported(STAT_DEVICE_ID, 0)
-                .then(|| libc::makedev(info.stx_dev_major, info.stx_dev_minor)),
-            file_id: supported(STAT_FILE_ID, STATX_INO).then_some(info.stx_ino),
-            access_time: supported(STAT_ACCESS_TIME, STATX_ATIME)
-                .then(|| timestamp(info.stx_atime)),
-            modify_time: supported(STAT_MODIFY_TIME, STATX_MTIME)
-                .then(|| timestamp(info.stx_mtime)),
-            change_time: supported(STAT_CHANGE_TIME, STATX_CTIME)
-                .then(|| timestamp(info.stx_ctime)),
-            create_time: supported(STAT_CREATE_TIME, STATX_BTIME)
-                .then(|| timestamp(info.stx_btime)),
-        })
-    }
-
-    fn file_kind(mode: u16) -> i32 {
-        match u32::from(mode) & libc::S_IFMT {
-            libc::S_IFREG => FILE_KIND_REGULAR,
-            libc::S_IFDIR => FILE_KIND_DIRECTORY,
-            libc::S_IFLNK => FILE_KIND_SYMLINK,
-            libc::S_IFSOCK => FILE_KIND_SOCKET,
-            libc::S_IFIFO => FILE_KIND_PIPE,
-            libc::S_IFBLK => FILE_KIND_BLOCK_DEVICE,
-            libc::S_IFCHR => FILE_KIND_CHAR_DEVICE,
-            _ => FILE_KIND_UNKNOWN,
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod platform {
-    use std::ffi::{CString, OsString};
-    use std::mem::{MaybeUninit, size_of};
-    use std::os::unix::ffi::OsStrExt;
-
-    use super::*;
-
-    type FsObjType = u32;
-    const VREG: FsObjType = 1;
-    const VDIR: FsObjType = 2;
-    const VBLK: FsObjType = 3;
-    const VCHR: FsObjType = 4;
-    const VLNK: FsObjType = 5;
-    const VSOCK: FsObjType = 6;
-    const VFIFO: FsObjType = 7;
-
-    #[derive(Clone, Copy)]
-    struct Attribute {
-        group: usize,
-        bit: libc::attrgroup_t,
-        size: usize,
-    }
-
-    const ATTRIBUTES: [Attribute; 8] = [
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_OBJTYPE,
-            size: size_of::<FsObjType>(),
-        },
-        Attribute {
-            group: 3,
-            bit: libc::ATTR_FILE_DATALENGTH,
-            size: size_of::<i64>(),
-        },
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_DEVID,
-            size: size_of::<libc::dev_t>(),
-        },
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_FILEID,
-            size: size_of::<u64>(),
-        },
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_ACCTIME,
-            size: size_of::<libc::timespec>(),
-        },
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_MODTIME,
-            size: size_of::<libc::timespec>(),
-        },
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_CHGTIME,
-            size: size_of::<libc::timespec>(),
-        },
-        Attribute {
-            group: 0,
-            bit: libc::ATTR_CMN_CRTIME,
-            size: size_of::<libc::timespec>(),
-        },
-    ];
-
-    pub(super) fn query_handle(fd: i32, request: StatRequest) -> AsyncHostResult<StatValues> {
-        query(QueryTarget::Handle(fd), request)
-    }
-
-    pub(super) fn query_path(
-        parent: Option<i32>,
-        path: OsString,
-        follow_symlink: bool,
-        request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        let path = CString::new(path.as_bytes()).map_err(|_| AsyncHostError::Inval)?;
-        query(
-            QueryTarget::Path {
-                parent,
-                path: &path,
-                follow_symlink,
-            },
-            request,
-        )
-    }
-
-    enum QueryTarget<'a> {
-        Handle(i32),
-        Path {
-            parent: Option<i32>,
-            path: &'a std::ffi::CStr,
-            follow_symlink: bool,
-        },
-    }
-
-    fn query(target: QueryTarget<'_>, request: StatRequest) -> AsyncHostResult<StatValues> {
-        // getattrlist packs attributes in a platform-defined order rather than request-bit order.
-        const ATTRIBUTE_ORDER: [usize; 8] = [2, 0, 7, 5, 6, 4, 3, 1];
-        let mut list = libc::attrlist {
-            bitmapcount: libc::ATTR_BIT_MAP_COUNT,
-            reserved: 0,
-            commonattr: libc::ATTR_CMN_RETURNED_ATTRS,
-            volattr: 0,
-            dirattr: 0,
-            fileattr: 0,
-            forkattr: 0,
-        };
-        let mut offsets = [0_usize; 8];
-        let mut offset = size_of::<u32>() + size_of::<libc::attribute_set_t>();
-        for index in ATTRIBUTE_ORDER {
-            if request.mask() & (1 << index) == 0 {
-                continue;
-            }
-            let attribute = ATTRIBUTES[index];
-            match attribute.group {
-                0 => list.commonattr |= attribute.bit,
-                3 => list.fileattr |= attribute.bit,
-                _ => unreachable!(),
-            }
-            offsets[index] = offset;
-            offset += attribute.size;
-        }
-
-        let mut buffer = [0_u8; 256];
-        let ret = unsafe {
-            match target {
-                QueryTarget::Handle(fd) => libc::fgetattrlist(
-                    fd,
-                    std::ptr::from_mut(&mut list).cast(),
-                    buffer.as_mut_ptr().cast(),
-                    buffer.len(),
-                    libc::FSOPT_PACK_INVAL_ATTRS,
-                ),
-                QueryTarget::Path {
-                    parent: None,
-                    path,
-                    follow_symlink,
-                } => libc::getattrlist(
-                    path.as_ptr(),
-                    std::ptr::from_mut(&mut list).cast(),
-                    buffer.as_mut_ptr().cast(),
-                    buffer.len(),
-                    libc::FSOPT_PACK_INVAL_ATTRS
-                        | if follow_symlink {
-                            0
-                        } else {
-                            libc::FSOPT_NOFOLLOW
-                        },
-                ),
-                QueryTarget::Path {
-                    parent: Some(parent),
-                    path,
-                    follow_symlink,
-                } => libc::getattrlistat(
-                    parent,
-                    path.as_ptr(),
-                    std::ptr::from_mut(&mut list).cast(),
-                    buffer.as_mut_ptr().cast(),
-                    buffer.len(),
-                    (libc::FSOPT_PACK_INVAL_ATTRS
-                        | if follow_symlink {
-                            0
-                        } else {
-                            libc::FSOPT_NOFOLLOW
-                        }) as libc::c_ulong,
-                ),
-            }
-        };
-        if ret < 0 {
-            let error = last_native_error();
-            if matches!(target, QueryTarget::Handle(_)) && error.errno() == libc::EINVAL {
-                return fallback_non_vnode(target, request);
-            }
-            return Err(error);
-        }
-
-        let result_len = read_unaligned::<u32>(&buffer, 0).unwrap_or(0) as usize;
-        let returned = read_unaligned::<libc::attribute_set_t>(&buffer, size_of::<u32>())
-            .ok_or(AsyncHostError::Io)?;
-        let is_returned = |index: usize| {
-            let attribute = ATTRIBUTES[index];
-            let group = match attribute.group {
-                0 => returned.commonattr,
-                3 => returned.fileattr,
-                _ => 0,
-            };
-            group & attribute.bit != 0 && offsets[index] + attribute.size <= result_len
-        };
-        let read_time = |index| {
-            is_returned(index)
-                .then(|| read_unaligned::<libc::timespec>(&buffer, offsets[index]))
-                .flatten()
-                .map(|value| StatTimestamp {
-                    seconds: value.tv_sec,
-                    nanoseconds: value.tv_nsec,
-                })
-        };
-
-        Ok(StatValues {
-            kind: is_returned(0)
-                .then(|| read_unaligned::<FsObjType>(&buffer, offsets[0]))
-                .flatten()
-                .map(file_kind_from_vnode),
-            size: is_returned(1)
-                .then(|| read_unaligned::<i64>(&buffer, offsets[1]))
-                .flatten(),
-            device_id: is_returned(2)
-                .then(|| read_unaligned::<libc::dev_t>(&buffer, offsets[2]))
-                .flatten()
-                .map(|value| value as u64),
-            file_id: is_returned(3)
-                .then(|| read_unaligned::<u64>(&buffer, offsets[3]))
-                .flatten(),
-            access_time: read_time(4),
-            modify_time: read_time(5),
-            change_time: read_time(6),
-            create_time: read_time(7),
-        })
-    }
-
-    fn fallback_non_vnode(
-        target: QueryTarget<'_>,
-        request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        let QueryTarget::Handle(fd) = target else {
-            unreachable!();
-        };
-        let mut stat = MaybeUninit::<libc::stat>::uninit();
-        if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
-            return Err(last_native_error());
-        }
-        let stat = unsafe { stat.assume_init() };
-        let requested_time = |property, seconds, nanoseconds| {
-            (request.mask() & property != 0).then_some(StatTimestamp {
-                seconds,
-                nanoseconds,
-            })
-        };
-        Ok(StatValues {
-            kind: (request.mask() & STAT_FILE_KIND != 0).then(|| file_kind_from_mode(stat.st_mode)),
-            size: (request.mask() & STAT_FILE_SIZE != 0).then_some(stat.st_size),
-            device_id: (request.mask() & STAT_DEVICE_ID != 0).then_some(stat.st_dev as u64),
-            file_id: (request.mask() & STAT_FILE_ID != 0).then_some(stat.st_ino),
-            access_time: requested_time(STAT_ACCESS_TIME, stat.st_atime, stat.st_atime_nsec),
-            modify_time: requested_time(STAT_MODIFY_TIME, stat.st_mtime, stat.st_mtime_nsec),
-            change_time: requested_time(STAT_CHANGE_TIME, stat.st_ctime, stat.st_ctime_nsec),
-            create_time: requested_time(
-                STAT_CREATE_TIME,
-                stat.st_birthtime,
-                stat.st_birthtime_nsec,
-            ),
-        })
-    }
-
-    fn read_unaligned<T: Copy>(buffer: &[u8], offset: usize) -> Option<T> {
-        buffer
-            .get(offset..offset.checked_add(size_of::<T>())?)
-            .map(|bytes| unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<T>()) })
-    }
-
-    fn file_kind_from_vnode(kind: FsObjType) -> i32 {
-        match kind {
-            VREG => FILE_KIND_REGULAR,
-            VDIR => FILE_KIND_DIRECTORY,
-            VLNK => FILE_KIND_SYMLINK,
-            VSOCK => FILE_KIND_SOCKET,
-            VFIFO => FILE_KIND_PIPE,
-            VBLK => FILE_KIND_BLOCK_DEVICE,
-            VCHR => FILE_KIND_CHAR_DEVICE,
-            _ => FILE_KIND_UNKNOWN,
-        }
-    }
-
-    fn file_kind_from_mode(mode: libc::mode_t) -> i32 {
-        match mode & libc::S_IFMT {
-            libc::S_IFREG => FILE_KIND_REGULAR,
-            libc::S_IFDIR => FILE_KIND_DIRECTORY,
-            libc::S_IFLNK => FILE_KIND_SYMLINK,
-            libc::S_IFSOCK => FILE_KIND_SOCKET,
-            libc::S_IFIFO => FILE_KIND_PIPE,
-            libc::S_IFBLK => FILE_KIND_BLOCK_DEVICE,
-            libc::S_IFCHR => FILE_KIND_CHAR_DEVICE,
-            _ => FILE_KIND_UNKNOWN,
-        }
-    }
-}
-
-#[cfg(windows)]
-mod platform {
-    use std::mem::MaybeUninit;
-
-    use windows_sys::Win32::Foundation::{GetLastError, HANDLE, SetLastError};
-    use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-        FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_INFO_BY_HANDLE_CLASS, FILE_TYPE_CHAR,
-        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileAttributeTagInfo, FileBasicInfo,
-        GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileSize, INVALID_FILE_SIZE,
-    };
-
-    use super::*;
-    use crate::filesystem::os::metadata;
-
-    #[derive(Default)]
-    struct WindowsStat {
-        file_type: Option<u32>,
-        is_socket: bool,
-        attributes: Option<u32>,
-        size: Option<i64>,
-        device_id: Option<u64>,
-        file_id: Option<u64>,
-        access_time: Option<i64>,
-        modify_time: Option<i64>,
-        change_time: Option<i64>,
-        create_time: Option<i64>,
-    }
-
-    pub(super) fn query_handle(
-        handle: HANDLE,
-        request: StatRequest,
-    ) -> AsyncHostResult<StatValues> {
-        let values = query(handle, request)?;
-        if values.returned_mask() == 0 {
-            metadata::file_type(handle)?;
-        }
-        Ok(values)
-    }
-
-    pub(super) fn query(handle: HANDLE, request: StatRequest) -> AsyncHostResult<StatValues> {
-        let mut stat = WindowsStat::default();
-        let mut remaining = request.mask();
-
-        if request.mask() & STAT_FILE_KIND != 0 {
-            let (file_type, is_socket) = metadata::file_type(handle)?;
-            stat.file_type = Some(file_type);
-            stat.is_socket = is_socket;
-            if file_type != FILE_TYPE_DISK {
-                let mut values = to_values(request, stat);
-                let mut mode = 0;
-                if file_type == FILE_TYPE_CHAR
-                    && unsafe {
-                        windows_sys::Win32::System::Console::GetConsoleMode(handle, &mut mode)
-                    } != 0
-                {
-                    values.kind = Some(FILE_KIND_CONSOLE);
-                }
-                return Ok(values);
-            }
-        }
-
-        const BASIC_PROPERTIES: u32 = STAT_FILE_KIND
-            | STAT_ACCESS_TIME
-            | STAT_MODIFY_TIME
-            | STAT_CHANGE_TIME
-            | STAT_CREATE_TIME;
-        if remaining & !STAT_FILE_KIND == 0 {
-            if let Some(info) = query_info::<FILE_ATTRIBUTE_TAG_INFO>(handle, FileAttributeTagInfo)
-            {
-                stat.attributes = Some(info.FileAttributes);
-                remaining &= !STAT_FILE_KIND;
-            }
-        } else if (remaining & STAT_CHANGE_TIME != 0 || remaining & !BASIC_PROPERTIES == 0)
-            && let Some(info) = query_info::<FILE_BASIC_INFO>(handle, FileBasicInfo)
-        {
-            stat.attributes = Some(info.FileAttributes);
-            stat.access_time = Some(info.LastAccessTime);
-            stat.modify_time = Some(info.LastWriteTime);
-            stat.change_time = Some(info.ChangeTime);
-            stat.create_time = Some(info.CreationTime);
-            remaining &= !BASIC_PROPERTIES;
-        }
-
-        if remaining == STAT_FILE_SIZE {
-            unsafe { SetLastError(0) };
-            let mut high = 0;
-            let low = unsafe { GetFileSize(handle, &mut high) };
-            if low != INVALID_FILE_SIZE || unsafe { GetLastError() } == 0 {
-                stat.size = Some(i64::from(high) << 32 | i64::from(low));
-            }
-        } else if remaining != 0 {
-            let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-            if unsafe { GetFileInformationByHandle(handle, info.as_mut_ptr()) } != 0 {
-                let info = unsafe { info.assume_init() };
-                stat.attributes = Some(info.dwFileAttributes);
-                stat.size =
-                    Some(i64::from(info.nFileSizeHigh) << 32 | i64::from(info.nFileSizeLow));
-                stat.device_id = Some(u64::from(info.dwVolumeSerialNumber));
-                stat.file_id =
-                    Some(u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow));
-                stat.access_time = Some(filetime_ticks(info.ftLastAccessTime));
-                stat.modify_time = Some(filetime_ticks(info.ftLastWriteTime));
-                stat.create_time = Some(filetime_ticks(info.ftCreationTime));
-            }
-        }
-
-        Ok(to_values(request, stat))
-    }
-
-    fn query_info<T: Copy>(handle: HANDLE, class: FILE_INFO_BY_HANDLE_CLASS) -> Option<T> {
-        let mut info = MaybeUninit::<T>::uninit();
-        (unsafe {
-            GetFileInformationByHandleEx(
-                handle,
-                class,
-                info.as_mut_ptr().cast(),
-                std::mem::size_of::<T>() as u32,
-            )
-        } != 0)
-            .then(|| unsafe { info.assume_init() })
-    }
-
-    fn to_values(request: StatRequest, stat: WindowsStat) -> StatValues {
-        StatValues {
-            kind: (request.mask() & STAT_FILE_KIND != 0)
-                .then(|| windows_file_kind(stat.file_type?, stat.is_socket, stat.attributes))
-                .flatten(),
-            size: (request.mask() & STAT_FILE_SIZE != 0)
-                .then_some(stat.size)
-                .flatten(),
-            device_id: (request.mask() & STAT_DEVICE_ID != 0)
-                .then_some(stat.device_id)
-                .flatten(),
-            file_id: (request.mask() & STAT_FILE_ID != 0)
-                .then_some(stat.file_id)
-                .flatten(),
-            access_time: requested_timestamp(request, STAT_ACCESS_TIME, stat.access_time),
-            modify_time: requested_timestamp(request, STAT_MODIFY_TIME, stat.modify_time),
-            change_time: requested_timestamp(request, STAT_CHANGE_TIME, stat.change_time),
-            create_time: requested_timestamp(request, STAT_CREATE_TIME, stat.create_time),
-        }
-    }
-
-    fn requested_timestamp(
-        request: StatRequest,
-        property: u32,
-        ticks: Option<i64>,
-    ) -> Option<StatTimestamp> {
-        (request.mask() & property != 0)
-            .then_some(ticks)
-            .flatten()
-            .map(windows_timestamp)
-    }
-
-    fn windows_file_kind(file_type: u32, is_socket: bool, attributes: Option<u32>) -> Option<i32> {
-        match file_type {
-            FILE_TYPE_DISK => attributes.map(|attributes| {
-                if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                    FILE_KIND_SYMLINK
-                } else if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
-                    FILE_KIND_DIRECTORY
-                } else {
-                    FILE_KIND_REGULAR
-                }
-            }),
-            FILE_TYPE_CHAR => Some(FILE_KIND_CHAR_DEVICE),
-            FILE_TYPE_PIPE | FILE_TYPE_UNKNOWN => {
-                if is_socket {
-                    Some(FILE_KIND_SOCKET)
-                } else if file_type == FILE_TYPE_PIPE {
-                    Some(FILE_KIND_PIPE)
-                } else {
-                    Some(FILE_KIND_UNKNOWN)
-                }
-            }
-            _ => Some(FILE_KIND_UNKNOWN),
-        }
-    }
-
-    impl StatValues {
-        fn returned_mask(&self) -> u32 {
-            self.kind.map_or(0, |_| STAT_FILE_KIND)
-                | self.size.map_or(0, |_| STAT_FILE_SIZE)
-                | self.device_id.map_or(0, |_| STAT_DEVICE_ID)
-                | self.file_id.map_or(0, |_| STAT_FILE_ID)
-                | self.access_time.map_or(0, |_| STAT_ACCESS_TIME)
-                | self.modify_time.map_or(0, |_| STAT_MODIFY_TIME)
-                | self.change_time.map_or(0, |_| STAT_CHANGE_TIME)
-                | self.create_time.map_or(0, |_| STAT_CREATE_TIME)
-        }
-    }
-
-    fn filetime_ticks(value: windows_sys::Win32::Foundation::FILETIME) -> i64 {
-        i64::from(value.dwHighDateTime) << 32 | i64::from(value.dwLowDateTime)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(unix)]
     use crate::resource::Resource;
 
     #[test]
@@ -1030,13 +301,60 @@ mod tests {
     }
 
     #[test]
+    fn individual_queries_preserve_native_properties_and_abi_slots() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), b"moonrun stat").unwrap();
+        let filesystem = HostFs::default();
+        let mut full = crate::filesystem::Job::statx(
+            None,
+            temp.path().as_os_str().to_owned(),
+            STAT_SUPPORTED_PROPERTY_MASK,
+            104,
+            true,
+        )
+        .unwrap();
+        full.run(&filesystem).unwrap();
+        let full = full.stat_result().unwrap().as_bytes();
+        let available = u32::from_le_bytes(full[4..8].try_into().unwrap());
+
+        for (property, slot) in [
+            (STAT_FILE_KIND, 8..16),
+            (STAT_FILE_SIZE, 16..24),
+            (STAT_DEVICE_ID, 24..32),
+            (STAT_FILE_ID, 32..40),
+            (STAT_ACCESS_TIME, 40..56),
+            (STAT_MODIFY_TIME, 56..72),
+            (STAT_CHANGE_TIME, 72..88),
+            (STAT_CREATE_TIME, 88..104),
+        ] {
+            let capacity = (STAT_HEADER_LEN + slot.len()) as u32;
+            let mut job = crate::filesystem::Job::statx(
+                None,
+                temp.path().as_os_str().to_owned(),
+                property,
+                capacity,
+                true,
+            )
+            .unwrap();
+            job.run(&filesystem).unwrap();
+            let bytes = job.stat_result().unwrap().as_bytes();
+            assert_eq!(bytes.len(), capacity as usize);
+            assert_eq!(&bytes[..4], &capacity.to_le_bytes());
+            assert_eq!(&bytes[4..8], &(available & property).to_le_bytes());
+            if property <= STAT_FILE_ID {
+                assert_eq!(&bytes[8..], &full[slot]);
+            }
+        }
+    }
+
+    #[test]
     fn packed_result_uses_fixed_little_endian_slots_and_returned_mask() {
         let mask = STAT_FILE_KIND | STAT_FILE_SIZE | STAT_MODIFY_TIME | STAT_CREATE_TIME;
         let request = StatRequest::new(mask, 56).unwrap();
         let packed = PackedStat::new(
             request,
             StatValues {
-                kind: Some(2),
+                kind: Some(FileKind::Directory),
                 size: None,
                 modify_time: Some(StatTimestamp {
                     seconds: -2,
@@ -1091,7 +409,7 @@ mod tests {
             &mut result,
         )
         .unwrap();
-        assert_eq!(stdio_kind(&slave).unwrap(), 8);
+        assert_eq!(HostFs::default().resource_stdio_kind(&slave).unwrap(), 8);
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(8));
 
         let null = std::fs::File::open("/dev/null").unwrap();
@@ -1104,7 +422,7 @@ mod tests {
             &mut result,
         )
         .unwrap();
-        assert_eq!(stdio_kind(&null).unwrap(), 7);
+        assert_eq!(HostFs::default().resource_stdio_kind(&null).unwrap(), 7);
         assert_eq!(result.unwrap().scalar(STAT_FILE_KIND), Some(7));
     }
 
@@ -1169,48 +487,6 @@ mod tests {
             STAT_HEADER_LEN as u32,
         );
         assert_eq!(result.unwrap_err(), AsyncHostError::Inval);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn platform_adapter_distinguishes_a_symlink_from_its_target() {
-        let temp = tempfile::tempdir().unwrap();
-        let target = temp.path().join("target");
-        let link = temp.path().join("link");
-        std::fs::write(&target, b"target").unwrap();
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        let request = StatRequest::new(STAT_FILE_KIND, 16).unwrap();
-
-        let link_values =
-            platform::query_path(None, link.into_os_string(), false, request).unwrap();
-        let target_values =
-            platform::query_path(None, target.into_os_string(), true, request).unwrap();
-
-        assert_eq!(link_values.kind, Some(3));
-        assert_eq!(target_values.kind, Some(1));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_non_vnode_fallback_returns_all_fstat_metadata() {
-        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-
-        let mut pipe = [0; 2];
-        assert_eq!(unsafe { libc::pipe(pipe.as_mut_ptr()) }, 0);
-        let read_end = unsafe { OwnedFd::from_raw_fd(pipe[0]) };
-        let _write_end = unsafe { OwnedFd::from_raw_fd(pipe[1]) };
-        let request = StatRequest::new(STAT_SUPPORTED_PROPERTY_MASK, 104).unwrap();
-
-        let values = platform::query_handle(read_end.as_raw_fd(), request).unwrap();
-
-        assert_eq!(values.kind, Some(5));
-        assert!(values.size.is_some());
-        assert!(values.device_id.is_some());
-        assert!(values.file_id.is_some());
-        assert!(values.access_time.is_some());
-        assert!(values.modify_time.is_some());
-        assert!(values.change_time.is_some());
-        assert!(values.create_time.is_some());
     }
 
     #[cfg(windows)]
@@ -1293,35 +569,5 @@ mod tests {
 
         drop(resource);
         assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_empty_stat_request_still_validates_the_handle() {
-        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
-
-        let request = StatRequest::new(0, 8).unwrap();
-
-        assert!(platform::query_handle(INVALID_HANDLE_VALUE, request).is_err());
-    }
-
-    #[test]
-    fn windows_filetime_is_reported_relative_to_the_unix_epoch() {
-        let epoch = WINDOWS_EPOCH_OFFSET_SECONDS * 10_000_000;
-
-        assert_eq!(
-            windows_timestamp(epoch),
-            StatTimestamp {
-                seconds: 0,
-                nanoseconds: 0,
-            }
-        );
-        assert_eq!(
-            windows_timestamp(epoch + 12_345_678),
-            StatTimestamp {
-                seconds: 1,
-                nanoseconds: 234_567_800,
-            }
-        );
     }
 }

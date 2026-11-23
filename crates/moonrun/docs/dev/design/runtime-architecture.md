@@ -278,8 +278,10 @@ removing shared host behavior.
 it with mechanisms that need custom platform handling: rename with explicit
 replacement and cross-device options, handle-relative opening and removal,
 path operations, directory-handle lookup and enumeration, metadata queries,
-file I/O, and advisory locks. Jobs retain native-string result encoding and
-serialize access to shared directory cursors.
+file I/O, and advisory locks. HostFs and Jobs share native stat classification;
+Jobs validate guest property masks and result capacities, encode stat and native
+strings, and serialize access to shared directory cursors. Console I/O uses the
+same execution bracket as file I/O.
 Opening accepts typed host options and an execution bracket; Filesystem Jobs
 supply worker cancellation, while synchronous HostFs calls execute directly. The
 raw layer returns `io::Result` and does not import Async errors or worker state.

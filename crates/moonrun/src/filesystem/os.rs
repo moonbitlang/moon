@@ -18,12 +18,15 @@
 
 //! Operating-system filesystem mechanisms, independent of runtime policy and ABIs.
 
+#[cfg(windows)]
+pub(super) mod console;
 pub(super) mod directory;
 pub(super) mod io;
 pub(super) mod lock;
 pub(super) mod metadata;
 pub(super) mod openat;
 pub(super) mod path;
+pub(super) mod stat;
 pub(super) mod symlink;
 pub(super) mod unlinkat;
 

@@ -36,38 +36,14 @@ ported_fns! {
 
         #[cfg(windows)]
         {
-            use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF};
-            use windows_sys::Win32::System::Console::ReadConsoleW;
-            let handle = file.as_file()?.as_raw_handle();
+            let handle = super::runner::raw_file_handle(&file)?;
             let mut buffer = vec![0_u16; len as usize];
-            let mut count = 0;
-            // Capture GetLastError before leaving the cancellation region.
-            let count = with_cancellable_region(|| {
-                if unsafe {
-                    ReadConsoleW(
-                        handle,
-                        buffer.as_mut_ptr().cast(),
-                        len,
-                        &mut count,
-                        std::ptr::null(),
-                    )
-                } != 0
-                {
-                    Ok(count)
-                } else {
-                    let error = std::io::Error::last_os_error().raw_os_error().unwrap_or(1);
-                    if error == ERROR_HANDLE_EOF as i32 || error == ERROR_BROKEN_PIPE as i32 {
-                        Ok(0)
-                    } else {
-                        Err(AsyncHostError::Native(error))
-                    }
-                }
-            })?;
-            buffer.truncate(count as usize);
+            let count = crate::filesystem::os::console::read(
+                handle, &mut buffer, &super::CancellableIo,
+            )?;
+            buffer.truncate(count);
             *result = Some(buffer);
-            Ok(i64::from(count))
+            Ok(count as i64)
         }
         #[cfg(not(windows))]
         {
@@ -89,30 +65,11 @@ ported_fns! {
 
         #[cfg(windows)]
         {
-            use crate::async_sys::internal::event_loop::thread_pool::with_cancellable_region;
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::System::Console::WriteConsoleW;
-            let handle = file.as_file()?.as_raw_handle();
-            let len = u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
-            let mut count = 0;
-            with_cancellable_region(|| {
-                if unsafe {
-                    WriteConsoleW(
-                        handle,
-                        data.as_ptr().cast(),
-                        len,
-                        &mut count,
-                        std::ptr::null(),
-                    )
-                } != 0
-                {
-                    Ok(i64::from(count))
-                } else {
-                    Err(AsyncHostError::Native(
-                        std::io::Error::last_os_error().raw_os_error().unwrap_or(1),
-                    ))
-                }
-            })
+            let handle = super::runner::raw_file_handle(&file)?;
+            let count = crate::filesystem::os::console::write(
+                handle, data, &super::CancellableIo,
+            )?;
+            Ok(count as i64)
         }
         #[cfg(not(windows))]
         {
