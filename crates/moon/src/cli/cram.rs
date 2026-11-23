@@ -144,7 +144,7 @@ fn run_cram_test(
     };
 
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        build_cmd.auto_sync_flags.clone(),
+        build_cmd.auto_sync_flags.frozen,
         build_cmd.build_flags.enable_coverage,
     )
     .with_jobs(build_cmd.build_flags.jobs);

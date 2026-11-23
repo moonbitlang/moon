@@ -570,7 +570,7 @@ fn run_test_in_single_file_rr(
 
     // Resolve synthesized single-file project
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
     )
     .with_jobs(cmd.build_flags.jobs);
@@ -928,7 +928,7 @@ pub(super) fn sync_and_discover_test_or_bench_project(
     dirs: &PackageDirs,
     user_log: &UserLog,
 ) -> anyhow::Result<moonbuild_rupes_recta::DiscoveredProject> {
-    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new_with_load_defaults(
+    let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
         cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
     )

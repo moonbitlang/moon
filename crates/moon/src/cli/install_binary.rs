@@ -28,7 +28,7 @@ use moonbuild_rupes_recta::{
     model::{BuildTarget, PackageId, TargetKind},
 };
 use mooncake::{
-    pkg::{legacy_postadd, sync::SyncOutputOptions},
+    pkg::legacy_postadd,
     registry::{RegistryClient, path::RegistryPath},
 };
 use moonutil::{
@@ -539,7 +539,6 @@ fn prepare_native_build(
     module_name: &ModuleName,
     module_dir: &Path,
     package_dirs: PackageDirs,
-    sync_output: SyncOutputOptions,
     filter: PackageFilter,
     user_log: &UserLog,
 ) -> anyhow::Result<PreparedNativeBuild> {
@@ -549,8 +548,7 @@ fn prepare_native_build(
             module_dir.display()
         )
     })?;
-    let preparation_config = ProjectPreparationConfig::new_with_load_defaults(false, false)
-        .with_sync_output(sync_output);
+    let preparation_config = ProjectPreparationConfig::new(false, false);
     let discovered = moonbuild::prepare::sync_and_discover_project(
         &preparation_config,
         &package_dirs,
@@ -691,14 +689,7 @@ fn build_and_install_packages(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
-    let prepared = prepare_native_build(
-        module_name,
-        module_dir,
-        package_dirs,
-        SyncOutputOptions::default(),
-        filter,
-        user_log,
-    )?;
+    let prepared = prepare_native_build(module_name, module_dir, package_dirs, filter, user_log)?;
 
     if cli.dry_run {
         let mut dry_run_count = 0;

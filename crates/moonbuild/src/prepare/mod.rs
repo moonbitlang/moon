@@ -23,7 +23,7 @@ pub use single_file::discover_single_file_project;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{DiscoveredProject, DiscoveryConfig, resolve::ProjectResolutionError};
-use mooncake::pkg::sync::{AutoSyncFlags, SyncOutputOptions, auto_sync};
+use mooncake::pkg::sync::{SyncOptions, auto_sync};
 use moonutil::{
     cache::CacheRoot,
     project::PackageDirs,
@@ -35,43 +35,39 @@ use tracing::{debug, info, instrument};
 /// Settings for dependency preparation and subsequent package discovery.
 #[derive(Debug)]
 pub struct ProjectPreparationConfig {
-    sync_flags: AutoSyncFlags,
-    sync_output: SyncOutputOptions,
+    sync: SyncOptions,
     dependency_source_cache: CacheRoot,
-    discovery: DiscoveryConfig,
+    enable_coverage: bool,
 }
 
 impl ProjectPreparationConfig {
     /// Create project preparation settings with the requested module sync policy
     /// and defaults for the remaining options.
-    pub fn new_with_load_defaults(frozen: bool, enable_coverage: bool) -> Self {
-        Self::new(AutoSyncFlags { frozen }, enable_coverage)
-    }
-
-    /// Create project preparation settings with the given sync and build flags.
-    pub fn new(sync_flags: AutoSyncFlags, enable_coverage: bool) -> Self {
+    pub fn new(frozen: bool, enable_coverage: bool) -> Self {
         Self {
-            sync_flags,
-            sync_output: SyncOutputOptions::default(),
-            dependency_source_cache: CacheRoot::Disabled,
-            discovery: DiscoveryConfig {
-                enable_coverage,
-                jobs: None,
+            sync: SyncOptions {
+                frozen,
+                ..Default::default()
             },
+            dependency_source_cache: CacheRoot::Disabled,
+            enable_coverage,
         }
     }
 
     /// Use the same parallelism limit for dependency preparation and package discovery.
     pub fn with_jobs(mut self, jobs: Option<usize>) -> Self {
-        self.discovery.jobs = jobs;
+        self.sync.jobs = jobs;
         self
     }
 
-    pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
-        self.sync_output = sync_output;
+    /// Suppress dependency acquisition progress, retaining module resolution warnings.
+    pub fn with_quiet_sync(mut self, quiet: bool) -> Self {
+        self.sync.quiet = quiet;
         self
     }
 
+    /// Use a shared source cache for single-file dependencies.
+    /// Normal project dependencies remain in the project's `.mooncakes` directory.
     pub fn with_dependency_source_cache(mut self, cache: CacheRoot) -> Self {
         self.dependency_source_cache = cache;
         self
@@ -103,16 +99,10 @@ fn sync_module_dependencies(
         "Starting dependency sync for source directory: {}",
         dirs.source_dir.display()
     );
-    debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
+    debug!("Resolve config: sync={:?}", cfg.sync);
 
-    let (module_graph, dir_sync_result) = auto_sync(
-        dirs,
-        &cfg.sync_flags,
-        cfg.sync_output,
-        user_log,
-        cfg.discovery.jobs,
-    )
-    .map_err(ProjectPreparationError::SyncModulesError)?;
+    let (module_graph, dir_sync_result) =
+        auto_sync(dirs, &cfg.sync, user_log).map_err(ProjectPreparationError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", module_graph.module_count());
 
@@ -135,7 +125,10 @@ pub fn sync_and_discover_project(
     })?;
     let synced_modules = sync_module_dependencies(preparation_config, dirs, user_log)?;
     Ok(moonbuild_rupes_recta::discover_synced_project(
-        &preparation_config.discovery,
+        &DiscoveryConfig {
+            enable_coverage: preparation_config.enable_coverage,
+            jobs: preparation_config.sync.jobs,
+        },
         synced_modules,
         user_log,
     )?)

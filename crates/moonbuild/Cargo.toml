@@ -43,5 +43,6 @@ anyhow.workspace = true
 colored.workspace = true
 dunce.workspace = true
 indexmap.workspace = true
+semver.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

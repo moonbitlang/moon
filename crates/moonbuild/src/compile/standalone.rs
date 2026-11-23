@@ -30,7 +30,6 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{DebugInfoRequest, DebugSymbols},
 };
-use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::{
     cache::{CacheKind, resolve_cache_root},
     cond_expr::OptLevel,
@@ -82,8 +81,8 @@ pub fn build_standalone_wasm(
     };
     let user_log = UserLog::new(user_log_level(verbose, !verbose));
     std::fs::create_dir_all(&dirs.target_dir).context("failed to create target directory")?;
-    let preparation = ProjectPreparationConfig::new_with_load_defaults(frozen, false)
-        .with_sync_output(SyncOutputOptions { quiet: !verbose })
+    let preparation = ProjectPreparationConfig::new(frozen, false)
+        .with_quiet_sync(!verbose)
         .with_dependency_source_cache(
             resolve_cache_root(CacheKind::DependencySources)
                 .context("Failed to resolve the module dependency graph")?,

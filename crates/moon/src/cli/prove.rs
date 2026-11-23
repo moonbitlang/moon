@@ -160,7 +160,7 @@ pub(super) fn run_prove(
     let path_filter = cmd.path.as_deref();
 
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         build_flags.enable_coverage,
     )
     .with_jobs(build_flags.jobs);

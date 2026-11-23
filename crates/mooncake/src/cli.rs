@@ -23,7 +23,13 @@ use serde::{Deserialize, Serialize};
 
 pub use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
 
-pub use crate::pkg::sync::AutoSyncFlags;
+#[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
+#[clap(next_help_heading = "Manifest Options")]
+pub struct AutoSyncFlags {
+    /// Do not sync dependencies, assuming local dependencies are up-to-date
+    #[clap(long)]
+    pub frozen: bool,
+}
 
 /// Options owned by package-management commands.
 ///

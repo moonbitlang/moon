@@ -32,7 +32,6 @@ use moonbuild_rupes_recta::{
     model::PackageId,
 };
 use mooncake::cli::AutoSyncFlags;
-use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
@@ -128,12 +127,6 @@ impl RunOutputVerbosity {
     fn from_flags(cli: &UniversalFlags) -> Self {
         Self {
             verbose: cli.verbose,
-        }
-    }
-
-    fn sync_output(self) -> SyncOutputOptions {
-        SyncOutputOptions {
-            quiet: !self.verbose,
         }
     }
 
@@ -500,11 +493,11 @@ fn build_package_executable(
     } = &dirs;
 
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
     )
     .with_jobs(cmd.build_flags.jobs)
-    .with_sync_output(options.output.sync_output());
+    .with_quiet_sync(!options.output.verbose);
     let discovered =
         moonbuild::prepare::sync_and_discover_project(&preparation_config, &dirs, user_log)?;
     let session = BuildSession::new(target_dir, cli.dry_run, user_log)?;
@@ -696,11 +689,11 @@ fn build_single_file_executable(
 
     // Resolve single-file project (synthesized package around the file)
     let preparation_config = moonbuild::prepare::ProjectPreparationConfig::new(
-        cmd.auto_sync_flags.clone(),
+        cmd.auto_sync_flags.frozen,
         cmd.build_flags.enable_coverage,
     )
     .with_jobs(cmd.build_flags.jobs)
-    .with_sync_output(options.output.sync_output())
+    .with_quiet_sync(!options.output.verbose)
     .with_dependency_source_cache(
         resolve_cache_root(CacheKind::DependencySources)
             .context("Failed to resolve the module dependency graph")?,

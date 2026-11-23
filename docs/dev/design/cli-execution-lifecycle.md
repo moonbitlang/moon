@@ -60,8 +60,9 @@ definitions remain in Moon; guest virtual spawn does not interpret or admit
 those commands. Moon's `UniversalFlags` is private to its CLI. Package-management
 flags and subcommand payloads live in `mooncake::cli`; `MooncakeFlags` contains
 directory selection, workspace context, verbosity and dry-run options, without
-Moon's tracing or build feature flags. Dependency synchronization owns
-`AutoSyncFlags` in `mooncake::pkg::sync`, reexported by the package-management CLI.
+Moon's tracing or build feature flags. `AutoSyncFlags` also lives in
+`mooncake::cli`. Commands pass its frozen setting to build preparation instead
+of forwarding the CLI type into the synchronization implementation.
 
 Moon still sends the existing stdin tuple, including its `trace` and
 `unstable_feature` fields and the legacy `build_graph` field, for compatibility
