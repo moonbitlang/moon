@@ -25,6 +25,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use super::last_native_error;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::filesystem::{FsOperation, FsTarget, HostFs};
