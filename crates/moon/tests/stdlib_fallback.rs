@@ -17,6 +17,80 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[test]
+fn cross_platform_compiles_application_and_core_with_the_same_cfg() {
+    let project = tempfile::tempdir().unwrap();
+    let core = tempfile::tempdir().unwrap();
+    let (predicate, compiler, probe) = if cfg!(windows) {
+        (
+            "not(platform=\"windows\")",
+            "cross-cc.cmd",
+            "@echo x86_64-linux-gnu\r\n",
+        )
+    } else {
+        (
+            "platform=\"windows\"",
+            "cross-cc",
+            "#!/bin/sh\necho x86_64-w64-mingw32\n",
+        )
+    };
+    let compiler = project.path().join(compiler);
+    std::fs::write(&compiler, probe).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&compiler, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::fs::write(project.path().join("moon.mod"), "name = \"test/cross\"\n").unwrap();
+    std::fs::write(project.path().join("moon.pkg"), "").unwrap();
+    std::fs::write(project.path().join("lib.mbt"), format!(
+        "#cfg({predicate})\nfn selected() -> Unit {{ @prelude.cross_only() }}\npub fn entry() -> Unit {{ selected() }}\n"
+    )).unwrap();
+    std::fs::write(
+        core.path().join("moon.mod"),
+        "name = \"moonbitlang/core\"\n",
+    )
+    .unwrap();
+    for package in ["builtin", "prelude"] {
+        std::fs::create_dir(core.path().join(package)).unwrap();
+        // A complete host bundle passes the usual file-existence check.
+        let bundle = core
+            .path()
+            .join("_build/native/release/bundle")
+            .join(package);
+        std::fs::create_dir_all(&bundle).unwrap();
+        for ext in ["mi", "core"] {
+            std::fs::write(bundle.join(format!("{package}.{ext}")), "host artifact").unwrap();
+        }
+    }
+    std::fs::write(core.path().join("builtin/moon.pkg"), "").unwrap();
+    std::fs::write(
+        core.path().join("builtin/builtin.mbt"),
+        "#builtin\npub type Unit\n",
+    )
+    .unwrap();
+    std::fs::write(
+        core.path().join("prelude/moon.pkg"),
+        "import { \"moonbitlang/core/builtin\" }\n",
+    )
+    .unwrap();
+    std::fs::write(core.path().join("prelude/prelude.mbt"), format!(
+        "pub using @builtin {{type Unit}}\n#cfg({predicate})\npub fn cross_only() -> Unit {{ () }}\n"
+    )).unwrap();
+    for verb in ["check", "build"] {
+        snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
+            .current_dir(project.path())
+            .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
+            .env("MOON_CORE_OVERRIDE", core.path())
+            .env("MOON_CC", &compiler)
+            .env("MOON_DEP_CACHE", "off")
+            .env("MOON_WORK", "off")
+            .args([verb, "--target", "native", "--release"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn incomplete_stdlib_builds_interfaces_in_the_project() {
     let project = tempfile::tempdir().unwrap();
     let core = tempfile::tempdir().unwrap();
