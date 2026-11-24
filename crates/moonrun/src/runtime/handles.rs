@@ -76,7 +76,6 @@ impl<T> Handles<T> {
     }
 
     /// Visit owned values for domain cleanup, including invalidated entries.
-    #[cfg(unix)]
     pub(crate) fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.entries.values_mut()
     }

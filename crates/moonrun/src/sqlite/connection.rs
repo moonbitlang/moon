@@ -20,11 +20,11 @@ use std::ffi::{CStr, CString, OsStr, c_void};
 use std::ptr::{self, NonNull};
 
 use libsqlite3_sys as ffi;
-use slotmap::Key;
+use slotmap::{Key, KeyData};
 
 use super::policy::{ensure_valid_database, install_authorizer, normalize_open_flags};
 use super::{SqliteHost, SqliteHostError, SqliteHostResult};
-use crate::runtime::{HostKey, HostResourceKind, null_handle};
+use crate::runtime::{HostKey, null_handle};
 
 // `libsqlite3-sys` intentionally omits SQLite's UTF-16 convenience APIs from
 // its generated bindings. The bundled SQLite library still exports them.
@@ -169,24 +169,20 @@ impl SqliteHost {
     }
 
     pub(super) fn insert_database(&self, database: Database) -> u64 {
-        let key = self
-            .keys
-            .borrow_mut()
-            .insert(HostResourceKind::SqliteDatabase);
-        let replaced = self.databases.borrow_mut().insert(key, database);
-        debug_assert!(replaced.is_none());
-        key.data().as_ffi()
+        self.databases.borrow_mut().insert(database).data().as_ffi()
     }
 
     pub(super) fn database_key(&self, handle: u64) -> SqliteHostResult<HostKey> {
-        self.keys
+        let key = KeyData::from_ffi(handle).into();
+        self.databases
             .borrow()
-            .key(handle, HostResourceKind::SqliteDatabase)
+            .get(key)
+            .map(|_| key)
             .ok_or(SqliteHostError::InvalidHandle)
     }
 
     pub(super) fn database(&self, handle: u64) -> SqliteHostResult<Database> {
-        let key = self.database_key(handle)?;
+        let key = KeyData::from_ffi(handle).into();
         self.databases
             .borrow()
             .get(key)
@@ -195,15 +191,13 @@ impl SqliteHost {
     }
 
     fn remove_database(&self, handle: u64) -> SqliteHostResult<Database> {
-        let key = self.database_key(handle)?;
+        let key = KeyData::from_ffi(handle).into();
         let database = self
             .databases
             .borrow_mut()
             .remove(key)
             .ok_or(SqliteHostError::InvalidHandle)?;
         self.remove_database_mutex(database);
-        let removed = self.keys.borrow_mut().remove(key);
-        debug_assert_eq!(removed, Some(HostResourceKind::SqliteDatabase));
         Ok(database)
     }
 }
