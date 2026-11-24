@@ -29,14 +29,11 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId, WasmObject},
     prebuild::PrebuildOutput,
 };
-use moonutil::{
-    compiler_flags::{NativeAllocator, Toolchain},
-    user_log::UserLog,
-};
+use moonutil::{compiler_flags::Toolchain, user_log::UserLog};
 use tracing::{Level, instrument};
 
 use super::{
-    BuildPlan, BuildPlanConstructError,
+    BuildPlan, BuildPlanConstructError, PackageNativeConfig,
     artifact::{ArtifactKey, package_file_key, runtime_source_key},
 };
 
@@ -51,15 +48,6 @@ pub(super) enum NativeToolchainRole {
     Program(PackageId),
     /// Compile and archive the package's C stubs.
     CStubs(PackageId),
-}
-
-/// Package inputs shared by generated-C compilation, executable linking, and
-/// foreign-library archiving. Debug and optimization policy belong to each action.
-#[derive(Clone, Debug)]
-pub(super) struct PackageNativeConfig {
-    pub(super) effective_native_toolchain: Toolchain,
-    pub(super) c_flags: Vec<String>,
-    pub(super) native_allocator: NativeAllocator,
 }
 
 /// The struct responsible for holding the states and dependencies used during

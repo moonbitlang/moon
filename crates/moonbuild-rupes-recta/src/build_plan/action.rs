@@ -21,8 +21,8 @@ use std::path::Path;
 use moonutil::{compiler_flags::Toolchain, resolution::ModuleId};
 
 use super::{
-    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, CompileGeneratedCInfo,
-    ForeignLibraryInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo, WasmLinkInfo,
+    BackendPlan, BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, ForeignLibraryInfo,
+    LinkCoreInfo, MakeExecutableInfo, PackageNativeConfig, PrebuildInfo, WasmLinkInfo,
 };
 use crate::model::{BuildPlanNode, BuildTarget, PackageId, TargetKind, WasmObject};
 
@@ -74,7 +74,7 @@ pub(crate) enum BuildAction<'a> {
     },
     CompileGeneratedC {
         target: BuildTarget,
-        info: &'a CompileGeneratedCInfo,
+        info: &'a PackageNativeConfig,
     },
     ArchiveForeignLibrary {
         info: &'a ForeignLibraryInfo,
@@ -132,7 +132,7 @@ impl BackendPlan {
     fn linked_core_consumer_toolchain(&self, target: BuildTarget) -> Option<&Toolchain> {
         self.make_executable_info
             .get(&target)
-            .map(|info| &info.effective_native_toolchain)
+            .map(|info| &info.native.effective_native_toolchain)
             .or_else(|| {
                 (target.kind == TargetKind::Source)
                     .then(|| self.foreign_library_info.get(&target.package))

@@ -119,7 +119,7 @@ mod tests {
     use crate::{
         build_plan::{
             ArtifactKey, BuildCStubsInfo, BuildPlan, BuildPlanActionKey, BuildRuntimeInfo,
-            BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+            BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo, PackageNativeConfig,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
@@ -646,16 +646,18 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
-                effective_native_toolchain: toolchain.clone(),
-                driver_debug_info: false,
-                driver_opt_level: crate::model::CCOptLevel::Debug,
-                driver_flags: Vec::new(),
+                native: PackageNativeConfig {
+                    effective_native_toolchain: toolchain.clone(),
+                    driver_debug_info: false,
+                    driver_opt_level: crate::model::CCOptLevel::Debug,
+                    cc_flags: Vec::new(),
+                    native_allocator: NativeAllocator::Default,
+                },
                 link_args: vec![
                     crate::model::NativeLinkArg::Library("dep".into()),
                     crate::model::NativeLinkArg::SearchPath("pkg/lib".into()),
                 ],
                 link_c_stubs: vec![target.package],
-                native_allocator: NativeAllocator::Default,
             },
         );
 
@@ -908,22 +910,24 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
-                driver_debug_info: true,
-                driver_opt_level: crate::model::CCOptLevel::Debug,
-                effective_native_toolchain: Toolchain::from_path_probe(CC {
-                    cc_kind: CCKind::Clang,
-                    cc_path: "/toolchain/bin/clang".to_string(),
-                    ar_kind: ARKind::AppleLibtool,
-                    ar_path: "/toolchain/bin/libtool".to_string(),
-                    // An unprobed target counts as the host, so the host-only
-                    // libbacktrace.a is linked on every test host.
-                    target_triple: None,
-                    is_env_override: false,
-                }),
-                driver_flags: Vec::new(),
+                native: PackageNativeConfig {
+                    driver_debug_info: true,
+                    driver_opt_level: crate::model::CCOptLevel::Debug,
+                    effective_native_toolchain: Toolchain::from_path_probe(CC {
+                        cc_kind: CCKind::Clang,
+                        cc_path: "/toolchain/bin/clang".to_string(),
+                        ar_kind: ARKind::AppleLibtool,
+                        ar_path: "/toolchain/bin/libtool".to_string(),
+                        // An unprobed target counts as the host, so the host-only
+                        // libbacktrace.a is linked on every test host.
+                        target_triple: None,
+                        is_env_override: false,
+                    }),
+                    cc_flags: Vec::new(),
+                    native_allocator: NativeAllocator::Default,
+                },
                 link_args: Vec::new(),
                 link_c_stubs: Vec::new(),
-                native_allocator: NativeAllocator::Default,
             },
         );
         plan.test_insert_dsymutil(dsymutil.clone());

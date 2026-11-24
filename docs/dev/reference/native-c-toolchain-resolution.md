@@ -88,12 +88,16 @@ Generated C always passes through `CompileGeneratedC`, which provides a
 The compile command takes one C source and emits one `.o` or `.obj`, allowing
 compiler caches to reuse the result independently of final link inputs.
 
-Planning shares the package's selected toolchain, validated allocator, and parsed
-`cc-flags` across its native actions. Generated-C compilation and executable
-linking each select their own debug and optimization settings; foreign-library
-archiving does not construct generated-C compilation settings. Generated-C and
-LLVM executable links retain the existing `cc-flags` forwarding for effects such
-as sanitizers and LTO. Direct-object links do not consume those driver settings.
+Planning resolves and caches `PackageNativeConfig` once per package within a
+build configuration: the selected toolchain, validated allocator, parsed
+`cc-flags`, and driver debug and optimization settings. Generated-C compilation
+uses this configuration directly; executable-link metadata embeds it alongside
+the current target's ordered link arguments and C-stub dependencies.
+Foreign-library archiving takes only the toolchain and allocator. Lowering
+projects these settings into its existing compiler, linker, and archiver command
+configurations. Generated-C and LLVM executable links retain `cc-flags`
+forwarding for effects such as sanitizers and LTO. Direct-object links do not
+consume those driver settings.
 
 Package C stubs are handled separately:
 
