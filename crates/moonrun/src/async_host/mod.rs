@@ -40,7 +40,7 @@ use std::os::windows::io::{AsRawHandle, AsRawSocket};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use slotmap::{Key, KeyData, SecondaryMap};
+use slotmap::{Key, KeyData};
 
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
@@ -296,22 +296,17 @@ fn error_message_buffer(message: String) -> Box<[u8]> {
     bytes.into_boxed_slice()
 }
 
-struct HandleTable {
-    keys: Rc<RefCell<HostKeys>>,
-    resources: SecondaryMap<HandleKey, ResourceRef>,
+struct ResourceHandles {
+    resources: Handles<ResourceRef>,
     invalid_resource: HandleKey,
     stdio_resources: [HandleKey; 3],
 }
 
-impl HandleTable {
-    fn with_keys(keys: Rc<RefCell<HostKeys>>, stdio: &Stdio) -> Self {
-        let mut handles = keys.borrow_mut();
-        let mut resources = SecondaryMap::new();
+impl ResourceHandles {
+    fn new(keys: Rc<RefCell<HostKeys>>, stdio_raw_handles: [Option<RawFd>; 3]) -> Self {
+        let mut resources = Handles::new(keys, HandleKind::Resource);
+        let invalid_resource = resources.insert(Arc::new(Resource::invalid()));
 
-        let invalid_resource = handles.insert(HandleKind::Resource);
-        resources.insert(invalid_resource, Arc::new(Resource::invalid()));
-
-        let stdio_raw_handles = stdio.raw_handles();
         let mut stdio_resources = [invalid_resource; 3];
         for (index, raw) in stdio_raw_handles.iter().enumerate() {
             let Some(raw) = raw else {
@@ -323,15 +318,12 @@ impl HandleTable {
             {
                 stdio_resources[index] = stdio_resources[previous];
             } else {
-                let key = handles.insert(HandleKind::Resource);
-                resources.insert(key, Arc::new(Resource::stdio_file(*raw)));
+                let key = resources.insert(Arc::new(Resource::stdio_file(*raw)));
                 stdio_resources[index] = key;
             }
         }
 
-        drop(handles);
         Self {
-            keys,
             resources,
             invalid_resource,
             stdio_resources,
@@ -343,7 +335,7 @@ impl HandleTable {
     }
 
     fn resource_ref(&self, handle: HostHandle) -> AsyncHostResult<&ResourceRef> {
-        let key = self.key(handle, HandleKind::Resource)?;
+        let key = key_from_handle(handle);
         let resource = self.resources.get(key).ok_or(AsyncHostError::Badf)?;
         if resource.is_invalid() {
             return Err(AsyncHostError::Badf);
@@ -400,20 +392,15 @@ impl HandleTable {
     }
 
     fn remove_resource(&mut self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
-        let key = self.key(handle, HandleKind::Resource)?;
+        let key = key_from_handle(handle);
         if key == self.invalid_resource || self.stdio_resources.contains(&key) {
             return Err(AsyncHostError::Badf);
         }
-        self.keys
-            .borrow_mut()
-            .remove(key)
-            .ok_or(AsyncHostError::Badf)?;
         self.resources.remove(key).ok_or(AsyncHostError::Badf)
     }
 
     fn insert_resource(&mut self, resource: Resource) -> HostHandle {
-        let key = self.keys.borrow_mut().insert(HandleKind::Resource);
-        self.resources.insert(key, Arc::new(resource));
+        let key = self.resources.insert(Arc::new(resource));
         handle_from_key(key)
     }
 
@@ -428,21 +415,26 @@ impl HandleTable {
             .count()
     }
 
-    fn key(&self, handle: HostHandle, expected: HandleKind) -> AsyncHostResult<HandleKey> {
-        self.keys
-            .borrow()
-            .key(handle, expected)
-            .ok_or(AsyncHostError::Badf)
-    }
-
-    fn kind(&self, key: HandleKey) -> Option<HandleKind> {
-        self.keys.borrow().kind(key)
+    fn leak_summary(&self) -> Option<String> {
+        let mut leaks = Vec::new();
+        if !self
+            .resources
+            .get(self.invalid_resource)
+            .is_some_and(|resource| resource.is_invalid())
+        {
+            leaks.push("invalid_resource=invalid".to_string());
+        }
+        let resources = self.resource_count_excluding_reserved();
+        if resources != 0 {
+            leaks.push(format!("resources={resources}"));
+        }
+        (!leaks.is_empty()).then(|| leaks.join(", "))
     }
 }
 
-impl ResourceTable for HandleTable {
+impl ResourceTable for ResourceHandles {
     fn insert_resource(&mut self, resource: Resource) -> AsyncHostResult<u64> {
-        Ok(HandleTable::insert_resource(self, resource))
+        Ok(ResourceHandles::insert_resource(self, resource))
     }
 }
 
@@ -628,7 +620,7 @@ pub(crate) struct AsyncHost {
     signals: SignalReceiver,
     #[cfg(unix)]
     signal_handler: RefCell<Option<crate::run_signal::SignalTargetGuard>>,
-    handles: RefCell<HandleTable>,
+    resources: RefCell<ResourceHandles>,
     tls_connections: RefCell<Handles<tls::TlsHandle>>,
     tls_error: RefCell<Option<String>>,
 }
@@ -676,14 +668,14 @@ impl AsyncHost {
             signals,
             #[cfg(unix)]
             signal_handler: RefCell::new(None),
-            handles: RefCell::new(HandleTable::with_keys(keys.clone(), stdio)),
+            resources: RefCell::new(ResourceHandles::new(keys.clone(), stdio.raw_handles())),
             tls_connections: RefCell::new(Handles::new(keys, HandleKind::TlsConnection)),
             tls_error: RefCell::new(None),
         }
     }
 
     pub(crate) fn invalid_fd(&self) -> HostHandle {
-        self.handles.borrow().invalid_fd()
+        self.resources.borrow().invalid_fd()
     }
 
     pub(crate) fn std_handle(&self, id: i32) -> AsyncHostResult<HostHandle> {
@@ -693,7 +685,7 @@ impl AsyncHost {
             STDERR_ID => StdioStream::Stderr,
             _ => return Err(AsyncHostError::Inval),
         };
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let handle = handle_from_key(handles.stdio_resources[stdio as usize]);
         handles.resource(handle)?;
         Ok(handle)
@@ -792,7 +784,7 @@ impl AsyncHost {
         let fd = match std::mem::replace(&mut result.resource, placeholder) {
             ResourcePublication::Published(fd) => fd,
             ResourcePublication::Unpublished(file) => {
-                self.handles.borrow_mut().insert_resource(file)
+                self.resources.borrow_mut().insert_resource(file)
             }
         };
         result.resource = ResourcePublication::Published(fd);
@@ -886,22 +878,8 @@ impl AsyncHost {
                     leaks.push(format!("tls_connections={}", tls_connections.len()));
                 }
             }
-            {
-                let handles = self.handles.borrow();
-                let leaked_resources = handles.resource_count_excluding_reserved();
-                let invalid_resource_is_valid = handles
-                    .kind(handles.invalid_resource)
-                    .is_some_and(|kind| kind == HandleKind::Resource)
-                    && handles
-                        .resources
-                        .get(handles.invalid_resource)
-                        .is_some_and(|resource| resource.is_invalid());
-                if !invalid_resource_is_valid {
-                    leaks.push("invalid_resource=invalid".to_string());
-                }
-                if leaked_resources != 0 {
-                    leaks.push(format!("resources={leaked_resources}"));
-                }
+            if let Some(resources) = self.resources.borrow().leak_summary() {
+                leaks.push(resources);
             }
             if self.workers.len() != 0 {
                 leaks.push(format!("workers={}", self.workers.len()));
@@ -955,7 +933,7 @@ impl AsyncHost {
         fd_handle: HostHandle,
         read_only: bool,
     ) -> AsyncHostResult<i32> {
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let resource = handles.resource_ref(fd_handle)?;
         #[cfg(windows)]
         if self
@@ -1002,7 +980,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         // The old import predates tri-state registration. Preserve its
         // platform syscall behavior as well as its 0/-1 ABI result.
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let resource = handles.resource_ref(fd_handle)?;
         #[cfg(windows)]
         if self
@@ -1259,13 +1237,13 @@ impl AsyncHost {
             let (completion_notifier, event_fd) = ThreadPoolCompletionNotifier::new()?;
             let completion_notifier = Arc::new(completion_notifier);
             let source = self
-                .handles
+                .resources
                 .borrow_mut()
                 .insert_resource(Resource::new(event_fd));
             if let Err(error) =
                 poll::poll_register_completion_source(&poll.instance, event_fd, source)
             {
-                let _ = self.handles.borrow_mut().remove_resource(source);
+                let _ = self.resources.borrow_mut().remove_resource(source);
                 return Err(error);
             }
             let signal_fd = completion_notifier.signal_fd();
@@ -1275,7 +1253,7 @@ impl AsyncHost {
                 poll::poll_register_completion_source(&poll.instance, signal_fd, source)
             {
                 let _ = poll::poll_unregister(&poll.instance, event_fd);
-                let _ = self.handles.borrow_mut().remove_resource(source);
+                let _ = self.resources.borrow_mut().remove_resource(source);
                 return Err(error);
             }
             poll.registered_fds.insert(event_fd);
@@ -1320,7 +1298,7 @@ impl AsyncHost {
             // The source may already have been removed by close_fd. Retain a
             // surviving resource until every poll has released its descriptor.
             let source = self
-                .handles
+                .resources
                 .borrow_mut()
                 .remove_resource(registration.source)
                 .ok();
@@ -1861,7 +1839,7 @@ impl AsyncHost {
             ResourcePublication::Unpublished(resource) => resource,
         };
         let process_pid = job.ret() as i32;
-        let fd = self.handles.borrow_mut().insert_resource(resource);
+        let fd = self.resources.borrow_mut().insert_resource(resource);
         self.process.track_process_handle(fd, process_pid);
         job.process_mut()?
             .set_spawn_result(ResourcePublication::Published(fd))?;
@@ -1917,7 +1895,7 @@ impl AsyncHost {
 
     pub(crate) fn close_fd(&self, handle: HostHandle) -> AsyncHostResult<()> {
         let file = {
-            let mut handles = self.handles.borrow_mut();
+            let mut handles = self.resources.borrow_mut();
             #[cfg(windows)]
             {
                 let file = handles.resource(handle)?;
@@ -1953,7 +1931,7 @@ impl AsyncHost {
 
     pub(crate) fn make_tcp_socket(&self, family: i32) -> AsyncHostResult<HostHandle> {
         let socket = self.network.make_tcp_socket(family)?;
-        Ok(self.handles.borrow_mut().insert_resource(socket))
+        Ok(self.resources.borrow_mut().insert_resource(socket))
     }
 
     pub(crate) fn make_udp_socket(
@@ -1962,7 +1940,7 @@ impl AsyncHost {
         multicast: bool,
     ) -> AsyncHostResult<HostHandle> {
         let socket = self.network.make_udp_socket(family, multicast)?;
-        Ok(self.handles.borrow_mut().insert_resource(socket))
+        Ok(self.resources.borrow_mut().insert_resource(socket))
     }
 
     pub(crate) fn bind(&self, handle: HostHandle, addr: &[u8]) -> AsyncHostResult<()> {
@@ -2009,7 +1987,7 @@ impl AsyncHost {
         addr: &mut [u8],
     ) -> AsyncHostResult<HostHandle> {
         let socket = self.with_resource(handle, |socket| self.network.accept(socket, addr))?;
-        Ok(self.handles.borrow_mut().insert_resource(socket))
+        Ok(self.resources.borrow_mut().insert_resource(socket))
     }
 
     pub(crate) fn make_bind_job(&self, socket: ResourceRef, addr: Vec<u8>) -> AsyncHostResult<u64> {
@@ -2032,7 +2010,7 @@ impl AsyncHost {
 
     #[cfg(unix)]
     pub(crate) fn insert_file_resource(&self, raw_fd: RawFd) -> HostHandle {
-        self.handles
+        self.resources
             .borrow_mut()
             .insert_resource(Resource::new(raw_fd))
     }
@@ -2128,9 +2106,12 @@ impl AsyncHost {
             }
             #[cfg(windows)]
             {
-                Ok(self.handles.borrow_mut().insert_resource(Resource::process(
-                    crate::process_tree::ProcessHandle::open(context, pid)?,
-                )))
+                Ok(self
+                    .resources
+                    .borrow_mut()
+                    .insert_resource(Resource::process(crate::process_tree::ProcessHandle::open(
+                        context, pid,
+                    )?)))
             }
         })())
     }
@@ -2184,7 +2165,7 @@ impl AsyncHost {
         handle: HostHandle,
         f: impl FnOnce(RawSocket) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let file = handles.socket(handle)?;
         #[cfg(unix)]
         let socket = file.as_fd()?.as_raw_fd();
@@ -2196,7 +2177,7 @@ impl AsyncHost {
     #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn insert_host_process_handle(&self, raw_fd: RawFd, pid: i32) -> HostHandle {
         let handle = self
-            .handles
+            .resources
             .borrow_mut()
             .insert_resource(Resource::new(raw_fd));
         self.process.track_process_handle(handle, pid);
@@ -2208,7 +2189,7 @@ impl AsyncHost {
         handle: HostHandle,
         f: impl FnOnce(&Resource) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         f(handles.resource(handle)?)
     }
 
@@ -2218,12 +2199,12 @@ impl AsyncHost {
         class: ResourceClass,
         f: impl FnOnce(&Resource) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         f(handles.resource_of_class(handle, class)?)
     }
 
     pub(crate) fn acquire_resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
-        self.handles.borrow().acquire_resource(handle)
+        self.resources.borrow().acquire_resource(handle)
     }
 
     pub(crate) fn acquire_resource_of_class(
@@ -2231,7 +2212,7 @@ impl AsyncHost {
         handle: HostHandle,
         class: ResourceClass,
     ) -> AsyncHostResult<ResourceRef> {
-        self.handles
+        self.resources
             .borrow()
             .acquire_resource_of_class(handle, class)
     }
@@ -2240,7 +2221,7 @@ impl AsyncHost {
         &self,
         handle: HostHandle,
     ) -> AsyncHostResult<ResourceRef> {
-        self.handles.borrow().acquire_socket(handle)
+        self.resources.borrow().acquire_socket(handle)
     }
 
     pub(crate) fn pipe(
@@ -2248,7 +2229,7 @@ impl AsyncHost {
         read_end_is_async: bool,
         write_end_is_async: bool,
     ) -> AsyncHostResult<[HostHandle; 2]> {
-        let mut handles = self.handles.borrow_mut();
+        let mut handles = self.resources.borrow_mut();
         crate::async_sys::internal::fd_util::stub::pipe_resources(
             &mut *handles,
             read_end_is_async,
@@ -2923,17 +2904,23 @@ mod tests {
     struct AlignedBytes<const N: usize>([u8; N]);
 
     fn resource_count(host: &AsyncHost) -> usize {
-        host.handles.borrow().resource_count_excluding_reserved()
+        host.resources.borrow().resource_count_excluding_reserved()
     }
 
     fn test_host(policy: Option<Policy>, environment: Env) -> AsyncHost {
-        test_host_with_working_directory(policy, environment, WorkingDirectory::Ambient)
+        test_host_with_state(
+            policy,
+            environment,
+            WorkingDirectory::Ambient,
+            Rc::new(RefCell::new(HostKeys::default())),
+        )
     }
 
-    fn test_host_with_working_directory(
+    fn test_host_with_state(
         policy: Option<Policy>,
         environment: Env,
         working_directory: WorkingDirectory,
+        keys: Rc<RefCell<HostKeys>>,
     ) -> AsyncHost {
         let environment = Arc::new(environment);
         let working_directory = Arc::new(working_directory);
@@ -2963,11 +2950,15 @@ mod tests {
             filesystem,
             network,
             process,
-            Rc::new(RefCell::new(HostKeys::default())),
+            keys,
             crate::signal_channel().1,
             #[cfg(unix)]
             child_signal_mask,
         )
+    }
+
+    pub(super) fn default_host_with_keys(keys: Rc<RefCell<HostKeys>>) -> AsyncHost {
+        test_host_with_state(None, Env::ambient(), WorkingDirectory::Ambient, keys)
     }
 
     pub(super) fn default_host() -> AsyncHost {
@@ -3450,10 +3441,11 @@ mod tests {
             .unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let host = test_host_with_working_directory(
+        let host = test_host_with_state(
             None,
             Env::owned([("PATH".into(), "bin".into())]).unwrap(),
             WorkingDirectory::Fixed(root.clone()),
+            Rc::new(RefCell::new(HostKeys::default())),
         );
         for (program, child_cwd, expected_cwd, expected_code) in [
             ("moonrun-relative-path-probe", None, root.clone(), 17),
@@ -3590,10 +3582,11 @@ mod tests {
             )
             .unwrap();
         }
-        let host = test_host_with_working_directory(
+        let host = test_host_with_state(
             None,
             Env::owned([]).unwrap(),
             WorkingDirectory::Fixed(root.clone()),
+            Rc::new(RefCell::new(HostKeys::default())),
         );
         let env = [
             format!("{CHILD}={}", root.display()),
@@ -4482,8 +4475,8 @@ mod tests {
 
     #[test]
     fn dropping_host_retires_poll_handles() {
-        let host = default_host();
-        let keys = Rc::clone(&host.handles.borrow().keys);
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = default_host_with_keys(keys.clone());
         let owner = host.poll_create().unwrap();
         let unrelated = host.poll_create().unwrap();
         host.init_thread_pool(owner).unwrap();
@@ -4499,6 +4492,67 @@ mod tests {
         for handle in [owner, unrelated] {
             assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
         }
+    }
+
+    #[test]
+    fn dropping_host_retires_resource_handles_but_preserves_acquired_resources() {
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = default_host_with_keys(keys.clone());
+        let [read, write] = host.pipe(false, false).unwrap();
+        let acquired = host.acquire_resource(read).unwrap();
+        let weak = Arc::downgrade(&acquired);
+        let mut handles = vec![host.invalid_fd(), read, write];
+        for id in [STDIN_ID, STDOUT_ID, STDERR_ID] {
+            if let Ok(handle) = host.std_handle(id) {
+                assert_eq!(host.close_fd(handle), Err(AsyncHostError::Badf));
+                handles.push(handle);
+            }
+        }
+        assert_eq!(host.close_fd(host.invalid_fd()), Err(AsyncHostError::Badf));
+
+        drop(host);
+
+        // The Runtime namespace may outlive a domain. Its old registrations
+        // must disappear even when an acquired Resource still has an owner.
+        for handle in handles {
+            assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
+        }
+        assert_eq!(Arc::strong_count(&acquired), 1);
+        assert!(weak.upgrade().is_some());
+        drop(acquired);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn reserved_resources_share_stdio_aliases_and_reject_close() {
+        let file = tempfile::tempfile().unwrap();
+        #[cfg(unix)]
+        let raw = file.as_raw_fd();
+        #[cfg(windows)]
+        let raw = file.as_raw_handle();
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let mut resources = ResourceHandles::new(keys.clone(), [Some(raw), Some(raw), None]);
+        let [input, output, absent] = resources.stdio_resources;
+        assert_eq!(input, output);
+        assert_eq!(absent, resources.invalid_resource);
+        assert!(resources.resource(handle_from_key(input)).is_ok());
+        assert!(matches!(
+            resources.resource(handle_from_key(absent)),
+            Err(AsyncHostError::Badf)
+        ));
+        for key in [input, output, absent] {
+            assert!(matches!(
+                resources.remove_resource(handle_from_key(key)),
+                Err(AsyncHostError::Badf)
+            ));
+        }
+        assert!(resources.leak_summary().is_none());
+        drop(resources);
+        for key in [input, output, absent] {
+            assert_eq!(keys.borrow().kind(key), None);
+        }
+        // Reserved entries borrow stdio; only their Handle registrations retire.
+        assert!(file.metadata().is_ok());
     }
 
     #[test]
@@ -4970,8 +5024,8 @@ mod tests {
 
     #[test]
     fn dropping_host_retires_ready_reserved_and_completed_job_handles() {
-        let host = default_host();
-        let keys = Rc::clone(&host.handles.borrow().keys);
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = default_host_with_keys(keys.clone());
         let ready = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let reserved = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let completed = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
@@ -5750,8 +5804,8 @@ mod tests {
 
     #[test]
     fn dropping_host_retires_pending_and_configured_tls_handles() {
-        let host = default_host();
-        let keys = Rc::clone(&host.handles.borrow().keys);
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = default_host_with_keys(keys.clone());
         let pending = host.tls_new();
         let configured = host.tls_new();
         assert_eq!(
@@ -5800,10 +5854,11 @@ mod tests {
             } else {
                 (None, Env::ambient())
             };
-            let host = test_host_with_working_directory(
+            let host = test_host_with_state(
                 policy,
                 environment,
                 WorkingDirectory::Fixed(root.clone()),
+                Rc::new(RefCell::new(HostKeys::default())),
             );
             let handle = host.tls_new();
             let status = host
@@ -6424,9 +6479,9 @@ mod tests {
 
     #[test]
     fn missing_worker_registration_preserves_ready_job() {
-        let host = default_host();
+        let keys = Rc::new(RefCell::new(HostKeys::default()));
+        let host = default_host_with_keys(keys.clone());
         // Exercise registry lookup failure after the Handle itself validates.
-        let keys = Rc::clone(&host.handles.borrow().keys);
         let worker_key = keys.borrow_mut().insert(HandleKind::Worker);
         let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
 
@@ -6765,7 +6820,15 @@ mod tests {
 
         host.close_fd(read).unwrap();
 
-        assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
+        let buffer = host.insert_c_buffer(vec![1].into_boxed_slice());
+        for handle in [read, buffer, null_handle(), 0] {
+            assert!(matches!(
+                host.acquire_resource(handle),
+                Err(AsyncHostError::Badf)
+            ));
+            assert_eq!(host.close_fd(handle), Err(AsyncHostError::Badf));
+        }
+        host.free_c_buffer(buffer).unwrap();
         host.close_fd(write).unwrap();
     }
 }

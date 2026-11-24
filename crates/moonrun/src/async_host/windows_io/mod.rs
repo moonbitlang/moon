@@ -766,7 +766,7 @@ impl AsyncHost {
         result_handle: u64,
         fd_handle: HostHandle,
     ) -> AsyncHostResult<i32> {
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let file = handles.resource(fd_handle)?;
         let result_key = key_from_handle(result_handle);
         let mut io_results = self.io_results.borrow_mut();
@@ -794,7 +794,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::System::IO::GetOverlappedResult;
 
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let file = handles.resource(fd_handle)?;
         let raw_handle = raw_overlapped_handle(file)?;
         let result_key = key_from_handle(result_handle);
@@ -901,7 +901,7 @@ impl AsyncHost {
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let result_key = key_from_handle(result_handle);
         let mut io_results = self.io_results.borrow_mut();
         let file = handles.resource_ref(fd_handle)?;
@@ -996,7 +996,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
 
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let result_key = key_from_handle(result_handle);
         let mut io_results = self.io_results.borrow_mut();
         let file = handles.resource_ref(fd_handle)?;
@@ -1039,7 +1039,7 @@ impl AsyncHost {
 
         // The accepted resource class depends on the IO result kind, so resolve
         // both while their tables are borrowed.
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let result_key = key_from_handle(result_handle);
         let mut io_results = self.io_results.borrow_mut();
         let file = handles.resource_ref(fd_handle)?;
@@ -1130,7 +1130,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let file = handles.acquire_resource_of_class(fd_handle, ResourceClass::TcpSocket)?;
         let raw_socket = file.as_socket()?.as_raw_socket();
         let result_key = key_from_handle(result_handle);
@@ -1201,7 +1201,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let server_file =
             handles.acquire_resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?;
         let conn_file =
@@ -1278,7 +1278,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let handles = self.handles.borrow();
+        let handles = self.resources.borrow();
         let listen_file = handles.resource_of_class(listen_fd_handle, ResourceClass::TcpSocket)?;
         let accept_file = handles.resource_of_class(accept_fd_handle, ResourceClass::TcpSocket)?;
         let listen_socket = listen_file.as_socket()?.as_raw_socket() as usize;

@@ -66,6 +66,10 @@ impl<T> Handles<T> {
         self.entries.get_mut(key)
     }
 
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (HostKey, &T)> {
+        self.entries.iter()
+    }
+
     #[cfg(windows)]
     pub(crate) fn values(&self) -> impl Iterator<Item = &T> {
         self.entries.values()
