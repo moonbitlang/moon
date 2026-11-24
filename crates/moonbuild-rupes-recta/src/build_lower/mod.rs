@@ -647,9 +647,9 @@ mod tests {
             target,
             MakeExecutableInfo {
                 effective_native_toolchain: toolchain.clone(),
-                c_debug_info: false,
-                c_opt_level: crate::model::CCOptLevel::Debug,
-                c_flags: Vec::new(),
+                driver_debug_info: false,
+                driver_opt_level: crate::model::CCOptLevel::Debug,
+                driver_flags: Vec::new(),
                 link_args: vec![
                     crate::model::NativeLinkArg::Library("dep".into()),
                     crate::model::NativeLinkArg::SearchPath("pkg/lib".into()),
@@ -908,8 +908,8 @@ mod tests {
         plan.test_insert_make_executable_info(
             target,
             MakeExecutableInfo {
-                c_debug_info: true,
-                c_opt_level: crate::model::CCOptLevel::Debug,
+                driver_debug_info: true,
+                driver_opt_level: crate::model::CCOptLevel::Debug,
                 effective_native_toolchain: Toolchain::from_path_probe(CC {
                     cc_kind: CCKind::Clang,
                     cc_path: "/toolchain/bin/clang".to_string(),
@@ -920,7 +920,7 @@ mod tests {
                     target_triple: None,
                     is_env_override: false,
                 }),
-                c_flags: Vec::new(),
+                driver_flags: Vec::new(),
                 link_args: Vec::new(),
                 link_c_stubs: Vec::new(),
                 native_allocator: NativeAllocator::Default,
