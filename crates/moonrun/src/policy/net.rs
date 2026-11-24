@@ -17,12 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsStr;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::Context;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_host::AsyncHostResult;
 
 use super::{config::NetConfig, sandbox_denied, transfer};
 
@@ -75,10 +75,11 @@ impl NetPolicy {
         }
     }
 
+    /// Addresses are consumed only when a hostname rule can grant connect authority.
     pub(crate) fn resolved_connect_rules(
         &self,
         host: &OsStr,
-        addrs: &[Box<[u8]>],
+        ips: impl IntoIterator<Item = AsyncHostResult<IpAddr>>,
     ) -> AsyncHostResult<Vec<ResolvedConnectRule>> {
         let host = normalize_dns_name(&host.to_string_lossy());
         let rules = self
@@ -97,12 +98,12 @@ impl NetPolicy {
             return Ok(Vec::new());
         }
         let mut grants = Vec::new();
-        for addr in addrs {
-            let addr = parse_socket_addr(addr)?;
+        for ip in ips {
+            let ip = ip?;
             grants.extend(rules.iter().map(|(index, rule)| ResolvedConnectRule {
                 group: *index,
                 rule: SocketRule {
-                    host: SocketHostRule::Ip(addr.ip),
+                    host: SocketHostRule::Ip(ip),
                     port: rule.port,
                 },
             }));
@@ -113,10 +114,9 @@ impl NetPolicy {
     pub(crate) fn check_socket(
         &self,
         operation: NetOperation,
-        addr: &[u8],
+        addr: SocketAddr,
         resolved_connect: &[ResolvedConnectRule],
     ) -> AsyncHostResult<()> {
-        let addr = parse_socket_addr(addr)?;
         if self.rule_groups.iter().enumerate().all(|(index, group)| {
             let rules = match operation {
                 NetOperation::Connect => &group.connect,
@@ -132,7 +132,7 @@ impl NetPolicy {
         } else {
             sandbox_denied(
                 operation.sandbox_action(),
-                Some(&quote_str(&addr.describe())),
+                Some(&quote_str(&addr.to_string())),
             )
         }
     }
@@ -174,12 +174,6 @@ enum SocketHostRule {
 enum SocketPortRule {
     Any,
     Exact(u16),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SocketAddr {
-    ip: IpAddr,
-    port: u16,
 }
 
 impl NetRules {
@@ -385,20 +379,11 @@ impl SocketRule {
     fn matches(&self, addr: SocketAddr) -> bool {
         (match &self.host {
             SocketHostRule::Any => true,
-            SocketHostRule::Ip(ip) => *ip == addr.ip,
+            SocketHostRule::Ip(ip) => *ip == addr.ip(),
             SocketHostRule::Name(_) => false,
         }) && match self.port {
             SocketPortRule::Any => true,
-            SocketPortRule::Exact(port) => port == addr.port,
-        }
-    }
-}
-
-impl SocketAddr {
-    fn describe(self) -> String {
-        match self.ip {
-            IpAddr::V4(ip) => format!("{ip}:{}", self.port),
-            IpAddr::V6(ip) => format!("[{ip}]:{}", self.port),
+            SocketPortRule::Exact(port) => port == addr.port(),
         }
     }
 }
@@ -435,79 +420,40 @@ fn quote_str(value: &str) -> String {
     format!("{value:?}")
 }
 
-#[cfg(unix)]
-fn parse_socket_addr(addr: &[u8]) -> AsyncHostResult<SocketAddr> {
-    if addr.len() < std::mem::size_of::<libc::sockaddr>() {
-        return Err(AsyncHostError::Fault);
-    }
-    let family = unsafe { addr.as_ptr().cast::<libc::sockaddr>().read_unaligned() }.sa_family;
-    match i32::from(family) {
-        libc::AF_INET => {
-            if addr.len() < std::mem::size_of::<libc::sockaddr_in>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<libc::sockaddr_in>().read_unaligned() };
-            Ok(SocketAddr {
-                ip: IpAddr::V4(Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr))),
-                port: u16::from_be(addr.sin_port),
-            })
-        }
-        libc::AF_INET6 => {
-            if addr.len() < std::mem::size_of::<libc::sockaddr_in6>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<libc::sockaddr_in6>().read_unaligned() };
-            Ok(SocketAddr {
-                ip: IpAddr::V6(Ipv6Addr::from(addr.sin6_addr.s6_addr)),
-                port: u16::from_be(addr.sin6_port),
-            })
-        }
-        _ => Err(AsyncHostError::Inval),
-    }
-}
-
-#[cfg(windows)]
-fn parse_socket_addr(addr: &[u8]) -> AsyncHostResult<SocketAddr> {
-    use windows_sys::Win32::Networking::WinSock as ws;
-
-    if addr.len() < std::mem::size_of::<ws::SOCKADDR>() {
-        return Err(AsyncHostError::Fault);
-    }
-    let family = unsafe { addr.as_ptr().cast::<ws::SOCKADDR>().read_unaligned() }.sa_family;
-    match family {
-        ws::AF_INET => {
-            if addr.len() < std::mem::size_of::<ws::SOCKADDR_IN>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<ws::SOCKADDR_IN>().read_unaligned() };
-            Ok(SocketAddr {
-                ip: IpAddr::V4(Ipv4Addr::from(u32::from_be(unsafe {
-                    addr.sin_addr.S_un.S_addr
-                }))),
-                port: u16::from_be(addr.sin_port),
-            })
-        }
-        ws::AF_INET6 => {
-            if addr.len() < std::mem::size_of::<ws::SOCKADDR_IN6>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<ws::SOCKADDR_IN6>().read_unaligned() };
-            Ok(SocketAddr {
-                ip: IpAddr::V6(Ipv6Addr::from(unsafe { addr.sin6_addr.u.Byte })),
-                port: u16::from_be(addr.sin6_port),
-            })
-        }
-        _ => Err(AsyncHostError::Inval),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::async_host::AsyncHostError;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn dns_addresses_are_consumed_only_for_matching_hostname_rules() {
+        let policy = NetPolicy::from_config(NetConfig {
+            connect: vec!["api.example.com:443".into()],
+            ..Default::default()
+        })
+        .unwrap();
+        let unused = std::iter::from_fn(|| panic!("unmatched DNS results must not be read"));
+        assert!(
+            policy
+                .resolved_connect_rules(OsStr::new("other.example.com"), unused)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            policy
+                .resolved_connect_rules(
+                    OsStr::new("api.example.com"),
+                    [Err(AsyncHostError::Fault)],
+                )
+                .unwrap_err(),
+            AsyncHostError::Fault
+        );
+    }
 
     #[test]
     fn composed_dns_grants_cannot_satisfy_another_group() {
-        let address = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
         for reverse in [false, true] {
             let mut configs = vec![
                 NetConfig {
@@ -531,35 +477,29 @@ mod tests {
                 Err(AsyncHostError::PermissionDenied)
             );
             let grants = policy
-                .resolved_connect_rules(
-                    OsStr::new("api.example.com"),
-                    std::slice::from_ref(&address),
-                )
+                .resolved_connect_rules(OsStr::new("api.example.com"), [Ok(address.ip())])
                 .unwrap();
             policy
-                .check_socket(NetOperation::Connect, &address, &grants)
+                .check_socket(NetOperation::Connect, address, &grants)
                 .unwrap();
             policy
-                .check_socket(NetOperation::Bind, &address, &[])
+                .check_socket(NetOperation::Bind, address, &[])
                 .unwrap();
-            let wrong_port = ipv4_addr(Ipv4Addr::LOCALHOST, 80);
+            let wrong_port = SocketAddr::from((Ipv4Addr::LOCALHOST, 80));
             assert_eq!(
-                policy.check_socket(NetOperation::Bind, &wrong_port, &[]),
+                policy.check_socket(NetOperation::Bind, wrong_port, &[]),
                 Err(AsyncHostError::PermissionDenied)
             );
             assert_eq!(
-                policy.check_socket(NetOperation::Connect, &wrong_port, &grants),
+                policy.check_socket(NetOperation::Connect, wrong_port, &grants),
                 Err(AsyncHostError::PermissionDenied)
             );
-            let other_address = ipv4_addr(Ipv4Addr::new(127, 0, 0, 2), 443);
+            let other_address = SocketAddr::from((Ipv4Addr::new(127, 0, 0, 2), 443));
             let grants = policy
-                .resolved_connect_rules(
-                    OsStr::new("api.example.com"),
-                    std::slice::from_ref(&other_address),
-                )
+                .resolved_connect_rules(OsStr::new("api.example.com"), [Ok(other_address.ip())])
                 .unwrap();
             assert_eq!(
-                policy.check_socket(NetOperation::Connect, &other_address, &grants),
+                policy.check_socket(NetOperation::Connect, other_address, &grants),
                 Err(AsyncHostError::PermissionDenied)
             );
         }
@@ -577,25 +517,25 @@ mod tests {
         ])
         .unwrap();
         let mut grants = policy
-            .resolved_connect_rules(OsStr::new("a.example.com"), std::slice::from_ref(&address))
+            .resolved_connect_rules(OsStr::new("a.example.com"), [Ok(address.ip())])
             .unwrap();
         assert_eq!(
-            policy.check_socket(NetOperation::Connect, &address, &grants),
+            policy.check_socket(NetOperation::Connect, address, &grants),
             Err(AsyncHostError::PermissionDenied)
         );
         grants.extend(
             policy
-                .resolved_connect_rules(OsStr::new("b.example.com"), std::slice::from_ref(&address))
+                .resolved_connect_rules(OsStr::new("b.example.com"), [Ok(address.ip())])
                 .unwrap(),
         );
         policy
-            .check_socket(NetOperation::Connect, &address, &grants)
+            .check_socket(NetOperation::Connect, address, &grants)
             .unwrap();
     }
 
     #[test]
     fn transfer_preserves_dns_provenance_for_ip_and_wildcard_spelling() {
-        let address = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
         for (rule, lookup) in [
             ("*.:443", "127.0.0.1"),
             ("127.0.0.1.:443", "127.0.0.1"),
@@ -613,15 +553,15 @@ mod tests {
             for group in [parent, child] {
                 let policy = NetPolicy::from_rule_groups([Arc::new(group)]);
                 assert_eq!(
-                    policy.check_socket(NetOperation::Connect, &address, &[]),
+                    policy.check_socket(NetOperation::Connect, address, &[]),
                     Err(AsyncHostError::PermissionDenied),
                     "{rule}"
                 );
                 let grants = policy
-                    .resolved_connect_rules(lookup.as_ref(), std::slice::from_ref(&address))
+                    .resolved_connect_rules(lookup.as_ref(), [Ok(address.ip())])
                     .unwrap();
                 policy
-                    .check_socket(NetOperation::Connect, &address, &grants)
+                    .check_socket(NetOperation::Connect, address, &grants)
                     .unwrap();
             }
         }
@@ -640,14 +580,8 @@ mod tests {
     fn socket_rules_match_ip_and_port() {
         let rule = SocketRule::parse("127.0.0.1:*").unwrap();
 
-        assert!(rule.matches(SocketAddr {
-            ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            port: 8080,
-        }));
-        assert!(!rule.matches(SocketAddr {
-            ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)),
-            port: 8080,
-        }));
+        assert!(rule.matches(SocketAddr::from((Ipv4Addr::LOCALHOST, 8080))));
+        assert!(!rule.matches(SocketAddr::from((Ipv4Addr::new(127, 0, 0, 2), 8080))));
     }
 
     #[test]
@@ -658,20 +592,20 @@ mod tests {
             bind: Vec::new(),
         })
         .unwrap();
-        let resolved_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 0);
-        let allowed_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
-        let denied_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 80);
+        let resolved_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+        let allowed_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
+        let denied_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 80));
 
         policy.check_dns(OsStr::new("API.DEEPSEEK.COM.")).unwrap();
         let resolved_connect = policy
-            .resolved_connect_rules(OsStr::new("api.deepseek.com"), &[resolved_addr])
+            .resolved_connect_rules(OsStr::new("api.deepseek.com"), [Ok(resolved_addr.ip())])
             .unwrap();
 
         policy
-            .check_socket(NetOperation::Connect, &allowed_addr, &resolved_connect)
+            .check_socket(NetOperation::Connect, allowed_addr, &resolved_connect)
             .unwrap();
         let error = policy
-            .check_socket(NetOperation::Connect, &denied_addr, &resolved_connect)
+            .check_socket(NetOperation::Connect, denied_addr, &resolved_connect)
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -684,11 +618,11 @@ mod tests {
             bind: Vec::new(),
         })
         .unwrap();
-        let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
 
         policy.check_dns(OsStr::new("api.deepseek.com")).unwrap();
         let error = policy
-            .check_socket(NetOperation::Connect, &addr, &[])
+            .check_socket(NetOperation::Connect, addr, &[])
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -701,18 +635,18 @@ mod tests {
             bind: Vec::new(),
         })
         .unwrap();
-        let resolved_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 0);
-        let allowed_addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        let resolved_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+        let allowed_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
 
         policy.check_dns(OsStr::new("api.example.com")).unwrap();
         let error = policy.check_dns(OsStr::new("example.com")).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
 
         let resolved_connect = policy
-            .resolved_connect_rules(OsStr::new("api.example.com"), &[resolved_addr])
+            .resolved_connect_rules(OsStr::new("api.example.com"), [Ok(resolved_addr.ip())])
             .unwrap();
         policy
-            .check_socket(NetOperation::Connect, &allowed_addr, &resolved_connect)
+            .check_socket(NetOperation::Connect, allowed_addr, &resolved_connect)
             .unwrap();
     }
 
@@ -724,11 +658,11 @@ mod tests {
             bind: Vec::new(),
         })
         .unwrap();
-        let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 443);
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 443));
 
         policy.check_dns(OsStr::new("api.deepseek.com")).unwrap();
         policy
-            .check_socket(NetOperation::Connect, &addr, &[])
+            .check_socket(NetOperation::Connect, addr, &[])
             .unwrap();
     }
 
@@ -740,11 +674,11 @@ mod tests {
             bind: vec!["127.0.0.1:8080".to_owned()],
         })
         .unwrap();
-        let addr = ipv4_addr(Ipv4Addr::LOCALHOST, 8080);
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 8080));
 
-        policy.check_socket(NetOperation::Bind, &addr, &[]).unwrap();
+        policy.check_socket(NetOperation::Bind, addr, &[]).unwrap();
         let error = policy
-            .check_socket(NetOperation::Connect, &addr, &[])
+            .check_socket(NetOperation::Connect, addr, &[])
             .unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
@@ -753,10 +687,7 @@ mod tests {
     fn ipv6_socket_rules_require_brackets() {
         let rule = SocketRule::parse("[::1]:443").unwrap();
 
-        assert!(rule.matches(SocketAddr {
-            ip: IpAddr::V6(Ipv6Addr::LOCALHOST),
-            port: 443,
-        }));
+        assert!(rule.matches(SocketAddr::from((Ipv6Addr::LOCALHOST, 443))));
         assert!(
             SocketRule::parse("::1:443")
                 .unwrap_err()
@@ -779,11 +710,5 @@ mod tests {
                 .to_string()
                 .contains("bind policy rules must use an IP address or *")
         );
-    }
-
-    fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {
-        let mut addr = vec![0; crate::async_sys::socket::ipv4_addr_size() as usize];
-        crate::async_sys::socket::init_ip_addr(&mut addr, u32::from(ip), u32::from(port)).unwrap();
-        addr.into_boxed_slice()
     }
 }

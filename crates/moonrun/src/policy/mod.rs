@@ -189,7 +189,10 @@ mod tests {
         .map_err(Into::into)
     }
 
-    fn check_network_connect(policy: Option<Policy>, addr: &[u8]) -> AsyncHostResult<()> {
+    fn check_network_connect(
+        policy: Option<Policy>,
+        addr: std::net::SocketAddr,
+    ) -> AsyncHostResult<()> {
         policy
             .as_ref()
             .map(Policy::network)
@@ -384,7 +387,7 @@ fn main {}
     fn no_policy_leaves_net_unrestricted() {
         let policy: Option<Policy> = None;
 
-        check_network_connect(policy, &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap();
+        check_network_connect(policy, (Ipv4Addr::LOCALHOST, 443).into()).unwrap();
     }
 
     #[test]
@@ -408,7 +411,7 @@ fn main {}
         .unwrap();
 
         let error =
-            check_network_connect(Some(policy), &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
+            check_network_connect(Some(policy), (Ipv4Addr::LOCALHOST, 443).into()).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -428,7 +431,7 @@ fn main {}
         .unwrap();
 
         let error =
-            check_network_connect(Some(policy), &ipv4_addr(Ipv4Addr::LOCALHOST, 443)).unwrap_err();
+            check_network_connect(Some(policy), (Ipv4Addr::LOCALHOST, 443).into()).unwrap_err();
         assert_eq!(error, AsyncHostError::PermissionDenied);
     }
 
@@ -516,12 +519,6 @@ fn main {}
         .unwrap();
         #[cfg(windows)]
         check_process_spawn(Some(policy), OsStr::new("program.exe")).unwrap();
-    }
-
-    fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {
-        let mut addr = vec![0; crate::async_sys::socket::ipv4_addr_size() as usize];
-        crate::async_sys::socket::init_ip_addr(&mut addr, u32::from(ip), u32::from(port)).unwrap();
-        addr.into_boxed_slice()
     }
 
     #[cfg(unix)]

@@ -19,6 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult, read_u16};
 use crate::async_sys::socket as sys;
 use crate::guest_memory::GuestMemory;
+use crate::network::address;
 use crate::resource::ResourceClass;
 
 use super::context::ImportContext;
@@ -27,12 +28,12 @@ use super::provenance::ported_imports;
 ported_imports! {
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ipv4_addr_size(_context: &mut ImportContext<'_>) -> u32 {
-    sys::ipv4_addr_size()
+    address::ipv4_addr_size()
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ipv6_addr_size(_context: &mut ImportContext<'_>) -> u32 {
-    sys::ipv6_addr_size()
+    address::ipv6_addr_size()
 }
 
 #[ported(source = "src/socket/socket.c")]
@@ -43,9 +44,9 @@ pub(super) fn init_ip_addr(
     port: u32,
 ) -> AsyncHostResult<()> {
     context.with_memory_mut(|memory| {
-        let addr_len = sys::ipv4_addr_size();
+        let addr_len = address::ipv4_addr_size();
         let addr = memory.read_exact_mut(addr, addr_len)?;
-        sys::init_ip_addr(addr, ip, port)
+        address::init_ip_addr(addr, ip, port)
     })
 }
 
@@ -59,9 +60,9 @@ pub(super) fn init_ipv6_addr(
 ) -> AsyncHostResult<()> {
     context.with_memory_mut(|memory| {
         let ip = memory.read_exact(ip, 16)?.to_vec();
-        let addr_len = sys::ipv6_addr_size();
+        let addr_len = address::ipv6_addr_size();
         let addr = memory.read_exact_mut(addr, addr_len)?;
-        sys::init_ipv6_addr(addr, &ip, port, scope_id)
+        address::init_ipv6_addr(addr, &ip, port, scope_id)
     })
 }
 
@@ -79,7 +80,7 @@ pub(super) fn ip_addr_get_ip(
 ) -> AsyncHostResult<u32> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
-        sys::ip_addr_get_ip(addr)
+        address::ip_addr_get_ip(addr)
     })
 }
 
@@ -91,7 +92,7 @@ pub(super) fn ip_addr_get_port(
 ) -> AsyncHostResult<u32> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
-        sys::ip_addr_get_port(addr)
+        address::ip_addr_get_port(addr)
     })
 }
 
@@ -104,7 +105,7 @@ pub(super) fn addr_is_ipv6(
     context
         .with_memory_mut(|memory| {
             let addr = memory.read_exact(addr, addr_len)?;
-            sys::addr_is_ipv6(addr)
+            address::addr_is_ipv6(addr)
         })
         .map(i32::from)
 }
@@ -118,14 +119,14 @@ pub(super) fn addr_is_multicast(
     context
         .with_memory_mut(|memory| {
             let addr = memory.read_exact(addr, addr_len)?;
-            sys::addr_is_multicast(addr)
+            address::addr_is_multicast(addr)
         })
         .map(i32::from)
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_>) -> u32 {
-    sys::addr_get_ipv6_bytes_offset()
+    address::addr_get_ipv6_bytes_offset()
 }
 
 pub(super) fn addr_copy_ipv6_bytes(
@@ -138,7 +139,7 @@ pub(super) fn addr_copy_ipv6_bytes(
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
         let offset =
-            usize::try_from(sys::addr_get_ipv6_bytes_offset()).map_err(|_| AsyncHostError::Fault)?;
+            usize::try_from(address::addr_get_ipv6_bytes_offset()).map_err(|_| AsyncHostError::Fault)?;
         let ip = addr
             .get(offset..offset + 16)
             .ok_or(AsyncHostError::Fault)?
@@ -160,7 +161,7 @@ pub(super) fn addr_get_ipv6_scope_id(
 ) -> AsyncHostResult<u32> {
     context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
-        sys::addr_get_ipv6_scope_id(addr)
+        address::addr_get_ipv6_scope_id(addr)
     })
 }
 
@@ -173,7 +174,7 @@ pub(super) fn addr_is_ipv6_wildcard(
     context
         .with_memory_mut(|memory| {
             let addr = memory.read_exact(addr, addr_len)?;
-            sys::addr_is_ipv6_wildcard(addr)
+            address::addr_is_ipv6_wildcard(addr)
         })
         .map(i32::from)
 }
@@ -198,7 +199,7 @@ pub(super) fn addrinfo_addr_size(
         return Ok(0);
     }
     let addr = context.host.addrinfo_addr(addrinfo)?;
-    Ok(sys::addrinfo_addr_size(&addr))
+    Ok(address::addrinfo_addr_size(&addr))
 }
 
 #[ported(source = "src/socket/socket.c")]
@@ -215,7 +216,7 @@ pub(super) fn addrinfo_fill_addr(
     let addr = context.host.addrinfo_addr(addrinfo)?;
     context.with_memory_mut(|memory| {
         let out = memory.read_exact_mut(out, out_len)?;
-        sys::addrinfo_fill_addr(&addr, out, port)
+        address::addrinfo_fill_addr(&addr, out, port)
     })
 }
 

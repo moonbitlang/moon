@@ -18,6 +18,7 @@
 
 //! Wasm-backend-neutral network operations owned by one moonrun Runtime.
 
+pub(crate) mod address;
 mod job;
 
 use std::cell::RefCell;
@@ -78,7 +79,7 @@ impl HostNetwork {
         let mut local_addr = vec![0; socket_addr_buffer_len()];
         let raw_socket = raw_socket_of_class(socket, ResourceClass::TcpSocket)?;
         let implicit_addr = match sys::getsockname(raw_socket, &mut local_addr) {
-            Ok(()) if socket_addr_port(&local_addr)? == 0 => Some(local_addr),
+            Ok(()) if address::socket_addr(&local_addr)?.port() == 0 => Some(local_addr),
             Ok(()) => None,
             Err(error) => Some(listen_bind_addr_after_getsockname_error(socket, error)?),
         };
@@ -149,22 +150,35 @@ impl HostNetwork {
     pub(crate) fn getaddrinfo_result(&self, job: &Job) -> AsyncHostResult<Vec<Box<[u8]>>> {
         let (host, addrs) = job.getaddrinfo_result()?;
         if let Some(policy) = &self.policy {
-            self.resolved_connect
-                .borrow_mut()
-                .extend(policy.resolved_connect_rules(host, addrs)?);
+            self.resolved_connect.borrow_mut().extend(
+                policy.resolved_connect_rules(
+                    host,
+                    addrs
+                        .iter()
+                        .map(|addr| address::socket_addr(addr).map(|addr| addr.ip())),
+                )?,
+            );
         }
         Ok(addrs.to_vec())
     }
 
     fn check_bind(&self, addr: &[u8]) -> AsyncHostResult<()> {
         self.policy.as_ref().map_or(Ok(()), |policy| {
-            policy.check_socket(NetOperation::Bind, addr, &self.resolved_connect.borrow())
+            policy.check_socket(
+                NetOperation::Bind,
+                address::socket_addr(addr)?,
+                &self.resolved_connect.borrow(),
+            )
         })
     }
 
     pub(crate) fn check_connect(&self, addr: &[u8]) -> AsyncHostResult<()> {
         self.policy.as_ref().map_or(Ok(()), |policy| {
-            policy.check_socket(NetOperation::Connect, addr, &self.resolved_connect.borrow())
+            policy.check_socket(
+                NetOperation::Connect,
+                address::socket_addr(addr)?,
+                &self.resolved_connect.borrow(),
+            )
         })
     }
 
@@ -217,15 +231,21 @@ fn listen_bind_addr_after_getsockname_error(
     let family = socket.socket_family().ok_or(AsyncHostError::Inval)?;
     match family {
         4 => {
-            let mut addr =
-                vec![0; usize::try_from(sys::ipv4_addr_size()).map_err(|_| AsyncHostError::Fault)?];
-            sys::init_ip_addr(&mut addr, 0, 0)?;
+            let mut addr = vec![
+                0;
+                usize::try_from(address::ipv4_addr_size())
+                    .map_err(|_| AsyncHostError::Fault)?
+            ];
+            address::init_ip_addr(&mut addr, 0, 0)?;
             Ok(addr)
         }
         6 => {
-            let mut addr =
-                vec![0; usize::try_from(sys::ipv6_addr_size()).map_err(|_| AsyncHostError::Fault)?];
-            sys::init_ipv6_addr(&mut addr, &[0; 16], 0, 0)?;
+            let mut addr = vec![
+                0;
+                usize::try_from(address::ipv6_addr_size())
+                    .map_err(|_| AsyncHostError::Fault)?
+            ];
+            address::init_ipv6_addr(&mut addr, &[0; 16], 0, 0)?;
             Ok(addr)
         }
         _ => Err(AsyncHostError::Inval),
@@ -244,58 +264,6 @@ fn socket_addr_buffer_len() -> usize {
     std::mem::size_of::<ws::SOCKADDR_IN6>()
 }
 
-#[cfg(unix)]
-fn socket_addr_port(addr: &[u8]) -> AsyncHostResult<u16> {
-    if addr.len() < std::mem::size_of::<libc::sockaddr>() {
-        return Err(AsyncHostError::Fault);
-    }
-    let family = unsafe { addr.as_ptr().cast::<libc::sockaddr>().read_unaligned() }.sa_family;
-    match i32::from(family) {
-        libc::AF_INET => {
-            if addr.len() < std::mem::size_of::<libc::sockaddr_in>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<libc::sockaddr_in>().read_unaligned() };
-            Ok(u16::from_be(addr.sin_port))
-        }
-        libc::AF_INET6 => {
-            if addr.len() < std::mem::size_of::<libc::sockaddr_in6>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<libc::sockaddr_in6>().read_unaligned() };
-            Ok(u16::from_be(addr.sin6_port))
-        }
-        _ => Err(AsyncHostError::Inval),
-    }
-}
-
-#[cfg(windows)]
-fn socket_addr_port(addr: &[u8]) -> AsyncHostResult<u16> {
-    use windows_sys::Win32::Networking::WinSock as ws;
-
-    if addr.len() < std::mem::size_of::<ws::SOCKADDR>() {
-        return Err(AsyncHostError::Fault);
-    }
-    let family = unsafe { addr.as_ptr().cast::<ws::SOCKADDR>().read_unaligned() }.sa_family;
-    match family {
-        ws::AF_INET => {
-            if addr.len() < std::mem::size_of::<ws::SOCKADDR_IN>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<ws::SOCKADDR_IN>().read_unaligned() };
-            Ok(u16::from_be(addr.sin_port))
-        }
-        ws::AF_INET6 => {
-            if addr.len() < std::mem::size_of::<ws::SOCKADDR_IN6>() {
-                return Err(AsyncHostError::Fault);
-            }
-            let addr = unsafe { addr.as_ptr().cast::<ws::SOCKADDR_IN6>().read_unaligned() };
-            Ok(u16::from_be(addr.sin6_port))
-        }
-        _ => Err(AsyncHostError::Inval),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,12 +276,27 @@ mod tests {
     }
 
     #[test]
-    fn socket_addr_port_reads_ipv4_port() {
-        let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
+    fn address_validation_stays_inside_policy_checks() {
+        let unrestricted = network(None);
+        assert_eq!(unrestricted.check_bind(&[]), Ok(()));
+        assert_eq!(unrestricted.check_connect(&[]), Ok(()));
 
-        sys::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let policy_file = dir.path().join("deny-all.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let (policy, _) = policy::load_file(&policy_file).unwrap();
+        let restricted = network(Some(policy));
+        assert_eq!(restricted.check_bind(&[]), Err(AsyncHostError::Fault));
+        assert_eq!(restricted.check_connect(&[]), Err(AsyncHostError::Fault));
 
-        assert_eq!(socket_addr_port(&addr).unwrap(), 1234);
+        let mut addr = vec![0; address::ipv6_addr_size() as usize];
+        address::init_ipv6_addr(&mut addr, &std::net::Ipv6Addr::LOCALHOST.octets(), 443, 0)
+            .unwrap();
+        // Address interpretation and authorization still precede Resource validation.
+        assert_eq!(
+            restricted.bind(&Resource::invalid(), &addr),
+            Err(AsyncHostError::PermissionDenied)
+        );
     }
 
     #[test]
@@ -324,8 +307,8 @@ mod tests {
         let network = network(None);
         let tcp = network.make_tcp_socket(4).unwrap();
         let udp = network.make_udp_socket(4, false).unwrap();
-        let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
-        sys::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
+        let mut addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        address::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
 
         assert_eq!(network.listen(&udp), Err(AsyncHostError::Inval));
         assert_eq!(network.connect_udp(&tcp, &addr), Err(AsyncHostError::Inval));
@@ -343,8 +326,8 @@ mod tests {
         let network = network(None);
         let first = network.make_tcp_socket(4).unwrap();
         let second = network.make_tcp_socket(4).unwrap();
-        let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
-        sys::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
+        let mut addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        address::init_ip_addr(&mut addr, 0x7f000001, 0).unwrap();
         network.bind(&first, &addr).unwrap();
         sys::getsockname(raw_socket(&first).unwrap(), &mut addr).unwrap();
 
@@ -384,8 +367,8 @@ mod tests {
         std::fs::write(&policy_file, "").unwrap();
         let (policy, _) = policy::load_file(&policy_file).unwrap();
         let network = network(Some(policy));
-        let mut addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
-        sys::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
+        let mut addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        address::init_ip_addr(&mut addr, 0x7f000001, 1234).unwrap();
 
         assert_eq!(
             network
@@ -410,10 +393,10 @@ mod tests {
         let policy = policy.network();
         let first = HostNetwork::new(Some(policy.clone()));
         let second = HostNetwork::new(Some(policy));
-        let mut resolved_addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
-        sys::init_ip_addr(&mut resolved_addr, 0x7f000001, 0).unwrap();
-        let mut connect_addr = vec![0; usize::try_from(sys::ipv4_addr_size()).unwrap()];
-        sys::init_ip_addr(&mut connect_addr, 0x7f000001, 443).unwrap();
+        let mut resolved_addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        address::init_ip_addr(&mut resolved_addr, 0x7f000001, 0).unwrap();
+        let mut connect_addr = vec![0; usize::try_from(address::ipv4_addr_size()).unwrap()];
+        address::init_ip_addr(&mut connect_addr, 0x7f000001, 443).unwrap();
 
         let rules = first
             .policy
@@ -421,7 +404,7 @@ mod tests {
             .unwrap()
             .resolved_connect_rules(
                 OsStr::new("api.example.com"),
-                &[resolved_addr.into_boxed_slice()],
+                [address::socket_addr(&resolved_addr).map(|addr| addr.ip())],
             )
             .unwrap();
         first.resolved_connect.borrow_mut().extend(rules);
