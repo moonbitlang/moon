@@ -474,7 +474,10 @@ when targeting Linux or macOS from Windows. Both the application and core use
 this override, so Moon builds core from source even if the host bundle is
 complete. An unknown target or one with the same Windows predicate keeps
 moonc's default. Test and bench use the default for compilation and discovery.
-`moon test --outline` needs no C compiler.
+When a native test needs a toolchain, Moon rejects a known `MOON_CC` target OS
+that differs from the host OS before resolving the archiver. This includes
+`moon test --build-only`, which also generates a test driver. `moon test --outline`
+lists tests for the host and needs no C compiler.
 
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 They also remain on the compiler-driver link invocation for compatibility with

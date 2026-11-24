@@ -137,11 +137,16 @@ fn checking_native_sources_reports_an_unusable_global_compiler() {
 fn default_source_cfg_keeps_the_installed_core() {
     let dir = TestDir::new("native_backend/no_compiler_probe");
     let cc = dir.join("fake-toolchain/bin/probe-gcc");
+    // Test planning only checks the OS, even when the CPU differs from the host.
+    let same_os = if cfg!(target_os = "macos") {
+        "i686-apple-darwin"
+    } else {
+        "i686-linux-gnu"
+    };
     for (command, triple) in [
         // A Linux target and the Unix host share the default source cfg.
         ("build", "aarch64-unknown-linux-musl"),
-        // Test discovery and test compilation both keep the host cfg.
-        ("test", "x86_64-w64-mingw32"),
+        ("test", same_os),
     ] {
         std::fs::write(&cc, format!("#!/bin/sh\necho {triple}\n")).unwrap();
         let output = crate::moon_process_cmd(&dir)
@@ -158,6 +163,41 @@ fn default_source_cfg_keeps_the_installed_core() {
         let plan = String::from_utf8(output.stdout).unwrap();
         assert!(plan.contains("/native/release/bundle/builtin/builtin.mi"));
         assert!(!plan.contains(" -cfg "));
+    }
+}
+
+#[test]
+fn native_tests_reject_a_known_foreign_os_before_resolving_the_archiver() {
+    let dir = TestDir::new("native_backend/no_compiler_probe");
+    let cc = dir.join("fake-toolchain/bin/probe-gcc");
+    let host = std::env::consts::OS;
+    // Linux and macOS share a source predicate, but they are different test hosts.
+    let other_unix = if host == "linux" {
+        ("macos", "arm64-apple-darwin")
+    } else {
+        ("linux", "x86_64-linux-gnu")
+    };
+    for (target, triple) in [("windows", "x86_64-w64-mingw32"), other_unix] {
+        std::fs::write(&cc, format!("#!/bin/sh\necho {triple}\n")).unwrap();
+        for args in [
+            &["test", "--target", "native"][..],
+            &["test", "--target", "native", "--build-only"],
+        ] {
+            let stderr = crate::get_err_stderr_with_envs(
+                &dir,
+                args,
+                [
+                    ("MOON_CC", cc.as_os_str()),
+                    ("MOON_AR", std::ffi::OsStr::new("missing-cross-archiver")),
+                ],
+            );
+            assert!(
+                stderr.contains(&format!(
+                    "MOON_CC targets `{target}`, but native tests require the host OS `{host}`"
+                )),
+                "{stderr}"
+            );
+        }
     }
 }
 

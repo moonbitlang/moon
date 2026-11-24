@@ -546,6 +546,11 @@ pub struct InputDirective {
 pub enum BuildPlanConstructError {
     #[error("Invalid native compiler override")]
     InvalidNativeCompiler(#[source] anyhow::Error),
+    #[error("MOON_CC targets `{target_os}`, but native tests require the host OS `{host_os}`")]
+    NativeTestOsMismatch {
+        target_os: String,
+        host_os: &'static str,
+    },
     #[error("Failed to set C compiler when compiling {1}")]
     FailedToSetCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Failed to set C compiler when compiling runtime")]

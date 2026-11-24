@@ -127,7 +127,8 @@ impl<'a> BuildCommonInput<'a> {
             self.configuration.backend.to_flag().to_string(),
         ]);
         if let Some(windows) = self.configuration.windows_cfg_override {
-            // An empty value disables `platform="windows"` without enabling a named OS.
+            // FIXME: Pass the target OS once moonc defines named defaults beyond Windows.
+            // Until then an empty value disables `platform="windows"` for non-Windows targets.
             let cfg = if windows {
                 "platform=windows"
             } else {

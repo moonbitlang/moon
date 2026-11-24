@@ -124,18 +124,32 @@ impl<'a> BuildPlanConstructor<'a> {
             roles.extend(stubs.into_iter().map(CStubs));
         }
 
+        // Metadata-only requests such as test --outline need no native toolchain.
+        if roles.is_empty() {
+            return Ok(HashMap::new());
+        }
+        // TODO: Receive captured toolchain candidates and environment inputs
+        // once native toolchain discovery moves to command orchestration.
+        let global_compiler = compiler_flags::global_compiler()
+            .map_err(BuildPlanConstructError::InvalidNativeCompiler)?;
+        if self.config.action() == RunMode::Test
+            && matches!(self.config.backend(), BackendConfig::Native { .. })
+            && let Some(target_os) = global_compiler.and_then(|compiler| compiler.target_os())
+            && target_os != std::env::consts::OS
+        {
+            return Err(BuildPlanConstructError::NativeTestOsMismatch {
+                target_os: target_os.to_owned(),
+                host_os: std::env::consts::OS,
+            });
+        }
+        let env_cc = global_compiler.map(|compiler| compiler.cc());
+
         // Deduplicate probes within this resolution only. The returned bindings
         // retain roles even when several consumers select the same compiler.
         let mut cache = HashMap::<Option<String>, Toolchain>::new();
         roles
             .into_iter()
             .map(|role| {
-                // TODO: Receive captured toolchain candidates and environment inputs
-                // once native toolchain discovery moves to command orchestration.
-                // Only native tool actions need resolved compiler and archiver paths.
-                let env_cc = compiler_flags::global_compiler()
-                    .map_err(BuildPlanConstructError::InvalidNativeCompiler)?
-                    .map(|compiler| compiler.cc());
                 let request = match (env_cc, role) {
                     (Some(_), _) | (_, Runtime) => None,
                     (None, Program(package) | CStubs(package)) => {

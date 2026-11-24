@@ -82,7 +82,9 @@ C stubs of other packages, so it cannot be used to cross-compile. For `moon chec
 between Windows and Linux or macOS. Moon rebuilds core from source in the
 project's build directory whenever it overrides the compiler's platform.
 Run `moon clean` when switching the target of `MOON_CC` in the same project.
-`moon test` uses the host platform for both compilation of MoonBit sources and test discovery.
+Native tests use the host platform for compilation and test discovery. If
+`MOON_CC` reports a different OS, `moon test --target native` fails during
+planning, including with `--build-only`. Use `--outline` to list tests for the host.
 
 ## Reference cycle collection
 
