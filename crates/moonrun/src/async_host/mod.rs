@@ -28,7 +28,7 @@
 //! scheduling and Rust owns the OS poller behind opaque poll handles.
 
 use std::cell::{Cell, RefCell};
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(target_os = "macos")]
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::collections::HashSet;
@@ -36,7 +36,7 @@ use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, AsRawSocket, RawHandle};
+use std::os::windows::io::{AsRawHandle, AsRawSocket};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ use crate::async_sys::internal::event_loop::{
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::socket::RawSocket;
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(target_os = "macos")]
 use crate::filesystem::FsTarget;
 use crate::filesystem::HostFs;
 use crate::filesystem::{FsOperation, FsPath};
@@ -73,6 +73,11 @@ compile_error!("moonrun async wasm host currently supports only Linux, macOS, an
 
 #[cfg(not(target_endian = "little"))]
 compile_error!("moonrun async wasm host requires little-endian host memory");
+
+#[cfg(windows)]
+mod windows_io;
+#[cfg(windows)]
+use windows_io::IoResultTable;
 
 pub(crate) mod tls;
 mod workers;
@@ -412,21 +417,6 @@ impl HandleTable {
         handle_from_key(key)
     }
 
-    #[cfg(windows)]
-    fn insert(&mut self, kind: HandleKind) -> HandleKey {
-        self.keys.borrow_mut().insert(kind)
-    }
-
-    #[cfg(windows)]
-    fn io_result(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.key(handle, HandleKind::IoResult)
-    }
-
-    #[cfg(windows)]
-    fn remove_io_result(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::IoResult)
-    }
-
     fn resource_count_excluding_reserved(&self) -> usize {
         self.resources
             .iter()
@@ -443,16 +433,6 @@ impl HandleTable {
             .borrow()
             .key(handle, expected)
             .ok_or(AsyncHostError::Badf)
-    }
-
-    #[cfg(windows)]
-    fn remove(&mut self, handle: HostHandle, expected: HandleKind) -> AsyncHostResult<HandleKey> {
-        let key = self.key(handle, expected)?;
-        self.keys
-            .borrow_mut()
-            .remove(key)
-            .ok_or(AsyncHostError::Badf)?;
-        Ok(key)
     }
 
     fn kind(&self, key: HandleKey) -> Option<HandleKind> {
@@ -606,479 +586,18 @@ impl Drop for ThreadPoolSignalMaskGuard {
     }
 }
 
-#[cfg(windows)]
-struct IoResultTable {
-    io_results: SecondaryMap<HandleKey, Box<HostIoResult>>,
-    io_results_by_overlapped: HashMap<OverlappedAddr, HostHandle>,
-}
-
-#[cfg(windows)]
-impl Default for IoResultTable {
-    fn default() -> Self {
-        Self {
-            io_results: SecondaryMap::new(),
-            io_results_by_overlapped: HashMap::new(),
-        }
-    }
-}
-
-#[cfg(windows)]
-impl IoResultTable {
-    fn has_pending_io_for_resource(&self, file: &Resource) -> bool {
-        self.io_results
-            .values()
-            .any(|result| result.protects_pending_resource(file))
-    }
-}
-
-#[cfg(windows)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct OverlappedAddr(usize);
-
-#[cfg(windows)]
-impl OverlappedAddr {
-    fn from_ptr(ptr: *mut windows_sys::Win32::System::IO::OVERLAPPED) -> Self {
-        Self(ptr as usize)
-    }
-}
-
 #[derive(Debug)]
 struct HostPoll {
     instance: PollInstance,
     termination_waker: Option<Arc<poll::PollWaker>>,
+    #[cfg(windows)]
+    io_completions: Vec<Option<HandleKey>>,
     // A registration belongs to this parent Run's poll, not to one guest
     // coroutine wait. Cancelling and retrying a wait must reuse its notifier.
     #[cfg(target_os = "macos")]
     process_notifications: HashMap<i32, Arc<std::task::Waker>>,
     #[cfg(unix)]
     registered_fds: HashSet<RawFd>,
-}
-
-#[cfg(windows)]
-const IO_RESULT_READ_EVENT: i32 = 1;
-
-#[cfg(windows)]
-const IO_RESULT_WRITE_EVENT: i32 = 2;
-
-#[cfg(windows)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HostIoKind {
-    File,
-    Socket,
-    SocketWithAddr,
-    Connect,
-    Accept,
-    ReadDirChanges,
-}
-
-#[cfg(windows)]
-impl HostIoKind {
-    fn resource_ref(
-        self,
-        handles: &HandleTable,
-        handle: HostHandle,
-    ) -> AsyncHostResult<&ResourceRef> {
-        let resource = handles.resource_ref(handle)?;
-        let class = resource.resource_class();
-        match self {
-            Self::File | Self::ReadDirChanges if class == ResourceClass::File => Ok(resource),
-            Self::Socket if class.is_socket() => Ok(resource),
-            Self::SocketWithAddr if class == ResourceClass::UdpSocket => Ok(resource),
-            _ => Err(AsyncHostError::Inval),
-        }
-    }
-}
-
-#[cfg(windows)]
-struct HostIoResult {
-    overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
-    kind: HostIoKind,
-    event: i32,
-    // Native async retains MoonBit objects until free_io_result. The wasm host
-    // cannot retain guest pointers, so IOResults keep only host-owned buffers:
-    // read constructors allocate output capacity, and write constructors copy
-    // the input payload before any overlapped operation can outlive the import.
-    buffer: Vec<u8>,
-    // Directory change notification writes into a stable host watcher buffer.
-    // Lease it while the OVERLAPPED operation is pending, then restore the
-    // bytes and selected event layout before the guest parses the batch.
-    read_dir_changes_buffer: Option<WindowsWatcherBufferLease>,
-    socket_flags: u32,
-    addr_buffer: Vec<u8>,
-    // WSARecvFrom may complete asynchronously and write through lpFromlen later.
-    // Keep that storage with the overlapped result, not on the submitter stack.
-    addr_len: i32,
-    accept_buffer: Vec<u8>,
-    accept_bytes_received: u32,
-    pending_resource: Option<ResourceRef>,
-    // AcceptEx submits one overlapped operation with both the listening socket
-    // and a pre-created accepted socket. Cancel/status use pending_resource, but
-    // close protection must cover the accepted socket as well until completion.
-    extra_pending_close_resource: Option<ResourceRef>,
-}
-
-#[cfg(windows)]
-impl HostIoResult {
-    fn zeroed_overlapped() -> windows_sys::Win32::System::IO::OVERLAPPED {
-        let overlapped =
-            std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
-        unsafe { overlapped.assume_init() }
-    }
-
-    fn for_file_read(len: u32, position: i64) -> AsyncHostResult<Self> {
-        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        Ok(Self::for_file(IO_RESULT_READ_EVENT, buffer, position))
-    }
-
-    fn for_file_write(buffer: Vec<u8>, position: i64) -> Self {
-        Self::for_file(IO_RESULT_WRITE_EVENT, buffer, position)
-    }
-
-    fn for_file(event: i32, buffer: Vec<u8>, position: i64) -> Self {
-        let mut overlapped = Self::zeroed_overlapped();
-        overlapped.Anonymous.Anonymous.Offset = position as u32;
-        overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
-        Self {
-            overlapped,
-            kind: HostIoKind::File,
-            event,
-            buffer,
-            read_dir_changes_buffer: None,
-            socket_flags: 0,
-            addr_buffer: Vec::new(),
-            addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
-            pending_resource: None,
-            extra_pending_close_resource: None,
-        }
-    }
-
-    fn for_socket_read(len: u32, flags: i32) -> AsyncHostResult<Self> {
-        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        Ok(Self::for_socket(IO_RESULT_READ_EVENT, buffer, flags))
-    }
-
-    fn for_socket_write(buffer: Vec<u8>, flags: i32) -> Self {
-        Self::for_socket(IO_RESULT_WRITE_EVENT, buffer, flags)
-    }
-
-    fn for_socket(event: i32, buffer: Vec<u8>, flags: i32) -> Self {
-        Self {
-            overlapped: Self::zeroed_overlapped(),
-            kind: HostIoKind::Socket,
-            event,
-            buffer,
-            read_dir_changes_buffer: None,
-            socket_flags: flags as u32,
-            addr_buffer: Vec::new(),
-            addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
-            pending_resource: None,
-            extra_pending_close_resource: None,
-        }
-    }
-
-    fn for_socket_with_addr_read(
-        len: u32,
-        flags: i32,
-        addr_buffer: Vec<u8>,
-    ) -> AsyncHostResult<Self> {
-        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        Self::for_socket_with_addr(IO_RESULT_READ_EVENT, buffer, flags, addr_buffer)
-    }
-
-    fn for_socket_with_addr_write(
-        buffer: Vec<u8>,
-        flags: i32,
-        addr_buffer: Vec<u8>,
-    ) -> AsyncHostResult<Self> {
-        Self::for_socket_with_addr(IO_RESULT_WRITE_EVENT, buffer, flags, addr_buffer)
-    }
-
-    fn for_socket_with_addr(
-        event: i32,
-        buffer: Vec<u8>,
-        flags: i32,
-        addr_buffer: Vec<u8>,
-    ) -> AsyncHostResult<Self> {
-        let addr_len = i32::try_from(addr_buffer.len()).map_err(|_| AsyncHostError::Fault)?;
-        Ok(Self {
-            overlapped: Self::zeroed_overlapped(),
-            kind: HostIoKind::SocketWithAddr,
-            event,
-            buffer,
-            read_dir_changes_buffer: None,
-            socket_flags: flags as u32,
-            addr_buffer,
-            addr_len,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
-            pending_resource: None,
-            extra_pending_close_resource: None,
-        })
-    }
-
-    fn for_connect(addr_buffer: Vec<u8>) -> Self {
-        Self {
-            overlapped: Self::zeroed_overlapped(),
-            kind: HostIoKind::Connect,
-            event: IO_RESULT_WRITE_EVENT,
-            buffer: Vec::new(),
-            read_dir_changes_buffer: None,
-            socket_flags: 0,
-            addr_buffer,
-            addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
-            pending_resource: None,
-            extra_pending_close_resource: None,
-        }
-    }
-
-    fn for_accept(addr_len: u32) -> AsyncHostResult<Self> {
-        let addr_len_usize = usize::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let accept_addr_len = addr_len_usize
-            .checked_add(16)
-            .ok_or(AsyncHostError::Fault)?;
-        let accept_buffer_len = accept_addr_len
-            .checked_mul(2)
-            .ok_or(AsyncHostError::Fault)?;
-        Ok(Self {
-            overlapped: Self::zeroed_overlapped(),
-            kind: HostIoKind::Accept,
-            event: IO_RESULT_READ_EVENT,
-            buffer: Vec::new(),
-            read_dir_changes_buffer: None,
-            socket_flags: 0,
-            addr_buffer: Vec::new(),
-            addr_len: i32::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?,
-            accept_buffer: vec![0; accept_buffer_len],
-            accept_bytes_received: 0,
-            pending_resource: None,
-            extra_pending_close_resource: None,
-        })
-    }
-
-    fn for_read_dir_changes(buffer: WindowsWatcherBufferLease) -> Self {
-        Self {
-            overlapped: Self::zeroed_overlapped(),
-            kind: HostIoKind::ReadDirChanges,
-            event: IO_RESULT_READ_EVENT,
-            buffer: Vec::new(),
-            read_dir_changes_buffer: Some(buffer),
-            socket_flags: 0,
-            addr_buffer: Vec::new(),
-            addr_len: 0,
-            accept_buffer: Vec::new(),
-            accept_bytes_received: 0,
-            pending_resource: None,
-            extra_pending_close_resource: None,
-        }
-    }
-
-    fn overlapped_ptr(&mut self) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
-        &mut self.overlapped
-    }
-
-    fn overlapped_addr(&mut self) -> OverlappedAddr {
-        OverlappedAddr::from_ptr(self.overlapped_ptr())
-    }
-
-    fn validate_completed_read(&self) -> AsyncHostResult<()> {
-        if self.event != IO_RESULT_READ_EVENT {
-            return Err(AsyncHostError::Inval);
-        }
-        if self.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        Ok(())
-    }
-
-    fn copy_read_payload(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        dst: u32,
-        offset: u32,
-        len: u32,
-    ) -> AsyncHostResult<()> {
-        let bytes_transferred = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        let data = self
-            .buffer
-            .get(..bytes_transferred)
-            .ok_or(AsyncHostError::Fault)?;
-        let dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        memory.write_exact(dst, data)?;
-        Ok(())
-    }
-
-    fn copy_read_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        dst: u32,
-        offset: u32,
-        len: u32,
-    ) -> AsyncHostResult<()> {
-        self.validate_completed_read()?;
-        if matches!(
-            self.kind,
-            HostIoKind::SocketWithAddr | HostIoKind::ReadDirChanges
-        ) {
-            return Err(AsyncHostError::Inval);
-        }
-        self.copy_read_payload(memory, dst, offset, len)
-    }
-
-    fn copy_read_result_with_addr(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        dst: u32,
-        offset: u32,
-        len: u32,
-        addr: u32,
-        addr_len: u32,
-    ) -> AsyncHostResult<()> {
-        self.validate_completed_read()?;
-        if self.kind != HostIoKind::SocketWithAddr {
-            return Err(AsyncHostError::Inval);
-        }
-        self.copy_read_payload(memory, dst, offset, len)?;
-        let actual_addr_len = usize::try_from(self.addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let addr_data = self
-            .addr_buffer
-            .get(..actual_addr_len)
-            .ok_or(AsyncHostError::Fault)?;
-        memory.write_with_capacity(addr, addr_len, addr_data)?;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn pending_resource_identity(&self) -> Option<isize> {
-        self.pending_resource
-            .as_ref()
-            .map(|file| file.raw_identity())
-    }
-
-    fn is_pending(&self) -> bool {
-        self.pending_resource.is_some() || self.extra_pending_close_resource.is_some()
-    }
-
-    fn protects_pending_resource(&self, file: &Resource) -> bool {
-        self.pending_resource
-            .as_ref()
-            .is_some_and(|pending| std::ptr::eq(pending.as_ref(), file))
-            || self
-                .extra_pending_close_resource
-                .as_ref()
-                .is_some_and(|pending| std::ptr::eq(pending.as_ref(), file))
-    }
-
-    fn mark_pending(&mut self, file: ResourceRef) -> AsyncHostResult<()> {
-        if self.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        self.pending_resource = Some(file);
-        Ok(())
-    }
-
-    fn mark_pending_with_close_guard(
-        &mut self,
-        file: ResourceRef,
-        close_guard: ResourceRef,
-    ) -> AsyncHostResult<()> {
-        self.mark_pending(file)?;
-        self.extra_pending_close_resource = Some(close_guard);
-        Ok(())
-    }
-
-    fn clear_pending(&mut self) {
-        self.pending_resource = None;
-        self.extra_pending_close_resource = None;
-    }
-
-    fn validate_pending_resource(&self, file: &Resource) -> AsyncHostResult<()> {
-        // The import boundary may receive malformed/stale fd handles. Validate
-        // before asserting the internal "pending operation uses submitter fd"
-        // invariant so debug builds do not panic on bad guest input.
-        if let Some(pending_resource) = &self.pending_resource
-            && !std::ptr::eq(pending_resource.as_ref(), file)
-        {
-            return Err(AsyncHostError::Badf);
-        }
-        debug_assert!(
-            match &self.pending_resource {
-                Some(pending_resource) => std::ptr::eq(pending_resource.as_ref(), file),
-                None => true,
-            },
-            "pending IO operation must use the submitting handle"
-        );
-        Ok(())
-    }
-
-    fn cancel_pending(&mut self) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::{ERROR_IO_INCOMPLETE, ERROR_NOT_FOUND};
-        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
-
-        let Some(file) = &self.pending_resource else {
-            return Ok(0);
-        };
-        let raw_handle = raw_overlapped_handle(file)?;
-        let overlapped = self.overlapped_ptr();
-        if unsafe { CancelIoEx(raw_handle, overlapped) } == 0 {
-            let errno = last_errno();
-            if errno != ERROR_NOT_FOUND as i32 {
-                return Err(AsyncHostError::Native(errno));
-            }
-        }
-
-        let mut bytes_transferred = 0;
-        if unsafe { GetOverlappedResult(raw_handle, overlapped, &mut bytes_transferred, 0) } != 0 {
-            self.clear_pending();
-            return Ok(0);
-        }
-        let errno = last_errno();
-        if errno == ERROR_IO_INCOMPLETE as i32 {
-            // Native leaves the result pending here so MoonBit waits for the
-            // completion packet before freeing the IO result.
-            Ok(1)
-        } else {
-            self.clear_pending();
-            Ok(0)
-        }
-    }
-
-    fn cancel_and_drain_pending(&mut self) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
-        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
-
-        let Some(file) = &self.pending_resource else {
-            return Ok(());
-        };
-        let raw_handle = raw_overlapped_handle(file)?;
-        let overlapped = self.overlapped_ptr();
-        if unsafe { CancelIoEx(raw_handle, overlapped) } == 0 {
-            let errno = last_errno();
-            if errno != ERROR_NOT_FOUND as i32 {
-                return Err(AsyncHostError::Native(errno));
-            }
-        }
-
-        let mut bytes_transferred = 0;
-        // With bWait=TRUE the operation has reached a final status when this
-        // returns, even if the final status is an error such as EOF or broken
-        // pipe. At that point the host no longer treats the result as pending.
-        let _ = unsafe { GetOverlappedResult(raw_handle, overlapped, &mut bytes_transferred, 1) };
-        self.clear_pending();
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-impl Drop for HostIoResult {
-    fn drop(&mut self) {
-        let _ = self.cancel_and_drain_pending();
-    }
 }
 
 pub(crate) struct AsyncHost {
@@ -1149,7 +668,7 @@ impl AsyncHost {
             #[cfg(unix)]
             child_signal_mask,
             #[cfg(windows)]
-            io_results: RefCell::new(IoResultTable::default()),
+            io_results: RefCell::new(IoResultTable::new(keys.clone())),
             jobs: RefCell::new(JobTable::new(keys.clone())),
             workers: InstanceWorkers::new(keys.clone()),
             polls: RefCell::new(PollTable::new(keys.clone())),
@@ -1307,14 +826,8 @@ impl AsyncHost {
             #[cfg(windows)]
             {
                 let io_results = self.io_results.borrow();
-                if !io_results.io_results.is_empty() {
-                    leaks.push(format!("io_results={}", io_results.io_results.len()));
-                }
-                if !io_results.io_results_by_overlapped.is_empty() {
-                    leaks.push(format!(
-                        "io_results_by_overlapped={}",
-                        io_results.io_results_by_overlapped.len()
-                    ));
+                if let Some(summary) = io_results.leak_summary() {
+                    leaks.push(summary);
                 }
             }
             {
@@ -1402,6 +915,8 @@ impl AsyncHost {
         let key = self.polls.borrow_mut().polls.insert(HostPoll {
             instance,
             termination_waker: None,
+            #[cfg(windows)]
+            io_completions: Vec::new(),
             #[cfg(target_os = "macos")]
             process_notifications: HashMap::new(),
             #[cfg(unix)]
@@ -1441,7 +956,15 @@ impl AsyncHost {
         read_only: bool,
     ) -> AsyncHostResult<i32> {
         let handles = self.handles.borrow();
-        let resource = handles.resource(fd_handle)?;
+        let resource = handles.resource_ref(fd_handle)?;
+        #[cfg(windows)]
+        if self
+            .io_results
+            .borrow()
+            .has_pending_io_for_resource(resource)
+        {
+            return Err(AsyncHostError::Inval);
+        }
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
         let poll_key = key_from_handle(poll_handle);
@@ -1464,6 +987,10 @@ impl AsyncHost {
         if registered > 0 {
             poll.registered_fds.insert(raw_fd);
         }
+        #[cfg(windows)]
+        self.io_results
+            .borrow_mut()
+            .register(resource, &poll.instance);
         Ok(registered)
     }
 
@@ -1476,7 +1003,15 @@ impl AsyncHost {
         // The old import predates tri-state registration. Preserve its
         // platform syscall behavior as well as its 0/-1 ABI result.
         let handles = self.handles.borrow();
-        let resource = handles.resource(fd_handle)?;
+        let resource = handles.resource_ref(fd_handle)?;
+        #[cfg(windows)]
+        if self
+            .io_results
+            .borrow()
+            .has_pending_io_for_resource(resource)
+        {
+            return Err(AsyncHostError::Inval);
+        }
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
         let poll_key = key_from_handle(poll_handle);
@@ -1502,6 +1037,10 @@ impl AsyncHost {
         }
         #[cfg(unix)]
         poll.registered_fds.insert(raw_fd);
+        #[cfg(windows)]
+        self.io_results
+            .borrow_mut()
+            .register(resource, &poll.instance);
         Ok(())
     }
 
@@ -1559,6 +1098,16 @@ impl AsyncHost {
                 })
             })?;
             let result = poll::poll_wait(&mut poll.instance, timeout_ms);
+            #[cfg(windows)]
+            {
+                poll.io_completions = match result {
+                    Ok(count) => self
+                        .io_results
+                        .borrow_mut()
+                        .complete_batch(&poll.instance, count),
+                    Err(_) => Vec::new(),
+                };
+            }
             drop(wait);
             // The shared import adapter turns the latched outcome into Run
             // termination. Never publish the host-only wake event to the guest.
@@ -1623,25 +1172,16 @@ impl AsyncHost {
 
     #[cfg(windows)]
     pub(crate) fn poll_event_io_result(&self, event_handle: u64) -> AsyncHostResult<u64> {
-        let overlapped = self.with_event(event_handle, |event| {
-            Ok(OverlappedAddr::from_ptr(poll::event_get_io_result(event)))
-        })?;
-        let handle = {
-            let io_results = self.io_results.borrow();
-            io_results
-                .io_results_by_overlapped
-                .get(&overlapped)
-                .copied()
-                .ok_or(AsyncHostError::Badf)?
-        };
-        let key = self.handles.borrow().io_result(handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(key)
+        let index = usize::try_from(event_handle).map_err(|_| AsyncHostError::Fault)?;
+        let polls = self.polls.borrow();
+        let poll_key = polls.current_event_poll.ok_or(AsyncHostError::Badf)?;
+        let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
+        let key = poll
+            .io_completions
+            .get(index)
+            .ok_or(AsyncHostError::Fault)?
             .ok_or(AsyncHostError::Badf)?;
-        result.clear_pending();
-        Ok(handle)
+        self.io_results.borrow().event_result(key)
     }
 
     #[cfg(windows)]
@@ -2774,703 +2314,6 @@ impl AsyncHost {
         })
     }
 
-    #[cfg(windows)]
-    fn read_guest_slice(
-        memory: &mut (impl GuestMemory + ?Sized),
-        ptr: u32,
-        offset: u32,
-        len: u32,
-    ) -> AsyncHostResult<Vec<u8>> {
-        let ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        Ok(memory.read_exact(ptr, len)?.to_vec())
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_file_read_io_result(&self, len: u32, position: i64) -> AsyncHostResult<u64> {
-        self.insert_io_result(HostIoResult::for_file_read(len, position)?)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_file_write_io_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        src: u32,
-        offset: u32,
-        len: u32,
-        position: i64,
-    ) -> AsyncHostResult<u64> {
-        let buffer = Self::read_guest_slice(memory, src, offset, len)?;
-        self.insert_io_result(HostIoResult::for_file_write(buffer, position))
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_socket_read_io_result(&self, len: u32, flags: i32) -> AsyncHostResult<u64> {
-        self.insert_io_result(HostIoResult::for_socket_read(len, flags)?)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_socket_write_io_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        src: u32,
-        offset: u32,
-        len: u32,
-        flags: i32,
-    ) -> AsyncHostResult<u64> {
-        let buffer = Self::read_guest_slice(memory, src, offset, len)?;
-        self.insert_io_result(HostIoResult::for_socket_write(buffer, flags))
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_socket_with_addr_read_io_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        len: u32,
-        flags: i32,
-        addr: u32,
-        addr_len: u32,
-    ) -> AsyncHostResult<u64> {
-        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
-        self.insert_io_result(HostIoResult::for_socket_with_addr_read(
-            len,
-            flags,
-            addr_buffer,
-        )?)
-    }
-
-    #[cfg(windows)]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn make_socket_with_addr_write_io_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        src: u32,
-        offset: u32,
-        len: u32,
-        flags: i32,
-        addr: u32,
-        addr_len: u32,
-    ) -> AsyncHostResult<u64> {
-        let buffer = Self::read_guest_slice(memory, src, offset, len)?;
-        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
-        self.insert_io_result(HostIoResult::for_socket_with_addr_write(
-            buffer,
-            flags,
-            addr_buffer,
-        )?)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_connect_io_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        addr: u32,
-        addr_len: u32,
-    ) -> AsyncHostResult<u64> {
-        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
-        self.insert_io_result(HostIoResult::for_connect(addr_buffer))
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_accept_io_result(&self, addr_len: u32) -> AsyncHostResult<u64> {
-        self.insert_io_result(HostIoResult::for_accept(addr_len)?)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn make_read_dir_changes_io_result(
-        &self,
-        buffer_handle: u64,
-    ) -> AsyncHostResult<u64> {
-        let buffer = self.lease_windows_watcher_buffer(buffer_handle)?;
-        self.insert_io_result(HostIoResult::for_read_dir_changes(buffer))
-    }
-
-    #[cfg(windows)]
-    fn insert_io_result(&self, result: HostIoResult) -> AsyncHostResult<u64> {
-        let key = self.handles.borrow_mut().insert(HandleKind::IoResult);
-        let handle = handle_from_key(key);
-        let overlapped = {
-            let mut io_results = self.io_results.borrow_mut();
-            io_results.io_results.insert(key, Box::new(result));
-            io_results
-                .io_results
-                .get_mut(key)
-                .ok_or(AsyncHostError::Badf)?
-                .overlapped_addr()
-        };
-        self.io_results
-            .borrow_mut()
-            .io_results_by_overlapped
-            .insert(overlapped, handle);
-        Ok(handle)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn free_io_result(&self, handle: u64) -> AsyncHostResult<()> {
-        let mut handles = self.handles.borrow_mut();
-        let key = handles.io_result(handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(key)
-            .ok_or(AsyncHostError::Badf)?;
-        if result.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        let mut result = io_results
-            .io_results
-            .remove(key)
-            .ok_or(AsyncHostError::Badf)?;
-        handles.remove_io_result(handle)?;
-        let overlapped = result.overlapped_addr();
-        io_results.io_results_by_overlapped.remove(&overlapped);
-        let buffer = result.read_dir_changes_buffer.take();
-        drop(io_results);
-        drop(handles);
-        if let Some(buffer) = buffer {
-            self.restore_windows_watcher_buffer(buffer);
-        }
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn io_result_get_event(&self, handle: u64) -> AsyncHostResult<i32> {
-        let key = self.handles.borrow().io_result(handle)?;
-        let io_results = self.io_results.borrow();
-        let result = io_results.io_results.get(key).ok_or(AsyncHostError::Badf)?;
-        Ok(result.event)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn cancel_io_result(
-        &self,
-        result_handle: u64,
-        fd_handle: HostHandle,
-    ) -> AsyncHostResult<i32> {
-        let handles = self.handles.borrow();
-        let file = handles.resource(fd_handle)?;
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        result.validate_pending_resource(file)?;
-        let status = result.cancel_pending();
-        let buffer = (!result.is_pending())
-            .then(|| result.read_dir_changes_buffer.take())
-            .flatten();
-        drop(io_results);
-        drop(handles);
-        if let Some(buffer) = buffer {
-            self.restore_windows_watcher_buffer(buffer);
-        }
-        status
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn io_result_get_status(
-        &self,
-        result_handle: u64,
-        fd_handle: HostHandle,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::System::IO::GetOverlappedResult;
-
-        let handles = self.handles.borrow();
-        let file = handles.resource(fd_handle)?;
-        let raw_handle = raw_overlapped_handle(file)?;
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        result.validate_pending_resource(file)?;
-        let mut bytes_transferred = 0;
-        let status = if unsafe {
-            GetOverlappedResult(
-                raw_handle,
-                result.overlapped_ptr(),
-                &mut bytes_transferred,
-                0,
-            )
-        } == 0
-        {
-            let error = last_native_error();
-            if matches!(
-                error,
-                AsyncHostError::Native(errno)
-                    if errno == windows_sys::Win32::Foundation::ERROR_IO_INCOMPLETE as i32
-            ) {
-                return Err(error);
-            }
-            result.clear_pending();
-            Err(error)
-        } else {
-            result.clear_pending();
-            i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
-        };
-        if result.kind == HostIoKind::ReadDirChanges {
-            let completed_len = status
-                .as_ref()
-                .ok()
-                .and_then(|len| usize::try_from(*len).ok())
-                .unwrap_or(0);
-            result
-                .read_dir_changes_buffer
-                .as_mut()
-                .ok_or(AsyncHostError::Inval)?
-                .buffer_mut()
-                .complete_read(completed_len)?;
-        }
-        let buffer = result.read_dir_changes_buffer.take();
-        drop(io_results);
-        drop(handles);
-        if let Some(buffer) = buffer {
-            self.restore_windows_watcher_buffer(buffer);
-        }
-        status
-    }
-
-    #[cfg(windows)]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn io_result_copy_read(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        result_handle: u64,
-        dst: u32,
-        offset: u32,
-        len: u32,
-    ) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().io_result(result_handle)?;
-        let io_results = self.io_results.borrow();
-        let result = io_results.io_results.get(key).ok_or(AsyncHostError::Badf)?;
-        result.copy_read_result(memory, dst, offset, len)
-    }
-
-    #[cfg(windows)]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn io_result_copy_read_with_addr(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        result_handle: u64,
-        dst: u32,
-        offset: u32,
-        len: u32,
-        addr: u32,
-        addr_len: u32,
-    ) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().io_result(result_handle)?;
-        let io_results = self.io_results.borrow();
-        let result = io_results.io_results.get(key).ok_or(AsyncHostError::Badf)?;
-        result.copy_read_result_with_addr(memory, dst, offset, len, addr, addr_len)
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn read_io_result(
-        &self,
-        fd_handle: HostHandle,
-        result_handle: u64,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::{ERROR_HANDLE_EOF, ERROR_IO_PENDING};
-        use windows_sys::Win32::Networking::WinSock as ws;
-
-        // The accepted resource class depends on the IO result kind, so resolve
-        // both while their tables are borrowed.
-        let handles = self.handles.borrow();
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        if result.is_pending() || result.event != IO_RESULT_READ_EVENT {
-            return Err(AsyncHostError::Inval);
-        }
-        let file = result.kind.resource_ref(&handles, fd_handle)?;
-        let mut bytes_transferred = 0;
-        let outcome = match result.kind {
-            HostIoKind::File => {
-                let overlapped = result.overlapped_ptr();
-                // The result owns the buffer/OVERLAPPED and retains the resource
-                // until completion before exposing the result to guest code.
-                unsafe {
-                    self.filesystem
-                        .read_overlapped(file, &mut result.buffer, overlapped)
-                }
-            }
-            HostIoKind::Socket => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                let success = unsafe {
-                    ws::WSARecv(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        &mut result.socket_flags,
-                        result.overlapped_ptr(),
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
-            HostIoKind::SocketWithAddr => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                result.addr_len =
-                    i32::try_from(result.addr_buffer.len()).map_err(|_| AsyncHostError::Fault)?;
-                let addr_len = std::ptr::addr_of_mut!(result.addr_len);
-                let flags = std::ptr::addr_of_mut!(result.socket_flags);
-                let addr = result.addr_buffer.as_mut_ptr().cast::<ws::SOCKADDR>();
-                let overlapped = result.overlapped_ptr();
-                let success = unsafe {
-                    ws::WSARecvFrom(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        flags,
-                        addr,
-                        addr_len,
-                        overlapped,
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
-            HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
-                return Err(AsyncHostError::Inval);
-            }
-        };
-        match outcome {
-            Ok(bytes) => i32::try_from(bytes).map_err(|_| AsyncHostError::Fault),
-            Err(AsyncHostError::Native(errno)) if errno == ERROR_HANDLE_EOF as i32 => Ok(0),
-            Err(error) => {
-                if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32)
-                {
-                    result.mark_pending(Arc::clone(file))?;
-                }
-                Err(error)
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn read_dir_changes_io_result(
-        &self,
-        fd_handle: HostHandle,
-        result_handle: u64,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
-
-        let handles = self.handles.borrow();
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        if result.kind != HostIoKind::ReadDirChanges || result.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        let file = result.kind.resource_ref(&handles, fd_handle)?;
-        self.filesystem
-            .authorize(FsOperation::Watch(FsTarget::File(file.file_grant())))?;
-        let overlapped = result.overlapped_ptr();
-        let buffer = result
-            .read_dir_changes_buffer
-            .as_mut()
-            .ok_or(AsyncHostError::Inval)?
-            .buffer_mut();
-        // The result keeps the leased buffer, OVERLAPPED, and Resource alive
-        // until completion; submission only selects the native event layout.
-        unsafe { buffer.submit(file, overlapped)? };
-
-        // Directory change notification reports that the completion packet
-        // was queued, not synchronous completion. Match native async by
-        // exposing the operation as pending even though the call returned TRUE.
-        result.mark_pending(Arc::clone(file))?;
-        Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn write_io_result(
-        &self,
-        fd_handle: HostHandle,
-        result_handle: u64,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
-        use windows_sys::Win32::Networking::WinSock as ws;
-
-        // The accepted resource class depends on the IO result kind, so resolve
-        // both while their tables are borrowed.
-        let handles = self.handles.borrow();
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        if result.is_pending() || result.event != IO_RESULT_WRITE_EVENT {
-            return Err(AsyncHostError::Inval);
-        }
-        let file = result.kind.resource_ref(&handles, fd_handle)?;
-        if result.kind == HostIoKind::SocketWithAddr {
-            self.network.check_connect(&result.addr_buffer)?;
-        }
-        let mut bytes_transferred = 0;
-        let outcome = match result.kind {
-            HostIoKind::File => {
-                let overlapped = result.overlapped_ptr();
-                // The result owns the buffer/OVERLAPPED and retains the resource
-                // until completion before exposing the result to guest code.
-                unsafe {
-                    self.filesystem
-                        .write_overlapped(file, &result.buffer, overlapped)
-                }
-            }
-            HostIoKind::Socket => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                let success = unsafe {
-                    ws::WSASend(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        result.socket_flags,
-                        result.overlapped_ptr(),
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
-            HostIoKind::SocketWithAddr => {
-                let buffer = socket_buffer(&mut result.buffer)?;
-                let success = unsafe {
-                    ws::WSASendTo(
-                        file.as_socket()?.as_raw_socket() as usize,
-                        &buffer,
-                        1,
-                        &mut bytes_transferred,
-                        result.socket_flags,
-                        result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
-                        result.addr_len,
-                        result.overlapped_ptr(),
-                        None,
-                    ) == 0
-                };
-                if success {
-                    Ok(bytes_transferred as usize)
-                } else {
-                    Err(AsyncHostError::Native(last_wsa_errno()))
-                }
-            }
-            HostIoKind::Connect | HostIoKind::Accept | HostIoKind::ReadDirChanges => {
-                return Err(AsyncHostError::Inval);
-            }
-        };
-        match outcome {
-            Ok(bytes) => i32::try_from(bytes).map_err(|_| AsyncHostError::Fault),
-            Err(error) => {
-                if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32)
-                {
-                    result.mark_pending(Arc::clone(file))?;
-                }
-                Err(error)
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn connect_io_result(
-        &self,
-        fd_handle: HostHandle,
-        result_handle: u64,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
-        let handles = self.handles.borrow();
-        let file = handles.resource_of_class(fd_handle, ResourceClass::TcpSocket)?;
-        let raw_socket = file.as_socket()?.as_raw_socket();
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        if result.kind != HostIoKind::Connect || result.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        self.network.check_connect(&result.addr_buffer)?;
-
-        bind_any_for_connect(raw_socket, &result.addr_buffer)?;
-        let connect_ex = get_wsa_extension::<ws::LPFN_CONNECTEX>(raw_socket, &ws::WSAID_CONNECTEX)?
-            .ok_or(AsyncHostError::Inval)?;
-        let addr_len = socket_addr_len(&result.addr_buffer)?;
-        let success = unsafe {
-            connect_ex(
-                raw_socket as usize,
-                result.addr_buffer.as_ptr().cast::<ws::SOCKADDR>(),
-                addr_len,
-                std::ptr::null(),
-                0,
-                std::ptr::null_mut(),
-                result.overlapped_ptr(),
-            )
-        };
-        if success != 0 {
-            Ok(1)
-        } else {
-            let errno = last_wsa_errno();
-            if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending(
-                    handles.acquire_resource_of_class(fd_handle, ResourceClass::TcpSocket)?,
-                )?;
-            }
-            Err(AsyncHostError::Native(errno))
-        }
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn setup_connected_socket(&self, fd_handle: HostHandle) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
-        self.with_resource_of_class(fd_handle, ResourceClass::TcpSocket, |file| {
-            if unsafe {
-                ws::setsockopt(
-                    file.as_socket()?.as_raw_socket() as usize,
-                    ws::SOL_SOCKET,
-                    ws::SO_UPDATE_CONNECT_CONTEXT,
-                    std::ptr::null(),
-                    0,
-                )
-            } == ws::SOCKET_ERROR
-            {
-                Err(AsyncHostError::Native(last_wsa_errno()))
-            } else {
-                Ok(())
-            }
-        })
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn accept_io_result(
-        &self,
-        server_fd_handle: HostHandle,
-        conn_fd_handle: HostHandle,
-        result_handle: u64,
-    ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
-        let handles = self.handles.borrow();
-        let server_file = handles.resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?;
-        let conn_file = handles.resource_of_class(conn_fd_handle, ResourceClass::TcpSocket)?;
-        let server_socket = server_file.as_socket()?.as_raw_socket();
-        let conn_socket = conn_file.as_socket()?.as_raw_socket();
-        let result_key = handles.io_result(result_handle)?;
-        let mut io_results = self.io_results.borrow_mut();
-        let result = io_results
-            .io_results
-            .get_mut(result_key)
-            .ok_or(AsyncHostError::Badf)?;
-        if result.kind != HostIoKind::Accept || result.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-
-        let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server_socket, &ws::WSAID_ACCEPTEX)?
-            .ok_or(AsyncHostError::Inval)?;
-        let addr_len = u32::try_from(result.addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let accept_addr_len = addr_len.checked_add(16).ok_or(AsyncHostError::Fault)?;
-        let success = unsafe {
-            accept_ex(
-                server_socket as usize,
-                conn_socket as usize,
-                result.accept_buffer.as_mut_ptr().cast(),
-                0,
-                accept_addr_len,
-                accept_addr_len,
-                &mut result.accept_bytes_received,
-                result.overlapped_ptr(),
-            )
-        };
-        if success != 0 {
-            Ok(1)
-        } else {
-            let errno = last_wsa_errno();
-            if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending_with_close_guard(
-                    handles
-                        .acquire_resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?,
-                    handles.acquire_resource_of_class(conn_fd_handle, ResourceClass::TcpSocket)?,
-                )?;
-            }
-            Err(AsyncHostError::Native(errno))
-        }
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn get_accept_peer_addr(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        result_handle: u64,
-        dst: u32,
-        dst_len: u32,
-    ) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().io_result(result_handle)?;
-        let io_results = self.io_results.borrow();
-        let result = io_results.io_results.get(key).ok_or(AsyncHostError::Badf)?;
-        if result.kind != HostIoKind::Accept || result.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        let addr_len = usize::try_from(result.addr_len).map_err(|_| AsyncHostError::Fault)?;
-        let offset = addr_len.checked_add(16).ok_or(AsyncHostError::Fault)?;
-        let end = offset.checked_add(addr_len).ok_or(AsyncHostError::Fault)?;
-        let addr = result
-            .accept_buffer
-            .get(offset..end)
-            .ok_or(AsyncHostError::Fault)?;
-        memory.write_with_capacity(dst, dst_len, addr)?;
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn setup_accepted_socket(
-        &self,
-        listen_fd_handle: HostHandle,
-        accept_fd_handle: HostHandle,
-    ) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Networking::WinSock as ws;
-
-        let handles = self.handles.borrow();
-        let listen_file = handles.resource_of_class(listen_fd_handle, ResourceClass::TcpSocket)?;
-        let accept_file = handles.resource_of_class(accept_fd_handle, ResourceClass::TcpSocket)?;
-        let listen_socket = listen_file.as_socket()?.as_raw_socket() as usize;
-        if unsafe {
-            ws::setsockopt(
-                accept_file.as_socket()?.as_raw_socket() as usize,
-                ws::SOL_SOCKET,
-                ws::SO_UPDATE_ACCEPT_CONTEXT,
-                (&listen_socket as *const usize).cast(),
-                std::mem::size_of_val(&listen_socket) as i32,
-            )
-        } == ws::SOCKET_ERROR
-        {
-            Err(AsyncHostError::Native(last_wsa_errno()))
-        } else {
-            Ok(())
-        }
-    }
-
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
         self.with_resource_of_class(handle, ResourceClass::File, |file| {
             self.filesystem.try_lock_resource(file, exclusive)
@@ -4056,150 +2899,8 @@ impl AsyncHost {
 impl Drop for AsyncHost {
     fn drop(&mut self) {
         self.destroy_thread_pool();
-    }
-}
-
-#[cfg(windows)]
-fn last_errno() -> i32 {
-    unsafe { windows_sys::Win32::Foundation::GetLastError() as i32 }
-}
-
-#[cfg(windows)]
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(last_errno())
-}
-
-#[cfg(windows)]
-fn last_wsa_errno() -> i32 {
-    use windows_sys::Win32::Foundation::{SetLastError, WIN32_ERROR};
-    use windows_sys::Win32::Networking::WinSock;
-
-    let errno = unsafe { WinSock::WSAGetLastError() };
-    unsafe {
-        SetLastError(errno as WIN32_ERROR);
-    }
-    errno
-}
-
-#[cfg(windows)]
-fn socket_buffer(
-    buffer: &mut [u8],
-) -> AsyncHostResult<windows_sys::Win32::Networking::WinSock::WSABUF> {
-    Ok(windows_sys::Win32::Networking::WinSock::WSABUF {
-        len: u32::try_from(buffer.len()).map_err(|_| AsyncHostError::Fault)?,
-        buf: buffer.as_mut_ptr().cast(),
-    })
-}
-
-#[cfg(windows)]
-fn socket_addr_family(addr: &[u8]) -> AsyncHostResult<u16> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    if addr.len() < std::mem::size_of::<WinSock::SOCKADDR>() {
-        return Err(AsyncHostError::Fault);
-    }
-    Ok(unsafe { addr.as_ptr().cast::<WinSock::SOCKADDR>().read_unaligned() }.sa_family)
-}
-
-#[cfg(windows)]
-fn socket_addr_len(addr: &[u8]) -> AsyncHostResult<i32> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    let len = match socket_addr_family(addr)? {
-        WinSock::AF_INET => std::mem::size_of::<WinSock::SOCKADDR_IN>(),
-        WinSock::AF_INET6 => std::mem::size_of::<WinSock::SOCKADDR_IN6>(),
-        _ => return Err(AsyncHostError::Inval),
-    };
-    if addr.len() < len {
-        return Err(AsyncHostError::Fault);
-    }
-    i32::try_from(len).map_err(|_| AsyncHostError::Fault)
-}
-
-#[cfg(windows)]
-fn bind_any_for_connect(raw_socket: RawSocket, remote_addr: &[u8]) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    let result = match socket_addr_family(remote_addr)? {
-        WinSock::AF_INET => {
-            let mut addr = unsafe { std::mem::zeroed::<WinSock::SOCKADDR_IN>() };
-            addr.sin_family = WinSock::AF_INET;
-            unsafe {
-                WinSock::bind(
-                    raw_socket as usize,
-                    (&addr as *const WinSock::SOCKADDR_IN).cast::<WinSock::SOCKADDR>(),
-                    std::mem::size_of_val(&addr) as i32,
-                )
-            }
-        }
-        WinSock::AF_INET6 => {
-            let mut addr = unsafe { std::mem::zeroed::<WinSock::SOCKADDR_IN6>() };
-            addr.sin6_family = WinSock::AF_INET6;
-            unsafe {
-                WinSock::bind(
-                    raw_socket as usize,
-                    (&addr as *const WinSock::SOCKADDR_IN6).cast::<WinSock::SOCKADDR>(),
-                    std::mem::size_of_val(&addr) as i32,
-                )
-            }
-        }
-        _ => return Err(AsyncHostError::Inval),
-    };
-    if result == WinSock::SOCKET_ERROR {
-        let errno = last_wsa_errno();
-        if errno == WinSock::WSAEINVAL {
-            unreachable!(
-                "moonbitlang/async Tcp::connect creates a fresh unbound socket before ConnectEx"
-            );
-        }
-        Err(AsyncHostError::Native(errno))
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-fn get_wsa_extension<T: Copy>(
-    raw_socket: RawSocket,
-    guid: &windows_sys::core::GUID,
-) -> AsyncHostResult<T> {
-    use windows_sys::Win32::Networking::WinSock;
-
-    debug_assert_eq!(
-        std::mem::size_of::<T>(),
-        std::mem::size_of::<*mut std::ffi::c_void>()
-    );
-    let mut extension = std::ptr::null_mut::<std::ffi::c_void>();
-    let mut bytes_returned = 0;
-    let ret = unsafe {
-        WinSock::WSAIoctl(
-            raw_socket as usize,
-            WinSock::SIO_GET_EXTENSION_FUNCTION_POINTER,
-            (guid as *const windows_sys::core::GUID).cast(),
-            std::mem::size_of_val(guid) as u32,
-            (&mut extension as *mut *mut std::ffi::c_void).cast(),
-            std::mem::size_of_val(&extension) as u32,
-            &mut bytes_returned,
-            std::ptr::null_mut(),
-            None,
-        )
-    };
-    if ret == WinSock::SOCKET_ERROR {
-        Err(AsyncHostError::Native(last_wsa_errno()))
-    } else {
-        Ok(unsafe { std::mem::transmute_copy(&extension) })
-    }
-}
-
-#[cfg(windows)]
-fn raw_overlapped_handle(file: &Resource) -> AsyncHostResult<RawHandle> {
-    if file.resource_class().is_socket() {
-        // The Windows overlapped-I/O functions used by the native async host
-        // accept sockets through their HANDLE parameter. Keep that ABI cast at
-        // this adapter seam rather than representing sockets as file handles.
-        Ok(file.as_socket()?.as_raw_socket() as RawHandle)
-    } else {
-        Ok(file.as_file()?.as_raw_handle())
+        #[cfg(windows)]
+        self.io_results.get_mut().shutdown();
     }
 }
 
@@ -4269,7 +2970,7 @@ mod tests {
         )
     }
 
-    fn default_host() -> AsyncHost {
+    pub(super) fn default_host() -> AsyncHost {
         test_host(None, Env::ambient())
     }
 
@@ -5462,11 +4163,6 @@ mod tests {
             error_message_buffer("ab".to_string()).as_ref(),
             &[b'a', 0, b'b', 0, 0, 0]
         );
-    }
-
-    #[cfg(windows)]
-    fn io_result_key(host: &AsyncHost, handle: HostHandle) -> HandleKey {
-        host.handles.borrow().io_result(handle).unwrap()
     }
 
     #[test]
@@ -7908,549 +6604,6 @@ mod tests {
 
         host.free_job(job).unwrap();
         host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
-        let mut result = HostIoResult::for_file_read(0, 0).unwrap();
-        let pending_resource = Arc::new(Resource::invalid());
-        let other_file = Arc::new(Resource::invalid());
-        let pending_fd = pending_resource.raw_identity();
-
-        result.mark_pending(pending_resource).unwrap();
-
-        assert_eq!(
-            result.validate_pending_resource(&other_file),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(result.pending_resource_identity(), Some(pending_fd));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn io_result_creation_keeps_only_host_buffer_capacity() {
-        let result = HostIoResult::for_file_read(3, 0).unwrap();
-
-        assert_eq!(result.buffer, vec![0; 3]);
-        assert_eq!(result.event, IO_RESULT_READ_EVENT);
-        assert_eq!(result.pending_resource_identity(), None);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn read_dir_changes_io_result_leases_buffer_until_free() {
-        let host = default_host();
-        let buffer = host.insert_windows_watcher_buffer();
-        let result = host.make_read_dir_changes_io_result(buffer).unwrap();
-
-        assert_eq!(
-            host.make_read_dir_changes_io_result(buffer),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(
-            host.with_windows_watcher_buffer(buffer, |_| Ok(())),
-            Err(AsyncHostError::Badf)
-        );
-
-        host.free_io_result(result).unwrap();
-        assert_eq!(
-            host.with_windows_watcher_buffer(buffer, |buffer| Ok(buffer.capacity())),
-            Ok(usize::try_from(crate::filesystem::watch::event_buffer_size()).unwrap())
-        );
-        host.free_windows_watcher_buffer(buffer).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn freed_watcher_buffer_is_not_restored_by_its_io_result() {
-        let host = default_host();
-        let buffer = host.insert_windows_watcher_buffer();
-        let result = host.make_read_dir_changes_io_result(buffer).unwrap();
-        host.free_windows_watcher_buffer(buffer).unwrap();
-
-        let replacement = host.insert_windows_watcher_buffer();
-        assert_ne!(buffer, replacement);
-        let replacement_result = host.make_read_dir_changes_io_result(replacement).unwrap();
-
-        // The old result must not return its bytes into the new buffer's lease.
-        host.free_io_result(result).unwrap();
-        for handle in [buffer, replacement] {
-            assert_eq!(
-                host.with_windows_watcher_buffer(handle, |_| Ok(())),
-                Err(AsyncHostError::Badf)
-            );
-        }
-        assert_eq!(
-            host.free_windows_watcher_buffer(buffer),
-            Err(AsyncHostError::Badf)
-        );
-
-        host.free_io_result(replacement_result).unwrap();
-        assert_eq!(
-            host.with_windows_watcher_buffer(replacement, |buffer| Ok(buffer.capacity())),
-            Ok(usize::try_from(crate::filesystem::watch::event_buffer_size()).unwrap())
-        );
-        host.free_windows_watcher_buffer(replacement).unwrap();
-        assert!(host.leak_summary().is_none());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn dropping_host_retires_available_and_leased_watcher_buffers() {
-        let host = default_host();
-        let keys = Rc::clone(&host.handles.borrow().keys);
-        let available = host.insert_windows_watcher_buffer();
-        let leased = host.insert_windows_watcher_buffer();
-        host.make_read_dir_changes_io_result(leased).unwrap();
-        for handle in [available, leased] {
-            assert_eq!(
-                keys.borrow().kind(key_from_handle(handle)),
-                Some(HandleKind::WindowsWatcherBuffer)
-            );
-        }
-
-        drop(host);
-
-        for handle in [available, leased] {
-            assert_eq!(keys.borrow().kind(key_from_handle(handle)), None);
-        }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn read_dir_changes_rejects_a_generic_c_buffer() {
-        let host = default_host();
-        let buffer = host.insert_c_buffer(vec![1, 2, 3].into_boxed_slice());
-
-        assert_eq!(
-            host.free_windows_watcher_buffer(buffer),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(
-            host.make_read_dir_changes_io_result(buffer),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(
-            host.with_c_buffer(buffer, |bytes| Ok(bytes.to_vec())),
-            Ok(vec![1, 2, 3])
-        );
-        host.free_c_buffer(buffer).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn io_result_read_copy_uses_current_guest_destination() {
-        let mut result = HostIoResult::for_file_read(3, 0).unwrap();
-        result.buffer.copy_from_slice(b"abc");
-        let mut memory = vec![0; 16];
-
-        result
-            .copy_read_result(memory.as_mut_slice(), 8, 1, 3)
-            .unwrap();
-
-        assert_eq!(&memory[9..12], b"abc");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn io_result_read_with_addr_copy_uses_current_guest_buffers() {
-        let mut result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
-        result.buffer.copy_from_slice(b"abc");
-        result.addr_len = 4;
-        let mut memory = vec![0; 16];
-
-        result
-            .copy_read_result_with_addr(memory.as_mut_slice(), 8, 1, 3, 0, 4)
-            .unwrap();
-
-        assert_eq!(&memory[0..4], b"addr");
-        assert_eq!(&memory[9..12], b"abc");
-        assert_eq!(
-            result.copy_read_result(memory.as_mut_slice(), 8, 1, 3),
-            Err(AsyncHostError::Inval)
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn io_result_socket_addr_creation_copies_guest_source() {
-        let result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
-
-        assert_eq!(result.addr_buffer, b"addr");
-        assert_eq!(result.addr_len, 4);
-        assert_eq!(result.event, IO_RESULT_READ_EVENT);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn io_result_write_creation_copies_guest_source() {
-        let host = default_host();
-        let mut memory = b"zzzabc".to_vec();
-
-        let result = host
-            .make_file_write_io_result(memory.as_mut_slice(), 3, 0, 3, 0)
-            .unwrap();
-        memory[3..6].copy_from_slice(b"xxx");
-
-        let io_results = host.io_results.borrow();
-        let result = io_results
-            .io_results
-            .get(io_result_key(&host, result))
-            .unwrap();
-        assert_eq!(result.buffer, b"abc");
-        assert_eq!(result.event, IO_RESULT_WRITE_EVENT);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn cancel_io_result_rejects_wrong_fd_without_clearing_pending() {
-        let host = default_host();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        let raw_read = {
-            let read_file = host.acquire_resource(read).unwrap();
-            let raw_read = read_file.raw_identity();
-            host.io_results
-                .borrow_mut()
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap()
-                .mark_pending(read_file)
-                .unwrap();
-            raw_read
-        };
-
-        assert_eq!(
-            host.cancel_io_result(result, write),
-            Err(AsyncHostError::Badf)
-        );
-        {
-            let mut io_results = host.io_results.borrow_mut();
-            let result = io_results
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap();
-            assert_eq!(result.pending_resource_identity(), Some(raw_read));
-            result.clear_pending();
-        }
-
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn cancel_io_result_clears_pending_result_when_no_wait_is_needed() {
-        let host = default_host();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        {
-            let read_file = host.acquire_resource(read).unwrap();
-            host.io_results
-                .borrow_mut()
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap()
-                .mark_pending(read_file)
-                .unwrap();
-        }
-
-        assert_eq!(host.cancel_io_result(result, read), Ok(0));
-        {
-            let io_results = host.io_results.borrow();
-            let result = io_results
-                .io_results
-                .get(io_result_key(&host, result))
-                .unwrap();
-            assert_eq!(result.pending_resource_identity(), None);
-        }
-
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn cancel_io_result_keeps_pending_result_when_wait_is_needed() {
-        let host = default_host();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        let raw_read = {
-            let read_file = host.acquire_resource(read).unwrap();
-            let raw_read = read_file.raw_identity();
-            let mut io_results = host.io_results.borrow_mut();
-            let result = io_results
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap();
-            result.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
-            result.mark_pending(read_file).unwrap();
-            raw_read
-        };
-
-        assert_eq!(host.cancel_io_result(result, read), Ok(1));
-        assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
-        assert_eq!(host.close_fd(read), Err(AsyncHostError::Inval));
-        {
-            let mut io_results = host.io_results.borrow_mut();
-            let result = io_results
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap();
-            assert_eq!(result.pending_resource_identity(), Some(raw_read));
-            result.clear_pending();
-        }
-
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn close_fd_rejects_pending_io_result() {
-        let host = default_host();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        let raw_read = {
-            let read_file = host.acquire_resource(read).unwrap();
-            let raw_read = read_file.raw_identity();
-            host.io_results
-                .borrow_mut()
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap()
-                .mark_pending(read_file)
-                .unwrap();
-            raw_read
-        };
-
-        assert_eq!(host.close_fd(read), Err(AsyncHostError::Inval));
-        {
-            assert!(host.acquire_resource(read).is_ok());
-            let mut io_results = host.io_results.borrow_mut();
-            let result = io_results
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap();
-            assert_eq!(result.pending_resource_identity(), Some(raw_read));
-            result.clear_pending();
-        }
-
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn close_fd_rejects_extra_pending_close_guard() {
-        let host = default_host();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        let (raw_read, raw_write) = {
-            let read_file = host.acquire_resource(read).unwrap();
-            let write_file = host.acquire_resource(write).unwrap();
-            let raw_read = read_file.raw_identity();
-            let raw_write = write_file.raw_identity();
-            host.io_results
-                .borrow_mut()
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap()
-                .mark_pending_with_close_guard(read_file, write_file)
-                .unwrap();
-            (raw_read, raw_write)
-        };
-
-        assert_eq!(host.close_fd(write), Err(AsyncHostError::Inval));
-        assert_eq!(
-            host.cancel_io_result(result, write),
-            Err(AsyncHostError::Badf)
-        );
-        assert_eq!(host.close_fd(read), Err(AsyncHostError::Inval));
-        {
-            assert!(host.acquire_resource(read).is_ok());
-            assert!(host.acquire_resource(write).is_ok());
-            let mut io_results = host.io_results.borrow_mut();
-            let result = io_results
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap();
-            assert_eq!(result.pending_resource_identity(), Some(raw_read));
-            assert!(result.protects_pending_resource(&host.acquire_resource(write).unwrap()));
-            assert_eq!(
-                result
-                    .extra_pending_close_resource
-                    .as_ref()
-                    .map(|file| file.raw_identity()),
-                Some(raw_write)
-            );
-            result.clear_pending();
-        }
-
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn free_io_result_rejects_pending_result() {
-        let host = default_host();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        {
-            let read_file = host.acquire_resource(read).unwrap();
-            host.io_results
-                .borrow_mut()
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap()
-                .mark_pending(read_file)
-                .unwrap();
-        }
-
-        assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
-        assert!(
-            host.io_results
-                .borrow()
-                .io_results
-                .contains_key(io_result_key(&host, result))
-        );
-        host.io_results
-            .borrow_mut()
-            .io_results
-            .get_mut(io_result_key(&host, result))
-            .unwrap()
-            .clear_pending();
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn poll_event_io_result_marks_pending_result_delivered() {
-        use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
-
-        let host = default_host();
-        let poll = host.poll_create().unwrap();
-        let completion_port = {
-            let polls = host.polls.borrow();
-            let poll = polls.polls.get(key_from_handle(poll)).unwrap();
-            poll.instance.raw_fd()
-        };
-        let result = host.make_file_read_io_result(0, 0).unwrap();
-        let [read, write] = host.pipe(true, true).unwrap();
-        let read_file = host.acquire_resource(read).unwrap();
-        let raw_fd = read_file.raw_identity();
-        let overlapped = {
-            let mut io_results = host.io_results.borrow_mut();
-            let result = io_results
-                .io_results
-                .get_mut(io_result_key(&host, result))
-                .unwrap();
-            result.mark_pending(read_file).unwrap();
-            result.overlapped_ptr()
-        };
-        let posted =
-            unsafe { PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, overlapped) };
-        assert_ne!(posted, 0);
-
-        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
-        let event = host.poll_get_event(poll, 0).unwrap();
-
-        assert_eq!(host.poll_event_io_result(event).unwrap(), result);
-        assert_eq!(
-            host.io_results
-                .borrow()
-                .io_results
-                .get(io_result_key(&host, result))
-                .unwrap()
-                .pending_resource_identity(),
-            None
-        );
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn reading_an_old_completion_does_not_complete_a_resubmitted_io_result() {
-        use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
-        use windows_sys::Win32::Storage::FileSystem::WriteFile;
-
-        let host = default_host();
-        let poll = host.poll_create().unwrap();
-        let [read, write] = host.pipe(true, false).unwrap();
-        host.poll_register(poll, read, true).unwrap();
-        let writer = host.acquire_resource(write).unwrap();
-        let result = host.make_file_read_io_result(1, 0).unwrap();
-
-        assert_eq!(
-            host.read_io_result(read, result),
-            Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
-        );
-        let mut written = 0;
-        assert_ne!(
-            unsafe {
-                WriteFile(
-                    writer.as_file().unwrap().as_raw_handle(),
-                    b"a".as_ptr(),
-                    1,
-                    &mut written,
-                    std::ptr::null_mut(),
-                )
-            },
-            0
-        );
-        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
-        let old_event = host.poll_get_event(poll, 0).unwrap();
-        assert_eq!(host.poll_event_io_result(old_event).unwrap(), result);
-
-        assert_eq!(
-            host.read_io_result(read, result),
-            Err(AsyncHostError::Native(ERROR_IO_PENDING as i32))
-        );
-        assert_eq!(host.poll_event_io_result(old_event).unwrap(), result);
-        let still_pending = host
-            .io_results
-            .borrow()
-            .io_results
-            .get(io_result_key(&host, result))
-            .unwrap()
-            .is_pending();
-
-        // Finish the real second read before asserting: even the broken host
-        // must not drop storage that Windows is still writing into.
-        assert_ne!(
-            unsafe {
-                WriteFile(
-                    writer.as_file().unwrap().as_raw_handle(),
-                    b"b".as_ptr(),
-                    1,
-                    &mut written,
-                    std::ptr::null_mut(),
-                )
-            },
-            0
-        );
-        assert_eq!(host.poll_wait(poll, 1000, &Default::default()).unwrap(), 1);
-        let event = host.poll_get_event(poll, 0).unwrap();
-        host.poll_event_io_result(event).unwrap();
-        host.free_io_result(result).unwrap();
-        host.close_fd(read).unwrap();
-        host.close_fd(write).unwrap();
-        host.poll_destroy(poll).unwrap();
-        assert!(
-            still_pending,
-            "reading an old event must not retire the new submission"
-        );
     }
 
     #[cfg(windows)]
